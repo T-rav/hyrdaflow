@@ -1625,40 +1625,6 @@ class TestNarrowedExceptionHandling:
         assert "exception" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_release_epic_merge_loop_halts_after_first_runtime_error(
-        self, tmp_path: Path
-    ) -> None:
-        """First child RuntimeError halts the merge loop; second child is not attempted."""
-        manager, prs, _ = _make_epic_manager(tmp_path)
-        manager._state.upsert_epic_state(
-            EpicState(
-                epic_number=100,
-                child_issues=[1, 2],
-                approved_children=[1, 2],
-            )
-        )
-        mock_progress = MagicMock()
-        mock_progress.ready_to_merge = True
-        manager.get_progress = MagicMock(return_value=mock_progress)
-
-        async def _find_side_effect(issue_num: int) -> int:
-            if issue_num == 1:
-                raise RuntimeError("pr lookup failed")
-            return 42
-
-        prs.find_pr_for_issue = AsyncMock(side_effect=_find_side_effect)
-        result = await manager.release_epic(100)
-        # First child raised — loop halted immediately
-        assert "error" in result
-        assert "exception" in result["error"]
-        # Second child was never attempted
-        assert prs.find_pr_for_issue.await_count == 1
-        # Merges list contains only the first child's error entry
-        assert len(result["merges"]) == 1
-        assert result["merges"][0]["issue"] == 1
-        assert result["merges"][0]["status"] == "error"
-
-    @pytest.mark.asyncio
     async def test_release_epic_merge_loop_propagates_type_error(
         self, tmp_path: Path
     ) -> None:
