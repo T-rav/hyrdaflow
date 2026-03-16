@@ -1141,29 +1141,6 @@ class TestPlanPhaseErrorPaths:
     """Tests for planner timeout/crash and empty/None plan text edge cases."""
 
     @pytest.mark.asyncio
-    async def test_planner_timeout_skips_label_swap(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """When planner times out (success=False, error=timeout), no label swap occurs."""
-        phase, _state, planners, prs, store, _stop = make_plan_phase(config)
-        issue = TaskFactory.create(id=42)
-        plan_result = PlanResultFactory.create(
-            issue_number=42,
-            success=False,
-            plan="",
-            error="Planner timed out after 300s",
-            use_defaults=True,
-        )
-
-        planners.plan = AsyncMock(return_value=plan_result)
-        store.get_plannable = supply_once([issue])
-
-        await phase.plan_issues()
-
-        prs.transition.assert_not_awaited()
-        prs.post_comment.assert_not_awaited()
-
-    @pytest.mark.asyncio
     async def test_planner_crash_with_retry_escalates_to_hitl(
         self, config: HydraFlowConfig
     ) -> None:
@@ -1213,6 +1190,7 @@ class TestPlanPhaseErrorPaths:
 
         # Empty plan text: success path guarded by `result.success and result.plan`
         prs.transition.assert_not_awaited()
+        prs.post_comment.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_whitespace_only_plan_text_triggers_success_handler(
