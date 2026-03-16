@@ -2242,3 +2242,91 @@ class TestStatsIntegrity:
 
         assert stats["auto_triaged"] == 1
         assert stats["escalated"] == 0
+
+
+class TestReviewProposedADRsPerItemGuard:
+    """Tests that the per-item try/except in review_proposed_adrs continues after failure."""
+
+    @pytest.mark.asyncio
+    async def test_loop_continues_after_single_adr_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """When one ADR raises during review, the loop continues to the next ADR."""
+        reviewer = _make_reviewer(tmp_path)
+        adr_dir = Path(reviewer._config.repo_root) / "docs" / "adr"
+        _write_adr(adr_dir, 1, "Failing ADR", "Proposed")
+        _write_adr(adr_dir, 2, "Good ADR", "Proposed")
+
+        call_count = 0
+
+        async def _mock_council(*_args: object, **_kwargs: object) -> ADRCouncilResult:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("council exploded")
+            return ADRCouncilResult(
+                adr_number=2,
+                adr_title="good adr",
+                final_decision="ACCEPT",
+                votes=[
+                    CouncilVote(role="architect", verdict=CouncilVerdict.APPROVE),
+                    CouncilVote(role="pragmatist", verdict=CouncilVerdict.APPROVE),
+                    CouncilVote(role="editor", verdict=CouncilVerdict.APPROVE),
+                ],
+            )
+
+        with (
+            patch.object(reviewer, "_run_council_session", side_effect=_mock_council),
+            patch.object(reviewer, "_accept_adr", new_callable=AsyncMock),
+        ):
+            stats = await reviewer.review_proposed_adrs()
+
+        # First ADR failed mid-review, second succeeded
+        assert call_count == 2
+        assert stats["reviewed"] == 1
+        assert stats["accepted"] == 1
+
+    @pytest.mark.asyncio
+    async def test_loop_continues_after_route_result_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """When _route_result raises, the loop continues to the next ADR."""
+        reviewer = _make_reviewer(tmp_path)
+        adr_dir = Path(reviewer._config.repo_root) / "docs" / "adr"
+        _write_adr(adr_dir, 1, "ADR One", "Proposed")
+        _write_adr(adr_dir, 2, "ADR Two", "Proposed")
+
+        accept_result = ADRCouncilResult(
+            adr_number=1,
+            adr_title="adr one",
+            final_decision="ACCEPT",
+            votes=[
+                CouncilVote(role="architect", verdict=CouncilVerdict.APPROVE),
+                CouncilVote(role="pragmatist", verdict=CouncilVerdict.APPROVE),
+                CouncilVote(role="editor", verdict=CouncilVerdict.APPROVE),
+            ],
+        )
+
+        route_call_count = 0
+
+        async def _mock_route(*_args: object, **_kwargs: object) -> None:
+            nonlocal route_call_count
+            route_call_count += 1
+            if route_call_count == 1:
+                raise ValueError("routing failed")
+
+        with (
+            patch.object(
+                reviewer,
+                "_run_council_session",
+                new_callable=AsyncMock,
+                return_value=accept_result,
+            ),
+            patch.object(reviewer, "_route_result", side_effect=_mock_route),
+        ):
+            stats = await reviewer.review_proposed_adrs()
+
+        # First ADR failed in _route_result (after stats["reviewed"] was incremented),
+        # second ADR also got reviewed + routed successfully
+        assert route_call_count == 2
+        assert stats["reviewed"] >= 1

@@ -1492,13 +1492,13 @@ class TestNarrowedExceptionHandling:
         manager._build_detail.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_refresh_cache_propagates_type_error(self, tmp_path: Path) -> None:
-        """TypeError from _build_detail propagates."""
+    async def test_refresh_cache_catches_type_error(self, tmp_path: Path) -> None:
+        """TypeError from _build_detail is now caught (widened to Exception)."""
         manager, _, _ = _make_epic_manager(tmp_path)
         manager._state.upsert_epic_state(EpicState(epic_number=100, child_issues=[1]))
         manager._build_detail = AsyncMock(side_effect=TypeError("bad type"))
-        with pytest.raises(TypeError, match="bad type"):
-            await manager.refresh_cache()
+        # Should not raise — Exception catch is wider than RuntimeError
+        await manager.refresh_cache()
 
     @pytest.mark.asyncio
     async def test_check_stale_epics_catches_runtime_error(
@@ -1520,10 +1520,8 @@ class TestNarrowedExceptionHandling:
         assert 100 in stale
 
     @pytest.mark.asyncio
-    async def test_check_stale_epics_propagates_type_error(
-        self, tmp_path: Path
-    ) -> None:
-        """TypeError from post_comment propagates."""
+    async def test_check_stale_epics_catches_type_error(self, tmp_path: Path) -> None:
+        """TypeError from post_comment is now caught (widened to Exception)."""
         manager, prs, _ = _make_epic_manager(tmp_path)
         manager._state.upsert_epic_state(
             EpicState(
@@ -1533,8 +1531,9 @@ class TestNarrowedExceptionHandling:
             )
         )
         prs.post_comment = AsyncMock(side_effect=TypeError("bad arg"))
-        with pytest.raises(TypeError, match="bad arg"):
-            await manager.check_stale_epics()
+        # Should not raise — Exception catch is wider than RuntimeError
+        stale = await manager.check_stale_epics()
+        assert 100 in stale
 
     @pytest.mark.asyncio
     async def test_release_epic_merge_loop_catches_runtime_error(
@@ -1684,3 +1683,127 @@ class TestEpicEdgeCases:
         await checker.check_and_close_epics(1)
 
         prs.close_issue.assert_called_once_with(100)
+
+
+class TestPerItemErrorGuards:
+    """Tests that per-item try/except guards allow loops to continue after failure."""
+
+    def test_get_all_progress_continues_after_failure(self, tmp_path: Path) -> None:
+        """get_all_progress continues to the next epic when one raises."""
+        manager, _, _ = _make_epic_manager(tmp_path)
+        manager._state.upsert_epic_state(EpicState(epic_number=100, child_issues=[1]))
+        manager._state.upsert_epic_state(EpicState(epic_number=200, child_issues=[2]))
+
+        call_count = 0
+        original_get_progress = manager.get_progress
+
+        def _failing_progress(epic_number: int) -> object:
+            nonlocal call_count
+            call_count += 1
+            if epic_number == 100:
+                raise RuntimeError("progress failed")
+            return original_get_progress(epic_number)
+
+        manager.get_progress = _failing_progress  # type: ignore[assignment]
+        results = manager.get_all_progress()
+
+        assert call_count == 2
+        assert len(results) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_all_detail_continues_after_failure(self, tmp_path: Path) -> None:
+        """get_all_detail continues to the next epic when one raises."""
+        manager, _, _ = _make_epic_manager(tmp_path)
+        manager._state.upsert_epic_state(EpicState(epic_number=100, child_issues=[1]))
+        manager._state.upsert_epic_state(EpicState(epic_number=200, child_issues=[2]))
+
+        call_count = 0
+
+        async def _failing_detail(epic_number: int) -> object:
+            nonlocal call_count
+            call_count += 1
+            if epic_number == 100:
+                raise RuntimeError("detail failed")
+            return None
+
+        manager.get_detail = _failing_detail  # type: ignore[assignment]
+        results = await manager.get_all_detail()
+
+        assert call_count == 2
+        assert len(results) == 0  # second returned None so also not appended
+
+    @pytest.mark.asyncio
+    async def test_refresh_cache_continues_after_exception(
+        self, tmp_path: Path
+    ) -> None:
+        """refresh_cache catches Exception (not just RuntimeError)."""
+        manager, _, _ = _make_epic_manager(tmp_path)
+        manager._state.upsert_epic_state(EpicState(epic_number=100, child_issues=[1]))
+        manager._state.upsert_epic_state(EpicState(epic_number=200, child_issues=[2]))
+
+        call_count = 0
+
+        async def _failing_build(epic_number: int) -> object:
+            nonlocal call_count
+            call_count += 1
+            if epic_number == 100:
+                raise ValueError("unexpected value error")
+            return None
+
+        manager._build_detail = _failing_build  # type: ignore[assignment]
+        # Should not raise
+        await manager.refresh_cache()
+
+        assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_check_stale_epics_continues_after_publish_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """check_stale_epics continues when bus.publish raises inside the try block."""
+        manager, prs, _ = _make_epic_manager(tmp_path)
+        manager._state.upsert_epic_state(
+            EpicState(
+                epic_number=100,
+                child_issues=[1],
+                last_activity="2000-01-01T00:00:00+00:00",
+            )
+        )
+        manager._state.upsert_epic_state(
+            EpicState(
+                epic_number=200,
+                child_issues=[2],
+                last_activity="2000-01-01T00:00:00+00:00",
+            )
+        )
+        # post_comment succeeds but bus.publish raises
+        prs.post_comment = AsyncMock()
+        manager._bus.publish = AsyncMock(
+            side_effect=[RuntimeError("publish failed"), None]
+        )
+
+        stale = await manager.check_stale_epics()
+
+        # Both epics are stale and both were attempted
+        assert 100 in stale
+        assert 200 in stale
+
+    @pytest.mark.asyncio
+    async def test_check_stale_epics_bus_publish_inside_try(
+        self, tmp_path: Path
+    ) -> None:
+        """bus.publish failure in check_stale_epics is caught, not raised."""
+        manager, prs, _ = _make_epic_manager(tmp_path)
+        manager._state.upsert_epic_state(
+            EpicState(
+                epic_number=100,
+                child_issues=[1],
+                last_activity="2000-01-01T00:00:00+00:00",
+            )
+        )
+        prs.post_comment = AsyncMock()
+        manager._bus.publish = AsyncMock(side_effect=ValueError("publish exploded"))
+
+        # Should not raise — the exception is caught inside the try block
+        stale = await manager.check_stale_epics()
+        assert 100 in stale
