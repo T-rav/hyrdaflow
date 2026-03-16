@@ -316,12 +316,10 @@ class ReviewPhase:
     async def _fetch_code_scanning_alerts(
         self, pr: PRInfo
     ) -> list[CodeScanningAlert] | None:
-        """Fetch code scanning alerts if the feature is enabled.
+        """Fetch code scanning alerts for the PR branch.
 
-        Returns the alert list or ``None`` when disabled / on error.
+        Returns the alert list or ``None`` on error.
         """
-        if not self._config.code_scanning_enabled:
-            return None
         try:
             alerts = await self._prs.fetch_code_scanning_alerts(pr.branch)
             if alerts:
@@ -1388,21 +1386,20 @@ class ReviewPhase:
             if attempt >= max_attempts:
                 break
 
-            # Fetch full CI logs when observability injection is enabled
+            # Fetch full CI logs for observability injection
             ci_logs = ""
-            if self._config.inject_runtime_logs:
-                try:
-                    raw = await self._prs.fetch_ci_failure_logs(pr.number)
-                    if raw:
-                        from log_context import truncate_log  # noqa: PLC0415
+            try:
+                raw = await self._prs.fetch_ci_failure_logs(pr.number)
+                if raw:
+                    from log_context import truncate_log  # noqa: PLC0415
 
-                        ci_logs = truncate_log(raw, self._config.max_ci_log_chars)
-                except (RuntimeError, OSError):
-                    logger.debug(
-                        "Could not fetch CI failure logs for PR #%d",
-                        pr.number,
-                        exc_info=True,
-                    )
+                    ci_logs = truncate_log(raw, self._config.max_ci_log_chars)
+            except (RuntimeError, OSError):
+                logger.debug(
+                    "Could not fetch CI failure logs for PR #%d",
+                    pr.number,
+                    exc_info=True,
+                )
 
             made_changes = await self._run_ci_fix_attempt(
                 pr,

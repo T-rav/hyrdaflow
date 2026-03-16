@@ -14,9 +14,10 @@ import tempfile
 import time
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import (
     APIRouter,
@@ -33,9 +34,22 @@ from pydantic import ValidationError
 from admin_tasks import TaskResult, run_clean, run_ensure_labels, run_prep, run_scaffold
 from app_version import get_app_version
 from config import HydraFlowConfig, save_config_file
+from dashboard_routes._common import (
+    _EPIC_INTERNAL_LABELS,
+    _FRONTEND_STAGE_TO_LABEL_FIELD,
+    _INFERENCE_COUNTER_KEYS,
+    _INTERVAL_BOUNDS,
+    _SAFE_SLUG_COMPONENT,
+    _STAGE_NAME_MAP,
+    _coerce_history_status,
+    _coerce_int,
+    _extract_field_from_sources,
+    _is_timestamp_in_range,
+    _parse_iso_or_none,
+    _status_sort_key,
+)
 from events import EventBus, EventType, HydraFlowEvent
 from issue_fetcher import IssueFetcher
-from issue_store import IssueStoreStage
 from metrics_manager import get_metrics_cache_dir
 from models import (
     BackgroundWorkersResponse,
@@ -79,6 +93,7 @@ from models import (
 )
 from pr_manager import PRManager
 from prompt_telemetry import PromptTelemetry
+from route_types import RepoSlugParam
 from state import StateTracker
 from timeline import TimelineBuilder
 from transcript_summarizer import TranscriptSummarizer
@@ -90,61 +105,6 @@ from repo_runtime import RepoRuntime, RepoRuntimeRegistry
 from repo_store import RepoRecord, RepoStore
 
 logger = logging.getLogger("hydraflow.dashboard")
-
-_SAFE_SLUG_COMPONENT = re.compile(r"^[A-Za-z0-9_.\-]+$")
-
-_SUPERVISOR_UNAVAILABLE_PREFIXES: tuple[str, ...] = (
-    "hydraflow supervisor is not running.",
-    "hf supervisor is not running.",
-)
-_SUPERVISOR_UNAVAILABLE_MESSAGE = (
-    "HydraFlow supervisor is not running. "
-    "Start HydraFlow inside the target repository with `make run`."
-)
-
-RepoSlugParam = Annotated[
-    str | None,
-    Query(description="Repo slug to scope the request"),
-]
-
-# Internal pipeline labels that must not be treated as epic names in the history panel.
-_EPIC_INTERNAL_LABELS: frozenset[str] = frozenset(
-    {"hydraflow-epic-child", "hydraflow-epic"}
-)
-
-# Backend stage keys → frontend stage names
-_STAGE_NAME_MAP: dict[str, str] = {
-    IssueStoreStage.FIND: "triage",
-    IssueStoreStage.PLAN: "plan",
-    IssueStoreStage.READY: "implement",
-    IssueStoreStage.REVIEW: "review",
-    IssueStoreStage.HITL: "hitl",
-}
-
-# Frontend stage key → config label field name (for request-changes)
-_FRONTEND_STAGE_TO_LABEL_FIELD = {
-    "triage": "find_label",
-    "plan": "planner_label",
-    "implement": "ready_label",
-    "review": "review_label",
-}
-
-
-_INFERENCE_COUNTER_KEYS: tuple[str, ...] = (
-    "inference_calls",
-    "prompt_est_tokens",
-    "total_est_tokens",
-    "total_tokens",
-    "input_tokens",
-    "output_tokens",
-    "cache_creation_input_tokens",
-    "cache_read_input_tokens",
-    "history_chars_saved",
-    "context_chars_saved",
-    "pruned_chars_total",
-    "cache_hits",
-    "cache_misses",
-)
 
 
 async def _run_dialog_command(*cmd: str, timeout_seconds: float = 30.0) -> str | None:
@@ -250,19 +210,6 @@ def _normalize_allowed_dir(
     return None, "path must be inside your home directory or temp directory"
 
 
-def _parse_iso_or_none(raw: str | None) -> datetime | None:
-    """Parse an ISO 8601 string to datetime, returning None on failure."""
-    if not raw:
-        return None
-    try:
-        parsed = datetime.fromisoformat(raw)
-    except (ValueError, TypeError):
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed
-
-
 def _event_issue_number(data: Mapping[str, Any]) -> int | None:
     """Extract the issue number from an event data dict, coercing strings."""
     value = data.get("issue")
@@ -313,167 +260,6 @@ def _normalise_event_status(
     return result
 
 
-_HISTORY_STATUSES = {
-    "unknown",
-    "triaged",
-    "planned",
-    "implemented",
-    "in_review",
-    "reviewed",
-    "hitl",
-    "active",
-    "failed",
-    "merged",
-}
-
-
-def _coerce_history_status(value: str) -> str:
-    """Normalize dashboard history statuses and default to ``unknown``."""
-    cleaned = str(value).strip().lower()
-    if cleaned in _HISTORY_STATUSES:
-        return cleaned
-    logger.warning("Unknown history status %r; falling back to 'unknown'", value)
-    return "unknown"
-
-
-def _status_rank(status: str) -> int:
-    """Return a numeric rank for a history status used for ordering."""
-    ranks = {
-        "unknown": 0,
-        "triaged": 1,
-        "planned": 2,
-        "implemented": 3,
-        "in_review": 4,
-        "reviewed": 5,
-        "hitl": 6,
-        "active": 7,
-        "failed": 8,
-        "merged": 9,
-    }
-    return ranks.get(status, 0)
-
-
-def _coerce_int(value: object) -> int:
-    """Coerce a value to int, returning 0 for unconvertible inputs."""
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str):
-        try:
-            return int(value)
-        except ValueError:
-            return 0
-    return 0
-
-
-def _is_timestamp_in_range(
-    raw: str | None, since: datetime | None, until: datetime | None
-) -> bool:
-    """Return True if the ISO timestamp falls within the [since, until] window."""
-    if raw is None:
-        return since is None and until is None
-    parsed = _parse_iso_or_none(raw)
-    if parsed is None:
-        return since is None and until is None
-    if since is not None and parsed < since:
-        return False
-    return not (until is not None and parsed > until)
-
-
-def _status_sort_key(status: str, timestamp: str | None) -> tuple[datetime, int]:
-    """Build a sort key from a timestamp and status rank for ordering updates."""
-    parsed = _parse_iso_or_none(timestamp)
-    if parsed is None:
-        parsed = datetime.min.replace(tzinfo=UTC)
-    return (parsed, _status_rank(status))
-
-
-def _is_expected_supervisor_unavailable(exc: Exception) -> bool:
-    """Return True for the expected local-dev supervisor-down condition."""
-    text = str(exc).strip().lower()
-    return any(text.startswith(prefix) for prefix in _SUPERVISOR_UNAVAILABLE_PREFIXES)
-
-
-def _find_repo_match(slug: str, repos: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Find a repo entry matching *slug* using cascading strategies.
-
-    1. Exact slug match (case-sensitive, then case-insensitive)
-    2. Strip owner prefix (``owner/repo`` → try ``repo``)
-    3. Path-tail match (last component of repo path equals slug)
-    4. Path component match (slug matches a ``/``-delimited segment of the path)
-    """
-    if not slug:
-        return None
-
-    # Normalise: strip whitespace and slashes to prevent "/" matching every path
-    slug = slug.strip().strip("/")
-    if not slug:
-        return None
-
-    slug_lower = slug.lower()
-    short = slug.rsplit("/", maxsplit=1)[-1] if "/" in slug else None
-    short_lower = short.lower() if short else None
-
-    def _slug_match(target: str) -> dict[str, Any] | None:
-        """Match *target* against repo slugs (case-sensitive then insensitive)."""
-        lower = target.lower()
-        for r in repos:
-            if r.get("slug") == target:
-                return r
-        for r in repos:
-            repo_slug = r.get("slug")
-            if repo_slug and repo_slug.lower() == lower:
-                return r
-        return None
-
-    # 1. Exact slug match
-    result = _slug_match(slug)
-    # 2. Strip owner prefix — e.g. "8thlight/insightmesh" → "insightmesh"
-    if not result and short:
-        result = _slug_match(short)
-
-    # 3. Path-tail match — last path component matches slug or short slug
-    if not result:
-        candidates = [slug_lower]
-        if short_lower:
-            candidates.append(short_lower)
-        for candidate in candidates:
-            for r in repos:
-                path = r.get("path") or ""
-                if path and Path(path).name.lower() == candidate:
-                    result = r
-                    break
-            if result:
-                break
-
-    # 4. Path component match — slug matches a full /-delimited path segment
-    if not result:
-        for r in repos:
-            path = r.get("path") or ""
-            if path and slug_lower in path.lower().split("/"):
-                result = r
-                break
-
-    return result
-
-
-def _parse_compat_json_object(raw: str | None) -> dict[str, Any] | None:
-    """Best-effort parse of legacy query/body JSON object payloads."""
-    if not isinstance(raw, str):
-        return None
-    text = raw.strip()
-    if not text:
-        return None
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
-        return None
-    return parsed if isinstance(parsed, dict) else None
-
-
 def _extract_repo_slug(
     req: dict[str, Any] | None,
     req_query: str | None,
@@ -506,66 +292,13 @@ def _extract_repo_path(
     )
 
 
-def _extract_field_from_sources(
-    field_names: tuple[str, str],
-    req: dict[str, Any] | None,
-    req_query: str | None,
-    query_params: tuple[str | None, str | None],
-    *,
-    query_params_first: bool = False,
-) -> str:
-    """Extract a value from query params, body dict, and JSON query.
+_ISSUE_URL_RE = re.compile(r"https://github\.com/[^/\s]+/[^/\s]+/issues/(\d+)")
 
-    Args:
-        field_names: Pair of field name keys to look up (primary, alias).
-        req: Parsed request body dict.
-        req_query: Raw ``req`` query parameter (may be JSON).
-        query_params: Dedicated query-parameter values (primary, alias).
-        query_params_first: When True, check query params before body;
-            otherwise check body before query params.
-    """
-    candidates: list[str] = []
 
-    def _push(value: str | int | float | bool | None) -> None:
-        if isinstance(value, str):
-            trimmed = value.strip()
-            if trimmed:
-                candidates.append(trimmed)
-
-    def _push_from_dict(src: dict[str, Any]) -> None:
-        for name in field_names:
-            _push(src.get(name))
-        nested = src.get("req")
-        if isinstance(nested, dict):
-            for name in field_names:
-                _push(nested.get(name))
-
-    def _push_query_params() -> None:
-        for qp in query_params:
-            _push(qp)
-
-    def _push_body() -> None:
-        if isinstance(req, dict):
-            _push_from_dict(req)
-
-    # Ordering: query_params_first controls whether dedicated query
-    # params are checked before or after the body dict.
-    if query_params_first:
-        _push_query_params()
-        _push_body()
-    else:
-        _push_body()
-
-    parsed_query = _parse_compat_json_object(req_query)
-    if parsed_query:
-        _push_from_dict(parsed_query)
-    else:
-        _push(req_query)
-
-    if not query_params_first:
-        _push_query_params()
-
-    return candidates[0] if candidates else ""
+def _extract_issue_number(url: str) -> int:
+    """Extract the issue number from a GitHub issue URL, or return 0."""
+    m = _ISSUE_URL_RE.search(url)
+    return int(m.group(1)) if m else 0
 
 
 def _is_likely_disconnect(exc: BaseException) -> bool:
@@ -584,6 +317,234 @@ def _is_likely_disconnect(exc: BaseException) -> bool:
         "ConnectionClosedError",
         "ConnectionClosedOK",
     }
+
+
+@dataclass
+class RouteContext:
+    """Bundles all dependencies needed by dashboard route handlers.
+
+    Replaces the closure-capture pattern used by ``create_router()`` so that
+    sub-routers can receive an explicit context object instead of relying on
+    17+ closure variables.  This is a prerequisite for decomposing the
+    monolithic router into smaller sub-router modules.
+    """
+
+    # Core services
+    config: HydraFlowConfig
+    event_bus: EventBus
+    state: StateTracker
+    pr_manager: PRManager
+
+    # Orchestrator lifecycle callbacks
+    get_orchestrator: Callable[[], HydraFlowOrchestrator | None]
+    set_orchestrator: Callable[[HydraFlowOrchestrator], None]
+    set_run_task: Callable[[asyncio.Task[None]], None]
+
+    # Static asset directories
+    ui_dist_dir: Path
+    template_dir: Path
+
+    # Multi-repo support
+    registry: RepoRuntimeRegistry | None = None
+    repo_store: RepoStore | None = None
+    register_repo_cb: (
+        Callable[[Path, str | None], Awaitable[tuple[RepoRecord, HydraFlowConfig]]]
+        | None
+    ) = None
+    remove_repo_cb: Callable[[str], Awaitable[bool]] | None = None
+    list_repos_cb: Callable[[], list[RepoRecord]] | None = None
+    default_repo_slug: str | None = None
+    allowed_repo_roots_fn: Callable[[], tuple[str, ...]] | None = None
+
+    # HITL summary tuning
+    hitl_summary_cooldown_seconds: int = 300
+
+    # Derived state — initialised in __post_init__
+    issue_fetcher: IssueFetcher = field(init=False)
+    hitl_summarizer: TranscriptSummarizer = field(init=False)
+    hitl_summary_inflight: set[int] = field(init=False)
+    hitl_summary_slots: asyncio.Semaphore = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.issue_fetcher = IssueFetcher(self.config)
+        self.hitl_summarizer = TranscriptSummarizer(
+            self.config,
+            self.pr_manager,
+            self.event_bus,
+            self.state,
+        )
+        self.hitl_summary_inflight = set()
+        self.hitl_summary_slots = asyncio.Semaphore(3)
+
+    # -- Dependency resolution helpers ------------------------------------------
+
+    def resolve_runtime(
+        self,
+        slug: str | None,
+    ) -> tuple[
+        HydraFlowConfig,
+        StateTracker,
+        EventBus,
+        Callable[[], HydraFlowOrchestrator | None],
+    ]:
+        """Resolve per-repo dependencies from the registry.
+
+        When *slug* is ``None`` or no registry is configured, returns the
+        single-repo defaults for backward compatibility.
+        """
+        if self.registry is not None and slug is not None:
+            rt: RepoRuntime | None = self.registry.get(slug)
+            if rt is None:
+                raise HTTPException(status_code=404, detail=f"Unknown repo: {slug}")
+            return rt.config, rt.state, rt.event_bus, lambda: rt.orchestrator
+        return self.config, self.state, self.event_bus, self.get_orchestrator
+
+    async def execute_admin_task(
+        self,
+        task_name: str,
+        task_fn: Callable[[HydraFlowConfig], Awaitable[TaskResult]],
+        slug: str | None,
+    ) -> JSONResponse:
+        """Run an admin task against the resolved repo config."""
+        try:
+            runtime_config, _, _, _ = self.resolve_runtime(slug)
+        except HTTPException:
+            return JSONResponse({"error": "Unknown repo"}, status_code=404)
+        try:
+            result = await task_fn(runtime_config)
+        except Exception:  # noqa: BLE001
+            logger.exception("%s task failed", task_name)
+            return JSONResponse({"error": f"{task_name} failed"}, status_code=500)
+        payload: dict[str, Any] = {"status": "ok", "result": result.as_dict()}
+        status_code = 200
+        if not result.success:
+            payload["status"] = "error"
+            status_code = 500
+        return JSONResponse(payload, status_code=status_code)
+
+    def pr_manager_for(self, cfg: HydraFlowConfig, bus: EventBus) -> PRManager:
+        """Return the shared PRManager when config matches; otherwise create a new one."""
+        if cfg is self.config and bus is self.event_bus:
+            return self.pr_manager
+        return PRManager(cfg, bus)
+
+    def list_repo_records(self) -> list[RepoRecord]:
+        """Return repo records from the callback or store, with error fallback."""
+        if self.list_repos_cb is not None:
+            try:
+                return self.list_repos_cb()
+            except Exception:  # noqa: BLE001
+                logger.warning("list_repos callback failed", exc_info=True)
+        if self.repo_store is not None:
+            try:
+                return self.repo_store.list()
+            except Exception:  # noqa: BLE001
+                logger.warning("repo_store.list failed", exc_info=True)
+        return []
+
+    def serve_spa_index(self) -> HTMLResponse:
+        """Serve the SPA index.html, falling back to template or placeholder."""
+        react_index = self.ui_dist_dir / "index.html"
+        if react_index.exists():
+            return HTMLResponse(react_index.read_text())
+        template_path = self.template_dir / "index.html"
+        if template_path.exists():
+            return HTMLResponse(template_path.read_text())
+        return HTMLResponse(
+            "<h1>HydraFlow Dashboard</h1><p>Run 'make ui' to build.</p>"
+        )
+
+    def repo_roots_fn(self) -> tuple[str, ...]:
+        """Return the allowed repo roots, using the override if provided."""
+        if self.allowed_repo_roots_fn is not None:
+            return self.allowed_repo_roots_fn()
+        return _allowed_repo_roots()
+
+    def hitl_summary_retry_due(self, issue_number: int) -> bool:
+        """Return True if enough time has passed to retry a failed HITL summary."""
+        failed_at, _ = self.state.get_hitl_summary_failure(issue_number)
+        failed_dt = _parse_iso_or_none(failed_at)
+        if failed_dt is None:
+            return True
+        age = (datetime.now(UTC) - failed_dt).total_seconds()
+        return age >= self.hitl_summary_cooldown_seconds
+
+    async def compute_hitl_summary(
+        self, issue_number: int, *, cause: str, origin: str | None
+    ) -> str | None:
+        """Fetch issue, generate and normalise a HITL summary, then persist to state."""
+        if (
+            not self.config.transcript_summarization_enabled
+            or self.config.dry_run
+            or not self.config.gh_token
+        ):
+            return None
+        issue = await self.issue_fetcher.fetch_issue_by_number(issue_number)
+        if issue is None:
+            self.state.set_hitl_summary_failure(issue_number, "Issue fetch failed")
+            return None
+        context = _build_hitl_context(issue, cause=cause, origin=origin)
+        generated = await self.hitl_summarizer.summarize_hitl_context(context)
+        if not generated:
+            self.state.set_hitl_summary_failure(
+                issue_number, "Summary model returned empty"
+            )
+            return None
+        summary = _normalise_summary_lines(generated)
+        if not summary:
+            self.state.set_hitl_summary_failure(
+                issue_number, "Summary normalization produced empty output"
+            )
+            return None
+        self.state.set_hitl_summary(issue_number, summary)
+        self.state.clear_hitl_summary_failure(issue_number)
+        return summary
+
+    async def warm_hitl_summary(
+        self, issue_number: int, *, cause: str, origin: str | None
+    ) -> None:
+        """Schedule background HITL summary generation, guarded by inflight tracking."""
+        if issue_number in self.hitl_summary_inflight:
+            return
+        self.hitl_summary_inflight.add(issue_number)
+        try:
+            async with self.hitl_summary_slots:
+                await self.compute_hitl_summary(
+                    issue_number, cause=cause, origin=origin
+                )
+        except Exception as exc:
+            self.state.set_hitl_summary_failure(
+                issue_number,
+                f"{type(exc).__name__}: {exc}",
+            )
+            logger.exception(
+                "Failed to warm HITL summary for issue #%d",
+                issue_number,
+            )
+        finally:
+            self.hitl_summary_inflight.discard(issue_number)
+
+
+def _build_hitl_context(issue: GitHubIssue, *, cause: str, origin: str | None) -> str:
+    """Build a text context block for HITL summary generation."""
+    body = (issue.body or "").strip()
+    comments = issue.comments
+    recent_comments = [str(c).strip() for c in comments[-5:] if str(c).strip()]
+    comments_block = "\n".join(f"- {c[:400]}" for c in recent_comments)
+    origin_text = origin or "unknown"
+    return (
+        f"Issue #{issue.number}: {issue.title}\n"
+        f"Escalation cause: {cause or 'not recorded'}\n"
+        f"Escalation origin: {origin_text}\n\n"
+        f"Issue body:\n{body[:6000]}\n\n"
+        f"Recent comments:\n{comments_block[:3000]}"
+    )
+
+
+def _normalise_summary_lines(raw: str) -> str:
+    """Strip bullet prefixes and cap a summary to 8 lines."""
+    lines = [line.strip(" -\t") for line in raw.splitlines() if line.strip()]
+    return "\n".join(lines[:8]).strip()
 
 
 def create_router(
@@ -616,14 +577,29 @@ def create_router(
     *config*, *state*, *event_bus*, and *get_orchestrator*) are used for
     backward compatibility.
     """
-    router = APIRouter()
-    hitl_summary_cooldown_seconds = 300
-    _repo_roots_fn = (
-        allowed_repo_roots_fn
-        if allowed_repo_roots_fn is not None
-        else _allowed_repo_roots
+    # Build the shared RouteContext that bundles all dependencies.
+    ctx = RouteContext(
+        config=config,
+        event_bus=event_bus,
+        state=state,
+        pr_manager=pr_manager,
+        get_orchestrator=get_orchestrator,
+        set_orchestrator=set_orchestrator,
+        set_run_task=set_run_task,
+        ui_dist_dir=ui_dist_dir,
+        template_dir=template_dir,
+        registry=registry,
+        repo_store=repo_store,
+        register_repo_cb=register_repo_cb,
+        remove_repo_cb=remove_repo_cb,
+        list_repos_cb=list_repos_cb,
+        default_repo_slug=default_repo_slug,
+        allowed_repo_roots_fn=allowed_repo_roots_fn,
     )
 
+    router = APIRouter()
+
+    # Thin delegates — route handlers call these; logic lives on RouteContext.
     def _resolve_runtime(
         slug: str | None,
     ) -> tuple[
@@ -632,79 +608,43 @@ def create_router(
         EventBus,
         Callable[[], HydraFlowOrchestrator | None],
     ]:
-        """Resolve per-repo dependencies from the registry.
-
-        When *slug* is ``None`` or no registry is configured, returns the
-        single-repo closure defaults for backward compatibility.
-        """
-        if registry is not None and slug is not None:
-            rt: RepoRuntime | None = registry.get(slug)
-            if rt is None:
-                raise HTTPException(status_code=404, detail=f"Unknown repo: {slug}")
-            return rt.config, rt.state, rt.event_bus, lambda: rt.orchestrator
-        return config, state, event_bus, get_orchestrator
+        return ctx.resolve_runtime(slug)
 
     async def _execute_admin_task(
         task_name: str,
         task_fn: Callable[[HydraFlowConfig], Awaitable[TaskResult]],
         slug: str | None,
     ) -> JSONResponse:
-        try:
-            runtime_config, _, _, _ = _resolve_runtime(slug)
-        except HTTPException:
-            return JSONResponse({"error": "Unknown repo"}, status_code=404)
-        try:
-            result = await task_fn(runtime_config)
-        except Exception:  # noqa: BLE001
-            logger.exception("%s task failed", task_name)
-            return JSONResponse({"error": f"{task_name} failed"}, status_code=500)
-        payload = {"status": "ok", "result": result.as_dict()}
-        status_code = 200
-        if not result.success:
-            payload["status"] = "error"
-            status_code = 500
-        return JSONResponse(payload, status_code=status_code)
+        return await ctx.execute_admin_task(task_name, task_fn, slug)
 
     def _pr_manager_for(cfg: HydraFlowConfig, bus: EventBus) -> PRManager:
-        """Return the shared PRManager when config matches; otherwise create a new one."""
-        if cfg is config and bus is event_bus:
-            return pr_manager
-        return PRManager(cfg, bus)
+        return ctx.pr_manager_for(cfg, bus)
 
     def _list_repo_records() -> list[RepoRecord]:
-        """Return repo records from the callback or store, with error fallback."""
-        if list_repos_cb is not None:
-            try:
-                return list_repos_cb()
-            except Exception:  # noqa: BLE001
-                logger.warning("list_repos callback failed", exc_info=True)
-        if repo_store is not None:
-            try:
-                return repo_store.list()
-            except Exception:  # noqa: BLE001
-                logger.warning("repo_store.list failed", exc_info=True)
-        return []
+        return ctx.list_repo_records()
 
-    # Supervisor client/manager removed with hf_cli package (issue #2205).
-    # Supervisor endpoints now return graceful "unavailable" responses.
-    supervisor_client = None
-    supervisor_manager = None
-    issue_fetcher = IssueFetcher(config)
-    hitl_summarizer = TranscriptSummarizer(config, pr_manager, event_bus, state)
-    hitl_summary_inflight: set[int] = set()
-    hitl_summary_slots = asyncio.Semaphore(3)
+    IssueFetcher(config)
+    TranscriptSummarizer(config, pr_manager, event_bus, state)
+    asyncio.Semaphore(3)
+
+    def _repo_roots_fn() -> tuple[str, ...]:
+        return ctx.repo_roots_fn()
 
     def _serve_spa_index() -> HTMLResponse:
-        """Serve the SPA index.html, falling back to template or placeholder."""
-        react_index = ui_dist_dir / "index.html"
-        if react_index.exists():
-            return HTMLResponse(react_index.read_text())
-        template_path = template_dir / "index.html"
-        if template_path.exists():
-            return HTMLResponse(template_path.read_text())
-        return HTMLResponse(
-            "<h1>HydraFlow Dashboard</h1><p>Run 'make ui' to build.</p>"
-        )
+        return ctx.serve_spa_index()
+
+    def _hitl_summary_retry_due(issue_number: int) -> bool:
+        return ctx.hitl_summary_retry_due(issue_number)
+
+    async def _compute_hitl_summary(
+        issue_number: int, *, cause: str, origin: str | None
+    ) -> str | None:
+        return await ctx.compute_hitl_summary(issue_number, cause=cause, origin=origin)
+
+    async def _warm_hitl_summary(
+        issue_number: int, *, cause: str, origin: str | None
+    ) -> None:
+        await ctx.warm_hitl_summary(issue_number, cause=cause, origin=origin)
 
     def _load_local_metrics_cache(
         target_config: HydraFlowConfig,
@@ -1186,88 +1126,6 @@ def create_router(
             if isinstance(result, Exception):
                 logger.warning("Issue enrichment fetch failed: %s", result)
 
-    def _build_hitl_context(
-        issue: GitHubIssue, *, cause: str, origin: str | None
-    ) -> str:
-        """Build a text context block for HITL summary generation."""
-        body = (issue.body or "").strip()
-        comments = issue.comments
-        recent_comments = [str(c).strip() for c in comments[-5:] if str(c).strip()]
-        comments_block = "\n".join(f"- {c[:400]}" for c in recent_comments)
-        origin_text = origin or "unknown"
-        return (
-            f"Issue #{issue.number}: {issue.title}\n"
-            f"Escalation cause: {cause or 'not recorded'}\n"
-            f"Escalation origin: {origin_text}\n\n"
-            f"Issue body:\n{body[:6000]}\n\n"
-            f"Recent comments:\n{comments_block[:3000]}"
-        )
-
-    def _normalise_summary_lines(raw: str) -> str:
-        """Strip bullet prefixes and cap a summary to 8 lines."""
-        lines = [line.strip(" -\t") for line in raw.splitlines() if line.strip()]
-        return "\n".join(lines[:8]).strip()
-
-    def _hitl_summary_retry_due(issue_number: int) -> bool:
-        """Return True if enough time has passed to retry a failed HITL summary."""
-        failed_at, _ = state.get_hitl_summary_failure(issue_number)
-        failed_dt = _parse_iso_or_none(failed_at)
-        if failed_dt is None:
-            return True
-        age = (datetime.now(UTC) - failed_dt).total_seconds()
-        return age >= hitl_summary_cooldown_seconds
-
-    async def _compute_hitl_summary(
-        issue_number: int, *, cause: str, origin: str | None
-    ) -> str | None:
-        """Fetch issue, generate and normalise a HITL summary, then persist to state."""
-        if (
-            not config.transcript_summarization_enabled
-            or config.dry_run
-            or not config.gh_token
-        ):
-            return None
-        issue = await issue_fetcher.fetch_issue_by_number(issue_number)
-        if issue is None:
-            state.set_hitl_summary_failure(issue_number, "Issue fetch failed")
-            return None
-        context = _build_hitl_context(issue, cause=cause, origin=origin)
-        generated = await hitl_summarizer.summarize_hitl_context(context)
-        if not generated:
-            state.set_hitl_summary_failure(issue_number, "Summary model returned empty")
-            return None
-        summary = _normalise_summary_lines(generated)
-        if not summary:
-            state.set_hitl_summary_failure(
-                issue_number, "Summary normalization produced empty output"
-            )
-            return None
-        state.set_hitl_summary(issue_number, summary)
-        state.clear_hitl_summary_failure(issue_number)
-        return summary
-
-    async def _warm_hitl_summary(
-        issue_number: int, *, cause: str, origin: str | None
-    ) -> None:
-        """Schedule background HITL summary generation, guarded by inflight tracking."""
-        if issue_number in hitl_summary_inflight:
-            return
-        hitl_summary_inflight.add(issue_number)
-        try:
-            async with hitl_summary_slots:
-                await _compute_hitl_summary(issue_number, cause=cause, origin=origin)
-        except Exception as exc:
-            state.set_hitl_summary_failure(
-                issue_number,
-                f"{type(exc).__name__}: {exc}",
-            )
-            logger.exception(
-                "Failed to warm HITL summary for issue #%d",
-                issue_number,
-            )
-        finally:
-            hitl_summary_inflight.discard(issue_number)
-
     @router.get("/healthz")
     def get_health() -> JSONResponse:
         """Lightweight readiness response for load balancers and monitors."""
@@ -1684,7 +1542,7 @@ def create_router(
 
     @router.get("/api/crates/active")
     async def get_active_crate() -> JSONResponse:
-        """Return the active crate number, title, progress, and auto_crate flag."""
+        """Return the active crate number, title, and progress."""
         orch = get_orchestrator()
         active_number = state.get_active_crate_number()
         result: dict[str, Any] = {
@@ -1694,7 +1552,6 @@ def create_router(
             "open_issues": 0,
             "closed_issues": 0,
             "total_issues": 0,
-            "auto_crate": config.auto_crate,
         }
         if active_number is not None and orch is not None:
             try:
@@ -1828,11 +1685,6 @@ def create_router(
                     _warm_hitl_summary(item.issue, cause=cause or "", origin=origin)
                 )
             enriched.append(data)
-
-        # When memory auto-approve is on, filter out memory suggestions that
-        # were queued before the setting was enabled.
-        if config.memory_auto_approve:
-            enriched = [d for d in enriched if not d.get("isMemorySuggestion")]
 
         return JSONResponse(enriched)
 
@@ -2182,7 +2034,6 @@ def create_router(
                 max_hitl_workers=_cfg.max_hitl_workers,
                 batch_size=_cfg.batch_size,
                 model=_cfg.model,
-                memory_auto_approve=_cfg.memory_auto_approve,
                 pr_unstick_batch_size=_cfg.pr_unstick_batch_size,
                 worktree_base=str(_cfg.worktree_base),
             ),
@@ -2236,11 +2087,9 @@ def create_router(
         "poll_interval",
         "pr_unstick_interval",
         "pr_unstick_batch_size",
-        "memory_auto_approve",
         "unstick_auto_merge",
         "unstick_all_causes",
         "worktree_base",
-        "auto_crate",
     }
 
     @router.patch("/api/control/config")
@@ -2526,18 +2375,6 @@ def create_router(
         if not triggered:
             return JSONResponse({"error": f"unknown worker '{name}'"}, status_code=404)
         return JSONResponse({"status": "ok", "name": name})
-
-    # Interval bounds per editable worker.
-    # memory_sync, metrics, pr_unsticker, adr_reviewer bounds must match config.py Field constraints.
-    # pipeline_poller has no config Field; 5s minimum matches the hardcoded default.
-    _INTERVAL_BOUNDS = {
-        "memory_sync": (10, 14400),
-        "metrics": (30, 14400),
-        "pr_unsticker": (60, 86400),
-        "pipeline_poller": (5, 14400),
-        "adr_reviewer": (28800, 432000),
-        "verify_monitor": (60, 86400),
-    }
 
     @router.post("/api/control/bg-worker/interval")
     async def set_bg_worker_interval(body: dict[str, Any]) -> JSONResponse:
@@ -3249,19 +3086,11 @@ def create_router(
                 )
         return JSONResponse({"status": "removed", "slug": slug})
 
-    # --- Multi-repo supervisor endpoints ---
-
-    async def _call_supervisor(func: Callable, *args, **kwargs) -> Any:
-        """Run a supervisor client function in a thread."""
-        if supervisor_client is None:
-            raise RuntimeError(
-                "HydraFlow supervisor client unavailable in this environment"
-            )
-        return await asyncio.to_thread(func, *args, **kwargs)
+    # --- Multi-repo endpoints ---
 
     @router.get("/api/repos")
     async def list_supervised_repos() -> JSONResponse:
-        """List repos from the store, callback, or supervisor."""
+        """List repos from the store or callback."""
         if repo_store is not None or list_repos_cb is not None:
             records = _list_repo_records()
             payload: list[dict[str, Any]] = []
@@ -3279,18 +3108,7 @@ def create_router(
                     }
                 )
             return JSONResponse({"repos": payload, "can_register": True})
-        if supervisor_client is None:
-            return JSONResponse({"repos": [], "can_register": False})
-        try:
-            repos = await _call_supervisor(supervisor_client.list_repos)
-        except Exception as exc:  # noqa: BLE001
-            if not _is_expected_supervisor_unavailable(exc):
-                logger.warning("Supervisor list_repos failed: %s", exc)
-            return JSONResponse(
-                {"error": "Supervisor unavailable", "can_register": False},
-                status_code=503,
-            )
-        return JSONResponse({"repos": repos, "can_register": True})
+        return JSONResponse({"repos": [], "can_register": False})
 
     _root_names: dict[int, str] = {0: "Home", 1: "Temp"}
 
@@ -3360,59 +3178,13 @@ def create_router(
         )
 
     @router.post("/api/repos")
-    async def ensure_repo(
-        req: dict[str, Any] | None = Body(default=None),
-        req_query: str | None = Query(default=None, alias="req"),
-        slug: str | None = Query(default=None),
-        repo: RepoSlugParam = None,
-    ) -> JSONResponse:
-        """Ensure a repo is registered with the supervisor by slug."""
-        error_payload: tuple[str, int] | None = None
-        if supervisor_client is None:
-            error_payload = ("supervisor unavailable", 503)
-        else:
-            target_slug = _extract_repo_slug(req, req_query, slug, repo)
-            if not target_slug:
-                error_payload = ("slug required", 400)
-            else:
-                try:
-                    repos = await _call_supervisor(supervisor_client.list_repos)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("Supervisor list_repos failed: %s", exc)
-                    error_payload = ("Supervisor unavailable", 503)
-                else:
-                    match = _find_repo_match(target_slug, repos)
-                    if not match:
-                        error_payload = (
-                            f"repo '{target_slug}' not found",
-                            404,
-                        )
-                    else:
-                        matched_slug = match.get("slug") or target_slug
-                        path = match.get("path")
-                        if not path:
-                            error_payload = (f"repo '{matched_slug}' missing path", 500)
-                        else:
-                            try:
-                                info = await _call_supervisor(
-                                    supervisor_client.add_repo,
-                                    Path(path),
-                                    matched_slug,
-                                )
-                            except Exception as exc:  # noqa: BLE001
-                                logger.warning("Supervisor add_repo failed: %s", exc)
-                                error_payload = ("Failed to add repo", 500)
-                            else:
-                                return JSONResponse(info)
-
-        if error_payload:
-            message, status_code = error_payload
-            return JSONResponse({"error": message}, status_code=status_code)
-        return JSONResponse({"status": "ok"})
+    async def ensure_repo() -> JSONResponse:
+        """Legacy endpoint — supervisor feature removed (issue #2205)."""
+        return JSONResponse({"error": "supervisor unavailable"}, status_code=503)
 
     @router.delete("/api/repos/{slug}")
     async def remove_repo(slug: str) -> JSONResponse:
-        """Remove a repo via the callback or supervisor."""
+        """Remove a repo via the callback."""
         if remove_repo_cb is not None:
             try:
                 removed = await remove_repo_cb(slug)
@@ -3422,14 +3194,7 @@ def create_router(
             if not removed:
                 return JSONResponse({"error": "Repo not found"}, status_code=404)
             return JSONResponse({"status": "ok"})
-        if supervisor_client is None:
-            return JSONResponse({"error": "supervisor unavailable"}, status_code=503)
-        try:
-            await _call_supervisor(supervisor_client.remove_repo, None, slug)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Supervisor remove_repo failed: %s", exc)
-            return JSONResponse({"error": "Failed to remove repo"}, status_code=500)
-        return JSONResponse({"status": "ok"})
+        return JSONResponse({"error": "supervisor unavailable"}, status_code=503)
 
     async def _detect_repo_slug_from_path(repo_path: Path) -> str | None:  # noqa: PLR0911
         """Extract ``owner/repo`` from git remote origin URL at *repo_path*."""
@@ -3553,76 +3318,10 @@ def create_router(
                 }
             )
 
-        # Register with supervisor fallback
-        if supervisor_client is None:
-            return JSONResponse(
-                {"error": _SUPERVISOR_UNAVAILABLE_MESSAGE},
-                status_code=503,
-            )
-        try:
-            await _call_supervisor(
-                supervisor_client.register_repo,
-                repo_path,
-                slug,
-            )
-        except Exception as exc:  # noqa: BLE001
-            if _is_expected_supervisor_unavailable(exc):
-                if supervisor_manager is not None:
-                    try:
-                        await _call_supervisor(supervisor_manager.ensure_running)
-                        await _call_supervisor(
-                            supervisor_client.register_repo,
-                            repo_path,
-                            slug,
-                        )
-                    except Exception as retry_exc:  # noqa: BLE001
-                        if _is_expected_supervisor_unavailable(retry_exc):
-                            return JSONResponse(
-                                {"error": _SUPERVISOR_UNAVAILABLE_MESSAGE},
-                                status_code=503,
-                            )
-                        logger.warning(
-                            "Supervisor register_repo failed after auto-start: %s",
-                            retry_exc,
-                        )
-                        return JSONResponse(
-                            {"error": "Failed to register repo"},
-                            status_code=500,
-                        )
-                else:
-                    return JSONResponse(
-                        {"error": _SUPERVISOR_UNAVAILABLE_MESSAGE},
-                        status_code=503,
-                    )
-            else:
-                logger.warning("Supervisor register_repo failed: %s", exc)
-                return JSONResponse(
-                    {"error": "Failed to register repo"},
-                    status_code=500,
-                )
-        # Create labels (best-effort, only after successful registration)
-        labels_created = False
-        if slug:
-            try:
-                from prep import ensure_labels  # noqa: PLC0415
-
-                target_cfg = config.model_copy(
-                    update={
-                        "repo_root": repo_path,
-                        "repo": slug,
-                    },
-                )
-                await ensure_labels(target_cfg)
-                labels_created = True
-            except Exception:  # noqa: BLE001
-                logger.warning("Label creation failed for %s", slug, exc_info=True)
+        # Supervisor fallback removed (issue #2205) — no register_repo_cb means 503.
         return JSONResponse(
-            {
-                "status": "ok",
-                "slug": slug or repo_path.name,
-                "path": str(repo_path),
-                "labels_created": labels_created,
-            }
+            {"error": "supervisor unavailable"},
+            status_code=503,
         )
 
     @router.post("/api/repos/pick-folder")
@@ -3792,7 +3491,7 @@ def create_router(
                     {"error": f"Clone failed: {msg}"},
                     status_code=502,
                 )
-        # Register with the callback or supervisor
+        # Register with the callback
         if register_repo_cb is not None:
             try:
                 record, repo_cfg = await register_repo_cb(clone_target, slug)
@@ -3910,8 +3609,8 @@ def create_router(
         # Validate state-machine transitions
         valid_actions: dict[str, list[str]] = {
             "confirm_fixed": ["fixed"],
-            "reopen": ["fixed", "in-progress", "closed"],
-            "cancel": ["queued", "in-progress", "fixed", "reopened"],
+            "reopen": ["filed", "fixed", "in-progress", "closed"],
+            "cancel": ["queued", "in-progress", "filed", "fixed", "reopened"],
         }
         if report.status not in valid_actions.get(body.action, []):
             return JSONResponse(
@@ -3922,7 +3621,17 @@ def create_router(
             )
         action_map: dict[
             str,
-            tuple[Literal["queued", "in-progress", "fixed", "closed", "reopened"], str],
+            tuple[
+                Literal[
+                    "queued",
+                    "in-progress",
+                    "filed",
+                    "fixed",
+                    "closed",
+                    "reopened",
+                ],
+                str,
+            ],
         ] = {
             "confirm_fixed": ("closed", "Confirmed fixed by reporter"),
             "reopen": ("reopened", "Reopened by reporter"),
@@ -3946,6 +3655,65 @@ def create_router(
         if report is None:
             return JSONResponse({"error": "Report not found"}, status_code=404)
         return JSONResponse([entry.model_dump() for entry in report.history])
+
+    @router.post("/api/reports/refresh")
+    async def refresh_report_statuses(reporter_id: str = "") -> JSONResponse:
+        """Refresh statuses for filed and stale-queued reports.
+
+        * **Filed** reports: checks the linked GitHub issue state; if
+          the issue is closed the report transitions to ``"fixed"``.
+        * **Stale queued** reports (>30 min): re-enqueues them into the
+          pending queue so the background worker retries processing.
+        """
+        refreshed: list[dict[str, str]] = []
+
+        # --- filed → fixed when linked issue is closed as completed ---
+        for report in state.get_filed_reports():
+            if reporter_id and report.reporter_id != reporter_id:
+                continue
+            issue_number = _extract_issue_number(report.linked_issue_url)
+            if issue_number <= 0:
+                continue
+            issue_state = await pr_manager.get_issue_state(issue_number)
+            if issue_state == "COMPLETED":
+                state.update_tracked_report(
+                    report.id,
+                    status="fixed",
+                    action_label="fixed",
+                    detail=f"Issue #{issue_number} resolved",
+                )
+                refreshed.append({"id": report.id, "new_status": "fixed"})
+            elif issue_state == "NOT_PLANNED":
+                state.update_tracked_report(
+                    report.id,
+                    status="closed",
+                    action_label="closed",
+                    detail=f"Issue #{issue_number} closed as won't fix",
+                )
+                refreshed.append({"id": report.id, "new_status": "closed"})
+
+        # --- stale queued → re-enqueue pending ---
+        pending_ids = {p.id for p in state.get_pending_reports()}
+        for report in state.get_stale_queued_reports(stale_minutes=30):
+            if reporter_id and report.reporter_id != reporter_id:
+                continue
+            # Only re-enqueue if there's no pending entry already
+            if report.id not in pending_ids:
+                state.enqueue_report(
+                    PendingReport(
+                        id=report.id,
+                        description=report.description,
+                        reporter_id=report.reporter_id,
+                    )
+                )
+                state.update_tracked_report(
+                    report.id,
+                    action_label="retry",
+                    detail="Stale queued report re-enqueued for processing",
+                )
+                refreshed.append({"id": report.id, "new_status": "queued"})
+
+        return JSONResponse({"refreshed": refreshed})
 
     @router.get("/api/sessions")
     async def get_sessions(

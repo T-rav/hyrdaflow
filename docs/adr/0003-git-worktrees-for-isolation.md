@@ -57,4 +57,4 @@ Default is a sibling directory to the repo root (e.g., `../hydraflow-worktrees/`
 - `src/worktree.py:WorktreeManager` — full lifecycle implementation
 - `src/ports.py:WorktreePort` — formal interface
 - `CLAUDE.md` — "Always implement issue work on a dedicated git worktree branch"
-- ADR-0001 for the concurrency model that makes parallel worktrees necessary
+- ADR-0001 (Five Concurrent Async Loops) for the concurrency model that makes parallel worktrees necessary

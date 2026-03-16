@@ -19,14 +19,6 @@ from tests.helpers import ConfigFactory
 if TYPE_CHECKING:
     from config import HydraFlowConfig
 
-
-@pytest.fixture(autouse=True)
-def _disable_hitl_summary_autowarm(config: HydraFlowConfig) -> None:
-    """Avoid background HITL summary warm tasks in dashboard smoke tests."""
-    config.transcript_summarization_enabled = False
-    config.gh_token = ""
-
-
 # ---------------------------------------------------------------------------
 # create_app
 # ---------------------------------------------------------------------------

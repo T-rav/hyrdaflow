@@ -106,7 +106,7 @@ class TestIssueHistoryEndpoint:
 
         mock_fetcher = AsyncMock()
         mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
-        with patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher):
+        with patch("dashboard_routes._routes.IssueFetcher", return_value=mock_fetcher):
             response = await endpoint(limit=100)
 
         payload = json.loads(response.body)
@@ -147,7 +147,7 @@ class TestIssueHistoryEndpoint:
 
         mock_fetcher = AsyncMock()
         mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
-        with patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher):
+        with patch("dashboard_routes._routes.IssueFetcher", return_value=mock_fetcher):
             response = await endpoint(limit=100)
 
         payload = json.loads(response.body)
@@ -185,7 +185,7 @@ class TestIssueHistoryEndpoint:
 
         mock_fetcher = AsyncMock()
         mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
-        with patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher):
+        with patch("dashboard_routes._routes.IssueFetcher", return_value=mock_fetcher):
             response = await endpoint(limit=100)
 
         payload = json.loads(response.body)
@@ -226,7 +226,7 @@ class TestIssueHistoryEndpoint:
 
         mock_fetcher = AsyncMock()
         mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
-        with patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher):
+        with patch("dashboard_routes._routes.IssueFetcher", return_value=mock_fetcher):
             response = await endpoint(limit=100)
 
         payload = json.loads(response.body)
@@ -379,7 +379,7 @@ class TestIssueHistoryEndpoint:
         )()
         mock_fetcher = AsyncMock()
         mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=mock_issue)
-        with patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher):
+        with patch("dashboard_routes._routes.IssueFetcher", return_value=mock_fetcher):
             response = await endpoint(limit=100)
 
         payload = json.loads(response.body)
@@ -1102,8 +1102,8 @@ class TestEnrichmentErrorResilience:
         mock_fetcher = AsyncMock()
         mock_fetcher.fetch_issue_by_number = AsyncMock(side_effect=_side_effect)
         with (
-            patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher),
-            patch("dashboard_routes.logger") as mock_logger,
+            patch("dashboard_routes._routes.IssueFetcher", return_value=mock_fetcher),
+            patch("dashboard_routes._routes.logger") as mock_logger,
         ):
             response = await endpoint(limit=100)
 
@@ -1162,8 +1162,8 @@ class TestEnrichmentErrorResilience:
         mock_fetcher = AsyncMock()
         mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=mock_issue)
         with (
-            patch("dashboard_routes.IssueFetcher", return_value=mock_fetcher),
-            patch("dashboard_routes.parse_task_links", return_value=[bad_link]),
+            patch("dashboard_routes._routes.IssueFetcher", return_value=mock_fetcher),
+            patch("dashboard_routes._routes.parse_task_links", return_value=[bad_link]),
         ):
             response = await endpoint(limit=100)
 

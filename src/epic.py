@@ -86,8 +86,8 @@ def _coerce_merge_strategy(value: str | MergeStrategy) -> MergeStrategy:
 
 
 def parse_epic_sub_issues(body: str) -> list[int]:
-    """Extract issue numbers from checkbox lines in an epic body."""
-    return [int(m) for m in _CHECKBOX_PATTERN.findall(body)]
+    """Extract unique issue numbers from checkbox lines in an epic body, preserving first-occurrence order."""
+    return list(dict.fromkeys(int(m) for m in _CHECKBOX_PATTERN.findall(body)))
 
 
 def check_all_checkboxes(body: str) -> str:
@@ -274,13 +274,8 @@ class EpicCompletionChecker:
         if fixed_label:
             await self._prs.add_labels(epic_number, [fixed_label])
 
-        # Create release if feature is enabled
         release_url = ""
         generated_changelog = ""
-        if self._config.release_on_epic_close:
-            release_url, generated_changelog = await self._create_release_for_epic(
-                epic_number, epic_title, sub_issues
-            )
 
         close_comment = "All sub-issues resolved — closing epic automatically."
         if excluded_issues:

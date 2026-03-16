@@ -495,7 +495,6 @@ class HydraFlowOrchestrator:
         """Emit pipeline stats every ~10 seconds."""
         interval = self.get_bg_worker_interval("pipeline_poller")
         stats_failures = 0
-        crate_failures = 0
         while not self._stop_event.is_set():
             try:
                 await self.emit_pipeline_stats()
@@ -511,27 +510,6 @@ class HydraFlowOrchestrator:
                     )
                 else:
                     logger.exception("Pipeline stats emission failed")
-            # Auto-package uncrated issues into a new crate when enabled
-            try:
-                if (
-                    self._config.auto_crate
-                    and self._svc.crate_manager.active_crate_number is None
-                ):
-                    uncrated = self._svc.store.get_uncrated_issues()
-                    if uncrated:
-                        await self._svc.crate_manager.auto_package_if_needed(uncrated)
-                crate_failures = 0
-            except Exception as exc:
-                crate_failures += 1
-                if is_likely_bug(exc) or crate_failures >= 5:
-                    logger.critical(
-                        "Auto-crate packaging failed (%s, %d consecutive)",
-                        type(exc).__name__,
-                        crate_failures,
-                        exc_info=True,
-                    )
-                else:
-                    logger.exception("Auto-crate packaging failed")
             await self._sleep_or_stop(interval)
 
     def _restore_state(self) -> None:
@@ -615,16 +593,6 @@ class HydraFlowOrchestrator:
         self._stop_event.clear()
         self._running = True
         self._restore_state()
-        if (
-            not self._config.auto_crate
-            and self._svc.crate_manager.active_crate_number is not None
-        ):
-            logger.info(
-                "Auto-crate disabled; clearing active crate %s",
-                self._svc.crate_manager.active_crate_number,
-            )
-            self._state.set_active_crate_number(None)
-
         await self._publish_status()
         logger.info(
             "HydraFlow starting — repo=%s label=%s workers=%d poll=%ds",
@@ -1084,7 +1052,7 @@ class HydraFlowOrchestrator:
                 exc = task.exception()
                 if exc is not None:
                     if isinstance(
-                        exc, (AuthenticationError, CreditExhaustedError, MemoryError)
+                        exc, AuthenticationError | CreditExhaustedError | MemoryError
                     ):
                         # Cancel remaining and propagate fatal errors
                         for t in pending:
@@ -1229,12 +1197,9 @@ class HydraFlowOrchestrator:
             )
 
             data: SystemAlertPayload = {
-                "message": (
-                    f"Credit limit reached. Pausing all loops until "
-                    f"{resume_at.strftime('%H:%M UTC')}. "
-                    f"Will resume automatically."
-                ),
+                "message": "Credit limit reached. Pausing all loops.",
                 "source": source,
+                "resume_at": resume_at.isoformat(),
             }
             await self._bus.publish(
                 HydraFlowEvent(

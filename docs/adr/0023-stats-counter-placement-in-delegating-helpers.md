@@ -1,7 +1,7 @@
 # ADR-0023: Stats Counter Placement When Delegating to Conditional Helpers
 
-**Status:** Proposed
-**Date:** 2026-03-08
+**Status:** Rejected
+**Date:** 2026-03-16
 
 ## Context
 
@@ -20,7 +20,7 @@ This violates the mutual-exclusivity invariant: a single event should increment
 exactly one counter along its resolution path.
 
 This pattern was identified in memory #2298 and mirrors the counter-placement
-principle established in ADR-0017 (auto-decompose triage counter exclusion),
+principle established in ADR-0017 (Auto-Decompose Triage Path Excluded from Session Counter),
 where `"triaged"` is only incremented inside branches that actually route
 forward to the planning queue.
 
@@ -54,7 +54,7 @@ returns `False`), not unconditionally after the call. A separate
   mutually exclusive counters.
 - Co-locates counter logic with branching logic, making stats behavior
   easier to audit and reason about.
-- Consistent with the counter-placement pattern established in ADR-0017.
+- Consistent with the counter-placement pattern established in ADR-0017 (Auto-Decompose Triage Path Excluded from Session Counter).
 
 **Trade-offs:**
 - Counter increments are distributed across helper methods rather than
@@ -83,10 +83,12 @@ returns `False`), not unconditionally after the call. A separate
 
 ## Related
 
+- Duplicate resolution: #3013
 - Source memory: #2298
 - Issue: #2306
-- ADR-0017 (Auto-Decompose Triage Counter Exclusion) — establishes the
+- ADR-0017 (Auto-Decompose Triage Path Excluded from Session Counter) — establishes the
   counter-placement principle for triage paths
+- [ADR-0023 (Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking)](0023-auto-triage-toggle-must-gate-routing.md) — canonical ADR whose Rule 4 already covers this counter-placement principle
 - ADR-0014 (Session Counter Forward-Progression Semantics) — defines
   counter semantics across the pipeline
 - `src/adr_reviewer.py` — `_route_result()`, `_route_to_triage()`,

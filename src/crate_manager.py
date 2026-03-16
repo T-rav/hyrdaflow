@@ -134,13 +134,11 @@ class CrateManager:
         return f"{date_prefix}.{max_iter + 1}"
 
     async def auto_package_if_needed(self, uncrated: list[Task]) -> None:
-        """When ``auto_crate`` is enabled and there is no active crate, create one.
+        """When there is no active crate, create one.
 
         Creates a milestone named ``YYYY-MM-DD.N``, assigns all
         *uncrated* issues to it, and activates it.
         """
-        if not self._config.auto_crate:
-            return
         if self.active_crate_number is not None:
             return
         if not uncrated:

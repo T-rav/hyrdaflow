@@ -49,7 +49,6 @@ class ReviewRunner(BaseRunner):
     """
 
     _log = logger
-    _MAX_CI_LOG_PROMPT_CHARS = 6_000
 
     @staticmethod
     def _format_code_scanning_alerts(
@@ -390,9 +389,9 @@ Then a brief summary on the next line starting with "SUMMARY: ".
         """Build a focused prompt for fixing CI failures."""
         raw_ci_logs = ci_logs or ""
         compact_ci_logs = raw_ci_logs
-        if len(compact_ci_logs) > self._MAX_CI_LOG_PROMPT_CHARS:
+        if len(compact_ci_logs) > self._config.max_ci_log_prompt_chars:
             compact_ci_logs = (
-                compact_ci_logs[: self._MAX_CI_LOG_PROMPT_CHARS]
+                compact_ci_logs[: self._config.max_ci_log_prompt_chars]
                 + f"\n\n[CI logs truncated from {len(raw_ci_logs):,} chars]"
             )
 
@@ -621,16 +620,15 @@ Then a brief summary on the next line starting with "SUMMARY: ".
 
         manifest_section, memory_section = self._inject_manifest_and_memory()
 
-        # Runtime log injection (opt-in)
+        # Runtime log injection
         log_section = ""
-        if self._config.inject_runtime_logs:
-            from log_context import load_runtime_logs  # noqa: PLC0415
+        from log_context import load_runtime_logs  # noqa: PLC0415
 
-            logs = load_runtime_logs(self._config)
-            if logs:
-                log_section = f"\n\n## Recent Application Logs\n\n```\n{logs}\n```"
+        logs = load_runtime_logs(self._config)
+        if logs:
+            log_section = f"\n\n## Recent Application Logs\n\n```\n{logs}\n```"
 
-        # Code scanning alerts injection (opt-in)
+        # Code scanning alerts injection
         scanning_section = ""
         if code_scanning_alerts:
             formatted = self._format_code_scanning_alerts(
@@ -704,6 +702,7 @@ Quality: No issues — <justification>
      - New branches/conditions introduced by the PR have corresponding test cases
    - Check for security issues (injection, crypto, auth)
    - Merge-artifact check: look for duplicate Pydantic Field definitions, duplicate function parameters, or duplicate keyword arguments — these arise when concurrent PRs add the same field and get merged sequentially
+   - **Duplicate type alias check** — for any module-to-package refactors in the diff, grep for `= Annotated[` defined in multiple sub-modules; flag inline copies that should be imported from a single canonical location
 {ui_criteria}
 ## If Issues Found
 

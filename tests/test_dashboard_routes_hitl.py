@@ -96,7 +96,7 @@ class TestHITLEndpointCause:
 
         get_hitl = find_endpoint(router, "/api/hitl")
         assert get_hitl is not None
-        with patch("dashboard_routes.asyncio.create_task") as mock_create_task:
+        with patch("dashboard_routes._routes.asyncio.create_task") as mock_create_task:
             response = await get_hitl()
             import json
 
@@ -293,71 +293,6 @@ class TestHITLEndpointCause:
         items = json.loads(response.body)
         assert len(items) == 1
         assert items[0]["cause"] == "CI failed after 2 fix attempt(s)"
-
-    @pytest.mark.asyncio
-    async def test_hitl_filters_memory_suggestions_when_auto_approve_enabled(
-        self, event_bus: EventBus, tmp_path: Path
-    ) -> None:
-        """With memory_auto_approve=True, memory items excluded from response."""
-        from state import StateTracker
-        from tests.helpers import ConfigFactory
-
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path / "repo",
-            state_file=tmp_path / "state.json",
-            memory_auto_approve=True,
-            transcript_summarization_enabled=False,
-            gh_token="",
-        )
-        st = StateTracker(cfg.state_file)
-
-        router, pr_mgr = make_dashboard_router(cfg, event_bus, st, tmp_path)
-
-        # Mark issue 42 as a memory suggestion (origin = improve label)
-        st.set_hitl_origin(42, "hydraflow-improve")
-        st.set_hitl_cause(42, "Actionable memory suggestion (config)")
-
-        # Also add a non-memory HITL item
-        st.set_hitl_origin(43, "hydraflow-review")
-        st.set_hitl_cause(43, "CI failed after 2 fix attempt(s)")
-
-        hitl_items = [
-            HITLItem(issue=42, title="Memory suggestion", pr=101),
-            HITLItem(issue=43, title="CI failure", pr=102),
-        ]
-        pr_mgr.list_hitl_items = AsyncMock(return_value=hitl_items)  # type: ignore[method-assign]
-
-        get_hitl = find_endpoint(router, "/api/hitl")
-        assert get_hitl is not None
-        response = await get_hitl()
-        import json
-
-        items = json.loads(response.body)
-        # Only the non-memory item should remain
-        assert len(items) == 1
-        assert items[0]["issue"] == 43
-
-    @pytest.mark.asyncio
-    async def test_hitl_keeps_memory_suggestions_when_auto_approve_disabled(
-        self, config, event_bus: EventBus, state, tmp_path: Path
-    ) -> None:
-        """With memory_auto_approve=False (default), memory items included."""
-        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
-
-        state.set_hitl_origin(42, "hydraflow-improve")
-        state.set_hitl_cause(42, "Actionable memory suggestion (config)")
-
-        hitl_item = HITLItem(issue=42, title="Memory suggestion", pr=101)
-        pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
-
-        get_hitl = find_endpoint(router, "/api/hitl")
-        assert get_hitl is not None
-        response = await get_hitl()
-        import json
-
-        items = json.loads(response.body)
-        assert len(items) == 1
-        assert items[0]["isMemorySuggestion"] is True
 
     @pytest.mark.asyncio
     async def test_hitl_endpoint_includes_visual_evidence_when_set(
@@ -1187,13 +1122,13 @@ class TestBuildHitlContextNoneBody:
 
         with (
             patch(
-                "dashboard_routes.IssueFetcher",
+                "dashboard_routes._routes.IssueFetcher",
                 return_value=MagicMock(
                     fetch_issue_by_number=AsyncMock(return_value=issue)
                 ),
             ),
             patch(
-                "dashboard_routes.TranscriptSummarizer",
+                "dashboard_routes._routes.TranscriptSummarizer",
                 return_value=MagicMock(
                     summarize_hitl_context=AsyncMock(side_effect=_mock_summarize)
                 ),

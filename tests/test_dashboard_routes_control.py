@@ -63,7 +63,6 @@ class TestControlStatusAppVersion:
     async def test_control_status_includes_app_version(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
-
         from app_version import get_app_version
 
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
@@ -79,11 +78,10 @@ class TestControlStatusAppVersion:
     async def test_control_status_includes_cached_update_details(
         self, config, event_bus: EventBus, state, tmp_path: Path, monkeypatch
     ) -> None:
-
         from update_check import UpdateCheckResult
 
         monkeypatch.setattr(
-            "dashboard_routes.load_cached_update_result",
+            "dashboard_routes._routes.load_cached_update_result",
             lambda **_kwargs: UpdateCheckResult(
                 current_version="0.9.1",
                 latest_version="0.9.2",
@@ -103,94 +101,11 @@ class TestControlStatusAppVersion:
         assert data["config"]["update_available"] is True
 
 
-class TestControlStatusMemoryAutoApprove:
-    """Tests that /api/control/status includes memory_auto_approve."""
+class TestPatchConfigUnknownField:
+    """Tests that PATCH /api/control/config ignores unknown fields."""
 
     @pytest.mark.asyncio
-    async def test_control_status_includes_memory_auto_approve_default(
-        self, config, event_bus: EventBus, state, tmp_path: Path
-    ) -> None:
-        """GET /api/control/status should include memory_auto_approve (default False)."""
-
-        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
-        get_control_status = find_endpoint(router, "/api/control/status")
-        assert get_control_status is not None
-
-        response = await get_control_status()
-        data = json.loads(response.body)
-        assert "config" in data
-        assert data["config"]["memory_auto_approve"] is False
-
-    @pytest.mark.asyncio
-    async def test_control_status_reflects_memory_auto_approve_true(
-        self, event_bus: EventBus, state, tmp_path: Path
-    ) -> None:
-        """GET /api/control/status should reflect True when config has it enabled."""
-
-        from tests.helpers import ConfigFactory
-
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-            memory_auto_approve=True,
-        )
-        router, _ = make_dashboard_router(cfg, event_bus, state, tmp_path)
-        get_control_status = find_endpoint(router, "/api/control/status")
-        assert get_control_status is not None
-
-        response = await get_control_status()
-        data = json.loads(response.body)
-        assert data["config"]["memory_auto_approve"] is True
-
-
-class TestPatchConfigMemoryAutoApprove:
-    """Tests that PATCH /api/control/config accepts memory_auto_approve."""
-
-    @pytest.mark.asyncio
-    async def test_patch_config_enables_memory_auto_approve(
-        self, config, event_bus: EventBus, state, tmp_path: Path
-    ) -> None:
-        """PATCH /api/control/config with memory_auto_approve=True should update config."""
-
-        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
-        patch_config = find_endpoint(router, "/api/control/config")
-        assert patch_config is not None
-
-        assert config.memory_auto_approve is False
-        response = await patch_config({"memory_auto_approve": True})
-        data = json.loads(response.body)
-        assert data["status"] == "ok"
-        assert data["updated"]["memory_auto_approve"] is True
-        assert config.memory_auto_approve is True
-
-    @pytest.mark.asyncio
-    async def test_patch_config_disables_memory_auto_approve(
-        self, event_bus: EventBus, state, tmp_path: Path
-    ) -> None:
-        """PATCH /api/control/config with memory_auto_approve=False should update config."""
-
-        from tests.helpers import ConfigFactory
-
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-            memory_auto_approve=True,
-        )
-        router, _ = make_dashboard_router(cfg, event_bus, state, tmp_path)
-        patch_config = find_endpoint(router, "/api/control/config")
-        assert patch_config is not None
-
-        assert cfg.memory_auto_approve is True
-        response = await patch_config({"memory_auto_approve": False})
-        data = json.loads(response.body)
-        assert data["status"] == "ok"
-        assert data["updated"]["memory_auto_approve"] is False
-        assert cfg.memory_auto_approve is False
-
-    @pytest.mark.asyncio
-    async def test_patch_config_memory_auto_approve_ignored_field(
+    async def test_patch_config_ignored_field(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Unknown fields in PATCH should be ignored without error."""
@@ -328,7 +243,6 @@ class TestBgWorkerToggleEndpoint:
     async def test_bg_worker_toggle_returns_error_without_orchestrator(
         self, config, event_bus, state, tmp_path
     ) -> None:
-
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
         toggle = find_endpoint(router, "/api/control/bg-worker")
         assert toggle is not None
@@ -359,7 +273,6 @@ class TestBgWorkerToggleEndpoint:
     async def test_bg_worker_toggle_calls_orchestrator(
         self, config, event_bus, state, tmp_path
     ) -> None:
-
         mock_orch = MagicMock()
         mock_orch.set_bg_worker_enabled = MagicMock()
         router, _ = make_dashboard_router(
@@ -605,6 +518,23 @@ class TestBgWorkerIntervalEndpoint:
         data = json.loads(response.body)
         assert response.status_code == 422
         assert "between 28800 and 432000" in data["error"]
+
+    def test_interval_bounds_importable_from_module(self) -> None:
+        """_INTERVAL_BOUNDS should be a module-level constant, not closure-scoped."""
+        from dashboard_routes import _INTERVAL_BOUNDS
+
+        assert isinstance(_INTERVAL_BOUNDS, dict)
+        assert "memory_sync" in _INTERVAL_BOUNDS
+        assert "metrics" in _INTERVAL_BOUNDS
+        assert "pr_unsticker" in _INTERVAL_BOUNDS
+        assert "pipeline_poller" in _INTERVAL_BOUNDS
+        assert "adr_reviewer" in _INTERVAL_BOUNDS
+        assert "verify_monitor" in _INTERVAL_BOUNDS
+        # Each entry should be a (min, max) tuple
+        for name, bounds in _INTERVAL_BOUNDS.items():
+            assert isinstance(bounds, tuple), f"{name} bounds should be a tuple"
+            assert len(bounds) == 2, f"{name} bounds should have 2 elements"
+            assert bounds[0] < bounds[1], f"{name} min should be less than max"
 
 
 # ---------------------------------------------------------------------------

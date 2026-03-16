@@ -60,7 +60,7 @@ Adopt a **supervisor-proxied aggregation model** for the multi-repo dashboard:
 
 1. **Embedded multi-repo in a single orchestrator process.**
    Rejected: breaks the subprocess isolation model and complicates resource
-   management. See ADR-0006 for the `RepoRuntime` isolation decision.
+   management. See ADR-0006 (RepoRuntime Isolation Architecture) for the `RepoRuntime` isolation decision.
 
 2. **Client-side aggregation (frontend fetches from multiple ports).**
    Rejected: exposes internal port topology to the browser, requires CORS
@@ -77,5 +77,5 @@ Adopt a **supervisor-proxied aggregation model** for the multi-repo dashboard:
 - `src/hf_cli/supervisor_service.py` (`_start_repo`, `RUNNERS`)
 - `src/dashboard.py`, `src/dashboard_routes.py`
 - `src/ui/src/context/HydraFlowContext.jsx`
-- ADR-0006 (RepoRuntime isolation)
-- ADR-0007 (Dashboard API multi-repo scoping)
+- ADR-0006 (RepoRuntime Isolation Architecture)
+- ADR-0007 (Dashboard API Architecture for Multi-Repo Scoping)
