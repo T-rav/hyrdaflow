@@ -339,8 +339,7 @@ class TestEventBusPublishSubscribe:
         assert queue.get_nowait() is e1
         assert queue.get_nowait() is e2
 
-    @pytest.mark.asyncio
-    async def test_subscribe_returns_asyncio_queue(self) -> None:
+    def test_subscribe_returns_asyncio_queue(self) -> None:
         bus = EventBus()
         queue = bus.subscribe()
         assert isinstance(queue, asyncio.Queue)
@@ -444,8 +443,7 @@ class TestEventBusPublishSubscribe:
         await bus.publish(event)
         assert event.repo is None
 
-    @pytest.mark.asyncio
-    async def test_subscribe_with_custom_max_queue(self) -> None:
+    def test_subscribe_with_custom_max_queue(self) -> None:
         bus = EventBus()
         queue = bus.subscribe(max_queue=10)
         assert queue.maxsize == 10
@@ -480,16 +478,14 @@ class TestEventBusUnsubscribe:
         assert q1.empty()
         assert q2.get_nowait() is event
 
-    @pytest.mark.asyncio
-    async def test_unsubscribe_nonexistent_queue_is_noop(self) -> None:
+    def test_unsubscribe_nonexistent_queue_is_noop(self) -> None:
         bus = EventBus()
         orphan: asyncio.Queue[HydraFlowEvent] = asyncio.Queue()
         # Should not raise
         bus.unsubscribe(orphan)
         assert orphan not in bus._subscribers
 
-    @pytest.mark.asyncio
-    async def test_unsubscribe_same_queue_twice_is_noop(self) -> None:
+    def test_unsubscribe_same_queue_twice_is_noop(self) -> None:
         bus = EventBus()
         queue = bus.subscribe()
         bus.unsubscribe(queue)
@@ -548,8 +544,7 @@ class TestEventBusHistory:
             )
         assert len(bus.get_history()) == 10
 
-    @pytest.mark.asyncio
-    async def test_empty_history_on_new_bus(self) -> None:
+    def test_empty_history_on_new_bus(self) -> None:
         bus = EventBus()
         assert bus.get_history() == []
 
@@ -629,8 +624,7 @@ class TestEventBusClear:
         await bus.publish(EventFactory.create(type=EventType.ORCHESTRATOR_STATUS))
         assert queue.empty()
 
-    @pytest.mark.asyncio
-    async def test_clear_on_empty_bus_does_not_raise(self) -> None:
+    def test_clear_on_empty_bus_does_not_raise(self) -> None:
         bus = EventBus()
         bus.clear()  # should not raise
         assert bus._subscribers == []

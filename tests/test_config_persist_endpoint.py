@@ -45,8 +45,7 @@ def _find_endpoint(router, path, method="PATCH"):
 class TestPatchConfigEndpoint:
     """Tests for the PATCH /api/control/config endpoint."""
 
-    @pytest.mark.asyncio
-    async def test_patch_config_route_exists(
+    def test_patch_config_route_exists(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Router should include PATCH /api/control/config."""

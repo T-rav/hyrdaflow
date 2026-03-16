@@ -821,8 +821,7 @@ class TestStaggeredSpawning:
         assert len(times) == 2
         assert times[1] - times[0] >= 0.09  # Allow small tolerance
 
-    @pytest.mark.asyncio
-    async def test_spawn_delay_configurable(self, tmp_path: Path) -> None:
+    def test_spawn_delay_configurable(self, tmp_path: Path) -> None:
         runner, _client = _make_runner(spawn_delay=5.0, log_dir=tmp_path / "logs")
         assert runner._spawn_delay == 5.0
 

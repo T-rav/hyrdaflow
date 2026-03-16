@@ -43,10 +43,7 @@ class TestCrashRecoveryActiveIssues:
         recovered = set(orch._state.get_active_issue_numbers())
         assert recovered == {10, 20}
 
-    @pytest.mark.asyncio
-    async def test_crash_recovery_skips_first_cycle(
-        self, config: HydraFlowConfig
-    ) -> None:
+    def test_crash_recovery_skips_first_cycle(self, config: HydraFlowConfig) -> None:
         """Recovered issues should be in _active_impl_issues for one cycle."""
         orch = HydraFlowOrchestrator(config)
         mock_fetcher_noop(orch)
@@ -63,10 +60,7 @@ class TestCrashRecoveryActiveIssues:
         assert 10 in orch._active_impl_issues
         assert 20 in orch._active_impl_issues
 
-    @pytest.mark.asyncio
-    async def test_crash_recovery_clears_after_cycle(
-        self, config: HydraFlowConfig
-    ) -> None:
+    def test_crash_recovery_clears_after_cycle(self, config: HydraFlowConfig) -> None:
         """After one cycle, recovered issues should be cleared from active sets."""
         orch = HydraFlowOrchestrator(config)
         mock_fetcher_noop(orch)

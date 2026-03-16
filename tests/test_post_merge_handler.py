@@ -324,8 +324,7 @@ class TestPostMergeHandler:
         esc = escalate_fn.await_args.args[0]
         assert esc.cause == "PR merge failed on GitHub: merge conflict"
 
-    @pytest.mark.asyncio
-    async def test_get_judge_result_none(self, config: HydraFlowConfig) -> None:
+    def test_get_judge_result_none(self, config: HydraFlowConfig) -> None:
         """When verdict is None, should return None."""
         handler = _make_handler(config)
         issue = TaskFactory.create()
@@ -334,10 +333,7 @@ class TestPostMergeHandler:
         result = handler._get_judge_result(issue, pr, None)
         assert result is None
 
-    @pytest.mark.asyncio
-    async def test_get_judge_result_converts_verdict(
-        self, config: HydraFlowConfig
-    ) -> None:
+    def test_get_judge_result_converts_verdict(self, config: HydraFlowConfig) -> None:
         """Should convert JudgeVerdict into JudgeResult."""
         handler = _make_handler(config)
         issue = TaskFactory.create()

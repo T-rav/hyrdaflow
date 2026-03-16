@@ -246,8 +246,7 @@ class TestDetectRepoSlugFromPath:
         # For unit-level tests, we mock subprocess and call the endpoint
         pass
 
-    @pytest.mark.asyncio
-    async def test_https_remote_url(self) -> None:
+    def test_https_remote_url(self) -> None:
         """HTTPS remote URL is parsed to owner/repo slug."""
         mock_proc = AsyncMock()
         mock_proc.communicate = AsyncMock(
@@ -262,16 +261,14 @@ class TestDetectRepoSlugFromPath:
         slug = parsed.path.lstrip("/").removesuffix(".git")
         assert slug == "owner/repo"
 
-    @pytest.mark.asyncio
-    async def test_ssh_remote_url(self) -> None:
+    def test_ssh_remote_url(self) -> None:
         """SSH remote URL is parsed to owner/repo slug."""
         url = "git@github.com:owner/repo.git"
         _, _, remainder = url.partition(":")
         slug = remainder.lstrip("/").removesuffix(".git")
         assert slug == "owner/repo"
 
-    @pytest.mark.asyncio
-    async def test_no_remote_returns_none(self) -> None:
+    def test_no_remote_returns_none(self) -> None:
         """Empty stdout means no remote — returns None-equivalent."""
         url = ""
         assert not url  # Would return None in the helper
