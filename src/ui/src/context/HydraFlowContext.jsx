@@ -522,7 +522,9 @@ export function reducer(state, action) {
         ...state,
         pipelineIssues: {
           ...nextOpen,
-          // Server never sends merged — preserve session-accumulated merged items
+          // Merged state comes from the PR overlay (/api/prs merged flag) rather than
+          // the pipeline snapshot — preserve session-accumulated merged items here so
+          // real-time merge_update WS events (which arrive before the next poll) are not lost.
           merged: state.pipelineIssues.merged || [],
         },
         pipelinePollerLastRun: new Date().toISOString(),
