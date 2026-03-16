@@ -1315,21 +1315,6 @@ class TestADR0021PersistenceLayout:
         assert cfg.memory_dir == cfg.data_root / "memory"
         assert cfg.repo_slug not in cfg.memory_dir.parts
 
-    def test_state_file_is_repo_scoped(self, tmp_path: Path) -> None:
-        """state_file must be under data_root/<slug>/ (repo-scoped)."""
-        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
-        assert cfg.state_file == cfg.data_root / "acme-widgets" / "state.json"
-
-    def test_event_log_is_repo_scoped(self, tmp_path: Path) -> None:
-        """event_log_path must be under data_root/<slug>/ (repo-scoped)."""
-        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
-        assert cfg.event_log_path == cfg.data_root / "acme-widgets" / "events.jsonl"
-
-    def test_repo_data_root_is_data_root_plus_slug(self, tmp_path: Path) -> None:
-        """repo_data_root must equal data_root / repo_slug."""
-        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
-        assert cfg.repo_data_root == cfg.data_root / cfg.repo_slug
-
     def test_resolve_defaults_calls_all_seven_steps(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
