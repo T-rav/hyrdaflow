@@ -1209,16 +1209,63 @@ class TestStaleReportSweep:
         closed = loop._sweep_stale_reports()
         assert closed == 0
 
-    def test_naive_datetime_skipped(self, tmp_path: Path) -> None:
-        """Reports with naive (timezone-unaware) created_at are skipped gracefully."""
+    def test_naive_datetime_skipped(self, tmp_path: Path, caplog: Any) -> None:
+        """Reports with naive (timezone-unaware) created_at are skipped with a warning."""
+        import logging
+
         loop, _stop, state, _pr = _make_loop(tmp_path)
         # Naive datetime string (no UTC offset) — from old state files
         report = PendingReport(description="Legacy report")
         report.created_at = "2020-01-01T00:00:00"  # naive, no tz info
         state.enqueue_report(report)
 
-        # Should not raise TypeError from aware-naive subtraction
-        closed = loop._sweep_stale_reports()
+        with caplog.at_level(logging.WARNING, logger="hydraflow.report_issue_loop"):
+            closed = loop._sweep_stale_reports()
 
         assert closed == 0
         assert state.peek_report() is not None
+        assert any("unparseable created_at" in r.message for r in caplog.records)
+
+    def test_stale_report_no_tracked_report_warns(
+        self, tmp_path: Path, caplog: Any
+    ) -> None:
+        """When a stale PendingReport has no TrackedReport, a warning is emitted."""
+        import logging
+
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        old_time = (datetime.now(UTC) - timedelta(hours=10)).isoformat()
+        report = PendingReport(description="Orphan stale bug")
+        report.created_at = old_time
+        state.enqueue_report(report)
+        # Deliberately do NOT add a TrackedReport for this report
+
+        with caplog.at_level(logging.WARNING, logger="hydraflow.report_issue_loop"):
+            closed = loop._sweep_stale_reports()
+
+        assert closed == 1
+        assert state.peek_report() is None
+        assert any("no TrackedReport" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_drain_loop_exits_when_sweep_clears_all_reports(
+        self, tmp_path: Path
+    ) -> None:
+        """Startup drain terminates cleanly when sweep removes all remaining reports."""
+        loop, stop_event, state, _pr = _make_loop(tmp_path)
+
+        old_time = (datetime.now(UTC) - timedelta(hours=10)).isoformat()
+        stale = PendingReport(description="Stale startup bug")
+        stale.created_at = old_time
+        state.enqueue_report(stale)
+
+        super_run_called = []
+
+        async def patched_super_run(self_inner: Any) -> None:
+            super_run_called.append(True)
+
+        with patch.object(loop.__class__.__bases__[0], "run", patched_super_run):
+            await loop.run()
+
+        # Sweep should have removed the stale report, drain exits, super().run() called
+        assert state.peek_report() is None
+        assert super_run_called == [True]

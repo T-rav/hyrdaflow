@@ -88,15 +88,26 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 created = datetime.fromisoformat(report.created_at)
                 age_hours = (now - created).total_seconds() / 3600
             except (ValueError, TypeError):
+                logger.warning(
+                    "Skipping stale-sweep for report %s: unparseable created_at %r",
+                    report.id,
+                    report.created_at,
+                )
                 continue
             if age_hours >= threshold_hours:
                 self._state.remove_report(report.id)
-                self._state.update_tracked_report(
+                updated = self._state.update_tracked_report(
                     report.id,
                     status="closed",
                     action_label="stale",
                     detail=f"Auto-closed after {age_hours:.1f}h (threshold: {threshold_hours}h)",
                 )
+                if updated is None:
+                    logger.warning(
+                        "Stale report %s removed from queue but has no TrackedReport — "
+                        "no audit trail recorded",
+                        report.id,
+                    )
                 logger.info(
                     "Auto-closed stale report %s (age %.1fh, threshold %dh)",
                     report.id,
