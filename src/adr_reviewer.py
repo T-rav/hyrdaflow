@@ -261,7 +261,7 @@ and output a structured final result.
 ## Judge Roles
 - Architect: structural soundness, consistency with existing ADRs, scope
 - Pragmatist: practical value, implementation status, significance threshold
-- Editor: clarity, completeness, duplicates, formatting
+- Editor: clarity, completeness, duplicates, formatting, flag any line-number citations (e.g. "(line 42)") as volatile — use function/class names only
 
 ## Meeting Protocol
 

@@ -13,10 +13,10 @@ original issue, and marks it as `"decomposed"` in the state tracker.
 Both call sites that execute `increment_session_counter("triaged")` sit
 inside branches guarded by `if not _maybe_decompose(...)`:
 
-1. **Normal plan routing** (line 121): counter incremented only when the issue
+1. **Normal plan routing** (`_route_to_plan`): counter incremented only when the issue
    is transitioned to the `planner_label` queue — i.e., when decomposition
    did **not** fire.
-2. **ADR fast-path** (line 97): counter incremented when a valid ADR issue is
+2. **ADR fast-path** (`_route_adr`): counter incremented when a valid ADR issue is
    routed directly to `ready` — decomposition is not attempted for ADR issues.
 
 When `_maybe_decompose()` returns `True`, the original issue is closed and
