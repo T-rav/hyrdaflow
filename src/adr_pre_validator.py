@@ -387,7 +387,7 @@ class ADRPreValidator:
                             f"`{file_path}:{symbol}` is cited but "
                             f"`{symbol}` is not defined as a function or class in `{file_path}`"
                         ),
-                        fixable=True,
+                        fixable=False,
                     )
                 )
 

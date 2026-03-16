@@ -728,8 +728,8 @@ class TestCheckSourceFunctionRefs:
         codes = [i.code for i in result.issues]
         assert "phantom_source_symbol" not in codes
 
-    def test_phantom_symbol_is_fixable(self, tmp_path: Path) -> None:
-        """Phantom source symbol issues are marked as fixable."""
+    def test_phantom_symbol_is_not_fixable(self, tmp_path: Path) -> None:
+        """Phantom source symbol issues are NOT auto-fixable: the correct name requires human judgment."""
         src = tmp_path / "src"
         src.mkdir()
         (src / "config.py").write_text("def real_func():\n    pass\n")
@@ -737,7 +737,22 @@ class TestCheckSourceFunctionRefs:
         validator = ADRPreValidator()
         result = validator.validate(content, repo_root=tmp_path)
         issue = next(i for i in result.issues if i.code == "phantom_source_symbol")
-        assert issue.fixable is True
+        assert issue.fixable is False
+
+    def test_module_level_constant_flagged_as_phantom(self, tmp_path: Path) -> None:
+        """A cited module-level constant (not def/class) is flagged as phantom.
+
+        ADRs should cite only functions or classes, not constants or type aliases.
+        This documents the expected behavior for authors who accidentally cite a constant.
+        """
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "config.py").write_text("MY_CONSTANT = 42\n")
+        content = _valid_adr(context="See `src/config.py:MY_CONSTANT` for details.")
+        validator = ADRPreValidator()
+        result = validator.validate(content, repo_root=tmp_path)
+        codes = [i.code for i in result.issues]
+        assert "phantom_source_symbol" in codes
 
     def test_multiple_phantom_symbols_detected(self, tmp_path: Path) -> None:
         """Multiple phantom symbols from different files are each flagged."""
