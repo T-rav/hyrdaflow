@@ -952,6 +952,73 @@ async def test_get_commit_stat_returns_empty_when_no_stdout(
     assert result == ""
 
 
+@pytest.mark.asyncio
+async def test_get_commit_stat_uses_before_sha_range(config, event_bus, tmp_path):
+    """_get_commit_stat passes 'before_sha..HEAD' when before_sha is provided."""
+    runner = _make_runner(config, event_bus)
+    stat_output = " src/foo.py | 2 +-\n 1 file changed"
+
+    mock_result = AsyncMock()
+    mock_result.returncode = 0
+    mock_result.stdout = stat_output
+
+    mock_run_simple = AsyncMock(return_value=mock_result)
+    with patch.object(runner._runner, "run_simple", mock_run_simple):
+        result = await runner._get_commit_stat(tmp_path, before_sha="abc123")
+
+    assert result == stat_output.strip()
+    called_args = mock_run_simple.call_args[0][0]
+    assert "abc123..HEAD" in called_args
+
+
+@pytest.mark.asyncio
+async def test_get_commit_stat_falls_back_to_head1_without_before_sha(
+    config, event_bus, tmp_path
+):
+    """_get_commit_stat uses HEAD~1 when before_sha is not provided."""
+    runner = _make_runner(config, event_bus)
+
+    mock_result = AsyncMock()
+    mock_result.returncode = 0
+    mock_result.stdout = " src/foo.py | 1 +\n 1 file changed"
+
+    mock_run_simple = AsyncMock(return_value=mock_result)
+    with patch.object(runner._runner, "run_simple", mock_run_simple):
+        await runner._get_commit_stat(tmp_path)
+
+    called_args = mock_run_simple.call_args[0][0]
+    assert "HEAD~1" in called_args
+
+
+# ---------------------------------------------------------------------------
+# Warning path: fixes_made=True but files_changed=[]
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_review_logs_warning_when_fixes_made_but_no_committed_files(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """review() warns when fixes_made is True but no committed file changes are detected."""
+    runner = _make_runner(config, event_bus)
+    transcript = "Fixed.\nVERDICT: APPROVE\nSUMMARY: Fixed it"
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_get_changed_files", AsyncMock(return_value=[])),
+        patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
+        patch.object(runner, "_save_transcript"),
+        patch("reviewer.logger") as mock_logger,
+    ):
+        result = await runner.review(pr_info, task, tmp_path, "diff")
+
+    mock_logger.warning.assert_called_once()
+    assert result.fixes_made is True
+    assert result.files_changed == []
+    assert result.commit_stat == ""
+
+
 # ---------------------------------------------------------------------------
 # commit_stat populated in review/fix_ci/fix_review_findings
 # ---------------------------------------------------------------------------
@@ -994,6 +1061,7 @@ async def test_review_commit_stat_empty_when_no_fixes(
     with (
         patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
         patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_get_changed_files", AsyncMock(return_value=[])),
         patch.object(runner, "_has_changes", AsyncMock(return_value=False)),
         patch.object(runner, "_get_commit_stat", AsyncMock(return_value="should not")),
         patch.object(runner, "_save_transcript"),
@@ -1043,6 +1111,7 @@ async def test_fix_ci_commit_stat_empty_when_no_fixes(
     with (
         patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
         patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_get_changed_files", AsyncMock(return_value=[])),
         patch.object(runner, "_has_changes", AsyncMock(return_value=False)),
         patch.object(runner, "_get_commit_stat", AsyncMock(return_value="should not")),
         patch.object(runner, "_save_transcript"),
@@ -1094,6 +1163,7 @@ async def test_fix_review_findings_commit_stat_empty_when_no_fixes(
     with (
         patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
         patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_get_changed_files", AsyncMock(return_value=[])),
         patch.object(runner, "_has_changes", AsyncMock(return_value=False)),
         patch.object(runner, "_get_commit_stat", AsyncMock(return_value="should not")),
         patch.object(runner, "_save_transcript"),
@@ -1554,13 +1624,27 @@ def test_build_review_prompt_includes_scope_creep_check(
 def test_build_review_prompt_includes_post_commit_scope_creep_verification(
     config, event_bus, pr_info, task
 ):
-    """Reviewer prompt must require git diff --stat verification after scope-creep removal commits."""
+    """Reviewer prompt must require git diff --stat verification after commits (scope-creep removal still mentioned)."""
     runner = _make_runner(config, event_bus)
     prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "diff")
 
     assert "Post-commit verification" in prompt
     assert "git diff --stat HEAD~1" in prompt
     assert "scope-creep removal" in prompt.lower()
+
+
+def test_build_review_prompt_stat_verification_for_each_commit(
+    config, event_bus, pr_info, task
+):
+    """Review prompt must require stat verification for each commit, not just scope-creep."""
+    runner = _make_runner(config, event_bus)
+    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "diff")
+    lower = prompt.lower()
+
+    assert "git diff --stat head~1" in lower
+    assert "verify your commit" in lower
+    assert "intended file appears" in lower
+    assert "after each commit" in lower
 
 
 # ---------------------------------------------------------------------------
@@ -2055,6 +2139,34 @@ def test_build_review_fix_prompt_contains_feedback(config, event_bus):
     assert "VERDICT:" in prompt
 
 
+def test_build_review_fix_prompt_includes_stat_verification(
+    config, event_bus, pr_info, task
+):
+    """Review fix prompt must include git diff --stat HEAD~1 post-commit verification."""
+    runner = _make_runner(config, event_bus)
+    prompt = runner._build_review_fix_prompt(pr_info, task, "Some feedback")
+    lower = prompt.lower()
+
+    assert "git diff --stat head~1" in lower
+    assert "verify your commit" in lower
+    assert "intended file appears" in lower
+    assert "after each commit" in lower
+
+
+def test_build_ci_fix_prompt_includes_stat_verification(
+    config, event_bus, pr_info, task
+):
+    """CI fix prompt must include git diff --stat HEAD~1 post-commit verification."""
+    runner = _make_runner(config, event_bus)
+    prompt, _ = runner._build_ci_fix_prompt(pr_info, task, "CI failed", 1)
+    lower = prompt.lower()
+
+    assert "git diff --stat head~1" in lower
+    assert "verify your commit" in lower
+    assert "intended file appears" in lower
+    assert "after each commit" in lower
+
+
 # ---------------------------------------------------------------------------
 # is_likely_bug re-raise — review()
 # ---------------------------------------------------------------------------
@@ -2403,6 +2515,7 @@ async def test_fix_review_findings_populates_files_changed(
             runner, "_get_changed_files", AsyncMock(return_value=["src/fix.py"])
         ),
         patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
+        patch.object(runner, "_get_commit_stat", AsyncMock(return_value="")),
         patch.object(runner, "_save_transcript"),
     ):
         result = await runner.fix_review_findings(
@@ -2456,6 +2569,7 @@ async def test_review_logs_changed_files_when_fixes_made(
             AsyncMock(return_value=["src/reviewer.py"]),
         ),
         patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
+        patch.object(runner, "_get_commit_stat", AsyncMock(return_value="")),
         patch.object(runner, "_save_transcript"),
         caplog.at_level("INFO", logger="hydraflow.reviewer"),
     ):
@@ -2664,6 +2778,7 @@ async def test_fix_review_findings_publishes_review_update_event(
             runner, "_get_changed_files", AsyncMock(return_value=["src/fix.py"])
         ),
         patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
+        patch.object(runner, "_get_commit_stat", AsyncMock(return_value="")),
         patch.object(runner, "_save_transcript"),
     ):
         await runner.fix_review_findings(pr_info, task, tmp_path, "Missing null check")
