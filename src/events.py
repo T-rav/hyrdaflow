@@ -14,7 +14,7 @@ from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel, Field, ValidationError
 
-from file_util import atomic_write
+from file_util import append_jsonl, atomic_write
 
 
 class _Counter:
@@ -135,8 +135,6 @@ class EventLog:
     def _append_sync(self, line: str) -> None:
         """Synchronous append — called via ``asyncio.to_thread``."""
         try:
-            from file_util import append_jsonl  # noqa: PLC0415
-
             append_jsonl(self._path, line)
         except OSError:
             logger.warning(

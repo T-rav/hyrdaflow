@@ -23,6 +23,12 @@ from models import (
     WorkerResult,
 )
 from subprocess_util import CreditExhaustedError
+from tests.conftest import (
+    PlanResultFactory,
+    PRInfoFactory,
+    ReviewResultFactory,
+    WorkerResultFactory,
+)
 
 
 class FakeRunner:
@@ -109,12 +115,11 @@ class ScriptedGitHub:
         self._prs: dict[int, PRInfo] = {}
 
     def open_pr(self, issue: Task) -> PRInfo:
-        pr = PRInfo(
+        pr = PRInfoFactory.create(
             number=self._next_pr,
             issue_number=issue.id,
             branch=f"agent/issue-{issue.id}",
             url=f"https://example.test/pr/{self._next_pr}",
-            draft=False,
         )
         self._next_pr += 1
         self._prs[issue.id] = pr
@@ -197,19 +202,21 @@ class ScriptedPlanPhase:
             if route == "hitl":
                 self._store.enqueue_transition(issue, "hitl")
                 results.append(
-                    PlanResult(
+                    PlanResultFactory.create(
                         issue_number=issue.id,
                         success=False,
                         error="escalated to hitl",
+                        use_defaults=True,
                     )
                 )
             else:
                 self._store.enqueue_transition(issue, "ready")
                 results.append(
-                    PlanResult(
+                    PlanResultFactory.create(
                         issue_number=issue.id,
                         success=True,
                         plan=f"Plan for issue {issue.id}",
+                        use_defaults=True,
                     )
                 )
         return results
@@ -252,11 +259,12 @@ class ScriptedImplementPhase:
             if behavior == "hitl":
                 self._store.enqueue_transition(issue, "hitl")
                 results.append(
-                    WorkerResult(
+                    WorkerResultFactory.create(
                         issue_number=issue.id,
                         branch=branch,
                         success=False,
                         error="escalated",
+                        use_defaults=True,
                     )
                 )
                 continue
@@ -265,21 +273,23 @@ class ScriptedImplementPhase:
                 # simulating a terminal failure (worktree cleaned, issue dropped).
                 self._worktrees.cleanup(issue.id)
                 results.append(
-                    WorkerResult(
+                    WorkerResultFactory.create(
                         issue_number=issue.id,
                         branch=branch,
                         success=False,
                         error="implementation failed",
+                        use_defaults=True,
                     )
                 )
                 continue
             self._store.enqueue_transition(issue, "review")
             self._github.open_pr(issue)
             results.append(
-                WorkerResult(
+                WorkerResultFactory.create(
                     issue_number=issue.id,
                     branch=branch,
                     success=True,
+                    use_defaults=True,
                 )
             )
         return results, issues
@@ -303,7 +313,7 @@ class ScriptedReviewPhase:
             action = self._script.review_for(issue.id)
             merged = action == "merge"
             results.append(
-                ReviewResult(
+                ReviewResultFactory.create(
                     pr_number=pr.number,
                     issue_number=issue.id,
                     verdict=ReviewVerdict.APPROVE if merged else ReviewVerdict.COMMENT,

@@ -29,7 +29,6 @@ from models import (
     PipelineIssue,
     PipelineIssueStatus,
     PipelineStage,
-    PRInfo,
     PRListItem,
     ReportIssueResponse,
     ReviewStatus,
@@ -41,6 +40,7 @@ from models import (
     TriageResult,
     VerificationCriteria,
 )
+from tests.conftest import IssueFactory, PRInfoFactory
 
 # ---------------------------------------------------------------------------
 # URL Validation
@@ -51,13 +51,13 @@ class TestUrlValidation:
     """Tests for HttpUrl validation on URL fields."""
 
     def test_valid_https_url_accepted_on_github_issue(self) -> None:
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=1, title="t", url="https://github.com/org/repo/issues/1"
         )
         assert issue.url == "https://github.com/org/repo/issues/1"
 
     def test_valid_http_url_accepted(self) -> None:
-        issue = GitHubIssue(number=1, title="t", url="http://example.com")
+        issue = IssueFactory.create(number=1, title="t", url="http://example.com")
         assert issue.url == "http://example.com"
 
     def test_empty_string_accepted(self) -> None:
@@ -68,22 +68,22 @@ class TestUrlValidation:
         with pytest.raises(
             ValidationError, match="URL must be empty or start with http"
         ):
-            GitHubIssue(number=1, title="t", url="not-a-url")
+            IssueFactory.create(number=1, title="t", url="not-a-url")
 
     def test_invalid_url_missing_scheme_rejected(self) -> None:
         with pytest.raises(
             ValidationError, match="URL must be empty or start with http"
         ):
-            GitHubIssue(number=1, title="t", url="github.com/org/repo")
+            IssueFactory.create(number=1, title="t", url="github.com/org/repo")
 
     def test_ftp_scheme_rejected(self) -> None:
         with pytest.raises(
             ValidationError, match="URL must be empty or start with http"
         ):
-            GitHubIssue(number=1, title="t", url="ftp://example.com/file")
+            IssueFactory.create(number=1, title="t", url="ftp://example.com/file")
 
     def test_url_validation_on_pr_info(self) -> None:
-        pr = PRInfo(
+        pr = PRInfoFactory.create(
             number=1, issue_number=42, branch="main", url="https://github.com/pr/1"
         )
         assert pr.url == "https://github.com/pr/1"
@@ -92,7 +92,9 @@ class TestUrlValidation:
         with pytest.raises(
             ValidationError, match="URL must be empty or start with http"
         ):
-            PRInfo(number=1, issue_number=42, branch="main", url="bad-url")
+            PRInfoFactory.create(
+                number=1, issue_number=42, branch="main", url="bad-url"
+            )
 
     def test_url_validation_on_hitl_item_issue_url(self) -> None:
         item = HITLItem(issue=1, issueUrl="https://github.com/issues/1")
@@ -155,7 +157,7 @@ class TestEnumValidation:
 
     def test_github_issue_rejects_invalid_state(self) -> None:
         with pytest.raises(ValidationError, match="state"):
-            GitHubIssue(number=1, title="t", state="pending")
+            IssueFactory.create(number=1, title="t", state="pending")
 
     def test_epic_state_merge_strategy_rejects_invalid_value(self) -> None:
         with pytest.raises(ValidationError, match="merge_strategy"):
@@ -436,6 +438,7 @@ class TestPipelineIssueStatusEnum:
             (PipelineIssueStatus.ACTIVE, "active"),
             (PipelineIssueStatus.PROCESSING, "processing"),
             (PipelineIssueStatus.HITL, "hitl"),
+            (PipelineIssueStatus.MERGED, "merged"),
         ],
         ids=[m.name for m in PipelineIssueStatus],
     )
@@ -443,7 +446,7 @@ class TestPipelineIssueStatusEnum:
         assert member == expected
 
     def test_member_count(self) -> None:
-        assert len(PipelineIssueStatus) == 4
+        assert len(PipelineIssueStatus) == 5
 
 
 class TestBGWorkerHealthEnum:

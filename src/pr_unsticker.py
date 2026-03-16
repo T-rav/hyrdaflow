@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agent_cli import build_lightweight_command
-from models import ConflictResolutionResult, HITLUpdatePayload
+from models import ConflictResolutionResult, HITLUpdatePayload, PRInfo
 from phase_utils import MemorySuggester
 from prompt_stats import build_prompt_stats, truncate_with_notice
 
@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from events import EventBus
     from hitl_runner import HITLRunner
     from issue_fetcher import IssueFetcher
+    from issue_store import IssueStore
     from merge_conflict_resolver import MergeConflictResolver
     from models import GitHubIssue, HITLItem, UnstickResult
     from pr_manager import PRManager
@@ -111,6 +112,7 @@ class PRUnsticker:
         stop_event: asyncio.Event | None = None,
         resolver: MergeConflictResolver | None = None,
         troubleshooting_store: TroubleshootingPatternStore | None = None,
+        store: IssueStore | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -123,6 +125,7 @@ class PRUnsticker:
         self._stop_event = stop_event or asyncio.Event()
         self._resolver = resolver
         self._troubleshooting_store = troubleshooting_store
+        self._store = store
         self._suggest_memory = MemorySuggester(config, pr_manager, state)
 
     async def unstick(self, hitl_items: list[HITLItem]) -> UnstickResult:
@@ -369,8 +372,6 @@ class PRUnsticker:
                     issue_number,
                 )
                 return ConflictResolutionResult(success=False, used_rebuild=False)
-            from models import PRInfo
-
             pr = PRInfo(
                 number=pr_number,
                 issue_number=issue_number,
@@ -977,6 +978,8 @@ TROUBLESHOOTING_PATTERN_END
         success = await self._prs.merge_pr(pr_number)
         if success:
             self._finalize_resolved(issue_number, merged=True)
+            if self._store is not None:
+                self._store.mark_merged(issue_number)
             await self._prs.post_comment(
                 issue_number,
                 "**PR Unsticker** merged PR successfully after fix.\n\n"

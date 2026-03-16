@@ -13,8 +13,9 @@ import pytest
 
 from base_runner import BaseRunner
 from events import EventType
-from models import PlannerStatus, Task
+from models import PlannerStatus
 from planner import PlannerRunner
+from tests.conftest import TaskFactory
 from tests.helpers import ConfigFactory, make_streaming_proc
 
 # ---------------------------------------------------------------------------
@@ -28,6 +29,8 @@ class TestPlannerRunnerInheritance:
     def test_inherits_from_base_runner(self, config, event_bus) -> None:
         runner = PlannerRunner(config, event_bus)
         assert isinstance(runner, BaseRunner)
+        assert runner._config is config
+        assert runner._bus is event_bus
 
     def test_has_terminate_method(self, config, event_bus) -> None:
         runner = PlannerRunner(config, event_bus)
@@ -184,9 +187,7 @@ def test_build_prompt_includes_plan_markers(config, event_bus, issue):
 
 
 def test_build_prompt_includes_comments_when_present(config, event_bus):
-    task = Task(
-        id=42,
-        title="Fix the frobnicator",
+    task = TaskFactory.create(
         body="It is broken.",
         comments=["First comment", "Second comment"],
     )
@@ -207,9 +208,7 @@ def test_build_prompt_omits_comments_section_when_empty(config, event_bus, issue
 
 
 def test_build_prompt_truncates_long_body(config, event_bus):
-    task = Task(
-        id=1, title="Big issue", body="X" * 20_000, tags=[], comments=[], source_url=""
-    )
+    task = TaskFactory.create(id=1, title="Big issue", body="X" * 20_000, tags=[])
     runner = _make_runner(config, event_bus)
     prompt, _ = runner._build_prompt_with_stats(task)
 
@@ -218,13 +217,12 @@ def test_build_prompt_truncates_long_body(config, event_bus):
 
 
 def test_build_prompt_truncates_long_comments(config, event_bus):
-    task = Task(
+    task = TaskFactory.create(
         id=1,
         title="Big comments",
         body="Normal body with enough content",
         tags=[],
         comments=["C" * 5000, "Short"],
-        source_url="",
     )
     runner = _make_runner(config, event_bus)
     prompt, _ = runner._build_prompt_with_stats(task)
@@ -239,9 +237,7 @@ def test_build_prompt_truncates_long_lines(config, event_bus):
     Claude CLI text-splitter failures."""
     long_line = "A" * 2000
     body = f"Short line\n{long_line}\nAnother short line"
-    task = Task(
-        id=1, title="Long lines", body=body, tags=[], comments=[], source_url=""
-    )
+    task = TaskFactory.create(id=1, title="Long lines", body=body, tags=[])
     runner = _make_runner(config, event_bus)
     prompt, _ = runner._build_prompt_with_stats(task)
 
@@ -278,13 +274,11 @@ def test_truncate_text_no_truncation_when_under_limit():
 
 def test_build_prompt_notes_images_in_body(config, event_bus):
     """When the issue body contains markdown images, the prompt should note them."""
-    task = Task(
+    task = TaskFactory.create(
         id=99,
         title="Fix layout bug",
         body="The layout is broken.\n\n![screenshot](https://example.com/img.png)\n\nSee above.",
         tags=[],
-        comments=[],
-        source_url="",
     )
     runner = _make_runner(config, event_bus)
     prompt, _ = runner._build_prompt_with_stats(task)
@@ -295,13 +289,11 @@ def test_build_prompt_notes_images_in_body(config, event_bus):
 
 def test_build_prompt_notes_html_images_in_body(config, event_bus):
     """When the issue body contains HTML img tags, the prompt should note them."""
-    task = Task(
+    task = TaskFactory.create(
         id=99,
         title="Fix layout bug",
         body='See screenshot:\n\n<img src="https://example.com/img.png" />\n\nPlease fix.',
         tags=[],
-        comments=[],
-        source_url="",
     )
     runner = _make_runner(config, event_bus)
     prompt, _ = runner._build_prompt_with_stats(task)
@@ -322,13 +314,11 @@ def test_build_prompt_no_image_note_when_no_images(config, event_bus, issue):
 
 def test_build_prompt_handles_multiple_images(config, event_bus):
     """Multiple images in the body should still produce a single note."""
-    task = Task(
+    task = TaskFactory.create(
         id=99,
         title="Fix layout bug",
         body="![img1](https://example.com/1.png)\n![img2](https://example.com/2.png)",
         tags=[],
-        comments=[],
-        source_url="",
     )
     runner = _make_runner(config, event_bus)
     prompt, _ = runner._build_prompt_with_stats(task)
@@ -517,12 +507,10 @@ def test_build_prompt_includes_already_satisfied_markers(config, event_bus, issu
 
 def test_build_prompt_lite_includes_already_satisfied_markers(config, event_bus):
     """Lite prompt (for bug/typo tags) should also include markers."""
-    task = Task(
-        id=42,
+    task = TaskFactory.create(
         title="Fix typo",
         body="There's a typo in the docs.",
         tags=["bug"],
-        comments=[],
     )
     runner = _make_runner(config, event_bus)
     prompt, _ = runner._build_prompt_with_stats(task)
@@ -579,7 +567,7 @@ def test_significant_words_empty_string(config, event_bus):
 def test_validate_plan_all_sections_present(config, event_bus):
     """A valid plan with all 6 sections and sufficient words passes."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix authentication handler")
+    task = TaskFactory.create(id=1, title="Fix authentication handler")
     errors = runner._validate_plan(task, _valid_plan())
     assert errors == []
 
@@ -587,7 +575,7 @@ def test_validate_plan_all_sections_present(config, event_bus):
 def test_validate_plan_missing_section_returns_errors(config, event_bus):
     """Plan missing '## Testing Strategy' returns that specific error."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix authentication handler")
+    task = TaskFactory.create(id=1, title="Fix authentication handler")
     plan = _valid_plan().replace("## Testing Strategy", "## Tests")
     errors = runner._validate_plan(task, plan)
     assert any("Testing Strategy" in e for e in errors)
@@ -596,7 +584,7 @@ def test_validate_plan_missing_section_returns_errors(config, event_bus):
 def test_validate_plan_missing_multiple_sections(config, event_bus):
     """Plan missing 3 sections returns 3 corresponding errors."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix auth")
+    task = TaskFactory.create(id=1, title="Fix auth")
     plan = _valid_plan()
     plan = plan.replace("## Testing Strategy", "## Tests")
     plan = plan.replace("## Acceptance Criteria", "## Done")
@@ -609,7 +597,7 @@ def test_validate_plan_missing_multiple_sections(config, event_bus):
 def test_validate_plan_files_to_modify_requires_file_path(config, event_bus):
     """Files to Modify section present but with no file paths fails."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix it")
+    task = TaskFactory.create(id=1, title="Fix it")
     plan = _valid_plan().replace(
         "- src/models.py — add new data model\n"
         "- src/config.py — add configuration field",
@@ -622,7 +610,7 @@ def test_validate_plan_files_to_modify_requires_file_path(config, event_bus):
 def test_validate_plan_testing_strategy_requires_test_reference(config, event_bus):
     """Testing Strategy section present but with no test file references fails."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix it")
+    task = TaskFactory.create(id=1, title="Fix it")
     plan = _valid_plan().replace(
         "- Add tests/test_models.py for the new model\n"
         "- Add tests/test_config.py for the new config field",
@@ -637,7 +625,7 @@ def test_validate_plan_implementation_steps_requires_at_least_one_step(
 ):
     """Implementation Steps must include at least one actionable list item."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix it")
+    task = TaskFactory.create(id=1, title="Fix it")
     plan = _valid_plan().replace(
         "1. Add the new model class to models.py\n"
         "2. Add configuration field to config.py\n"
@@ -654,7 +642,7 @@ def test_validate_plan_implementation_steps_allows_slim_numbered_plan(
 ):
     """A concise numbered plan should pass without a 3-step minimum."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix it")
+    task = TaskFactory.create(id=1, title="Fix it")
     plan = _valid_plan().replace(
         "1. Add the new model class to models.py\n"
         "2. Add configuration field to config.py\n"
@@ -669,7 +657,7 @@ def test_validate_plan_implementation_steps_allows_slim_numbered_plan(
 def test_validate_plan_implementation_steps_allows_bulleted_plan(config, event_bus):
     """Bulleted implementation steps are valid."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix it")
+    task = TaskFactory.create(id=1, title="Fix it")
     plan = _valid_plan().replace(
         "1. Add the new model class to models.py\n"
         "2. Add configuration field to config.py\n"
@@ -686,7 +674,7 @@ def test_validate_plan_implementation_steps_allows_markdown_heading_steps(
 ):
     """Markdown heading-style steps (### Step 1 / ### 1.) are valid."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix it")
+    task = TaskFactory.create(id=1, title="Fix it")
     plan = _valid_plan().replace(
         "1. Add the new model class to models.py\n"
         "2. Add configuration field to config.py\n"
@@ -703,7 +691,7 @@ def test_validate_plan_implementation_steps_allows_markdown_heading_steps(
 def test_validate_plan_implementation_steps_requires_two_for_full(config, event_bus):
     """Full plans need at least two implementation steps."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix it")
+    task = TaskFactory.create(id=1, title="Fix it")
     plan = _valid_plan().replace(
         "1. Add the new model class to models.py\n"
         "2. Add configuration field to config.py\n"
@@ -718,7 +706,7 @@ def test_validate_plan_implementation_steps_requires_two_for_full(config, event_
 def test_validate_plan_implementation_steps_require_concrete_target(config, event_bus):
     """Full plans should reference concrete code targets in implementation steps."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix it")
+    task = TaskFactory.create(id=1, title="Fix it")
     plan = _valid_plan().replace(
         "1. Add the new model class to models.py\n"
         "2. Add configuration field to config.py\n"
@@ -767,7 +755,7 @@ def test_score_actionability_low_for_shallow_plan(config, event_bus):
 def test_validate_plan_minimum_word_count(config, event_bus):
     """Plan below min_plan_words fails."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix it")
+    task = TaskFactory.create(id=1, title="Fix it")
     # Create a short plan that has all sections but few words
     short_plan = (
         "## Files to Modify\n\n- src/app.py — fix\n\n"
@@ -785,7 +773,7 @@ def test_validate_plan_word_count_configurable(event_bus, tmp_path):
     """Custom min_plan_words is respected."""
     cfg = ConfigFactory.create(min_plan_words=50, repo_root=tmp_path)
     runner = _make_runner(cfg, event_bus)
-    task = Task(id=1, title="Fix it")
+    task = TaskFactory.create(id=1, title="Fix it")
     # This plan has all sections but only ~50 words
     plan = (
         "## Files to Modify\n\n- src/app.py — fix bug\n\n"
@@ -806,7 +794,7 @@ def test_validate_plan_logs_warning_on_word_mismatch(config, event_bus):
     from unittest.mock import patch as mock_patch
 
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix authentication handler")
+    task = TaskFactory.create(id=1, title="Fix authentication handler")
     # Valid plan but title words don't overlap with plan
     plan = _valid_plan().replace("authentication", "database")
 
@@ -1624,7 +1612,7 @@ def test_required_sections_has_seven_entries(config, event_bus):
 def test_validate_plan_accepts_three_clarification_markers(config, event_bus):
     """Plans with 0-3 [NEEDS CLARIFICATION] markers are acceptable."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix authentication handler")
+    task = TaskFactory.create(id=1, title="Fix authentication handler")
     plan = _valid_plan() + (
         "\n[NEEDS CLARIFICATION: unclear if OAuth or JWT]\n"
         "[NEEDS CLARIFICATION: which database?]\n"
@@ -1637,7 +1625,7 @@ def test_validate_plan_accepts_three_clarification_markers(config, event_bus):
 def test_validate_plan_rejects_four_clarification_markers(config, event_bus):
     """Plans with 4+ [NEEDS CLARIFICATION] markers escalate."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix authentication handler")
+    task = TaskFactory.create(id=1, title="Fix authentication handler")
     plan = _valid_plan() + (
         "\n[NEEDS CLARIFICATION: unclear if OAuth or JWT]\n"
         "[NEEDS CLARIFICATION: which database?]\n"
@@ -1652,7 +1640,7 @@ def test_validate_plan_rejects_four_clarification_markers(config, event_bus):
 def test_validate_plan_zero_clarification_markers_ok(config, event_bus):
     """Plans with no [NEEDS CLARIFICATION] markers pass."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix authentication handler")
+    task = TaskFactory.create(id=1, title="Fix authentication handler")
     errors = runner._validate_plan(task, _valid_plan())
     assert not any("NEEDS CLARIFICATION" in e for e in errors)
 
@@ -1688,28 +1676,30 @@ def test_build_retry_prompt_includes_clarification_instruction(
 def test_detect_plan_scale_lite_by_label(config, event_bus):
     """Issues with a lite-plan tag (e.g. 'bug') get a lite plan."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix crash", tags=["bug"])
+    task = TaskFactory.create(id=1, title="Fix crash", tags=["bug"])
     assert runner._detect_plan_scale(task) == "lite"
 
 
 def test_detect_plan_scale_lite_label_case_insensitive(config, event_bus):
     """Tag matching is case-insensitive."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix typo", tags=["BUG"])
+    task = TaskFactory.create(id=1, title="Fix typo", tags=["BUG"])
     assert runner._detect_plan_scale(task) == "lite"
 
 
 def test_detect_plan_scale_lite_by_short_body_and_title(config, event_bus):
     """Short body + small-fix title keyword → lite plan."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix typo in README", body="Small change needed.", tags=[])
+    task = TaskFactory.create(
+        id=1, title="Fix typo in README", body="Small change needed.", tags=[]
+    )
     assert runner._detect_plan_scale(task) == "lite"
 
 
 def test_detect_plan_scale_full_by_default(config, event_bus):
     """Issues without lite tags or short body default to full plan."""
     runner = _make_runner(config, event_bus)
-    task = Task(
+    task = TaskFactory.create(
         id=1,
         title="Add authentication system",
         body="A" * 600,
@@ -1721,7 +1711,7 @@ def test_detect_plan_scale_full_by_default(config, event_bus):
 def test_detect_plan_scale_short_body_but_no_fix_keyword(config, event_bus):
     """Short body without small-fix keyword in title → full plan."""
     runner = _make_runner(config, event_bus)
-    task = Task(
+    task = TaskFactory.create(
         id=1,
         title="Implement new auth system",
         body="Short body",
@@ -1737,10 +1727,10 @@ def test_detect_plan_scale_custom_lite_labels(event_bus, tmp_path):
         repo_root=tmp_path,
     )
     runner = _make_runner(cfg, event_bus)
-    task = Task(id=1, title="Critical fix", tags=["hotfix"])
+    task = TaskFactory.create(id=1, title="Critical fix", tags=["hotfix"])
     assert runner._detect_plan_scale(task) == "lite"
 
-    task2 = Task(id=2, title="Add authentication", tags=["bug"])
+    task2 = TaskFactory.create(id=2, title="Add authentication", tags=["bug"])
     assert runner._detect_plan_scale(task2) == "full"
 
 
@@ -1766,7 +1756,7 @@ def _lite_plan() -> str:
 def test_validate_lite_plan_accepts_three_sections(config, event_bus):
     """A lite plan with only 3 sections passes validation."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix crash")
+    task = TaskFactory.create(id=1, title="Fix crash")
     errors = runner._validate_plan(task, _lite_plan(), scale="lite")
     assert errors == []
 
@@ -1774,7 +1764,7 @@ def test_validate_lite_plan_accepts_three_sections(config, event_bus):
 def test_validate_lite_plan_no_minimum_word_count(config, event_bus):
     """Lite plans skip the minimum word count check."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix crash")
+    task = TaskFactory.create(id=1, title="Fix crash")
     # _lite_plan() is well under 200 words
     errors = runner._validate_plan(task, _lite_plan(), scale="lite")
     assert not any("words" in e for e in errors)
@@ -1783,7 +1773,7 @@ def test_validate_lite_plan_no_minimum_word_count(config, event_bus):
 def test_validate_lite_plan_rejects_missing_required_section(config, event_bus):
     """Lite plan missing a required section (e.g. Testing Strategy) is rejected."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix crash")
+    task = TaskFactory.create(id=1, title="Fix crash")
     plan = _lite_plan().replace("## Testing Strategy", "## Tests")
     errors = runner._validate_plan(task, plan, scale="lite")
     assert any("Testing Strategy" in e for e in errors)
@@ -1792,7 +1782,7 @@ def test_validate_lite_plan_rejects_missing_required_section(config, event_bus):
 def test_validate_full_plan_rejects_lite_sections_only(config, event_bus):
     """A full plan with only 3 sections fails (missing Acceptance Criteria etc.)."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Add feature")
+    task = TaskFactory.create(id=1, title="Add feature")
     errors = runner._validate_plan(task, _lite_plan(), scale="full")
     missing = [e for e in errors if "Missing required section" in e]
     assert (
@@ -1809,7 +1799,7 @@ def test_validate_full_plan_rejects_lite_sections_only(config, event_bus):
 async def test_lite_plan_skips_phase_minus_one_gates(config, event_bus):
     """Lite plan issues should not run Phase -1 gates."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix typo", tags=["bug"])
+    task = TaskFactory.create(id=1, title="Fix typo", tags=["bug"])
 
     lite_transcript = f"PLAN_START\n{_lite_plan()}\nPLAN_END\nSUMMARY: Fix the crash"
 
@@ -1980,7 +1970,7 @@ def test_extract_task_graph_phases_returns_empty_for_no_phases(config, event_bus
 def test_validate_plan_rejects_task_graph_without_phases(config, event_bus):
     """A Task Graph section with no ### P{N} subsections is rejected."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Add feature")
+    task = TaskFactory.create(id=1, title="Add feature")
     plan = _valid_plan().replace(
         "### P1 \u2014 Data Model\n"
         "**Files:** src/models.py (modify)\n"
@@ -2003,7 +1993,7 @@ def test_validate_plan_rejects_task_graph_without_phases(config, event_bus):
 def test_validate_plan_rejects_phase_without_files(config, event_bus):
     """A Task Graph phase missing **Files:** is rejected."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Add feature")
+    task = TaskFactory.create(id=1, title="Add feature")
     plan = _valid_plan().replace(
         "**Files:** src/models.py (modify)\n",
         "",
@@ -2016,7 +2006,7 @@ def test_validate_plan_rejects_phase_without_files(config, event_bus):
 def test_validate_plan_rejects_phase_without_tests(config, event_bus):
     """A Task Graph phase missing **Tests:** is rejected."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Add feature")
+    task = TaskFactory.create(id=1, title="Add feature")
     plan = _valid_plan().replace(
         "**Tests:**\n"
         "- Creating a new model instance persists and returns an id\n"
@@ -2031,7 +2021,7 @@ def test_validate_plan_rejects_phase_without_tests(config, event_bus):
 def test_validate_plan_rejects_invalid_dependency_ref(config, event_bus):
     """A Task Graph phase referencing a non-existent dependency is rejected."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Add feature")
+    task = TaskFactory.create(id=1, title="Add feature")
     plan = _valid_plan().replace("**Depends on:** P1", "**Depends on:** P9")
     errors = runner._validate_plan(task, plan, scale="full")
     assert any("P9 which does not exist" in e for e in errors)
@@ -2040,7 +2030,7 @@ def test_validate_plan_rejects_invalid_dependency_ref(config, event_bus):
 def test_validate_plan_task_graph_not_required_for_lite(config, event_bus):
     """Lite plans should not require a Task Graph section."""
     runner = _make_runner(config, event_bus)
-    task = Task(id=1, title="Fix typo")
+    task = TaskFactory.create(id=1, title="Fix typo")
     errors = runner._validate_plan(task, _lite_plan(), scale="lite")
     assert not any("Task Graph" in e for e in errors)
 

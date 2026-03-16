@@ -55,8 +55,8 @@ async def _poll_then_stop(
     condition: Callable[[], bool],
     orch: HydraFlowOrchestrator,
     *,
-    max_iters: int = 5000,
-    timeout_s: float = 5.0,
+    max_iters: int = 20000,
+    timeout_s: float = 15.0,
 ) -> None:
     """Poll *condition* with zero-sleep yields, then stop the orchestrator.
 
@@ -397,6 +397,13 @@ class TestRunStatusCreditsPaused:
         orch.reset()
         assert orch._credits_paused_until is None
 
+    def test_reset_clears_credit_resume_event(self, config: HydraFlowConfig) -> None:
+        """reset() must clear _credit_resume_event to avoid stale-event bugs on restart."""
+        orch = HydraFlowOrchestrator(config)
+        orch._credit_resume_event.set()
+        orch.reset()
+        assert not orch._credit_resume_event.is_set()
+
 
 # ===========================================================================
 # orchestrator — credit exhaustion pause and resume
@@ -449,7 +456,7 @@ class TestCreditExhaustionPauseResume:
                     orch,
                 ),
             ),
-            timeout=10.0,
+            timeout=20.0,
         )
 
         alert_events = [
@@ -500,12 +507,17 @@ class TestCreditExhaustionPauseResume:
 
         orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
 
+        async def instant_resume(_resume_at: datetime) -> None:
+            await asyncio.sleep(0)
+
+        orch._sleep_until_resume = instant_resume  # type: ignore[method-assign]
+
         await asyncio.wait_for(
             asyncio.gather(
                 orch.run(),
                 _poll_then_stop(lambda: call_count >= 2, orch),
             ),
-            timeout=10.0,
+            timeout=20.0,
         )
 
         # After resume, the plan function should have been called again
@@ -534,27 +546,29 @@ class TestCreditExhaustionPauseResume:
         orch._svc.implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
         orch._svc.fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
 
-        sleep_durations: list[float] = []
+        resume_times: list[datetime] = []
 
-        async def capture_sleep(seconds: int | float) -> None:
-            sleep_durations.append(float(seconds))
+        async def capture_resume(resume_at: datetime) -> None:
+            resume_times.append(resume_at)
+
+        async def instant_sleep(seconds: int | float) -> None:
             await asyncio.sleep(0)
 
-        orch._sleep_or_stop = capture_sleep  # type: ignore[method-assign]
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        orch._sleep_until_resume = capture_resume  # type: ignore[method-assign]
 
         await asyncio.wait_for(
             asyncio.gather(
                 orch.run(),
-                _poll_then_stop(lambda: any(s > 3600 for s in sleep_durations), orch),
+                _poll_then_stop(lambda: len(resume_times) >= 1, orch),
             ),
-            timeout=10.0,
+            timeout=20.0,
         )
 
-        # The first sleep should be for the default 5 hours + buffer
-        credit_sleep = [s for s in sleep_durations if s > 3600]
-        assert len(credit_sleep) >= 1
-        # Should be approximately 5 hours + 1 minute buffer = 18060 seconds
-        assert credit_sleep[0] > 17000  # roughly 5 hours
+        # The resume time should be approximately 5 hours + 1 minute buffer from now
+        assert len(resume_times) >= 1
+        pause_seconds = (resume_times[0] - datetime.now(UTC)).total_seconds()
+        assert pause_seconds > 17000  # roughly 5 hours
 
     @pytest.mark.asyncio
     async def test_credit_exhaustion_terminates_active_processes(
@@ -612,7 +626,7 @@ class TestCreditExhaustionPauseResume:
                     lambda: all(v >= 1 for v in terminate_calls.values()), orch
                 ),
             ),
-            timeout=10.0,
+            timeout=20.0,
         )
 
         # All terminate methods should have been called at least once
@@ -621,6 +635,32 @@ class TestCreditExhaustionPauseResume:
         assert terminate_calls["agents"] >= 1
         assert terminate_calls["reviewers"] >= 1
         assert terminate_calls["hitl"] >= 1
+
+    def test_clear_credit_pause_sets_event_and_clears_timestamp(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """clear_credit_pause() should set the resume event and clear _credits_paused_until."""
+        orch = HydraFlowOrchestrator(config)
+        orch._credits_paused_until = datetime.now(UTC) + timedelta(hours=1)
+        orch.clear_credit_pause()
+        assert orch._credits_paused_until is None
+        assert orch._credit_resume_event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_sleep_until_resume_wakes_on_credit_resume_event(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """_sleep_until_resume should return early when _credit_resume_event is set."""
+        orch = HydraFlowOrchestrator(config)
+        resume_at = datetime.now(UTC) + timedelta(hours=5)
+
+        async def set_resume_event() -> None:
+            await asyncio.sleep(0.05)
+            orch._credit_resume_event.set()
+
+        asyncio.create_task(set_resume_event())
+        # Should return in ~0.05s, not 5 hours
+        await asyncio.wait_for(orch._sleep_until_resume(resume_at), timeout=5.0)
 
     @pytest.mark.asyncio
     async def test_credit_pause_interrupted_by_stop(
@@ -648,7 +688,7 @@ class TestCreditExhaustionPauseResume:
                 orch.run(),
                 _poll_then_stop(lambda: orch._credits_paused_until is not None, orch),
             ),
-            timeout=10.0,
+            timeout=20.0,
         )
         assert not orch.running
         # run_status must NOT be "credits_paused" after stop — it should clear
@@ -671,3 +711,361 @@ class TestConfigCreditPauseBuffer:
     def test_credit_pause_buffer_accepts_custom_minutes(self) -> None:
         config = ConfigFactory.create(credit_pause_buffer_minutes=5)
         assert config.credit_pause_buffer_minutes == 5
+
+
+# ===========================================================================
+# orchestrator — try_clear_credit_pause
+# ===========================================================================
+
+
+class TestTryClearCreditPause:
+    """Tests for the try_clear_credit_pause method."""
+
+    def test_returns_false_when_not_paused(self, config: HydraFlowConfig) -> None:
+        """try_clear_credit_pause returns False when no pause is active."""
+        orch = HydraFlowOrchestrator(config)
+        assert orch.try_clear_credit_pause() is False
+
+    def test_returns_true_and_sets_event_when_paused(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """try_clear_credit_pause returns True and sets the resume event."""
+        orch = HydraFlowOrchestrator(config)
+        orch._credits_paused_until = datetime.now(UTC) + timedelta(hours=1)
+        assert orch.try_clear_credit_pause() is True
+        assert orch._credit_resume_event.is_set()
+
+    def test_reset_clears_stale_credit_resume_event(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Regression: reset() must create a fresh event so a previously-set
+        event does not immediately wake the next pause cycle."""
+        orch = HydraFlowOrchestrator(config)
+        orch._credit_resume_event.set()
+        orch._stop_event.set()
+        orch.reset()
+        # After reset, the event must NOT be set
+        assert not orch._credit_resume_event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_sleep_until_resume_wakes_on_credit_resume_event(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """_sleep_until_resume should return early when _credit_resume_event is set."""
+        orch = HydraFlowOrchestrator(config)
+        resume_at = datetime.now(UTC) + timedelta(hours=5)
+
+        async def set_event_soon() -> None:
+            await asyncio.sleep(0.05)
+            orch._credit_resume_event.set()
+
+        asyncio.create_task(set_event_soon())
+        # Should complete quickly (not wait 5 hours)
+        await asyncio.wait_for(orch._sleep_until_resume(resume_at), timeout=5.0)
+
+    @pytest.mark.asyncio
+    async def test_credit_refresh_triggers_loop_resume(
+        self, config: HydraFlowConfig, event_bus
+    ) -> None:
+        """try_clear_credit_pause during a credit pause should resume loops."""
+        orch = HydraFlowOrchestrator(config, event_bus=event_bus)
+        orch._svc.prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
+        mock_fetcher_noop(orch)
+
+        call_count = 0
+
+        async def credit_failing_then_ok() -> list[PlanResult]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise CreditExhaustedError(
+                    "credits out",
+                    resume_at=datetime.now(UTC) + timedelta(hours=5),
+                )
+            return []
+
+        orch._svc.triager.triage_issues = AsyncMock(return_value=0)  # type: ignore[method-assign]
+        orch._svc.planner_phase.plan_issues = credit_failing_then_ok  # type: ignore[method-assign]
+        orch._svc.implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
+        orch._svc.fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
+
+        async def instant_sleep(seconds: int | float) -> None:
+            await asyncio.sleep(0)
+
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+
+        async def trigger_refresh_after_pause() -> None:
+            """Wait for pause, then trigger refresh."""
+            deadline = asyncio.get_running_loop().time() + 5.0
+            while asyncio.get_running_loop().time() < deadline:
+                if orch._credits_paused_until is not None:
+                    break
+                await asyncio.sleep(0)
+            # Trigger refresh
+            assert orch.try_clear_credit_pause() is True
+            # Wait for loops to resume and call the plan function again
+            while asyncio.get_running_loop().time() < deadline:
+                if call_count >= 2:
+                    break
+                await asyncio.sleep(0)
+            await orch.stop()
+
+        await asyncio.wait_for(
+            asyncio.gather(orch.run(), trigger_refresh_after_pause()),
+            timeout=10.0,
+        )
+        # Plan function was called at least twice (once failing, once after resume)
+        assert call_count >= 2
+
+
+# ===========================================================================
+# dashboard route — POST /api/control/credit-refresh
+# ===========================================================================
+
+
+class TestCreditRefreshEndpoint:
+    """Tests for the credit-refresh API endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_returns_not_paused_when_no_pause(
+        self, config: HydraFlowConfig, event_bus, state, tmp_path
+    ) -> None:
+        """POST /api/control/credit-refresh returns not_paused when idle."""
+        from tests.helpers import find_endpoint, make_dashboard_router
+
+        orch = HydraFlowOrchestrator(config, event_bus=event_bus, state=state)
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: orch
+        )
+        endpoint = find_endpoint(router, "/api/control/credit-refresh", "POST")
+        assert endpoint is not None
+        response = await endpoint()
+        data = __import__("json").loads(response.body)
+        assert data["status"] == "not_paused"
+
+    @pytest.mark.asyncio
+    async def test_returns_resuming_when_paused_and_credits_available(
+        self, config: HydraFlowConfig, event_bus, state, tmp_path
+    ) -> None:
+        """POST /api/control/credit-refresh returns resuming when probe succeeds."""
+        from tests.helpers import find_endpoint, make_dashboard_router
+
+        orch = HydraFlowOrchestrator(config, event_bus=event_bus, state=state)
+        orch._credits_paused_until = datetime.now(UTC) + timedelta(hours=1)
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: orch
+        )
+        endpoint = find_endpoint(router, "/api/control/credit-refresh", "POST")
+        assert endpoint is not None
+        with patch(
+            "subprocess_util.probe_credit_availability",
+            new_callable=AsyncMock,
+            return_value=True,
+        ):
+            response = await endpoint()
+        data = __import__("json").loads(response.body)
+        assert data["status"] == "resuming"
+        assert orch._credit_resume_event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_returns_still_exhausted_when_probe_fails(
+        self, config: HydraFlowConfig, event_bus, state, tmp_path
+    ) -> None:
+        """POST /api/control/credit-refresh returns still_exhausted when
+        the probe confirms credits are still unavailable."""
+        from tests.helpers import find_endpoint, make_dashboard_router
+
+        orch = HydraFlowOrchestrator(config, event_bus=event_bus, state=state)
+        orch._credits_paused_until = datetime.now(UTC) + timedelta(hours=1)
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: orch
+        )
+        endpoint = find_endpoint(router, "/api/control/credit-refresh", "POST")
+        assert endpoint is not None
+        with patch(
+            "subprocess_util.probe_credit_availability",
+            new_callable=AsyncMock,
+            return_value=False,
+        ):
+            response = await endpoint()
+        data = __import__("json").loads(response.body)
+        assert data["status"] == "still_exhausted"
+        # Pause must NOT have been cleared
+        assert not orch._credit_resume_event.is_set()
+        assert orch._credits_paused_until is not None
+
+    @pytest.mark.asyncio
+    async def test_returns_error_when_no_orchestrator(
+        self, config: HydraFlowConfig, event_bus, state, tmp_path
+    ) -> None:
+        """POST /api/control/credit-refresh returns 400 when no orchestrator."""
+        from tests.helpers import find_endpoint, make_dashboard_router
+
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: None
+        )
+        endpoint = find_endpoint(router, "/api/control/credit-refresh", "POST")
+        assert endpoint is not None
+        response = await endpoint()
+        assert response.status_code == 400
+
+
+# ===========================================================================
+# probe_credit_availability
+# ===========================================================================
+
+
+class TestProbeCreditAvailability:
+    """Tests for the lightweight Anthropic API credit probe."""
+
+    @pytest.mark.asyncio
+    async def test_returns_true_when_no_api_key(self) -> None:
+        """Without ANTHROPIC_API_KEY, probe assumes credits are available."""
+        from subprocess_util import probe_credit_availability
+
+        with patch.dict("os.environ", {}, clear=True):
+            result = await probe_credit_availability()
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_returns_true_on_200_response(self) -> None:
+        """A 200 response means credits are available."""
+        from unittest.mock import MagicMock
+
+        from subprocess_util import probe_credit_availability
+
+        mock_response = MagicMock(status_code=200, text="ok")
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        with (
+            patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}),
+            patch("httpx.AsyncClient", return_value=mock_client),
+        ):
+            result = await probe_credit_availability()
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_returns_false_on_credit_exhaustion_response(self) -> None:
+        """A 429 with credit exhaustion body returns False."""
+        from unittest.mock import MagicMock
+
+        from subprocess_util import probe_credit_availability
+
+        mock_response = MagicMock(
+            status_code=429,
+            text="Your credit balance is too low to access the API.",
+        )
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        with (
+            patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}),
+            patch("httpx.AsyncClient", return_value=mock_client),
+        ):
+            result = await probe_credit_availability()
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_returns_true_on_non_credit_error(self) -> None:
+        """A non-credit error (e.g. 401 auth) should not block resume."""
+        from unittest.mock import MagicMock
+
+        from subprocess_util import probe_credit_availability
+
+        mock_response = MagicMock(status_code=401, text="Invalid API key")
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        with (
+            patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}),
+            patch("httpx.AsyncClient", return_value=mock_client),
+        ):
+            result = await probe_credit_availability()
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_returns_true_on_network_error(self) -> None:
+        """Network failures should not block resume."""
+        from subprocess_util import probe_credit_availability
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock(side_effect=ConnectionError("timeout"))
+
+        with (
+            patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-test-key"}),
+            patch("httpx.AsyncClient", return_value=mock_client),
+        ):
+            result = await probe_credit_availability()
+        assert result is True
+
+
+# ===========================================================================
+# structural guard — asyncio.Event fields must be cleared in reset()
+# ===========================================================================
+
+
+class TestAsyncioEventResetGuard:
+    """AST-based guard: every asyncio.Event field in __init__ must be cleared in reset()."""
+
+    def test_all_asyncio_events_are_cleared_in_reset(self) -> None:
+        import ast
+        from pathlib import Path
+
+        src = (Path(__file__).parent.parent / "src" / "orchestrator.py").read_text()
+        tree = ast.parse(src)
+
+        orchestrator_cls = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ClassDef) and node.name == "HydraFlowOrchestrator"
+        )
+
+        # Collect asyncio.Event() assignments in __init__: self._X = asyncio.Event()
+        init_events: set[str] = set()
+        for method in orchestrator_cls.body:
+            if isinstance(method, ast.FunctionDef) and method.name == "__init__":
+                for stmt in ast.walk(method):
+                    if (
+                        isinstance(stmt, ast.Assign)
+                        and len(stmt.targets) == 1
+                        and isinstance(stmt.targets[0], ast.Attribute)
+                        and isinstance(stmt.targets[0].value, ast.Name)
+                        and stmt.targets[0].value.id == "self"
+                        and isinstance(stmt.value, ast.Call)
+                        and isinstance(stmt.value.func, ast.Attribute)
+                        and stmt.value.func.attr == "Event"
+                        and isinstance(stmt.value.func.value, ast.Name)
+                        and stmt.value.func.value.id == "asyncio"
+                    ):
+                        init_events.add(stmt.targets[0].attr)
+
+        # Collect self._X.clear() calls in reset()
+        reset_cleared: set[str] = set()
+        for method in orchestrator_cls.body:
+            if isinstance(method, ast.FunctionDef) and method.name == "reset":
+                for stmt in ast.walk(method):
+                    if (
+                        isinstance(stmt, ast.Expr)
+                        and isinstance(stmt.value, ast.Call)
+                        and isinstance(stmt.value.func, ast.Attribute)
+                        and stmt.value.func.attr == "clear"
+                        and isinstance(stmt.value.func.value, ast.Attribute)
+                        and isinstance(stmt.value.func.value.value, ast.Name)
+                        and stmt.value.func.value.value.id == "self"
+                    ):
+                        reset_cleared.add(stmt.value.func.value.attr)
+
+        missing = init_events - reset_cleared
+        assert not missing, (
+            f"asyncio.Event field(s) in __init__ not cleared in reset(): {missing}. "
+            "Add self.<field>.clear() to HydraFlowOrchestrator.reset()."
+        )

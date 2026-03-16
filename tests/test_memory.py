@@ -787,6 +787,50 @@ class TestMemorySyncWorkerSync:
         prs.close_issue.assert_awaited_once_with(5)
 
     @pytest.mark.asyncio
+    async def test_close_synced_issues_continues_after_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """First issue close fails; second issue is still closed."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+        prs = MagicMock()
+        prs.create_issue = AsyncMock(return_value=0)
+
+        async def _close_side_effect(issue_number: int) -> None:
+            if issue_number == 5:
+                raise RuntimeError("close failed")
+
+        prs.close_issue = AsyncMock(side_effect=_close_side_effect)
+
+        worker = MemorySyncWorker(config, state, bus, prs=prs)
+        issues = [
+            {
+                "number": 5,
+                "title": "[Memory] First",
+                "body": "**Learning:** A",
+                "createdAt": "",
+                "labels": ["hydraflow-memory"],
+            },
+            {
+                "number": 6,
+                "title": "[Memory] Second",
+                "body": "**Learning:** B",
+                "createdAt": "",
+                "labels": ["hydraflow-memory"],
+            },
+        ]
+        stats = await worker.sync(issues)
+
+        # Both issues were attempted despite first failing
+        assert prs.close_issue.await_count == 2
+        prs.close_issue.assert_any_await(5)  # first issue attempted (raised)
+        prs.close_issue.assert_any_await(6)  # second issue still closed
+        # Stats still reflect synced items
+        assert stats["item_count"] == 2
+
+    @pytest.mark.asyncio
     async def test_sync_does_not_close_non_memory_style_issues(
         self, tmp_path: Path
     ) -> None:
@@ -1370,15 +1414,15 @@ class TestMemoryModels:
         assert issue.created_at == "2024-06-15T12:00:00Z"
 
     def test_github_issue_created_at_default_empty(self) -> None:
-        from models import GitHubIssue
+        from tests.conftest import IssueFactory
 
-        issue = GitHubIssue(number=1, title="Test")
+        issue = IssueFactory.create(number=1, title="Test")
         assert issue.created_at == ""
 
     def test_github_issue_created_at_snake_case(self) -> None:
-        from models import GitHubIssue
+        from tests.conftest import IssueFactory
 
-        issue = GitHubIssue(number=1, title="Test", created_at="2024-01-01")
+        issue = IssueFactory.create(number=1, title="Test", created_at="2024-01-01")
         assert issue.created_at == "2024-01-01"
 
 

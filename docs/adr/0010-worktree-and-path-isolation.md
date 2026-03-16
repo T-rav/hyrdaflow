@@ -8,7 +8,7 @@
 HydraFlow's supervisor spawns separate `cli.py` processes per repository, each
 with an isolated `HYDRAFLOW_HOME` environment variable. This provides
 process-level `data_root` isolation: state files, event logs, and session data
-are scoped under `data_root/<repo_slug>/` via `_namespace_repo_paths` in
+are scoped under `data_root/<repo_slug>/` via `_resolve_repo_scoped_paths` in
 `config.py`.
 
 However, not all filesystem paths follow the same scoping discipline:
@@ -47,7 +47,7 @@ artifacts:
    resolves to `worktree_base / repo_slug / issue-{N}/`, preventing cross-repo
    worktree collisions. This is the correct behavior and must be preserved.
 
-2. **State, events, and session files are repo-scoped.** `_namespace_repo_paths`
+2. **State, events, and session files are repo-scoped.** `_resolve_repo_scoped_paths`
    moves `state.json`, `events.jsonl`, and `sessions.jsonl` under
    `data_root/<repo_slug>/`. This is correct and must be preserved.
 
@@ -103,7 +103,7 @@ artifacts:
    scoping is simpler and requires only property changes in `config.py`.
 
 3. **Introduce a `RepoRuntime` wrapper that manages all paths.**
-   Deferred to ADR-0006. `RepoRuntime` is the right long-term abstraction but
+   Deferred to ADR-0006 (RepoRuntime Isolation Architecture). `RepoRuntime` is the right long-term abstraction but
    path scoping can be applied incrementally via config properties without
    waiting for the full `RepoRuntime` refactor.
 
@@ -113,12 +113,11 @@ artifacts:
 - Implementation: #1677
 - ADR-0003 — Git Worktrees for Issue Isolation (original worktree decision)
 - ADR-0006 — RepoRuntime Isolation Architecture (broader isolation abstraction)
-- **ADR-0021** — Persistence Architecture and Data Layout. ADR-0021's derived-paths
-  table documents the current flat layout (`log_dir = data_root / "logs"`, etc.).
-  Accepting ADR-0010 requires amending ADR-0021's derived-paths table and layout
-  diagram to reflect repo-scoped paths for `log_dir`, `plans_dir`, and `memory_dir`.
-- `src/config.py:HydraFlowConfig` — `_resolve_paths`, `worktree_path_for_issue`,
-  `log_dir`, `plans_dir`, `memory_dir` properties
+- ADR-0021 (Persistence Architecture and Data Layout) — documents the data layout
+  and derived-paths table; updated to reflect the repo-scoped target layout for
+  `log_dir`, `plans_dir`, and `memory_dir` as mandated by this ADR.
+- `src/config.py:HydraFlowConfig` — `worktree_path_for_issue`, `log_dir`, `plans_dir`, `memory_dir` properties
+- `src/config.py:_resolve_base_paths`, `src/config.py:_resolve_repo_scoped_paths` — config resolution phases
 - `src/worktree.py:WorktreeManager` — worktree lifecycle and cleanup
 - `src/docker_runner.py:DockerRunner._build_mounts` — container mount strategy
 - `src/metrics_manager.py:get_metrics_cache_dir` — repo-slug scoping reference

@@ -331,6 +331,7 @@ class PRManager:
                         branch=branch,
                         draft=draft,
                         url=pr_url,
+                        title=title,
                     ),
                 )
             )
@@ -432,6 +433,19 @@ class PRManager:
             logger.info("[dry-run] Would merge PR #%d", pr_number)
             return True
 
+        # Fetch title before merging so we can include it in the event.
+        # Isolated from the merge try/except so a title-fetch failure
+        # cannot prevent the merge itself.
+        pr_title = ""
+        try:
+            pr_title, _ = await self.get_pr_title_and_body(pr_number)
+        except Exception:
+            logger.debug(
+                "Could not fetch title for PR #%d before merge",
+                pr_number,
+                exc_info=True,
+            )
+
         try:
             await run_subprocess(
                 "gh",
@@ -446,10 +460,13 @@ class PRManager:
                 gh_token=self._config.gh_token,
             )
 
+            payload = MergeUpdatePayload(pr=pr_number, status="merged")
+            if pr_title:
+                payload["title"] = pr_title
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.MERGE_UPDATE,
-                    data=MergeUpdatePayload(pr=pr_number, status="merged"),
+                    data=payload,
                 )
             )
             return True
@@ -625,6 +642,39 @@ class PRManager:
     async def remove_label(self, issue_number: int, label: str) -> None:
         """Remove *label* from a GitHub issue."""
         await self._remove_label("issue", issue_number, label)
+
+    async def get_issue_state(self, issue_number: int) -> str:
+        """Return the resolved state of a GitHub issue.
+
+        Returns ``'COMPLETED'`` when the issue was closed as resolved,
+        ``'OPEN'`` when still open, ``'NOT_PLANNED'`` when closed as
+        won't-fix/duplicate/invalid, or ``''`` on error.
+        """
+        self._assert_repo()
+        try:
+            output = await self._run_gh(
+                "gh",
+                "issue",
+                "view",
+                str(issue_number),
+                "--repo",
+                self._repo,
+                "--json",
+                "state,stateReason",
+            )
+            data = json.loads(output)
+            state = str(data.get("state", "")).upper()
+            if state == "CLOSED":
+                reason = str(data.get("stateReason") or "").upper()
+                return reason
+            return state
+        except Exception:
+            logger.warning(
+                "Could not fetch state of issue #%d",
+                issue_number,
+                exc_info=True,
+            )
+            return ""
 
     async def close_issue(self, issue_number: int) -> None:
         """Close a GitHub issue."""
@@ -803,6 +853,44 @@ class PRManager:
             logger.error("Issue creation failed for %r: %s", title, exc)
             return 0
 
+    async def find_issue_number_by_label_and_title(
+        self,
+        label: str,
+        title_substring: str,
+        *,
+        state: str = "all",
+    ) -> int | None:
+        """Find a GitHub issue by label and title substring.
+
+        Searches for issues with the given *label* whose title contains
+        *title_substring* (case-insensitive).  Returns the issue number
+        of the first match, or ``None`` if no match is found.
+        """
+        issues: list[dict[str, object]] = await self._gh_json_query(  # type: ignore[assignment]
+            "gh",
+            "issue",
+            "list",
+            "--repo",
+            self._repo,
+            "--label",
+            label,
+            "--state",
+            state,
+            "--json",
+            "number,title",
+            "--limit",
+            "100",
+            dry_run_return=[],
+            error_log="Could not search issues by label and title",
+        )
+        needle = title_substring.lower()
+        for issue in issues:
+            if needle in str(issue.get("title", "")).lower():
+                num = issue.get("number")
+                if num is not None:
+                    return int(num)  # type: ignore[arg-type]
+        return None
+
     _SCREENSHOT_RELEASE_TAG = "screenshots"
 
     async def upload_screenshot(self, png_path: Path) -> str:
@@ -971,8 +1059,6 @@ class PRManager:
     async def get_pr_approvers(self, pr_number: int) -> list[str]:
         """Fetch the list of GitHub usernames that approved *pr_number*."""
         try:
-            import json as _json
-
             output = await self._run_gh(
                 "gh",
                 "pr",
@@ -983,7 +1069,7 @@ class PRManager:
                 "--json",
                 "reviews",
             )
-            data = _json.loads(output)
+            data = json.loads(output)
             reviews = data.get("reviews", [])
             approvers: list[str] = []
             for review in reviews:

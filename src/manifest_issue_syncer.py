@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from datetime import UTC, datetime
@@ -10,7 +9,6 @@ from datetime import UTC, datetime
 from config import HydraFlowConfig
 from pr_manager import PRManager
 from state import StateTracker
-from subprocess_util import run_subprocess
 
 logger = logging.getLogger("hydraflow.manifest_issue_syncer")
 
@@ -99,34 +97,9 @@ class ManifestIssueSyncer:
         if not self._config.manifest_label:
             return None
         label = self._config.manifest_label[0]
-        try:
-            raw = await run_subprocess(
-                "gh",
-                "issue",
-                "list",
-                "--repo",
-                self._config.repo,
-                "--label",
-                label,
-                "--state",
-                "all",
-                "--json",
-                "number,title,state",
-                "--limit",
-                "100",
-                gh_token=self._config.gh_token,
-            )
-            issues = json.loads(raw)
-        except (RuntimeError, json.JSONDecodeError) as exc:
-            logger.warning("Could not search manifest issues: %s", exc)
-            return None
-
-        owner_lower = self._owner_tag.lower()
-        for issue in issues:
-            title = str(issue.get("title", "")).lower()
-            if owner_lower in title:
-                return int(issue["number"])
-        return None
+        return await self._prs.find_issue_number_by_label_and_title(
+            label, self._owner_tag, state="all"
+        )
 
     @staticmethod
     def _format_comment(

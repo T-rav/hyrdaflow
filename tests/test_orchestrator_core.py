@@ -19,7 +19,7 @@ from models import (
     WorkerResult,
 )
 from orchestrator import HydraFlowOrchestrator
-from tests.conftest import TaskFactory
+from tests.conftest import ReviewResultFactory, TaskFactory
 from tests.helpers import make_worker_result, mock_fetcher_noop
 
 # ---------------------------------------------------------------------------
@@ -33,50 +33,57 @@ class TestInit:
     def test_creates_event_bus(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._bus, EventBus)
+        assert orch._bus is orch.event_bus
 
     def test_creates_state_tracker(self, config: HydraFlowConfig) -> None:
         from state import StateTracker
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._state, StateTracker)
+        assert orch._state._path == config.state_file
 
     def test_creates_worktree_manager(self, config: HydraFlowConfig) -> None:
         from workspace import WorkspaceManager
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.worktrees, WorkspaceManager)
+        assert orch._svc.worktrees._config is config
 
     def test_creates_agent_runner(self, config: HydraFlowConfig) -> None:
         from agent import AgentRunner
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.agents, AgentRunner)
+        assert orch._svc.agents._config is config
 
     def test_creates_pr_manager(self, config: HydraFlowConfig) -> None:
         from pr_manager import PRManager
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.prs, PRManager)
+        assert orch._svc.prs._config is config
 
     def test_creates_planner_runner(self, config: HydraFlowConfig) -> None:
         from planner import PlannerRunner
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.planners, PlannerRunner)
+        assert orch._svc.planners._config is config
 
     def test_creates_review_runner(self, config: HydraFlowConfig) -> None:
         from reviewer import ReviewRunner
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.reviewers, ReviewRunner)
+        assert orch._svc.reviewers._config is config
 
     def test_human_input_requests_starts_empty(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
-        assert orch._human_input_requests == {}
+        assert orch._hitl_ctrl._human_input_requests == {}
 
     def test_human_input_responses_starts_empty(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
-        assert orch._human_input_responses == {}
+        assert orch._hitl_ctrl._human_input_responses == {}
 
     def test_dashboard_starts_as_none(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
@@ -87,18 +94,21 @@ class TestInit:
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.fetcher, IssueFetcher)
+        assert orch._svc.fetcher._config is config
 
     def test_creates_implementer(self, config: HydraFlowConfig) -> None:
         from implement_phase import ImplementPhase
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.implementer, ImplementPhase)
+        assert orch._svc.implementer._config is config
 
     def test_creates_reviewer(self, config: HydraFlowConfig) -> None:
         from review_phase import ReviewPhase
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.reviewer, ReviewPhase)
+        assert orch._svc.reviewer._config is config
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +126,7 @@ class TestProperties:
     def test_event_bus_is_event_bus_instance(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch.event_bus, EventBus)
+        assert orch.event_bus is orch._svc.agents._bus
 
     def test_state_returns_internal_state(self, config: HydraFlowConfig) -> None:
         from state import StateTracker
@@ -123,12 +134,13 @@ class TestProperties:
         orch = HydraFlowOrchestrator(config)
         assert orch.state is orch._state
         assert isinstance(orch.state, StateTracker)
+        assert orch.state._path == config.state_file
 
     def test_human_input_requests_returns_internal_dict(
         self, config: HydraFlowConfig
     ) -> None:
         orch = HydraFlowOrchestrator(config)
-        assert orch.human_input_requests is orch._human_input_requests
+        assert orch.human_input_requests is orch._hitl_ctrl._human_input_requests
 
     def test_no_class_constant_default_max_reviewers(self) -> None:
         assert not hasattr(HydraFlowOrchestrator, "DEFAULT_MAX_REVIEWERS")
@@ -148,15 +160,15 @@ class TestHumanInput:
     def test_provide_human_input_stores_answer(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
         orch.provide_human_input(42, "Use option B")
-        assert orch._human_input_responses[42] == "Use option B"
+        assert orch._hitl_ctrl._human_input_responses[42] == "Use option B"
 
     def test_provide_human_input_removes_from_requests(
         self, config: HydraFlowConfig
     ) -> None:
         orch = HydraFlowOrchestrator(config)
-        orch._human_input_requests[42] = "Which approach?"
+        orch._hitl_ctrl._human_input_requests[42] = "Which approach?"
         orch.provide_human_input(42, "Approach A")
-        assert 42 not in orch._human_input_requests
+        assert 42 not in orch._hitl_ctrl._human_input_requests
 
     def test_provide_human_input_for_non_pending_issue_is_safe(
         self, config: HydraFlowConfig
@@ -164,13 +176,13 @@ class TestHumanInput:
         orch = HydraFlowOrchestrator(config)
         # No request registered — should not raise
         orch.provide_human_input(99, "Some answer")
-        assert orch._human_input_responses[99] == "Some answer"
+        assert orch._hitl_ctrl._human_input_responses[99] == "Some answer"
 
     def test_human_input_requests_reflects_pending(
         self, config: HydraFlowConfig
     ) -> None:
         orch = HydraFlowOrchestrator(config)
-        orch._human_input_requests[7] = "What colour?"
+        orch._hitl_ctrl._human_input_requests[7] = "What colour?"
         assert orch.human_input_requests == {7: "What colour?"}
 
 
@@ -468,6 +480,9 @@ class TestConstructorInjection:
     def test_uses_provided_event_bus(self, config: HydraFlowConfig, event_bus) -> None:
         orch = HydraFlowOrchestrator(config, event_bus=event_bus)
         assert orch._bus is event_bus
+        assert orch._svc.agents._bus is event_bus
+        assert orch._svc.planners._bus is event_bus
+        assert orch._svc.reviewers._bus is event_bus
 
     def test_uses_provided_state(self, config: HydraFlowConfig) -> None:
         state = StateTracker(config.state_file)
@@ -477,12 +492,14 @@ class TestConstructorInjection:
     def test_creates_own_bus_when_none_provided(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._bus, EventBus)
+        assert orch._svc.agents._bus is orch._bus
 
     def test_creates_own_state_when_none_provided(
         self, config: HydraFlowConfig
     ) -> None:
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._state, StateTracker)
+        assert orch._state._path == config.state_file
 
     def test_shared_bus_receives_events(
         self, config: HydraFlowConfig, event_bus
@@ -989,22 +1006,16 @@ class TestOrchestratorPropertyAccessors:
         assert orch.current_session_id is None
 
     def test_issue_store_returns_store(self, config: HydraFlowConfig) -> None:
-        from issue_store import IssueStore
-
         orch = HydraFlowOrchestrator(config)
-        assert isinstance(orch.issue_store, IssueStore)
+        assert orch.issue_store is orch._svc.store
 
     def test_metrics_manager_returns_manager(self, config: HydraFlowConfig) -> None:
-        from metrics_manager import MetricsManager
-
         orch = HydraFlowOrchestrator(config)
-        assert isinstance(orch.metrics_manager, MetricsManager)
+        assert orch.metrics_manager is orch._svc.metrics_manager
 
     def test_run_recorder_returns_recorder(self, config: HydraFlowConfig) -> None:
-        from run_recorder import RunRecorder
-
         orch = HydraFlowOrchestrator(config)
-        assert isinstance(orch.run_recorder, RunRecorder)
+        assert orch.run_recorder is orch._svc.run_recorder
 
 
 # ---------------------------------------------------------------------------
@@ -1060,14 +1071,12 @@ class TestPostReviewHooks:
     async def test_calls_post_run_hooks_for_transcripts(
         self, config: HydraFlowConfig
     ) -> None:
-        from models import ReviewResult
-
         orch = HydraFlowOrchestrator(config)
         mock_fetcher_noop(orch)
         self._mock_review_deps(orch)
 
         results = [
-            ReviewResult(
+            ReviewResultFactory.create(
                 pr_number=10,
                 issue_number=1,
                 transcript="reviewed code",
@@ -1089,14 +1098,12 @@ class TestPostReviewHooks:
     async def test_merged_result_triggers_pull_and_crate(
         self, config: HydraFlowConfig
     ) -> None:
-        from models import ReviewResult
-
         orch = HydraFlowOrchestrator(config)
         mock_fetcher_noop(orch)
         self._mock_review_deps(orch)
 
         results = [
-            ReviewResult(
+            ReviewResultFactory.create(
                 pr_number=10,
                 issue_number=1,
                 transcript="merged PR",
@@ -1115,14 +1122,12 @@ class TestPostReviewHooks:
     async def test_skips_hooks_for_empty_transcript(
         self, config: HydraFlowConfig
     ) -> None:
-        from models import ReviewResult
-
         orch = HydraFlowOrchestrator(config)
         mock_fetcher_noop(orch)
         self._mock_review_deps(orch)
 
         results = [
-            ReviewResult(
+            ReviewResultFactory.create(
                 pr_number=10,
                 issue_number=1,
                 transcript="",
@@ -1139,14 +1144,12 @@ class TestPostReviewHooks:
     async def test_review_status_failed_on_ci_failure(
         self, config: HydraFlowConfig
     ) -> None:
-        from models import ReviewResult
-
         orch = HydraFlowOrchestrator(config)
         mock_fetcher_noop(orch)
         self._mock_review_deps(orch)
 
         results = [
-            ReviewResult(
+            ReviewResultFactory.create(
                 pr_number=10,
                 issue_number=1,
                 transcript="CI failed",
@@ -1165,14 +1168,12 @@ class TestPostReviewHooks:
     async def test_review_status_success_on_merge(
         self, config: HydraFlowConfig
     ) -> None:
-        from models import ReviewResult
-
         orch = HydraFlowOrchestrator(config)
         mock_fetcher_noop(orch)
         self._mock_review_deps(orch)
 
         results = [
-            ReviewResult(
+            ReviewResultFactory.create(
                 pr_number=10,
                 issue_number=1,
                 transcript="merged successfully",

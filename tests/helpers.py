@@ -369,7 +369,6 @@ class ConfigFactory:
         adr_review_approval_threshold: int = 2,
         adr_review_max_rounds: int = 3,
         adr_review_model: str = "sonnet",
-        adr_auto_triage: bool = False,
         adr_pre_review: bool = True,
         # Prompt budget configuration
         max_discussion_comment_chars: int = 500,
@@ -602,7 +601,6 @@ class ConfigFactory:
                 adr_review_approval_threshold=adr_review_approval_threshold,
                 adr_review_max_rounds=adr_review_max_rounds,
                 adr_review_model=adr_review_model,
-                adr_auto_triage=adr_auto_triage,
                 adr_pre_review=adr_pre_review,
                 max_discussion_comment_chars=max_discussion_comment_chars,
                 max_common_feedback_chars=max_common_feedback_chars,
@@ -1590,9 +1588,10 @@ def make_review_result(
     transcript: str = "",
 ) -> Any:
     """Create a minimal ReviewResult for orchestrator tests."""
-    from models import ReviewResult, ReviewVerdict
+    from models import ReviewVerdict
+    from tests.conftest import ReviewResultFactory
 
-    return ReviewResult(
+    return ReviewResultFactory.create(
         pr_number=pr_number,
         issue_number=issue_number,
         verdict=verdict if verdict is not None else ReviewVerdict.APPROVE,

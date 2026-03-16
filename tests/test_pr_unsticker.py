@@ -13,9 +13,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from models import ConflictResolutionResult, GitHubIssue, HITLItem, LoopResult
+from models import ConflictResolutionResult, HITLItem, LoopResult
 from pr_unsticker import FailureCause, PRUnsticker, _classify_cause
-from tests.conftest import make_state
+from tests.conftest import HITLResultFactory, IssueFactory, make_state
 from tests.helpers import ConfigFactory
 
 
@@ -41,6 +41,7 @@ def _make_unsticker(
     stop_event=None,
     resolver=None,
     troubleshooting_store=None,
+    store=None,
     **config_overrides,
 ):
     cfg = config or _make_config(tmp_path, **config_overrides)
@@ -70,6 +71,7 @@ def _make_unsticker(
             stop_event=se,
             resolver=rs,
             troubleshooting_store=troubleshooting_store,
+            store=store,
         ),
         st,
         prs,
@@ -245,10 +247,7 @@ class TestMergeConflictFilter:
 
         assert stats["processed"] == 1
 
-    @pytest.mark.asyncio
-    async def test_is_merge_conflict_matches_various_causes(
-        self, tmp_path: Path
-    ) -> None:
+    def test_is_merge_conflict_matches_various_causes(self, tmp_path: Path) -> None:
         unsticker, *_ = _make_unsticker(tmp_path)
         assert unsticker._is_merge_conflict("Merge conflict with main")
         assert unsticker._is_merge_conflict("merge conflict")
@@ -261,11 +260,8 @@ class TestMergeConflictFilter:
 class TestCleanMerge:
     @pytest.mark.asyncio
     async def test_clean_merge_resolves_via_resolver(self, tmp_path: Path) -> None:
-        issue = GitHubIssue(
-            number=42,
-            title="Test issue",
-            body="body",
-            labels=["hydraflow-hitl"],
+        issue = IssueFactory.create(
+            title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_auto_merge=False
@@ -298,11 +294,8 @@ class TestSuccessfulResolution:
     async def test_successful_conflict_resolution_delegates_to_resolver(
         self, tmp_path: Path
     ) -> None:
-        issue = GitHubIssue(
-            number=42,
-            title="Test issue",
-            body="body",
-            labels=["hydraflow-hitl"],
+        issue = IssueFactory.create(
+            title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_auto_merge=False
@@ -339,11 +332,8 @@ class TestFailedResolution:
     async def test_failed_resolution_releases_back_to_hitl(
         self, tmp_path: Path
     ) -> None:
-        issue = GitHubIssue(
-            number=42,
-            title="Test issue",
-            body="body",
-            labels=["hydraflow-hitl"],
+        issue = IssueFactory.create(
+            title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_auto_merge=False
@@ -402,12 +392,8 @@ class TestCIFailureResolution:
     async def test_ci_failure_runs_agent_with_quality_prompt(
         self, tmp_path: Path
     ) -> None:
-        issue = GitHubIssue(
-            number=42,
-            title="Fix widget",
-            body="body",
-            labels=["hydraflow-hitl"],
-            url="https://github.com/test-org/test-repo/issues/42",
+        issue = IssueFactory.create(
+            title="Fix widget", body="body", labels=["hydraflow-hitl"]
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_all_causes=True, unstick_auto_merge=False
@@ -454,18 +440,11 @@ class TestGenericResolution:
 
     @pytest.mark.asyncio
     async def test_generic_cause_delegates_to_hitl_runner(self, tmp_path: Path) -> None:
-        from models import HITLResult
-
-        issue = GitHubIssue(
-            number=42,
-            title="Fix widget",
-            body="body",
-            labels=["hydraflow-hitl"],
+        issue = IssueFactory.create(
+            title="Fix widget", body="body", labels=["hydraflow-hitl"]
         )
         hitl_runner = AsyncMock()
-        hitl_runner.run = AsyncMock(
-            return_value=HITLResult(issue_number=42, success=True)
-        )
+        hitl_runner.run = AsyncMock(return_value=HITLResultFactory.create())
 
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path,
@@ -490,11 +469,8 @@ class TestGenericResolution:
 
     @pytest.mark.asyncio
     async def test_generic_fails_without_hitl_runner(self, tmp_path: Path) -> None:
-        issue = GitHubIssue(
-            number=42,
-            title="Fix widget",
-            body="body",
-            labels=["hydraflow-hitl"],
+        issue = IssueFactory.create(
+            title="Fix widget", body="body", labels=["hydraflow-hitl"]
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path,
@@ -524,11 +500,8 @@ class TestAutoMerge:
 
     @pytest.mark.asyncio
     async def test_auto_merge_after_fix(self, tmp_path: Path) -> None:
-        issue = GitHubIssue(
-            number=42,
-            title="Test issue",
-            body="body",
-            labels=["hydraflow-hitl"],
+        issue = IssueFactory.create(
+            title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_auto_merge=True
@@ -561,17 +534,77 @@ class TestAutoMerge:
         assert state.get_hitl_origin(42) is None
         assert state.get_hitl_cause(42) is None
 
+    @pytest.mark.asyncio
+    async def test_auto_merge_calls_store_mark_merged(self, tmp_path: Path) -> None:
+        """Successful merge must call IssueStore.mark_merged for pipeline snapshot."""
+        issue = IssueFactory.create(
+            title="Test issue", body="body", labels=["hydraflow-hitl"]
+        )
+        mock_store = MagicMock()
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+            tmp_path, unstick_auto_merge=True, store=mock_store
+        )
+        state.set_hitl_cause(42, "Merge conflict")
+        state.set_hitl_origin(42, "hydraflow-review")
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
+        prs.push_branch = AsyncMock(return_value=True)
+        prs.wait_for_ci = AsyncMock(return_value=(True, "All checks passed"))
+        prs.merge_pr = AsyncMock(return_value=True)
+        prs.pull_main = AsyncMock(return_value=True)
+
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
+
+        wt_dir = unsticker._config.worktree_path_for_issue(42)
+        wt_dir.mkdir(parents=True)
+
+        await unsticker.unstick([_make_hitl_item(42, pr=100)])
+
+        mock_store.mark_merged.assert_called_once_with(42)
+
+    @pytest.mark.asyncio
+    async def test_auto_merge_failure_does_not_call_store_mark_merged(
+        self, tmp_path: Path
+    ) -> None:
+        """Failed merge must NOT call mark_merged on the issue store."""
+        issue = IssueFactory.create(
+            title="Test issue", body="body", labels=["hydraflow-hitl"]
+        )
+        mock_store = MagicMock()
+        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+            tmp_path, unstick_auto_merge=True, store=mock_store
+        )
+        state.set_hitl_cause(42, "Merge conflict")
+        state.set_hitl_origin(42, "hydraflow-review")
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
+        prs.push_branch = AsyncMock(return_value=True)
+        prs.wait_for_ci = AsyncMock(return_value=(True, "All checks passed"))
+        prs.merge_pr = AsyncMock(return_value=False)
+
+        resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
+
+        wt_dir = unsticker._config.worktree_path_for_issue(42)
+        wt_dir.mkdir(parents=True)
+
+        await unsticker.unstick([_make_hitl_item(42, pr=100)])
+
+        mock_store.mark_merged.assert_not_called()
+
 
 class TestAutoMergeDisabled:
     """Verify label-swap-to-origin when unstick_auto_merge=False."""
 
     @pytest.mark.asyncio
     async def test_no_merge_when_disabled(self, tmp_path: Path) -> None:
-        issue = GitHubIssue(
-            number=42,
-            title="Test issue",
-            body="body",
-            labels=["hydraflow-hitl"],
+        issue = IssueFactory.create(
+            title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_auto_merge=False
@@ -715,7 +748,7 @@ class TestPromptTelemetry:
         unsticker, state, _prs, agents, wt, _fetcher, _bus, _hr, _resolver = (
             _make_unsticker(tmp_path)
         )
-        issue = GitHubIssue(number=42, title="Fix CI", body="body", labels=[])
+        issue = IssueFactory.create(title="Fix CI", body="body", labels=[])
         state.set_hitl_cause(42, "x" * 6000)
 
         wt.start_merge_main = AsyncMock(return_value=True)
@@ -742,8 +775,8 @@ class TestGoalDrivenLoop:
 
     @pytest.mark.asyncio
     async def test_sequential_merge_after_parallel_fix(self, tmp_path: Path) -> None:
-        issue_a = GitHubIssue(number=1, title="Issue A", body="a", labels=[])
-        issue_b = GitHubIssue(number=2, title="Issue B", body="b", labels=[])
+        issue_a = IssueFactory.create(number=1, title="Issue A", body="a", labels=[])
+        issue_b = IssueFactory.create(number=2, title="Issue B", body="b", labels=[])
 
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_auto_merge=True
@@ -797,12 +830,10 @@ class TestMergeConflictDelegation:
     async def test_merge_conflict_delegates_to_resolver_with_correct_pr_info(
         self, tmp_path: Path
     ) -> None:
-        issue = GitHubIssue(
-            number=42,
+        issue = IssueFactory.create(
             title="Fix the widget",
             body="Widget description",
             labels=[],
-            url="https://github.com/test-org/test-repo/issues/42",
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_auto_merge=False
@@ -837,11 +868,8 @@ class TestMergeConflictDelegation:
     async def test_merge_conflict_uses_pr_unsticker_source(
         self, tmp_path: Path
     ) -> None:
-        issue = GitHubIssue(
-            number=42,
-            title="Test issue",
-            body="body",
-            labels=["hydraflow-hitl"],
+        issue = IssueFactory.create(
+            title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_auto_merge=False
@@ -874,12 +902,8 @@ class TestFreshBranchRebuild:
         self, tmp_path: Path
     ) -> None:
         """Resolver returns (True, True) indicating rebuild was used."""
-        issue = GitHubIssue(
-            number=42,
-            title="Test issue",
-            body="body",
-            labels=["hydraflow-hitl"],
-            url="https://github.com/test-org/test-repo/issues/42",
+        issue = IssueFactory.create(
+            title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_auto_merge=False
@@ -911,11 +935,8 @@ class TestFreshBranchRebuild:
     @pytest.mark.asyncio
     async def test_resolver_failure_releases_to_hitl(self, tmp_path: Path) -> None:
         """Resolver returns (False, False) — should release back to HITL."""
-        issue = GitHubIssue(
-            number=42,
-            title="Test issue",
-            body="body",
-            labels=["hydraflow-hitl"],
+        issue = IssueFactory.create(
+            title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_auto_merge=False
@@ -946,11 +967,8 @@ class TestResolverNoneEdgeCases:
         self, tmp_path: Path
     ) -> None:
         """When resolver is None and cause is MERGE_CONFLICT, return failure and release to HITL."""
-        issue = GitHubIssue(
-            number=42,
-            title="Test issue",
-            body="body",
-            labels=["hydraflow-hitl"],
+        issue = IssueFactory.create(
+            title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, _ = _make_unsticker(
             tmp_path, unstick_all_causes=False, unstick_auto_merge=False
@@ -974,12 +992,8 @@ class TestResolverNoneEdgeCases:
 
 def _setup_ci_fix_memory_test(tmp_path: Path, *, transcript: str = "transcript"):
     """Set up shared fixtures for memory suggestion tests on the CI fix path."""
-    issue = GitHubIssue(
-        number=42,
-        title="Test issue",
-        body="body",
-        labels=["hydraflow-hitl"],
-        url="https://github.com/test-org/test-repo/issues/42",
+    issue = IssueFactory.create(
+        title="Test issue", body="body", labels=["hydraflow-hitl"]
     )
     unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
         tmp_path, unstick_all_causes=True, unstick_auto_merge=False
@@ -1029,12 +1043,10 @@ class TestCITimeoutResolution:
     @pytest.mark.asyncio
     async def test_ci_timeout_runs_isolation_then_agent(self, tmp_path: Path) -> None:
         """Full flow: isolation mock -> agent capture -> verify prompt content."""
-        issue = GitHubIssue(
-            number=42,
+        issue = IssueFactory.create(
             title="Fix hanging test",
             body="body",
             labels=["hydraflow-hitl"],
-            url="https://github.com/test-org/test-repo/issues/42",
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_all_causes=True, unstick_auto_merge=False
@@ -1082,18 +1094,11 @@ class TestCITimeoutResolution:
         )
         assert "AsyncMock" in captured_prompt
 
-    @pytest.mark.asyncio
-    async def test_ci_timeout_prompt_contains_isolation_guidance(
+    def test_ci_timeout_prompt_contains_isolation_guidance(
         self, tmp_path: Path
     ) -> None:
         """The prompt should contain isolation output and common hang causes."""
-        issue = GitHubIssue(
-            number=42,
-            title="Fix CI",
-            body="body",
-            labels=[],
-            url="https://github.com/test-org/test-repo/issues/42",
-        )
+        issue = IssueFactory.create(title="Fix CI", body="body", labels=[])
         unsticker, state, *_ = _make_unsticker(tmp_path)
         state.set_hitl_cause(42, "CI failed: Timeout after 600s")
 
@@ -1120,12 +1125,8 @@ class TestCITimeoutResolution:
         self, tmp_path: Path
     ) -> None:
         """When test isolation errors out, the agent should still run with fallback info."""
-        issue = GitHubIssue(
-            number=42,
-            title="Fix CI",
-            body="body",
-            labels=["hydraflow-hitl"],
-            url="https://github.com/test-org/test-repo/issues/42",
+        issue = IssueFactory.create(
+            title="Fix CI", body="body", labels=["hydraflow-hitl"]
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_all_causes=True, unstick_auto_merge=False
@@ -1173,12 +1174,8 @@ class TestCITimeoutResolution:
     @pytest.mark.asyncio
     async def test_ci_timeout_exhausts_max_attempts(self, tmp_path: Path) -> None:
         """After max_ci_timeout_fix_attempts failures, returns False."""
-        issue = GitHubIssue(
-            number=42,
-            title="Fix CI",
-            body="body",
-            labels=["hydraflow-hitl"],
-            url="https://github.com/test-org/test-repo/issues/42",
+        issue = IssueFactory.create(
+            title="Fix CI", body="body", labels=["hydraflow-hitl"]
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path,
@@ -1250,12 +1247,10 @@ class TestCITimeoutResolution:
             )
         )
 
-        issue = GitHubIssue(
-            number=42,
+        issue = IssueFactory.create(
             title="Fix hanging test",
             body="body",
             labels=["hydraflow-hitl"],
-            url="https://github.com/test-org/test-repo/issues/42",
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path,
@@ -1322,12 +1317,10 @@ TROUBLESHOOTING_PATTERN_END
 
 Done."""
 
-        issue = GitHubIssue(
-            number=42,
+        issue = IssueFactory.create(
             title="Fix hanging test",
             body="body",
             labels=["hydraflow-hitl"],
-            url="https://github.com/test-org/test-repo/issues/42",
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path,
@@ -1375,12 +1368,10 @@ Done."""
     @pytest.mark.asyncio
     async def test_ci_timeout_works_without_store(self, tmp_path: Path) -> None:
         """Backward compat: store=None still works (no crash, no patterns)."""
-        issue = GitHubIssue(
-            number=42,
+        issue = IssueFactory.create(
             title="Fix hanging test",
             body="body",
             labels=["hydraflow-hitl"],
-            url="https://github.com/test-org/test-repo/issues/42",
         )
         # No troubleshooting_store passed — defaults to None
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
@@ -1417,13 +1408,7 @@ Done."""
         self, tmp_path: Path
     ) -> None:
         """Prompt tells the agent to emit TROUBLESHOOTING_PATTERN_START/END block."""
-        issue = GitHubIssue(
-            number=42,
-            title="Fix CI",
-            body="body",
-            labels=[],
-            url="https://github.com/test-org/test-repo/issues/42",
-        )
+        issue = IssueFactory.create(title="Fix CI", body="body", labels=[])
         unsticker, *_ = _make_unsticker(tmp_path)
 
         prompt, _ = unsticker._build_ci_timeout_fix_prompt(
@@ -1451,12 +1436,10 @@ Done."""
         # Transcript with NO explicit TROUBLESHOOTING_PATTERN block
         transcript_no_block = "Fixed the test by adding return_value=False to the mock."
 
-        issue = GitHubIssue(
-            number=42,
+        issue = IssueFactory.create(
             title="Fix hanging test",
             body="body",
             labels=["hydraflow-hitl"],
-            url="https://github.com/test-org/test-repo/issues/42",
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path,
@@ -1527,12 +1510,10 @@ TROUBLESHOOTING_PATTERN_END
 
         store = TroubleshootingPatternStore(tmp_path / "memory")
 
-        issue = GitHubIssue(
-            number=42,
+        issue = IssueFactory.create(
             title="Fix hanging test",
             body="body",
             labels=["hydraflow-hitl"],
-            url="https://github.com/test-org/test-repo/issues/42",
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path,
@@ -1590,12 +1571,10 @@ TROUBLESHOOTING_PATTERN_END
 
         store = TroubleshootingPatternStore(tmp_path / "memory")
 
-        issue = GitHubIssue(
-            number=42,
+        issue = IssueFactory.create(
             title="Fix hanging test",
             body="body",
             labels=["hydraflow-hitl"],
-            url="https://github.com/test-org/test-repo/issues/42",
         )
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path,
@@ -1654,7 +1633,7 @@ class TestNarrowedExceptionHandling:
     @pytest.mark.asyncio
     async def test_process_item_reraises_likely_bug(self, tmp_path: Path) -> None:
         """TypeError/KeyError from _resolve_by_cause must propagate."""
-        issue = GitHubIssue(number=42, title="Fix bug", body="body", labels=[])
+        issue = IssueFactory.create(title="Fix bug", body="body", labels=[])
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path
         )
@@ -1680,7 +1659,7 @@ class TestNarrowedExceptionHandling:
     @pytest.mark.asyncio
     async def test_process_item_catches_runtime_error(self, tmp_path: Path) -> None:
         """RuntimeError (subprocess) in _process_item should be caught gracefully."""
-        issue = GitHubIssue(number=42, title="Fix bug", body="body", labels=[])
+        issue = IssueFactory.create(title="Fix bug", body="body", labels=[])
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path
         )
@@ -1709,7 +1688,7 @@ class TestNarrowedExceptionHandling:
         unsticker, state, prs, agents, wt, _fetcher, _bus, _hr, _resolver = (
             _make_unsticker(tmp_path)
         )
-        issue = GitHubIssue(number=42, title="Fix CI", body="body", labels=[])
+        issue = IssueFactory.create(title="Fix CI", body="body", labels=[])
         state.set_hitl_cause(42, "ci_failure")
 
         wt.start_merge_main = AsyncMock(return_value=True)
@@ -1729,7 +1708,7 @@ class TestNarrowedExceptionHandling:
         unsticker, state, prs, agents, wt, _fetcher, _bus, _hr, _resolver = (
             _make_unsticker(tmp_path)
         )
-        issue = GitHubIssue(number=42, title="Fix CI", body="body", labels=[])
+        issue = IssueFactory.create(title="Fix CI", body="body", labels=[])
         state.set_hitl_cause(42, "ci_failure")
 
         wt.start_merge_main = AsyncMock(return_value=True)
@@ -1844,7 +1823,7 @@ class TestNarrowedExceptionHandling:
         unsticker, state, prs, agents, wt, _fetcher, _bus, _hr, _resolver = (
             _make_unsticker(tmp_path)
         )
-        issue = GitHubIssue(number=42, title="Fix timeout", body="body", labels=[])
+        issue = IssueFactory.create(title="Fix timeout", body="body", labels=[])
         state.set_hitl_cause(42, "ci_timeout")
 
         wt.start_merge_main = AsyncMock(return_value=True)

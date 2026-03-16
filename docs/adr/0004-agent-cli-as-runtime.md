@@ -71,4 +71,4 @@ Any tool can be switched to `codex` or `pi` per-stage via environment variables.
 - `src/agent_cli.py` — command builder
 - `src/base_runner.py:BaseRunner._execute` — streaming subprocess executor
 - `AGENTS.md` — canonical prompt contracts for each agent role
-- ADR-0002 for the output marker protocol that makes tool-agnosticism possible
+- ADR-0002 (GitHub Labels as the Pipeline State Machine) for the output marker protocol that makes tool-agnosticism possible

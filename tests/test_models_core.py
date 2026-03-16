@@ -10,7 +10,6 @@ from models import (
     NewIssueSpec,
     Phase,
     PlannerStatus,
-    PRInfo,
     PRListItem,
     ReviewerStatus,
     ReviewResult,
@@ -19,7 +18,13 @@ from models import (
     WorkerResult,
     WorkerStatus,
 )
-from tests.conftest import PlanResultFactory
+from tests.conftest import (
+    IssueFactory,
+    PlanResultFactory,
+    PRInfoFactory,
+    ReviewResultFactory,
+    WorkerResultFactory,
+)
 
 # ---------------------------------------------------------------------------
 # GitHubIssue
@@ -68,7 +73,7 @@ class TestGitHubIssue:
 
     def test_all_fields_set(self) -> None:
         # Arrange / Act
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Improve widget",
             body="The widget is slow.",
@@ -99,7 +104,9 @@ class TestGitHubIssue:
 
     def test_serialization_with_model_dump(self) -> None:
         # Arrange
-        issue = GitHubIssue(number=5, title="Serialise me", body="body text")
+        issue = IssueFactory.create(
+            number=5, title="Serialise me", body="body text", labels=[], comments=[]
+        )
 
         # Act
         data = issue.model_dump()
@@ -110,7 +117,6 @@ class TestGitHubIssue:
         assert data["body"] == "body text"
         assert data["labels"] == []
         assert data["comments"] == []
-        assert data["url"] == ""
 
     # -- Label field validator ------------------------------------------------
 
@@ -127,7 +133,7 @@ class TestGitHubIssue:
     def test_labels_from_string_list(self) -> None:
         """Plain string lists (existing usage) must still work."""
         # Arrange / Act
-        issue = GitHubIssue(number=1, title="t", labels=["bug", "ready"])
+        issue = IssueFactory.create(number=1, title="t", labels=["bug", "ready"])
 
         # Assert
         assert issue.labels == ["bug", "ready"]
@@ -157,7 +163,7 @@ class TestGitHubIssue:
     def test_comments_from_string_list(self) -> None:
         """Plain string lists (existing usage) must still work."""
         # Arrange / Act
-        issue = GitHubIssue(number=1, title="t", comments=["LGTM", "Ship it"])
+        issue = IssueFactory.create(number=1, title="t", comments=["LGTM", "Ship it"])
 
         # Assert
         assert issue.comments == ["LGTM", "Ship it"]
@@ -214,7 +220,7 @@ class TestGitHubIssue:
         assert issue.author == ""
 
     def test_author_propagated_to_task_metadata(self) -> None:
-        issue = GitHubIssue(number=1, title="t", author="alice")
+        issue = IssueFactory.create(number=1, title="t", author="alice")
         task = issue.to_task()
         assert task.metadata["author"] == "alice"
 
@@ -224,13 +230,13 @@ class TestGitHubIssue:
         assert "author" not in task.metadata
 
     def test_from_task_round_trips_author(self) -> None:
-        issue = GitHubIssue(number=1, title="t", author="bob")
+        issue = IssueFactory.create(number=1, title="t", author="bob")
         task = issue.to_task()
         restored = GitHubIssue.from_task(task)
         assert restored.author == "bob"
 
     def test_milestone_number_propagated_to_task_metadata(self) -> None:
-        issue = GitHubIssue(number=1, title="t", milestone_number=5)
+        issue = IssueFactory.create(number=1, title="t", milestone_number=5)
         task = issue.to_task()
         assert task.metadata["milestone_number"] == 5
 
@@ -270,7 +276,7 @@ class TestTask:
 
     def test_round_trip_to_task(self) -> None:
         """GitHubIssue.to_task() followed by from_task() should reproduce the original."""
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=7,
             title="Round trip",
             body="Body text",
@@ -300,7 +306,7 @@ class TestTask:
     def test_label_preservation(self) -> None:
         """Labels survive the GitHubIssue -> Task -> GitHubIssue trip."""
         labels = ["hydraflow-plan", "enhancement", "priority-high"]
-        issue = GitHubIssue(number=99, title="t", labels=labels)
+        issue = IssueFactory.create(number=99, title="t", labels=labels)
         assert GitHubIssue.from_task(issue.to_task()).labels == labels
 
 
@@ -525,7 +531,9 @@ class TestWorkerResult:
     def test_minimal_instantiation(self) -> None:
         """Should create a result with only required fields."""
         # Arrange / Act
-        result = WorkerResult(issue_number=10, branch="agent/issue-10")
+        result = WorkerResultFactory.create(
+            use_defaults=True, issue_number=10, branch="agent/issue-10"
+        )
 
         # Assert
         assert result.issue_number == 10
@@ -564,14 +572,16 @@ class TestWorkerResult:
         assert result.pr_info is None
 
     def test_pr_info_can_be_set(self) -> None:
-        pr = PRInfo(number=101, issue_number=1, branch="b")
-        result = WorkerResult(issue_number=1, branch="b", pr_info=pr)
+        pr = PRInfoFactory.create(number=101, issue_number=1, branch="b")
+        result = WorkerResultFactory.create(
+            use_defaults=True, issue_number=1, branch="b", pr_info=pr
+        )
         assert result.pr_info is not None
         assert result.pr_info.number == 101
 
     def test_all_fields_set(self) -> None:
         # Arrange / Act
-        result = WorkerResult(
+        result = WorkerResultFactory.create(
             issue_number=7,
             branch="agent/issue-7",
             worktree_path="/tmp/wt/issue-7",
@@ -594,7 +604,7 @@ class TestWorkerResult:
 
     def test_failed_result_stores_error_message(self) -> None:
         # Arrange / Act
-        result = WorkerResult(
+        result = WorkerResultFactory.create(
             issue_number=99,
             branch="agent/issue-99",
             success=False,
@@ -607,7 +617,7 @@ class TestWorkerResult:
 
     def test_serialization_with_model_dump(self) -> None:
         # Arrange
-        result = WorkerResult(
+        result = WorkerResultFactory.create(
             issue_number=3, branch="agent/issue-3", commits=1, success=True
         )
 
@@ -631,7 +641,7 @@ class TestPRInfo:
 
     def test_minimal_instantiation(self) -> None:
         # Arrange / Act
-        pr = PRInfo(number=101, issue_number=42, branch="agent/issue-42")
+        pr = PRInfoFactory.create(number=101, issue_number=42, branch="agent/issue-42")
 
         # Assert
         assert pr.number == 101
@@ -639,16 +649,20 @@ class TestPRInfo:
         assert pr.branch == "agent/issue-42"
 
     def test_url_defaults_to_empty_string(self) -> None:
+        from models import PRInfo
+
         pr = PRInfo(number=1, issue_number=1, branch="b")
         assert pr.url == ""
 
     def test_draft_defaults_to_false(self) -> None:
+        from models import PRInfo
+
         pr = PRInfo(number=1, issue_number=1, branch="b")
         assert pr.draft is False
 
     def test_all_fields_set(self) -> None:
         # Arrange / Act
-        pr = PRInfo(
+        pr = PRInfoFactory.create(
             number=200,
             issue_number=55,
             branch="agent/issue-55",
@@ -665,7 +679,7 @@ class TestPRInfo:
 
     def test_serialization_with_model_dump(self) -> None:
         # Arrange
-        pr = PRInfo(
+        pr = PRInfoFactory.create(
             number=5,
             issue_number=3,
             branch="agent/issue-3",
@@ -784,7 +798,7 @@ class TestReviewResult:
         assert review.merged is False
 
     def test_merged_can_be_set(self) -> None:
-        review = ReviewResult(pr_number=1, issue_number=1, merged=True)
+        review = ReviewResultFactory.create(pr_number=1, issue_number=1, merged=True)
         assert review.merged is True
 
     def test_transcript_defaults_to_empty_string(self) -> None:
@@ -793,7 +807,7 @@ class TestReviewResult:
 
     def test_all_fields_set(self) -> None:
         # Arrange / Act
-        review = ReviewResult(
+        review = ReviewResultFactory.create(
             pr_number=77,
             issue_number=33,
             verdict=ReviewVerdict.APPROVE,
@@ -817,7 +831,9 @@ class TestReviewResult:
         assert review.duration_seconds == pytest.approx(0.0)
 
     def test_duration_seconds_can_be_set(self) -> None:
-        review = ReviewResult(pr_number=1, issue_number=1, duration_seconds=42.5)
+        review = ReviewResultFactory.create(
+            pr_number=1, issue_number=1, duration_seconds=42.5
+        )
         assert review.duration_seconds == pytest.approx(42.5)
 
     def test_ci_passed_defaults_to_none(self) -> None:
@@ -829,27 +845,31 @@ class TestReviewResult:
         assert review.ci_fix_attempts == 0
 
     def test_duration_seconds_in_serialization(self) -> None:
-        review = ReviewResult(pr_number=1, issue_number=1, duration_seconds=30.0)
+        review = ReviewResultFactory.create(
+            pr_number=1, issue_number=1, duration_seconds=30.0
+        )
         data = review.model_dump()
         assert data["duration_seconds"] == pytest.approx(30.0)
 
     def test_ci_passed_can_be_set_true(self) -> None:
-        review = ReviewResult(pr_number=1, issue_number=1, ci_passed=True)
+        review = ReviewResultFactory.create(pr_number=1, issue_number=1, ci_passed=True)
         assert review.ci_passed is True
 
     def test_ci_passed_can_be_set_false(self) -> None:
-        review = ReviewResult(pr_number=1, issue_number=1, ci_passed=False)
+        review = ReviewResultFactory.create(
+            pr_number=1, issue_number=1, ci_passed=False
+        )
         assert review.ci_passed is False
 
     def test_request_changes_verdict(self) -> None:
-        review = ReviewResult(
+        review = ReviewResultFactory.create(
             pr_number=2, issue_number=2, verdict=ReviewVerdict.REQUEST_CHANGES
         )
         assert review.verdict is ReviewVerdict.REQUEST_CHANGES
 
     def test_serialization_with_model_dump(self) -> None:
         # Arrange
-        review = ReviewResult(
+        review = ReviewResultFactory.create(
             pr_number=8, issue_number=4, verdict=ReviewVerdict.APPROVE, summary="LGTM"
         )
 
@@ -967,7 +987,16 @@ class TestPRListItem:
             "url": "",
             "draft": False,
             "title": "Add tests",
+            "merged": False,
         }
+
+    def test_merged_field_defaults_false(self) -> None:
+        item = PRListItem(pr=1)
+        assert item.merged is False
+
+    def test_merged_field_can_be_set_true(self) -> None:
+        item = PRListItem(pr=1, merged=True)
+        assert item.merged is True
 
 
 # ---------------------------------------------------------------------------

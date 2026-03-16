@@ -47,6 +47,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("max_transcript_summary_chars", "HYDRAFLOW_MAX_TRANSCRIPT_SUMMARY_CHARS", 50_000),
     ("pr_unstick_interval", "HYDRAFLOW_PR_UNSTICK_INTERVAL", 3600),
     ("report_issue_interval", "HYDRAFLOW_REPORT_ISSUE_INTERVAL", 30),
+    ("stale_report_threshold_hours", "HYDRAFLOW_STALE_REPORT_THRESHOLD_HOURS", 6),
     ("epic_monitor_interval", "HYDRAFLOW_EPIC_MONITOR_INTERVAL", 1800),
     ("epic_sweep_interval", "HYDRAFLOW_EPIC_SWEEP_INTERVAL", 3600),
     ("verify_monitor_interval", "HYDRAFLOW_VERIFY_MONITOR_INTERVAL", 3600),
@@ -954,6 +955,12 @@ class HydraFlowConfig(BaseModel):
         le=3600,
         description="Seconds between report-issue worker polls",
     )
+    stale_report_threshold_hours: int = Field(
+        default=6,
+        ge=1,
+        le=168,
+        description="Hours after which a queued report is considered stale and auto-closed",
+    )
 
     # Git configuration
     main_branch: str = Field(default="main", description="Base branch name")
@@ -1391,10 +1398,14 @@ class HydraFlowConfig(BaseModel):
     def resolve_defaults(self) -> HydraFlowConfig:
         """Resolve paths, repo slug, and apply env var overrides.
 
-        Resolution order (two-phase path resolution):
+        Resolution order (seven steps):
           1. ``_resolve_base_paths`` — repo_root, worktree_base, data_root
           2. ``_resolve_repo_and_identity`` — repo slug, gh_token, git identity
           3. ``_resolve_repo_scoped_paths`` — state_file, event_log_path, config_file
+          4. ``_apply_env_overrides`` — env-var overrides for labels, tokens, etc.
+          5. ``_apply_profile_overrides`` — grouped tool/model defaults for profiles
+          6. ``_harmonize_tool_model_defaults`` — tool and model consistency
+          7. ``_validate_docker`` — Docker configuration validation
 
         Base paths are resolved first because repo detection depends on repo_root,
         and repo-scoped paths depend on both data_root and the repo slug.

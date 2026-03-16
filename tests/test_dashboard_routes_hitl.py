@@ -96,7 +96,7 @@ class TestHITLEndpointCause:
 
         get_hitl = find_endpoint(router, "/api/hitl")
         assert get_hitl is not None
-        with patch("dashboard_routes.asyncio.create_task") as mock_create_task:
+        with patch("dashboard_routes._routes.asyncio.create_task") as mock_create_task:
             response = await get_hitl()
             import json
 
@@ -507,8 +507,7 @@ class TestHITLSkipImproveTransition:
         assert outcome.outcome.value == "hitl_skipped"
         assert outcome.reason == "Not actionable"
 
-    @pytest.mark.asyncio
-    async def test_hitl_skip_rejects_empty_reason(
+    def test_hitl_skip_rejects_empty_reason(
         self, config, event_bus, state, tmp_path
     ) -> None:
         """Skip with empty reason should raise a Pydantic validation error."""
@@ -605,8 +604,7 @@ class TestHITLCloseEndpoint:
         assert outcome.outcome.value == "hitl_closed"
         assert outcome.reason == "Duplicate of #123"
 
-    @pytest.mark.asyncio
-    async def test_hitl_close_rejects_empty_reason(
+    def test_hitl_close_rejects_empty_reason(
         self, config, event_bus, state, tmp_path
     ) -> None:
         """Close with empty reason should raise a Pydantic validation error."""
@@ -1102,13 +1100,13 @@ class TestBuildHitlContextNoneBody:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """When issue.body is None, _build_hitl_context should not raise."""
-        from models import GitHubIssue
+        from tests.conftest import IssueFactory
 
         config.transcript_summarization_enabled = True
         config.gh_token = "fake-token"
 
         # Build a GitHubIssue and force body to None
-        issue = GitHubIssue(number=99, title="Test issue")
+        issue = IssueFactory.create(number=99, title="Test issue")
         object.__setattr__(issue, "body", None)
 
         # Access _compute_hitl_summary through the module's closure.
@@ -1122,13 +1120,13 @@ class TestBuildHitlContextNoneBody:
 
         with (
             patch(
-                "dashboard_routes.IssueFetcher",
+                "dashboard_routes._routes.IssueFetcher",
                 return_value=MagicMock(
                     fetch_issue_by_number=AsyncMock(return_value=issue)
                 ),
             ),
             patch(
-                "dashboard_routes.TranscriptSummarizer",
+                "dashboard_routes._routes.TranscriptSummarizer",
                 return_value=MagicMock(
                     summarize_hitl_context=AsyncMock(side_effect=_mock_summarize)
                 ),

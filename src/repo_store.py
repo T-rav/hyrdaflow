@@ -7,12 +7,9 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from file_util import atomic_write
-
-if TYPE_CHECKING:
-    from config import HydraFlowConfig
 
 logger = logging.getLogger("hydraflow.repo_store")
 
@@ -169,37 +166,8 @@ class RepoRegistryStore:
 RepoStore = RepoRegistryStore
 
 
-def clone_config_for_repo(
-    base_config: HydraFlowConfig,
-    *,
-    repo: str,
-    repo_root: Path,
-    overrides: dict[str, Any] | None = None,
-) -> HydraFlowConfig:
-    """Create a per-repo config by overriding repo identity fields.
-
-    Copies *base_config* and replaces ``repo`` and ``repo_root`` while
-    keeping all other settings (worker counts, models, poll intervals,
-    etc.) from the base.  Path fields that are derived from ``repo_root``
-    (like ``state_file``, ``event_log_path``) are re-resolved by the
-    config model's validators.  Optional *overrides* are applied before
-    constructing the new config object so that they pass through validators.
-    """
-    from config import HydraFlowConfig  # noqa: PLC0415
-
-    base_dict = base_config.model_dump()
-    base_dict["repo"] = repo
-    base_dict["repo_root"] = repo_root
-    for key in ("state_file", "event_log_path", "config_file"):
-        base_dict.pop(key, None)
-    if overrides:
-        base_dict.update(overrides)
-    return HydraFlowConfig(**base_dict)
-
-
 __all__ = [
     "RepoRecord",
     "RepoRegistryStore",
     "RepoStore",
-    "clone_config_for_repo",
 ]

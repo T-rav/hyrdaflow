@@ -451,7 +451,7 @@ class TestRetryWrapperUsage:
 
     @pytest.mark.asyncio
     async def test_merge_pr_does_not_use_retry(self, config, event_bus):
-        """merge_pr must use run_subprocess (not retry) to avoid race conditions."""
+        """merge_pr must use run_subprocess (not retry) for the merge command."""
         mgr = make_pr_manager(config, event_bus)
         with (
             patch("pr_manager.run_subprocess", new_callable=AsyncMock) as mock_plain,
@@ -459,11 +459,15 @@ class TestRetryWrapperUsage:
                 "pr_manager.run_subprocess_with_retry", new_callable=AsyncMock
             ) as mock_retry,
         ):
+            # get_pr_title_and_body uses _run_gh → run_subprocess_with_retry
+            mock_retry.return_value = '{"title":"Fix","body":""}'
             mock_plain.return_value = ""
             await mgr.merge_pr(101)
 
+        # The merge itself uses run_subprocess (not retry)
         mock_plain.assert_awaited_once()
-        mock_retry.assert_not_awaited()
+        # get_pr_title_and_body goes through _run_gh → run_subprocess_with_retry
+        mock_retry.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_add_labels_uses_retry(self, config, event_bus):
@@ -1632,3 +1636,93 @@ class TestQueryIssuesByLabels:
         assert helper_called is True
         assert captured_level == "warning"
         assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# get_issue_state
+# ---------------------------------------------------------------------------
+
+
+class TestGetIssueState:
+    """Tests for PRManager.get_issue_state."""
+
+    def _make_manager(self, tmp_path, event_bus):
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path,
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        return make_pr_manager(cfg, event_bus)
+
+    @pytest.mark.asyncio
+    async def test_open_issue_returns_open(self, event_bus, tmp_path):
+        mgr = self._make_manager(tmp_path, event_bus)
+        payload = json.dumps({"state": "OPEN", "stateReason": None})
+        mock_create = SubprocessMockBuilder().with_stdout(payload).build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await mgr.get_issue_state(42)
+
+        assert result == "OPEN"
+
+    @pytest.mark.asyncio
+    async def test_closed_completed_issue_returns_completed(self, event_bus, tmp_path):
+        mgr = self._make_manager(tmp_path, event_bus)
+        payload = json.dumps({"state": "CLOSED", "stateReason": "COMPLETED"})
+        mock_create = SubprocessMockBuilder().with_stdout(payload).build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await mgr.get_issue_state(42)
+
+        assert result == "COMPLETED"
+
+    @pytest.mark.asyncio
+    async def test_closed_not_planned_returns_not_planned(self, event_bus, tmp_path):
+        mgr = self._make_manager(tmp_path, event_bus)
+        payload = json.dumps({"state": "CLOSED", "stateReason": "NOT_PLANNED"})
+        mock_create = SubprocessMockBuilder().with_stdout(payload).build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await mgr.get_issue_state(42)
+
+        assert result == "NOT_PLANNED"
+
+    @pytest.mark.asyncio
+    async def test_closed_null_statereason_returns_empty_string(
+        self, event_bus, tmp_path
+    ):
+        # When stateReason is null (issues closed before GitHub added stateReason
+        # tracking), we return "" rather than assuming "COMPLETED" to avoid
+        # incorrectly treating unresolved closures as resolved.
+        mgr = self._make_manager(tmp_path, event_bus)
+        payload = json.dumps({"state": "CLOSED", "stateReason": None})
+        mock_create = SubprocessMockBuilder().with_stdout(payload).build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await mgr.get_issue_state(42)
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_string_on_error(self, event_bus, tmp_path):
+        mgr = self._make_manager(tmp_path, event_bus)
+        mock_create = SubprocessMockBuilder().with_stdout("not-json").build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create):
+            result = await mgr.get_issue_state(42)
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_passes_correct_issue_number_to_gh(self, event_bus, tmp_path):
+        mgr = self._make_manager(tmp_path, event_bus)
+        payload = json.dumps({"state": "OPEN", "stateReason": None})
+        mock_create = SubprocessMockBuilder().with_stdout(payload).build()
+
+        with patch("asyncio.create_subprocess_exec", mock_create) as m:
+            await mgr.get_issue_state(99)
+
+        call_args = m.call_args[0]
+        assert "99" in call_args
+        assert "issue" in call_args
+        assert "view" in call_args

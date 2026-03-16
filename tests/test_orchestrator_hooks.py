@@ -23,7 +23,7 @@ from models import (
     WorkerResult,
 )
 from orchestrator import HydraFlowOrchestrator
-from tests.conftest import IssueFactory, PRInfoFactory, TaskFactory
+from tests.conftest import IssueFactory, PRInfoFactory, ReviewResultFactory, TaskFactory
 from tests.helpers import make_review_result, make_worker_result, mock_fetcher_noop
 
 # ---------------------------------------------------------------------------
@@ -43,10 +43,7 @@ class TestCrashRecoveryActiveIssues:
         recovered = set(orch._state.get_active_issue_numbers())
         assert recovered == {10, 20}
 
-    @pytest.mark.asyncio
-    async def test_crash_recovery_skips_first_cycle(
-        self, config: HydraFlowConfig
-    ) -> None:
+    def test_crash_recovery_skips_first_cycle(self, config: HydraFlowConfig) -> None:
         """Recovered issues should be in _active_impl_issues for one cycle."""
         orch = HydraFlowOrchestrator(config)
         mock_fetcher_noop(orch)
@@ -63,10 +60,7 @@ class TestCrashRecoveryActiveIssues:
         assert 10 in orch._active_impl_issues
         assert 20 in orch._active_impl_issues
 
-    @pytest.mark.asyncio
-    async def test_crash_recovery_clears_after_cycle(
-        self, config: HydraFlowConfig
-    ) -> None:
+    def test_crash_recovery_clears_after_cycle(self, config: HydraFlowConfig) -> None:
         """After one cycle, recovered issues should be cleared from active sets."""
         orch = HydraFlowOrchestrator(config)
         mock_fetcher_noop(orch)
@@ -639,13 +633,10 @@ class TestTranscriptSummaryFiling:
         review_task = TaskFactory.create(id=42)
         review_issue = IssueFactory.create(number=42)
         pr = PRInfoFactory.create(number=101, issue_number=42)
-        review_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        review_result = ReviewResultFactory.create(
             transcript=SUMMARY_TRANSCRIPT,
             merged=True,
             verdict=ReviewVerdict.APPROVE,
-            summary="Looks good.",
         )
 
         orch._svc.store.get_active_issues = lambda: {42: "review"}  # type: ignore[method-assign]
@@ -688,11 +679,8 @@ class TestTranscriptSummaryFiling:
         review_task = TaskFactory.create(id=42)
         review_issue = IssueFactory.create(number=42)
         pr = PRInfoFactory.create(number=101, issue_number=42)
-        review_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        review_result = ReviewResultFactory.create(
             transcript=SUMMARY_TRANSCRIPT,
-            merged=False,
             ci_passed=False,
             verdict=ReviewVerdict.COMMENT,
             summary="CI failed.",
@@ -738,13 +726,12 @@ class TestTranscriptSummaryFiling:
         review_task = TaskFactory.create(id=0)
         review_issue = IssueFactory.create(number=0)
         pr = PRInfoFactory.create(number=101, issue_number=0)
-        review_result = ReviewResult(
+        review_result = ReviewResultFactory.create(
             pr_number=101,
             issue_number=0,
             transcript=SUMMARY_TRANSCRIPT,
             merged=True,
             verdict=ReviewVerdict.APPROVE,
-            summary="Looks good.",
         )
 
         orch._svc.store.get_active_issues = lambda: {0: "review"}  # type: ignore[method-assign]
@@ -1085,7 +1072,7 @@ class TestRestoreState:
 
         orch._restore_state()
 
-        assert orch._bg_worker_intervals.get("memory_sync") == 120
+        assert orch._bg_workers.worker_intervals.get("memory_sync") == 120
         assert orch._recovered_issues == {10, 20}
         assert 10 in orch._active_impl_issues
         assert 20 in orch._active_impl_issues
@@ -1300,7 +1287,7 @@ class TestUpdateBgWorkerStatus:
     ) -> None:
         orch = HydraFlowOrchestrator(config)
         orch.update_bg_worker_status("memory_sync", "running")
-        state = orch._bg_worker_states["memory_sync"]
+        state = orch._bg_workers.worker_states["memory_sync"]
         assert state["name"] == "memory_sync"
         assert state["status"] == "running"
         assert "last_run" in state
@@ -1310,7 +1297,7 @@ class TestUpdateBgWorkerStatus:
     ) -> None:
         orch = HydraFlowOrchestrator(config)
         orch.update_bg_worker_status("metrics", "running", details={"synced": 5})
-        state = orch._bg_worker_states["metrics"]
+        state = orch._bg_workers.worker_states["metrics"]
         assert state["details"]["synced"] == 5
 
     def test_update_bg_worker_status_without_details(
@@ -1318,7 +1305,7 @@ class TestUpdateBgWorkerStatus:
     ) -> None:
         orch = HydraFlowOrchestrator(config)
         orch.update_bg_worker_status("memory_sync", "idle")
-        state = orch._bg_worker_states["memory_sync"]
+        state = orch._bg_workers.worker_states["memory_sync"]
         assert state["details"] == {}
 
     @pytest.mark.asyncio
@@ -1338,7 +1325,7 @@ class TestUpdateBgWorkerStatus:
             )
         )
         orch = HydraFlowOrchestrator(config, event_bus=bus)
-        orch._restore_bg_worker_states()
+        orch._state_restorer._restore_bg_worker_states()
         states = orch.get_bg_worker_states()
         assert states["memory_sync"]["status"] == "ok"
         assert states["memory_sync"]["details"]["count"] == 4

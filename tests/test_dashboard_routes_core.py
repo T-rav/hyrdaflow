@@ -224,6 +224,45 @@ class TestSubmitReportEndpoint:
         assert reports[0].screenshot_base64 == "iVBORw0KGgo="
         assert reports[0].environment["source"] == "dashboard"
 
+    @pytest.mark.asyncio
+    async def test_submit_report_triggers_bg_worker(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """Submitting a report triggers the report_issue background worker."""
+        from unittest.mock import MagicMock
+
+        from models import ReportIssueRequest
+
+        orch = MagicMock()
+        orch.trigger_bg_worker = MagicMock(return_value=True)
+
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: orch
+        )
+        endpoint = find_endpoint(router, "/api/report")
+        request = ReportIssueRequest(description="Trigger test")
+        await endpoint(request)
+
+        orch.trigger_bg_worker.assert_called_once_with("report_issue")
+
+    @pytest.mark.asyncio
+    async def test_submit_report_no_orchestrator_does_not_crash(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """When no orchestrator is running, submit still succeeds."""
+        import json
+
+        from models import ReportIssueRequest
+
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: None
+        )
+        endpoint = find_endpoint(router, "/api/report")
+        request = ReportIssueRequest(description="No orch test")
+        response = await endpoint(request)
+        data = json.loads(response.body)
+        assert data["status"] == "queued"
+
 
 # ---------------------------------------------------------------------------
 # GET /api/human-input and POST /api/human-input/{issue_number}

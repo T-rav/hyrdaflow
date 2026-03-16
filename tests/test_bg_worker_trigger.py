@@ -168,21 +168,19 @@ class TestOrchestratorTriggerBgWorker:
 
     def test_trigger_known_worker(self) -> None:
         """trigger_bg_worker returns True and calls trigger() for known workers."""
-        mock_loop = MagicMock(spec=BaseBackgroundLoop)
         orch = MagicMock()
-        orch._bg_loop_registry = {"memory_sync": mock_loop}
+        orch._bg_workers.trigger.return_value = True
 
-        # Inline the method logic to test it without full orchestrator init
         from orchestrator import HydraFlowOrchestrator
 
         result = HydraFlowOrchestrator.trigger_bg_worker(orch, "memory_sync")
         assert result is True
-        mock_loop.trigger.assert_called_once()
+        orch._bg_workers.trigger.assert_called_once_with("memory_sync")
 
     def test_trigger_unknown_worker(self) -> None:
         """trigger_bg_worker returns False for unknown worker names."""
         orch = MagicMock()
-        orch._bg_loop_registry = {}
+        orch._bg_workers.trigger.return_value = False
 
         from orchestrator import HydraFlowOrchestrator
 

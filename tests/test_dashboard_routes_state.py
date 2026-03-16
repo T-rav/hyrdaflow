@@ -88,6 +88,38 @@ class TestPipelineEndpoint:
         assert len(data["stages"]["implement"]) == 1
         assert data["stages"]["implement"][0]["status"] == "active"
 
+    @pytest.mark.asyncio
+    async def test_pipeline_includes_merged_stage(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        import json
+
+        mock_orch = MagicMock()
+        mock_orch.issue_store = MagicMock()
+        mock_orch.issue_store.get_pipeline_snapshot = MagicMock(
+            return_value={
+                "merged": [
+                    {
+                        "issue_number": 5,
+                        "title": "Done issue",
+                        "url": "",
+                        "status": "merged",
+                    }
+                ],
+                "hitl": [],
+            }
+        )
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        get_pipeline = find_endpoint(router, "/api/pipeline")
+        response = await get_pipeline()
+        data = json.loads(response.body)
+        assert "merged" in data["stages"]
+        assert len(data["stages"]["merged"]) == 1
+        assert data["stages"]["merged"][0]["issue_number"] == 5
+        assert data["stages"]["merged"][0]["status"] == "merged"
+
 
 # ---------------------------------------------------------------------------
 # HITL skip with improve origin → triage transition
@@ -801,11 +833,6 @@ class TestGetEventsEndpoint:
 # ---------------------------------------------------------------------------
 
 
-# ---------------------------------------------------------------------------
-# GET /api/prs
-# ---------------------------------------------------------------------------
-
-
 class TestGetPRsEndpoint:
     """Tests for GET /api/prs."""
 
@@ -840,10 +867,66 @@ class TestGetPRsEndpoint:
         data = json.loads(response.body)
         assert data == []
 
+    @pytest.mark.asyncio
+    async def test_prs_overlay_merged_flag_from_issue_store(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """PRs whose issue is in IssueStore._merged_numbers get merged=True."""
+        import json
 
-# ---------------------------------------------------------------------------
-# GET /api/repos
-# ---------------------------------------------------------------------------
+        from models import PRListItem
+
+        mock_orch = MagicMock()
+        mock_orch.issue_store = MagicMock()
+        mock_orch.issue_store.get_merged_numbers = MagicMock(
+            return_value=frozenset({42})
+        )
+
+        router, pr_mgr = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        pr_mgr.list_open_prs = AsyncMock(  # type: ignore[method-assign]
+            return_value=[
+                PRListItem(
+                    pr=10,
+                    issue=42,
+                    title="Merged PR",
+                    url="https://example.com/pr/10",
+                ),
+                PRListItem(
+                    pr=11,
+                    issue=99,
+                    title="Open PR",
+                    url="https://example.com/pr/11",
+                ),
+            ]
+        )
+        endpoint = find_endpoint(router, "/api/prs")
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert len(data) == 2
+        merged_pr = next(p for p in data if p["pr"] == 10)
+        open_pr = next(p for p in data if p["pr"] == 11)
+        assert merged_pr["merged"] is True
+        assert open_pr["merged"] is False
+
+    @pytest.mark.asyncio
+    async def test_prs_merged_flag_defaults_false_without_orchestrator(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """Without an orchestrator, merged flag stays at default False."""
+        import json
+
+        from models import PRListItem
+
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        pr_mgr.list_open_prs = AsyncMock(  # type: ignore[method-assign]
+            return_value=[PRListItem(pr=10, issue=42, url="https://example.com/pr/10")]
+        )
+        endpoint = find_endpoint(router, "/api/prs")
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert data[0]["merged"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -897,7 +980,7 @@ class TestListSupervisedReposEndpoint:
         endpoint = find_endpoint(router, "/api/repos")
         assert endpoint is not None
 
-        with patch("dashboard_routes.logger") as mock_logger:
+        with patch("dashboard_routes._routes.logger") as mock_logger:
             await endpoint()
 
         mock_logger.warning.assert_not_called()
@@ -1471,7 +1554,7 @@ class TestRepoScopedEndpoints:
             r for r in router.routes if getattr(r, "path", "") == "/api/prs"
         )
 
-        with patch("dashboard_routes.PRManager") as MockPRManager:
+        with patch("dashboard_routes._routes.PRManager") as MockPRManager:
             mock_mgr = MockPRManager.return_value
             mock_mgr.list_open_prs = AsyncMock(return_value=[])
             resp = await endpoint.endpoint(repo="org-repo")
@@ -1520,7 +1603,7 @@ class TestRepoScopedEndpoints:
             def model_dump(self) -> dict:
                 return {"issue": self.issue}
 
-        with patch("dashboard_routes.PRManager") as MockPRManager:
+        with patch("dashboard_routes._routes.PRManager") as MockPRManager:
             mock_mgr = MockPRManager.return_value
             mock_mgr.list_hitl_items = AsyncMock(return_value=[_Item(42)])
             resp = await endpoint.endpoint(repo="org-repo")

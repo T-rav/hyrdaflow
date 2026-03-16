@@ -92,14 +92,14 @@ and the PR remains open and approved until the bundle is ready.
 
 ### Relationship to ADR-0011
 
-ADR-0011 prohibits placing **release-creation** logic in `PostMergeHandler`, directing
+ADR-0011 (Epic Release Creation Architecture) prohibits placing **release-creation** logic in `PostMergeHandler`, directing
 it instead to `EpicCompletionChecker._try_close_epic()`. ADR-0012 intentionally places
 **merge-coordination** hooks (approval notification and defer checks) in
 `PostMergeHandler` because this is the only point in the pipeline where the merge
 decision can be intercepted before execution. These are distinct concerns:
 release-creation runs *after* all children complete and the epic closes, while
 merge-coordination runs *before* each individual merge to decide whether to proceed
-or hold. ADR-0012 does not supersede ADR-0011; the two ADRs govern different stages
+or hold. ADR-0012 does not supersede ADR-0011 (Epic Release Creation Architecture); the two ADRs govern different stages
 of the epic lifecycle.
 
 ### `hydraflow-approved` label lifecycle

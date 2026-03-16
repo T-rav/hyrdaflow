@@ -1392,6 +1392,7 @@ class PipelineIssueStatus(StrEnum):
     ACTIVE = "active"
     PROCESSING = "processing"
     HITL = "hitl"
+    MERGED = "merged"
 
 
 class PipelineIssue(BaseModel):
@@ -1472,7 +1473,9 @@ class TrackedReport(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex[:12])
     reporter_id: str
     description: str
-    status: Literal["queued", "in-progress", "fixed", "closed", "reopened"] = "queued"
+    status: Literal["queued", "in-progress", "filed", "fixed", "closed", "reopened"] = (
+        "queued"
+    )
     linked_issue_url: str = ""
     linked_pr_url: str = ""
     progress_summary: str = ""
@@ -1498,6 +1501,7 @@ class PRListItem(BaseModel):
     url: HttpUrl = ""
     draft: bool = False
     title: str = ""
+    merged: bool = False
 
 
 class HITLItem(BaseModel):
@@ -1619,6 +1623,7 @@ class PRCreatedPayload(TypedDict, total=False):
     draft: bool
     url: str
     repo: str
+    title: str
 
 
 class CICheckPayload(TypedDict, total=False):
@@ -1869,6 +1874,7 @@ class MergeUpdatePayload(TypedDict, total=False):
 
     pr: int
     status: str
+    title: str
 
 
 class TriageUpdatePayload(TypedDict, total=False):
@@ -2124,6 +2130,7 @@ class IssueHistoryPR(BaseModel):
     number: int
     url: HttpUrl = ""
     merged: bool = False
+    title: str = ""
 
 
 class IssueHistoryEntry(BaseModel):

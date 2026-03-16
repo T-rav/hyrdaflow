@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, cleanup, within } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, within, waitFor, act } from '@testing-library/react'
 import { tabActiveStyle, tabInactiveStyle, hitlBadgeStyle } from '../../App'
 
 const { mockState } = vi.hoisted(() => {
@@ -32,6 +32,8 @@ const { mockState } = vi.hoisted(() => {
       stopOrchestrator: () => {},
       toggleBgWorker: () => {},
       systemAlert: null,
+      dismissSystemAlert: vi.fn(),
+      refreshCreditStatus: vi.fn().mockResolvedValue({ ok: true, status: 'resuming' }),
       sessions: [],
       currentSessionId: null,
       selectedSessionId: null,
@@ -79,6 +81,9 @@ beforeEach(() => {
   mockState.metrics = null
   mockState.config = {}
   mockState.orchestratorStatus = 'running'
+  mockState.systemAlert = null
+  mockState.refreshCreditStatus = vi.fn().mockResolvedValue({ ok: true, status: 'resuming' })
+  mockState.dismissSystemAlert = vi.fn()
   cleanup()
 })
 
@@ -333,6 +338,100 @@ describe('SystemAlertBanner', () => {
     render(<App />)
     expect(screen.getByText(/Credit limit reached\./)).toBeInTheDocument()
     expect(screen.queryByText(/Resumes at/)).toBeNull()
+    mockState.systemAlert = null
+  })
+})
+
+describe('SystemAlertBanner refresh button', () => {
+  it('shows Refresh button for credit limit alerts', async () => {
+    mockState.systemAlert = {
+      message: 'Credit limit reached. Pausing all loops.',
+      source: 'implement',
+      resume_at: '2099-06-15T10:00:00+00:00',
+    }
+    const { default: App } = await import('../../App')
+    render(<App />)
+    expect(screen.getByText('Refresh')).toBeInTheDocument()
+    mockState.systemAlert = null
+  })
+
+  it('does not show Refresh button for non-credit alerts', async () => {
+    mockState.systemAlert = {
+      message: 'Auth failed. Check your API key.',
+      source: 'plan',
+    }
+    const { default: App } = await import('../../App')
+    render(<App />)
+    expect(screen.queryByText('Refresh')).toBeNull()
+    mockState.systemAlert = null
+  })
+
+  it('shows Checking... while refresh is in progress', async () => {
+    let resolveRefresh
+    mockState.refreshCreditStatus = vi.fn(() => new Promise(r => { resolveRefresh = r }))
+    mockState.systemAlert = {
+      message: 'Credit limit reached. Pausing all loops.',
+      source: 'plan',
+    }
+    const { default: App } = await import('../../App')
+    render(<App />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('Refresh'))
+    })
+    expect(screen.getByText('Checking...')).toBeInTheDocument()
+    await act(async () => {
+      resolveRefresh({ ok: true, status: 'resuming' })
+    })
+    mockState.systemAlert = null
+  })
+
+  it('shows "Credits still exhausted" when refresh returns still_exhausted', async () => {
+    mockState.refreshCreditStatus = vi.fn().mockResolvedValue({ ok: true, status: 'still_exhausted' })
+    mockState.systemAlert = {
+      message: 'Credit limit reached. Pausing all loops.',
+      source: 'plan',
+    }
+    const { default: App } = await import('../../App')
+    render(<App />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('Refresh'))
+    })
+    await waitFor(() => {
+      expect(screen.getByText('Credits still exhausted')).toBeInTheDocument()
+    })
+    mockState.systemAlert = null
+  })
+
+  it('shows "Refresh failed" when refreshCreditStatus returns an error', async () => {
+    mockState.refreshCreditStatus = vi.fn().mockResolvedValue({ ok: false, status: 'error' })
+    mockState.systemAlert = {
+      message: 'Credit limit reached. Pausing all loops.',
+      source: 'plan',
+    }
+    const { default: App } = await import('../../App')
+    render(<App />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('Refresh'))
+    })
+    await waitFor(() => {
+      expect(screen.getByText('Refresh failed')).toBeInTheDocument()
+    })
+    mockState.systemAlert = null
+  })
+
+  it('calls refreshCreditStatus when Refresh is clicked', async () => {
+    const mockRefresh = vi.fn().mockResolvedValue({ ok: true, status: 'resuming' })
+    mockState.refreshCreditStatus = mockRefresh
+    mockState.systemAlert = {
+      message: 'Credit limit reached. Pausing all loops.',
+      source: 'plan',
+    }
+    const { default: App } = await import('../../App')
+    render(<App />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('Refresh'))
+    })
+    expect(mockRefresh).toHaveBeenCalledTimes(1)
     mockState.systemAlert = null
   })
 })

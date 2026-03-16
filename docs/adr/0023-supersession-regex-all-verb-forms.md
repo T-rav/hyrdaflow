@@ -19,7 +19,7 @@ ADR prose:
 | **superseding** (progressive) | "superseding ADR-0006 effective immediately" |
 
 An earlier iteration of the regex omitted the `ed` past-tense branch, which
-silently missed phrases like "This ADR superseded ADR-0006" — the most common
+silently missed phrases like "This ADR superseded ADR-NNNN" — the most common
 form in older ADRs that have already been acted upon. Because the validator uses
 the match to enforce that referenced ADRs carry `Status: Superseded`, a missed
 match means stale ADRs stay listed as active with no warning.

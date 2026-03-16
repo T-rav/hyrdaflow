@@ -246,15 +246,8 @@ class TestDetectRepoSlugFromPath:
         # For unit-level tests, we mock subprocess and call the endpoint
         pass
 
-    @pytest.mark.asyncio
-    async def test_https_remote_url(self) -> None:
+    def test_https_remote_url(self) -> None:
         """HTTPS remote URL is parsed to owner/repo slug."""
-        mock_proc = AsyncMock()
-        mock_proc.communicate = AsyncMock(
-            return_value=(b"https://github.com/owner/repo.git\n", b"")
-        )
-        mock_proc.returncode = 0
-
         from urllib.parse import urlparse
 
         url = "https://github.com/owner/repo.git"
@@ -262,16 +255,14 @@ class TestDetectRepoSlugFromPath:
         slug = parsed.path.lstrip("/").removesuffix(".git")
         assert slug == "owner/repo"
 
-    @pytest.mark.asyncio
-    async def test_ssh_remote_url(self) -> None:
+    def test_ssh_remote_url(self) -> None:
         """SSH remote URL is parsed to owner/repo slug."""
         url = "git@github.com:owner/repo.git"
         _, _, remainder = url.partition(":")
         slug = remainder.lstrip("/").removesuffix(".git")
         assert slug == "owner/repo"
 
-    @pytest.mark.asyncio
-    async def test_no_remote_returns_none(self) -> None:
+    def test_no_remote_returns_none(self) -> None:
         """Empty stdout means no remote — returns None-equivalent."""
         url = ""
         assert not url  # Would return None in the helper
@@ -641,7 +632,7 @@ class TestPickRepoFolder:
         endpoint = find_endpoint(router, "/api/repos/pick-folder", "POST")
 
         with patch(
-            "dashboard_routes._pick_folder_with_dialog",
+            "dashboard_routes._routes._pick_folder_with_dialog",
             new_callable=AsyncMock,
             return_value=None,
         ):
@@ -667,7 +658,7 @@ class TestPickRepoFolder:
         endpoint = find_endpoint(router, "/api/repos/pick-folder", "POST")
 
         with patch(
-            "dashboard_routes._pick_folder_with_dialog",
+            "dashboard_routes._routes._pick_folder_with_dialog",
             new_callable=AsyncMock,
             return_value=str(repo_dir),
         ):

@@ -38,6 +38,7 @@ class TestManifestRefreshIntegration:
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.manifest_refresh_loop, ManifestRefreshLoop)
+        assert orch._svc.manifest_refresh_loop._config is config
 
     def test_manifest_refresh_bg_loop_method_exists(
         self, config: HydraFlowConfig
@@ -326,7 +327,7 @@ class TestLoopExceptionIsolation:
         orch = HydraFlowOrchestrator(config)
         fetch_count = 0
 
-        requeued_task = Task(id=99, title="Test issue", body="")
+        requeued_task = TaskFactory.create(id=99, title="Test issue", body="")
 
         def fake_get_reviewable(max_count: int) -> list[Task]:
             nonlocal fetch_count
@@ -635,6 +636,7 @@ class TestHITLLoop:
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.hitl_runner, HITLRunner)
+        assert orch._svc.hitl_runner._config is config
 
     def test_hitl_loop_in_loop_factories(self, config: HydraFlowConfig) -> None:
         """The hitl loop should be listed in _supervise_loops."""

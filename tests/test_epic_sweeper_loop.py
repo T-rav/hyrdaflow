@@ -10,6 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from tests.conftest import IssueFactory
 from tests.helpers import make_bg_loop_deps
 
 
@@ -17,9 +18,7 @@ def _make_issue(
     number: int, *, state: str = "open", body: str = "", labels: list[str] | None = None
 ):
     """Create a mock GitHubIssue."""
-    from models import GitHubIssue
-
-    return GitHubIssue(
+    return IssueFactory.create(
         number=number,
         title=f"Issue #{number}",
         body=body,
@@ -65,13 +64,11 @@ def _make_loop(tmp_path: Path, *, enabled: bool = True, interval: int = 3600):
 class TestEpicSweeperLoop:
     """Core loop behavior."""
 
-    @pytest.mark.asyncio
-    async def test_worker_name(self, tmp_path: Path) -> None:
+    def test_worker_name(self, tmp_path: Path) -> None:
         loop, *_ = _make_loop(tmp_path)
         assert loop._worker_name == "epic_sweeper"
 
-    @pytest.mark.asyncio
-    async def test_default_interval(self, tmp_path: Path) -> None:
+    def test_default_interval(self, tmp_path: Path) -> None:
         loop, *_ = _make_loop(tmp_path, interval=7200)
         assert loop._get_default_interval() == 7200
 

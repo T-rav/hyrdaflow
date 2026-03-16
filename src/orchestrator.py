@@ -9,8 +9,10 @@ from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from bg_worker_manager import BGWorkerManager
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+from hitl_controller import HITLController
 from models import (
     BackgroundWorkerState,
     ErrorPayload,
@@ -38,6 +40,7 @@ from phase_utils import (
 )
 from service_registry import OrchestratorCallbacks, ServiceRegistry, build_services
 from state import StateTracker
+from state_restorer import StateRestorer
 from subprocess_util import (
     AuthenticationError,
     CreditExhaustedError,
@@ -76,10 +79,6 @@ class HydraFlowOrchestrator:
         self._bus = event_bus or EventBus()
         self._state = state or StateTracker(config.state_file)
         self._dashboard: object | None = None
-        # Pending human-input requests: {issue_number: question}
-        self._human_input_requests: dict[int, str] = {}
-        # Fulfilled human-input responses: {issue_number: answer}
-        self._human_input_responses: dict[int, str] = {}
         # In-memory tracking of active issues (avoids double-processing)
         self._active_impl_issues: set[int] = set()
         self._active_review_issues: set[int] = set()
@@ -89,17 +88,12 @@ class HydraFlowOrchestrator:
         # Stop mechanism for dashboard control
         self._stop_event = asyncio.Event()
         self._running = False
-        # Background worker last-known status: {worker_name: status dict}
-        self._bg_worker_states: dict[str, BackgroundWorkerState] = {}
-        # Background worker enabled flags: {worker_name: bool}
-        self._bg_worker_enabled: dict[str, bool] = {}
         # Auth failure flag — set when a loop crashes due to AuthenticationError
         self._auth_failed = False
-        # Dynamic interval overrides: {worker_name: seconds}
-        self._bg_worker_intervals: dict[str, int] = {}
         # Credit pause — set when API credits are exhausted
         self._credits_paused_until: datetime | None = None
         self._credit_pause_lock = asyncio.Lock()
+        self._credit_resume_event = asyncio.Event()
         # Session tracking
         self._current_session: SessionLog | None = None
         self._session_issue_results: dict[int, bool] = {}
@@ -128,20 +122,23 @@ class HydraFlowOrchestrator:
         self._svc: ServiceRegistry = svc
         self._suggest_memory = MemorySuggester(config, svc.prs, self._state)
 
-        # Registry of triggerable background loop instances
-        self._bg_loop_registry: dict[str, BaseBackgroundLoop] = {
-            "memory_sync": self._svc.memory_sync_bg,
-            "metrics": self._svc.metrics_sync_bg,
-            "pr_unsticker": self._svc.pr_unsticker_loop,
-            "manifest_refresh": self._svc.manifest_refresh_loop,
-            "report_issue": self._svc.report_issue_loop,
-            "epic_monitor": self._svc.epic_monitor_loop,
-            "epic_sweeper": self._svc.epic_sweeper_loop,
-            "verify_monitor": self._svc.verify_monitor_loop,
-            "worktree_gc": self._svc.worktree_gc_loop,
-            "runs_gc": self._svc.runs_gc_loop,
-            "adr_reviewer": self._svc.adr_reviewer_loop,
+        # Extracted component managers
+        bg_loop_registry: dict[str, BaseBackgroundLoop] = {
+            "memory_sync": svc.memory_sync_bg,
+            "metrics": svc.metrics_sync_bg,
+            "pr_unsticker": svc.pr_unsticker_loop,
+            "manifest_refresh": svc.manifest_refresh_loop,
+            "report_issue": svc.report_issue_loop,
+            "epic_monitor": svc.epic_monitor_loop,
+            "epic_sweeper": svc.epic_sweeper_loop,
+            "verify_monitor": svc.verify_monitor_loop,
+            "worktree_gc": svc.worktree_gc_loop,
+            "runs_gc": svc.runs_gc_loop,
+            "adr_reviewer": svc.adr_reviewer_loop,
         }
+        self._bg_workers = BGWorkerManager(config, self._state, bg_loop_registry)
+        self._hitl_ctrl = HITLController(svc.hitl_phase, svc.fetcher, config.hitl_label)
+        self._state_restorer = StateRestorer(self._state, self._bus, self._bg_workers)
 
     @property
     def crate_manager(self) -> CrateManager:
@@ -202,6 +199,11 @@ class HydraFlowOrchestrator:
             return self._credits_paused_until
         return None
 
+    def clear_credit_pause(self) -> None:
+        """Clear a credit pause early, waking ``_sleep_until_resume``."""
+        self._credits_paused_until = None
+        self._credit_resume_event.set()
+
     @property
     def run_status(self) -> str:
         """Return the current lifecycle status: idle, running, stopping, auth_failed, credits_paused, or done."""
@@ -230,24 +232,23 @@ class HydraFlowOrchestrator:
     @property
     def human_input_requests(self) -> dict[int, str]:
         """Pending questions for the human operator."""
-        return self._human_input_requests
+        return self._hitl_ctrl.human_input_requests
 
     def provide_human_input(self, issue_number: int, answer: str) -> None:
         """Provide an answer to a paused agent's question."""
-        self._human_input_responses[issue_number] = answer
-        self._human_input_requests.pop(issue_number, None)
+        self._hitl_ctrl.provide_human_input(issue_number, answer)
 
     def submit_hitl_correction(self, issue_number: int, correction: str) -> None:
         """Store a correction for a HITL issue to guide retry."""
-        self._svc.hitl_phase.submit_correction(issue_number, correction)
+        self._hitl_ctrl.submit_correction(issue_number, correction)
 
     def get_hitl_status(self, issue_number: int) -> str:
         """Return the HITL status for an issue."""
-        return self._svc.hitl_phase.get_status(issue_number)
+        return self._hitl_ctrl.get_status(issue_number)
 
     def skip_hitl_issue(self, issue_number: int) -> None:
         """Remove an issue from HITL tracking."""
-        self._svc.hitl_phase.skip_issue(issue_number)
+        self._hitl_ctrl.skip_issue(issue_number)
 
     async def stop(self) -> None:
         """Signal the orchestrator to stop and kill active subprocesses.
@@ -299,7 +300,7 @@ class HydraFlowOrchestrator:
             for issue_number in self._active_review_issues:
                 if issue_number not in interrupted:
                     interrupted[issue_number] = "review"
-            for issue_number in self._svc.hitl_phase.active_hitl_issues:
+            for issue_number in self._hitl_ctrl.active_hitl_issues:
                 if issue_number not in interrupted:
                     interrupted[issue_number] = "hitl"
             return interrupted
@@ -308,26 +309,44 @@ class HydraFlowOrchestrator:
     request_stop = stop
 
     def reset(self) -> None:
-        """Reset the stop event so the orchestrator can be started again."""
+        """Reset all mutable state so the orchestrator can be restarted.
+
+        Every ``asyncio.Event`` field must be explicitly ``.clear()``'d here.
+        Events retain their set state across stop/start cycles — omitting one
+        causes waiters (e.g. ``_sleep_until_resume``) to return immediately on
+        restart.  See #3119 / #3123.
+        """
         self._stop_event.clear()
+        self._credit_resume_event.clear()
         self._running = False
         self._auth_failed = False
         self._credits_paused_until = None
         self._svc.store.clear_active()
         self._active_impl_issues.clear()
         self._active_review_issues.clear()
-        self._svc.hitl_phase.active_hitl_issues.clear()
+        self._hitl_ctrl.active_hitl_issues.clear()
         self._state.clear_interrupted_issues()
+
+    def try_clear_credit_pause(self) -> bool:
+        """Attempt to clear the credit pause and resume loops early.
+
+        Returns ``True`` if a pause was active and the resume signal was sent,
+        ``False`` if no pause was active.
+        """
+        if self._credits_paused_until is None:
+            return False
+        self._credit_resume_event.set()
+        return True
 
     @property
     def _active_hitl_issues(self) -> set[int]:
         """Backward-compatible access to HITL active issues."""
-        return self._svc.hitl_phase.active_hitl_issues
+        return self._hitl_ctrl.active_hitl_issues
 
     @property
     def _hitl_corrections(self) -> dict[int, str]:
         """Backward-compatible access to HITL corrections dict."""
-        return self._svc.hitl_phase.hitl_corrections
+        return self._hitl_ctrl.hitl_corrections
 
     def _sync_active_issue_numbers(self) -> None:
         """Persist the combined active issue set to state."""
@@ -335,7 +354,7 @@ class HydraFlowOrchestrator:
             list(
                 self._active_impl_issues
                 | self._active_review_issues
-                | self._svc.hitl_phase.active_hitl_issues
+                | self._hitl_ctrl.active_hitl_issues
             )
         )
 
@@ -343,30 +362,19 @@ class HydraFlowOrchestrator:
         self, name: str, status: str, details: dict[str, Any] | None = None
     ) -> None:
         """Record the latest heartbeat from a background worker."""
-        self._bg_worker_states[name] = BackgroundWorkerState(
-            name=name,
-            status=status,
-            last_run=datetime.now(UTC).isoformat(),
-            details=dict(details) if details is not None else {},
-        )
-        self._state.set_bg_worker_state(name, self._bg_worker_states[name])
+        self._bg_workers.update_status(name, status, details)
 
     def set_bg_worker_enabled(self, name: str, enabled: bool) -> None:
         """Enable or disable a background worker by name and persist to state."""
-        self._bg_worker_enabled[name] = enabled
-        disabled = {n for n, e in self._bg_worker_enabled.items() if not e}
-        self._state.set_disabled_workers(disabled)
+        self._bg_workers.set_enabled(name, enabled)
 
     def is_bg_worker_enabled(self, name: str) -> bool:
         """Return whether a background worker is enabled (defaults to True)."""
-        return self._bg_worker_enabled.get(name, True)
+        return self._bg_workers.is_enabled(name)
 
     def get_bg_worker_states(self) -> dict[str, BackgroundWorkerState]:
         """Return a copy of all background worker states with enabled flag."""
-        result: dict[str, BackgroundWorkerState] = {}
-        for name, state_dict in self._bg_worker_states.items():
-            result[name] = {**state_dict, "enabled": self.is_bg_worker_enabled(name)}
-        return result
+        return self._bg_workers.get_states()
 
     def trigger_bg_worker(self, name: str) -> bool:
         """Trigger an immediate execution of a background worker.
@@ -374,35 +382,18 @@ class HydraFlowOrchestrator:
         Returns ``True`` if the worker was found and triggered, ``False``
         if *name* does not correspond to a registered ``BaseBackgroundLoop``.
         """
-        loop = self._bg_loop_registry.get(name)
-        if loop is None:
-            return False
-        loop.trigger()
-        return True
+        return self._bg_workers.trigger(name)
 
     def set_bg_worker_interval(self, name: str, seconds: int) -> None:
         """Set a dynamic interval override for a background worker."""
-        self._bg_worker_intervals[name] = seconds
-        self._state.set_worker_intervals(dict(self._bg_worker_intervals))
+        self._bg_workers.set_interval(name, seconds)
 
     def get_bg_worker_interval(self, name: str) -> int:
         """Return the effective interval for a background worker.
 
         Returns the dynamic override if set, otherwise the config default.
         """
-        if name in self._bg_worker_intervals:
-            return self._bg_worker_intervals[name]
-        defaults: dict[str, int] = {
-            "memory_sync": self._config.memory_sync_interval,
-            "metrics": self._config.metrics_sync_interval,
-            "pipeline_poller": 5,
-            "pr_unsticker": self._config.pr_unstick_interval,
-            "manifest_refresh": self._config.manifest_refresh_interval,
-            "report_issue": self._config.report_issue_interval,
-            "epic_monitor": self._config.epic_monitor_interval,
-            "worktree_gc": self._config.worktree_gc_interval,
-        }
-        return defaults.get(name, self._config.poll_interval)
+        return self._bg_workers.get_interval(name)
 
     async def _publish_status(self) -> None:
         """Broadcast the current orchestrator status to all subscribers."""
@@ -545,135 +536,14 @@ class HydraFlowOrchestrator:
                     logger.exception("Pipeline stats emission failed")
             await self._sleep_or_stop(interval)
 
-    def _restore_worker_intervals(self) -> None:
-        """Restore saved background-worker poll-interval overrides from state."""
-        saved_intervals = self._state.get_worker_intervals()
-        if saved_intervals:
-            self._bg_worker_intervals.update(saved_intervals)
-            logger.info(
-                "Restored %d worker interval override(s) from state",
-                len(saved_intervals),
-            )
-
-    def _restore_crash_recovered_issues(self) -> None:
-        """Load crash-recovered active issues so they're skipped for one poll cycle."""
-        recovered = set(self._state.get_active_issue_numbers())
-        if recovered:
-            self._recovered_issues = recovered
-            self._active_impl_issues.update(recovered)
-            logger.info(
-                "Crash recovery: loaded %d active issue(s) from state: %s",
-                len(recovered),
-                recovered,
-            )
-
-    def _restore_interrupted_issues(self) -> None:
-        """Remove interrupted issues from crash-recovery sets so they re-route normally."""
-        interrupted = self._state.get_interrupted_issues()
-        if interrupted:
-            for issue_number in interrupted:
-                self._recovered_issues.discard(issue_number)
-                self._active_impl_issues.discard(issue_number)
-                self._active_review_issues.discard(issue_number)
-                self._svc.hitl_phase.active_hitl_issues.discard(issue_number)
-            logger.info(
-                "Restored %d interrupted issue(s) for re-processing: %s",
-                len(interrupted),
-                interrupted,
-            )
-            self._state.clear_interrupted_issues()
-
-    def _restore_disabled_workers(self) -> None:
-        """Restore persisted disabled-worker flags into the in-memory map."""
-        disabled = self._state.get_disabled_workers()
-        if disabled:
-            for name in disabled:
-                self._bg_worker_enabled[name] = False
-            logger.info(
-                "Restored %d disabled worker(s) from state: %s",
-                len(disabled),
-                sorted(disabled),
-            )
-
-    def _prune_stale_disabled_workers(self, known_names: set[str]) -> None:
-        """Remove disabled-worker entries for workers that no longer exist.
-
-        Called after loop factories are defined so we know the full set of
-        valid worker names.  Stale entries accumulate when workers are renamed
-        or removed between releases.
-        """
-        if not known_names:
-            return
-        disabled = self._state.get_disabled_workers()
-        stale = disabled - known_names
-        if not stale:
-            return
-        logger.info(
-            "Pruning %d stale disabled-worker name(s) from state: %s",
-            len(stale),
-            sorted(stale),
-        )
-        for name in stale:
-            self._bg_worker_enabled.pop(name, None)
-        self._state.set_disabled_workers(disabled - stale)
-
     def _restore_state(self) -> None:
         """Restore worker intervals, crash-recovered issues, interrupted issues, disabled workers, and background worker heartbeats."""
-        self._restore_worker_intervals()
-        self._restore_crash_recovered_issues()
-        self._restore_interrupted_issues()
-        self._restore_disabled_workers()
-        self._restore_bg_worker_states()
-
-    def _restore_bg_worker_states(self) -> None:
-        """Hydrate background worker heartbeat cache from persisted state."""
-        persisted = self._state.get_bg_worker_states()
-        restored = 0
-        if persisted:
-            self._bg_worker_states.update(persisted)
-            restored = len(persisted)
-            logger.info(
-                "Restored %d background worker heartbeat entr%s from state",
-                restored,
-                "ies" if restored != 1 else "y",
-            )
-        backfilled = self._backfill_bg_worker_states_from_events()
-        if backfilled:
-            logger.info(
-                "Backfilled %d background worker heartbeat entr%s from event history",
-                backfilled,
-                "ies" if backfilled != 1 else "y",
-            )
-
-    def _backfill_bg_worker_states_from_events(self) -> int:
-        """Populate heartbeat cache from recent BACKGROUND_WORKER_STATUS events."""
-        history = list(self._bus.get_history())
-        if not history:
-            return 0
-        latest: dict[str, BackgroundWorkerState] = {}
-        existing = set(self._bg_worker_states)
-        for event in reversed(history):
-            if event.type != EventType.BACKGROUND_WORKER_STATUS:
-                continue
-            worker = event.data.get("worker")
-            if not worker or worker in existing or worker in latest:
-                continue
-            raw_details = event.data.get("details", {}) or {}
-            details = (
-                dict(raw_details)
-                if isinstance(raw_details, dict)
-                else {"raw": raw_details}
-            )
-            latest[worker] = BackgroundWorkerState(
-                name=worker,
-                status=str(event.data.get("status", "disabled")),
-                last_run=event.data.get("last_run"),
-                details=details,
-            )
-        for name, state in latest.items():
-            self._bg_worker_states[name] = state
-            self._state.set_bg_worker_state(name, state)
-        return len(latest)
+        self._state_restorer.restore_all(
+            recovered_issues=self._recovered_issues,
+            active_impl_issues=self._active_impl_issues,
+            active_review_issues=self._active_review_issues,
+            active_hitl_issues=self._hitl_ctrl.active_hitl_issues,
+        )
 
     async def _start_session(self) -> None:
         """Create a new session log and publish SESSION_START."""
@@ -907,7 +777,9 @@ class HydraFlowOrchestrator:
             ("adr_reviewer", self._svc.adr_reviewer_loop.run),
             ("pipeline_stats", self._pipeline_stats_loop),
         ]
-        self._prune_stale_disabled_workers({n for n, _ in loop_factories})
+        self._state_restorer.prune_stale_disabled_workers(
+            {n for n, _ in loop_factories}
+        )
         tasks: dict[str, asyncio.Task[None]] = {}
         for name, factory in loop_factories:
             tasks[name] = asyncio.create_task(factory(), name=f"hydraflow-{name}")
@@ -1076,21 +948,11 @@ class HydraFlowOrchestrator:
             enabled_name="review",
         )
 
-    async def _do_hitl_work(self) -> None:
-        """Fetch HITL issues, attempt auto-fixes, then process human corrections."""
-        hitl_issues = await self._svc.fetcher.fetch_issues_by_labels(
-            list(self._config.hitl_label),
-            limit=50,
-        )
-        if hitl_issues:
-            await self._svc.hitl_phase.attempt_auto_fixes(hitl_issues)
-        await self._svc.hitl_phase.process_corrections()
-
     async def _hitl_loop(self) -> None:
         """Continuously process HITL corrections submitted via the dashboard."""
         await self._polling_loop(
             "hitl",
-            self._do_hitl_work,
+            self._hitl_ctrl.do_work,
             self._config.poll_interval,
         )
 
@@ -1322,9 +1184,21 @@ class HydraFlowOrchestrator:
         self._svc.hitl_runner.terminate()
 
     async def _sleep_until_resume(self, resume_at: datetime) -> None:
-        """Sleep until *resume_at* (interruptible by stop event)."""
+        """Sleep until *resume_at* (interruptible by stop or credit-resume event)."""
         pause_seconds = max((resume_at - datetime.now(UTC)).total_seconds(), 0)
-        await self._sleep_or_stop(pause_seconds)
+        sleep_task = asyncio.create_task(self._sleep_or_stop(pause_seconds))
+        resume_task = asyncio.create_task(self._credit_resume_event.wait())
+        try:
+            await asyncio.wait(
+                {sleep_task, resume_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            for task in (sleep_task, resume_task):
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+            self._credit_resume_event.clear()
 
     async def _pause_for_credits(
         self,
@@ -1376,6 +1250,7 @@ class HydraFlowOrchestrator:
 
         if self._stop_event.is_set():
             self._credits_paused_until = None
+            self._credit_resume_event.clear()
             return
 
         await self._resume_loops_after_credit_pause(tasks, loop_factories, source)
@@ -1388,6 +1263,7 @@ class HydraFlowOrchestrator:
     ) -> None:
         """Clear pause state and restart all loops after credit pause."""
         self._credits_paused_until = None
+        self._credit_resume_event.clear()
         logger.info("Credit pause ended — restarting all loops")
         data: SystemAlertPayload = {
             "message": "Credit pause ended. Resuming all loops.",

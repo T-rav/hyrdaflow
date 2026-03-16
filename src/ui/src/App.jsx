@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react'
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { HydraFlowProvider, useHydraFlow } from './context/HydraFlowContext'
 import { Header } from './components/Header'
 import { HumanInputBanner } from './components/HumanInputBanner'
@@ -33,7 +33,39 @@ function formatResumeAt(isoString) {
   return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-function SystemAlertBanner({ alert, onDismiss }) {
+function SystemAlertBanner({ alert, onDismiss, onRefreshCredit }) {
+  const [refreshState, setRefreshState] = useState('idle') // idle | checking | still_exhausted | error
+  const timerRef = useRef(null)
+  const isCreditAlert = alert?.message?.toLowerCase().includes('credit limit')
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [])
+
+  const handleRefresh = useCallback(async () => {
+    if (!onRefreshCredit || refreshState === 'checking') return
+    setRefreshState('checking')
+    if (timerRef.current) clearTimeout(timerRef.current)
+    const result = await onRefreshCredit()
+    if (result.status === 'not_paused') {
+      // Already cleared — banner will be removed by WebSocket event
+      setRefreshState('idle')
+    } else if (result.status === 'resuming') {
+      // Loops are restarting — banner will be auto-dismissed by status event
+      setRefreshState('idle')
+    } else if (result.status === 'still_exhausted') {
+      // API probe confirmed credits are still unavailable
+      setRefreshState('still_exhausted')
+      timerRef.current = setTimeout(() => setRefreshState('idle'), 5000)
+    } else {
+      // API error or unexpected status
+      setRefreshState('error')
+      timerRef.current = setTimeout(() => setRefreshState('idle'), 5000)
+    }
+  }, [onRefreshCredit, refreshState])
+
   if (!alert) return null
   const resumeTime = formatResumeAt(alert.resume_at)
   return (
@@ -41,6 +73,21 @@ function SystemAlertBanner({ alert, onDismiss }) {
       <span style={styles.alertIcon}>!</span>
       <span>{alert.message}{resumeTime && ` Resumes at ${resumeTime}.`}</span>
       {alert.source && <span style={styles.alertSource}>Source: {alert.source}</span>}
+      {refreshState === 'still_exhausted' && (
+        <span style={styles.alertStillExhausted}>Credits still exhausted</span>
+      )}
+      {refreshState === 'error' && (
+        <span style={styles.alertStillExhausted}>Refresh failed</span>
+      )}
+      {isCreditAlert && onRefreshCredit && (
+        <button
+          onClick={handleRefresh}
+          disabled={refreshState === 'checking'}
+          style={refreshState === 'checking' ? styles.alertRefreshDisabled : styles.alertRefresh}
+        >
+          {refreshState === 'checking' ? 'Checking...' : 'Refresh'}
+        </button>
+      )}
       {onDismiss && (
         <span
           role="button"
@@ -119,7 +166,7 @@ function AppContent() {
   const {
     connected, orchestratorStatus, workers, prs,
     hitlItems, humanInputRequests, submitHumanInput, refreshHitl,
-    backgroundWorkers, systemAlert, dismissSystemAlert, intents, toggleBgWorker, triggerBgWorker, updateBgWorkerInterval,
+    backgroundWorkers, systemAlert, dismissSystemAlert, refreshCreditStatus, intents, toggleBgWorker, triggerBgWorker, updateBgWorkerInterval,
     selectedSession, selectSession,
     currentSessionId,
     stageStatus,
@@ -167,7 +214,7 @@ function AppContent() {
           onClear={() => selectSession(null)}
           liveStats={selectedSessionLiveStats}
         />
-        <SystemAlertBanner alert={systemAlert} onDismiss={dismissSystemAlert} />
+        <SystemAlertBanner alert={systemAlert} onDismiss={dismissSystemAlert} onRefreshCredit={refreshCreditStatus} />
         <ConfigWarningBanner warning={configWarning} />
         <HumanInputBanner requests={humanInputRequests} onSubmit={submitHumanInput} />
 
@@ -222,6 +269,18 @@ export default function App() {
       <AppContent />
     </HydraFlowProvider>
   )
+}
+
+const _alertRefreshBase = {
+  padding: '4px 12px',
+  fontSize: 11,
+  fontWeight: 600,
+  border: `1px solid ${theme.red}`,
+  borderRadius: 4,
+  background: 'transparent',
+  color: theme.red,
+  marginLeft: 'auto',
+  flexShrink: 0,
 }
 
 const styles = {
@@ -303,6 +362,14 @@ const styles = {
   alertSource: {
     fontSize: 11,
     fontWeight: 400,
+    opacity: 0.8,
+  },
+  alertRefresh: { ..._alertRefreshBase, cursor: 'pointer', transition: 'all 0.15s' },
+  alertRefreshDisabled: { ..._alertRefreshBase, cursor: 'not-allowed', opacity: 0.5 },
+  alertStillExhausted: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: theme.red,
     opacity: 0.8,
   },
   alertDismiss: {

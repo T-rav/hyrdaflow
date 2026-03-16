@@ -1283,6 +1283,76 @@ class TestTwoPhasePathResolution:
 
 
 # ---------------------------------------------------------------------------
+# ADR-0021 invariants: persistence layout matches documented architecture
+# ---------------------------------------------------------------------------
+
+
+class TestADR0021PersistenceLayout:
+    """Tests that config path properties match the layout documented in ADR-0021.
+
+    ADR-0021 documents:
+    - state_file, event_log_path are repo-scoped under data_root/<slug>/
+    - log_dir, plans_dir, memory_dir are flat under data_root/ (ADR-0010 target)
+    - repo_data_root = data_root / repo_slug
+    - resolve_defaults runs 7 resolution steps in order
+    """
+
+    def test_log_dir_is_flat_not_repo_scoped(self, tmp_path: Path) -> None:
+        """log_dir must be data_root/'logs' (flat), not under repo_slug/."""
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        assert cfg.log_dir == cfg.data_root / "logs"
+        assert cfg.repo_slug not in cfg.log_dir.parts
+
+    def test_plans_dir_is_flat_not_repo_scoped(self, tmp_path: Path) -> None:
+        """plans_dir must be data_root/'plans' (flat), not under repo_slug/."""
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        assert cfg.plans_dir == cfg.data_root / "plans"
+        assert cfg.repo_slug not in cfg.plans_dir.parts
+
+    def test_memory_dir_is_flat_not_repo_scoped(self, tmp_path: Path) -> None:
+        """memory_dir must be data_root/'memory' (flat), not under repo_slug/."""
+        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        assert cfg.memory_dir == cfg.data_root / "memory"
+        assert cfg.repo_slug not in cfg.memory_dir.parts
+
+    def test_resolve_defaults_calls_all_seven_steps(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """resolve_defaults must call all 7 resolution steps in order."""
+        import config as config_module
+
+        call_order: list[str] = []
+
+        step_names = [
+            "_resolve_base_paths",
+            "_resolve_repo_and_identity",
+            "_resolve_repo_scoped_paths",
+            "_apply_env_overrides",
+            "_apply_profile_overrides",
+            "_harmonize_tool_model_defaults",
+            "_validate_docker",
+        ]
+
+        originals = {name: getattr(config_module, name) for name in step_names}
+
+        for name in step_names:
+            original = originals[name]
+
+            def make_wrapper(fn_name: str, fn: object) -> object:
+                def wrapper(cfg: object) -> object:
+                    call_order.append(fn_name)
+                    return fn(cfg)  # type: ignore[operator]
+
+                return wrapper
+
+            monkeypatch.setattr(config_module, name, make_wrapper(name, original))
+
+        HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+
+        assert call_order == step_names
+
+
+# ---------------------------------------------------------------------------
 # memory_sync_labels property
 # ---------------------------------------------------------------------------
 

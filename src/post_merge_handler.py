@@ -15,6 +15,7 @@ from events import EventBus, EventType, HydraFlowEvent
 
 if TYPE_CHECKING:
     from epic import EpicManager
+    from issue_store import IssueStore
 from models import (
     CiGateFn,
     CodeScanningAlert,
@@ -97,6 +98,7 @@ class PostMergeHandler:
         epic_checker: EpicCompletionChecker | None,
         update_bg_worker_status: StatusCallback | None = None,
         epic_manager: EpicManager | None = None,
+        store: IssueStore | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -109,6 +111,7 @@ class PostMergeHandler:
         self._update_bg_worker_status = update_bg_worker_status
         self._prompt_telemetry = PromptTelemetry(config)
         self._epic_manager = epic_manager
+        self._store = store
 
     def _should_defer_merge(self, issue_number: int) -> bool:
         """Return True if merge should be deferred for bundled epic strategy."""
@@ -229,6 +232,8 @@ class PostMergeHandler:
             result.merged = True
             self._state.mark_issue(pr.issue_number, "merged")
             self._state.record_pr_merged()
+            if self._store is not None:
+                self._store.mark_merged(pr.issue_number)
             self._state.record_issue_completed()
             self._state.increment_session_counter("merged")
             if result.ci_fix_attempts > 0:

@@ -620,9 +620,9 @@ class TestManifestInjectionInRunners:
         manifest_path.write_text("## Project Manifest\npython, make")
 
         runner = AgentRunner(config, EventBus())
-        from models import Task
+        from tests.conftest import TaskFactory
 
-        issue = Task(
+        issue = TaskFactory.create(
             id=1,
             title="Test",
             body="body",
@@ -645,9 +645,9 @@ class TestManifestInjectionInRunners:
         manifest_path.write_text("## Project Manifest\nrust, cargo")
 
         runner = HITLRunner(config, EventBus())
-        from models import GitHubIssue
+        from tests.conftest import IssueFactory
 
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=1,
             title="Test",
             body="body",

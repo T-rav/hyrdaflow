@@ -17,14 +17,16 @@ import pytest
 from models import (
     CiGateFn,
     EscalateFn,
-    GitHubIssue,
     HitlEscalation,
-    PRInfo,
     PublishFn,
-    ReviewResult,
     StatusCallback,
-    Task,
     WorkFn,
+)
+from tests.conftest import (
+    IssueFactory,
+    PRInfoFactory,
+    ReviewResultFactory,
+    TaskFactory,
 )
 
 # ---------------------------------------------------------------------------
@@ -67,7 +69,7 @@ class TestEscalateFnProtocol:
             post_on_pr=False,
             event_cause="test_cause",
             extra_event_data={"key": "value"},
-            task=Task(id=1, title="foo"),
+            task=TaskFactory.create(id=1, title="foo"),
         )
         await fn(esc)
         fn.assert_called_once()  # type: ignore[union-attr]
@@ -104,7 +106,7 @@ class TestPublishFnProtocol:
     async def test_async_mock_satisfies_protocol(self) -> None:
         """AsyncMock should work as PublishFn with (pr, worker_id, status)."""
         fn: PublishFn = AsyncMock()
-        pr = PRInfo(number=1, issue_number=1, branch="test")
+        pr = PRInfoFactory.create(number=1, issue_number=1, branch="test")
         await fn(pr, 0, "start")
         fn.assert_called_once_with(pr, 0, "start")  # type: ignore[union-attr]
 
@@ -139,9 +141,9 @@ class TestCiGateFnProtocol:
     async def test_async_mock_satisfies_protocol(self) -> None:
         """AsyncMock(return_value=True) should work as CiGateFn."""
         fn: CiGateFn = AsyncMock(return_value=True)
-        pr = PRInfo(number=1, issue_number=1, branch="test")
-        issue = GitHubIssue(number=1, title="test")
-        result = ReviewResult(pr_number=1, issue_number=1)
+        pr = PRInfoFactory.create(number=1, issue_number=1, branch="test")
+        issue = IssueFactory.create(number=1, title="test")
+        result = ReviewResultFactory.create(pr_number=1, issue_number=1)
         ok = await fn(pr, issue, Path("/tmp/wt"), result, 0)
         assert ok is True
 
@@ -288,7 +290,7 @@ class TestMergeConflictResolverCallPatterns:
     async def test_publish_fn_call_pattern(self) -> None:
         """The publish_fn call in merge_conflict_resolver should work with AsyncMock."""
         publish_fn: PublishFn = AsyncMock()
-        pr = PRInfo(number=99, issue_number=42, branch="agent/issue-42")
+        pr = PRInfoFactory.create(number=99)
         # Matches merge_conflict_resolver.py:58
         await publish_fn(pr, 0, "merge_main")
         publish_fn.assert_called_once_with(pr, 0, "merge_main")  # type: ignore[union-attr]
@@ -306,9 +308,9 @@ class TestPostMergeHandlerCallPatterns:
     async def test_ci_gate_fn_call_pattern(self) -> None:
         """The ci_gate_fn call in post_merge_handler should work with AsyncMock."""
         ci_gate_fn: CiGateFn = AsyncMock(return_value=True)
-        pr = PRInfo(number=99, issue_number=42, branch="agent/issue-42")
-        issue = GitHubIssue(number=42, title="Test issue")
-        result = ReviewResult(pr_number=99, issue_number=42)
+        pr = PRInfoFactory.create(number=99)
+        issue = IssueFactory.create(title="Test issue")
+        result = ReviewResultFactory.create(pr_number=99)
         # Matches post_merge_handler.py:69-75
         ok = await ci_gate_fn(pr, issue, Path("/worktrees/issue-42"), result, 0)
         assert ok is True
@@ -334,7 +336,7 @@ class TestPostMergeHandlerCallPatterns:
     async def test_publish_fn_call_pattern(self) -> None:
         """The publish_fn call in post_merge_handler should work with AsyncMock."""
         publish_fn: PublishFn = AsyncMock()
-        pr = PRInfo(number=99, issue_number=42, branch="agent/issue-42")
+        pr = PRInfoFactory.create(number=99)
         # Matches post_merge_handler.py:79
         await publish_fn(pr, 0, "merging")
         publish_fn.assert_called_once_with(pr, 0, "merging")  # type: ignore[union-attr]

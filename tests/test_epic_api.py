@@ -245,8 +245,7 @@ class TestWebSocketForwarding:
         assert EventType.EPIC_RELEASING in types
         assert EventType.EPIC_RELEASED in types
 
-    @pytest.mark.asyncio
-    async def test_epic_event_serializable(self) -> None:
+    def test_epic_event_serializable(self) -> None:
         from events import HydraFlowEvent
 
         event = HydraFlowEvent(
@@ -524,8 +523,7 @@ class TestMergeableEnrichment:
         await mgr._enrich_pr_status(child, 99)
         assert child.mergeable is None
 
-    @pytest.mark.asyncio
-    async def test_readiness_uses_mergeable_data(self) -> None:
+    def test_readiness_uses_mergeable_data(self) -> None:
         """_compute_readiness correctly uses mergeable=False to set no_conflicts=False."""
         from epic import EpicManager
 
@@ -551,8 +549,7 @@ class TestMergeableEnrichment:
         readiness = mgr._compute_readiness(children, epic)
         assert readiness.no_conflicts is False
 
-    @pytest.mark.asyncio
-    async def test_readiness_passes_when_all_mergeable(self) -> None:
+    def test_readiness_passes_when_all_mergeable(self) -> None:
         """_compute_readiness sets no_conflicts=True when all PRs are mergeable."""
         from epic import EpicManager
 

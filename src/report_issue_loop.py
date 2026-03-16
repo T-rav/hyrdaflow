@@ -11,10 +11,12 @@ import asyncio
 import base64
 import binascii
 import contextlib
+import json
 import logging
 import os
 import re
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -50,19 +52,131 @@ class ReportIssueLoop(BaseBackgroundLoop):
             worker_name="report_issue",
             config=config,
             deps=deps,
-            run_on_startup=True,
+            run_on_startup=False,
         )
         self._state = state
         self._pr_manager = pr_manager
         self._runner = runner
         self._active_procs: set[asyncio.subprocess.Process] = set()
 
+    async def run(self) -> None:
+        """Drain all queued reports on startup, then enter the normal loop.
+
+        The base polling loop processes one report per cycle.  This override
+        keeps executing cycles until the queue is empty (or stop is requested),
+        ensuring reports queued before the processor started are all handled
+        before entering steady-state polling.
+        """
+        while not self._stop_event.is_set() and self._state.peek_report() is not None:
+            await self._execute_cycle()
+
+        await super().run()
+
     def _get_default_interval(self) -> int:
         return self._config.report_issue_interval
+
+    def _sweep_stale_reports(self) -> int:
+        """Auto-close reports stuck at 'queued' longer than the configured threshold.
+
+        Returns the number of reports closed.
+        """
+        threshold_hours = self._config.stale_report_threshold_hours
+        now = datetime.now(UTC)
+        closed = 0
+        for report in self._state.get_pending_reports():
+            try:
+                created = datetime.fromisoformat(report.created_at)
+                age_hours = (now - created).total_seconds() / 3600
+            except (ValueError, TypeError):
+                logger.warning(
+                    "Skipping stale-sweep for report %s: unparseable created_at %r",
+                    report.id,
+                    report.created_at,
+                )
+                continue
+            if age_hours >= threshold_hours:
+                self._state.remove_report(report.id)
+                updated = self._state.update_tracked_report(
+                    report.id,
+                    status="closed",
+                    action_label="stale",
+                    detail=f"Auto-closed after {age_hours:.1f}h (threshold: {threshold_hours}h)",
+                )
+                if updated is None:
+                    logger.warning(
+                        "Stale report %s removed from queue but has no TrackedReport — "
+                        "no audit trail recorded",
+                        report.id,
+                    )
+                logger.info(
+                    "Auto-closed stale report %s (age %.1fh, threshold %dh)",
+                    report.id,
+                    age_hours,
+                    threshold_hours,
+                )
+                closed += 1
+        return closed
+
+    async def _sync_filed_reports(self) -> int:
+        """Check linked GitHub issues for filed reports and auto-transition.
+
+        Returns the number of reports transitioned.
+        """
+        transitioned = 0
+        for report in self._state.get_filed_reports():
+            issue_number = self._extract_issue_number_from_url(report.linked_issue_url)
+            if issue_number <= 0:
+                continue
+            try:
+                issue_state = await self._pr_manager.get_issue_state(issue_number)
+            except Exception:
+                logger.debug(
+                    "Failed to check issue state for report %s (issue #%d)",
+                    report.id,
+                    issue_number,
+                    exc_info=True,
+                )
+                continue
+            if issue_state == "COMPLETED":
+                self._state.update_tracked_report(
+                    report.id,
+                    status="fixed",
+                    action_label="fixed",
+                    detail=f"Issue #{issue_number} resolved",
+                )
+                transitioned += 1
+                logger.info(
+                    "Report %s auto-transitioned to fixed (issue #%d resolved)",
+                    report.id,
+                    issue_number,
+                )
+            elif issue_state == "NOT_PLANNED":
+                self._state.update_tracked_report(
+                    report.id,
+                    status="closed",
+                    action_label="closed",
+                    detail=f"Issue #{issue_number} closed as won't fix",
+                )
+                transitioned += 1
+                logger.info(
+                    "Report %s auto-transitioned to closed (issue #%d won't fix)",
+                    report.id,
+                    issue_number,
+                )
+        return transitioned
+
+    @classmethod
+    def _extract_issue_number_from_url(cls, url: str) -> int:
+        """Extract the issue number from a GitHub issue URL, or return 0."""
+        m = cls._ISSUE_URL_RE.search(url)
+        return int(m.group(1)) if m else 0
 
     async def _do_work(self) -> dict[str, Any] | None:
         if self._config.dry_run:
             return None
+
+        self._sweep_stale_reports()
+        await self._sync_filed_reports()
 
         report = self._state.peek_report()
         if report is None:
@@ -304,9 +418,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 "--json",
                 "labels,body",
             )
-            import json as _json
-
-            data = _json.loads(output)
+            data = json.loads(output)
             labels = [lb.get("name", "") for lb in data.get("labels", [])]
             body = data.get("body", "")
 

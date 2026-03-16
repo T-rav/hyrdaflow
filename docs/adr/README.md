@@ -7,6 +7,10 @@ Lightweight ADRs documenting key design decisions in HydraFlow.
 Each ADR has: **Status**, **Date**, **Context**, **Decision**, **Consequences**,
 and optionally **Alternatives considered** and **Related** links.
 
+When referencing source code anywhere in an ADR (Related, Context, Decision,
+Consequences), use `module:function_or_class` format (e.g. `src/config.py:HydraFlowConfig`).
+**Omit line numbers** — they drift as code evolves and become stale quickly.
+
 ## Index
 
 | ADR | Title | Status |
@@ -20,7 +24,7 @@ and optionally **Alternatives considered** and **Related** links.
 | [0007](0007-dashboard-api-multi-repo-scoping.md) | Dashboard API Architecture for Multi-Repo Scoping | Accepted |
 | [0008](0008-multi-repo-dashboard-architecture.md) | Multi-Repo Dashboard Architecture | Accepted |
 | [0009](0009-multi-repo-process-per-repo-model.md) | Multi-Repo Process-Per-Repo Model | Accepted |
-| [0010](0010-worktree-and-path-isolation.md) | Worktree and Path Isolation Architecture | Proposed |
+| [0010](0010-worktree-and-path-isolation.md) | Worktree and Path Isolation Architecture | Accepted |
 | [0011](0011-epic-release-creation-architecture.md) | Epic Release Creation Architecture | Accepted |
 | [0012](0012-epic-merge-coordination-architecture.md) | Epic Merge Coordination Architecture | Accepted |
 | [0013](0013-screenshot-capture-pipeline.md) | Screenshot Capture Pipeline Architecture | Superseded |
@@ -31,13 +35,13 @@ and optionally **Alternatives considered** and **Related** links.
 | [0018](0018-screenshot-capture-pipeline.md) | Screenshot Capture Pipeline Architecture | Accepted |
 | [0019](0019-background-task-delegation-abstraction-layer.md) | Background Task Delegation Abstraction Layer | Accepted |
 | [0020](0020-autoApproveRow-border-context-awareness.md) | autoApproveRow Border Context Awareness | Superseded |
-| [0021](0021-persistence-architecture-and-data-layout.md) | Persistence Architecture and Data Layout | Proposed |
+| [0021](0021-persistence-architecture-and-data-layout.md) | Persistence Architecture and Data Layout | Accepted |
 | [0022](0022-integration-test-architecture-cross-phase.md) | Pipeline Integration Harness for Cross-Phase Testing | Proposed |
 | [0023](0023-gate-triage-call-not-hitl-fallback.md) | Gate Triage Call on Config Toggle, Not Just HITL Fallback | Superseded |
 | [0023](0023-dead-class-artifacts-in-mock-based-tests.md) | Require Instantiation Verification for Test-Local Classes | Proposed |
 | [0023](0023-tests-must-match-toggle-state-they-assert.md) | Tests Must Match Toggle State They Assert | Proposed |
 | [0023](0023-auto-triage-toggle-must-gate-routing.md) | Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking | Accepted |
-| [0023](0023-stats-counter-placement-in-delegating-helpers.md) | Stats Counter Placement in Delegating Helpers | Proposed |
+| [0023](0023-stats-counter-placement-in-delegating-helpers.md) | Stats Counter Placement in Delegating Helpers | Rejected |
 | [0023](0023-cli-argparse-config-builder-pattern.md) | CLI Architecture — argparse with Config Builder Pattern | Proposed |
 | [0023](0023-multi-repo-architecture-wiring-pattern.md) | Multi-Repo Architecture Wiring Pattern | Proposed |
 | [0023](0023-supersession-regex-all-verb-forms.md) | Supersession Regex Must Include All Verb Forms | Proposed |

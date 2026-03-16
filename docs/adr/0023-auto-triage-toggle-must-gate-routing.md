@@ -139,5 +139,6 @@ When reviewing any routing method that calls both `_route_to_triage` and
 - Source issue: #2341
 - Related: #2345, #2355, #2346, #2350
 - Duplicate resolution: #2757
+- Duplicate resolution: #3013
 - `src/adr_reviewer.py` — `_triage_or_hitl()`, `_route_to_triage()`, `_handle_pre_review_failure()`, `_handle_duplicate()`
 - `src/config.py` — `adr_auto_triage` toggle definition

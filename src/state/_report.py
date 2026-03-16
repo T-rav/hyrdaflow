@@ -90,7 +90,7 @@ class ReportStateMixin:
         self,
         report_id: str,
         *,
-        status: Literal["queued", "in-progress", "fixed", "closed", "reopened"]
+        status: Literal["queued", "in-progress", "filed", "fixed", "closed", "reopened"]
         | None = None,
         detail: str = "",
         action_label: str = "",
@@ -110,6 +110,10 @@ class ReportStateMixin:
                 self.save()
                 return r
         return None
+
+    def get_filed_reports(self) -> list[TrackedReport]:
+        """Return all tracked reports with status ``'filed'``."""
+        return [r for r in self._data.tracked_reports if r.status == "filed"]
 
     # --- metrics state ---
 

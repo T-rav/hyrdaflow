@@ -936,7 +936,7 @@ class TestStaleDisabledWorkerPruning:
         orch.set_bg_worker_enabled("removed_worker", False)
 
         known = {"memory_sync", "metrics", "pr_unsticker"}
-        orch._prune_stale_disabled_workers(known)
+        orch._state_restorer.prune_stale_disabled_workers(known)
 
         # "removed_worker" should be pruned, "memory_sync" should remain disabled
         assert orch.is_bg_worker_enabled("memory_sync") is False
@@ -956,7 +956,7 @@ class TestStaleDisabledWorkerPruning:
         orch.set_bg_worker_enabled("memory_sync", False)
 
         known = {"memory_sync", "metrics", "pr_unsticker"}
-        orch._prune_stale_disabled_workers(known)
+        orch._state_restorer.prune_stale_disabled_workers(known)
 
         assert orch.is_bg_worker_enabled("memory_sync") is False
         assert state.get_disabled_workers() == {"memory_sync"}
@@ -971,7 +971,7 @@ class TestStaleDisabledWorkerPruning:
         orch = HydraFlowOrchestrator(config, event_bus=event_bus, state=state)
 
         known = {"memory_sync", "metrics"}
-        orch._prune_stale_disabled_workers(known)
+        orch._state_restorer.prune_stale_disabled_workers(known)
 
         assert state.get_disabled_workers() == set()
 
@@ -987,7 +987,7 @@ class TestStaleDisabledWorkerPruning:
         orch.set_bg_worker_enabled("old_worker_b", False)
 
         known = {"memory_sync", "metrics"}
-        orch._prune_stale_disabled_workers(known)
+        orch._state_restorer.prune_stale_disabled_workers(known)
 
         assert orch.is_bg_worker_enabled("old_worker_a") is True
         assert orch.is_bg_worker_enabled("old_worker_b") is True

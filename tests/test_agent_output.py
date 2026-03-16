@@ -15,20 +15,13 @@ import pytest
 from agent import AgentRunner
 from events import EventBus, EventType
 from models import LoopResult, Task, WorkerStatus
-from tests.conftest import WorkerResultFactory
+from tests.conftest import TaskFactory, WorkerResultFactory
 from tests.helpers import ConfigFactory, make_proc
 
 
 @pytest.fixture
 def agent_task() -> Task:
-    return Task(
-        id=42,
-        title="Fix the frobnicator",
-        body="The frobnicator is broken. Please fix it.",
-        tags=["ready"],
-        comments=[],
-        source_url="https://github.com/test-org/test-repo/issues/42",
-    )
+    return TaskFactory.create()
 
 
 # ---------------------------------------------------------------------------
