@@ -791,7 +791,7 @@ class EventFactory:
 
         return HE(
             type=type if type is not None else ET.PHASE_CHANGE,
-            timestamp=timestamp or "",
+            timestamp=timestamp if timestamp is not None else "",
             data=data if data is not None else {},
         )
 
@@ -814,7 +814,7 @@ class TriageResultFactory:
         return TR(
             issue_number=issue_number,
             ready=ready,
-            reasons=reasons or [],
+            reasons=reasons if reasons is not None else [],
         )
 
 
@@ -857,8 +857,8 @@ class AnalysisResultFactory:
 
         return AnalysisSection(
             name=name,
-            verdict=verdict or AnalysisVerdict.PASS,
-            details=details or [],
+            verdict=verdict if verdict is not None else AnalysisVerdict.PASS,
+            details=details if details is not None else [],
         )
 
 
@@ -883,9 +883,9 @@ class TestScaffoldResultFactory:
         from test_scaffold import TestScaffoldResult
 
         return TestScaffoldResult(
-            created_dirs=created_dirs or [],
-            created_files=created_files or [],
-            modified_files=modified_files or [],
+            created_dirs=created_dirs if created_dirs is not None else [],
+            created_files=created_files if created_files is not None else [],
+            modified_files=modified_files if modified_files is not None else [],
             skipped=skipped,
             skip_reason=skip_reason,
             language=language,
