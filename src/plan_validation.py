@@ -62,6 +62,42 @@ def _significant_words(text: str, min_length: int = 4) -> set[str]:
     return words
 
 
+def _validate_task_graph(plan: str) -> list[str]:
+    """Validate the ``## Task Graph`` section of a full plan."""
+    errors: list[str] = []
+    task_graph_match = re.search(
+        r"## Task Graph\s*\n(.*?)(?=\n## |\Z)",
+        plan,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if not task_graph_match:
+        return errors
+    phases = extract_phases(task_graph_match.group(1))
+    if not phases:
+        errors.append("## Task Graph must contain at least one ### P{N} phase")
+        return errors
+    for phase in phases:
+        if not phase.files:
+            errors.append(
+                f"Task Graph phase {phase.name} must include "
+                f"**Files:** with at least one path"
+            )
+        if not phase.tests:
+            errors.append(
+                f"Task Graph phase {phase.name} must include "
+                f"**Tests:** with at least one behavioral spec"
+            )
+    phase_ids = {p.id for p in phases}
+    for phase in phases:
+        for dep in phase.depends_on:
+            if dep not in phase_ids:
+                errors.append(
+                    f"Task Graph phase {phase.name} depends on "
+                    f"{dep} which does not exist"
+                )
+    return errors
+
+
 def validate_plan(
     issue: Task,
     plan: str,
@@ -109,37 +145,7 @@ def validate_plan(
 
     # --- Task Graph validation (full plans) ---
     if scale != "lite":
-        task_graph_match = re.search(
-            r"## Task Graph\s*\n(.*?)(?=\n## |\Z)",
-            plan,
-            re.DOTALL | re.IGNORECASE,
-        )
-        if task_graph_match:
-            task_graph_body = task_graph_match.group(1)
-            phases = extract_phases(task_graph_body)
-            if not phases:
-                errors.append("## Task Graph must contain at least one ### P{N} phase")
-            else:
-                for phase in phases:
-                    if not phase.files:
-                        errors.append(
-                            f"Task Graph phase {phase.name} must include "
-                            f"**Files:** with at least one path"
-                        )
-                    if not phase.tests:
-                        errors.append(
-                            f"Task Graph phase {phase.name} must include "
-                            f"**Tests:** with at least one behavioral spec"
-                        )
-                # Validate dependency references
-                phase_ids = {p.id for p in phases}
-                for phase in phases:
-                    for dep in phase.depends_on:
-                        if dep not in phase_ids:
-                            errors.append(
-                                f"Task Graph phase {phase.name} depends on "
-                                f"{dep} which does not exist"
-                            )
+        errors.extend(_validate_task_graph(plan))
 
     # --- Implementation Steps must contain at least one actionable step ---
     impl_steps_match = re.search(

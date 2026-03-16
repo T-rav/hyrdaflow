@@ -583,6 +583,40 @@ class PlanPhase:
     # Main entry point
     # ------------------------------------------------------------------
 
+    async def _notify_epic_planned(
+        self,
+        epic_number: int,
+        results: list[PlanResult],
+    ) -> None:
+        """Notify epic manager about successfully planned children."""
+        if self._epic_manager is None:
+            return
+        for r in results:
+            if r.success and r.plan:
+                await self._epic_manager.on_child_planned(epic_number, r.issue_number)
+
+    async def _plan_epic_groups(self, semaphore: asyncio.Semaphore) -> list[PlanResult]:
+        """Drain the plan queue, group by epic, and plan each group."""
+        batch = self._store.get_plannable(2 * self._config.max_planners)
+        if not batch:
+            return []
+        epic_groups, standalone = self._group_by_epic(batch)
+        for issue in standalone:
+            self._store.enqueue_transition(issue, "plan")
+        release_batch_in_flight(self._store, {i.id for i in standalone})
+
+        epic_results: list[PlanResult] = []
+        for epic_number, children in epic_groups.items():
+            if self._stop_event.is_set():
+                break
+            try:
+                results = await self._plan_epic_group(epic_number, children, semaphore)
+                epic_results.extend(results)
+                await self._notify_epic_planned(epic_number, results)
+            finally:
+                release_batch_in_flight(self._store, {c.id for c in children})
+        return epic_results
+
     async def plan_issues(self) -> list[PlanResult]:
         """Run planning agents on issues from the plan queue.
 
@@ -593,34 +627,9 @@ class PlanPhase:
         """
         semaphore = asyncio.Semaphore(self._config.max_planners)
 
-        # If epic grouping is enabled, drain a batch first to identify
-        # epic children, then plan them as groups.
         epic_results: list[PlanResult] = []
         if self._config.epic_group_planning:
-            batch = self._store.get_plannable(2 * self._config.max_planners)
-            if batch:
-                epic_groups, standalone = self._group_by_epic(batch)
-                # Re-queue standalone issues for the pool below
-                for issue in standalone:
-                    self._store.enqueue_transition(issue, "plan")
-                release_batch_in_flight(self._store, {i.id for i in standalone})
-
-                for epic_number, children in epic_groups.items():
-                    if self._stop_event.is_set():
-                        break
-                    try:
-                        results = await self._plan_epic_group(
-                            epic_number, children, semaphore
-                        )
-                        epic_results.extend(results)
-                        if self._epic_manager is not None:
-                            for r in results:
-                                if r.success and r.plan:
-                                    await self._epic_manager.on_child_planned(
-                                        epic_number, r.issue_number
-                                    )
-                    finally:
-                        release_batch_in_flight(self._store, {c.id for c in children})
+            epic_results = await self._plan_epic_groups(semaphore)
 
         async def _plan_worker(idx: int, issue: Task) -> PlanResult:
             try:

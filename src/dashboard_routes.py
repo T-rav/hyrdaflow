@@ -949,6 +949,77 @@ def create_router(
                 }
             pr_to_issue.setdefault(pr_number, issue_number)
 
+    def _extract_epic_label(labels: Any) -> str | None:
+        """Return the first epic-like label from *labels*, or ``None``."""
+        if not isinstance(labels, list):
+            return None
+        for lbl in labels:
+            s = str(lbl).strip()
+            if s and "epic" in s.lower() and s.lower() not in _EPIC_INTERNAL_LABELS:
+                return s
+        return None
+
+    def _apply_issue_created(row: dict[str, Any], data: dict[str, Any]) -> None:
+        """Enrich *row* with ISSUE_CREATED event data."""
+        if not row.get("epic"):
+            epic = _extract_epic_label(data.get("labels", []))
+            if epic:
+                row["epic"] = epic
+        milestone_num = _coerce_int(data.get("milestone_number"))
+        if milestone_num > 0 and not row.get("crate_number"):
+            row["crate_number"] = milestone_num
+
+    def _apply_pr_created(
+        row: dict[str, Any],
+        data: dict[str, Any],
+        issue_number: int,
+        pr_to_issue: dict[int, int],
+    ) -> None:
+        """Enrich *row* with PR_CREATED event data."""
+        pr_number = _coerce_int(data.get("pr"))
+        if pr_number <= 0:
+            return
+        pr_to_issue[pr_number] = issue_number
+        prs: dict[int, dict[str, Any]] = row["prs"]
+        payload = prs.get(pr_number, {"number": pr_number, "url": "", "merged": False})
+        url = str(data.get("url", "")).strip()
+        if url.startswith(("http://", "https://")):
+            payload["url"] = url
+        prs[pr_number] = payload
+
+    def _apply_merge_update(row: dict[str, Any], data: dict[str, Any]) -> None:
+        """Enrich *row* with MERGE_UPDATE event data."""
+        pr_number = _coerce_int(data.get("pr"))
+        if pr_number <= 0:
+            return
+        prs: dict[int, dict[str, Any]] = row["prs"]
+        payload = prs.get(pr_number, {"number": pr_number, "url": "", "merged": False})
+        if str(data.get("status", "")).lower() == "merged":
+            payload["merged"] = True
+        prs[pr_number] = payload
+
+    def _apply_event_status(
+        row: dict[str, Any],
+        event_type: EventType,
+        data: dict[str, Any],
+        timestamp: str,
+    ) -> None:
+        """Update the status field on *row* if the event carries a newer status."""
+        normalised = _normalise_event_status(event_type, data)
+        if not normalised:
+            return
+        current = str(row.get("status", "unknown"))
+        current_ts = (
+            row.get("status_updated_at")
+            if isinstance(row.get("status_updated_at"), str)
+            else None
+        )
+        if _status_sort_key(normalised, timestamp) >= _status_sort_key(
+            current, current_ts
+        ):
+            row["status"] = normalised
+            row["status_updated_at"] = timestamp
+
     def _process_events_into_rows(
         events: list[Any],
         issue_rows: dict[int, dict[str, Any]],
@@ -984,60 +1055,13 @@ def create_router(
                 row["issue_url"] = maybe_url
 
             if event.type == EventType.ISSUE_CREATED:
-                labels = event.data.get("labels", [])
-                if isinstance(labels, list) and not row.get("epic"):
-                    for lbl in labels:
-                        s = str(lbl).strip()
-                        if (
-                            s
-                            and "epic" in s.lower()
-                            and s.lower() not in _EPIC_INTERNAL_LABELS
-                        ):
-                            row["epic"] = s
-                            break
-                milestone_num = _coerce_int(event.data.get("milestone_number"))
-                if milestone_num > 0 and not row.get("crate_number"):
-                    row["crate_number"] = milestone_num
-
+                _apply_issue_created(row, event.data)
             if event.type == EventType.PR_CREATED:
-                pr_number = _coerce_int(event.data.get("pr"))
-                if pr_number > 0:
-                    pr_to_issue[pr_number] = issue_number
-                    prs = row["prs"]
-                    payload = prs.get(
-                        pr_number,
-                        {"number": pr_number, "url": "", "merged": False},
-                    )
-                    url = str(event.data.get("url", "")).strip()
-                    if url.startswith(("http://", "https://")):
-                        payload["url"] = url
-                    prs[pr_number] = payload
-
+                _apply_pr_created(row, event.data, issue_number, pr_to_issue)
             if event.type == EventType.MERGE_UPDATE:
-                pr_number = _coerce_int(event.data.get("pr"))
-                if pr_number > 0:
-                    prs = row["prs"]
-                    payload = prs.get(
-                        pr_number,
-                        {"number": pr_number, "url": "", "merged": False},
-                    )
-                    if str(event.data.get("status", "")).lower() == "merged":
-                        payload["merged"] = True
-                    prs[pr_number] = payload
+                _apply_merge_update(row, event.data)
 
-            normalised = _normalise_event_status(event.type, event.data)
-            if normalised:
-                current = str(row.get("status", "unknown"))
-                current_ts = (
-                    row.get("status_updated_at")
-                    if isinstance(row.get("status_updated_at"), str)
-                    else None
-                )
-                if _status_sort_key(normalised, timestamp) >= _status_sort_key(
-                    current, current_ts
-                ):
-                    row["status"] = normalised
-                    row["status_updated_at"] = timestamp
+            _apply_event_status(row, event.type, event.data, timestamp)
 
     def _filter_rows_to_items(
         issue_rows: dict[int, dict[str, Any]],
@@ -1064,6 +1088,50 @@ def create_router(
                 _build_issue_history_entry(row, state.get_outcome(issue_number))
             )
         return items
+
+    async def _backfill_crate_titles(
+        items: list[IssueHistoryEntry],
+        issue_rows: dict[int, dict[str, Any]],
+        use_unfiltered: bool,
+    ) -> list[IssueHistoryEntry]:
+        """Backfill crate titles from milestones for items missing them."""
+        if not any(i.crate_number and not i.crate_title for i in items):
+            return items
+        try:
+            milestones = await pr_manager.list_milestones(state="all")
+            title_map = {m.number: m.title for m in milestones}
+            items = [
+                i.model_copy(update={"crate_title": title_map.get(i.crate_number, "")})
+                if i.crate_number and not i.crate_title
+                else i
+                for i in items
+            ]
+            backfilled = _backfill_crate_rows(items, issue_rows)
+            if (
+                backfilled
+                and use_unfiltered
+                and _history_cache.get("issue_rows") is not None
+            ):
+                _history_cache["issue_rows"] = copy.deepcopy(issue_rows)
+                _save_history_cache()
+        except Exception:
+            logger.warning("Failed to fetch milestones for crate titles", exc_info=True)
+        return items
+
+    def _backfill_crate_rows(
+        items: list[IssueHistoryEntry],
+        issue_rows: dict[int, dict[str, Any]],
+    ) -> bool:
+        """Write crate titles back into raw issue rows; return True if any changed."""
+        changed = False
+        for i in items:
+            if not (i.crate_number and i.crate_title):
+                continue
+            raw = issue_rows.get(i.issue_number)
+            if raw is not None and raw.get("crate_title") != i.crate_title:
+                raw["crate_title"] = i.crate_title
+                changed = True
+        return changed
 
     async def _apply_enrichment_and_crate_titles(
         items: list[IssueHistoryEntry],
@@ -1115,38 +1183,7 @@ def create_router(
 
         # Populate crate titles from milestones for items that have a
         # crate_number but no title yet.
-        needs_title = any(i.crate_number and not i.crate_title for i in items)
-        if needs_title:
-            try:
-                milestones = await pr_manager.list_milestones(state="all")
-                title_map = {m.number: m.title for m in milestones}
-                items = [
-                    i.model_copy(
-                        update={"crate_title": title_map.get(i.crate_number, "")}
-                    )
-                    if i.crate_number and not i.crate_title
-                    else i
-                    for i in items
-                ]
-                # Also backfill into the raw rows so the cache carries titles.
-                backfilled = False
-                for i in items:
-                    if i.crate_number and i.crate_title:
-                        raw = issue_rows.get(i.issue_number)
-                        if raw is not None and raw.get("crate_title") != i.crate_title:
-                            raw["crate_title"] = i.crate_title
-                            backfilled = True
-                if (
-                    backfilled
-                    and use_unfiltered
-                    and _history_cache.get("issue_rows") is not None
-                ):
-                    _history_cache["issue_rows"] = copy.deepcopy(issue_rows)
-                    _save_history_cache()
-            except Exception:
-                logger.warning(
-                    "Failed to fetch milestones for crate titles", exc_info=True
-                )
+        items = await _backfill_crate_titles(items, issue_rows, use_unfiltered)
 
         # Backfill epic field from state's epic tracking when not already set.
         epic_states = state.get_all_epic_states()
@@ -1832,6 +1869,57 @@ def create_router(
             logger.warning("Failed to find next crate during advance", exc_info=True)
         return JSONResponse({"status": "ok", "previous": previous, "next": None})
 
+    _ORIGIN_CAUSE_MAP: list[tuple[str, str]] = []  # populated at router build time
+
+    def _infer_hitl_cause(
+        origin: str | None,
+        cfg: HydraFlowConfig,
+    ) -> str | None:
+        """Derive a human-readable cause from the HITL origin label."""
+        if not origin:
+            return None
+        if origin in cfg.improve_label:
+            return "Self-improvement proposal"
+        if origin in cfg.review_label:
+            return "Review escalation"
+        if origin in cfg.find_label:
+            return "Triage escalation"
+        return "Escalation (reason not recorded)"
+
+    def _enrich_hitl_item(
+        data: dict[str, Any],
+        issue: int,
+        *,
+        cause: str | None,
+        origin: str | None,
+        cfg: HydraFlowConfig,
+    ) -> None:
+        """Mutate *data* with cause, summary, visual evidence, and flags."""
+        if cause:
+            data["cause"] = cause
+        if origin and origin in cfg.improve_label:
+            data["isMemorySuggestion"] = True
+        if cause and (
+            "epic detected" in cause.lower() or "bug report detected" in cause.lower()
+        ):
+            data["issueTypeReview"] = True
+        cached_summary = state.get_hitl_summary(issue)
+        data["llmSummary"] = cached_summary or ""
+        data["llmSummaryUpdatedAt"] = state.get_hitl_summary_updated_at(issue)
+        visual_ev = state.get_hitl_visual_evidence(issue)
+        if visual_ev:
+            data["visualEvidence"] = visual_ev.model_dump()
+        if (
+            not cached_summary
+            and config.transcript_summarization_enabled
+            and not config.dry_run
+            and bool(config.gh_token)
+            and _hitl_summary_retry_due(issue)
+        ):
+            asyncio.create_task(
+                _warm_hitl_summary(issue, cause=cause or "", origin=origin)
+            )
+
     @router.get("/api/hitl")
     async def get_hitl(
         repo: RepoSlugParam = None,
@@ -1849,41 +1937,9 @@ def create_router(
                 data["status"] = orch.get_hitl_status(item.issue)
             cause = _state.get_hitl_cause(item.issue)
             origin = _state.get_hitl_origin(item.issue)
-            if not cause and origin:
-                if origin in _cfg.improve_label:
-                    cause = "Self-improvement proposal"
-                elif origin in _cfg.review_label:
-                    cause = "Review escalation"
-                elif origin in _cfg.find_label:
-                    cause = "Triage escalation"
-                else:
-                    cause = "Escalation (reason not recorded)"
-            if cause:
-                data["cause"] = cause
-            if origin and origin in _cfg.improve_label:
-                data["isMemorySuggestion"] = True
-            # Flag items held for issue type review
-            if cause and (
-                "epic detected" in cause.lower()
-                or "bug report detected" in cause.lower()
-            ):
-                data["issueTypeReview"] = True
-            cached_summary = state.get_hitl_summary(item.issue)
-            data["llmSummary"] = cached_summary or ""
-            data["llmSummaryUpdatedAt"] = state.get_hitl_summary_updated_at(item.issue)
-            visual_ev = state.get_hitl_visual_evidence(item.issue)
-            if visual_ev:
-                data["visualEvidence"] = visual_ev.model_dump()
-            if (
-                not cached_summary
-                and config.transcript_summarization_enabled
-                and not config.dry_run
-                and bool(config.gh_token)
-                and _hitl_summary_retry_due(item.issue)
-            ):
-                asyncio.create_task(
-                    _warm_hitl_summary(item.issue, cause=cause or "", origin=origin)
-                )
+            if not cause:
+                cause = _infer_hitl_cause(origin, _cfg)
+            _enrich_hitl_item(data, item.issue, cause=cause, origin=origin, cfg=_cfg)
             enriched.append(data)
 
         # When memory auto-approve is on, filter out memory suggestions that
@@ -2482,6 +2538,71 @@ def create_router(
         except (ValueError, TypeError):
             return None
 
+    _INTERVAL_CONFIG_MAP: dict[str, str] = {
+        "memory_sync": "memory_sync_interval",
+        "metrics": "metrics_sync_interval",
+        "pr_unsticker": "pr_unstick_interval",
+        "pipeline_poller": "",  # fixed default
+    }
+    _INTERVAL_CONFIG_DEFAULTS: dict[str, int] = {"pipeline_poller": 5}
+
+    def _resolve_worker_interval(
+        name: str,
+        cfg: HydraFlowConfig,
+        orch: HydraFlowOrchestrator | None,
+    ) -> int | None:
+        """Determine the polling interval for a single background worker."""
+        if name in _INTERVAL_WORKERS and orch:
+            return orch.get_bg_worker_interval(name)
+        if name in _INTERVAL_WORKERS:
+            attr = _INTERVAL_CONFIG_MAP.get(name)
+            if attr:
+                return getattr(cfg, attr, None)
+            return _INTERVAL_CONFIG_DEFAULTS.get(name)
+        if name in _PIPELINE_WORKERS:
+            return cfg.poll_interval
+        return None
+
+    def _build_worker_status(
+        name: str,
+        label: str,
+        description: str,
+        *,
+        enabled: bool,
+        interval: int | None,
+        entry: BackgroundWorkerState | None,
+        inference: dict[str, Any],
+    ) -> BackgroundWorkerStatus:
+        """Construct a ``BackgroundWorkerStatus`` from state entry or defaults."""
+        if not entry:
+            return BackgroundWorkerStatus(
+                name=name,
+                label=label,
+                description=description,
+                enabled=enabled,
+                interval_seconds=interval,
+                details=inference,
+            )
+        last_run = entry.get("last_run")
+        raw_details = entry.get("details", {})
+        details: dict[str, Any] = (
+            dict(raw_details)
+            if isinstance(raw_details, dict)
+            else {"raw_details": str(raw_details)}
+        )
+        details.update(inference)
+        return BackgroundWorkerStatus(
+            name=name,
+            label=label,
+            description=description,
+            status=BGWorkerHealth(entry.get("status", BGWorkerHealth.DISABLED)),
+            enabled=enabled,
+            last_run=last_run,
+            interval_seconds=interval,
+            next_run=_compute_next_run(last_run, interval),
+            details=details,
+        )
+
     @router.get("/api/system/workers")
     async def get_system_workers(
         repo: RepoSlugParam = None,
@@ -2499,60 +2620,19 @@ def create_router(
         inference_by_worker = _build_system_worker_inference_stats()
         workers = []
         for name, label, description in _bg_worker_defs:
-            enabled = orch.is_bg_worker_enabled(name) if orch else True
-
-            # Determine interval for this worker
-            interval: int | None = None
-            if name in _INTERVAL_WORKERS and orch:
-                interval = orch.get_bg_worker_interval(name)
-            elif name in _INTERVAL_WORKERS:
-                if name == "memory_sync":
-                    interval = _cfg.memory_sync_interval
-                elif name == "metrics":
-                    interval = _cfg.metrics_sync_interval
-                elif name == "pr_unsticker":
-                    interval = _cfg.pr_unstick_interval
-                elif name == "pipeline_poller":
-                    interval = 5
-            elif name in _PIPELINE_WORKERS:
-                interval = _cfg.poll_interval
-
+            interval = _resolve_worker_interval(name, _cfg, orch)
             entry = bg_states.get(name) or persisted_states.get(name)
-            if entry:
-                last_run = entry.get("last_run")
-                raw_details = entry.get("details", {})
-                details: dict[str, Any] = (
-                    dict(raw_details)
-                    if isinstance(raw_details, dict)
-                    else {"raw_details": str(raw_details)}
+            workers.append(
+                _build_worker_status(
+                    name,
+                    label,
+                    description,
+                    enabled=orch.is_bg_worker_enabled(name) if orch else True,
+                    interval=interval,
+                    entry=entry,
+                    inference=inference_by_worker.get(name, {}),
                 )
-                details.update(inference_by_worker.get(name, {}))
-                workers.append(
-                    BackgroundWorkerStatus(
-                        name=name,
-                        label=label,
-                        description=description,
-                        status=BGWorkerHealth(
-                            entry.get("status", BGWorkerHealth.DISABLED)
-                        ),
-                        enabled=enabled,
-                        last_run=last_run,
-                        interval_seconds=interval,
-                        next_run=_compute_next_run(last_run, interval),
-                        details=details,
-                    )
-                )
-            else:
-                workers.append(
-                    BackgroundWorkerStatus(
-                        name=name,
-                        label=label,
-                        description=description,
-                        enabled=enabled,
-                        interval_seconds=interval,
-                        details=inference_by_worker.get(name, {}),
-                    )
-                )
+            )
         return JSONResponse(BackgroundWorkersResponse(workers=workers).model_dump())
 
     @router.post("/api/control/bg-worker")
@@ -3726,6 +3806,33 @@ def create_router(
             ]
         return JSONResponse({"repos": repos})
 
+    async def _run_gh_clone(
+        slug: str, clone_target: Path, workspace_dir: Path
+    ) -> JSONResponse | None:
+        """Run ``gh repo clone`` and return an error response or ``None`` on success."""
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        clone_target.parent.mkdir(parents=True, exist_ok=True)
+        cmd = ["gh", "repo", "clone", slug, str(clone_target)]
+        clone_proc: asyncio.subprocess.Process | None = None
+        try:
+            clone_proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(clone_proc.communicate(), timeout=300)
+        except FileNotFoundError:
+            return JSONResponse({"error": "gh CLI not found"}, status_code=503)
+        except TimeoutError:
+            if clone_proc is not None:
+                with contextlib.suppress(ProcessLookupError):
+                    clone_proc.kill()
+            return JSONResponse({"error": "Clone timed out"}, status_code=504)
+        if clone_proc.returncode != 0:
+            msg = (stderr or b"").decode().strip()
+            return JSONResponse({"error": f"Clone failed: {msg}"}, status_code=502)
+        return None
+
     @router.post("/api/github/clone")
     async def clone_github_repo(  # noqa: PLR0911
         req: dict[str, Any] | None = Body(default=None),
@@ -3779,39 +3886,9 @@ def create_router(
         slug = f"{owner}/{repo_name}"
         already_cloned = clone_target.is_dir() and (clone_target / ".git").is_dir()
         if not already_cloned:
-            workspace_dir.mkdir(parents=True, exist_ok=True)
-            owner_dir = clone_target.parent
-            owner_dir.mkdir(parents=True, exist_ok=True)
-            cmd = ["gh", "repo", "clone", slug, str(clone_target)]
-            clone_proc: asyncio.subprocess.Process | None = None
-            try:
-                clone_proc = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                _, stderr = await asyncio.wait_for(
-                    clone_proc.communicate(), timeout=300
-                )
-            except FileNotFoundError:
-                return JSONResponse(
-                    {"error": "gh CLI not found"},
-                    status_code=503,
-                )
-            except TimeoutError:
-                if clone_proc is not None:
-                    with contextlib.suppress(ProcessLookupError):
-                        clone_proc.kill()
-                return JSONResponse(
-                    {"error": "Clone timed out"},
-                    status_code=504,
-                )
-            if clone_proc.returncode != 0:
-                msg = (stderr or b"").decode().strip()
-                return JSONResponse(
-                    {"error": f"Clone failed: {msg}"},
-                    status_code=502,
-                )
+            clone_err = await _run_gh_clone(slug, clone_target, workspace_dir)
+            if clone_err is not None:
+                return clone_err
         # Register with the callback or supervisor
         if register_repo_cb is not None:
             try:

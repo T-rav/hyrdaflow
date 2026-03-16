@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 _USAGE_KEYS = (
@@ -216,6 +217,23 @@ class StreamParser:
         self._extractor: _UsageExtractor = _ClaudeUsageExtractor()
         self._final_usage: dict[str, int] = {}
 
+    # Event types that produce the last result text as the final result.
+    _RESULT_EVENT_TYPES = frozenset({"turn.completed", "agent_end", "turn_end"})
+    # Event types that are silently consumed (no display, no result).
+    _SILENT_EVENT_TYPES = frozenset(
+        {
+            "session",
+            "agent_start",
+            "turn_start",
+            "message_start",
+            "tool_execution_update",
+            "auto_compaction_start",
+            "auto_compaction_end",
+            "auto_retry_start",
+            "auto_retry_end",
+        }
+    )
+
     def parse(self, raw_line: str) -> tuple[str, str | None]:
         """Parse a single stream-json line.
 
@@ -229,51 +247,65 @@ class StreamParser:
             return (raw_line, None)
 
         self._capture_usage(event)
+        return self._dispatch_event(event, raw_line)
+
+    def _dispatch_event(
+        self, event: dict[str, Any], raw_line: str
+    ) -> tuple[str, str | None]:
+        """Route a parsed event to the appropriate handler."""
         event_type = event.get("type", "")
 
-        display = ""
-        result: str | None = None
+        handler = self._EVENT_HANDLERS.get(event_type)
+        if handler is not None:
+            return handler(self, event)
 
-        if event_type == "assistant":
-            display = self._parse_assistant(event)
-        elif event_type == "result":
-            result = event.get("result", "")
-        elif event_type == "user":
-            display = self._parse_user(event)
-        elif event_type == "item.completed":
-            display = self._parse_codex_item(event)
-        elif event_type == "turn.completed":
-            result = self._last_result_text
-        elif event_type == "message_update":
-            display = self._parse_pi_message_update(event)
-        elif event_type == "message_end":
-            self._capture_pi_message_end(event)
-        elif event_type == "tool_execution_start":
-            display = self._parse_pi_tool_start(event)
-        elif event_type == "tool_execution_end":
-            display = self._parse_pi_tool_end(event)
-        elif event_type in {
-            "session",
-            "agent_start",
-            "agent_end",
-            "turn_start",
-            "turn_end",
-            "message_start",
-            "tool_execution_update",
-            "auto_compaction_start",
-            "auto_compaction_end",
-            "auto_retry_start",
-            "auto_retry_end",
-        }:
-            if event_type in {"agent_end", "turn_end"}:
-                result = self._last_result_text
-            display = ""
-        elif event_type == "error":
-            display = event.get("message", "")
-        else:
-            display = raw_line
+        if event_type in self._RESULT_EVENT_TYPES:
+            return ("", self._last_result_text)
+        if event_type in self._SILENT_EVENT_TYPES:
+            return ("", None)
+        if event_type == "error":
+            return (event.get("message", ""), None)
+        return (raw_line, None)
 
-        return (display, result)
+    def _handle_assistant(self, event: dict[str, Any]) -> tuple[str, str | None]:
+        return (self._parse_assistant(event), None)
+
+    def _handle_result(self, event: dict[str, Any]) -> tuple[str, str | None]:
+        return ("", event.get("result", ""))
+
+    def _handle_user(self, event: dict[str, Any]) -> tuple[str, str | None]:
+        return (self._parse_user(event), None)
+
+    def _handle_codex_item(self, event: dict[str, Any]) -> tuple[str, str | None]:
+        return (self._parse_codex_item(event), None)
+
+    def _handle_message_update(self, event: dict[str, Any]) -> tuple[str, str | None]:
+        return (self._parse_pi_message_update(event), None)
+
+    def _handle_message_end(self, event: dict[str, Any]) -> tuple[str, str | None]:
+        self._capture_pi_message_end(event)
+        return ("", None)
+
+    def _handle_tool_start(self, event: dict[str, Any]) -> tuple[str, str | None]:
+        return (self._parse_pi_tool_start(event), None)
+
+    def _handle_tool_end(self, event: dict[str, Any]) -> tuple[str, str | None]:
+        return (self._parse_pi_tool_end(event), None)
+
+    _EVENT_HANDLERS: dict[
+        str,
+        Callable[[StreamParser, dict[str, Any]], tuple[str, str | None]],
+    ] = {
+        "assistant": _handle_assistant,
+        "result": _handle_result,
+        "user": _handle_user,
+        "item.completed": _handle_codex_item,
+        "turn.completed": lambda self, _e: ("", self._last_result_text),
+        "message_update": _handle_message_update,
+        "message_end": _handle_message_end,
+        "tool_execution_start": _handle_tool_start,
+        "tool_execution_end": _handle_tool_end,
+    }
 
     @property
     def usage_totals(self) -> dict[str, int]:

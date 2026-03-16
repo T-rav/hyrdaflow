@@ -216,6 +216,100 @@ def detect_ci_systems(repo_root: Path) -> list[str]:
     return systems
 
 
+def _detect_npm_workspaces(repo_root: Path) -> list[dict[str, str]]:
+    """Detect npm/yarn/pnpm workspaces from ``package.json``."""
+    pkg_json = repo_root / "package.json"
+    if not pkg_json.exists():
+        return []
+    try:
+        pkg = json.loads(pkg_json.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning(
+            "Failed to parse %s while detecting npm workspaces: %s",
+            pkg_json,
+            exc,
+            exc_info=True,
+        )
+        return []
+    workspaces = pkg.get("workspaces", [])
+    if isinstance(workspaces, dict):
+        workspaces = workspaces.get("packages", [])
+    if not isinstance(workspaces, list):
+        return []
+    return [{"name": ws, "path": ws} for ws in workspaces if isinstance(ws, str)]
+
+
+def _parse_cargo_members(content: str) -> list[dict[str, str]]:
+    """Extract workspace member paths from Cargo.toml content."""
+    if "[workspace]" not in content:
+        return []
+    members: list[dict[str, str]] = []
+    in_members = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("members"):
+            in_members = True
+            continue
+        if not in_members:
+            continue
+        if stripped == "]":
+            break
+        member = stripped.strip('",').strip("',").strip()
+        if member and not member.startswith("["):
+            members.append({"name": member, "path": member})
+    return members
+
+
+def _detect_cargo_workspaces(repo_root: Path) -> list[dict[str, str]]:
+    """Detect Cargo workspace members from ``Cargo.toml``."""
+    cargo_toml = repo_root / "Cargo.toml"
+    if not cargo_toml.exists():
+        return []
+    try:
+        content = cargo_toml.read_text()
+    except OSError as exc:
+        logger.warning(
+            "Failed to read %s while detecting Cargo workspaces: %s",
+            cargo_toml,
+            exc,
+            exc_info=True,
+        )
+        return []
+    return _parse_cargo_members(content)
+
+
+_NAMESPACE_IGNORED = frozenset(
+    {
+        "node_modules",
+        "venv",
+        ".venv",
+        "__pycache__",
+        ".git",
+    }
+)
+
+
+def _detect_python_namespace_packages(repo_root: Path) -> list[dict[str, str]]:
+    """Detect Python namespace packages (directories with their own pyproject.toml)."""
+    results: list[dict[str, str]] = []
+    try:
+        for child in sorted(repo_root.iterdir()):
+            if not child.is_dir():
+                continue
+            if child.name.startswith(".") or child.name in _NAMESPACE_IGNORED:
+                continue
+            if (child / "pyproject.toml").exists():
+                results.append({"name": child.name, "path": child.name})
+    except OSError as exc:
+        logger.warning(
+            "Failed to list directories in %s while detecting namespace packages: %s",
+            repo_root,
+            exc,
+            exc_info=True,
+        )
+    return results
+
+
 def detect_sub_projects(repo_root: Path) -> list[dict[str, str]]:
     """Detect sub-projects and workspaces.
 
@@ -227,80 +321,9 @@ def detect_sub_projects(repo_root: Path) -> list[dict[str, str]]:
     Returns a list of dicts with ``name`` and ``path`` keys.
     """
     sub_projects: list[dict[str, str]] = []
-
-    # --- npm workspaces ---
-    pkg_json = repo_root / "package.json"
-    if pkg_json.exists():
-        try:
-            pkg = json.loads(pkg_json.read_text())
-            workspaces = pkg.get("workspaces", [])
-            # workspaces can be a list or a dict with "packages" key
-            if isinstance(workspaces, dict):
-                workspaces = workspaces.get("packages", [])
-            if isinstance(workspaces, list):
-                for ws in workspaces:
-                    if isinstance(ws, str):
-                        sub_projects.append({"name": ws, "path": ws})
-        except (json.JSONDecodeError, OSError) as exc:
-            logger.warning(
-                "Failed to parse %s while detecting npm workspaces: %s",
-                pkg_json,
-                exc,
-                exc_info=True,
-            )
-
-    # --- Cargo workspaces ---
-    cargo_toml = repo_root / "Cargo.toml"
-    if cargo_toml.exists():
-        try:
-            content = cargo_toml.read_text()
-            if "[workspace]" in content:
-                # Simple line-by-line parse for members
-                in_members = False
-                for line in content.splitlines():
-                    stripped = line.strip()
-                    if stripped.startswith("members"):
-                        in_members = True
-                        continue
-                    if in_members:
-                        if stripped == "]":
-                            break
-                        # Extract quoted paths
-                        member = stripped.strip('",').strip("',").strip()
-                        if member and not member.startswith("["):
-                            sub_projects.append({"name": member, "path": member})
-        except OSError as exc:
-            logger.warning(
-                "Failed to read %s while detecting Cargo workspaces: %s",
-                cargo_toml,
-                exc,
-                exc_info=True,
-            )
-
-    # --- Python namespace packages ---
-    # Look for directories containing their own pyproject.toml (one level deep)
-    try:
-        for child in sorted(repo_root.iterdir()):
-            if not child.is_dir():
-                continue
-            if child.name.startswith(".") or child.name in (
-                "node_modules",
-                "venv",
-                ".venv",
-                "__pycache__",
-                ".git",
-            ):
-                continue
-            if (child / "pyproject.toml").exists():
-                sub_projects.append({"name": child.name, "path": child.name})
-    except OSError as exc:
-        logger.warning(
-            "Failed to list directories in %s while detecting namespace packages: %s",
-            repo_root,
-            exc,
-            exc_info=True,
-        )
-
+    sub_projects.extend(_detect_npm_workspaces(repo_root))
+    sub_projects.extend(_detect_cargo_workspaces(repo_root))
+    sub_projects.extend(_detect_python_namespace_packages(repo_root))
     return sub_projects
 
 

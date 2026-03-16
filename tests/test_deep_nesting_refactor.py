@@ -6,6 +6,7 @@ identical behaviour while reducing nesting depth.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from datetime import UTC
 from pathlib import Path
@@ -535,3 +536,340 @@ def _make_simple_epic_manager(tmp_path: Path):  # noqa: ANN202
     bus.publish = AsyncMock()
     manager = EpicManager(config, state, prs, fetcher, bus)
     return manager
+
+
+# ---------------------------------------------------------------------------
+# stream_parser.StreamParser — dispatch table refactoring
+# ---------------------------------------------------------------------------
+
+
+class TestStreamParserDispatchTable:
+    """Tests for the dispatch-table based StreamParser.parse."""
+
+    def test_assistant_event(self) -> None:
+        import json
+
+        from stream_parser import StreamParser
+
+        parser = StreamParser()
+        event = json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "id": "msg1",
+                    "content": [{"type": "text", "text": "hello"}],
+                },
+            }
+        )
+        display, result = parser.parse(event)
+        assert "hello" in display
+        assert result is None
+
+    def test_result_event(self) -> None:
+        import json
+
+        from stream_parser import StreamParser
+
+        parser = StreamParser()
+        event = json.dumps({"type": "result", "result": "final answer"})
+        display, result = parser.parse(event)
+        assert result == "final answer"
+
+    def test_user_event(self) -> None:
+        import json
+
+        from stream_parser import StreamParser
+
+        parser = StreamParser()
+        event = json.dumps(
+            {
+                "type": "user",
+                "message": {
+                    "content": [{"type": "tool_result", "content": "tool output"}]
+                },
+            }
+        )
+        display, result = parser.parse(event)
+        assert result is None
+
+    def test_turn_completed_returns_last_result_text(self) -> None:
+        import json
+
+        from stream_parser import StreamParser
+
+        parser = StreamParser()
+        # First set last_result_text via a codex item
+        parser._last_result_text = "accumulated text"
+        event = json.dumps({"type": "turn.completed"})
+        display, result = parser.parse(event)
+        assert result == "accumulated text"
+
+    def test_agent_end_returns_last_result(self) -> None:
+        import json
+
+        from stream_parser import StreamParser
+
+        parser = StreamParser()
+        parser._last_result_text = "final output"
+        event = json.dumps({"type": "agent_end"})
+        display, result = parser.parse(event)
+        assert result == "final output"
+
+    def test_silent_event_types(self) -> None:
+        import json
+
+        from stream_parser import StreamParser
+
+        parser = StreamParser()
+        for event_type in ["session", "agent_start", "turn_start", "message_start"]:
+            event = json.dumps({"type": event_type})
+            display, result = parser.parse(event)
+            assert display == ""
+            assert result is None
+
+    def test_error_event(self) -> None:
+        import json
+
+        from stream_parser import StreamParser
+
+        parser = StreamParser()
+        event = json.dumps({"type": "error", "message": "something broke"})
+        display, result = parser.parse(event)
+        assert display == "something broke"
+        assert result is None
+
+    def test_unknown_event_returns_raw(self) -> None:
+        import json
+
+        from stream_parser import StreamParser
+
+        parser = StreamParser()
+        raw = json.dumps({"type": "totally_new_type"})
+        display, result = parser.parse(raw)
+        assert display == raw
+        assert result is None
+
+    def test_invalid_json_returns_raw(self) -> None:
+        from stream_parser import StreamParser
+
+        parser = StreamParser()
+        display, result = parser.parse("not json at all")
+        assert display == "not json at all"
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# polyglot_prep.detect_prep_stack — ordered condition list refactoring
+# ---------------------------------------------------------------------------
+
+
+class TestDetectPrepStack:
+    """Tests for the flattened detect_prep_stack."""
+
+    def test_empty_dir_returns_unknown(self, tmp_path: Path) -> None:
+        from polyglot_prep import detect_prep_stack
+
+        assert detect_prep_stack(tmp_path) == "unknown"
+
+    def test_csharp_detection(self, tmp_path: Path) -> None:
+        from polyglot_prep import detect_prep_stack
+
+        (tmp_path / "MyProject.sln").touch()
+        assert detect_prep_stack(tmp_path) == "csharp"
+
+    def test_rails_detection(self, tmp_path: Path) -> None:
+        from polyglot_prep import detect_prep_stack
+
+        (tmp_path / "Gemfile").touch()
+        (tmp_path / "config").mkdir()
+        (tmp_path / "config" / "application.rb").touch()
+        assert detect_prep_stack(tmp_path) == "rails"
+
+    def test_ruby_detection(self, tmp_path: Path) -> None:
+        from polyglot_prep import detect_prep_stack
+
+        (tmp_path / "Gemfile").touch()
+        assert detect_prep_stack(tmp_path) == "ruby"
+
+    def test_node_detection(self, tmp_path: Path) -> None:
+        from polyglot_prep import detect_prep_stack
+
+        (tmp_path / "package.json").write_text("{}")
+        assert detect_prep_stack(tmp_path) == "node"
+
+
+# ---------------------------------------------------------------------------
+# manifest — sub-project detection helpers
+# ---------------------------------------------------------------------------
+
+
+class TestDetectNpmWorkspaces:
+    """Tests for the extracted _detect_npm_workspaces helper."""
+
+    def test_no_package_json(self, tmp_path: Path) -> None:
+        from manifest import _detect_npm_workspaces
+
+        assert _detect_npm_workspaces(tmp_path) == []
+
+    def test_workspaces_as_list(self, tmp_path: Path) -> None:
+        import json
+
+        from manifest import _detect_npm_workspaces
+
+        (tmp_path / "package.json").write_text(
+            json.dumps({"workspaces": ["packages/*", "apps/*"]})
+        )
+        result = _detect_npm_workspaces(tmp_path)
+        assert len(result) == 2
+        assert result[0] == {"name": "packages/*", "path": "packages/*"}
+
+    def test_workspaces_as_dict(self, tmp_path: Path) -> None:
+        import json
+
+        from manifest import _detect_npm_workspaces
+
+        (tmp_path / "package.json").write_text(
+            json.dumps({"workspaces": {"packages": ["pkg/*"]}})
+        )
+        result = _detect_npm_workspaces(tmp_path)
+        assert len(result) == 1
+
+
+class TestParseCargoMembers:
+    """Tests for the extracted _parse_cargo_members helper."""
+
+    def test_no_workspace_section(self) -> None:
+        from manifest import _parse_cargo_members
+
+        assert _parse_cargo_members("[package]\nname = 'foo'") == []
+
+    def test_extracts_members(self) -> None:
+        from manifest import _parse_cargo_members
+
+        content = '[workspace]\nmembers = [\n    "crate-a",\n    "crate-b",\n]\n'
+        result = _parse_cargo_members(content)
+        assert len(result) == 2
+        assert result[0]["name"] == "crate-a"
+        assert result[1]["name"] == "crate-b"
+
+
+# ---------------------------------------------------------------------------
+# plan_validation._validate_task_graph
+# ---------------------------------------------------------------------------
+
+
+class TestValidateTaskGraph:
+    """Tests for the extracted _validate_task_graph helper."""
+
+    def test_no_task_graph_section_returns_empty(self) -> None:
+        from plan_validation import _validate_task_graph
+
+        assert _validate_task_graph("## Summary\nSome content") == []
+
+    def test_empty_task_graph_returns_error(self) -> None:
+        from plan_validation import _validate_task_graph
+
+        plan = "## Task Graph\n\n## Summary"
+        errors = _validate_task_graph(plan)
+        assert any("at least one ### P{N} phase" in e for e in errors)
+
+    def test_phase_without_files_returns_error(self) -> None:
+        from plan_validation import _validate_task_graph
+
+        plan = (
+            "## Task Graph\n"
+            "### P1 — Setup\n"
+            "**Tests:** test_setup.py — verifies setup\n"
+            "## Summary"
+        )
+        errors = _validate_task_graph(plan)
+        assert any("**Files:**" in e for e in errors)
+
+    def test_valid_phase_returns_no_errors(self) -> None:
+        from plan_validation import _validate_task_graph
+
+        plan = (
+            "## Task Graph\n"
+            "### P1 — Setup\n"
+            "**Files:** src/setup.py\n"
+            "**Tests:**\n"
+            "- test_setup.py verifies setup works\n"
+            "## Summary"
+        )
+        errors = _validate_task_graph(plan)
+        assert errors == []
+
+
+# ---------------------------------------------------------------------------
+# phase_utils — pool error handling
+# ---------------------------------------------------------------------------
+
+
+class TestFatalPoolErrorTypes:
+    """Tests for _fatal_pool_error_types lazy initializer."""
+
+    def test_returns_tuple_of_exception_types(self) -> None:
+        from phase_utils import _fatal_pool_error_types
+
+        types = _fatal_pool_error_types()
+        assert isinstance(types, tuple)
+        assert MemoryError in types
+
+    def test_returns_same_tuple_on_second_call(self) -> None:
+        from phase_utils import _fatal_pool_error_types
+
+        first = _fatal_pool_error_types()
+        second = _fatal_pool_error_types()
+        assert first is second
+
+
+class TestHandleCompletedTask:
+    """Tests for the extracted _handle_completed_task helper."""
+
+    @pytest.mark.asyncio
+    async def test_successful_task_appends_result(self) -> None:
+        import asyncio
+
+        from phase_utils import _handle_completed_task
+
+        async def _ok() -> str:
+            return "done"
+
+        task = asyncio.ensure_future(_ok())
+        await task
+        results: list[str] = []
+        pending: dict[asyncio.Task[str], int] = {task: 0}
+        await _handle_completed_task(task, pending, results)
+        assert results == ["done"]
+        assert task not in pending
+
+    @pytest.mark.asyncio
+    async def test_non_fatal_error_logs_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import asyncio
+
+        from phase_utils import _handle_completed_task
+
+        async def _fail() -> str:
+            raise ValueError("oops")
+
+        task = asyncio.ensure_future(_fail())
+        with contextlib.suppress(ValueError):
+            await task
+        results: list[str] = []
+        pending: dict[asyncio.Task[str], int] = {task: 0}
+        with caplog.at_level(logging.WARNING):
+            await _handle_completed_task(task, pending, results)
+        assert results == []
+        assert "Pool worker failed" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# dashboard_routes — extracted helpers
+# ---------------------------------------------------------------------------
+
+
+# Note: dashboard_routes inner functions (_extract_epic_label, _infer_hitl_cause,
+# _resolve_worker_interval, etc.) are defined inside create_router() and tested
+# indirectly through the route integration tests in test_dashboard_routes_*.py.

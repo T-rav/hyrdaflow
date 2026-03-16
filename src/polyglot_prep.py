@@ -133,9 +133,14 @@ def _discover_rust_sources(repo_root: Path) -> list[Path]:
     return sorted(files)
 
 
-def detect_prep_stack(repo_root: Path) -> str:
-    """Detect primary stack for prep CI/test scaffolding."""
-    stack = "unknown"
+def _detect_prep_stack_checks(
+    repo_root: Path,
+) -> list[tuple[bool, str]]:
+    """Return an ordered list of ``(condition, stack_name)`` pairs.
+
+    The first truthy condition wins.  Keeping detection logic in a flat
+    list avoids deeply nested ``elif`` chains.
+    """
     has_gemfile = (repo_root / "Gemfile").is_file()
     is_rails = has_gemfile and (
         (repo_root / "config" / "application.rb").is_file()
@@ -144,28 +149,32 @@ def detect_prep_stack(repo_root: Path) -> str:
     langs = set(detect_languages(repo_root))
     primary = detect_language(repo_root)
 
-    if any(repo_root.glob("*.sln")) or any(repo_root.glob("*.csproj")):
-        stack = "csharp"
-    elif is_rails:
-        stack = "rails"
-    elif has_gemfile:
-        stack = "ruby"
-    elif "rust" in langs:
-        stack = "rust"
-    elif "go" in langs:
-        stack = "go"
-    elif "java" in langs:
-        stack = "java"
-    elif (repo_root / "CMakeLists.txt").is_file() or any(repo_root.glob("*.cpp")):
-        stack = "cpp"
-    elif (repo_root / "package.json").is_file() or primary == "javascript":
-        stack = "node"
-    elif primary == "mixed":
-        stack = "mixed"
-    elif primary == "python":
-        stack = "python"
+    return [
+        (any(repo_root.glob("*.sln")) or any(repo_root.glob("*.csproj")), "csharp"),
+        (is_rails, "rails"),
+        (has_gemfile, "ruby"),
+        ("rust" in langs, "rust"),
+        ("go" in langs, "go"),
+        ("java" in langs, "java"),
+        (
+            (repo_root / "CMakeLists.txt").is_file() or any(repo_root.glob("*.cpp")),
+            "cpp",
+        ),
+        (
+            (repo_root / "package.json").is_file() or primary == "javascript",
+            "node",
+        ),
+        (primary == "mixed", "mixed"),
+        (primary == "python", "python"),
+    ]
 
-    return stack
+
+def detect_prep_stack(repo_root: Path) -> str:
+    """Detect primary stack for prep CI/test scaffolding."""
+    for condition, stack in _detect_prep_stack_checks(repo_root):
+        if condition:
+            return stack
+    return "unknown"
 
 
 def _scaffold_java_tests(repo_root: Path, dry_run: bool) -> TestScaffoldResult:

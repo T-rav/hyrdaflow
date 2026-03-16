@@ -57,6 +57,41 @@ async def run_concurrent_batch(
     return results
 
 
+_FATAL_POOL_ERRORS: tuple[type[BaseException], ...] | None = None
+
+
+def _fatal_pool_error_types() -> tuple[type[BaseException], ...]:
+    """Lazily import and cache fatal error types for pool workers."""
+    global _FATAL_POOL_ERRORS  # noqa: PLW0603
+    if _FATAL_POOL_ERRORS is None:
+        from subprocess_util import (  # noqa: PLC0415
+            AuthenticationError,
+            CreditExhaustedError,
+        )
+
+        _FATAL_POOL_ERRORS = (AuthenticationError, CreditExhaustedError, MemoryError)
+    return _FATAL_POOL_ERRORS
+
+
+async def _handle_completed_task(
+    task: asyncio.Task[T_Result],
+    pending: dict[asyncio.Task[T_Result], int],
+    results: list[T_Result],
+) -> None:
+    """Process a completed pool task — collect result or propagate fatal errors."""
+    del pending[task]
+    exc = task.exception()
+    if exc is None:
+        results.append(task.result())
+        return
+    if isinstance(exc, _fatal_pool_error_types()):
+        for t in pending:
+            t.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        raise exc
+    logger.warning("Pool worker failed: %s", exc, exc_info=exc)
+
+
 async def run_refilling_pool(
     supply_fn: Callable[[], list[T]],
     worker_fn: Callable[[int, T], Coroutine[Any, Any, T_Result]],
@@ -74,12 +109,11 @@ async def run_refilling_pool(
     It is called each time a slot frees up to refill the pool.
     """
     results: list[T_Result] = []
-    pending: dict[asyncio.Task[T_Result], int] = {}  # task -> issue id placeholder
+    pending: dict[asyncio.Task[T_Result], int] = {}
     worker_id_counter = 0
 
     try:
         while not stop_event.is_set():
-            # Fill all empty slots — call supply repeatedly until full or dry
             while len(pending) < max_concurrent:
                 new_items = supply_fn()
                 if not new_items:
@@ -97,27 +131,8 @@ async def run_refilling_pool(
                 pending.keys(), return_when=asyncio.FIRST_COMPLETED
             )
             for task in done:
-                del pending[task]
-                exc = task.exception()
-                if exc is not None:
-                    from subprocess_util import (  # noqa: PLC0415
-                        AuthenticationError,
-                        CreditExhaustedError,
-                    )
-
-                    if isinstance(
-                        exc,
-                        (AuthenticationError, CreditExhaustedError, MemoryError),
-                    ):
-                        for t in pending:
-                            t.cancel()
-                        await asyncio.gather(*pending, return_exceptions=True)
-                        raise exc
-                    logger.warning("Pool worker failed: %s", exc, exc_info=exc)
-                else:
-                    results.append(task.result())
+                await _handle_completed_task(task, pending, results)
     finally:
-        # Cancel stragglers on stop or external cancellation
         for task in pending:
             task.cancel()
         if pending:
