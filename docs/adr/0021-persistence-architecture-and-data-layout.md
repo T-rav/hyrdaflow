@@ -40,7 +40,7 @@ then `_resolve_repo_scoped_paths` then `_apply_env_overrides`.
 ### Data layout
 
 > **Note:** The layout below reflects the target architecture mandated by
-> ADR-0010. `log_dir`, `plans_dir`, and `memory_dir` remain flat under
+> ADR-0010 (Worktree and Path Isolation Architecture). `log_dir`, `plans_dir`, and `memory_dir` remain flat under
 > `data_root/` in the current implementation — see [^1].
 
 ```
@@ -82,9 +82,11 @@ paths once that migration is complete.
 
 ### Multi-repo namespacing
 
-- All per-repo artifacts (state, events, sessions, logs, plans, memory, metrics)
-  are scoped under `data_root/<repo_slug>/` via `_resolve_repo_scoped_paths()` in
-  `config.py`, where `repo_slug` is `config.repo.replace("/", "-")` [^1].
+- Per-repo artifacts are scoped under `data_root/<repo_slug>/` via
+  `_resolve_repo_scoped_paths()` in `config.py`, where `repo_slug` is
+  `config.repo.replace("/", "-")`. State, events, and sessions are fully
+  repo-scoped today; `log_dir`, `plans_dir`, and `memory_dir` remain flat
+  under `data_root/` in the current implementation — see [^1].
 - `config.repo_data_root` provides a general-purpose repo-scoped subdirectory
   at `data_root / repo_slug`.
 - The supervisor spawns isolated processes per repo with separate `HYDRAFLOW_HOME`
@@ -158,6 +160,6 @@ but the defaults ensure a single `data_root` change relocates everything.
 - `src/metrics_manager.py` — repo-slug namespaced metrics
 - `src/file_util.py:atomic_write` — atomic file write helper
 - ADR-0003 (Git Worktrees for Issue Isolation) — worktree isolation (complementary filesystem layout)
-- ADR-0006 (RepoRuntime Isolation Architecture, superseded by ADR-0009 Multi-Repo Process-Per-Repo Model) — RepoRuntime isolation (per-repo process boundaries)
+- ADR-0006 (RepoRuntime Isolation Architecture), superseded by ADR-0009 (Multi-Repo Process-Per-Repo Model) — RepoRuntime isolation (per-repo process boundaries)
 - ADR-0009 (Multi-Repo Process-Per-Repo Model) — `_namespace_repo_paths()` scoping that places state files under `data_root/<repo_slug>/`
 - ADR-0010 (Worktree and Path Isolation Architecture) — mandates repo-slug scoping for `log_dir`, `plans_dir`, `memory_dir` to `data_root/<repo_slug>/`
