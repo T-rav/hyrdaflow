@@ -3779,6 +3779,12 @@ def create_router(
             )
             state.add_tracked_report(tracked)
 
+        # Trigger the report-issue worker immediately so the report
+        # doesn't wait for the next polling interval.
+        orch = get_orchestrator()
+        if orch is not None:
+            orch.trigger_bg_worker("report_issue")
+
         title = f"[Bug Report] {request.description[:100]}"
         response = ReportIssueResponse(
             issue_number=0, title=title, url="", status="queued"

@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -50,19 +51,65 @@ class ReportIssueLoop(BaseBackgroundLoop):
             worker_name="report_issue",
             config=config,
             deps=deps,
-            run_on_startup=True,
+            run_on_startup=False,
         )
         self._state = state
         self._pr_manager = pr_manager
         self._runner = runner
         self._active_procs: set[asyncio.subprocess.Process] = set()
 
+    async def run(self) -> None:
+        """Drain all queued reports on startup, then enter the normal loop.
+
+        The base class ``run_on_startup=True`` only processes one report
+        before entering the polling loop.  This override keeps executing
+        cycles until the queue is empty (or stop is requested), ensuring
+        stale reports queued before the processor started are all handled.
+        """
+        while not self._stop_event.is_set() and self._state.peek_report() is not None:
+            await self._execute_cycle()
+
+        await super().run()
+
     def _get_default_interval(self) -> int:
         return self._config.report_issue_interval
+
+    def _sweep_stale_reports(self) -> int:
+        """Auto-close reports stuck at 'queued' longer than the configured threshold.
+
+        Returns the number of reports closed.
+        """
+        threshold_hours = self._config.stale_report_threshold_hours
+        now = datetime.now(UTC)
+        closed = 0
+        for report in self._state.get_pending_reports():
+            try:
+                created = datetime.fromisoformat(report.created_at)
+            except (ValueError, TypeError):
+                continue
+            age_hours = (now - created).total_seconds() / 3600
+            if age_hours >= threshold_hours:
+                self._state.remove_report(report.id)
+                self._state.update_tracked_report(
+                    report.id,
+                    status="closed",
+                    action_label="stale",
+                    detail=f"Auto-closed after {age_hours:.1f}h (threshold: {threshold_hours}h)",
+                )
+                logger.info(
+                    "Auto-closed stale report %s (age %.1fh, threshold %dh)",
+                    report.id,
+                    age_hours,
+                    threshold_hours,
+                )
+                closed += 1
+        return closed
 
     async def _do_work(self) -> dict[str, Any] | None:
         if self._config.dry_run:
             return None
+
+        self._sweep_stale_reports()
 
         report = self._state.peek_report()
         if report is None:

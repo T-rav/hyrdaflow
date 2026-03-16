@@ -47,6 +47,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("max_transcript_summary_chars", "HYDRAFLOW_MAX_TRANSCRIPT_SUMMARY_CHARS", 50_000),
     ("pr_unstick_interval", "HYDRAFLOW_PR_UNSTICK_INTERVAL", 3600),
     ("report_issue_interval", "HYDRAFLOW_REPORT_ISSUE_INTERVAL", 30),
+    ("stale_report_threshold_hours", "HYDRAFLOW_STALE_REPORT_THRESHOLD_HOURS", 6),
     ("epic_monitor_interval", "HYDRAFLOW_EPIC_MONITOR_INTERVAL", 1800),
     ("epic_sweep_interval", "HYDRAFLOW_EPIC_SWEEP_INTERVAL", 3600),
     ("verify_monitor_interval", "HYDRAFLOW_VERIFY_MONITOR_INTERVAL", 3600),
@@ -953,6 +954,12 @@ class HydraFlowConfig(BaseModel):
         ge=10,
         le=3600,
         description="Seconds between report-issue worker polls",
+    )
+    stale_report_threshold_hours: int = Field(
+        default=6,
+        ge=1,
+        le=168,
+        description="Hours after which a queued report is considered stale and auto-closed",
     )
 
     # Git configuration
