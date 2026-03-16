@@ -516,3 +516,73 @@ class TestMultipleIssues:
         assert "missing_status" in codes
         assert "missing_section_context" in codes
         assert "missing_section_consequences" in codes
+
+
+import re
+
+
+class TestAdrFunctionReferences:
+    """Validate that function names referenced in ADRs 0009, 0010, 0021 exist in config.py."""
+
+    _ADR_DIR = Path(__file__).parent.parent / "docs" / "adr"
+    _CONFIG_PATH = Path(__file__).parent.parent / "src" / "config.py"
+    _FUNCTION_PATTERN = re.compile(r"`(_resolve_\w+|_namespace_\w+)`")
+
+    def _defined_functions(self) -> set[str]:
+        """Extract all function names defined in config.py."""
+        source = self._CONFIG_PATH.read_text()
+        return set(re.findall(r"def (\w+)\(", source))
+
+    def test_adr_function_references_exist_in_config(self) -> None:
+        """Function names cited in ADRs 0009, 0010, 0021 must exist as defs in config.py."""
+        defined = self._defined_functions()
+        adr_files = [
+            "0009-multi-repo-process-per-repo-model.md",
+            "0010-worktree-and-path-isolation.md",
+            "0021-persistence-architecture-and-data-layout.md",
+        ]
+        missing: list[str] = []
+        for filename in adr_files:
+            content = (self._ADR_DIR / filename).read_text()
+            refs = self._FUNCTION_PATTERN.findall(content)
+            for ref in refs:
+                # Strip trailing parens if captured
+                func_name = ref.rstrip("()")
+                if func_name not in defined:
+                    missing.append(f"{filename}: `{func_name}` not found in config.py")
+        assert not missing, "Phantom function references in ADRs:\n" + "\n".join(
+            missing
+        )
+
+    def test_no_phantom_resolve_paths_reference(self) -> None:
+        """Ensure the old phantom name `_resolve_paths` does not appear in the three ADRs."""
+        adr_files = [
+            "0009-multi-repo-process-per-repo-model.md",
+            "0010-worktree-and-path-isolation.md",
+            "0021-persistence-architecture-and-data-layout.md",
+        ]
+        found: list[str] = []
+        for filename in adr_files:
+            content = (self._ADR_DIR / filename).read_text()
+            if "`_resolve_paths`" in content or "`_resolve_paths()`" in content:
+                found.append(filename)
+        assert not found, f"Phantom `_resolve_paths` still referenced in: {found}"
+
+    def test_no_phantom_namespace_repo_paths_reference(self) -> None:
+        """Ensure the old phantom name `_namespace_repo_paths` does not appear in the three ADRs."""
+        adr_files = [
+            "0009-multi-repo-process-per-repo-model.md",
+            "0010-worktree-and-path-isolation.md",
+            "0021-persistence-architecture-and-data-layout.md",
+        ]
+        found: list[str] = []
+        for filename in adr_files:
+            content = (self._ADR_DIR / filename).read_text()
+            if (
+                "`_namespace_repo_paths`" in content
+                or "`_namespace_repo_paths()`" in content
+            ):
+                found.append(filename)
+        assert not found, (
+            f"Phantom `_namespace_repo_paths` still referenced in: {found}"
+        )

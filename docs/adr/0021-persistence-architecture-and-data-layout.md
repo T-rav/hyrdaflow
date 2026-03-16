@@ -159,5 +159,5 @@ but the defaults ensure a single `data_root` change relocates everything.
 - `src/file_util.py:atomic_write` — atomic file write helper
 - ADR-0003 (Git Worktrees for Issue Isolation) — worktree isolation (complementary filesystem layout)
 - ADR-0006 (RepoRuntime Isolation Architecture, superseded by ADR-0009 Multi-Repo Process-Per-Repo Model) — RepoRuntime isolation (per-repo process boundaries)
-- ADR-0009 (Multi-Repo Process-Per-Repo Model) — `_namespace_repo_paths()` scoping that places state files under `data_root/<repo_slug>/`
+- ADR-0009 (Multi-Repo Process-Per-Repo Model) — `_resolve_repo_scoped_paths()` scoping that places state files under `data_root/<repo_slug>/`
 - ADR-0010 (Worktree and Path Isolation Architecture) — mandates repo-slug scoping for `log_dir`, `plans_dir`, `memory_dir` to `data_root/<repo_slug>/`
