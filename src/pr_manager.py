@@ -840,6 +840,44 @@ class PRManager:
             logger.error("Issue creation failed for %r: %s", title, exc)
             return 0
 
+    async def find_issue_number_by_label_and_title(
+        self,
+        label: str,
+        title_substring: str,
+        *,
+        state: str = "all",
+    ) -> int | None:
+        """Find a GitHub issue by label and title substring.
+
+        Searches for issues with the given *label* whose title contains
+        *title_substring* (case-insensitive).  Returns the issue number
+        of the first match, or ``None`` if no match is found.
+        """
+        issues: list[dict[str, object]] = await self._gh_json_query(  # type: ignore[assignment]
+            "gh",
+            "issue",
+            "list",
+            "--repo",
+            self._repo,
+            "--label",
+            label,
+            "--state",
+            state,
+            "--json",
+            "number,title",
+            "--limit",
+            "100",
+            dry_run_return=[],
+            error_log="Could not search issues by label and title",
+        )
+        needle = title_substring.lower()
+        for issue in issues:
+            if needle in str(issue.get("title", "")).lower():
+                num = issue.get("number")
+                if num is not None:
+                    return int(num)  # type: ignore[arg-type]
+        return None
+
     _SCREENSHOT_RELEASE_TAG = "screenshots"
 
     async def upload_screenshot(self, png_path: Path) -> str:
