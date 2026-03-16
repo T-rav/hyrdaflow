@@ -252,27 +252,44 @@ class TestNoDuplicateCommonSymbols:
     pattern (issue #2723).
     """
 
+    # Match `_UPPER_SNAKE = ...` or `_UPPER_SNAKE: <any type annotation> = ...`.
+    # Use `[^=\n]+` for the type annotation so multi-word annotations like
+    # `dict[str, str]` or `tuple[str, ...]` are handled correctly.
     _CONSTANT_RE = re.compile(
-        r"^(_[A-Z][A-Z0-9_]+)\s*(?::\s*\S+\s*)?=\s*",
+        r"^(_[A-Z][A-Z0-9_]+)\s*(?::[^=\n]+)?=\s*",
         re.MULTILINE,
     )
 
+    _PKG_DIR = Path(__file__).resolve().parent.parent / "src" / "dashboard_routes"
+
     def _canonical_names(self) -> set[str]:
-        source = Path("src/dashboard_routes/_common.py").read_text()
+        source = (self._PKG_DIR / "_common.py").read_text()
         return {m.group(1) for m in self._CONSTANT_RE.finditer(source)}
 
     def test_no_duplicate_constants_in_routes(self) -> None:
         canonical = self._canonical_names()
         assert canonical, "_common.py should define at least one constant"
 
-        routes_file = Path("src/dashboard_routes/_routes.py")
-        content = routes_file.read_text()
-        duplicates = [
-            m.group(1)
-            for m in self._CONSTANT_RE.finditer(content)
-            if m.group(1) in canonical
+        sub_modules = [
+            p
+            for p in self._PKG_DIR.glob("*.py")
+            if p.name not in {"_common.py", "__init__.py"}
         ]
-        assert duplicates == [], (
-            f"Found constants in _routes.py that should be imported from "
-            f"_common.py: {duplicates}"
+        assert sub_modules, (
+            "Expected at least one sub-module besides _common and __init__"
+        )
+
+        all_duplicates: dict[str, list[str]] = {}
+        for sub in sub_modules:
+            content = sub.read_text()
+            dups = [
+                m.group(1)
+                for m in self._CONSTANT_RE.finditer(content)
+                if m.group(1) in canonical
+            ]
+            if dups:
+                all_duplicates[sub.name] = dups
+
+        assert all_duplicates == {}, (
+            f"Found constants that should be imported from _common.py: {all_duplicates}"
         )
