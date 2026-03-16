@@ -1011,6 +1011,29 @@ async def test_fix_ci_populates_commit_stat_when_fixes_made(
 
 
 @pytest.mark.asyncio
+async def test_fix_ci_commit_stat_empty_when_no_fixes(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """fix_ci() should leave commit_stat empty when no fixes were made."""
+    runner = _make_runner(config, event_bus)
+    transcript = "VERDICT: APPROVE\nSUMMARY: CI passed"
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_has_changes", AsyncMock(return_value=False)),
+        patch.object(runner, "_get_commit_stat", AsyncMock(return_value="should not")),
+        patch.object(runner, "_save_transcript"),
+    ):
+        result = await runner.fix_ci(
+            pr_info, task, tmp_path, "Failed: ci", attempt=1, worker_id=0
+        )
+
+    assert result.fixes_made is False
+    assert result.commit_stat == ""
+
+
+@pytest.mark.asyncio
 async def test_fix_review_findings_populates_commit_stat_when_fixes_made(
     config, event_bus, pr_info, task, tmp_path
 ):
@@ -1032,6 +1055,29 @@ async def test_fix_review_findings_populates_commit_stat_when_fixes_made(
 
     assert result.fixes_made is True
     assert result.commit_stat == stat
+
+
+@pytest.mark.asyncio
+async def test_fix_review_findings_commit_stat_empty_when_no_fixes(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """fix_review_findings() should leave commit_stat empty when no fixes were made."""
+    runner = _make_runner(config, event_bus)
+    transcript = "VERDICT: APPROVE\nSUMMARY: Already looks good"
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_has_changes", AsyncMock(return_value=False)),
+        patch.object(runner, "_get_commit_stat", AsyncMock(return_value="should not")),
+        patch.object(runner, "_save_transcript"),
+    ):
+        result = await runner.fix_review_findings(
+            pr_info, task, tmp_path, "Please fix null check"
+        )
+
+    assert result.fixes_made is False
+    assert result.commit_stat == ""
 
 
 # ---------------------------------------------------------------------------
