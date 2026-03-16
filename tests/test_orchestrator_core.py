@@ -480,6 +480,7 @@ class TestConstructorInjection:
     def test_uses_provided_event_bus(self, config: HydraFlowConfig, event_bus) -> None:
         orch = HydraFlowOrchestrator(config, event_bus=event_bus)
         assert orch._bus is event_bus
+        assert orch._svc.agents._bus is event_bus
 
     def test_uses_provided_state(self, config: HydraFlowConfig) -> None:
         state = StateTracker(config.state_file)
