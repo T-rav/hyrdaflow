@@ -1616,3 +1616,71 @@ class TestNarrowedExceptionHandling:
         child_info = EpicChildInfo(issue_number=1)
         with pytest.raises(TypeError, match="bad mergeable"):
             await manager._enrich_pr_status(child_info, 42)
+
+
+# ---------------------------------------------------------------------------
+# Epic edge cases — 0 children, duplicate children
+# ---------------------------------------------------------------------------
+
+
+class TestEpicEdgeCases:
+    """Edge cases for epic with 0 children and duplicate child references."""
+
+    @pytest.mark.asyncio
+    async def test_epic_with_zero_children_does_not_close(self) -> None:
+        """An epic whose body has no checkbox sub-issues should not be closed."""
+        epic = IssueFactory.create(
+            number=100,
+            title="[Epic] Empty",
+            body="This epic has no sub-issues yet.",
+            labels=["hydraflow-epic"],
+        )
+        checker, prs, _ = _make_checker(epics=[epic])
+
+        await checker.check_and_close_epics(1)
+
+        prs.close_issue.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_epic_with_empty_body_does_not_close(self) -> None:
+        """An epic with a completely empty body should not be closed."""
+        epic = IssueFactory.create(
+            number=100,
+            title="[Epic] Empty body",
+            body="",
+            labels=["hydraflow-epic"],
+        )
+        checker, prs, _ = _make_checker(epics=[epic])
+
+        await checker.check_and_close_epics(1)
+
+        prs.close_issue.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_epic_with_duplicate_children_closes_once(self) -> None:
+        """An epic with duplicate child references in body should close normally."""
+        lines = [
+            "- [ ] #1 — Sub-issue 1",
+            "- [ ] #2 — Sub-issue 2",
+            "- [ ] #1 — Sub-issue 1 (dup)",
+        ]
+        body = "## Epic\n\n" + "\n".join(lines)
+        epic = IssueFactory.create(
+            number=100,
+            title="[Epic] Dup children",
+            body=body,
+            labels=["hydraflow-epic"],
+        )
+        sub_issues = {
+            1: IssueFactory.create(
+                number=1, labels=["hydraflow-fixed"], title="Issue #1"
+            ),
+            2: IssueFactory.create(
+                number=2, labels=["hydraflow-fixed"], title="Issue #2"
+            ),
+        }
+        checker, prs, _ = _make_checker(epics=[epic], sub_issues=sub_issues)
+
+        await checker.check_and_close_epics(1)
+
+        prs.close_issue.assert_called_once_with(100)
