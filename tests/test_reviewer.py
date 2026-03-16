@@ -1890,6 +1890,206 @@ async def test_fix_ci_still_catches_runtime_errors(
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# fix_review_findings — success path
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fix_review_findings_success_path(
+    config, event_bus, pr_info, task, tmp_path
+):
+    runner = _make_runner(config, event_bus)
+    transcript = "No issues.\nVERDICT: APPROVE\nSUMMARY: All findings addressed"
+
+    mock_execute = AsyncMock(return_value=transcript)
+    mock_has_changes = AsyncMock(return_value=False)
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", mock_execute),
+        patch.object(runner, "_get_changed_files", AsyncMock(return_value=[])),
+        patch.object(runner, "_has_changes", mock_has_changes),
+        patch.object(runner, "_save_transcript"),
+    ):
+        result = await runner.fix_review_findings(
+            pr_info, task, tmp_path, "Missing null check"
+        )
+
+    assert result.pr_number == pr_info.number
+    assert result.issue_number == task.id
+    assert result.verdict == ReviewVerdict.APPROVE
+    assert result.summary == "All findings addressed"
+    assert result.transcript == transcript
+    assert result.fixes_made is False
+    assert result.files_changed == []
+
+
+@pytest.mark.asyncio
+async def test_fix_review_findings_success_path_with_fixes(
+    config, event_bus, pr_info, task, tmp_path
+):
+    runner = _make_runner(config, event_bus)
+    transcript = "Fixed issues.\nVERDICT: APPROVE\nSUMMARY: Fixed review findings"
+
+    mock_execute = AsyncMock(return_value=transcript)
+    mock_has_changes = AsyncMock(return_value=True)
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", mock_execute),
+        patch.object(
+            runner, "_get_changed_files", AsyncMock(return_value=["src/bar.py"])
+        ),
+        patch.object(runner, "_has_changes", mock_has_changes),
+        patch.object(runner, "_save_transcript"),
+    ):
+        result = await runner.fix_review_findings(
+            pr_info, task, tmp_path, "Missing null check"
+        )
+
+    assert result.fixes_made is True
+    assert result.verdict == ReviewVerdict.APPROVE
+    assert result.files_changed == ["src/bar.py"]
+
+
+# ---------------------------------------------------------------------------
+# fix_review_findings — failure path
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fix_review_findings_failure_path(
+    config, event_bus, pr_info, task, tmp_path
+):
+    runner = _make_runner(config, event_bus)
+
+    mock_execute = AsyncMock(side_effect=RuntimeError("agent crashed"))
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", mock_execute),
+    ):
+        result = await runner.fix_review_findings(
+            pr_info, task, tmp_path, "Missing null check"
+        )
+
+    assert result.verdict == ReviewVerdict.REQUEST_CHANGES
+    assert "Review fix failed" in result.summary
+
+
+# ---------------------------------------------------------------------------
+# fix_review_findings — dry-run
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fix_review_findings_dry_run_returns_auto_approved(
+    dry_config, event_bus, pr_info, task, tmp_path
+):
+    runner = _make_runner(dry_config, event_bus)
+
+    result = await runner.fix_review_findings(
+        pr_info, task, tmp_path, "Missing null check"
+    )
+
+    assert result.verdict == ReviewVerdict.APPROVE
+    assert "Dry-run" in result.summary
+
+
+# ---------------------------------------------------------------------------
+# fix_review_findings — REVIEW_UPDATE events
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fix_review_findings_publishes_review_update_events(
+    config, event_bus, pr_info, task, tmp_path
+):
+    runner = _make_runner(config, event_bus)
+    transcript = "VERDICT: APPROVE\nSUMMARY: Fixed"
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(
+            runner, "_get_changed_files", AsyncMock(return_value=["src/fix.py"])
+        ),
+        patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
+        patch.object(runner, "_save_transcript"),
+    ):
+        await runner.fix_review_findings(pr_info, task, tmp_path, "Missing null check")
+
+    events = event_bus.get_history()
+    review_events = [e for e in events if e.type == EventType.REVIEW_UPDATE]
+    assert len(review_events) >= 1
+    statuses = [e.data["status"] for e in review_events]
+    assert ReviewerStatus.FIXING_REVIEW_FINDINGS.value in statuses
+
+
+# ---------------------------------------------------------------------------
+# fix_review_findings — duration recording
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fix_review_findings_records_duration(
+    config, event_bus, pr_info, task, tmp_path
+):
+    runner = _make_runner(config, event_bus)
+    transcript = "VERDICT: APPROVE\nSUMMARY: Fixed"
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(
+            runner, "_get_changed_files", AsyncMock(return_value=["src/fix.py"])
+        ),
+        patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
+        patch.object(runner, "_save_transcript"),
+    ):
+        result = await runner.fix_review_findings(
+            pr_info, task, tmp_path, "Missing null check"
+        )
+
+    assert result.duration_seconds > 0
+
+
+@pytest.mark.asyncio
+async def test_fix_review_findings_dry_run_records_duration(
+    dry_config, event_bus, pr_info, task, tmp_path
+):
+    runner = _make_runner(dry_config, event_bus)
+
+    result = await runner.fix_review_findings(
+        pr_info, task, tmp_path, "Missing null check"
+    )
+
+    assert result.duration_seconds >= 0
+
+
+@pytest.mark.asyncio
+async def test_fix_review_findings_failure_records_duration(
+    config, event_bus, pr_info, task, tmp_path
+):
+    runner = _make_runner(config, event_bus)
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(side_effect=RuntimeError("boom"))),
+    ):
+        result = await runner.fix_review_findings(
+            pr_info, task, tmp_path, "Missing null check"
+        )
+
+    assert result.duration_seconds > 0
+
+
+# ---------------------------------------------------------------------------
+# fix_review_findings / fix_ci — reraise likely-bug exceptions
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
 async def test_fix_review_findings_reraises_likely_bug_exceptions(
     config, event_bus, pr_info, task, tmp_path
