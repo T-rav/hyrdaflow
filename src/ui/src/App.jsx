@@ -18,13 +18,40 @@ const TAB_LABELS = {
   system: 'System',
 }
 
-function SystemAlertBanner({ alert }) {
+function formatResumeAt(isoString) {
+  if (!isoString) return null
+  const d = new Date(isoString)
+  if (isNaN(d.getTime())) return null
+  const now = new Date()
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  if (sameDay) {
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+  return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function SystemAlertBanner({ alert, onDismiss }) {
   if (!alert) return null
+  const resumeTime = formatResumeAt(alert.resume_at)
   return (
     <div style={styles.alertBanner}>
       <span style={styles.alertIcon}>!</span>
-      <span>{alert.message}</span>
+      <span>{alert.message}{resumeTime && ` Resumes at ${resumeTime}.`}</span>
       {alert.source && <span style={styles.alertSource}>Source: {alert.source}</span>}
+      {onDismiss && (
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={onDismiss}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDismiss() } }}
+          style={styles.alertDismiss}
+        >
+          ✕
+        </span>
+      )}
     </div>
   )
 }
@@ -92,7 +119,7 @@ function AppContent() {
   const {
     connected, orchestratorStatus, workers, prs,
     hitlItems, humanInputRequests, submitHumanInput, refreshHitl,
-    backgroundWorkers, systemAlert, intents, toggleBgWorker, triggerBgWorker, updateBgWorkerInterval,
+    backgroundWorkers, systemAlert, dismissSystemAlert, intents, toggleBgWorker, triggerBgWorker, updateBgWorkerInterval,
     selectedSession, selectSession,
     currentSessionId,
     stageStatus,
@@ -140,7 +167,7 @@ function AppContent() {
           onClear={() => selectSession(null)}
           liveStats={selectedSessionLiveStats}
         />
-        <SystemAlertBanner alert={systemAlert} />
+        <SystemAlertBanner alert={systemAlert} onDismiss={dismissSystemAlert} />
         <ConfigWarningBanner warning={configWarning} />
         <HumanInputBanner requests={humanInputRequests} onSubmit={submitHumanInput} />
 
@@ -274,10 +301,18 @@ const styles = {
     flexShrink: 0,
   },
   alertSource: {
-    marginLeft: 'auto',
     fontSize: 11,
     fontWeight: 400,
     opacity: 0.8,
+  },
+  alertDismiss: {
+    marginLeft: 'auto',
+    cursor: 'pointer',
+    fontSize: 14,
+    fontWeight: 700,
+    opacity: 0.7,
+    padding: '0 4px',
+    transition: 'opacity 0.15s',
   },
   configWarningBanner: {
     display: 'flex',

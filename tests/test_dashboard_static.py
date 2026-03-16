@@ -6,21 +6,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from events import EventBus, EventType, HydraFlowEvent
 from tests.conftest import make_orchestrator_mock
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
-
-
-@pytest.fixture(autouse=True)
-def _disable_hitl_summary_autowarm(config: HydraFlowConfig) -> None:
-    """Avoid background HITL summary warm tasks in dashboard smoke tests."""
-    config.transcript_summarization_enabled = False
-    config.gh_token = ""
-
 
 # ---------------------------------------------------------------------------
 # Static file serving and template cleanup (issue #24)

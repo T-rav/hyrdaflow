@@ -41,12 +41,10 @@ class TestDashboardRoutesDocstrings:
             "_coerce_int",
             "_is_timestamp_in_range",
             "_status_sort_key",
-            "_list_repo_records",
             "_new_issue_history_entry",
             "_touch_issue_timestamps",
             "_build_hitl_context",
             "_normalise_summary_lines",
-            "_hitl_summary_retry_due",
         ],
     )
     def test_helper_has_docstring(self, func_name: str) -> None:
@@ -72,7 +70,6 @@ class TestDashboardRoutesDocstrings:
             "remove_repo",
             "websocket_endpoint",
             "spa_catchall",
-            "_call_supervisor",
         ],
     )
     def test_route_handler_has_docstring(self, func_name: str) -> None:

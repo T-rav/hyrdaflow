@@ -18,21 +18,26 @@ class EpicStateMixin:
 
     def save(self) -> None: ...  # provided by CoreMixin
 
+    @staticmethod
+    def _key(issue_id: int | str) -> str: ...  # provided by StateTracker
+
     # --- epic state tracking ---
 
     def get_epic_state(self, epic_number: int) -> EpicState | None:
         """Return the persisted state for *epic_number*, or ``None``."""
-        es = self._data.epic_states.get(str(epic_number))
+        es = self._data.epic_states.get(self._key(epic_number))
         return es.model_copy(deep=True) if es else None
 
     def upsert_epic_state(self, state: EpicState) -> None:
         """Create or update the persisted state for an epic."""
-        self._data.epic_states[str(state.epic_number)] = state.model_copy(deep=True)
+        self._data.epic_states[self._key(state.epic_number)] = state.model_copy(
+            deep=True
+        )
         self.save()
 
     def mark_epic_child_complete(self, epic_number: int, child_number: int) -> None:
         """Move *child_number* to completed_children for *epic_number*."""
-        epic = self._data.epic_states.get(str(epic_number))
+        epic = self._data.epic_states.get(self._key(epic_number))
         if epic is None:
             return
         if child_number not in epic.completed_children:
@@ -44,7 +49,7 @@ class EpicStateMixin:
 
     def mark_epic_child_failed(self, epic_number: int, child_number: int) -> None:
         """Move *child_number* to failed_children for *epic_number*."""
-        epic = self._data.epic_states.get(str(epic_number))
+        epic = self._data.epic_states.get(self._key(epic_number))
         if epic is None:
             return
         if child_number not in epic.failed_children:
@@ -54,7 +59,7 @@ class EpicStateMixin:
 
     def mark_epic_child_approved(self, epic_number: int, child_number: int) -> None:
         """Add *child_number* to approved_children for *epic_number*."""
-        epic = self._data.epic_states.get(str(epic_number))
+        epic = self._data.epic_states.get(self._key(epic_number))
         if epic is None:
             return
         if child_number not in epic.approved_children:
@@ -68,7 +73,7 @@ class EpicStateMixin:
         Returns a dict with keys: total, merged, in_progress, pending,
         approved, ready_to_merge, merge_strategy.
         """
-        epic = self._data.epic_states.get(str(epic_number))
+        epic = self._data.epic_states.get(self._key(epic_number))
         if epic is None:
             return {}
         total = len(epic.child_issues)
@@ -103,7 +108,7 @@ class EpicStateMixin:
 
     def close_epic(self, epic_number: int) -> None:
         """Mark an epic as closed."""
-        epic = self._data.epic_states.get(str(epic_number))
+        epic = self._data.epic_states.get(self._key(epic_number))
         if epic is None:
             return
         epic.closed = True
@@ -114,12 +119,14 @@ class EpicStateMixin:
 
     def upsert_release(self, release: Release) -> None:
         """Create or update a release record, keyed by epic number."""
-        self._data.releases[str(release.epic_number)] = release.model_copy(deep=True)
+        self._data.releases[self._key(release.epic_number)] = release.model_copy(
+            deep=True
+        )
         self.save()
 
     def get_release(self, epic_number: int) -> Release | None:
         """Return the release for *epic_number*, or ``None``."""
-        rel = self._data.releases.get(str(epic_number))
+        rel = self._data.releases.get(self._key(epic_number))
         return rel.model_copy(deep=True) if rel else None
 
     def get_all_releases(self) -> dict[str, Release]:

@@ -232,90 +232,6 @@ class TestCrateEndpoints:
         assert response.status_code == 500
 
 
-class TestFindRepoMatch:
-    """Tests for the _find_repo_match cascading match helper."""
-
-    def _call(self, slug: str, repos: list[dict]) -> dict | None:
-        from dashboard_routes import _find_repo_match
-
-        return _find_repo_match(slug, repos)
-
-    def test_exact_slug_match(self) -> None:
-        repos = [{"slug": "insightmesh", "path": "/repos/insightmesh"}]
-        assert self._call("insightmesh", repos) == repos[0]
-
-    def test_owner_repo_format_strips_prefix(self) -> None:
-        repos = [{"slug": "insightmesh", "path": "/repos/insightmesh"}]
-        assert self._call("8thlight/insightmesh", repos) == repos[0]
-
-    def test_path_tail_match(self) -> None:
-        repos = [{"slug": "mesh", "path": "/home/user/insightmesh"}]
-        assert self._call("insightmesh", repos) == repos[0]
-
-    def test_path_component_match(self) -> None:
-        repos = [{"slug": "mesh", "path": "/repos/8thlight/insightmesh"}]
-        assert self._call("8thlight", repos) == repos[0]
-
-    def test_exact_match_has_priority_over_path_match(self) -> None:
-        exact = {"slug": "myrepo", "path": "/other/path"}
-        path_match = {"slug": "other", "path": "/repos/myrepo"}
-        repos = [path_match, exact]
-        assert self._call("myrepo", repos) == exact
-
-    def test_empty_slug_returns_none(self) -> None:
-        repos = [{"slug": "foo", "path": "/repos/foo"}]
-        assert self._call("", repos) is None
-
-    def test_no_match_returns_none(self) -> None:
-        repos = [{"slug": "foo", "path": "/repos/foo"}]
-        assert self._call("bar", repos) is None
-
-    def test_empty_repos_list_returns_none(self) -> None:
-        assert self._call("foo", []) is None
-
-    def test_slash_only_returns_none(self) -> None:
-        repos = [{"slug": "foo", "path": "/repos/foo"}]
-        assert self._call("/", repos) is None
-
-    def test_trailing_slash_stripped(self) -> None:
-        repos = [{"slug": "insightmesh", "path": "/repos/insightmesh"}]
-        assert self._call("8thlight/insightmesh/", repos) == repos[0]
-
-    def test_multi_slash_input(self) -> None:
-        repos = [{"slug": "repo", "path": "/repos/repo"}]
-        assert self._call("github.com/owner/repo", repos) == repos[0]
-
-    def test_case_insensitive_slug_match(self) -> None:
-        repos = [{"slug": "insightmesh", "path": "/repos/insightmesh"}]
-        assert self._call("InsightMesh", repos) == repos[0]
-
-    def test_case_insensitive_owner_repo(self) -> None:
-        repos = [{"slug": "insightmesh", "path": "/repos/insightmesh"}]
-        assert self._call("8thLight/InsightMesh", repos) == repos[0]
-
-    def test_repo_with_none_slug(self) -> None:
-        repos = [{"slug": None, "path": "/repos/myrepo"}]
-        assert self._call("myrepo", repos) == repos[0]
-
-    def test_repo_with_missing_slug_key(self) -> None:
-        repos = [{"path": "/repos/myrepo"}]
-        assert self._call("myrepo", repos) == repos[0]
-
-    def test_repo_with_none_path(self) -> None:
-        repos = [{"slug": "foo", "path": None}]
-        assert self._call("foo", repos) == repos[0]
-
-    def test_whitespace_only_returns_none(self) -> None:
-        repos = [{"slug": "foo", "path": "/repos/foo"}]
-        assert self._call("   ", repos) is None
-
-    def test_no_partial_substring_match(self) -> None:
-        """Strategy 4 requires full path component, not substring."""
-        repos = [{"slug": "mesh", "path": "/repos/insightmesh"}]
-        # "insight" is a substring of "insightmesh" but not a full component
-        assert self._call("insight", repos) is None
-
-
 class TestDetectRepoSlugFromPath:
     """Tests for _detect_repo_slug_from_path helper."""
 
@@ -617,7 +533,7 @@ class TestAddRepoByPath:
 
         data = json_mod.loads(resp.body)
         assert resp.status_code == 503
-        assert "HydraFlow supervisor is not running" in data["error"]
+        assert data["error"] == "supervisor unavailable"
 
     @pytest.mark.asyncio
     async def test_register_repo_cb_succeeds(

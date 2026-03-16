@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 from agent import AgentRunner
+from beads_manager import BeadsManager
 from config import HydraFlowConfig
 from harness_insights import FailureCategory, HarnessInsightStore
 from issue_store import IssueStore
@@ -23,6 +24,7 @@ from phase_utils import (
     MemorySuggester,
     PipelineEscalator,
     is_adr_issue_title,
+    next_adr_number,
     record_harness_failure,
     release_batch_in_flight,
     run_refilling_pool,
@@ -52,6 +54,7 @@ class ImplementPhase:
         stop_event: asyncio.Event,
         run_recorder: RunRecorder | None = None,
         harness_insights: HarnessInsightStore | None = None,
+        beads_manager: BeadsManager | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -63,6 +66,7 @@ class ImplementPhase:
         self._stop_event = stop_event
         self._run_recorder = run_recorder
         self._harness_insights = harness_insights
+        self._beads_manager = beads_manager
         self._active_issues: set[int] = set()
         self._active_issues_lock = asyncio.Lock()
         self._suggest_memory = MemorySuggester(config, prs, state)
@@ -384,13 +388,26 @@ class ImplementPhase:
         # does not include comment bodies.
         issue = await self._store.enrich_with_comments(issue)
 
+        # Load bead mapping for the issue
+        bead_mapping: dict[str, str] | None = None
+        if self._beads_manager:
+            bead_mapping = self._state.get_bead_mapping(issue.id) or None
+            if bead_mapping:
+                await self._beads_manager.init(wt_path)
+
+        run_kwargs: dict[str, object] = {
+            "worker_id": worker_id,
+            "review_feedback": review_feedback,
+            "prior_failure": prior_failure,
+        }
+        if bead_mapping:
+            run_kwargs["bead_mapping"] = bead_mapping
+
         result = await self._agents.run(
             issue,
             wt_path,
             branch,
-            worker_id=worker_id,
-            review_feedback=review_feedback,
-            prior_failure=prior_failure,
+            **run_kwargs,  # type: ignore[arg-type]
         )
 
         await self._record_impl_metrics(issue, result, review_feedback)
@@ -569,11 +586,19 @@ class ImplementPhase:
         if plan_path.exists():
             return
 
+        # Reserve a unique ADR number by scanning the primary repo (not the
+        # worktree copy) and the in-process assignment set.
+        primary_adr_dir = self._config.repo_root / "docs" / "adr"
+        adr_number = next_adr_number(primary_adr_dir)
+        adr_number_str = f"{adr_number:04d}"
+
         body = issue.body.strip() or "No ADR draft body provided."
         plan_text = (
             "## Implementation Plan\n\n"
-            "1. Create or update a single ADR markdown file under `docs/adr/` "
-            "for this issue.\n"
+            f"1. Create a single ADR markdown file named "
+            f"`docs/adr/{adr_number_str}-<slug>.md` (ADR number "
+            f"**{adr_number_str}** is pre-assigned — do NOT pick a different "
+            f"number).\n"
             "2. Preserve and refine the ADR sections (`Context`, `Decision`, "
             "`Consequences`) using the issue draft as source material.\n"
             "3. Ensure the ADR content is actionable and concrete enough for "

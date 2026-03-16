@@ -17,6 +17,9 @@ class LifetimeStatsMixin:
 
     def save(self) -> None: ...  # provided by CoreMixin
 
+    @staticmethod
+    def _key(issue_id: int | str) -> str: ...  # provided by StateTracker
+
     # --- lifetime stats ---
 
     def record_issue_completed(self) -> None:
@@ -118,7 +121,7 @@ class LifetimeStatsMixin:
 
     def record_stage_retry(self, issue_number: int, stage: str) -> None:
         """Increment the retry count for a specific stage on an issue."""
-        key = str(issue_number)
+        key = self._key(issue_number)
         retries = self._data.lifetime_stats.retries_per_stage
         if key not in retries:
             retries[key] = {}

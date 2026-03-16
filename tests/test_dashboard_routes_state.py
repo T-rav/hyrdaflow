@@ -852,13 +852,13 @@ class TestGetPRsEndpoint:
 
 
 class TestListSupervisedReposEndpoint:
-    """Tests for GET /api/repos when supervisor is unavailable (issue #2205)."""
+    """Tests for GET /api/repos when no repo_store or callback is configured."""
 
     @pytest.mark.asyncio
     async def test_returns_empty_repos_when_supervisor_unavailable(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """With supervisor_client=None and no repo_store, GET /api/repos returns []."""
+        """Without repo_store or callback, GET /api/repos returns []."""
         import json
 
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
@@ -876,7 +876,7 @@ class TestListSupervisedReposEndpoint:
     async def test_can_register_false_when_supervisor_unavailable(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """can_register should be False when no supervisor or repo_store is available."""
+        """can_register should be False when no repo_store or callback is available."""
         import json
 
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
@@ -892,7 +892,7 @@ class TestListSupervisedReposEndpoint:
     async def test_no_warning_logged_when_supervisor_unavailable(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """No warning should be logged for the normal no-supervisor path."""
+        """No warning should be logged for the normal no-store path."""
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
         endpoint = find_endpoint(router, "/api/repos")
         assert endpoint is not None
@@ -904,25 +904,20 @@ class TestListSupervisedReposEndpoint:
 
 
 class TestEnsureRepoCompatibilityEndpoint:
-    """Compatibility tests for POST /api/repos when supervisor is unavailable (issue #2205)."""
+    """Compatibility tests for POST /api/repos (supervisor feature removed, issue #2205)."""
 
     @pytest.mark.asyncio
     async def test_returns_503_when_supervisor_unavailable(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """With supervisor_client=None, POST /api/repos returns 503."""
+        """POST /api/repos returns 503 (supervisor feature removed)."""
         import json
 
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
         endpoint = find_endpoint(router, "/api/repos", method="POST")
         assert endpoint is not None
 
-        resp = await endpoint(
-            req=None,
-            req_query="8thlight/insightmesh",
-            slug=None,
-            repo=None,
-        )
+        resp = await endpoint()
         data = json.loads(resp.body)
         assert resp.status_code == 503
         assert data["error"] == "supervisor unavailable"
@@ -931,27 +926,72 @@ class TestEnsureRepoCompatibilityEndpoint:
     async def test_json_slug_also_returns_503(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """JSON-formatted slug also gets 503 when supervisor is unavailable."""
+        """POST /api/repos always returns 503 (supervisor feature removed)."""
         import json
 
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
         endpoint = find_endpoint(router, "/api/repos", method="POST")
         assert endpoint is not None
 
-        resp = await endpoint(
-            req=None,
-            req_query='{"slug":"8thlight/insightmesh"}',
-            slug=None,
-            repo=None,
-        )
+        resp = await endpoint()
         data = json.loads(resp.body)
         assert resp.status_code == 503
         assert data["error"] == "supervisor unavailable"
 
 
-# ---------------------------------------------------------------------------
-# GET /api/sessions and /api/sessions/{session_id}
-# ---------------------------------------------------------------------------
+class TestSupervisorStubsRemoved:
+    """Verify dead supervisor stubs and helpers are removed (issue #2712)."""
+
+    def test_no_supervisor_unavailable_constants(self) -> None:
+        """Module-level supervisor constants should be removed."""
+        import dashboard_routes
+
+        assert not hasattr(dashboard_routes, "_SUPERVISOR_UNAVAILABLE_PREFIXES")
+        assert not hasattr(dashboard_routes, "_SUPERVISOR_UNAVAILABLE_MESSAGE")
+
+    def test_no_is_expected_supervisor_unavailable(self) -> None:
+        """The _is_expected_supervisor_unavailable helper should be removed."""
+        import dashboard_routes
+
+        assert not hasattr(dashboard_routes, "_is_expected_supervisor_unavailable")
+
+    def test_no_find_repo_match(self) -> None:
+        """The _find_repo_match helper should be removed (only used by dead supervisor code)."""
+        import dashboard_routes
+
+        assert not hasattr(dashboard_routes, "_find_repo_match")
+
+    @pytest.mark.asyncio
+    async def test_ensure_repo_returns_503_unconditionally(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """POST /api/repos always returns 503 since supervisor was removed."""
+        import json
+
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos", method="POST")
+        assert endpoint is not None
+
+        resp = await endpoint()
+        data = json.loads(resp.body)
+        assert resp.status_code == 503
+        assert data["error"] == "supervisor unavailable"
+
+    @pytest.mark.asyncio
+    async def test_remove_repo_returns_503_without_callback(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """DELETE /api/repos/{slug} returns 503 when no remove_repo_cb is set."""
+        import json
+
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos/{slug}", method="DELETE")
+        assert endpoint is not None
+
+        resp = await endpoint(slug="some-repo")
+        data = json.loads(resp.body)
+        assert resp.status_code == 503
+        assert data["error"] == "supervisor unavailable"
 
 
 # ---------------------------------------------------------------------------
