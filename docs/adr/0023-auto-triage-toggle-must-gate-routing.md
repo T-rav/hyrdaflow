@@ -1,7 +1,7 @@
 # ADR-0023: Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking
 
-**Status:** Proposed
-**Date:** 2026-03-08
+**Status:** Accepted
+**Date:** 2026-03-15
 
 ## Context
 
@@ -60,6 +60,16 @@ Adopt the following rule for config-gated routing in HydraFlow workers:
    inside the success branch of the helper), not in a separate conditional
    block that can drift out of sync with the routing logic.
 
+### Verification checklist
+
+When reviewing any routing method that calls both `_route_to_triage` and
+`_escalate_to_hitl`:
+
+- Confirm the `adr_auto_triage` toggle is checked **before** the triage call.
+- Confirm the toggle-off path calls HITL and returns without invoking triage.
+- Confirm tests enable the toggle when asserting triage is called, and disable
+  it when asserting HITL is called directly.
+
 ## Consequences
 
 **Positive:**
@@ -105,6 +115,7 @@ Adopt the following rule for config-gated routing in HydraFlow workers:
 
 ## Related
 
+- Supersedes: ADR-0023 (0023-gate-triage-call-not-hitl-fallback.md)
 - Source memory: #2327
 - Source issue: #2341
 - `src/adr_reviewer.py` — `_triage_or_hitl()`, `_route_to_triage()`, `_handle_pre_review_failure()`, `_handle_duplicate()`
