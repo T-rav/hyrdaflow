@@ -116,8 +116,8 @@ artifacts:
 - ADR-0021 (Persistence Architecture and Data Layout) — documents the data layout
   and derived-paths table; updated to reflect the repo-scoped target layout for
   `log_dir`, `plans_dir`, and `memory_dir` as mandated by this ADR.
-- `src/config.py:HydraFlowConfig` — `_resolve_base_paths`, `_resolve_repo_scoped_paths`,
-  `worktree_path_for_issue`, `log_dir`, `plans_dir`, `memory_dir` properties
+- `src/config.py:HydraFlowConfig` — `worktree_path_for_issue`, `log_dir`, `plans_dir`, `memory_dir` properties
+- `src/config.py:_resolve_base_paths`, `src/config.py:_resolve_repo_scoped_paths` — config resolution phases
 - `src/worktree.py:WorktreeManager` — worktree lifecycle and cleanup
 - `src/docker_runner.py:DockerRunner._build_mounts` — container mount strategy
 - `src/metrics_manager.py:get_metrics_cache_dir` — repo-slug scoping reference

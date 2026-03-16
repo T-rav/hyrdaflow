@@ -22,8 +22,8 @@ Runtime state for each managed repo lives under `.hydraflow/` in the repo
 directory (or under `$HYDRAFLOW_HOME/<repo_slug>/` when the supervisor sets
 `HYDRAFLOW_HOME`). Worktree paths are scoped via
 `config.worktree_path_for_issue()` which resolves to
-`<worktree_base>/<repo_slug>/issue-<num>`. The `_namespace_repo_paths()` helper
-in `config.py` ensures state files (`state.json`, `events.jsonl`,
+`<worktree_base>/<repo_slug>/issue-<num>`. The `_resolve_repo_scoped_paths()`
+helper in `config.py` ensures state files (`state.json`, `events.jsonl`,
 `sessions.jsonl`, `config.json`) are placed under the repo slug subdirectory,
 with automatic migration of legacy flat files.
 
@@ -42,7 +42,7 @@ Adopt the **process-per-repo** model as the canonical multi-repo architecture:
 
 2. **Environment-driven isolation.** The supervisor sets `HYDRAFLOW_HOME` to a
    repo-scoped directory (`STATE_DIR / slug`). Config resolution in
-   `_resolve_paths()` reads this environment variable to set `data_root`,
+   `_resolve_base_paths()` reads this environment variable to set `data_root`,
    ensuring all state files, event logs, and session logs are isolated per repo.
 
 3. **Repo-scoped worktrees.** `WorktreeManager` resolves worktree paths under
@@ -115,7 +115,7 @@ Adopt the **process-per-repo** model as the canonical multi-repo architecture:
 - ADR-0006 (RepoRuntime Isolation Architecture) — superseded by this ADR
 - ADR-0008 (Multi-Repo Dashboard Architecture)
 - `src/hf_cli/supervisor_service.py` (`_start_repo`, `RUNNERS`, TCP protocol)
-- `src/config.py` (`_resolve_paths`, `_namespace_repo_paths`, `worktree_path_for_issue`)
-- `src/orchestrator.py` (`HydraFlowOrchestrator.__init__`)
-- `src/worktree.py` (`WorktreeManager`, `_WORKTREE_LOCKS`)
-- `src/state.py` (`StateTracker`)
+- `src/config.py:_resolve_base_paths`, `src/config.py:_resolve_repo_scoped_paths`, `src/config.py:HydraFlowConfig.worktree_path_for_issue`
+- `src/orchestrator.py:HydraFlowOrchestrator.__init__`
+- `src/worktree.py:WorktreeManager`
+- `src/state:StateTracker`
