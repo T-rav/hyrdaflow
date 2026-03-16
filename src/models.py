@@ -2128,6 +2128,7 @@ class IssueHistoryPR(BaseModel):
     number: int
     url: HttpUrl = ""
     merged: bool = False
+    title: str = ""
 
 
 class IssueHistoryEntry(BaseModel):

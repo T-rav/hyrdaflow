@@ -762,6 +762,7 @@ def create_router(
                     number=int(pr_data["number"]),
                     url=str(pr_data.get("url", "")),
                     merged=bool(pr_data.get("merged", False)),
+                    title=str(pr_data.get("title", "")),
                 )
                 for pr_data in prs_map.values()
                 if isinstance(pr_data, dict) and _coerce_int(pr_data.get("number")) > 0
