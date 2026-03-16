@@ -629,8 +629,7 @@ class TestCreditExhaustionPauseResume:
         assert terminate_calls["reviewers"] >= 1
         assert terminate_calls["hitl"] >= 1
 
-    @pytest.mark.asyncio
-    async def test_clear_credit_pause_sets_event_and_clears_timestamp(
+    def test_clear_credit_pause_sets_event_and_clears_timestamp(
         self, config: HydraFlowConfig
     ) -> None:
         """clear_credit_pause() should set the resume event and clear _credits_paused_until."""
