@@ -2787,3 +2787,164 @@ async def test_fix_review_findings_publishes_review_update_event(
     review_events = [e for e in events if e.type == EventType.REVIEW_UPDATE]
     statuses = [e.data["status"] for e in review_events]
     assert ReviewerStatus.FIXING_REVIEW_FINDINGS.value in statuses
+
+
+# ---------------------------------------------------------------------------
+# ReviewResult.success field (#3187)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_review_success_path_sets_success_true(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """review() must set result.success = True on a successful run."""
+    runner = _make_runner(config, event_bus)
+    transcript = "All good.\nVERDICT: APPROVE\nSUMMARY: Looks great"
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(runner, "_get_changed_files", AsyncMock(return_value=[])),
+        patch.object(runner, "_has_changes", AsyncMock(return_value=False)),
+        patch.object(runner, "_save_transcript"),
+    ):
+        result = await runner.review(pr_info, task, tmp_path, "some diff")
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_review_failure_path_leaves_success_false(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """review() must leave result.success = False when an exception occurs."""
+    runner = _make_runner(config, event_bus)
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(side_effect=RuntimeError("boom"))),
+    ):
+        result = await runner.review(pr_info, task, tmp_path, "some diff")
+
+    assert result.success is False
+
+
+@pytest.mark.asyncio
+async def test_review_dry_run_sets_success_true(
+    dry_config, event_bus, pr_info, task, tmp_path
+):
+    """review() dry-run path must set result.success = True."""
+    runner = _make_runner(dry_config, event_bus)
+
+    result = await runner.review(pr_info, task, tmp_path, "some diff")
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_fix_ci_success_path_sets_success_true(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """fix_ci() must set result.success = True on a successful run."""
+    runner = _make_runner(config, event_bus)
+    transcript = "Fixed lint.\nVERDICT: APPROVE\nSUMMARY: Fixed CI failures"
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(
+            runner, "_get_changed_files", AsyncMock(return_value=["src/foo.py"])
+        ),
+        patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
+        patch.object(runner, "_get_commit_stat", AsyncMock(return_value="")),
+        patch.object(runner, "_save_transcript"),
+    ):
+        result = await runner.fix_ci(pr_info, task, tmp_path, "Failed: ci", attempt=1)
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_fix_ci_failure_path_leaves_success_false(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """fix_ci() must leave result.success = False when an exception occurs."""
+    runner = _make_runner(config, event_bus)
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(side_effect=RuntimeError("boom"))),
+    ):
+        result = await runner.fix_ci(pr_info, task, tmp_path, "Failed: ci", attempt=1)
+
+    assert result.success is False
+
+
+@pytest.mark.asyncio
+async def test_fix_ci_dry_run_sets_success_true(
+    dry_config, event_bus, pr_info, task, tmp_path
+):
+    """fix_ci() dry-run path must set result.success = True."""
+    runner = _make_runner(dry_config, event_bus)
+
+    result = await runner.fix_ci(pr_info, task, tmp_path, "Failed: ci", attempt=1)
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_fix_review_findings_success_path_sets_success_true(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """fix_review_findings() must set result.success = True on a successful run."""
+    runner = _make_runner(config, event_bus)
+    transcript = "Fixed.\nVERDICT: APPROVE\nSUMMARY: Fixed review issues"
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(return_value=transcript)),
+        patch.object(
+            runner, "_get_changed_files", AsyncMock(return_value=["src/fix.py"])
+        ),
+        patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
+        patch.object(runner, "_get_commit_stat", AsyncMock(return_value="")),
+        patch.object(runner, "_save_transcript"),
+    ):
+        result = await runner.fix_review_findings(
+            pr_info, task, tmp_path, "Missing null check"
+        )
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_fix_review_findings_failure_path_leaves_success_false(
+    config, event_bus, pr_info, task, tmp_path
+):
+    """fix_review_findings() must leave result.success = False on exception."""
+    runner = _make_runner(config, event_bus)
+
+    with (
+        patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
+        patch.object(runner, "_execute", AsyncMock(side_effect=RuntimeError("boom"))),
+    ):
+        result = await runner.fix_review_findings(
+            pr_info, task, tmp_path, "Missing null check"
+        )
+
+    assert result.success is False
+
+
+@pytest.mark.asyncio
+async def test_fix_review_findings_dry_run_sets_success_true(
+    dry_config, event_bus, pr_info, task, tmp_path
+):
+    """fix_review_findings() dry-run path must set result.success = True."""
+    runner = _make_runner(dry_config, event_bus)
+
+    result = await runner.fix_review_findings(
+        pr_info, task, tmp_path, "Missing null check"
+    )
+
+    assert result.success is True
