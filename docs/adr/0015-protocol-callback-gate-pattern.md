@@ -46,7 +46,10 @@ for all merge-phase gates in HydraFlow. Specifically:
 
 3. **Guard every gate with a config boolean or threshold**. Disabled gates
    return immediately with no side effects. Zero-cap thresholds
-   (`max_ci_fix_attempts == 0`) bypass execution entirely.
+   (`max_ci_fix_attempts == 0`) bypass execution entirely. Exception:
+   mandatory infrastructure callbacks (e.g., `PublishFn`) that serve as
+   cross-cutting concerns are always active — see footnote [^1] for the
+   documented exception criteria.
 
 4. **Use decision objects for multi-factor gates**. Where a gate's outcome
    depends on multiple inputs (file patterns, labels, overrides), return a
@@ -66,10 +69,10 @@ for all merge-phase gates in HydraFlow. Specifically:
 | CI gate | Async callback | `CiGateFn` | `max_ci_fix_attempts > 0` |
 | Visual validation decision | Sync decision object | `VisualValidationDecision` | `visual_validation_enabled` |
 | Visual gate | Async callback | `VisualGateFn` | `visual_gate_enabled` |
-| Merge conflict fix | Async callback | `MergeConflictFixFn` | Triggered on merge conflict |
+| Merge conflict fix | Async callback | `MergeConflictFixFn` | `max_merge_conflict_fix_attempts > 0` |
 | Escalation | Async callback | `EscalateFn` | `debug_escalation_enabled` |
-| Status publishing | Async callback | `PublishFn` | Always active |
-| Adversarial threshold | Async method (not yet injected) | Returns `ReviewResult` | `min_review_findings > 0` |
+| Status publishing | Async callback | `PublishFn` | Always active [^1] |
+| Adversarial threshold | Async method (not yet injected) | `_check_adversarial_threshold` | `min_review_findings > 0` |
 
 **Note:** The visual validation row represents the pre-gate decision object that
 determines *whether* validation is required. The visual gate row (`VisualGateFn`)
@@ -77,6 +80,13 @@ is the actual async callback that enforces the gate at merge time. The adversari
 threshold is currently an embedded async method on `ReviewPhase` rather than an
 injected Protocol callback — it follows the four-phase protocol pattern but does
 not yet conform to Rule 2 (injection as a parameter).
+
+[^1]: **Rule 3 exception — Status publishing.** `PublishFn` is an infrastructure
+callback that broadcasts state transitions to the dashboard via WebSocket. It is
+always active because disabling it would silently break observability for all
+gates. Unlike feature gates, it has no independent business logic to guard; it
+is a cross-cutting concern analogous to logging. This exception is intentional
+and does not warrant a config toggle.
 
 ## Consequences
 

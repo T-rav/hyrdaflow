@@ -29,6 +29,7 @@ from dashboard_routes._common import (
 # Re-export route-level symbols from _routes
 from dashboard_routes._routes import (
     RouteContext,
+    _extract_issue_number,
     _extract_repo_path,
     _extract_repo_slug,
     _is_likely_disconnect,
@@ -55,6 +56,7 @@ __all__ = [
     "_status_sort_key",
     # _routes
     "RouteContext",
+    "_extract_issue_number",
     "_extract_repo_path",
     "_extract_repo_slug",
     "_is_likely_disconnect",
