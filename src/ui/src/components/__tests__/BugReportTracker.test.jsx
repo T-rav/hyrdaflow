@@ -176,43 +176,6 @@ describe('BugReportTracker', () => {
     expect(screen.getByText('https://github.com/owner/repo/pull/2')).toBeTruthy()
   })
 
-  it('shows "Issue Filed" badge for filed reports', () => {
-    const reports = [makeReport({ id: 'r1', status: 'filed' })]
-    render(
-      <BugReportTracker isOpen={true} onClose={onClose} reports={reports} onAction={onAction} />
-    )
-    expect(screen.getByTestId('tracker-status-r1').textContent).toBe('Issue Filed')
-  })
-
-  it('shows reopen and cancel for filed reports but not confirm fixed', () => {
-    const reports = [makeReport({ id: 'r1', status: 'filed' })]
-    render(
-      <BugReportTracker isOpen={true} onClose={onClose} reports={reports} onAction={onAction} />
-    )
-    fireEvent.click(screen.getByText('Test bug report'))
-    expect(screen.getByTestId('tracker-reopen-r1')).toBeTruthy()
-    expect(screen.getByTestId('tracker-cancel-r1')).toBeTruthy()
-    expect(screen.queryByTestId('tracker-confirm-r1')).toBeNull()
-  })
-
-  it('renders refresh button when onRefresh is provided', () => {
-    const onRefresh = vi.fn()
-    render(
-      <BugReportTracker isOpen={true} onClose={onClose} reports={[]} onAction={onAction} onRefresh={onRefresh} />
-    )
-    const refreshBtn = screen.getByTestId('tracker-refresh')
-    expect(refreshBtn).toBeTruthy()
-    fireEvent.click(refreshBtn)
-    expect(onRefresh).toHaveBeenCalled()
-  })
-
-  it('does not render refresh button when onRefresh is not provided', () => {
-    render(
-      <BugReportTracker isOpen={true} onClose={onClose} reports={[]} onAction={onAction} />
-    )
-    expect(screen.queryByTestId('tracker-refresh')).toBeNull()
-  })
-
   it('collapses report when clicked again', () => {
     const reports = [makeReport({ id: 'r1' })]
     render(

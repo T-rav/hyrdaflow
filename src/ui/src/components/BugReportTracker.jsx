@@ -4,7 +4,6 @@ import { theme } from '../theme'
 const STATUS_COLORS = {
   'queued': theme.yellow,
   'in-progress': theme.accent,
-  'filed': theme.purple,
   'fixed': theme.green,
   'closed': theme.textMuted,
   'reopened': theme.orange,
@@ -13,13 +12,12 @@ const STATUS_COLORS = {
 const STATUS_LABELS = {
   'queued': 'Queued',
   'in-progress': 'In Progress',
-  'filed': 'Issue Filed',
   'fixed': 'Fixed',
   'closed': 'Closed',
   'reopened': 'Reopened',
 }
 
-export function BugReportTracker({ isOpen, onClose, reports, onAction, onRefresh }) {
+export function BugReportTracker({ isOpen, onClose, reports, onAction }) {
   const [expandedId, setExpandedId] = useState(null)
   const [reopenText, setReopenText] = useState('')
 
@@ -40,26 +38,14 @@ export function BugReportTracker({ isOpen, onClose, reports, onAction, onRefresh
       <div style={styles.modal} onClick={(e) => e.stopPropagation()} data-testid="tracker-modal">
         <div style={styles.header}>
           <span style={styles.title}>Bug Report Tracker</span>
-          <div style={styles.headerActions}>
-            {onRefresh && (
-              <button
-                style={styles.refreshBtn}
-                onClick={onRefresh}
-                aria-label="Refresh statuses"
-                data-testid="tracker-refresh"
-              >
-                Refresh
-              </button>
-            )}
-            <button
-              style={styles.closeBtn}
-              onClick={onClose}
-              aria-label="Close tracker"
-              data-testid="tracker-close"
-            >
-              ×
-            </button>
-          </div>
+          <button
+            style={styles.closeBtn}
+            onClick={onClose}
+            aria-label="Close tracker"
+            data-testid="tracker-close"
+          >
+            ×
+          </button>
         </div>
         <div style={styles.body}>
           {reports.length === 0 ? (
@@ -219,21 +205,6 @@ const styles = {
     fontSize: 14,
     fontWeight: 700,
     color: theme.textBright,
-  },
-  headerActions: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-  },
-  refreshBtn: {
-    padding: '4px 10px',
-    borderRadius: 6,
-    border: `1px solid ${theme.accent}`,
-    background: theme.accentSubtle,
-    color: theme.accent,
-    fontSize: 11,
-    fontWeight: 600,
-    cursor: 'pointer',
   },
   closeBtn: {
     background: 'none',

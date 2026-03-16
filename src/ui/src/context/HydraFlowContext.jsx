@@ -823,17 +823,6 @@ export function HydraFlowProvider({ children }) {
       .catch(() => {})
   }, [])
 
-  const refreshReportStatuses = useCallback(async () => {
-    const rid = reporterIdRef.current
-    if (!rid) return
-    try {
-      await fetch(`/api/reports/refresh?reporter_id=${encodeURIComponent(rid)}`, { method: 'POST' })
-      fetchTrackedReports()
-    } catch {
-      // silently ignore
-    }
-  }, [fetchTrackedReports])
-
   const updateTrackedReport = useCallback(async (reportId, action, detail) => {
     try {
       const res = await fetch(`/api/reports/${reportId}`, {
@@ -1568,19 +1557,13 @@ export function HydraFlowProvider({ children }) {
     return () => { cancelled = true; clearInterval(interval) }
   }, [state.connected, isSeeded])
 
-  // Fetch tracked reports on mount and periodically; also refresh
-  // filed/stale statuses so the UI reflects actual issue outcomes.
-  // refreshReportStatuses already calls fetchTrackedReports on success,
-  // so on mount we only need one of them to run first for an immediate display,
-  // then the refresh fills in accurate statuses.
+  // Fetch tracked reports on mount and periodically
   useEffect(() => {
     if (isSeeded) return
     fetchTrackedReports()
-    const interval = setInterval(() => {
-      refreshReportStatuses()
-    }, 30_000)
+    const interval = setInterval(fetchTrackedReports, 30_000)
     return () => clearInterval(interval)
-  }, [fetchTrackedReports, refreshReportStatuses, isSeeded])
+  }, [fetchTrackedReports, isSeeded])
 
   const value = {
     ...state,
@@ -1593,7 +1576,6 @@ export function HydraFlowProvider({ children }) {
     submitReport,
     trackedReports: state.trackedReports,
     updateTrackedReport,
-    refreshReportStatuses,
     submitHumanInput,
     requestChanges,
     toggleBgWorker,

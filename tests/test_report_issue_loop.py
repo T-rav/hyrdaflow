@@ -394,74 +394,6 @@ class TestReportIssueLoopDoWork:
         assert ".png" in prompt
 
 
-class TestReportStatusTransitions:
-    """Tests for tracked report status transitions during processing."""
-
-    @pytest.mark.asyncio
-    async def test_successful_processing_sets_filed_not_fixed(
-        self, tmp_path: Path
-    ) -> None:
-        """A successfully processed report is set to 'filed', not 'fixed'."""
-        loop, _stop, state, _pr = _make_loop(tmp_path)
-        report = PendingReport(description="Button broken", reporter_id="u1")
-        state.enqueue_report(report)
-        state.add_tracked_report(
-            TrackedReport(
-                id=report.id, reporter_id="u1", description=report.description
-            )
-        )
-
-        with patch(
-            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
-        ) as mock_stream:
-            mock_stream.return_value = "https://github.com/acme/repo/issues/42"
-            result = await loop._do_work()
-
-        assert result is not None
-        assert result["processed"] == 1
-        tracked = state.get_tracked_report(report.id)
-        assert tracked is not None
-        assert tracked.status == "filed"
-        expected_url = f"https://github.com/{loop._config.repo}/issues/42"
-        assert tracked.linked_issue_url == expected_url
-        # History should show "filed" action
-        filed_entries = [h for h in tracked.history if h.action == "filed"]
-        assert len(filed_entries) == 1
-        assert "Created issue #42" in filed_entries[0].detail
-
-    @pytest.mark.asyncio
-    async def test_in_progress_set_during_processing(self, tmp_path: Path) -> None:
-        """Report transitions to in-progress at start of processing."""
-        loop, _stop, state, _pr = _make_loop(tmp_path)
-        report = PendingReport(description="Widget broke", reporter_id="u1")
-        state.enqueue_report(report)
-        state.add_tracked_report(
-            TrackedReport(
-                id=report.id, reporter_id="u1", description=report.description
-            )
-        )
-
-        captured_status = []
-
-        original_update = state.update_tracked_report
-
-        def capture_update(report_id, **kwargs):
-            if kwargs.get("action_label") == "processing":
-                captured_status.append(kwargs.get("status"))
-            return original_update(report_id, **kwargs)
-
-        with patch(
-            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
-        ) as mock_stream:
-            mock_stream.return_value = "https://github.com/acme/repo/issues/55"
-            with patch.object(
-                state, "update_tracked_report", side_effect=capture_update
-            ):
-                await loop._do_work()
-
-        assert "in-progress" in captured_status
-
-
 class TestReportRetryAndEscalation:
     """Tests for report retry counting and HITL escalation."""
 
@@ -838,8 +770,8 @@ class TestTrackedReportStatusTransitions:
             await loop._do_work()
 
     @pytest.mark.asyncio
-    async def test_status_transitions_to_filed_on_success(self, tmp_path: Path) -> None:
-        """On successful issue creation, tracked report status becomes filed."""
+    async def test_status_transitions_to_fixed_on_success(self, tmp_path: Path) -> None:
+        """On successful issue creation, tracked report status becomes fixed."""
         loop, _stop, state, _pr = _make_loop(tmp_path)
         report = _enqueue_with_tracking(state)
 
@@ -851,7 +783,7 @@ class TestTrackedReportStatusTransitions:
 
         tracked = state.get_tracked_report(report.id)
         assert tracked is not None
-        assert tracked.status == "filed"
+        assert tracked.status == "fixed"
 
     @pytest.mark.asyncio
     async def test_fixed_report_has_linked_issue_url(self, tmp_path: Path) -> None:
@@ -924,7 +856,7 @@ class TestTrackedReportStatusTransitions:
         assert tracked is not None
         actions = [h.action for h in tracked.history]
         assert "processing" in actions
-        assert "filed" in actions
+        assert "fixed" in actions
 
     @pytest.mark.asyncio
     async def test_history_entries_added_for_retry(self, tmp_path: Path) -> None:

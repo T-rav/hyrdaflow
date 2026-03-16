@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
 from models import (
@@ -90,7 +90,7 @@ class ReportStateMixin:
         self,
         report_id: str,
         *,
-        status: Literal["queued", "in-progress", "filed", "fixed", "closed", "reopened"]
+        status: Literal["queued", "in-progress", "fixed", "closed", "reopened"]
         | None = None,
         detail: str = "",
         action_label: str = "",
@@ -110,27 +110,6 @@ class ReportStateMixin:
                 self.save()
                 return r
         return None
-
-    def get_filed_reports(self) -> list[TrackedReport]:
-        """Return all tracked reports with status ``'filed'``."""
-        return [r for r in self._data.tracked_reports if r.status == "filed"]
-
-    def get_stale_queued_reports(
-        self, *, stale_minutes: int = 30
-    ) -> list[TrackedReport]:
-        """Return queued reports older than *stale_minutes*."""
-        cutoff = datetime.now(UTC) - timedelta(minutes=stale_minutes)
-        stale: list[TrackedReport] = []
-        for r in self._data.tracked_reports:
-            if r.status != "queued":
-                continue
-            try:
-                created = datetime.fromisoformat(r.created_at)
-            except (ValueError, TypeError):
-                continue
-            if created <= cutoff:
-                stale.append(r)
-        return stale
 
     # --- metrics state ---
 

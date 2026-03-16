@@ -626,43 +626,6 @@ class PRManager:
         """Remove *label* from a GitHub issue."""
         await self._remove_label("issue", issue_number, label)
 
-    async def get_issue_state(self, issue_number: int) -> str:
-        """Return the resolved state of a GitHub issue.
-
-        Returns ``'COMPLETED'`` when the issue was closed as resolved,
-        ``'OPEN'`` when still open, ``'NOT_PLANNED'`` when closed as
-        won't-fix/duplicate/invalid, or ``''`` on error.
-        """
-        self._assert_repo()
-        try:
-            output = await self._run_gh(
-                "gh",
-                "issue",
-                "view",
-                str(issue_number),
-                "--repo",
-                self._repo,
-                "--json",
-                "state,stateReason",
-            )
-            data = json.loads(output)
-            state = str(data.get("state", "")).upper()
-            if state == "CLOSED":
-                # stateReason: "COMPLETED" | "NOT_PLANNED" | null
-                # Fall back to "" (not "COMPLETED") when stateReason is null so
-                # that issues closed before GitHub added stateReason tracking are
-                # not incorrectly treated as resolved.
-                reason = str(data.get("stateReason") or "").upper()
-                return reason
-            return state
-        except Exception:
-            logger.warning(
-                "Could not fetch state of issue #%d",
-                issue_number,
-                exc_info=True,
-            )
-            return ""
-
     async def close_issue(self, issue_number: int) -> None:
         """Close a GitHub issue."""
         self._assert_repo()
