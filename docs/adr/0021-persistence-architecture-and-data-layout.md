@@ -34,10 +34,13 @@ precedence:
 3. Default: `<repo_root>/.hydraflow/`.
 
 Full config load order is: Pydantic defaults, config file, env vars, CLI args.
-Path resolution runs in the order `_resolve_paths` then `_resolve_repo_and_identity`
-then `_apply_env_overrides`.
+Path resolution runs in the order `_resolve_base_paths` then `_resolve_repo_and_identity`
+then `_resolve_repo_scoped_paths` then `_apply_env_overrides`.
 
 ### Data layout
+
+> **Note:** `log_dir`, `plans_dir`, and `memory_dir` are currently flat under
+> `data_root/` rather than repo-scoped — see [^1].
 
 ```
 <data_root>/                        # default: <repo_root>/.hydraflow/
@@ -56,6 +59,10 @@ then `_apply_env_overrides`.
   cache/                            # Ephemeral caches
   verification/                     # Verification artifacts
 ```
+
+[^1]: Currently flat under `<data_root>/`. ADR-0010 (Worktree and Path Isolation
+Architecture) mandates moving these to `<data_root>/<repo_slug>/logs/`, etc. for
+full repo-scoped isolation in multi-repo deployments.
 
 ### Persistence guarantees
 
@@ -89,11 +96,12 @@ The following `HydraFlowConfig` properties derive directories from `data_root`:
 | Property | Path |
 |----------|------|
 | `repo_data_root` | `data_root / repo_slug` |
+| `state_file` | `data_root / repo_slug / "state.json"` |
+| `event_log_path` | `data_root / repo_slug / "events.jsonl"` |
+| `sessions.jsonl` (no config property; implicit path) | `repo_data_root / "sessions.jsonl"` |
 | `log_dir` | `data_root / repo_slug / "logs"` |
 | `plans_dir` | `data_root / repo_slug / "plans"` |
 | `memory_dir` | `data_root / repo_slug / "memory"` |
-| `state_file` | `data_root / repo_slug / "state.json"` |
-| `event_log_path` | `data_root / repo_slug / "events.jsonl"` |
 
 All paths can be individually overridden via their respective config fields,
 but the defaults ensure a single `data_root` change relocates everything.
@@ -142,11 +150,11 @@ but the defaults ensure a single `data_root` change relocates everything.
 - Source memory: [#1624 — HydraFlow persistence architecture and data layout](https://github.com/T-rav/hydra/issues/1624)
 - This ADR: [#1633](https://github.com/T-rav/hydra/issues/1633)
 - `src/state.py:StateTracker` — crash-recovery state persistence
-- `src/config.py:_resolve_paths` (line 1122) — data root and path resolution
+- `src/config.py:_resolve_base_paths`, `_resolve_repo_and_identity`, `_resolve_repo_scoped_paths` — data root and path resolution
 - `src/config.py:HydraFlowConfig.data_root` (line 701) — data root configuration
 - `src/metrics_manager.py` — repo-slug namespaced metrics
 - `src/file_util.py:atomic_write` — atomic file write helper
 - ADR-0003 (Git Worktrees for Issue Isolation) — worktree isolation (complementary filesystem layout)
-- ADR-0006 (RepoRuntime Isolation Architecture) — RepoRuntime isolation (per-repo process boundaries)
+- ADR-0006 (RepoRuntime Isolation Architecture, superseded by ADR-0009 Multi-Repo Process-Per-Repo Model) — RepoRuntime isolation (per-repo process boundaries)
 - ADR-0009 (Multi-Repo Process-Per-Repo Model) — `_namespace_repo_paths()` scoping that places state files under `data_root/<repo_slug>/`
-- ADR-0010 (Worktree and Path Isolation Architecture) — mandates repo-slug scoping for `log_dir`, `plans_dir`, `memory_dir`
+- ADR-0010 (Worktree and Path Isolation Architecture) — mandates repo-slug scoping for `log_dir`, `plans_dir`, `memory_dir` to `data_root/<repo_slug>/`
