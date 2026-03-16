@@ -403,6 +403,7 @@ class TestVerifyMonitorLoopOrphanedOutcomes:
 class TestVerifyMonitorLoopErrorHandling:
     @pytest.mark.asyncio
     async def test_continues_on_fetch_exception(self, tmp_path: Path) -> None:
+        from models import IssueOutcomeType
 
         closed_issue = _make_issue(200, state="closed")
 
@@ -424,9 +425,13 @@ class TestVerifyMonitorLoopErrorHandling:
         # Should process both, but only resolve the non-failing one
         assert result is not None
         assert result["resolved"] == 1
-        # record_outcome called once for the closed issue (not for the errored one)
-        assert any(
-            c[0][1].value == "merged" for c in state.record_outcome.call_args_list
+        # record_outcome called exactly once for the closed issue (not for the errored one)
+        state.record_outcome.assert_called_once_with(
+            11,
+            IssueOutcomeType.MERGED,
+            reason="Verification issue #200 closed — promoted to merged",
+            phase="verify",
+            verification_issue_number=200,
         )
 
 
