@@ -13,9 +13,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from models import ConflictResolutionResult, GitHubIssue, HITLItem, LoopResult
+from models import ConflictResolutionResult, HITLItem, LoopResult
 from pr_unsticker import FailureCause, PRUnsticker, _classify_cause
-from tests.conftest import make_state
+from tests.conftest import IssueFactory, make_state
 from tests.helpers import ConfigFactory
 
 
@@ -261,7 +261,7 @@ class TestMergeConflictFilter:
 class TestCleanMerge:
     @pytest.mark.asyncio
     async def test_clean_merge_resolves_via_resolver(self, tmp_path: Path) -> None:
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Test issue",
             body="body",
@@ -298,7 +298,7 @@ class TestSuccessfulResolution:
     async def test_successful_conflict_resolution_delegates_to_resolver(
         self, tmp_path: Path
     ) -> None:
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Test issue",
             body="body",
@@ -339,7 +339,7 @@ class TestFailedResolution:
     async def test_failed_resolution_releases_back_to_hitl(
         self, tmp_path: Path
     ) -> None:
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Test issue",
             body="body",
@@ -402,7 +402,7 @@ class TestCIFailureResolution:
     async def test_ci_failure_runs_agent_with_quality_prompt(
         self, tmp_path: Path
     ) -> None:
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Fix widget",
             body="body",
@@ -456,7 +456,7 @@ class TestGenericResolution:
     async def test_generic_cause_delegates_to_hitl_runner(self, tmp_path: Path) -> None:
         from models import HITLResult
 
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Fix widget",
             body="body",
@@ -490,7 +490,7 @@ class TestGenericResolution:
 
     @pytest.mark.asyncio
     async def test_generic_fails_without_hitl_runner(self, tmp_path: Path) -> None:
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Fix widget",
             body="body",
@@ -524,7 +524,7 @@ class TestAutoMerge:
 
     @pytest.mark.asyncio
     async def test_auto_merge_after_fix(self, tmp_path: Path) -> None:
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Test issue",
             body="body",
@@ -567,7 +567,7 @@ class TestAutoMergeDisabled:
 
     @pytest.mark.asyncio
     async def test_no_merge_when_disabled(self, tmp_path: Path) -> None:
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Test issue",
             body="body",
@@ -715,7 +715,7 @@ class TestPromptTelemetry:
         unsticker, state, _prs, agents, wt, _fetcher, _bus, _hr, _resolver = (
             _make_unsticker(tmp_path)
         )
-        issue = GitHubIssue(number=42, title="Fix CI", body="body", labels=[])
+        issue = IssueFactory.create(number=42, title="Fix CI", body="body", labels=[])
         state.set_hitl_cause(42, "x" * 6000)
 
         wt.start_merge_main = AsyncMock(return_value=True)
@@ -742,8 +742,8 @@ class TestGoalDrivenLoop:
 
     @pytest.mark.asyncio
     async def test_sequential_merge_after_parallel_fix(self, tmp_path: Path) -> None:
-        issue_a = GitHubIssue(number=1, title="Issue A", body="a", labels=[])
-        issue_b = GitHubIssue(number=2, title="Issue B", body="b", labels=[])
+        issue_a = IssueFactory.create(number=1, title="Issue A", body="a", labels=[])
+        issue_b = IssueFactory.create(number=2, title="Issue B", body="b", labels=[])
 
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path, unstick_auto_merge=True
@@ -797,7 +797,7 @@ class TestMergeConflictDelegation:
     async def test_merge_conflict_delegates_to_resolver_with_correct_pr_info(
         self, tmp_path: Path
     ) -> None:
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Fix the widget",
             body="Widget description",
@@ -837,7 +837,7 @@ class TestMergeConflictDelegation:
     async def test_merge_conflict_uses_pr_unsticker_source(
         self, tmp_path: Path
     ) -> None:
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Test issue",
             body="body",
@@ -874,7 +874,7 @@ class TestFreshBranchRebuild:
         self, tmp_path: Path
     ) -> None:
         """Resolver returns (True, True) indicating rebuild was used."""
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Test issue",
             body="body",
@@ -911,7 +911,7 @@ class TestFreshBranchRebuild:
     @pytest.mark.asyncio
     async def test_resolver_failure_releases_to_hitl(self, tmp_path: Path) -> None:
         """Resolver returns (False, False) — should release back to HITL."""
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Test issue",
             body="body",
@@ -946,7 +946,7 @@ class TestResolverNoneEdgeCases:
         self, tmp_path: Path
     ) -> None:
         """When resolver is None and cause is MERGE_CONFLICT, return failure and release to HITL."""
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Test issue",
             body="body",
@@ -974,7 +974,7 @@ class TestResolverNoneEdgeCases:
 
 def _setup_ci_fix_memory_test(tmp_path: Path, *, transcript: str = "transcript"):
     """Set up shared fixtures for memory suggestion tests on the CI fix path."""
-    issue = GitHubIssue(
+    issue = IssueFactory.create(
         number=42,
         title="Test issue",
         body="body",
@@ -1029,7 +1029,7 @@ class TestCITimeoutResolution:
     @pytest.mark.asyncio
     async def test_ci_timeout_runs_isolation_then_agent(self, tmp_path: Path) -> None:
         """Full flow: isolation mock -> agent capture -> verify prompt content."""
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Fix hanging test",
             body="body",
@@ -1087,7 +1087,7 @@ class TestCITimeoutResolution:
         self, tmp_path: Path
     ) -> None:
         """The prompt should contain isolation output and common hang causes."""
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Fix CI",
             body="body",
@@ -1120,7 +1120,7 @@ class TestCITimeoutResolution:
         self, tmp_path: Path
     ) -> None:
         """When test isolation errors out, the agent should still run with fallback info."""
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Fix CI",
             body="body",
@@ -1173,7 +1173,7 @@ class TestCITimeoutResolution:
     @pytest.mark.asyncio
     async def test_ci_timeout_exhausts_max_attempts(self, tmp_path: Path) -> None:
         """After max_ci_timeout_fix_attempts failures, returns False."""
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Fix CI",
             body="body",
@@ -1250,7 +1250,7 @@ class TestCITimeoutResolution:
             )
         )
 
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Fix hanging test",
             body="body",
@@ -1322,7 +1322,7 @@ TROUBLESHOOTING_PATTERN_END
 
 Done."""
 
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Fix hanging test",
             body="body",
@@ -1375,7 +1375,7 @@ Done."""
     @pytest.mark.asyncio
     async def test_ci_timeout_works_without_store(self, tmp_path: Path) -> None:
         """Backward compat: store=None still works (no crash, no patterns)."""
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Fix hanging test",
             body="body",
@@ -1417,7 +1417,7 @@ Done."""
         self, tmp_path: Path
     ) -> None:
         """Prompt tells the agent to emit TROUBLESHOOTING_PATTERN_START/END block."""
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Fix CI",
             body="body",
@@ -1451,7 +1451,7 @@ Done."""
         # Transcript with NO explicit TROUBLESHOOTING_PATTERN block
         transcript_no_block = "Fixed the test by adding return_value=False to the mock."
 
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Fix hanging test",
             body="body",
@@ -1527,7 +1527,7 @@ TROUBLESHOOTING_PATTERN_END
 
         store = TroubleshootingPatternStore(tmp_path / "memory")
 
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Fix hanging test",
             body="body",
@@ -1590,7 +1590,7 @@ TROUBLESHOOTING_PATTERN_END
 
         store = TroubleshootingPatternStore(tmp_path / "memory")
 
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Fix hanging test",
             body="body",
@@ -1654,7 +1654,7 @@ class TestNarrowedExceptionHandling:
     @pytest.mark.asyncio
     async def test_process_item_reraises_likely_bug(self, tmp_path: Path) -> None:
         """TypeError/KeyError from _resolve_by_cause must propagate."""
-        issue = GitHubIssue(number=42, title="Fix bug", body="body", labels=[])
+        issue = IssueFactory.create(number=42, title="Fix bug", body="body", labels=[])
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path
         )
@@ -1680,7 +1680,7 @@ class TestNarrowedExceptionHandling:
     @pytest.mark.asyncio
     async def test_process_item_catches_runtime_error(self, tmp_path: Path) -> None:
         """RuntimeError (subprocess) in _process_item should be caught gracefully."""
-        issue = GitHubIssue(number=42, title="Fix bug", body="body", labels=[])
+        issue = IssueFactory.create(number=42, title="Fix bug", body="body", labels=[])
         unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
             tmp_path
         )
@@ -1709,7 +1709,7 @@ class TestNarrowedExceptionHandling:
         unsticker, state, prs, agents, wt, _fetcher, _bus, _hr, _resolver = (
             _make_unsticker(tmp_path)
         )
-        issue = GitHubIssue(number=42, title="Fix CI", body="body", labels=[])
+        issue = IssueFactory.create(number=42, title="Fix CI", body="body", labels=[])
         state.set_hitl_cause(42, "ci_failure")
 
         wt.start_merge_main = AsyncMock(return_value=True)
@@ -1729,7 +1729,7 @@ class TestNarrowedExceptionHandling:
         unsticker, state, prs, agents, wt, _fetcher, _bus, _hr, _resolver = (
             _make_unsticker(tmp_path)
         )
-        issue = GitHubIssue(number=42, title="Fix CI", body="body", labels=[])
+        issue = IssueFactory.create(number=42, title="Fix CI", body="body", labels=[])
         state.set_hitl_cause(42, "ci_failure")
 
         wt.start_merge_main = AsyncMock(return_value=True)
@@ -1844,7 +1844,9 @@ class TestNarrowedExceptionHandling:
         unsticker, state, prs, agents, wt, _fetcher, _bus, _hr, _resolver = (
             _make_unsticker(tmp_path)
         )
-        issue = GitHubIssue(number=42, title="Fix timeout", body="body", labels=[])
+        issue = IssueFactory.create(
+            number=42, title="Fix timeout", body="body", labels=[]
+        )
         state.set_hitl_cause(42, "ci_timeout")
 
         wt.start_merge_main = AsyncMock(return_value=True)
