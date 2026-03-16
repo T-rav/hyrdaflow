@@ -2329,4 +2329,4 @@ class TestReviewProposedADRsPerItemGuard:
         # First ADR failed in _route_result (after stats["reviewed"] was incremented),
         # second ADR also got reviewed + routed successfully
         assert route_call_count == 2
-        assert stats["reviewed"] >= 1
+        assert stats["reviewed"] == 2
