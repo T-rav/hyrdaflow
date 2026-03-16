@@ -1,11 +1,10 @@
 # ADR-0023: Gate Triage Call on Config Toggle, Not Just HITL Fallback
 
-**Status:** Superseded
+**Status:** Proposed
 **Date:** 2026-03-08
-**Superseded:** 2026-03-15
 
-> **Superseded by [ADR-0023 (Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking)](0023-auto-triage-toggle-must-gate-routing.md).**
-> That ADR covers the same toggle-bypass bug with broader scope: centralized helper, stats coupling, and pre-review failure paths.
+> **Pending supersession by [ADR-0023 (Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking)](0023-auto-triage-toggle-must-gate-routing.md).**
+> That ADR covers the same toggle-bypass bug with broader scope: centralized helper, stats coupling, and pre-review failure paths. Supersession will be formalised once that ADR is Accepted.
 
 ## Context
 
@@ -114,7 +113,7 @@ When reviewing any routing method that calls both `_route_to_triage` and
 
 ## Related
 
-- **Superseded by:** [ADR-0023 (Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking)](0023-auto-triage-toggle-must-gate-routing.md)
+- **Pending supersession by:** [ADR-0023 (Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking)](0023-auto-triage-toggle-must-gate-routing.md)
 - Council resolution: #2755
 - Source memory: #2345
 - Issue: #2355

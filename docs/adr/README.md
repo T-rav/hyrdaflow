@@ -33,7 +33,7 @@ and optionally **Alternatives considered** and **Related** links.
 | [0020](0020-autoApproveRow-border-context-awareness.md) | autoApproveRow Border Context Awareness | Superseded |
 | [0021](0021-persistence-architecture-and-data-layout.md) | Persistence Architecture and Data Layout | Proposed |
 | [0022](0022-integration-test-architecture-cross-phase.md) | Pipeline Integration Harness for Cross-Phase Testing | Proposed |
-| [0023](0023-gate-triage-call-not-hitl-fallback.md) | Gate Triage Call on Config Toggle, Not Just HITL Fallback | Superseded |
+| [0023](0023-gate-triage-call-not-hitl-fallback.md) | Gate Triage Call on Config Toggle, Not Just HITL Fallback | Proposed |
 | [0023](0023-dead-class-artifacts-in-mock-based-tests.md) | Require Instantiation Verification for Test-Local Classes | Proposed |
 | [0023](0023-tests-must-match-toggle-state-they-assert.md) | Tests Must Match Toggle State They Assert | Proposed |
 | [0023](0023-auto-triage-toggle-must-gate-routing.md) | Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking | Proposed |

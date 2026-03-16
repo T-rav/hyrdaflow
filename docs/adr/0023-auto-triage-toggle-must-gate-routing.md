@@ -143,7 +143,7 @@ When reviewing any routing method that calls both `_route_to_triage` and
 
 ## Related
 
-- **Supersedes:** [ADR-0023 (Gate Triage Call on Config Toggle, Not Just HITL Fallback)](0023-gate-triage-call-not-hitl-fallback.md)
+- **Will supersede (pending acceptance):** [ADR-0023 (Gate Triage Call on Config Toggle, Not Just HITL Fallback)](0023-gate-triage-call-not-hitl-fallback.md)
   - Absorbed: toggle-first guard pattern code samples (Decision §1) and verification checklist
 - **Cross-references:**
   - [ADR-0015 (Protocol-Based Callback Injection Gate Pattern)](0015-protocol-callback-gate-pattern.md) — Rule 1 (config-guard-first) is a specific application of ADR-0015's four-phase protocol (config guard → bypass → execute → telemetry)
