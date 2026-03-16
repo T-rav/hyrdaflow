@@ -49,14 +49,14 @@ class VerifyMonitorLoop(BaseBackgroundLoop):
                 checked += 1
                 if issue is None:
                     logger.warning(
-                        "Verify issue #%d for original #%d not found — treating as resolved",
+                        "Verify issue #%d for original #%d not found — treating as merged",
                         verify_issue,
                         original_issue,
                     )
                     self._state.record_outcome(
                         original_issue,
-                        IssueOutcomeType.VERIFY_RESOLVED,
-                        reason=f"Verification issue #{verify_issue} not found — auto-resolved",
+                        IssueOutcomeType.MERGED,
+                        reason=f"Verification issue #{verify_issue} not found — auto-resolved to merged",
                         phase="verify",
                         verification_issue_number=verify_issue,
                     )
@@ -66,8 +66,8 @@ class VerifyMonitorLoop(BaseBackgroundLoop):
                 if issue.state == "closed":
                     self._state.record_outcome(
                         original_issue,
-                        IssueOutcomeType.VERIFY_RESOLVED,
-                        reason=f"Verification issue #{verify_issue} closed",
+                        IssueOutcomeType.MERGED,
+                        reason=f"Verification issue #{verify_issue} closed — promoted to merged",
                         phase="verify",
                         verification_issue_number=verify_issue,
                     )
@@ -100,31 +100,51 @@ class VerifyMonitorLoop(BaseBackgroundLoop):
         }
 
     def _reconcile_orphaned_outcomes(self, pending: dict[int, int]) -> int:
-        """Resolve VERIFY_PENDING outcomes that have no matching verification_issues entry."""
+        """Promote stale verify outcomes to MERGED.
+
+        Handles two cases:
+        1. VERIFY_PENDING with no matching verification_issues entry (orphaned).
+        2. VERIFY_RESOLVED that was never promoted to MERGED.
+        """
         all_outcomes = self._state.get_all_outcomes()
         pending_keys = {str(k) for k in pending}
         reconciled = 0
+        stale_types = {
+            IssueOutcomeType.VERIFY_PENDING,
+            IssueOutcomeType.VERIFY_RESOLVED,
+        }
         for key, outcome in all_outcomes.items():
+            if outcome.outcome not in stale_types:
+                continue
+            # VERIFY_PENDING with an active verification entry is not stale
             if (
                 outcome.outcome == IssueOutcomeType.VERIFY_PENDING
-                and key not in pending_keys
+                and key in pending_keys
             ):
-                issue_number = int(key)
-                try:
-                    self._state.record_outcome(
-                        issue_number,
-                        IssueOutcomeType.VERIFY_RESOLVED,
-                        reason="Orphaned verify_pending — verification issue missing, auto-resolved",
-                        phase="verify",
-                    )
-                    logger.info(
-                        "Reconciled orphaned VERIFY_PENDING for issue #%d",
-                        issue_number,
-                    )
-                    reconciled += 1
-                except Exception:
-                    logger.exception(
-                        "Error reconciling orphaned VERIFY_PENDING for issue #%d — skipping",
-                        issue_number,
-                    )
+                continue
+            issue_number = int(key)
+            reason = (
+                "Stale verify_resolved — promoted to merged"
+                if outcome.outcome == IssueOutcomeType.VERIFY_RESOLVED
+                else "Orphaned verify_pending — verification issue missing, promoted to merged"
+            )
+            try:
+                self._state.record_outcome(
+                    issue_number,
+                    IssueOutcomeType.MERGED,
+                    reason=reason,
+                    phase="verify",
+                )
+                logger.info(
+                    "Reconciled %s for issue #%d → merged",
+                    outcome.outcome.value,
+                    issue_number,
+                )
+                reconciled += 1
+            except Exception:
+                logger.exception(
+                    "Error reconciling %s for issue #%d — skipping",
+                    outcome.outcome.value,
+                    issue_number,
+                )
         return reconciled

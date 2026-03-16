@@ -109,8 +109,8 @@ class TestVerifyMonitorLoopClosedIssue:
         }
         state.record_outcome.assert_called_once_with(
             10,
-            IssueOutcomeType.VERIFY_RESOLVED,
-            reason="Verification issue #42 closed",
+            IssueOutcomeType.MERGED,
+            reason="Verification issue #42 closed — promoted to merged",
             phase="verify",
             verification_issue_number=42,
         )
@@ -141,8 +141,8 @@ class TestVerifyMonitorLoopClosedIssue:
         assert result["pending"] == 1
         state.record_outcome.assert_called_once_with(
             21,
-            IssueOutcomeType.VERIFY_RESOLVED,
-            reason="Verification issue #101 closed",
+            IssueOutcomeType.MERGED,
+            reason="Verification issue #101 closed — promoted to merged",
             phase="verify",
             verification_issue_number=101,
         )
@@ -168,8 +168,8 @@ class TestVerifyMonitorLoopNotFound:
         }
         state.record_outcome.assert_called_once_with(
             10,
-            IssueOutcomeType.VERIFY_RESOLVED,
-            reason="Verification issue #99 not found — auto-resolved",
+            IssueOutcomeType.MERGED,
+            reason="Verification issue #99 not found — auto-resolved to merged",
             phase="verify",
             verification_issue_number=99,
         )
@@ -211,8 +211,8 @@ class TestVerifyMonitorLoopOrphanedOutcomes:
         assert result["resolved"] == 0
         state.record_outcome.assert_called_once_with(
             30,
-            IssueOutcomeType.VERIFY_RESOLVED,
-            reason="Orphaned verify_pending — verification issue missing, auto-resolved",
+            IssueOutcomeType.MERGED,
+            reason="Orphaned verify_pending — verification issue missing, promoted to merged",
             phase="verify",
         )
 
@@ -253,8 +253,8 @@ class TestVerifyMonitorLoopOrphanedOutcomes:
         assert state.record_outcome.call_count == 2
         state.record_outcome.assert_any_call(
             30,
-            IssueOutcomeType.VERIFY_RESOLVED,
-            reason="Orphaned verify_pending — verification issue missing, auto-resolved",
+            IssueOutcomeType.MERGED,
+            reason="Orphaned verify_pending — verification issue missing, promoted to merged",
             phase="verify",
         )
 
@@ -283,10 +283,8 @@ class TestVerifyMonitorLoopOrphanedOutcomes:
         state.record_outcome.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_does_not_reconcile_non_verify_pending_outcomes(
-        self, tmp_path: Path
-    ) -> None:
-        """Only VERIFY_PENDING outcomes should be reconciled, not MERGED etc."""
+    async def test_does_not_reconcile_non_verify_outcomes(self, tmp_path: Path) -> None:
+        """Only VERIFY_PENDING/VERIFY_RESOLVED outcomes should be reconciled, not MERGED etc."""
         from models import IssueOutcomeType
 
         merged_outcome = _make_outcome(IssueOutcomeType.MERGED, phase="review")
@@ -304,6 +302,31 @@ class TestVerifyMonitorLoopOrphanedOutcomes:
         assert result is not None
         assert result["reconciled"] == 0
         state.record_outcome.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_reconciles_stale_verify_resolved_to_merged(
+        self, tmp_path: Path
+    ) -> None:
+        """VERIFY_RESOLVED outcomes are promoted to MERGED during reconciliation."""
+        from models import IssueOutcomeType
+
+        stale_resolved = _make_outcome(IssueOutcomeType.VERIFY_RESOLVED)
+        loop, _, state = _make_loop(
+            tmp_path,
+            pending={},
+            outcomes={"40": stale_resolved},
+        )
+
+        result = await loop._do_work()
+
+        assert result is not None
+        assert result["reconciled"] == 1
+        state.record_outcome.assert_called_once_with(
+            40,
+            IssueOutcomeType.MERGED,
+            reason="Stale verify_resolved — promoted to merged",
+            phase="verify",
+        )
 
     @pytest.mark.asyncio
     async def test_reconciles_multiple_orphans(self, tmp_path: Path) -> None:
@@ -332,15 +355,15 @@ class TestVerifyMonitorLoopOrphanedOutcomes:
             if c
             == call(
                 30,
-                IssueOutcomeType.VERIFY_RESOLVED,
-                reason="Orphaned verify_pending — verification issue missing, auto-resolved",
+                IssueOutcomeType.MERGED,
+                reason="Orphaned verify_pending — verification issue missing, promoted to merged",
                 phase="verify",
             )
             or c
             == call(
                 31,
-                IssueOutcomeType.VERIFY_RESOLVED,
-                reason="Orphaned verify_pending — verification issue missing, auto-resolved",
+                IssueOutcomeType.MERGED,
+                reason="Orphaned verify_pending — verification issue missing, promoted to merged",
                 phase="verify",
             )
         ]
@@ -402,8 +425,7 @@ class TestVerifyMonitorLoopErrorHandling:
         assert result["resolved"] == 1
         # record_outcome called once for the closed issue (not for the errored one)
         assert any(
-            c[0][1].value == "verify_resolved"
-            for c in state.record_outcome.call_args_list
+            c[0][1].value == "merged" for c in state.record_outcome.call_args_list
         )
 
 
