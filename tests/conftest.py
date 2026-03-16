@@ -304,6 +304,12 @@ class WorkerResultBuilder:
 
     def __init__(self) -> None:
         self._kwargs: dict[str, Any] = {}
+        self._use_model_defaults: bool = False
+
+    def with_model_defaults(self) -> WorkerResultBuilder:
+        """Use Pydantic model defaults instead of factory hardcoded values."""
+        self._use_model_defaults = True
+        return self
 
     def with_issue_number(self, value: int) -> WorkerResultBuilder:
         self._kwargs["issue_number"] = value
@@ -351,7 +357,9 @@ class WorkerResultBuilder:
 
     def build(self):
         """Build the WorkerResult using the factory."""
-        return WorkerResultFactory.create(**self._kwargs)
+        return WorkerResultFactory.create(
+            use_defaults=self._use_model_defaults, **self._kwargs
+        )
 
 
 # --- Plan Result Factory ---
@@ -475,6 +483,12 @@ class PlanResultBuilder:
 
     def __init__(self) -> None:
         self._kwargs: dict[str, Any] = {}
+        self._use_model_defaults: bool = False
+
+    def with_model_defaults(self) -> PlanResultBuilder:
+        """Use Pydantic model defaults instead of factory hardcoded values."""
+        self._use_model_defaults = True
+        return self
 
     def with_issue_number(self, value: int) -> PlanResultBuilder:
         self._kwargs["issue_number"] = value
@@ -534,7 +548,9 @@ class PlanResultBuilder:
 
     def build(self):
         """Build the PlanResult using the factory."""
-        return PlanResultFactory.create(**self._kwargs)
+        return PlanResultFactory.create(
+            use_defaults=self._use_model_defaults, **self._kwargs
+        )
 
 
 # --- PR Info Factory ---
@@ -575,28 +591,66 @@ class ReviewResultFactory:
         pr_number: int = 101,
         issue_number: int = 42,
         verdict: ReviewVerdict | None = None,
-        summary: str = "Looks good.",
-        fixes_made: bool = False,
-        transcript: str = "THOROUGH_REVIEW_COMPLETE",
-        merged: bool = False,
-        duration_seconds: float = 0.0,
+        summary: str | None = None,
+        fixes_made: bool | None = None,
+        transcript: str | None = None,
+        merged: bool | None = None,
+        duration_seconds: float | None = None,
         ci_passed: bool | None = None,
-        ci_fix_attempts: int = 0,
+        ci_fix_attempts: int | None = None,
+        use_defaults: bool = False,
     ) -> ReviewResult:
+        """Create a ReviewResult instance.
+
+        By default (``use_defaults=False``), factory-defined hardcoded values are
+        applied for all unspecified optional fields (e.g. ``verdict=APPROVE``,
+        ``summary="Looks good."``).
+
+        With ``use_defaults=True``, only explicitly provided keyword arguments are
+        forwarded to the constructor and the underlying Pydantic model's own field
+        defaults are used for everything else.
+        """
         from models import ReviewResult as RR
         from models import ReviewVerdict as RV
+
+        if use_defaults:
+            kwargs: dict[str, Any] = {
+                "pr_number": pr_number,
+                "issue_number": issue_number,
+            }
+            if verdict is not None:
+                kwargs["verdict"] = verdict
+            if summary is not None:
+                kwargs["summary"] = summary
+            if fixes_made is not None:
+                kwargs["fixes_made"] = fixes_made
+            if transcript is not None:
+                kwargs["transcript"] = transcript
+            if merged is not None:
+                kwargs["merged"] = merged
+            if duration_seconds is not None:
+                kwargs["duration_seconds"] = duration_seconds
+            if ci_passed is not None:
+                kwargs["ci_passed"] = ci_passed
+            if ci_fix_attempts is not None:
+                kwargs["ci_fix_attempts"] = ci_fix_attempts
+            return RR(**kwargs)
 
         return RR(
             pr_number=pr_number,
             issue_number=issue_number,
             verdict=verdict if verdict is not None else RV.APPROVE,
-            summary=summary,
-            fixes_made=fixes_made,
-            transcript=transcript,
-            merged=merged,
-            duration_seconds=duration_seconds,
+            summary=summary if summary is not None else "Looks good.",
+            fixes_made=fixes_made if fixes_made is not None else False,
+            transcript=(
+                transcript if transcript is not None else "THOROUGH_REVIEW_COMPLETE"
+            ),
+            merged=merged if merged is not None else False,
+            duration_seconds=(
+                duration_seconds if duration_seconds is not None else 0.0
+            ),
             ci_passed=ci_passed,
-            ci_fix_attempts=ci_fix_attempts,
+            ci_fix_attempts=(ci_fix_attempts if ci_fix_attempts is not None else 0),
         )
 
 
@@ -605,6 +659,12 @@ class ReviewResultBuilder:
 
     def __init__(self) -> None:
         self._kwargs: dict[str, Any] = {}
+        self._use_model_defaults: bool = False
+
+    def with_model_defaults(self) -> ReviewResultBuilder:
+        """Use Pydantic model defaults instead of factory hardcoded values."""
+        self._use_model_defaults = True
+        return self
 
     def with_pr_number(self, value: int) -> ReviewResultBuilder:
         self._kwargs["pr_number"] = value
@@ -648,7 +708,9 @@ class ReviewResultBuilder:
 
     def build(self) -> ReviewResult:
         """Build the ReviewResult using the factory."""
-        return ReviewResultFactory.create(**self._kwargs)
+        return ReviewResultFactory.create(
+            use_defaults=self._use_model_defaults, **self._kwargs
+        )
 
 
 # --- HITL Result Factory ---

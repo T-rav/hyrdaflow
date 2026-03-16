@@ -66,6 +66,34 @@ class TestWorkerResultBuilder:
         assert result.pre_quality_review_attempts == 3
         assert result.quality_fix_attempts == 2
 
+    def test_model_defaults_uses_pydantic_defaults(self):
+        """with_model_defaults() uses Pydantic model defaults, not factory hardcoded values."""
+        result = WorkerResultBuilder().with_model_defaults().build()
+        # Pydantic defaults: success=False, transcript="", commits=0
+        assert result.success is False
+        assert result.transcript == ""
+        assert result.commits == 0
+        assert result.worktree_path == ""
+
+    def test_model_defaults_with_overrides(self):
+        """with_model_defaults() still respects explicit .with_*() overrides."""
+        result = (
+            WorkerResultBuilder()
+            .with_model_defaults()
+            .with_success(True)
+            .with_commits(5)
+            .build()
+        )
+        assert result.success is True
+        assert result.commits == 5
+        # Non-overridden fields use Pydantic defaults
+        assert result.transcript == ""
+
+    def test_model_defaults_chaining_returns_self(self):
+        builder = WorkerResultBuilder()
+        same = builder.with_model_defaults()
+        assert same is builder
+
 
 class TestPlanResultBuilder:
     """Tests for PlanResultBuilder fluent API."""
@@ -135,6 +163,34 @@ class TestPlanResultBuilder:
         result = PlanResultBuilder().with_epic_number(10).build()
         assert result.epic_number == 10
 
+    def test_model_defaults_uses_pydantic_defaults(self):
+        """with_model_defaults() uses Pydantic model defaults, not factory hardcoded values."""
+        result = PlanResultBuilder().with_model_defaults().build()
+        # Pydantic defaults: success=False, plan="", summary=""
+        assert result.success is False
+        assert result.plan == ""
+        assert result.summary == ""
+        assert result.duration_seconds == 0.0
+
+    def test_model_defaults_with_overrides(self):
+        """with_model_defaults() still respects explicit .with_*() overrides."""
+        result = (
+            PlanResultBuilder()
+            .with_model_defaults()
+            .with_success(True)
+            .with_plan("## Custom Plan")
+            .build()
+        )
+        assert result.success is True
+        assert result.plan == "## Custom Plan"
+        # Non-overridden fields use Pydantic defaults
+        assert result.summary == ""
+
+    def test_model_defaults_chaining_returns_self(self):
+        builder = PlanResultBuilder()
+        same = builder.with_model_defaults()
+        assert same is builder
+
 
 class TestReviewResultBuilder:
     """Tests for ReviewResultBuilder fluent API."""
@@ -183,3 +239,35 @@ class TestReviewResultBuilder:
     def test_with_transcript(self):
         result = ReviewResultBuilder().with_transcript("review log").build()
         assert result.transcript == "review log"
+
+    def test_model_defaults_uses_pydantic_defaults(self):
+        """with_model_defaults() uses Pydantic model defaults, not factory hardcoded values."""
+        from models import ReviewVerdict
+
+        result = ReviewResultBuilder().with_model_defaults().build()
+        # Pydantic defaults: verdict=COMMENT, summary="", transcript=""
+        assert result.verdict == ReviewVerdict.COMMENT
+        assert result.summary == ""
+        assert result.transcript == ""
+        assert result.fixes_made is False
+
+    def test_model_defaults_with_overrides(self):
+        """with_model_defaults() still respects explicit .with_*() overrides."""
+        from models import ReviewVerdict
+
+        result = (
+            ReviewResultBuilder()
+            .with_model_defaults()
+            .with_verdict(ReviewVerdict.APPROVE)
+            .with_summary("LGTM")
+            .build()
+        )
+        assert result.verdict == ReviewVerdict.APPROVE
+        assert result.summary == "LGTM"
+        # Non-overridden fields use Pydantic defaults
+        assert result.transcript == ""
+
+    def test_model_defaults_chaining_returns_self(self):
+        builder = ReviewResultBuilder()
+        same = builder.with_model_defaults()
+        assert same is builder
