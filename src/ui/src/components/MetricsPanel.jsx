@@ -122,8 +122,6 @@ export function MetricsPanel() {
     { key: 'hitl_skipped', label: 'HITL Skipped', value: Number(lifetime.total_outcomes_hitl_skipped ?? 0), color: theme.yellow },
     { key: 'failed', label: 'Failed', value: Number(lifetime.total_outcomes_failed ?? 0), color: theme.red },
     { key: 'manual_close', label: 'Manual Close', value: Number(lifetime.total_outcomes_manual_close ?? 0), color: theme.textMuted },
-    { key: 'verify_pending', label: 'Verify Pending', value: Number(lifetime.total_outcomes_verify_pending ?? 0), color: theme.accent },
-    { key: 'verify_resolved', label: 'Verify Resolved', value: Number(lifetime.total_outcomes_verify_resolved ?? 0), color: theme.green },
   ]
   const totalOutcomes = outcomeEntries.reduce((s, e) => s + e.value, 0)
   const maxOutcome = Math.max(...outcomeEntries.map(e => e.value), 1)

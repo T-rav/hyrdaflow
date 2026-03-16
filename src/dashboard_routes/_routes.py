@@ -624,10 +624,6 @@ def create_router(
     def _list_repo_records() -> list[RepoRecord]:
         return ctx.list_repo_records()
 
-    IssueFetcher(config)
-    TranscriptSummarizer(config, pr_manager, event_bus, state)
-    asyncio.Semaphore(3)
-
     def _repo_roots_fn() -> tuple[str, ...]:
         return ctx.repo_roots_fn()
 
