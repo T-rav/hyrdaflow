@@ -1136,7 +1136,7 @@ class TestRestoreState:
 
         orch._restore_state()
 
-        assert orch._bg_worker_intervals.get("memory_sync") == 120
+        assert orch._bg_workers.worker_intervals.get("memory_sync") == 120
         assert orch._recovered_issues == {10, 20}
         assert 10 in orch._active_impl_issues
         assert 20 in orch._active_impl_issues
@@ -1351,7 +1351,7 @@ class TestUpdateBgWorkerStatus:
     ) -> None:
         orch = HydraFlowOrchestrator(config)
         orch.update_bg_worker_status("memory_sync", "running")
-        state = orch._bg_worker_states["memory_sync"]
+        state = orch._bg_workers.worker_states["memory_sync"]
         assert state["name"] == "memory_sync"
         assert state["status"] == "running"
         assert "last_run" in state
@@ -1361,7 +1361,7 @@ class TestUpdateBgWorkerStatus:
     ) -> None:
         orch = HydraFlowOrchestrator(config)
         orch.update_bg_worker_status("metrics", "running", details={"synced": 5})
-        state = orch._bg_worker_states["metrics"]
+        state = orch._bg_workers.worker_states["metrics"]
         assert state["details"]["synced"] == 5
 
     def test_update_bg_worker_status_without_details(
@@ -1369,7 +1369,7 @@ class TestUpdateBgWorkerStatus:
     ) -> None:
         orch = HydraFlowOrchestrator(config)
         orch.update_bg_worker_status("memory_sync", "idle")
-        state = orch._bg_worker_states["memory_sync"]
+        state = orch._bg_workers.worker_states["memory_sync"]
         assert state["details"] == {}
 
     @pytest.mark.asyncio
@@ -1389,7 +1389,7 @@ class TestUpdateBgWorkerStatus:
             )
         )
         orch = HydraFlowOrchestrator(config, event_bus=bus)
-        orch._restore_bg_worker_states()
+        orch._state_restorer._restore_bg_worker_states()
         states = orch.get_bg_worker_states()
         assert states["memory_sync"]["status"] == "ok"
         assert states["memory_sync"]["details"]["count"] == 4
