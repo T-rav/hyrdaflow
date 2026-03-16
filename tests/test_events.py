@@ -8,8 +8,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 
 from events import EventBus, EventLog, EventType, HydraFlowEvent, _log_persist_failure
+from models import WorkerUpdatePayload
 from tests.conftest import EventFactory
 
 # ---------------------------------------------------------------------------
@@ -161,16 +163,20 @@ class TestEventDataType:
     """EventData must reject non-dict payloads at the Pydantic level."""
 
     def test_rejects_string_payload(self) -> None:
-        with pytest.raises(Exception):  # noqa: B017
+        with pytest.raises(ValidationError):
             HydraFlowEvent(type=EventType.ERROR, data="bad")  # type: ignore[arg-type]
 
     def test_rejects_list_payload(self) -> None:
-        with pytest.raises(Exception):  # noqa: B017
+        with pytest.raises(ValidationError):
             HydraFlowEvent(type=EventType.ERROR, data=[1, 2])  # type: ignore[arg-type]
 
     def test_rejects_int_payload(self) -> None:
-        with pytest.raises(Exception):  # noqa: B017
+        with pytest.raises(ValidationError):
             HydraFlowEvent(type=EventType.ERROR, data=42)  # type: ignore[arg-type]
+
+    def test_rejects_none_payload(self) -> None:
+        with pytest.raises(ValidationError):
+            HydraFlowEvent(type=EventType.ERROR, data=None)  # type: ignore[arg-type]
 
     def test_accepts_dict_payload(self) -> None:
         event = HydraFlowEvent(type=EventType.ERROR, data={"msg": "oops"})
@@ -179,6 +185,43 @@ class TestEventDataType:
     def test_accepts_empty_dict_payload(self) -> None:
         event = HydraFlowEvent(type=EventType.ERROR, data={})
         assert event.data == {}
+
+    def test_default_data_is_empty_dict(self) -> None:
+        event = HydraFlowEvent(type=EventType.ERROR)
+        assert event.data == {}
+
+    def test_accepts_typed_dict_payload(self) -> None:
+        payload: WorkerUpdatePayload = {
+            "issue": 42,
+            "worker": 1,
+            "status": "active",
+            "role": "implement",
+        }
+        event = HydraFlowEvent(type=EventType.WORKER_UPDATE, data=payload)
+        assert event.data["issue"] == 42
+        assert event.data["status"] == "active"
+
+    def test_accepts_pydantic_model_dump_payload(self) -> None:
+        from models import SessionLog
+
+        log = SessionLog(id="sess-1", repo="org/repo", started_at="2026-01-01T00:00:00")
+        event = HydraFlowEvent(type=EventType.SESSION_START, data=log.model_dump())
+        assert event.data["id"] == "sess-1"
+        assert event.data["repo"] == "org/repo"
+
+    def test_data_get_returns_expected_values(self) -> None:
+        event = HydraFlowEvent(type=EventType.ERROR, data={"key": "value", "count": 5})
+        assert event.data.get("key") == "value"
+        assert event.data.get("count") == 5
+        assert event.data.get("missing") is None
+
+    def test_serialization_roundtrip_preserves_data(self) -> None:
+        payload = {"issue": 42, "nested": {"key": "value"}, "tags": [1, 2, 3]}
+        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data=payload)
+        json_str = event.model_dump_json()
+        restored = HydraFlowEvent.model_validate_json(json_str)
+        assert restored.data == payload
+        assert restored.type == event.type
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +243,18 @@ class TestTypedData:
         event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data=payload)
         result = event.typed_data(dict)
         assert result["nested"]["key"] == "value"
+
+    def test_typed_data_with_typed_dict_class(self) -> None:
+        payload: WorkerUpdatePayload = {
+            "issue": 7,
+            "worker": 2,
+            "status": "done",
+            "role": "implement",
+        }
+        event = HydraFlowEvent(type=EventType.WORKER_UPDATE, data=payload)
+        result = event.typed_data(WorkerUpdatePayload)
+        assert result.get("issue") == 7
+        assert result.get("role") == "implement"
 
 
 # ---------------------------------------------------------------------------
