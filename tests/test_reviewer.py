@@ -1026,6 +1026,7 @@ async def test_fix_ci_success_path(config, event_bus, pr_info, task, tmp_path):
     assert result.verdict == ReviewVerdict.APPROVE
     assert result.fixes_made is True
     assert result.summary == "Fixed CI failures"
+    assert result.files_changed == ["src/foo.py"]
 
 
 # ---------------------------------------------------------------------------
