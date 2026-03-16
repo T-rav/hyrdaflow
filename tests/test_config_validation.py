@@ -2450,3 +2450,28 @@ class TestTieringFields:
         assert cfg.debug_model == "opus"
         assert cfg.max_debug_attempts == 1
         assert cfg.subskill_confidence_threshold == pytest.approx(0.7)
+
+
+# ---------------------------------------------------------------------------
+# ConfigFactory — dead parameter cleanup (issue #2792)
+# ---------------------------------------------------------------------------
+
+
+class TestConfigFactoryDeadParameterCleanup:
+    """Verify removed config fields are not exposed by ConfigFactory."""
+
+    def test_adr_auto_triage_not_in_config_factory_signature(self) -> None:
+        """adr_auto_triage was removed from HydraFlowConfig; the factory must not accept it."""
+        import inspect
+
+        from tests.helpers import ConfigFactory
+
+        sig = inspect.signature(ConfigFactory.create)
+        assert "adr_auto_triage" not in sig.parameters
+
+    def test_config_factory_creates_valid_config_after_cleanup(self) -> None:
+        """ConfigFactory.create() still produces a valid HydraFlowConfig."""
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create()
+        assert cfg.batch_size == 3  # default from factory
