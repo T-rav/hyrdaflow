@@ -760,7 +760,7 @@ class ReviewResult(BaseModel):
     )
     commit_stat: str = Field(
         default="",
-        description="Output of git diff --stat HEAD~1 after fixes, for audit trail",
+        description="Output of git diff --stat covering all reviewer commits, for audit trail",
     )
     visual_passed: bool | None = Field(
         default=None,
