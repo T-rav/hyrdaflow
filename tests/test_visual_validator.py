@@ -525,30 +525,40 @@ class TestVisualConfigFields:
     def test_env_override_visual_max_retries_above_le_is_ignored(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Should ignore HYDRAFLOW_VISUAL_MAX_RETRIES when value exceeds le=5."""
+        import logging
+
         # Arrange
         monkeypatch.setenv("HYDRAFLOW_VISUAL_MAX_RETRIES", "99")
 
         # Act
-        config = ConfigFactory.create()
+        with caplog.at_level(logging.WARNING):
+            config = ConfigFactory.create()
 
-        # Assert — out-of-bounds value is rejected; field stays at default
+        # Assert — out-of-bounds value is rejected; field stays at default; warning emitted
         assert config.visual_max_retries == 2
+        assert "above maximum" in caplog.text
 
     def test_env_override_visual_max_retries_negative_is_ignored(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Should ignore HYDRAFLOW_VISUAL_MAX_RETRIES when value is negative."""
+        import logging
+
         # Arrange
         monkeypatch.setenv("HYDRAFLOW_VISUAL_MAX_RETRIES", "-1")
 
         # Act
-        config = ConfigFactory.create()
+        with caplog.at_level(logging.WARNING):
+            config = ConfigFactory.create()
 
-        # Assert — out-of-bounds value is rejected; field stays at default
+        # Assert — out-of-bounds value is rejected; field stays at default; warning emitted
         assert config.visual_max_retries == 2
+        assert "below minimum" in caplog.text
 
 
 # ---------------------------------------------------------------------------
