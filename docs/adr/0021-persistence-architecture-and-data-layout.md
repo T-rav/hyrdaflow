@@ -73,7 +73,7 @@ then `_apply_env_overrides`.
 ### Multi-repo namespacing
 
 - All per-repo artifacts (state, events, sessions, logs, plans, memory, metrics)
-  are scoped under `data_root/<repo_slug>/` via `_namespace_repo_paths()` in
+  are scoped under `data_root/<repo_slug>/` via `_resolve_repo_scoped_paths()` in
   `config.py`, where `repo_slug` is `config.repo.replace("/", "-")`.
 - `config.repo_data_root` provides a general-purpose repo-scoped subdirectory
   at `data_root / repo_slug`.
