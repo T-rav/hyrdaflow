@@ -8,7 +8,7 @@
 HydraFlow's supervisor spawns separate `cli.py` processes per repository, each
 with an isolated `HYDRAFLOW_HOME` environment variable. This provides
 process-level `data_root` isolation: state files, event logs, and session data
-are scoped under `data_root/<repo_slug>/` via `_namespace_repo_paths` in
+are scoped under `data_root/<repo_slug>/` via `_resolve_repo_scoped_paths` in
 `config.py`.
 
 However, not all filesystem paths follow the same scoping discipline:
@@ -47,7 +47,7 @@ artifacts:
    resolves to `worktree_base / repo_slug / issue-{N}/`, preventing cross-repo
    worktree collisions. This is the correct behavior and must be preserved.
 
-2. **State, events, and session files are repo-scoped.** `_namespace_repo_paths`
+2. **State, events, and session files are repo-scoped.** `_resolve_repo_scoped_paths`
    moves `state.json`, `events.jsonl`, and `sessions.jsonl` under
    `data_root/<repo_slug>/`. This is correct and must be preserved.
 
