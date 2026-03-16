@@ -262,20 +262,26 @@ class MemorySyncWorker:
         # Extract learnings (now typed) and build digest
         learnings: list[CuratedLearning] = []
         for issue in issues:
-            body = issue.get("body", "")
-            learning = self._extract_learning(body)
-            created = issue.get("createdAt", "")
-            memory_type = self._extract_memory_type(body)
-            if learning:
-                learnings.append(
-                    CuratedLearning(
-                        number=issue["number"],
-                        title=issue.get("title", ""),
-                        learning=learning,
-                        created_at=created,
-                        memory_type=memory_type,
-                        body=body,
+            try:
+                body = issue.get("body", "")
+                learning = self._extract_learning(body)
+                created = issue.get("createdAt", "")
+                memory_type = self._extract_memory_type(body)
+                if learning:
+                    learnings.append(
+                        CuratedLearning(
+                            number=issue["number"],
+                            title=issue.get("title", ""),
+                            learning=learning,
+                            created_at=created,
+                            memory_type=memory_type,
+                            body=body,
+                        )
                     )
+            except Exception:
+                logger.exception(
+                    "Error extracting learning from memory issue #%s — skipping",
+                    issue.get("number", "?"),
                 )
 
         # Sort newest first
@@ -408,57 +414,63 @@ class MemorySyncWorker:
         rejected = 0
         deduped = 0
         for issue in issues:
-            if not self._is_memory_issue(issue):
-                continue
-            source_id = int(issue.get("number", 0))
-            if source_id <= 0 or source_id in seen:
-                continue
-            title = str(issue.get("title", "")).strip()
-            body = str(issue.get("body", ""))
-            learning = self._extract_learning(body)
-            if not self._is_architecture_candidate(title, learning, body):
-                continue
+            try:
+                if not self._is_memory_issue(issue):
+                    continue
+                source_id = int(issue.get("number", 0))
+                if source_id <= 0 or source_id in seen:
+                    continue
+                title = str(issue.get("title", "")).strip()
+                body = str(issue.get("body", ""))
+                learning = self._extract_learning(body)
+                if not self._is_architecture_candidate(title, learning, body):
+                    continue
 
-            topic_key = normalize_adr_topic(title)
-            if topic_key in existing_topics or topic_key in batch_topics:
-                deduped += 1
-                seen.add(source_id)
-                logger.info(
-                    "Skipping ADR candidate from memory #%d — duplicate topic %r",
-                    source_id,
-                    topic_key,
-                )
-                continue
+                topic_key = normalize_adr_topic(title)
+                if topic_key in existing_topics or topic_key in batch_topics:
+                    deduped += 1
+                    seen.add(source_id)
+                    logger.info(
+                        "Skipping ADR candidate from memory #%d — duplicate topic %r",
+                        source_id,
+                        topic_key,
+                    )
+                    continue
 
-            adr_title = ""
-            adr_body = ""
-            reasons: list[str] = ["uninitialized"]
-            for attempt in (1, 2):
-                adr_title, adr_body = self._build_adr_task(
-                    issue, learning, refine=(attempt > 1)
-                )
-                reasons = self._validate_adr_task(adr_body)
-                if not reasons:
-                    break
-            if reasons:
-                rejected += 1
-                seen.add(source_id)
-                logger.warning(
-                    "Rejected ADR candidate from memory #%d after validation: %s",
-                    source_id,
-                    "; ".join(reasons),
-                )
-                continue
+                adr_title = ""
+                adr_body = ""
+                reasons: list[str] = ["uninitialized"]
+                for attempt in (1, 2):
+                    adr_title, adr_body = self._build_adr_task(
+                        issue, learning, refine=(attempt > 1)
+                    )
+                    reasons = self._validate_adr_task(adr_body)
+                    if not reasons:
+                        break
+                if reasons:
+                    rejected += 1
+                    seen.add(source_id)
+                    logger.warning(
+                        "Rejected ADR candidate from memory #%d after validation: %s",
+                        source_id,
+                        "; ".join(reasons),
+                    )
+                    continue
 
-            issue_number = await self._prs.create_issue(
-                adr_title,
-                adr_body,
-                list(self._config.find_label[:1]),
-            )
-            if issue_number:
-                seen.add(source_id)
-                batch_topics.add(topic_key)
-                created += 1
+                issue_number = await self._prs.create_issue(
+                    adr_title,
+                    adr_body,
+                    list(self._config.find_label[:1]),
+                )
+                if issue_number:
+                    seen.add(source_id)
+                    batch_topics.add(topic_key)
+                    created += 1
+            except Exception:
+                logger.exception(
+                    "Error routing ADR candidate from memory issue #%s — skipping",
+                    issue.get("number", "?"),
+                )
 
         if created or deduped:
             self._save_adr_source_ids(seen)

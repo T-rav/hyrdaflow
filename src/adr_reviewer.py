@@ -74,39 +74,46 @@ class ADRCouncilReviewer:
         }
 
         for adr_number, adr_path, adr_content in proposed:
-            adr_title = (
-                adr_path.stem.split("-", 1)[-1].replace("-", " ")
-                if "-" in adr_path.stem
-                else adr_path.stem
-            )
-            logger.info("Reviewing ADR-%04d: %s", adr_number, adr_title)
-
-            # Pre-review validation gate
-            validation = self._pre_validator.validate(
-                adr_content, all_adrs, repo_root=self._config.repo_root
-            )
-            if not validation.passed:
-                issue_msgs = "; ".join(i.message for i in validation.issues)
-                logger.info(
-                    "ADR-%04d failed pre-validation: %s", adr_number, issue_msgs
+            try:
+                adr_title = (
+                    adr_path.stem.split("-", 1)[-1].replace("-", " ")
+                    if "-" in adr_path.stem
+                    else adr_path.stem
                 )
-                stats["pre_validation_skipped"] += 1
+                logger.info("Reviewing ADR-%04d: %s", adr_number, adr_title)
+
+                # Pre-review validation gate
+                validation = self._pre_validator.validate(
+                    adr_content, all_adrs, repo_root=self._config.repo_root
+                )
+                if not validation.passed:
+                    issue_msgs = "; ".join(i.message for i in validation.issues)
+                    logger.info(
+                        "ADR-%04d failed pre-validation: %s", adr_number, issue_msgs
+                    )
+                    stats["pre_validation_skipped"] += 1
+                    stats["reviewed"] += 1
+                    await self._route_pre_validation_failure(
+                        adr_number, adr_title, validation, stats
+                    )
+                    continue
+
+                duplicates = self._detect_duplicates(
+                    adr_path.name, adr_content, all_adrs
+                )
+                duplicate_context = self._build_duplicate_context(duplicates)
+
+                result = await self._run_council_session(
+                    adr_number, adr_title, adr_content, index_context, duplicate_context
+                )
+
                 stats["reviewed"] += 1
-                await self._route_pre_validation_failure(
-                    adr_number, adr_title, validation, stats
+                stats["rounds_total"] += result.rounds_needed
+                await self._route_result(result, adr_path, adr_dir, stats)
+            except Exception:
+                logger.exception(
+                    "ADR-%04d: per-item review failed, continuing", adr_number
                 )
-                continue
-
-            duplicates = self._detect_duplicates(adr_path.name, adr_content, all_adrs)
-            duplicate_context = self._build_duplicate_context(duplicates)
-
-            result = await self._run_council_session(
-                adr_number, adr_title, adr_content, index_context, duplicate_context
-            )
-
-            stats["reviewed"] += 1
-            stats["rounds_total"] += result.rounds_needed
-            await self._route_result(result, adr_path, adr_dir, stats)
 
         logger.info("ADR review complete: %s", stats)
         return stats
@@ -263,7 +270,7 @@ and output a structured final result.
 ## Judge Roles
 - Architect: structural soundness, consistency with existing ADRs, scope
 - Pragmatist: practical value, implementation status, significance threshold
-- Editor: clarity, completeness, duplicates, formatting, flag any line-number citations (e.g. "(line 42)") as volatile — use function/class names only
+- Editor: clarity, completeness, duplicates, formatting
 
 ## Meeting Protocol
 

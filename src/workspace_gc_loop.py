@@ -287,14 +287,14 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
             if not match:
                 continue
             issue_number = int(match.group(1))
-            # Skip if worktree exists, issue is active, or in pipeline
-            if issue_number in active_worktrees or issue_number in active_issues:
-                continue
-            if self._is_in_pipeline and self._is_in_pipeline(issue_number):
-                continue
-            if await self._issue_has_pipeline_label(issue_number):
-                continue
             try:
+                # Skip if worktree exists, issue is active, or in pipeline
+                if issue_number in active_worktrees or issue_number in active_issues:
+                    continue
+                if self._is_in_pipeline and self._is_in_pipeline(issue_number):
+                    continue
+                if await self._issue_has_pipeline_label(issue_number):
+                    continue
                 await run_subprocess(
                     "git",
                     "branch",
@@ -306,8 +306,12 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
                 self._state.remove_branch(issue_number)
                 collected += 1
                 logger.info("GC: deleted orphaned branch %s", branch)
-            except RuntimeError:
-                logger.debug("GC: could not delete branch %s", branch, exc_info=True)
+            except Exception:
+                logger.warning(
+                    "GC: error processing branch %s — skipping",
+                    branch,
+                    exc_info=True,
+                )
         return collected
 
     async def _prune_stale_branch_entries(self, budget: int = _MAX_GC_PER_CYCLE) -> int:
