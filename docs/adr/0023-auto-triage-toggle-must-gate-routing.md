@@ -43,6 +43,23 @@ Adopt the following rule for config-gated routing in HydraFlow workers:
    The toggle must be the first condition checked, before any issue creation or
    API call occurs.
 
+   The correct toggle-first guard pattern (applied in `_triage_or_hitl`):
+
+   ```python
+   # Anti-pattern: triage call is unconditional
+   routed = await self._route_to_triage(result, reason=reason)
+   if not routed:
+       await self._escalate_to_hitl(result, reason=reason)
+
+   # Correct pattern: gate triage on the toggle
+   if not self._config.adr_auto_triage:
+       await self._escalate_to_hitl(result, reason=reason)
+       return
+   routed = await self._route_to_triage(result, reason=reason)
+   if not routed:
+       await self._escalate_to_hitl(result, reason=reason)
+   ```
+
 2. **Centralise gated routing through a single helper.**  All post-council
    routing decisions (reject, changes requested, no consensus) must flow
    through `_triage_or_hitl()`, which encapsulates the toggle check, the
