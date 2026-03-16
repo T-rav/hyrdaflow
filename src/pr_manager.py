@@ -1046,8 +1046,6 @@ class PRManager:
     async def get_pr_approvers(self, pr_number: int) -> list[str]:
         """Fetch the list of GitHub usernames that approved *pr_number*."""
         try:
-            import json as _json
-
             output = await self._run_gh(
                 "gh",
                 "pr",
@@ -1058,7 +1056,7 @@ class PRManager:
                 "--json",
                 "reviews",
             )
-            data = _json.loads(output)
+            data = json.loads(output)
             reviews = data.get("reviews", [])
             approvers: list[str] = []
             for review in reviews:

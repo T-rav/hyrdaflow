@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from issue_store import IssueStore
-from models import HITLUpdatePayload, Task
+from models import HITLUpdatePayload, Task, TriageResult
 from phase_utils import (
     adr_validation_reasons,
     escalate_to_hitl,
@@ -213,7 +213,6 @@ class TriagePhase:
         Returns True if decomposition was performed (caller should skip
         normal label transition).
         """
-        from models import TriageResult
 
         if (
             self._epic_manager is None

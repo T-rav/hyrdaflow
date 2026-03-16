@@ -15,7 +15,7 @@ import time
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -87,6 +87,7 @@ from models import (
     ReportHistoryEntry,
     ReportIssueRequest,
     ReportIssueResponse,
+    RepoRuntimeInfo,
     TrackedReport,
     TrackedReportUpdate,
     parse_task_links,
@@ -1350,8 +1351,6 @@ def create_router(
     async def get_events(since: str | None = None) -> JSONResponse:
         """Return event history, optionally filtered by a since timestamp."""
         if since is not None:
-            from datetime import datetime
-
             try:
                 since_dt = datetime.fromisoformat(since)
                 if since_dt.tzinfo is None:
@@ -2263,8 +2262,6 @@ def create_router(
         """Compute next run ISO timestamp from last_run + interval."""
         if not last_run or not interval_seconds:
             return None
-        from datetime import datetime, timedelta
-
         try:
             last_dt = datetime.fromisoformat(last_run)
             if last_dt.tzinfo is None:
@@ -2433,8 +2430,6 @@ def create_router(
 
     def _save_history_cache() -> None:
         """Persist in-memory history cache to disk."""
-        import json
-
         rows = _history_cache.get("issue_rows")
         if rows is None:
             return
@@ -2463,8 +2458,6 @@ def create_router(
 
     def _load_history_cache() -> None:
         """Load persisted history cache from disk into memory."""
-        import json
-
         if not _history_cache_file.is_file():
             return
         try:
@@ -2989,7 +2982,6 @@ def create_router(
     @router.get("/api/runtimes")
     async def list_runtimes() -> JSONResponse:
         """List all registered repo runtimes with status."""
-        from models import RepoRuntimeInfo
 
         if registry is None:
             return JSONResponse({"runtimes": []})
@@ -3010,7 +3002,6 @@ def create_router(
     @router.get("/api/runtimes/{slug}")
     async def get_runtime_status(slug: str) -> JSONResponse:
         """Get status of a specific repo runtime."""
-        from models import RepoRuntimeInfo
 
         if registry is None:
             return JSONResponse(

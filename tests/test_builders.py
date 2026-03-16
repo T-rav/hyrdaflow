@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import inspect
+import pathlib
+
+import pytest
+
 from tests.conftest import (
     PlanResultBuilder,
     PlanResultFactory,
@@ -300,3 +305,22 @@ class TestReviewResultBuilder:
         builder = ReviewResultBuilder()
         same = builder.with_model_defaults()
         assert same is builder
+
+
+@pytest.mark.parametrize(
+    "builder_cls",
+    [WorkerResultBuilder, PlanResultBuilder, ReviewResultBuilder],
+    ids=["WorkerResultBuilder", "PlanResultBuilder", "ReviewResultBuilder"],
+)
+def test_all_with_methods_are_tested(builder_cls):
+    """Every with_* method on each builder must be exercised in this test file."""
+    source = pathlib.Path(__file__).read_text()
+    with_methods = [
+        name
+        for name, _ in inspect.getmembers(builder_cls, predicate=inspect.isfunction)
+        if name.startswith("with_")
+    ]
+    untested = [m for m in with_methods if f".{m}(" not in source]
+    assert untested == [], (
+        f"{builder_cls.__name__} has untested with_* methods: {untested}"
+    )
