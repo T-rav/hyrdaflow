@@ -11,8 +11,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from models import EpicDecompResult, NewIssueSpec, TriageResult
-from tests.conftest import TaskFactory
+from models import EpicDecompResult, NewIssueSpec
+from tests.conftest import TaskFactory, TriageResultFactory
 from tests.helpers import ConfigFactory
 
 
@@ -150,7 +150,9 @@ class TestMaybeDecompose:
         )
         phase, _, prs, _ = self._make_phase(config, epic_manager=None)
         task = TaskFactory.create(id=10)
-        result = TriageResult(issue_number=10, ready=True, complexity_score=9)
+        result = TriageResultFactory.create(
+            issue_number=10, ready=True, complexity_score=9
+        )
 
         decomposed = await phase._maybe_decompose(task, result)
         assert decomposed is False
@@ -165,7 +167,9 @@ class TestMaybeDecompose:
         mgr = AsyncMock()
         phase, _, prs, _ = self._make_phase(config, epic_manager=mgr)
         task = TaskFactory.create(id=10)
-        result = TriageResult(issue_number=10, ready=True, complexity_score=5)
+        result = TriageResultFactory.create(
+            issue_number=10, ready=True, complexity_score=5
+        )
 
         decomposed = await phase._maybe_decompose(task, result)
         assert decomposed is False
@@ -201,7 +205,9 @@ class TestMaybeDecompose:
         prs.create_issue = AsyncMock(side_effect=[200, 201, 202])
 
         task = TaskFactory.create(id=10)
-        result = TriageResult(issue_number=10, ready=True, complexity_score=9)
+        result = TriageResultFactory.create(
+            issue_number=10, ready=True, complexity_score=9
+        )
 
         decomposed = await phase._maybe_decompose(task, result)
         assert decomposed is True
@@ -237,7 +243,9 @@ class TestMaybeDecompose:
         phase._triage = triage
 
         task = TaskFactory.create(id=10)
-        result = TriageResult(issue_number=10, ready=True, complexity_score=9)
+        result = TriageResultFactory.create(
+            issue_number=10, ready=True, complexity_score=9
+        )
 
         decomposed = await phase._maybe_decompose(task, result)
         assert decomposed is False
@@ -263,7 +271,9 @@ class TestMaybeDecompose:
         phase._triage = triage
 
         task = TaskFactory.create(id=10)
-        result = TriageResult(issue_number=10, ready=True, complexity_score=9)
+        result = TriageResultFactory.create(
+            issue_number=10, ready=True, complexity_score=9
+        )
 
         decomposed = await phase._maybe_decompose(task, result)
         assert decomposed is False

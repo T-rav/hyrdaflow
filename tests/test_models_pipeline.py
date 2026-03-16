@@ -18,6 +18,7 @@ from models import (
     VisualEvidence,
     VisualEvidenceItem,
 )
+from tests.conftest import PlanResultFactory
 
 # ---------------------------------------------------------------------------
 # IssueOutcomeType, IssueOutcome, HookFailureRecord
@@ -436,10 +437,14 @@ class TestPlanResultValidators:
 
     def test_duration_seconds_rejects_negative(self) -> None:
         with pytest.raises(ValidationError, match="duration_seconds"):
-            PlanResult(issue_number=1, duration_seconds=-1.0)
+            PlanResultFactory.create(
+                use_defaults=True, issue_number=1, duration_seconds=-1.0
+            )
 
     def test_duration_seconds_accepts_zero(self) -> None:
-        result = PlanResult(issue_number=1, duration_seconds=0.0)
+        result = PlanResultFactory.create(
+            use_defaults=True, issue_number=1, duration_seconds=0.0
+        )
         assert result.duration_seconds == pytest.approx(0.0)
 
     def test_field_descriptions_present(self) -> None:

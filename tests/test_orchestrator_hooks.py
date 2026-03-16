@@ -23,7 +23,7 @@ from models import (
     WorkerResult,
 )
 from orchestrator import HydraFlowOrchestrator
-from tests.conftest import IssueFactory, PRInfoFactory, TaskFactory
+from tests.conftest import IssueFactory, PRInfoFactory, ReviewResultFactory, TaskFactory
 from tests.helpers import make_review_result, make_worker_result, mock_fetcher_noop
 
 # ---------------------------------------------------------------------------
@@ -639,13 +639,10 @@ class TestTranscriptSummaryFiling:
         review_task = TaskFactory.create(id=42)
         review_issue = IssueFactory.create(number=42)
         pr = PRInfoFactory.create(number=101, issue_number=42)
-        review_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        review_result = ReviewResultFactory.create(
             transcript=SUMMARY_TRANSCRIPT,
             merged=True,
             verdict=ReviewVerdict.APPROVE,
-            summary="Looks good.",
         )
 
         orch._svc.store.get_active_issues = lambda: {42: "review"}  # type: ignore[method-assign]
@@ -688,11 +685,8 @@ class TestTranscriptSummaryFiling:
         review_task = TaskFactory.create(id=42)
         review_issue = IssueFactory.create(number=42)
         pr = PRInfoFactory.create(number=101, issue_number=42)
-        review_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        review_result = ReviewResultFactory.create(
             transcript=SUMMARY_TRANSCRIPT,
-            merged=False,
             ci_passed=False,
             verdict=ReviewVerdict.COMMENT,
             summary="CI failed.",
@@ -738,13 +732,12 @@ class TestTranscriptSummaryFiling:
         review_task = TaskFactory.create(id=0)
         review_issue = IssueFactory.create(number=0)
         pr = PRInfoFactory.create(number=101, issue_number=0)
-        review_result = ReviewResult(
+        review_result = ReviewResultFactory.create(
             pr_number=101,
             issue_number=0,
             transcript=SUMMARY_TRANSCRIPT,
             merged=True,
             verdict=ReviewVerdict.APPROVE,
-            summary="Looks good.",
         )
 
         orch._svc.store.get_active_issues = lambda: {0: "review"}  # type: ignore[method-assign]

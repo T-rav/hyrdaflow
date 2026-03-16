@@ -435,7 +435,7 @@ class TestGenerateChangelog:
 def _make_epic_issue(number: int, sub_issues: list[int]) -> GitHubIssue:
     lines = [f"- [ ] #{n} — Sub-issue {n}" for n in sub_issues]
     body = "## Epic\n\n" + "\n".join(lines)
-    return GitHubIssue(
+    return IssueFactory.create(
         number=number, title="[Epic] Test", body=body, labels=["hydraflow-epic"]
     )
 

@@ -580,9 +580,9 @@ class TestPlanPhaseBeadsIntegration:
 class TestAgentBeadPromptIntegration:
     def test_injects_claim_and_close(self, config, event_bus) -> None:
         from agent import AgentRunner
-        from models import Task
+        from tests.conftest import TaskFactory
 
-        issue = Task(
+        issue = TaskFactory.create(
             id=10,
             title="Add widget",
             body="Need widgets",
@@ -600,9 +600,9 @@ class TestAgentBeadPromptIntegration:
 
     def test_no_commands_without_mapping(self, config, event_bus) -> None:
         from agent import AgentRunner
-        from models import Task
+        from tests.conftest import TaskFactory
 
-        issue = Task(
+        issue = TaskFactory.create(
             id=10,
             title="Add widget",
             body="Need widgets",
@@ -616,9 +616,9 @@ class TestAgentBeadPromptIntegration:
 
     def test_partial_mapping(self, config, event_bus) -> None:
         from agent import AgentRunner
-        from models import Task
+        from tests.conftest import TaskFactory
 
-        issue = Task(
+        issue = TaskFactory.create(
             id=10,
             title="Add widget",
             body="Need widgets",
@@ -720,12 +720,12 @@ class TestImplementPhaseBeadsIntegration:
 
 class TestReviewerBeadPromptIntegration:
     def test_adds_per_bead_section(self, config, event_bus) -> None:
-        from models import PRInfo, Task
         from reviewer import ReviewRunner
+        from tests.conftest import PRInfoFactory, TaskFactory
 
         runner = ReviewRunner(config, event_bus)
-        pr = PRInfo(number=101, branch="agent/issue-42", issue_number=42)
-        issue = Task(id=42, title="Add widget", body="Need widgets")
+        pr = PRInfoFactory.create(number=101, branch="agent/issue-42", issue_number=42)
+        issue = TaskFactory.create(id=42, title="Add widget", body="Need widgets")
         diff = "diff --git a/src/models.py b/src/models.py\n+class Widget:\n"
 
         prompt, _ = runner._build_review_prompt_with_stats(
@@ -746,13 +746,13 @@ class TestReviewerBeadPromptIntegration:
         assert "Bead #repo-4yu" in prompt
 
     def test_no_section_without_tasks(self, config, event_bus) -> None:
-        from models import PRInfo, Task
         from reviewer import ReviewRunner
+        from tests.conftest import PRInfoFactory, TaskFactory
 
         runner = ReviewRunner(config, event_bus)
         prompt, _ = runner._build_review_prompt_with_stats(
-            PRInfo(number=101, branch="x", issue_number=42),
-            Task(id=42, title="Fix", body="b"),
+            PRInfoFactory.create(number=101, branch="x", issue_number=42),
+            TaskFactory.create(id=42, title="Fix", body="b"),
             "diff --git a/x b/x\n+y\n",
             bead_tasks=None,
         )
@@ -766,13 +766,15 @@ class TestReviewerBeadPromptIntegration:
 
 class TestReviewPhaseBeadContext:
     def test_builds_context_from_mapping(self, config) -> None:
-        from models import Task
+        from tests.conftest import TaskFactory
         from tests.helpers import make_review_phase
 
         phase = make_review_phase(config)
         phase._state.set_bead_mapping(42, {"P1": "repo-4yu", "P2": "repo-z2o"})
 
-        issue = Task(id=42, title="Widget", body="body", comments=[_TASK_GRAPH_PLAN])
+        issue = TaskFactory.create(
+            id=42, title="Widget", body="body", comments=[_TASK_GRAPH_PLAN]
+        )
         result = phase._build_bead_review_context(issue)
 
         assert result is not None
@@ -782,23 +784,26 @@ class TestReviewPhaseBeadContext:
         assert "src/models.py" in str(p1["files"])
 
     def test_none_when_no_mapping(self, config) -> None:
-        from models import Task
+        from tests.conftest import TaskFactory
         from tests.helpers import make_review_phase
 
         phase = make_review_phase(config)
         assert (
-            phase._build_bead_review_context(Task(id=999, title="T", body="b")) is None
+            phase._build_bead_review_context(
+                TaskFactory.create(id=999, title="T", body="b")
+            )
+            is None
         )
 
     def test_n_a_without_plan_comments(self, config) -> None:
-        from models import Task
+        from tests.conftest import TaskFactory
         from tests.helpers import make_review_phase
 
         phase = make_review_phase(config)
         phase._state.set_bead_mapping(42, {"P1": "repo-4yu"})
 
         result = phase._build_bead_review_context(
-            Task(id=42, title="T", body="b", comments=[])
+            TaskFactory.create(id=42, title="T", body="b", comments=[])
         )
         assert result is not None
         assert result[0]["files"] == "N/A"

@@ -7,6 +7,10 @@ Lightweight ADRs documenting key design decisions in HydraFlow.
 Each ADR has: **Status**, **Date**, **Context**, **Decision**, **Consequences**,
 and optionally **Alternatives considered** and **Related** links.
 
+When referencing source code anywhere in an ADR (Related, Context, Decision,
+Consequences), use `module:function_or_class` format (e.g. `src/config.py:HydraFlowConfig`).
+**Omit line numbers** — they drift as code evolves and become stale quickly.
+
 ## Index
 
 | ADR | Title | Status |

@@ -1370,15 +1370,15 @@ class TestMemoryModels:
         assert issue.created_at == "2024-06-15T12:00:00Z"
 
     def test_github_issue_created_at_default_empty(self) -> None:
-        from models import GitHubIssue
+        from tests.conftest import IssueFactory
 
-        issue = GitHubIssue(number=1, title="Test")
+        issue = IssueFactory.create(number=1, title="Test")
         assert issue.created_at == ""
 
     def test_github_issue_created_at_snake_case(self) -> None:
-        from models import GitHubIssue
+        from tests.conftest import IssueFactory
 
-        issue = GitHubIssue(number=1, title="Test", created_at="2024-01-01")
+        issue = IssueFactory.create(number=1, title="Test", created_at="2024-01-01")
         assert issue.created_at == "2024-01-01"
 
 

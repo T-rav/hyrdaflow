@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from models import (
         AnalysisResult,
         GitHubIssue,
+        GitHubIssueState,
         HITLResult,
         NewIssueSpec,
         PlanResult,
@@ -159,18 +160,33 @@ class IssueFactory:
         body: str = "The frobnicator is broken. Please fix it.",
         labels: list[str] | None = None,
         comments: list[str] | None = None,
-        url: str = "",
+        url: str | None = None,
+        author: str | None = None,
+        state: GitHubIssueState | None = None,
+        milestone_number: int | None = None,
+        created_at: str | None = None,
     ):
-        from models import GitHubIssue
+        from models import GitHubIssue  # noqa: F811
 
-        return GitHubIssue(
-            number=number,
-            title=title,
-            body=body,
-            labels=labels or ["ready"],
-            comments=comments or [],
-            url=url or f"https://github.com/test-org/test-repo/issues/{number}",
-        )
+        kwargs: dict[str, Any] = {
+            "number": number,
+            "title": title,
+            "body": body,
+            "labels": labels if labels is not None else ["ready"],
+            "comments": comments if comments is not None else [],
+            "url": url
+            if url is not None
+            else f"https://github.com/test-org/test-repo/issues/{number}",
+        }
+        if author is not None:
+            kwargs["author"] = author
+        if state is not None:
+            kwargs["state"] = state
+        if milestone_number is not None:
+            kwargs["milestone_number"] = milestone_number
+        if created_at is not None:
+            kwargs["created_at"] = created_at
+        return GitHubIssue(**kwargs)
 
 
 @pytest.fixture
@@ -192,9 +208,12 @@ class TaskFactory:
         body: str = "The frobnicator is broken. Please fix it.",
         tags: list[str] | None = None,
         comments: list[str] | None = None,
-        source_url: str = "",
+        source_url: str | None = None,
         links: list[Any] | None = None,
         complexity_score: int = 0,
+        created_at: str = "",
+        metadata: dict[str, Any] | None = None,
+        parent_epic: int | None = None,
     ):
         from models import Task
 
@@ -202,12 +221,16 @@ class TaskFactory:
             id=id,
             title=title,
             body=body,
-            tags=tags or ["ready"],
-            comments=comments or [],
+            tags=tags if tags is not None else ["ready"],
+            comments=comments if comments is not None else [],
             source_url=source_url
-            or f"https://github.com/test-org/test-repo/issues/{id}",
+            if source_url is not None
+            else f"https://github.com/test-org/test-repo/issues/{id}",
             links=links if links is not None else [],
             complexity_score=complexity_score,
+            created_at=created_at,
+            metadata=metadata if metadata is not None else {},
+            parent_epic=parent_epic,
         )
 
 
@@ -783,7 +806,7 @@ class EventFactory:
 
         return HE(
             type=type if type is not None else ET.PHASE_CHANGE,
-            timestamp=timestamp or "",
+            timestamp=timestamp if timestamp is not None else "",
             data=data if data is not None else {},
         )
 
@@ -800,13 +823,22 @@ class TriageResultFactory:
         issue_number: int = 42,
         ready: bool = True,
         reasons: list[str] | None = None,
+        complexity_score: int = 0,
+        issue_type: str = "feature",
+        enrichment: str = "",
     ) -> TriageResult:
+        from models import IssueType
         from models import TriageResult as TR
 
         return TR(
             issue_number=issue_number,
             ready=ready,
-            reasons=reasons or [],
+            reasons=reasons if reasons is not None else [],
+            complexity_score=complexity_score,
+            issue_type=IssueType(issue_type)
+            if isinstance(issue_type, str)
+            else issue_type,
+            enrichment=enrichment,
         )
 
 
@@ -849,8 +881,8 @@ class AnalysisResultFactory:
 
         return AnalysisSection(
             name=name,
-            verdict=verdict or AnalysisVerdict.PASS,
-            details=details or [],
+            verdict=verdict if verdict is not None else AnalysisVerdict.PASS,
+            details=details if details is not None else [],
         )
 
 
@@ -875,9 +907,9 @@ class TestScaffoldResultFactory:
         from test_scaffold import TestScaffoldResult
 
         return TestScaffoldResult(
-            created_dirs=created_dirs or [],
-            created_files=created_files or [],
-            modified_files=modified_files or [],
+            created_dirs=created_dirs if created_dirs is not None else [],
+            created_files=created_files if created_files is not None else [],
+            modified_files=modified_files if modified_files is not None else [],
             skipped=skipped,
             skip_reason=skip_reason,
             language=language,
@@ -950,7 +982,7 @@ def make_orchestrator_mock(
 ) -> MagicMock:
     """Return a minimal orchestrator mock."""
     orch = MagicMock()
-    orch.human_input_requests = requests or {}
+    orch.human_input_requests = requests if requests is not None else {}
     orch.provide_human_input = MagicMock()
     orch.running = running
     orch.run_status = run_status
@@ -1039,7 +1071,6 @@ class ReviewMockBuilder:
 
     def build(self) -> tuple[AsyncMock, AsyncMock, AsyncMock]:
         """Wire mocks into orch and return (mock_reviewers, mock_prs, mock_wt)."""
-        from models import ReviewResult as RR
         from models import ReviewVerdict as RV
 
         # Reviewer mock
@@ -1048,7 +1079,7 @@ class ReviewMockBuilder:
             mock_reviewers.review = self._review_side_effect
         else:
             verdict = self._verdict if self._verdict is not None else RV.APPROVE
-            result = self._review_result or RR(
+            result = self._review_result or ReviewResultFactory.create(
                 pr_number=101,
                 issue_number=self._issue_number,
                 verdict=verdict,

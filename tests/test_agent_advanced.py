@@ -13,21 +13,13 @@ import pytest
 
 from agent import AgentRunner
 from events import EventBus, EventType
-from models import Task
 from tests.conftest import TaskFactory
 from tests.helpers import ConfigFactory, make_streaming_proc
 
 
 @pytest.fixture
-def agent_task() -> Task:
-    return Task(
-        id=42,
-        title="Fix the frobnicator",
-        body="The frobnicator is broken. Please fix it.",
-        tags=["ready"],
-        comments=[],
-        source_url="https://github.com/test-org/test-repo/issues/42",
-    )
+def agent_task():
+    return TaskFactory.create()
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +324,7 @@ class TestBuildPromptFallbackAndTruncation:
             "# Plan for Issue #10\n\nStep 1: saved plan\n"
         )
 
-        issue = Task(
+        issue = TaskFactory.create(
             id=10,
             title="Feature X",
             body="Body text",
@@ -346,7 +338,7 @@ class TestBuildPromptFallbackAndTruncation:
     def test_logs_error_when_no_plan_found(self, config, event_bus: EventBus) -> None:
         """Should log error when neither comment nor file has a plan."""
         config.repo_root.mkdir(parents=True, exist_ok=True)
-        issue = Task(
+        issue = TaskFactory.create(
             id=10,
             title="Feature X",
             body="Body text",
@@ -364,7 +356,7 @@ class TestBuildPromptFallbackAndTruncation:
         """Body exceeding max_issue_body_chars should be truncated with a note."""
         config.repo_root.mkdir(parents=True, exist_ok=True)
         long_body = "x" * 15_000
-        issue = Task(
+        issue = TaskFactory.create(
             id=10,
             title="Feature X",
             body=long_body,
@@ -380,7 +372,7 @@ class TestBuildPromptFallbackAndTruncation:
         """Body under max_issue_body_chars should pass through unchanged."""
         config.repo_root.mkdir(parents=True, exist_ok=True)
         short_body = "This is a short body."
-        issue = Task(
+        issue = TaskFactory.create(
             id=10,
             title="Feature X",
             body=short_body,
@@ -402,7 +394,7 @@ class TestBuildPromptFallbackAndTruncation:
             state_file=tmp_path / "s.json",
         )
         (tmp_path / "repo").mkdir(parents=True, exist_ok=True)
-        issue = Task(
+        issue = TaskFactory.create(
             id=10,
             title="Feature X",
             body="Body text",

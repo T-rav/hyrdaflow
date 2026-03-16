@@ -10,35 +10,19 @@ import pytest
 
 from events import EventBus
 from issue_store import IssueStore
-from models import EpicGapReview, PlanResult, Task
+from models import EpicGapReview
 from plan_phase import PlanPhase
 from state import StateTracker
+from tests.conftest import PlanResultFactory, TaskFactory
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
+    from models import Task
 
 
 # ---------------------------------------------------------------------------
 # Factories
 # ---------------------------------------------------------------------------
-
-
-def _make_task(
-    *,
-    id: int = 42,
-    title: str = "Fix something",
-    body: str = "Body text",
-    tags: list[str] | None = None,
-    metadata: dict | None = None,
-) -> Task:
-    return Task(
-        id=id,
-        title=title,
-        body=body,
-        tags=tags or [],
-        source_url=f"https://github.com/test-org/test-repo/issues/{id}",
-        metadata=metadata or {},
-    )
 
 
 def _make_epic_child(
@@ -55,7 +39,7 @@ def _make_epic_child(
     meta: dict = {}
     if epic_number:
         meta["epic_number"] = epic_number
-    return _make_task(id=id, title=title, body=body, tags=tags, metadata=meta)
+    return TaskFactory.create(id=id, title=title, body=body, tags=tags, metadata=meta)
 
 
 def _make_phase(
@@ -93,7 +77,7 @@ class TestGroupByEpic:
 
     def test_separates_children_from_standalone(self, config: HydraFlowConfig) -> None:
         phase, *_ = _make_phase(config)
-        standalone = _make_task(id=1, tags=["hydraflow-plan"])
+        standalone = TaskFactory.create(id=1, tags=["hydraflow-plan"])
         child_a = _make_epic_child(id=2, epic_number=100)
         child_b = _make_epic_child(id=3, epic_number=100)
 
@@ -105,7 +89,7 @@ class TestGroupByEpic:
 
     def test_resolves_parent_from_body(self, config: HydraFlowConfig) -> None:
         phase, *_ = _make_phase(config)
-        child = _make_task(
+        child = TaskFactory.create(
             id=5,
             tags=["hydraflow-epic-child"],
             body="Parent Epic #200\n\nDetails here.",
@@ -120,7 +104,7 @@ class TestGroupByEpic:
     def test_standalone_on_missing_parent(self, config: HydraFlowConfig) -> None:
         """Epic child with no resolvable parent goes to standalone."""
         phase, *_ = _make_phase(config)
-        orphan = _make_task(
+        orphan = TaskFactory.create(
             id=7,
             tags=["hydraflow-epic-child"],
             body="No parent reference here.",
@@ -214,8 +198,12 @@ class TestPlanEpicGroup:
         # Both plans succeed
         planners.plan = AsyncMock(
             side_effect=[
-                PlanResult(issue_number=10, success=True, plan="Plan A"),
-                PlanResult(issue_number=11, success=True, plan="Plan B"),
+                PlanResultFactory.create(
+                    issue_number=10, success=True, plan="Plan A", use_defaults=True
+                ),
+                PlanResultFactory.create(
+                    issue_number=11, success=True, plan="Plan B", use_defaults=True
+                ),
             ]
         )
 
@@ -255,10 +243,11 @@ class TestPlanEpicGroup:
         async def _plan_side_effect(task, worker_id=0, **kwargs):
             nonlocal call_count
             call_count += 1
-            return PlanResult(
+            return PlanResultFactory.create(
                 issue_number=task.id,
                 success=True,
                 plan=f"Plan for #{task.id} v{call_count}",
+                use_defaults=True,
             )
 
         planners.plan = AsyncMock(side_effect=_plan_side_effect)
@@ -315,8 +304,11 @@ class TestPlanEpicGroup:
         ]
 
         planners.plan = AsyncMock(
-            side_effect=lambda task, worker_id=0, **kwargs: PlanResult(
-                issue_number=task.id, success=True, plan=f"Plan for #{task.id}"
+            side_effect=lambda task, worker_id=0, **kwargs: PlanResultFactory.create(
+                issue_number=task.id,
+                success=True,
+                plan=f"Plan for #{task.id}",
+                use_defaults=True,
             )
         )
 
@@ -350,8 +342,12 @@ class TestPlanEpicGroup:
         # Only one plan succeeds
         planners.plan = AsyncMock(
             side_effect=[
-                PlanResult(issue_number=10, success=True, plan="Plan A"),
-                PlanResult(issue_number=11, success=False, error="oops"),
+                PlanResultFactory.create(
+                    issue_number=10, success=True, plan="Plan A", use_defaults=True
+                ),
+                PlanResultFactory.create(
+                    issue_number=11, success=False, error="oops", use_defaults=True
+                ),
             ]
         )
 
@@ -424,7 +420,7 @@ class TestPipelineSnapshotIncludesEpicFields:
         fetcher = AsyncMock()
         store = IssueStore(config, fetcher, bus)
 
-        standalone = _make_task(id=43, tags=["hydraflow-plan"])
+        standalone = TaskFactory.create(id=43, tags=["hydraflow-plan"])
         store._queues["plan"].append(standalone)
         store._queue_members["plan"].add(43)
 
@@ -481,7 +477,7 @@ class TestPlanIssuesMixedEpicAndStandalone:
         object.__setattr__(config, "epic_group_planning", True)
         phase, planners, prs, store, _stop = _make_phase(config)
 
-        standalone = _make_task(id=1, tags=["hydraflow-plan"])
+        standalone = TaskFactory.create(id=1, tags=["hydraflow-plan"])
         child_a = _make_epic_child(id=2, epic_number=100)
         child_b = _make_epic_child(id=3, epic_number=100)
 
@@ -491,10 +487,11 @@ class TestPlanIssuesMixedEpicAndStandalone:
         store.get_plannable = lambda _max_count: _calls.pop(0) if _calls else []
 
         planners.plan = AsyncMock(
-            side_effect=lambda task, worker_id=0, **kwargs: PlanResult(
+            side_effect=lambda task, worker_id=0, **kwargs: PlanResultFactory.create(
                 issue_number=task.id,
                 success=True,
                 plan=f"Plan for #{task.id}",
+                use_defaults=True,
             )
         )
         # Gap review returns coherent
@@ -538,10 +535,11 @@ class TestPlanIssuesMixedEpicAndStandalone:
         store.get_plannable = lambda _max_count: _items.pop(0) if _items else []
 
         planners.plan = AsyncMock(
-            side_effect=lambda task, worker_id=0, **kwargs: PlanResult(
+            side_effect=lambda task, worker_id=0, **kwargs: PlanResultFactory.create(
                 issue_number=task.id,
                 success=True,
                 plan=f"Plan for #{task.id}",
+                use_defaults=True,
             )
         )
 

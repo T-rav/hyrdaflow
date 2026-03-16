@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from adr_reviewer import ADRCouncilReviewer
 from models import ADRCouncilResult, CouncilVerdict, CouncilVote
-from tests.conftest import TaskFactory
+from tests.conftest import TaskFactory, TriageResultFactory
 from tests.helpers import ConfigFactory, make_triage_phase, supply_once
 
 
@@ -1117,7 +1117,6 @@ class TestADRTriageIntegration:
         triage_phase, _state, triage_runner, prs, store, _stop = make_triage_phase(
             reviewer._config
         )
-        from models import TriageResult
 
         triage_task = TaskFactory.create(
             id=321,
@@ -1126,7 +1125,7 @@ class TestADRTriageIntegration:
             tags=list(reviewer._config.find_label),
         )
         triage_runner.evaluate = AsyncMock(
-            return_value=TriageResult(issue_number=321, ready=True)
+            return_value=TriageResultFactory.create(issue_number=321)
         )
         store.get_triageable = supply_once([triage_task])
 
@@ -1152,7 +1151,6 @@ class TestADRTriageIntegration:
         triage_phase, state, triage_runner, prs, store, _stop = make_triage_phase(
             reviewer._config
         )
-        from models import TriageResult
 
         triage_task = TaskFactory.create(
             id=654,
@@ -1161,7 +1159,7 @@ class TestADRTriageIntegration:
             tags=list(reviewer._config.find_label),
         )
         triage_runner.evaluate = AsyncMock(
-            return_value=TriageResult(
+            return_value=TriageResultFactory.create(
                 issue_number=654,
                 ready=False,
                 reasons=["Missing concrete implementation details"],

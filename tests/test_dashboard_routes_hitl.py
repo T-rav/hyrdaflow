@@ -1102,13 +1102,13 @@ class TestBuildHitlContextNoneBody:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """When issue.body is None, _build_hitl_context should not raise."""
-        from models import GitHubIssue
+        from tests.conftest import IssueFactory
 
         config.transcript_summarization_enabled = True
         config.gh_token = "fake-token"
 
         # Build a GitHubIssue and force body to None
-        issue = GitHubIssue(number=99, title="Test issue")
+        issue = IssueFactory.create(number=99, title="Test issue")
         object.__setattr__(issue, "body", None)
 
         # Access _compute_hitl_summary through the module's closure.

@@ -15,6 +15,7 @@ import epic  # noqa: E402
 from events import EventBus, EventType
 from models import EpicState
 from state import StateTracker
+from tests.conftest import PRInfoFactory
 from tests.helpers import ConfigFactory
 
 
@@ -482,7 +483,6 @@ class TestGetDetailEnriched:
 
     @pytest.mark.asyncio
     async def test_child_with_branch_gets_pr_info(self, tmp_path: Path) -> None:
-        from models import PRInfo
         from tests.conftest import IssueFactory
 
         mgr, state, _, prs, fetcher = _make_manager(tmp_path)
@@ -495,7 +495,7 @@ class TestGetDetailEnriched:
 
         # Set branch in state
         state.set_branch(10, "agent/issue-10")
-        pr_info = PRInfo(
+        pr_info = PRInfoFactory.create(
             number=42,
             issue_number=10,
             branch="agent/issue-10",
@@ -521,7 +521,6 @@ class TestGetDetailEnriched:
 
     @pytest.mark.asyncio
     async def test_failed_ci_status(self, tmp_path: Path) -> None:
-        from models import PRInfo
         from tests.conftest import IssueFactory
 
         mgr, state, _, prs, fetcher = _make_manager(tmp_path)
@@ -533,7 +532,9 @@ class TestGetDetailEnriched:
         fetcher.fetch_issue_by_number = AsyncMock(return_value=child_10)
 
         state.set_branch(10, "agent/issue-10")
-        pr_info = PRInfo(number=42, issue_number=10, branch="agent/issue-10", url="")
+        pr_info = PRInfoFactory.create(
+            number=42, issue_number=10, branch="agent/issue-10", url=""
+        )
         prs.find_open_pr_for_branch = AsyncMock(return_value=pr_info)
         prs.get_pr_checks = AsyncMock(
             return_value=[
@@ -1154,7 +1155,6 @@ class TestRefreshCacheReadyGuard:
     async def test_publishes_ready_when_all_conditions_met(
         self, tmp_path: Path
     ) -> None:
-        from models import PRInfo
         from tests.conftest import IssueFactory
 
         mgr, state, bus, prs, fetcher = _make_manager(tmp_path)
@@ -1174,7 +1174,9 @@ class TestRefreshCacheReadyGuard:
         )
 
         state.set_branch(20, "agent/issue-20")
-        pr_info = PRInfo(number=43, issue_number=20, branch="agent/issue-20", url="")
+        pr_info = PRInfoFactory.create(
+            number=43, issue_number=20, branch="agent/issue-20", url=""
+        )
         prs.find_open_pr_for_branch = AsyncMock(return_value=pr_info)
         prs.get_pr_checks = AsyncMock(return_value=[{"state": "success", "name": "CI"}])
         prs.get_pr_reviews = AsyncMock(
@@ -1192,7 +1194,6 @@ class TestRefreshCacheReadyGuard:
     async def test_does_not_publish_ready_for_released_epic(
         self, tmp_path: Path
     ) -> None:
-        from models import PRInfo
         from tests.conftest import IssueFactory
 
         mgr, state, bus, prs, fetcher = _make_manager(tmp_path)
@@ -1210,7 +1211,9 @@ class TestRefreshCacheReadyGuard:
         fetcher.fetch_issue_by_number = AsyncMock(return_value=child_10)
 
         state.set_branch(10, "agent/issue-10")
-        pr_info = PRInfo(number=42, issue_number=10, branch="agent/issue-10", url="")
+        pr_info = PRInfoFactory.create(
+            number=42, issue_number=10, branch="agent/issue-10", url=""
+        )
         prs.find_open_pr_for_branch = AsyncMock(return_value=pr_info)
         prs.get_pr_checks = AsyncMock(return_value=[{"state": "success", "name": "CI"}])
         prs.get_pr_reviews = AsyncMock(
@@ -1317,7 +1320,6 @@ class TestReadinessEdgeCases:
 
     @pytest.mark.asyncio
     async def test_draft_pr_detected(self, tmp_path: Path) -> None:
-        from models import PRInfo
         from tests.conftest import IssueFactory
 
         mgr, state, _, prs, fetcher = _make_manager(tmp_path)
@@ -1327,7 +1329,7 @@ class TestReadinessEdgeCases:
         fetcher.fetch_issue_by_number = AsyncMock(return_value=child_10)
 
         state.set_branch(10, "agent/issue-10")
-        pr_info = PRInfo(
+        pr_info = PRInfoFactory.create(
             number=42,
             issue_number=10,
             branch="agent/issue-10",
@@ -1345,7 +1347,6 @@ class TestReadinessEdgeCases:
 
     @pytest.mark.asyncio
     async def test_pending_ci_status(self, tmp_path: Path) -> None:
-        from models import PRInfo
         from tests.conftest import IssueFactory
 
         mgr, state, _, prs, fetcher = _make_manager(tmp_path)
@@ -1357,7 +1358,9 @@ class TestReadinessEdgeCases:
         fetcher.fetch_issue_by_number = AsyncMock(return_value=child_10)
 
         state.set_branch(10, "agent/issue-10")
-        pr_info = PRInfo(number=42, issue_number=10, branch="agent/issue-10", url="")
+        pr_info = PRInfoFactory.create(
+            number=42, issue_number=10, branch="agent/issue-10", url=""
+        )
         prs.find_open_pr_for_branch = AsyncMock(return_value=pr_info)
         prs.get_pr_checks = AsyncMock(return_value=[{"state": "pending", "name": "CI"}])
         prs.get_pr_reviews = AsyncMock(return_value=[])

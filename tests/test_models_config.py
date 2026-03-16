@@ -19,6 +19,7 @@ from models import (
     VerificationCriterion,
     parse_task_links,
 )
+from tests.conftest import IssueFactory, TaskFactory
 
 # ---------------------------------------------------------------------------
 # ControlStatusConfig
@@ -376,7 +377,7 @@ class TestTaskLink:
             TaskLink(kind=TaskLinkKind.SUPERSEDES, target_id=3),
             TaskLink(kind=TaskLinkKind.REPLIES_TO, target_id=9),
         ]
-        task = Task(id=1, title="t", links=links)
+        task = TaskFactory.create(id=1, title="t", links=links)
 
         assert len(task.links) == 2
         assert task.links[0].kind == TaskLinkKind.SUPERSEDES
@@ -571,7 +572,7 @@ class TestParseTaskLinks:
     # --- GitHubIssue.to_task() propagation ---
 
     def test_github_issue_to_task_propagates_links(self) -> None:
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=42,
             title="Improve widget",
             body="This relates to #10 and duplicates #20.",
@@ -583,13 +584,15 @@ class TestParseTaskLinks:
         assert target_ids == {10, 20}
 
     def test_github_issue_to_task_empty_body_no_links(self) -> None:
-        issue = GitHubIssue(number=1, title="t", body="")
+        issue = IssueFactory.create(number=1, title="t", body="")
         task = issue.to_task()
 
         assert task.links == []
 
     def test_github_issue_to_task_plain_body_no_links(self) -> None:
-        issue = GitHubIssue(number=1, title="t", body="Just a plain description.")
+        issue = IssueFactory.create(
+            number=1, title="t", body="Just a plain description."
+        )
         task = issue.to_task()
 
         assert task.links == []
@@ -598,7 +601,7 @@ class TestParseTaskLinks:
 
     def test_from_task_round_trip_preserves_links(self) -> None:
         links = [TaskLink(kind=TaskLinkKind.SUPERSEDES, target_id=3)]
-        task = Task(id=42, title="t", links=links)
+        task = TaskFactory.create(id=42, title="t", links=links)
 
         reconstructed = GitHubIssue.from_task(task).to_task()
 
@@ -607,7 +610,7 @@ class TestParseTaskLinks:
         )  # from_task body is empty -> no links parsed
 
     def test_pydantic_serialization_round_trip(self) -> None:
-        task = Task(
+        task = TaskFactory.create(
             id=1,
             title="t",
             links=[TaskLink(kind=TaskLinkKind.REPLIES_TO, target_id=9)],

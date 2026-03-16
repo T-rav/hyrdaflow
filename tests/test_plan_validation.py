@@ -7,8 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from models import Task
 from plan_validation import _significant_words, run_phase_gates, validate_plan
+from tests.conftest import TaskFactory
 from tests.helpers import ConfigFactory
 
 
@@ -93,20 +93,20 @@ class TestSignificantWords:
 class TestValidatePlan:
     def test_valid_plan_passes(self):
         config = _make_config()
-        task = Task(id=1, title="Add data model feature")
+        task = TaskFactory.create(id=1, title="Add data model feature")
         errors = validate_plan(task, _valid_plan(), config=config)
         assert errors == []
 
     def test_missing_section(self):
         config = _make_config()
-        task = Task(id=1, title="Add feature")
+        task = TaskFactory.create(id=1, title="Add feature")
         plan = _valid_plan().replace("## Key Considerations", "## Other")
         errors = validate_plan(task, plan, config=config)
         assert any("Key Considerations" in e for e in errors)
 
     def test_files_to_modify_requires_path(self):
         config = _make_config()
-        task = Task(id=1, title="Add feature")
+        task = TaskFactory.create(id=1, title="Add feature")
         plan = _valid_plan().replace(
             "- src/models.py \u2014 add new data model\n"
             "- src/config.py \u2014 add configuration field",
@@ -117,7 +117,7 @@ class TestValidatePlan:
 
     def test_clarification_markers_max_three(self):
         config = _make_config()
-        task = Task(id=1, title="Add feature")
+        task = TaskFactory.create(id=1, title="Add feature")
         plan = _valid_plan() + "\n".join(
             f"[NEEDS CLARIFICATION: item {i}]" for i in range(4)
         )
@@ -126,7 +126,7 @@ class TestValidatePlan:
 
     def test_three_markers_ok(self):
         config = _make_config()
-        task = Task(id=1, title="Add feature")
+        task = TaskFactory.create(id=1, title="Add feature")
         plan = _valid_plan() + "\n".join(
             f"[NEEDS CLARIFICATION: item {i}]" for i in range(3)
         )
@@ -135,7 +135,7 @@ class TestValidatePlan:
 
     def test_lite_scale_fewer_required_sections(self):
         config = _make_config()
-        task = Task(id=1, title="Fix typo")
+        task = TaskFactory.create(id=1, title="Fix typo")
         lite_plan = (
             "## Files to Modify\n\n"
             "- src/main.py \u2014 fix typo\n\n"

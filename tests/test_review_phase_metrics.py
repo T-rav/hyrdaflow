@@ -23,7 +23,6 @@ from models import (
     JudgeVerdict,
     LoopResult,
     PRInfo,
-    ReviewResult,
     ReviewVerdict,
     Task,
     VerificationCriterion,
@@ -64,12 +63,9 @@ class TestLifecycleMetricRecording:
         self, config: HydraFlowConfig
     ) -> None:
         """Request-changes verdict should record in state."""
-        result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        result = ReviewResultFactory.create(
             verdict=ReviewVerdict.REQUEST_CHANGES,
             summary="Needs changes.",
-            fixes_made=False,
         )
         phase = make_review_phase(config, default_mocks=True, review_result=result)
         issue = TaskFactory.create()
@@ -84,9 +80,7 @@ class TestLifecycleMetricRecording:
     @pytest.mark.asyncio
     async def test_records_reviewer_fixes(self, config: HydraFlowConfig) -> None:
         """When reviewer makes fixes, it should be counted."""
-        result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        result = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
             summary="Fixed and approved.",
             fixes_made=True,
@@ -103,9 +97,7 @@ class TestLifecycleMetricRecording:
     @pytest.mark.asyncio
     async def test_records_review_duration(self, config: HydraFlowConfig) -> None:
         """Review duration should be recorded when positive."""
-        result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        result = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
             summary="OK",
             duration_seconds=45.5,
@@ -124,12 +116,9 @@ class TestLifecycleMetricRecording:
         self, config: HydraFlowConfig
     ) -> None:
         """Zero duration should not be recorded."""
-        result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        result = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
             summary="OK",
-            duration_seconds=0.0,
         )
         phase = make_review_phase(config, default_mocks=True, review_result=result)
         issue = TaskFactory.create()
@@ -201,9 +190,7 @@ class TestLifecycleMetricRecording:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        fix_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        fix_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.REQUEST_CHANGES,
             fixes_made=True,
         )
@@ -246,9 +233,7 @@ class TestLifecycleMetricRecording:
             ci_call_count += 1
             return result
 
-        fix_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        fix_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
             fixes_made=True,
         )
@@ -401,12 +386,9 @@ class TestReviewInsightIntegration:
             )
 
         # This review will also have "test" in summary → missing_tests
-        review_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        review_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.REQUEST_CHANGES,
             summary="Missing test coverage for edge cases",
-            fixes_made=False,
         )
         phase._reviewers.review = AsyncMock(return_value=review_result)
         phase._prs.create_issue = AsyncMock(return_value=999)
@@ -427,12 +409,9 @@ class TestReviewInsightIntegration:
         """Once a category has been proposed, it should not be re-filed."""
         from review_insights import ReviewInsightStore, ReviewRecord
 
-        review_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        review_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.REQUEST_CHANGES,
             summary="Missing test coverage",
-            fixes_made=False,
         )
         phase = make_review_phase(
             config, default_mocks=True, review_result=review_result
@@ -683,9 +662,7 @@ class TestGranularReviewStatusEvents:
             ci_call_count += 1
             return result
 
-        fix_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        fix_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
             fixes_made=True,
         )
@@ -721,9 +698,7 @@ class TestGranularReviewStatusEvents:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        fix_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        fix_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.REQUEST_CHANGES,
             fixes_made=True,
         )
@@ -1664,9 +1639,7 @@ class TestReviewPostMortemMemoryFiling:
         review_result = ReviewResultFactory.create(
             transcript="MEMORY_SUGGESTION_START\ntitle: CI insight\nlearning: check imports\nMEMORY_SUGGESTION_END",
         )
-        fix_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        fix_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.REQUEST_CHANGES,
             fixes_made=True,
         )
@@ -1707,9 +1680,7 @@ class TestReviewPostMortemMemoryFiling:
         pr = PRInfoFactory.create()
 
         review_result = ReviewResultFactory.create(transcript="")
-        fix_result = ReviewResult(
-            pr_number=101,
-            issue_number=42,
+        fix_result = ReviewResultFactory.create(
             verdict=ReviewVerdict.REQUEST_CHANGES,
             fixes_made=True,
         )

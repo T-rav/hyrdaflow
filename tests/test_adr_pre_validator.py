@@ -210,6 +210,61 @@ class TestCheckSupersession:
         assert "invalid_supersession" in codes
 
 
+class TestCheckVolatileLineCitations:
+    def test_no_line_citations_passes(self) -> None:
+        content = _valid_adr(
+            consequences="- `src/config.py:_resolve_paths` — path resolution\n"
+        )
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "volatile_line_citation" not in codes
+
+    def test_single_line_citation_detected(self) -> None:
+        content = _valid_adr(
+            consequences="- `src/config.py:_resolve_paths` (line 1122) — path resolution\n"
+        )
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "volatile_line_citation" in codes
+
+    def test_multiple_line_citations_counted(self) -> None:
+        content = _valid_adr(
+            consequences=(
+                "- `src/config.py:foo` (line 42) — one\n"
+                "- `src/config.py:bar` (line 99) — two\n"
+            )
+        )
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        issue = next(i for i in result.issues if i.code == "volatile_line_citation")
+        assert "2 line-number citation(s)" in issue.message
+
+    def test_line_citation_is_fixable(self) -> None:
+        content = _valid_adr(consequences="- `src/foo.py:bar` (line 10) — something\n")
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        issue = next(i for i in result.issues if i.code == "volatile_line_citation")
+        assert issue.fixable is True
+
+    def test_lines_range_citation_detected(self) -> None:
+        content = _valid_adr(consequences="- `src/foo.py` (lines 10-20) — something\n")
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "volatile_line_citation" in codes
+
+    def test_lines_and_citation_detected(self) -> None:
+        content = _valid_adr(
+            consequences="- `src/foo.py` (lines 51 and 127) — something\n"
+        )
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "volatile_line_citation" in codes
+
+
 class TestCheckBareADRReferences:
     def test_bare_reference_detected(self) -> None:
         """A plain ADR-NNNN without title annotation is flagged."""
