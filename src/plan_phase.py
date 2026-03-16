@@ -391,6 +391,42 @@ class PlanPhase:
 
         return review
 
+    async def _run_research(self, issue: Task) -> str:
+        """Run pre-plan research and post results as a comment.
+
+        Returns the research context string, or empty string on skip/failure.
+        """
+        if not self._should_research():
+            return ""
+
+        research_result = await self._research_runner.research(issue)  # type: ignore[union-attr]
+        if not research_result.success:
+            logger.warning(
+                "Research failed for issue #%d: %s",
+                issue.id,
+                research_result.error,
+            )
+            return ""
+
+        logger.info(
+            "Research completed for issue #%d (%d chars)",
+            issue.id,
+            len(research_result.research),
+        )
+        try:
+            await self._prs.post_comment(
+                issue.id,
+                f"<details><summary>🔬 Research Context</summary>\n\n"
+                f"{research_result.research}\n\n</details>",
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to post research comment for #%d",
+                issue.id,
+                exc_info=True,
+            )
+        return research_result.research
+
     async def _plan_one(
         self, idx: int, issue: Task, semaphore: asyncio.Semaphore
     ) -> PlanResult:
@@ -403,35 +439,7 @@ class PlanPhase:
                 return PlanResult(issue_number=issue.id, error="stopped")
 
             async with store_lifecycle(self._store, issue.id, "plan"):
-                research_context = ""
-                if self._should_research():
-                    research_result = await self._research_runner.research(issue)  # type: ignore[union-attr]
-                    if research_result.success:
-                        research_context = research_result.research
-                        logger.info(
-                            "Research completed for issue #%d (%d chars)",
-                            issue.id,
-                            len(research_context),
-                        )
-                        # Post collapsed research as issue comment
-                        try:
-                            await self._prs.post_comment(
-                                issue.id,
-                                f"<details><summary>🔬 Research Context</summary>\n\n"
-                                f"{research_context}\n\n</details>",
-                            )
-                        except Exception:  # noqa: BLE001
-                            logger.warning(
-                                "Failed to post research comment for #%d",
-                                issue.id,
-                                exc_info=True,
-                            )
-                    else:
-                        logger.warning(
-                            "Research failed for issue #%d: %s",
-                            issue.id,
-                            research_result.error,
-                        )
+                research_context = await self._run_research(issue)
 
                 result = await self._planners.plan(
                     issue, worker_id=idx, research_context=research_context

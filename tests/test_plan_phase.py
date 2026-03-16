@@ -1130,3 +1130,47 @@ class TestPlanPhaseResearch:
         # Planner called with empty research_context
         call_kwargs = planners.plan.call_args
         assert call_kwargs.kwargs.get("research_context") == ""
+
+    @pytest.mark.asyncio
+    async def test_run_research_returns_empty_on_failure(self, config):
+        """_run_research returns empty string when research fails."""
+        phase, _state, _planners, prs, _store, _stop = make_plan_phase(config)
+
+        research_mock = AsyncMock()
+        research_mock.research = AsyncMock(
+            return_value=ResearchResult(issue_number=1, success=False, error="timeout")
+        )
+        phase._research_runner = research_mock
+
+        issue = TaskFactory.create(id=1)
+        result = await phase._run_research(issue)
+
+        assert result == ""
+        prs.post_comment.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_run_research_tolerates_comment_failure(self, config):
+        """_run_research returns context even if posting the comment fails."""
+        phase, _state, _planners, prs, _store, _stop = make_plan_phase(config)
+
+        research_mock = AsyncMock()
+        research_mock.research = AsyncMock(
+            return_value=ResearchResult(
+                issue_number=1, success=True, research="context data"
+            )
+        )
+        phase._research_runner = research_mock
+        prs.post_comment = AsyncMock(side_effect=RuntimeError("gh failed"))
+
+        issue = TaskFactory.create(id=1)
+        result = await phase._run_research(issue)
+
+        assert result == "context data"
+
+    @pytest.mark.asyncio
+    async def test_run_research_returns_empty_when_no_runner(self, config):
+        """_run_research returns empty string when no research runner."""
+        phase, *_ = make_plan_phase(config)
+        issue = TaskFactory.create(id=1)
+        result = await phase._run_research(issue)
+        assert result == ""
