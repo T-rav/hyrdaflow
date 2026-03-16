@@ -3,6 +3,9 @@
 **Status:** Superseded
 **Date:** 2026-03-08
 
+> **Superseded by [ADR-0023: Auto-Triage Toggle Must Gate Routing](0023-auto-triage-toggle-must-gate-routing.md).**
+> That ADR covers the same toggle-bypass bug with broader scope (centralized helper, stats coupling, pre-review failure paths) and uses the correct toggle name `adr_auto_triage`.
+
 ## Context
 
 HydraFlow's ADR review pipeline routes council results through `_route_result`
