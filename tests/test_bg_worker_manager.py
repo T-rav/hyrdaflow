@@ -126,6 +126,9 @@ class TestInterval:
     def test_unknown_falls_back_to_poll(self, manager: BGWorkerManager) -> None:
         assert manager.get_interval("unknown") == manager._config.poll_interval
 
+    def test_pipeline_poller_default(self, manager: BGWorkerManager) -> None:
+        assert manager.get_interval("pipeline_poller") == 5
+
     def test_persists_to_state(self, manager: BGWorkerManager) -> None:
         manager.set_interval("x", 99)
         saved = manager._state.get_worker_intervals()

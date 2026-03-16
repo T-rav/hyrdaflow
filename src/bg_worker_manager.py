@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from models import BackgroundWorkerState
 
@@ -73,7 +73,9 @@ class BGWorkerManager:
         """Return a copy of all background worker states with enabled flag."""
         result: dict[str, BackgroundWorkerState] = {}
         for name, state_dict in self._bg_worker_states.items():
-            result[name] = {**state_dict, "enabled": self.is_enabled(name)}
+            result[name] = cast(
+                BackgroundWorkerState, {**state_dict, "enabled": self.is_enabled(name)}
+            )
         return result
 
     def trigger(self, name: str) -> bool:

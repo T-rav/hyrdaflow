@@ -122,6 +122,15 @@ class TestDoWork:
         hitl_phase.process_corrections.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_fetch_failure_skips_process_corrections(
+        self, controller: HITLController, fetcher: MagicMock, hitl_phase: MagicMock
+    ) -> None:
+        fetcher.fetch_issues_by_labels.side_effect = RuntimeError("network error")
+        with pytest.raises(RuntimeError, match="network error"):
+            await controller.do_work()
+        hitl_phase.process_corrections.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_process_corrections_runs_even_if_auto_fix_raises(
         self, controller: HITLController, fetcher: MagicMock, hitl_phase: MagicMock
     ) -> None:
