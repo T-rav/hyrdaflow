@@ -593,6 +593,7 @@ class ReviewResultFactory:
         pr_number: int = 101,
         issue_number: int = 42,
         verdict: ReviewVerdict | None = None,
+        success: bool | None = None,
         summary: str | None = None,
         fixes_made: bool | None = None,
         transcript: str | None = None,
@@ -600,6 +601,8 @@ class ReviewResultFactory:
         duration_seconds: float | None = None,
         ci_passed: bool | None = None,
         ci_fix_attempts: int | None = None,
+        error: str | None = None,
+        visual_passed: bool | None = None,
         use_defaults: bool = False,
     ) -> ReviewResult:
         """Create a ReviewResult instance.
@@ -622,6 +625,8 @@ class ReviewResultFactory:
             }
             if verdict is not None:
                 kwargs["verdict"] = verdict
+            if success is not None:
+                kwargs["success"] = success
             if summary is not None:
                 kwargs["summary"] = summary
             if fixes_made is not None:
@@ -636,13 +641,19 @@ class ReviewResultFactory:
                 kwargs["ci_passed"] = ci_passed
             if ci_fix_attempts is not None:
                 kwargs["ci_fix_attempts"] = ci_fix_attempts
+            if error is not None:
+                kwargs["error"] = error
+            if visual_passed is not None:
+                kwargs["visual_passed"] = visual_passed
             return RR(**kwargs)
 
         return RR(
             pr_number=pr_number,
             issue_number=issue_number,
             verdict=verdict if verdict is not None else RV.APPROVE,
+            success=success if success is not None else False,
             summary=summary if summary is not None else "Looks good.",
+            error=error,
             fixes_made=fixes_made if fixes_made is not None else False,
             transcript=(
                 transcript if transcript is not None else "THOROUGH_REVIEW_COMPLETE"
@@ -653,6 +664,7 @@ class ReviewResultFactory:
             ),
             ci_passed=ci_passed,
             ci_fix_attempts=(ci_fix_attempts if ci_fix_attempts is not None else 0),
+            visual_passed=visual_passed,
         )
 
 
@@ -678,6 +690,14 @@ class ReviewResultBuilder:
 
     def with_verdict(self, value: ReviewVerdict) -> ReviewResultBuilder:
         self._kwargs["verdict"] = value
+        return self
+
+    def with_success(self, value: bool) -> ReviewResultBuilder:
+        self._kwargs["success"] = value
+        return self
+
+    def with_error(self, value: str) -> ReviewResultBuilder:
+        self._kwargs["error"] = value
         return self
 
     def with_summary(self, value: str) -> ReviewResultBuilder:
@@ -706,6 +726,10 @@ class ReviewResultBuilder:
 
     def with_ci_fix_attempts(self, value: int) -> ReviewResultBuilder:
         self._kwargs["ci_fix_attempts"] = value
+        return self
+
+    def with_visual_passed(self, value: bool) -> ReviewResultBuilder:
+        self._kwargs["visual_passed"] = value
         return self
 
     def build(self) -> ReviewResult:

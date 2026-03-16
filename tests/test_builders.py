@@ -254,6 +254,15 @@ class TestReviewResultBuilder:
         result = ReviewResultBuilder().with_transcript("review log").build()
         assert result.transcript == "review log"
 
+    def test_with_success_and_error(self):
+        result = ReviewResultBuilder().with_success(True).with_error("oops").build()
+        assert result.success is True
+        assert result.error == "oops"
+
+    def test_with_visual_passed(self):
+        result = ReviewResultBuilder().with_visual_passed(False).build()
+        assert result.visual_passed is False
+
     def test_model_defaults_uses_pydantic_defaults(self):
         """with_model_defaults() uses Pydantic model defaults, not factory hardcoded values."""
         from models import ReviewVerdict
