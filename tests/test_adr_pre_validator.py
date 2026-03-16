@@ -159,17 +159,45 @@ class TestCheckEmptySections:
         assert not any(c.startswith("empty_section_") for c in codes)
 
 
+def _adr_with_number(
+    num: int,
+    *,
+    status: str = "Accepted",
+    decision: str = "We decided to do the thing.",
+) -> str:
+    return f"""# ADR-{num:04d}: Test ADR {num}
+
+**Status:** {status}
+
+## Context
+
+Some context.
+
+## Decision
+
+{decision}
+
+## Consequences
+
+Some consequences.
+"""
+
+
 class TestCheckSupersession:
     def test_valid_supersession_passes(self) -> None:
-        content = _valid_adr(decision="This supersedes ADR-0001.")
-        all_adrs = [(1, "Old ADR", "old content", "0001-old-adr.md")]
+        content = _adr_with_number(2, decision="This supersedes ADR-0001.")
+        target = _adr_with_number(
+            1, status="Superseded", decision="Superseded by ADR-0002."
+        )
+        all_adrs = [(1, "Test ADR 1", target, "0001-old-adr.md")]
         validator = ADRPreValidator()
         result = validator.validate(content, all_adrs)
         codes = [i.code for i in result.issues]
         assert "invalid_supersession" not in codes
+        assert "missing_reciprocal_supersession" not in codes
 
     def test_invalid_supersession_detected(self) -> None:
-        content = _valid_adr(decision="This supersedes ADR-9999.")
+        content = _adr_with_number(2, decision="This supersedes ADR-9999.")
         all_adrs = [(1, "Old ADR", "old content", "0001-old-adr.md")]
         validator = ADRPreValidator()
         result = validator.validate(content, all_adrs)
@@ -203,11 +231,131 @@ class TestCheckSupersession:
     def test_supersession_with_null_adr_list_treated_as_empty(self) -> None:
         content = _valid_adr(decision="This supersedes ADR-9999.")
         validator = ADRPreValidator()
-        # When all_adrs is None it is coerced to [], so any supersession reference
-        # is flagged invalid because no existing ADRs are known.
         result = validator.validate(content, None)
         codes = [i.code for i in result.issues]
         assert "invalid_supersession" in codes
+
+    # --- Bidirectional reciprocity tests ---
+
+    def test_missing_reciprocal_supersedes_detected(self) -> None:
+        """If ADR-0002 supersedes ADR-0001, ADR-0001 must say 'Superseded by ADR-0002'."""
+        content = _adr_with_number(2, decision="This supersedes ADR-0001.")
+        target = _adr_with_number(1, decision="No back-reference here.")
+        all_adrs = [(1, "Test ADR 1", target, "0001-old-adr.md")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "missing_reciprocal_supersession" in codes
+        issue = next(
+            i for i in result.issues if i.code == "missing_reciprocal_supersession"
+        )
+        assert "ADR-0001" in issue.message
+        assert "Superseded by ADR-0002" in issue.message
+        assert issue.fixable is True
+
+    def test_missing_reciprocal_superseded_by_detected(self) -> None:
+        """If ADR-0001 says 'Superseded by ADR-0002', ADR-0002 must say 'Supersedes ADR-0001'."""
+        content = _adr_with_number(
+            1, status="Superseded", decision="Superseded by ADR-0002."
+        )
+        target = _adr_with_number(2, decision="No back-reference here.")
+        all_adrs = [(2, "Test ADR 2", target, "0002-new-adr.md")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "missing_reciprocal_supersession" in codes
+        issue = next(
+            i for i in result.issues if i.code == "missing_reciprocal_supersession"
+        )
+        assert "ADR-0002" in issue.message
+        assert "Supersedes ADR-0001" in issue.message
+
+    def test_reciprocal_superseded_by_present_passes(self) -> None:
+        """No issue when both sides have matching references."""
+        content = _adr_with_number(
+            1, status="Superseded", decision="Superseded by ADR-0002."
+        )
+        target = _adr_with_number(2, decision="This supersedes ADR-0001.")
+        all_adrs = [(2, "Test ADR 2", target, "0002-new-adr.md")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "missing_reciprocal_supersession" not in codes
+
+    def test_superseded_by_nonexistent_adr_detected(self) -> None:
+        """'Superseded by ADR-9999' where ADR-9999 doesn't exist is flagged."""
+        content = _adr_with_number(
+            1, status="Superseded", decision="Superseded by ADR-9999."
+        )
+        all_adrs = [(1, "Test ADR 1", content, "0001-test.md")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "invalid_supersession" in codes
+
+    # --- Status coherence tests ---
+
+    def test_proposed_cannot_supersede_accepted(self) -> None:
+        """A Proposed ADR cannot formally supersede an Accepted ADR."""
+        content = _adr_with_number(
+            2, status="Proposed", decision="This supersedes ADR-0001."
+        )
+        target = _adr_with_number(1, status="Accepted", decision="Original decision.")
+        all_adrs = [(1, "Test ADR 1", target, "0001-old-adr.md")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "status_incoherent_supersession" in codes
+        issue = next(
+            i for i in result.issues if i.code == "status_incoherent_supersession"
+        )
+        assert "Proposed" in issue.message
+        assert "Accepted" in issue.message
+        assert issue.fixable is True
+
+    def test_proposed_cannot_supersede_deprecated(self) -> None:
+        """A Proposed ADR cannot supersede a Deprecated ADR either."""
+        content = _adr_with_number(
+            2, status="Proposed", decision="This supersedes ADR-0001."
+        )
+        target = _adr_with_number(1, status="Deprecated", decision="Old decision.")
+        all_adrs = [(1, "Test ADR 1", target, "0001-old-adr.md")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "status_incoherent_supersession" in codes
+        issue = next(
+            i for i in result.issues if i.code == "status_incoherent_supersession"
+        )
+        assert "Deprecated" in issue.message
+
+    def test_accepted_can_supersede_accepted(self) -> None:
+        """An Accepted ADR can formally supersede another Accepted ADR."""
+        content = _adr_with_number(
+            2, status="Accepted", decision="This supersedes ADR-0001."
+        )
+        target = _adr_with_number(
+            1, status="Accepted", decision="Superseded by ADR-0002."
+        )
+        all_adrs = [(1, "Test ADR 1", target, "0001-old-adr.md")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "status_incoherent_supersession" not in codes
+
+    def test_proposed_can_supersede_proposed(self) -> None:
+        """A Proposed ADR can supersede another Proposed ADR (neither is settled)."""
+        content = _adr_with_number(
+            2, status="Proposed", decision="This supersedes ADR-0001."
+        )
+        target = _adr_with_number(
+            1, status="Proposed", decision="Superseded by ADR-0002."
+        )
+        all_adrs = [(1, "Test ADR 1", target, "0001-old-adr.md")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "status_incoherent_supersession" not in codes
 
 
 class TestCheckVolatileLineCitations:

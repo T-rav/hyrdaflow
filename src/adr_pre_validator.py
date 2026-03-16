@@ -34,6 +34,9 @@ _STATUS_RE = re.compile(r"\*\*Status:\*\*\s*(\w+)", re.IGNORECASE)
 _SUPERSEDE_RE = re.compile(
     r"supersed(?:es?|ed|ing)\s+(?:ADR[- ]?)(\d{4})", re.IGNORECASE
 )
+_SUPERSEDED_BY_RE = re.compile(r"superseded\s+by\s+(?:ADR[- ]?)(\d{4})", re.IGNORECASE)
+# Statuses that require the superseding ADR to be at least Accepted
+_SETTLED_STATUSES = frozenset({"accepted", "superseded", "deprecated", "rejected"})
 _REQUIRED_SECTIONS = ("## Context", "## Decision", "## Consequences")
 # Matches patterns like "(line 42)", "(line 1122)", "(lines 10-20)", "(lines 51 and 127)"
 _LINE_CITATION_RE = re.compile(
@@ -158,13 +161,27 @@ class ADRPreValidator:
         all_adrs: list[tuple[int, str, str, str]],
         result: ADRValidationResult,
     ) -> None:
-        """Check that supersession references point to existing ADRs."""
-        matches = _SUPERSEDE_RE.findall(content)
-        if not matches:
+        """Check supersession references for existence, reciprocity, and status coherence."""
+        supersedes_refs = _SUPERSEDE_RE.findall(content)
+        superseded_by_refs = _SUPERSEDED_BY_RE.findall(content)
+
+        # Remove "superseded by" matches from the general supersede matches
+        # because _SUPERSEDE_RE also matches "superseded" (without "by")
+        supersedes_only = [r for r in supersedes_refs if r not in superseded_by_refs]
+
+        if not supersedes_only and not superseded_by_refs:
             return
 
         existing_numbers = {num for num, *_ in all_adrs}
-        for ref_str in matches:
+        adr_contents: dict[int, str] = {num: c for num, _, c, _ in all_adrs}
+
+        # Extract this ADR's number and status
+        heading_match = re.search(r"^#\s+ADR[- ](\d{4})", content, re.MULTILINE)
+        self_number = int(heading_match.group(1)) if heading_match else None
+        status_match = _STATUS_RE.search(content)
+        self_status = status_match.group(1).lower() if status_match else None
+
+        for ref_str in supersedes_only:
             ref_num = int(ref_str)
             if ref_num not in existing_numbers:
                 result.issues.append(
@@ -177,6 +194,80 @@ class ADRPreValidator:
                         fixable=False,
                     )
                 )
+                continue
+
+            # Bidirectional check: target must say "Superseded by <self>"
+            if self_number is not None and ref_num in adr_contents:
+                target_content = adr_contents[ref_num]
+                target_back_refs = _SUPERSEDED_BY_RE.findall(target_content)
+                if str(self_number).zfill(4) not in target_back_refs:
+                    result.issues.append(
+                        ADRValidationIssue(
+                            code="missing_reciprocal_supersession",
+                            message=(
+                                f"ADR supersedes ADR-{ref_num:04d} but "
+                                f"ADR-{ref_num:04d} does not contain a reciprocal "
+                                f"'Superseded by ADR-{self_number:04d}' reference"
+                            ),
+                            fixable=True,
+                        )
+                    )
+
+            # Status coherence: Proposed cannot supersede a settled ADR
+            if self_status == "proposed" and ref_num in adr_contents:
+                target_status_match = _STATUS_RE.search(adr_contents[ref_num])
+                if target_status_match:
+                    target_status = target_status_match.group(1).lower()
+                    if target_status in _SETTLED_STATUSES:
+                        result.issues.append(
+                            ADRValidationIssue(
+                                code="status_incoherent_supersession",
+                                message=(
+                                    f"A Proposed ADR cannot supersede "
+                                    f"ADR-{ref_num:04d} which has "
+                                    f"{target_status_match.group(1)} status — "
+                                    f"use 'Will supersede (pending acceptance)' "
+                                    f"or accept this ADR first"
+                                ),
+                                fixable=True,
+                            )
+                        )
+
+        for ref_str in superseded_by_refs:
+            ref_num = int(ref_str)
+            if ref_num not in existing_numbers:
+                result.issues.append(
+                    ADRValidationIssue(
+                        code="invalid_supersession",
+                        message=(
+                            f"ADR references superseded by ADR-{ref_num:04d} "
+                            f"but that ADR does not exist"
+                        ),
+                        fixable=False,
+                    )
+                )
+                continue
+
+            # Bidirectional check: superseding ADR must say "Supersedes <self>"
+            if self_number is not None and ref_num in adr_contents:
+                target_content = adr_contents[ref_num]
+                target_supersedes = _SUPERSEDE_RE.findall(target_content)
+                target_superseded_by = _SUPERSEDED_BY_RE.findall(target_content)
+                target_supersedes_only = [
+                    r for r in target_supersedes if r not in target_superseded_by
+                ]
+                if str(self_number).zfill(4) not in target_supersedes_only:
+                    result.issues.append(
+                        ADRValidationIssue(
+                            code="missing_reciprocal_supersession",
+                            message=(
+                                f"ADR is superseded by ADR-{ref_num:04d} but "
+                                f"ADR-{ref_num:04d} does not contain a reciprocal "
+                                f"'Supersedes ADR-{self_number:04d}' reference"
+                            ),
+                            fixable=True,
+                        )
+                    )
 
     def _check_bare_adr_references(
         self,
