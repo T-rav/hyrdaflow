@@ -199,13 +199,8 @@ class TestReleaseStateTracking:
 class TestReleaseConfig:
     def test_release_config_has_expected_defaults(self) -> None:
         config = ConfigFactory.create()
-        assert config.release_on_epic_close is False
         assert config.release_version_source == "epic_title"
         assert config.release_tag_prefix == "v"
-
-    def test_release_config_enabled_flag(self) -> None:
-        config = ConfigFactory.create(release_on_epic_close=True)
-        assert config.release_on_epic_close is True
 
     def test_custom_prefix(self) -> None:
         config = ConfigFactory.create(release_tag_prefix="release-")
@@ -298,13 +293,11 @@ def _make_release_checker(
     *,
     epics: list[GitHubIssue] | None = None,
     sub_issues: dict[int, GitHubIssue] | None = None,
-    release_on_epic_close: bool = False,
     release_tag_prefix: str = "v",
     tmp_path: Path | None = None,
 ) -> tuple[EpicCompletionChecker, AsyncMock, AsyncMock, StateTracker | None]:
     config = ConfigFactory.create(
         epic_label=["hydraflow-epic"],
-        release_on_epic_close=release_on_epic_close,
         release_tag_prefix=release_tag_prefix,
         repo="test-org/test-repo",
     )
@@ -332,7 +325,8 @@ def _make_release_checker(
 
 class TestEpicCompletionWithRelease:
     @pytest.mark.asyncio
-    async def test_no_release_when_feature_disabled(self) -> None:
+    async def test_no_release_on_epic_close(self) -> None:
+        """Releases no longer happen on epic close."""
         epic = _make_epic_issue(100, [1, 2], title="[Epic] v1.0.0 — Features")
         sub_issues = {
             1: IssueFactory.create(
@@ -348,179 +342,13 @@ class TestEpicCompletionWithRelease:
                 labels=["hydraflow-epic"],
             ),
         }
-        checker, prs, _, _ = _make_release_checker(
-            epics=[epic], sub_issues=sub_issues, release_on_epic_close=False
-        )
+        checker, prs, _, _ = _make_release_checker(epics=[epic], sub_issues=sub_issues)
 
         await checker.check_and_close_epics(1)
 
         prs.close_issue.assert_called_once_with(100)
         prs.create_tag.assert_not_called()
         prs.create_release.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_release_created_when_feature_enabled(self, tmp_path: Path) -> None:
-        epic = _make_epic_issue(100, [1, 2], title="[Epic] v1.0.0 — Features")
-        sub_issues = {
-            1: IssueFactory.create(
-                number=1, labels=["hydraflow-fixed"], title="Add login"
-            ),
-            2: IssueFactory.create(
-                number=2, labels=["hydraflow-fixed"], title="Fix auth"
-            ),
-            100: IssueFactory.create(
-                number=100,
-                title="[Epic] v1.0.0 — Features",
-                body="",
-                labels=["hydraflow-epic"],
-            ),
-        }
-        checker, prs, _, state = _make_release_checker(
-            epics=[epic],
-            sub_issues=sub_issues,
-            release_on_epic_close=True,
-            tmp_path=tmp_path,
-        )
-
-        changelog_body = "## [epic-100]\n\n### Features\n- Add login\n- Fix auth\n"
-        with patch(
-            "epic.generate_changelog",
-            AsyncMock(return_value=changelog_body),
-        ):
-            await checker.check_and_close_epics(1)
-
-        prs.create_tag.assert_called_once_with("v1.0.0")
-        prs.create_release.assert_called_once()
-        call_args = prs.create_release.call_args
-        assert call_args[0][0] == "v1.0.0"
-        assert "Release v1.0.0" in call_args[0][1]
-        assert "Add login" in call_args[0][2]
-        assert "Fix auth" in call_args[0][2]
-
-        # Release state persisted
-        assert state is not None
-        release = state.get_release(100)
-        assert release is not None
-        assert release.version == "1.0.0"
-        assert release.tag == "v1.0.0"
-        assert release.status == "released"
-        assert release.sub_issues == [1, 2]
-
-    @pytest.mark.asyncio
-    async def test_release_url_in_close_comment(self, tmp_path: Path) -> None:
-        epic = _make_epic_issue(100, [1], title="[Epic] v2.0.0 release")
-        sub_issues = {
-            1: IssueFactory.create(
-                number=1, labels=["hydraflow-fixed"], title="Feature A"
-            ),
-            100: IssueFactory.create(
-                number=100,
-                title="[Epic] v2.0.0 release",
-                body="",
-                labels=["hydraflow-epic"],
-            ),
-        }
-        checker, prs, _, _ = _make_release_checker(
-            epics=[epic],
-            sub_issues=sub_issues,
-            release_on_epic_close=True,
-            tmp_path=tmp_path,
-        )
-
-        with patch("epic.generate_changelog", AsyncMock(return_value="changelog")):
-            await checker.check_and_close_epics(1)
-
-        comment = prs.post_comment.call_args[0][1]
-        assert "Release" in comment
-        assert "test-org/test-repo/releases/tag/v2.0.0" in comment
-
-    @pytest.mark.asyncio
-    async def test_no_release_when_no_version_in_title(self) -> None:
-        epic = _make_epic_issue(100, [1], title="[Epic] Feature set without version")
-        sub_issues = {
-            1: IssueFactory.create(number=1, labels=["hydraflow-fixed"], title="Sub"),
-            100: IssueFactory.create(
-                number=100,
-                title="[Epic] Feature set without version",
-                body="",
-                labels=["hydraflow-epic"],
-            ),
-        }
-        checker, prs, _, _ = _make_release_checker(
-            epics=[epic], sub_issues=sub_issues, release_on_epic_close=True
-        )
-
-        await checker.check_and_close_epics(1)
-
-        prs.close_issue.assert_called_once_with(100)
-        prs.create_tag.assert_not_called()
-        prs.create_release.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_custom_tag_prefix(self, tmp_path: Path) -> None:
-        epic = _make_epic_issue(100, [1], title="[Epic] 3.0.0 release")
-        sub_issues = {
-            1: IssueFactory.create(number=1, labels=["hydraflow-fixed"], title="Sub"),
-            100: IssueFactory.create(
-                number=100,
-                title="[Epic] 3.0.0 release",
-                body="",
-                labels=["hydraflow-epic"],
-            ),
-        }
-        checker, prs, _, _ = _make_release_checker(
-            epics=[epic],
-            sub_issues=sub_issues,
-            release_on_epic_close=True,
-            release_tag_prefix="release-",
-            tmp_path=tmp_path,
-        )
-
-        await checker.check_and_close_epics(1)
-
-        prs.create_tag.assert_called_once_with("release-3.0.0")
-
-    @pytest.mark.asyncio
-    async def test_tag_failure_skips_release(self) -> None:
-        epic = _make_epic_issue(100, [1], title="[Epic] v1.0.0")
-        sub_issues = {
-            1: IssueFactory.create(number=1, labels=["hydraflow-fixed"], title="Sub"),
-            100: IssueFactory.create(
-                number=100, title="[Epic] v1.0.0", body="", labels=["hydraflow-epic"]
-            ),
-        }
-        checker, prs, _, _ = _make_release_checker(
-            epics=[epic], sub_issues=sub_issues, release_on_epic_close=True
-        )
-        prs.create_tag = AsyncMock(return_value=False)
-
-        await checker.check_and_close_epics(1)
-
-        prs.create_tag.assert_called_once()
-        prs.create_release.assert_not_called()
-        # Epic should still close
-        prs.close_issue.assert_called_once_with(100)
-
-    @pytest.mark.asyncio
-    async def test_release_failure_still_closes_epic(self) -> None:
-        epic = _make_epic_issue(100, [1], title="[Epic] v1.0.0")
-        sub_issues = {
-            1: IssueFactory.create(number=1, labels=["hydraflow-fixed"], title="Sub"),
-            100: IssueFactory.create(
-                number=100, title="[Epic] v1.0.0", body="", labels=["hydraflow-epic"]
-            ),
-        }
-        checker, prs, _, _ = _make_release_checker(
-            epics=[epic], sub_issues=sub_issues, release_on_epic_close=True
-        )
-        prs.create_release = AsyncMock(return_value=False)
-
-        await checker.check_and_close_epics(1)
-
-        prs.close_issue.assert_called_once_with(100)
-        # No release URL in comment
-        comment = prs.post_comment.call_args[0][1]
-        assert "releases/tag" not in comment
 
     @pytest.mark.asyncio
     async def test_existing_tests_still_pass_without_state(self) -> None:
@@ -531,6 +359,5 @@ class TestEpicCompletionWithRelease:
             2: IssueFactory.create(number=2, labels=["hydraflow-fixed"], title="B"),
         }
         checker, prs, _, _ = _make_release_checker(epics=[epic], sub_issues=sub_issues)
-        # No state, no release_on_epic_close
         await checker.check_and_close_epics(1)
         prs.close_issue.assert_called_once_with(100)

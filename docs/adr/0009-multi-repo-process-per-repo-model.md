@@ -38,7 +38,7 @@ Adopt the **process-per-repo** model as the canonical multi-repo architecture:
 1. **One subprocess per repo.** The supervisor spawns a separate `cli.py`
    process for each managed repository via `subprocess.Popen` with
    `start_new_session=True`. Each process runs its own `asyncio` event loop
-   with five concurrent pipeline stages (see ADR-0001).
+   with five concurrent pipeline stages (see ADR-0001 — Five Concurrent Async Loops).
 
 2. **Environment-driven isolation.** The supervisor sets `HYDRAFLOW_HOME` to a
    repo-scoped directory (`STATE_DIR / slug`). Config resolution in
@@ -89,7 +89,7 @@ Adopt the **process-per-repo** model as the canonical multi-repo architecture:
 ## Alternatives considered
 
 1. **Single-process multi-repo with `RepoRuntime` abstraction.**
-   Explored in ADR-0006. Provides tighter integration and lower overhead, but
+   Explored in ADR-0006 (RepoRuntime Isolation Architecture). Provides tighter integration and lower overhead, but
    requires refactoring all components to accept a repo context parameter and
    risks shared-state coupling. The process-per-repo model achieves isolation
    without component refactoring.
@@ -106,14 +106,14 @@ Adopt the **process-per-repo** model as the canonical multi-repo architecture:
 
 ## Related
 
-- **Supersedes ADR-0006** — ADR-0006 proposed in-process `RepoRuntime` isolation
+- **Supersedes ADR-0006 (RepoRuntime Isolation Architecture)** — that ADR proposed in-process `RepoRuntime` isolation
   with the supervisor using `RepoRuntime` as the unit of start/stop. This ADR
-  adopts `subprocess.Popen` process-per-repo instead, making ADR-0006's
+  adopts `subprocess.Popen` process-per-repo instead, making that ADR's
   supervisor integration decision obsolete.
 - Source memory: #1627
-- ADR-0001 (Five concurrent async loops — per-process architecture)
-- ADR-0006 (RepoRuntime isolation — superseded by this ADR)
-- ADR-0008 (Multi-repo dashboard — supervisor-proxied aggregation)
+- ADR-0001 (Five Concurrent Async Loops)
+- ADR-0006 (RepoRuntime Isolation Architecture) — superseded by this ADR
+- ADR-0008 (Multi-Repo Dashboard Architecture)
 - `src/hf_cli/supervisor_service.py` (`_start_repo`, `RUNNERS`, TCP protocol)
 - `src/config.py` (`_resolve_paths`, `_namespace_repo_paths`, `worktree_path_for_issue`)
 - `src/orchestrator.py` (`HydraFlowOrchestrator.__init__`)

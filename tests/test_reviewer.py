@@ -1266,6 +1266,18 @@ def test_build_review_prompt_includes_test_coverage_audit(
     assert "New branches/conditions" in prompt
 
 
+def test_build_review_prompt_includes_duplicate_type_alias_check(
+    config, event_bus, pr_info, task
+):
+    """Reviewer prompt should include duplicate type alias check instruction."""
+    runner = _make_runner(config, event_bus)
+    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "diff")
+
+    assert "Duplicate type alias check" in prompt
+    assert "Annotated[" in prompt
+    assert "canonical location" in prompt
+
+
 # ---------------------------------------------------------------------------
 # _get_head_sha — timeout
 # ---------------------------------------------------------------------------
@@ -1462,7 +1474,7 @@ def test_build_ci_fix_prompt_truncates_large_ci_logs(config, event_bus):
     runner = _make_runner(config, event_bus)
     pr = PRInfoFactory.create()
     issue = TaskFactory.create()
-    logs = "E" * (runner._MAX_CI_LOG_PROMPT_CHARS + 200)
+    logs = "E" * (runner._config.max_ci_log_prompt_chars + 200)
 
     prompt, stats = runner._build_ci_fix_prompt(
         pr, issue, "Failed checks: Build", attempt=1, ci_logs=logs
@@ -1482,7 +1494,6 @@ def test_build_review_prompt_includes_runtime_logs_when_enabled(tmp_path, event_
     from tests.conftest import PRInfoFactory, TaskFactory
 
     config = ConfigFactory.create(
-        inject_runtime_logs=True,
         repo_root=tmp_path,
     )
     log_dir = tmp_path / ".hydraflow" / "logs"

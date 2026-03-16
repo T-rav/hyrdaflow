@@ -16,64 +16,13 @@ from models import (
     GitHubIssue,
     PlanResult,
     PRInfo,
-    ReviewResult,
-    ReviewVerdict,
     Task,
     WorkerResult,
 )
 from orchestrator import HydraFlowOrchestrator
 from subprocess_util import AuthenticationError
-from tests.conftest import ReviewResultFactory, TaskFactory, WorkerResultFactory
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _mock_fetcher_noop(orch: HydraFlowOrchestrator) -> None:
-    """Mock store and fetcher methods so no real gh CLI calls are made."""
-    orch._svc.store.get_triageable = lambda _max_count: []  # type: ignore[method-assign]
-    orch._svc.store.get_plannable = lambda _max_count: []  # type: ignore[method-assign]
-    orch._svc.store.get_reviewable = lambda _max_count: []  # type: ignore[method-assign]
-    orch._svc.store.start = AsyncMock()  # type: ignore[method-assign]
-    orch._svc.store.get_active_issues = lambda: {}  # type: ignore[method-assign]
-    orch._svc.fetcher.fetch_issue_by_number = AsyncMock(return_value=None)  # type: ignore[method-assign]
-    orch._svc.fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
-    orch._enable_rerere = AsyncMock()  # type: ignore[method-assign]
-    orch._svc.worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
-
-
-def make_worker_result(
-    issue_number: int = 42,
-    branch: str = "agent/issue-42",
-    success: bool = True,
-    worktree_path: str = "/tmp/worktrees/issue-42",
-    transcript: str = "Implemented the feature.",
-) -> WorkerResult:
-    return WorkerResultFactory.create(
-        issue_number=issue_number,
-        branch=branch,
-        success=success,
-        transcript=transcript,
-        commits=1,
-        worktree_path=worktree_path,
-        use_defaults=True,
-    )
-
-
-def make_review_result(
-    pr_number: int = 101,
-    issue_number: int = 42,
-    verdict: ReviewVerdict = ReviewVerdict.APPROVE,
-    transcript: str = "",
-) -> ReviewResult:
-    return ReviewResultFactory.create(
-        pr_number=pr_number,
-        issue_number=issue_number,
-        verdict=verdict,
-        transcript=transcript,
-    )
-
+from tests.conftest import TaskFactory
+from tests.helpers import mock_fetcher_noop
 
 # ---------------------------------------------------------------------------
 # Manifest refresh loop integration
@@ -105,7 +54,7 @@ class TestManifestRefreshIntegration:
         """The manifest refresh loop should run as part of _supervise_loops."""
         orch = HydraFlowOrchestrator(config)
         orch._svc.prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
-        _mock_fetcher_noop(orch)
+        mock_fetcher_noop(orch)
 
         manifest_ran = False
 
@@ -504,7 +453,7 @@ class TestSupervisorLoops:
         """run() should complete normally when stop is set, even with supervisor."""
         orch = HydraFlowOrchestrator(config)
         orch._svc.prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
-        _mock_fetcher_noop(orch)
+        mock_fetcher_noop(orch)
 
         async def plan_and_stop() -> list[PlanResult]:
             orch._stop_event.set()
@@ -562,7 +511,7 @@ class TestSupervisorLoops:
         """A loop that completes normally (no exception) is restarted with a warning."""
         orch = HydraFlowOrchestrator(config)
         orch._svc.prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
-        _mock_fetcher_noop(orch)
+        mock_fetcher_noop(orch)
 
         implement_calls = 0
 
@@ -701,7 +650,7 @@ class TestHITLLoop:
         """The HITL loop should be started by _supervise_loops alongside others."""
         orch = HydraFlowOrchestrator(config)
         orch._svc.prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
-        _mock_fetcher_noop(orch)
+        mock_fetcher_noop(orch)
 
         hitl_ran = False
 
@@ -779,7 +728,7 @@ class TestHITLLoop:
         """When run() exits, the HITL runner should be terminated."""
         orch = HydraFlowOrchestrator(config)
         orch._svc.prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
-        _mock_fetcher_noop(orch)
+        mock_fetcher_noop(orch)
 
         async def plan_and_stop() -> list[PlanResult]:
             orch._stop_event.set()

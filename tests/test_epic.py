@@ -56,6 +56,14 @@ class TestParseEpicSubIssues:
         body = "See #100 for details.\n- [ ] #200 — Linked sub-issue"
         assert parse_epic_sub_issues(body) == [200]
 
+    def test_deduplicates_repeated_issue_numbers(self) -> None:
+        body = "- [ ] #5 — Task A\n- [ ] #5 — Task A duplicate\n- [ ] #10 — Task B"
+        assert parse_epic_sub_issues(body) == [5, 10]
+
+    def test_deduplicates_preserving_first_occurrence_order(self) -> None:
+        body = "- [ ] #7\n- [ ] #3\n- [ ] #7\n- [ ] #3\n- [ ] #1"
+        assert parse_epic_sub_issues(body) == [7, 3, 1]
+
 
 # ---------------------------------------------------------------------------
 # check_all_checkboxes

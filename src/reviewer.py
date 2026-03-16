@@ -49,7 +49,6 @@ class ReviewRunner(BaseRunner):
     """
 
     _log = logger
-    _MAX_CI_LOG_PROMPT_CHARS = 6_000
 
     @staticmethod
     def _format_code_scanning_alerts(
@@ -105,6 +104,7 @@ class ReviewRunner(BaseRunner):
         diff: str,
         worker_id: int = 0,
         code_scanning_alerts: list[CodeScanningAlert] | None = None,
+        bead_tasks: list[dict[str, object]] | None = None,
     ) -> ReviewResult:
         """Run the review agent for *pr*.
 
@@ -147,6 +147,7 @@ class ReviewRunner(BaseRunner):
                 diff,
                 precheck_context=precheck_context,
                 code_scanning_alerts=code_scanning_alerts,
+                bead_tasks=bead_tasks,
             )
             before_sha = await self._get_head_sha(worktree_path)
             transcript = await self._execute(
@@ -388,9 +389,9 @@ Then a brief summary on the next line starting with "SUMMARY: ".
         """Build a focused prompt for fixing CI failures."""
         raw_ci_logs = ci_logs or ""
         compact_ci_logs = raw_ci_logs
-        if len(compact_ci_logs) > self._MAX_CI_LOG_PROMPT_CHARS:
+        if len(compact_ci_logs) > self._config.max_ci_log_prompt_chars:
             compact_ci_logs = (
-                compact_ci_logs[: self._MAX_CI_LOG_PROMPT_CHARS]
+                compact_ci_logs[: self._config.max_ci_log_prompt_chars]
                 + f"\n\n[CI logs truncated from {len(raw_ci_logs):,} chars]"
             )
 
@@ -585,6 +586,7 @@ Then a brief summary on the next line starting with "SUMMARY: ".
         diff: str,
         precheck_context: str = "",
         code_scanning_alerts: list[CodeScanningAlert] | None = None,
+        bead_tasks: list[dict[str, object]] | None = None,
     ) -> tuple[str, dict[str, object]]:
         """Build the review prompt and pruning stats."""
         ci_enabled = self._config.max_ci_fix_attempts > 0
@@ -618,16 +620,15 @@ Then a brief summary on the next line starting with "SUMMARY: ".
 
         manifest_section, memory_section = self._inject_manifest_and_memory()
 
-        # Runtime log injection (opt-in)
+        # Runtime log injection
         log_section = ""
-        if self._config.inject_runtime_logs:
-            from log_context import load_runtime_logs  # noqa: PLC0415
+        from log_context import load_runtime_logs  # noqa: PLC0415
 
-            logs = load_runtime_logs(self._config)
-            if logs:
-                log_section = f"\n\n## Recent Application Logs\n\n```\n{logs}\n```"
+        logs = load_runtime_logs(self._config)
+        if logs:
+            log_section = f"\n\n## Recent Application Logs\n\n```\n{logs}\n```"
 
-        # Code scanning alerts injection (opt-in)
+        # Code scanning alerts injection
         scanning_section = ""
         if code_scanning_alerts:
             formatted = self._format_code_scanning_alerts(
@@ -639,13 +640,34 @@ Then a brief summary on the next line starting with "SUMMARY: ".
             if formatted:
                 scanning_section = f"\n\n## Code Scanning Alerts\n\n{formatted}"
 
+        # Per-bead review section
+        bead_section = ""
+        if bead_tasks:
+            bead_lines: list[str] = []
+            for bt in bead_tasks:
+                bead_lines.append(
+                    f"- **Bead #{bt.get('id', '?')}** ({bt.get('phase', '?')}): "
+                    f"status={bt.get('status', 'unknown')}, "
+                    f"files={bt.get('files', 'N/A')}, "
+                    f"tests={bt.get('tests', 'N/A')}"
+                )
+            bead_section = (
+                "\n\n## Per-Bead Review\n\n"
+                "Verify each bead's acceptance criteria are met:\n"
+                + "\n".join(bead_lines)
+                + "\n\nFor each bead, confirm:\n"
+                "- Files listed are present in the diff\n"
+                "- Tests match the behavioral specs\n"
+                "- No extra scope beyond the bead's goal\n"
+            )
+
         issue_body = self._summarize_issue_body(issue.body)
 
         prompt = f"""You are reviewing PR #{pr.number} which implements issue #{issue.id}.
 
 ## Issue: {issue.title}
 
-{issue_body}{manifest_section}{memory_section}{log_section}{scanning_section}
+{issue_body}{manifest_section}{memory_section}{log_section}{scanning_section}{bead_section}
 
 ## Precheck Context
 
@@ -680,6 +702,7 @@ Quality: No issues — <justification>
      - New branches/conditions introduced by the PR have corresponding test cases
    - Check for security issues (injection, crypto, auth)
    - Merge-artifact check: look for duplicate Pydantic Field definitions, duplicate function parameters, or duplicate keyword arguments — these arise when concurrent PRs add the same field and get merged sequentially
+   - **Duplicate type alias check** — for any module-to-package refactors in the diff, grep for `= Annotated[` defined in multiple sub-modules; flag inline copies that should be imported from a single canonical location
 {ui_criteria}
 ## If Issues Found
 

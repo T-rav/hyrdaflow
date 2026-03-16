@@ -649,7 +649,7 @@ class TestADRReviewerBugGates:
         reviewer._prs = AsyncMock()
         reviewer._prs.create_issue.side_effect = TypeError("bad create_issue arg")
         reviewer._config = MagicMock()
-        reviewer._config.adr_review_auto_triage = True
+        # adr_review_auto_triage is always on
         reviewer._config.find_label = ["hydraflow-find"]
 
         validation = ADRValidationResult(
@@ -671,7 +671,7 @@ class TestADRReviewerBugGates:
         # First call (auto_triage path) raises RuntimeError; second (HITL) succeeds
         reviewer._prs.create_issue.side_effect = [RuntimeError("API timeout"), 0]
         reviewer._config = MagicMock()
-        reviewer._config.adr_review_auto_triage = True
+        # adr_review_auto_triage is always on
         reviewer._config.find_label = ["hydraflow-find"]
         reviewer._config.hitl_label = ["hydraflow-hitl"]
 
@@ -693,7 +693,7 @@ class TestADRReviewerBugGates:
         reviewer._prs = AsyncMock()
         reviewer._prs.create_issue.side_effect = TypeError("bad dup arg")
         reviewer._config = MagicMock()
-        reviewer._config.adr_review_auto_triage = True
+        # adr_review_auto_triage is always on
         reviewer._config.find_label = ["hydraflow-find"]
 
         result = ADRCouncilResult(
@@ -720,7 +720,7 @@ class TestADRReviewerBugGates:
         reviewer._prs = AsyncMock()
         reviewer._prs.create_issue.side_effect = [RuntimeError("API timeout"), 0]
         reviewer._config = MagicMock()
-        reviewer._config.adr_review_auto_triage = True
+        # adr_review_auto_triage is always on
         reviewer._config.find_label = ["hydraflow-find"]
         reviewer._config.hitl_label = ["hydraflow-hitl"]
 

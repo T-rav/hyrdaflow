@@ -102,7 +102,7 @@ images are filtered out, and the DOM sanitizer strips external resources).
   clone tier intentionally trades visual fidelity for reliability.
 - FIFO queue in `StateTracker` is not durable across process restarts if the
   JSON file is lost. This is consistent with other HydraFlow state management
-  (see ADR-0008 discussion of filesystem-based state).
+  (see ADR-0008 — Multi-Repo Dashboard Architecture — discussion of filesystem-based state).
 
 ## Alternatives considered
 
@@ -131,7 +131,7 @@ images are filtered out, and the DOM sanitizer strips external resources).
 
 ## Related
 
-- Superseded by: ADR-0018
+- Superseded by: ADR-0018 (Screenshot Capture Pipeline Architecture)
 - Source memory: #1700
 - ADR issue: #1704
 - `src/ui/src/components/Header.jsx` (capture + three-tier fallback)

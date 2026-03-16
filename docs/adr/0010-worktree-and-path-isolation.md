@@ -1,6 +1,6 @@
 # ADR-0010: Worktree and Path Isolation Architecture
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-02-28
 
 ## Context
@@ -103,7 +103,7 @@ artifacts:
    scoping is simpler and requires only property changes in `config.py`.
 
 3. **Introduce a `RepoRuntime` wrapper that manages all paths.**
-   Deferred to ADR-0006. `RepoRuntime` is the right long-term abstraction but
+   Deferred to ADR-0006 (RepoRuntime Isolation Architecture). `RepoRuntime` is the right long-term abstraction but
    path scoping can be applied incrementally via config properties without
    waiting for the full `RepoRuntime` refactor.
 
@@ -113,9 +113,9 @@ artifacts:
 - Implementation: #1677
 - ADR-0003 — Git Worktrees for Issue Isolation (original worktree decision)
 - ADR-0006 — RepoRuntime Isolation Architecture (broader isolation abstraction)
-- **ADR-0021** — Persistence Architecture and Data Layout. ADR-0021's derived-paths
-  table documents the current flat layout (`log_dir = data_root / "logs"`, etc.).
-  Accepting ADR-0010 requires amending ADR-0021's derived-paths table and layout
+- ADR-0021 (Persistence Architecture and Data Layout) — derived-paths table documents
+  the current flat layout (`log_dir = data_root / "logs"`, etc.).
+  Accepting ADR-0010 requires amending that ADR's derived-paths table and layout
   diagram to reflect repo-scoped paths for `log_dir`, `plans_dir`, and `memory_dir`.
 - `src/config.py:HydraFlowConfig` — `_resolve_paths`, `worktree_path_for_issue`,
   `log_dir`, `plans_dir`, `memory_dir` properties

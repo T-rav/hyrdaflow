@@ -61,7 +61,7 @@ Key elements:
 
 ## Related
 
-- Superseded by: ADR-0009
+- Superseded by: ADR-0009 (Multi-Repo Process-Per-Repo Model)
 - Source memory: #1615
 - Implementation: #1467
 - `src/orchestrator.py`, `src/state.py`, `src/issue_store.py`, `src/events.py`

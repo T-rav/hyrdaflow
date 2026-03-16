@@ -162,7 +162,7 @@ class TestCheckEmptySections:
 class TestCheckSupersession:
     def test_valid_supersession_passes(self) -> None:
         content = _valid_adr(decision="This supersedes ADR-0001.")
-        all_adrs = [(1, "Old ADR", "old content")]
+        all_adrs = [(1, "Old ADR", "old content", "0001-old-adr.md")]
         validator = ADRPreValidator()
         result = validator.validate(content, all_adrs)
         codes = [i.code for i in result.issues]
@@ -170,7 +170,7 @@ class TestCheckSupersession:
 
     def test_invalid_supersession_detected(self) -> None:
         content = _valid_adr(decision="This supersedes ADR-9999.")
-        all_adrs = [(1, "Old ADR", "old content")]
+        all_adrs = [(1, "Old ADR", "old content", "0001-old-adr.md")]
         validator = ADRPreValidator()
         result = validator.validate(content, all_adrs)
         codes = [i.code for i in result.issues]
@@ -185,7 +185,7 @@ class TestCheckSupersession:
     def test_superseding_variant_detected(self) -> None:
         """Regex matches 'superseding' variant."""
         content = _valid_adr(decision="This is superseding ADR-8888.")
-        all_adrs = [(1, "Old ADR", "old content")]
+        all_adrs = [(1, "Old ADR", "old content", "0001-old-adr.md")]
         validator = ADRPreValidator()
         result = validator.validate(content, all_adrs)
         codes = [i.code for i in result.issues]
@@ -194,7 +194,7 @@ class TestCheckSupersession:
     def test_superseded_past_tense_detected(self) -> None:
         """Regex matches 'superseded' past-tense variant."""
         content = _valid_adr(decision="This ADR superseded ADR-7777.")
-        all_adrs = [(1, "Old ADR", "old content")]
+        all_adrs = [(1, "Old ADR", "old content", "0001-old-adr.md")]
         validator = ADRPreValidator()
         result = validator.validate(content, all_adrs)
         codes = [i.code for i in result.issues]
@@ -208,6 +208,245 @@ class TestCheckSupersession:
         result = validator.validate(content, None)
         codes = [i.code for i in result.issues]
         assert "invalid_supersession" in codes
+
+
+class TestCheckBareADRReferences:
+    def test_bare_reference_detected(self) -> None:
+        """A plain ADR-NNNN without title annotation is flagged."""
+        content = _valid_adr(decision="See ADR-0006 for details.")
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "bare_adr_reference" in codes
+        issue = next(i for i in result.issues if i.code == "bare_adr_reference")
+        assert "ADR-0006" in issue.message
+
+    def test_parenthesized_title_passes(self) -> None:
+        """ADR-NNNN (Title) is not flagged."""
+        content = _valid_adr(
+            decision="See ADR-0006 (RepoRuntime Isolation Architecture) for details."
+        )
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "bare_adr_reference" not in codes
+
+    def test_em_dash_title_passes(self) -> None:
+        """ADR-NNNN — Title is not flagged."""
+        content = _valid_adr(
+            decision="See ADR-0006 — RepoRuntime Isolation Architecture for details."
+        )
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "bare_adr_reference" not in codes
+
+    def test_self_reference_skipped(self) -> None:
+        """References to the ADR's own number are not flagged."""
+        content = _valid_adr(decision="ADR-0001 intentionally does this.")
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "bare_adr_reference" not in codes
+
+    def test_heading_line_skipped(self) -> None:
+        """The ADR heading line '# ADR-NNNN: Title' is never flagged."""
+        content = _valid_adr(decision="Some text here.")
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "bare_adr_reference" not in codes
+
+    def test_table_row_skipped(self) -> None:
+        """ADR references inside markdown table rows are not flagged."""
+        content = _valid_adr(
+            decision="| **example** | ADR-0006 is used here |\n\nNormal text."
+        )
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "bare_adr_reference" not in codes
+
+    def test_multiple_bare_refs_deduplicated(self) -> None:
+        """Multiple bare references to the same ADR produce one issue."""
+        content = _valid_adr(decision="See ADR-0006. Also ADR-0006 again.")
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        bare_issues = [i for i in result.issues if i.code == "bare_adr_reference"]
+        assert len(bare_issues) == 1
+
+    def test_bare_reference_is_fixable(self) -> None:
+        """Bare reference issues are marked as fixable."""
+        content = _valid_adr(decision="See ADR-0006.")
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        issue = next(i for i in result.issues if i.code == "bare_adr_reference")
+        assert issue.fixable is True
+
+    def test_no_cross_references_passes(self) -> None:
+        """An ADR with no cross-references produces no bare_adr_reference issue."""
+        content = _valid_adr()
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "bare_adr_reference" not in codes
+
+
+class TestNonexistentADRReference:
+    def test_nonexistent_reference_detected(self) -> None:
+        """Referencing an ADR that doesn't exist in the index is flagged."""
+        content = _valid_adr(decision="See ADR-0099 (Some Made Up Title) for details.")
+        all_adrs = [(1, "Test ADR", "content", "0001-test.md")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "nonexistent_adr_reference" in codes
+        issue = next(i for i in result.issues if i.code == "nonexistent_adr_reference")
+        assert "ADR-0099" in issue.message
+
+    def test_nonexistent_reference_not_fixable(self) -> None:
+        """Nonexistent ADR references are not fixable."""
+        content = _valid_adr(decision="See ADR-0099 (Some Made Up Title) for details.")
+        all_adrs = [(1, "Test ADR", "content", "0001-test.md")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        issue = next(i for i in result.issues if i.code == "nonexistent_adr_reference")
+        assert issue.fixable is False
+
+    def test_existing_reference_not_flagged(self) -> None:
+        """Referencing an ADR that exists is not flagged as nonexistent."""
+        content = _valid_adr(
+            decision="See ADR-0006 (Isolation Architecture) for details."
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (6, "Isolation Architecture", "content", "0006-isolation.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "nonexistent_adr_reference" not in codes
+
+    def test_no_all_adrs_skips_existence_check(self) -> None:
+        """When all_adrs is not provided, existence checks are skipped."""
+        content = _valid_adr(decision="See ADR-0099 (Some Made Up Title) for details.")
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "nonexistent_adr_reference" not in codes
+
+    def test_bare_nonexistent_ref_produces_both_issues(self) -> None:
+        """A bare reference to a nonexistent ADR produces both issue codes."""
+        content = _valid_adr(decision="See ADR-0099 for details.")
+        all_adrs = [(1, "Test ADR", "content", "0001-test.md")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "bare_adr_reference" in codes
+        assert "nonexistent_adr_reference" in codes
+
+
+class TestMismatchedADRTitle:
+    def test_wrong_title_detected(self) -> None:
+        """A title annotation that doesn't match the real ADR title is flagged."""
+        content = _valid_adr(
+            decision="See ADR-0022 (Registry Lifecycle Tracker) for details."
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (22, "Pipeline Integration Harness", "content", "0022-harness.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "mismatched_adr_title" in codes
+        issue = next(i for i in result.issues if i.code == "mismatched_adr_title")
+        assert "Registry Lifecycle Tracker" in issue.message
+        assert "Pipeline Integration Harness" in issue.message
+
+    def test_correct_title_not_flagged(self) -> None:
+        """A title annotation matching the real ADR title passes."""
+        content = _valid_adr(
+            decision="See ADR-0022 (Pipeline Integration Harness) for details."
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (22, "Pipeline Integration Harness", "content", "0022-harness.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "mismatched_adr_title" not in codes
+
+    def test_case_insensitive_title_match(self) -> None:
+        """Title comparison is case-insensitive."""
+        content = _valid_adr(
+            decision="See ADR-0022 (pipeline integration harness) for details."
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (22, "Pipeline Integration Harness", "content", "0022-harness.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "mismatched_adr_title" not in codes
+
+    def test_em_dash_title_mismatch_detected(self) -> None:
+        """Em-dash title annotations are also checked for accuracy."""
+        content = _valid_adr(decision="See ADR-0022 — Wrong Title for details.")
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (22, "Pipeline Integration Harness", "content", "0022-harness.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "mismatched_adr_title" in codes
+
+    def test_em_dash_correct_title_passes(self) -> None:
+        """Em-dash title annotations with correct title pass."""
+        content = _valid_adr(
+            decision="See ADR-0022 — Pipeline Integration Harness for details."
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (22, "Pipeline Integration Harness", "content", "0022-harness.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "mismatched_adr_title" not in codes
+
+    def test_mismatch_is_fixable(self) -> None:
+        """Mismatched title issues are marked as fixable."""
+        content = _valid_adr(decision="See ADR-0022 (Wrong Title) for details.")
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (22, "Pipeline Integration Harness", "content", "0022-harness.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        issue = next(i for i in result.issues if i.code == "mismatched_adr_title")
+        assert issue.fixable is True
+
+    def test_no_all_adrs_skips_title_check(self) -> None:
+        """When all_adrs is not provided, title mismatch checks are skipped."""
+        content = _valid_adr(decision="See ADR-0022 (Wrong Title) for details.")
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "mismatched_adr_title" not in codes
+
+    def test_nonexistent_ref_skips_title_check(self) -> None:
+        """When the referenced ADR doesn't exist, title check is skipped."""
+        content = _valid_adr(decision="See ADR-0099 (Anything) for details.")
+        all_adrs = [(1, "Test ADR", "content", "0001-test.md")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "nonexistent_adr_reference" in codes
+        assert "mismatched_adr_title" not in codes
 
 
 class TestMultipleIssues:

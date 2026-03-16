@@ -1,6 +1,6 @@
-# ADR-0023: Implementation Retry Recovery Architecture
+# ADR-0024: Implementation Retry Recovery Architecture
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-08
 
 ## Context

@@ -63,4 +63,4 @@ State is polled, not pushed: each loop queries GitHub for issues with its label.
 - `src/pr_manager.py:swap_pipeline_labels` — atomic swap implementation
 - `src/config.py:all_pipeline_labels` — the full label set
 - `tests/test_state_machine.py` — property-based invariant tests
-- ADR-0001 for why polling loops were chosen over a push-based model
+- ADR-0001 (Five Concurrent Async Loops) for why polling loops were chosen over a push-based model

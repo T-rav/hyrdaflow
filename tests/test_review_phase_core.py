@@ -2704,7 +2704,7 @@ class TestNarrowedExceptionHandling:
     ) -> None:
         """RuntimeError from subprocess is still caught gracefully."""
         phase = make_review_phase(config, default_mocks=True)
-        phase._config.code_scanning_enabled = True
+        # code_scanning is always enabled
         phase._prs.fetch_code_scanning_alerts = AsyncMock(
             side_effect=RuntimeError("gh CLI failed")
         )
@@ -2719,7 +2719,7 @@ class TestNarrowedExceptionHandling:
     ) -> None:
         """OSError (e.g., network failure) is caught gracefully."""
         phase = make_review_phase(config, default_mocks=True)
-        phase._config.code_scanning_enabled = True
+        # code_scanning is always enabled
         phase._prs.fetch_code_scanning_alerts = AsyncMock(
             side_effect=OSError("network unreachable")
         )
@@ -2734,7 +2734,7 @@ class TestNarrowedExceptionHandling:
     ) -> None:
         """TypeError (code bug) must propagate through narrowed handler."""
         phase = make_review_phase(config, default_mocks=True)
-        phase._config.code_scanning_enabled = True
+        # code_scanning is always enabled
         phase._prs.fetch_code_scanning_alerts = AsyncMock(
             side_effect=TypeError("bad arg")
         )

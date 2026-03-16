@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal
 
 from models import (
@@ -23,6 +23,9 @@ class ReportStateMixin:
     _data: StateData
 
     def save(self) -> None: ...  # provided by CoreMixin
+
+    @staticmethod
+    def _key(issue_id: int | str) -> str: ...  # provided by StateTracker
 
     # --- pending reports queue ---
 
@@ -87,7 +90,7 @@ class ReportStateMixin:
         self,
         report_id: str,
         *,
-        status: Literal["queued", "in-progress", "fixed", "closed", "reopened"]
+        status: Literal["queued", "in-progress", "filed", "fixed", "closed", "reopened"]
         | None = None,
         detail: str = "",
         action_label: str = "",
@@ -107,6 +110,27 @@ class ReportStateMixin:
                 self.save()
                 return r
         return None
+
+    def get_filed_reports(self) -> list[TrackedReport]:
+        """Return all tracked reports with status ``'filed'``."""
+        return [r for r in self._data.tracked_reports if r.status == "filed"]
+
+    def get_stale_queued_reports(
+        self, *, stale_minutes: int = 30
+    ) -> list[TrackedReport]:
+        """Return queued reports older than *stale_minutes*."""
+        cutoff = datetime.now(UTC) - timedelta(minutes=stale_minutes)
+        stale: list[TrackedReport] = []
+        for r in self._data.tracked_reports:
+            if r.status != "queued":
+                continue
+            try:
+                created = datetime.fromisoformat(r.created_at)
+            except (ValueError, TypeError):
+                continue
+            if created <= cutoff:
+                stale.append(r)
+        return stale
 
     # --- metrics state ---
 
@@ -198,7 +222,7 @@ class ReportStateMixin:
         Caps at *max_records* (falls back to ``_MAX_BASELINE_AUDIT_RECORDS``).
         """
         cap = max_records or self._MAX_BASELINE_AUDIT_RECORDS
-        key = str(issue_number)
+        key = self._key(issue_number)
         if key not in self._data.baseline_audit:
             self._data.baseline_audit[key] = []
         self._data.baseline_audit[key].append(record)
@@ -208,13 +232,13 @@ class ReportStateMixin:
 
     def get_baseline_audit(self, issue_number: int) -> list[BaselineAuditRecord]:
         """Return baseline audit records for *issue_number*."""
-        return list(self._data.baseline_audit.get(str(issue_number), []))
+        return list(self._data.baseline_audit.get(self._key(issue_number), []))
 
     def get_latest_baseline_record(
         self, issue_number: int
     ) -> BaselineAuditRecord | None:
         """Return the most recent baseline audit record, or *None*."""
-        records = self._data.baseline_audit.get(str(issue_number), [])
+        records = self._data.baseline_audit.get(self._key(issue_number), [])
         return records[-1] if records else None
 
     def rollback_baseline(
@@ -227,7 +251,7 @@ class ReportStateMixin:
     ) -> BaselineAuditRecord:
         """Record a baseline rollback for *issue_number*."""
         # Find the last non-rollback record to identify files
-        records = self._data.baseline_audit.get(str(issue_number), [])
+        records = self._data.baseline_audit.get(self._key(issue_number), [])
         changed_files: list[str] = []
         for record in reversed(records):
             if record.change_type != BaselineChangeType.ROLLBACK:

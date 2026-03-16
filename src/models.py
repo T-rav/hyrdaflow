@@ -178,7 +178,10 @@ _LINK_PATTERNS: list[tuple[re.Pattern[str], TaskLinkKind]] = [
     (re.compile(r"\brelated:?\s+#(\d+)", re.IGNORECASE), TaskLinkKind.RELATES_TO),
     (re.compile(r"\bduplicates?\s+#(\d+)", re.IGNORECASE), TaskLinkKind.DUPLICATES),
     (re.compile(r"\bduplicate\s+of\s+#(\d+)", re.IGNORECASE), TaskLinkKind.DUPLICATES),
-    (re.compile(r"\bsupersedes?\s+#(\d+)", re.IGNORECASE), TaskLinkKind.SUPERSEDES),
+    (
+        re.compile(r"\bsupersed(?:es?|ed|ing)\s+#(\d+)", re.IGNORECASE),
+        TaskLinkKind.SUPERSEDES,
+    ),
     (re.compile(r"\breplaces?\s+#(\d+)", re.IGNORECASE), TaskLinkKind.SUPERSEDES),
     (
         re.compile(r"\brepl(?:ies|y)\s+to\s+#(\d+)", re.IGNORECASE),
@@ -1227,6 +1230,7 @@ class StateData(BaseModel):
     releases: dict[str, Release] = Field(default_factory=dict)
     baseline_audit: dict[str, list[BaselineAuditRecord]] = Field(default_factory=dict)
     active_crate_number: int | None = None
+    bead_mappings: dict[str, dict[str, str]] = Field(default_factory=dict)
     last_updated: str | None = None
 
 
@@ -1468,7 +1472,9 @@ class TrackedReport(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex[:12])
     reporter_id: str
     description: str
-    status: Literal["queued", "in-progress", "fixed", "closed", "reopened"] = "queued"
+    status: Literal["queued", "in-progress", "filed", "fixed", "closed", "reopened"] = (
+        "queued"
+    )
     linked_issue_url: str = ""
     linked_pr_url: str = ""
     progress_summary: str = ""
@@ -1538,7 +1544,6 @@ class ControlStatusConfig(BaseModel):
     max_hitl_workers: int = 0
     batch_size: int = 0
     model: str = ""
-    memory_auto_approve: bool = False
     pr_unstick_batch_size: int = 10
     worktree_base: str = ""
 
@@ -1740,6 +1745,7 @@ class SystemAlertPayload(TypedDict, total=False):
     threshold: object
     hook_name: str
     issue: int
+    resume_at: str
 
 
 class TranscriptSummaryPayload(TypedDict, total=False):

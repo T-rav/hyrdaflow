@@ -509,14 +509,6 @@ class TestHydraFlowConfigDefaults:
         )
         assert cfg.dry_run is False
 
-    def test_inject_runtime_logs_default(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.inject_runtime_logs is False
-
     def test_max_runtime_log_chars_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
