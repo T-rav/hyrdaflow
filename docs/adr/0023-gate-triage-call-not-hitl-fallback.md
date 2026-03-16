@@ -45,6 +45,7 @@ between triage and HITL based on a config toggle. The correct structure is:
 
 ```python
 # Correct pattern: gate triage on the toggle
+# Note: adr_review_auto_triage was the draft toggle name; actual field is adr_auto_triage
 if not self._config.adr_review_auto_triage:
     await self._escalate_to_hitl(result, reason=reason)
     return
