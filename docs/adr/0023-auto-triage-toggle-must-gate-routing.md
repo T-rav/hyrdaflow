@@ -43,7 +43,7 @@ Adopt the following rule for config-gated routing in HydraFlow workers:
    The toggle must be the first condition checked, before any issue creation or
    API call occurs.
 
-   The correct toggle-first guard pattern (applied in `_triage_or_hitl`):
+   Anti-pattern versus correct toggle-first guard pattern (applied in `_triage_or_hitl`):
 
    ```python
    # Anti-pattern: triage call is unconditional
@@ -133,7 +133,7 @@ When reviewing any routing method that calls both `_route_to_triage` and
 ## Related
 
 - **Supersedes:** [ADR-0023 (Gate Triage Call on Config Toggle, Not Just HITL Fallback)](0023-gate-triage-call-not-hitl-fallback.md)
-  - Absorbed: verification checklist and toggle-first guard pattern code samples
+  - Absorbed: toggle-first guard pattern code samples (verification checklist was already present)
 - Source memory: #2327
 - Source issue: #2341
 - `src/adr_reviewer.py` — `_triage_or_hitl()`, `_route_to_triage()`, `_handle_pre_review_failure()`, `_handle_duplicate()`
