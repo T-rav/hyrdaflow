@@ -39,7 +39,7 @@ then `_resolve_repo_scoped_paths` then `_apply_env_overrides`.
 
 ### Data layout
 
-> **Note:** The layout above reflects the target architecture mandated by
+> **Note:** The layout below reflects the target architecture mandated by
 > ADR-0010. `log_dir`, `plans_dir`, and `memory_dir` remain flat under
 > `data_root/` in the current implementation — see [^1].
 
@@ -84,7 +84,7 @@ paths once that migration is complete.
 
 - All per-repo artifacts (state, events, sessions, logs, plans, memory, metrics)
   are scoped under `data_root/<repo_slug>/` via `_resolve_repo_scoped_paths()` in
-  `config.py`, where `repo_slug` is `config.repo.replace("/", "-")`.
+  `config.py`, where `repo_slug` is `config.repo.replace("/", "-")` [^1].
 - `config.repo_data_root` provides a general-purpose repo-scoped subdirectory
   at `data_root / repo_slug`.
 - The supervisor spawns isolated processes per repo with separate `HYDRAFLOW_HOME`
