@@ -1,19 +1,11 @@
-"""Pre-commit hook scaffolding for target repositories.
-
-Creates language-appropriate `.githooks/pre-commit` hooks and configures
-git to use them.  Designed to be called by the future ``hydraflow prep`` CLI
-command (epic #561).
-"""
+"""Language detection helpers for target repositories."""
 
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
 
 from manifest import PYTHON_MARKERS
-
-logger = logging.getLogger("hydraflow.prep_hooks")
 
 # ---------------------------------------------------------------------------
 # Language detection
