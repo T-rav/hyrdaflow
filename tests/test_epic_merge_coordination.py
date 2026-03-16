@@ -999,8 +999,7 @@ class TestTriageParentEpicEnrichment:
         )
         return phase, state, epic_manager
 
-    @pytest.mark.asyncio
-    async def test_enrich_sets_parent_epic(self, tmp_path: Path) -> None:
+    def test_enrich_sets_parent_epic(self, tmp_path: Path) -> None:
         phase, state, epic_manager = self._make_triage_phase(tmp_path)
         # Register epic
         epic = EpicState(
@@ -1014,8 +1013,7 @@ class TestTriageParentEpicEnrichment:
 
         assert task.parent_epic == 100
 
-    @pytest.mark.asyncio
-    async def test_enrich_no_parent(self, tmp_path: Path) -> None:
+    def test_enrich_no_parent(self, tmp_path: Path) -> None:
         phase, state, _ = self._make_triage_phase(tmp_path)
 
         task = TaskFactory.create(id=99, title="Standalone issue")

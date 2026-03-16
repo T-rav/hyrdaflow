@@ -654,6 +654,331 @@ class TestMismatchedADRTitle:
         assert "mismatched_adr_title" not in codes
 
 
+class TestCheckCrossReferenceTitles:
+    """Tests for _check_cross_reference_titles — abbreviated title detection."""
+
+    def test_exact_title_match_passes(self) -> None:
+        """A cross-reference with the exact full title produces no issue."""
+        content = _valid_adr(
+            decision="See ADR-0023 (Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking)."
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (
+                23,
+                "Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking",
+                "c",
+                "0023-gate.md",
+            ),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "abbreviated_cross_ref_title" not in codes
+
+    def test_abbreviated_title_flagged(self) -> None:
+        """A cross-reference with an abbreviated title is flagged."""
+        content = _valid_adr(
+            decision="See ADR-0023 (Auto-Triage Toggle Must Gate Routing)."
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (
+                23,
+                "Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking",
+                "c",
+                "0023-gate.md",
+            ),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "abbreviated_cross_ref_title" in codes
+        issue = next(
+            i for i in result.issues if i.code == "abbreviated_cross_ref_title"
+        )
+        assert "abbreviated" in issue.message.lower()
+        assert "Not Just Stat Tracking" in issue.message
+
+    def test_abbreviated_title_is_fixable(self) -> None:
+        """Abbreviated cross-reference title issues are fixable."""
+        content = _valid_adr(decision="See ADR-0023 (Auto-Triage Toggle).")
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (23, "Auto-Triage Toggle Must Gate Routing", "c", "0023-gate.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        issue = next(
+            i for i in result.issues if i.code == "abbreviated_cross_ref_title"
+        )
+        assert issue.fixable is True
+
+    def test_unknown_number_ignored(self) -> None:
+        """A cross-reference to an unknown ADR number is not flagged as abbreviated."""
+        content = _valid_adr(decision="See ADR-0099 (Some Partial Title).")
+        all_adrs = [(1, "Test ADR", "content", "0001-test.md")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "abbreviated_cross_ref_title" not in codes
+
+    def test_multiple_shared_numbers_exact_match(self) -> None:
+        """When multiple ADRs share a number, exact match to any passes."""
+        content = _valid_adr(
+            decision="See ADR-0023 (CLI Argparse Config Builder Pattern)."
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (
+                23,
+                "Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking",
+                "c",
+                "0023-gate.md",
+            ),
+            (23, "CLI Argparse Config Builder Pattern", "c", "0023-cli.md"),
+            (23, "Multi-Repo Architecture Wiring Pattern", "c", "0023-multi.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "abbreviated_cross_ref_title" not in codes
+
+    def test_multiple_shared_numbers_abbreviated_flagged(self) -> None:
+        """When multiple ADRs share a number, an abbreviated title is flagged."""
+        content = _valid_adr(
+            decision="See ADR-0023 (Auto-Triage Toggle Must Gate Routing)."
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (
+                23,
+                "Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking",
+                "c",
+                "0023-gate.md",
+            ),
+            (23, "CLI Argparse Config Builder Pattern", "c", "0023-cli.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "abbreviated_cross_ref_title" in codes
+
+    def test_self_reference_skipped(self) -> None:
+        """Cross-references to the ADR's own number are not checked."""
+        content = _valid_adr(decision="This ADR-0001 (Test) is self-referencing.")
+        all_adrs = [
+            (1, "Test ADR With Longer Title", "content", "0001-test.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "abbreviated_cross_ref_title" not in codes
+
+    def test_no_all_adrs_skips_check(self) -> None:
+        """When all_adrs is empty, abbreviated title check is skipped."""
+        content = _valid_adr(decision="See ADR-0023 (Short Title).")
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "abbreviated_cross_ref_title" not in codes
+
+    def test_heading_line_skipped(self) -> None:
+        """Cross-references in heading lines are not checked."""
+        content = "# ADR-0005: Short\n\n**Status:** Proposed\n\n## Context\nctx\n## Decision\ndec\n## Consequences\ncon\n"
+        all_adrs = [
+            (5, "Short But Actually Longer Title", "c", "0005-short.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "abbreviated_cross_ref_title" not in codes
+
+    def test_table_row_skipped(self) -> None:
+        """Cross-references in table rows are not checked."""
+        content = _valid_adr(
+            decision="| ADR-0023 (Short Title) | example |\n\nNormal text."
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (23, "Short Title With More Words", "c", "0023-short.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "abbreviated_cross_ref_title" not in codes
+
+    def test_emdash_abbreviated_title_flagged(self) -> None:
+        """An em-dash cross-reference with an abbreviated title is flagged."""
+        content = _valid_adr(
+            decision="See ADR-0023 \u2014 Auto-Triage Toggle Must Gate Routing for details."
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (
+                23,
+                "Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking",
+                "c",
+                "0023-gate.md",
+            ),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "abbreviated_cross_ref_title" in codes
+        assert "mismatched_adr_title" not in codes
+
+    def test_paren_title_with_nested_parens_not_false_positive(self) -> None:
+        """A parenthesized title containing inner parens is not flagged as abbreviated."""
+        content = _valid_adr(
+            decision="See ADR-0023 (Config (Mode) Architecture Pattern) for details."
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (23, "Config (Mode) Architecture Pattern", "c", "0023-config.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "abbreviated_cross_ref_title" not in codes
+
+
+class TestWordPrefixOverlap:
+    """Tests for _word_prefix_overlap — handles em-dash trailing prose."""
+
+    def test_matching_prefix_returns_true(self) -> None:
+        """Strings sharing a word-prefix longer than the real title are detected."""
+        assert ADRPreValidator._word_prefix_overlap(
+            "auto-triage toggle must gate routing for details.",
+            "Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking",
+        )
+
+    def test_exact_match_returns_false(self) -> None:
+        """Exact match is not an abbreviation."""
+        assert not ADRPreValidator._word_prefix_overlap(
+            "auto-triage toggle must gate routing",
+            "Auto-Triage Toggle Must Gate Routing",
+        )
+
+    def test_too_few_common_words_returns_false(self) -> None:
+        """Fewer than min_words shared words returns False."""
+        assert not ADRPreValidator._word_prefix_overlap(
+            "auto-triage toggle different words",
+            "Auto-Triage Toggle Must Gate Routing",
+        )
+
+    def test_no_overlap_returns_false(self) -> None:
+        """Completely different strings return False."""
+        assert not ADRPreValidator._word_prefix_overlap(
+            "completely different title here",
+            "Auto-Triage Toggle Must Gate Routing",
+        )
+
+    def test_custom_min_words(self) -> None:
+        """Custom min_words threshold is respected."""
+        # 3 common words, but min_words=4
+        assert not ADRPreValidator._word_prefix_overlap(
+            "alpha beta gamma different",
+            "Alpha Beta Gamma Delta Epsilon",
+            min_words=4,
+        )
+        # 3 common words, min_words=3
+        assert ADRPreValidator._word_prefix_overlap(
+            "alpha beta gamma different",
+            "Alpha Beta Gamma Delta Epsilon",
+            min_words=3,
+        )
+
+    def test_emdash_abbreviated_not_double_flagged(self) -> None:
+        """Em-dash abbreviated title with trailing prose is not flagged as mismatched."""
+        content = _valid_adr(
+            decision="See ADR-0023 \u2014 Auto-Triage Toggle Must Gate Routing for details."
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (
+                23,
+                "Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking",
+                "c",
+                "0023-gate.md",
+            ),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "abbreviated_cross_ref_title" in codes
+        assert "mismatched_adr_title" not in codes
+
+
+class TestDictCollisionSharedNumbers:
+    """Tests that title checking handles multiple ADRs sharing the same number."""
+
+    def test_mismatched_title_with_shared_numbers(self) -> None:
+        """Title mismatch check works correctly when multiple ADRs share a number."""
+        content = _valid_adr(
+            decision="See ADR-0023 (Completely Wrong Title) for details."
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (23, "Auto-Triage Toggle Must Gate Routing", "c", "0023-gate.md"),
+            (23, "CLI Argparse Config Builder Pattern", "c", "0023-cli.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "mismatched_adr_title" in codes
+
+    def test_correct_title_with_shared_numbers_passes(self) -> None:
+        """Correct title for one of multiple ADRs sharing a number passes."""
+        content = _valid_adr(
+            decision="See ADR-0023 (CLI Argparse Config Builder Pattern) for details."
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (23, "Auto-Triage Toggle Must Gate Routing", "c", "0023-gate.md"),
+            (23, "CLI Argparse Config Builder Pattern", "c", "0023-cli.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "mismatched_adr_title" not in codes
+
+    def test_last_entry_not_favored_in_dict(self) -> None:
+        """The first ADR's title for a shared number is still matchable (no dict collision)."""
+        content = _valid_adr(decision="See ADR-0023 (First Title) for details.")
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (23, "First Title", "c", "0023-first.md"),
+            (23, "Second Title", "c", "0023-second.md"),
+            (23, "Third Title", "c", "0023-third.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "mismatched_adr_title" not in codes
+
+    def test_abbreviated_title_not_double_flagged(self) -> None:
+        """Abbreviated titles must not produce both mismatched_adr_title and abbreviated_cross_ref_title."""
+        content = _valid_adr(
+            decision="See ADR-0023 (Auto-Triage Toggle Must Gate Routing) for details."
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (
+                23,
+                "Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking",
+                "c",
+                "0023-gate.md",
+            ),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        # Abbreviated title is flagged exactly once as abbreviated_cross_ref_title
+        assert "abbreviated_cross_ref_title" in codes
+        assert "mismatched_adr_title" not in codes
+
+
 class TestMultipleIssues:
     def test_multiple_issues_collected(self) -> None:
         """An ADR with multiple problems should report all issues."""

@@ -507,8 +507,7 @@ class TestHITLSkipImproveTransition:
         assert outcome.outcome.value == "hitl_skipped"
         assert outcome.reason == "Not actionable"
 
-    @pytest.mark.asyncio
-    async def test_hitl_skip_rejects_empty_reason(
+    def test_hitl_skip_rejects_empty_reason(
         self, config, event_bus, state, tmp_path
     ) -> None:
         """Skip with empty reason should raise a Pydantic validation error."""
@@ -605,8 +604,7 @@ class TestHITLCloseEndpoint:
         assert outcome.outcome.value == "hitl_closed"
         assert outcome.reason == "Duplicate of #123"
 
-    @pytest.mark.asyncio
-    async def test_hitl_close_rejects_empty_reason(
+    def test_hitl_close_rejects_empty_reason(
         self, config, event_bus, state, tmp_path
     ) -> None:
         """Close with empty reason should raise a Pydantic validation error."""

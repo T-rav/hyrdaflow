@@ -245,10 +245,7 @@ class TestMergeConflictFilter:
 
         assert stats["processed"] == 1
 
-    @pytest.mark.asyncio
-    async def test_is_merge_conflict_matches_various_causes(
-        self, tmp_path: Path
-    ) -> None:
+    def test_is_merge_conflict_matches_various_causes(self, tmp_path: Path) -> None:
         unsticker, *_ = _make_unsticker(tmp_path)
         assert unsticker._is_merge_conflict("Merge conflict with main")
         assert unsticker._is_merge_conflict("merge conflict")
@@ -1032,8 +1029,7 @@ class TestCITimeoutResolution:
         )
         assert "AsyncMock" in captured_prompt
 
-    @pytest.mark.asyncio
-    async def test_ci_timeout_prompt_contains_isolation_guidance(
+    def test_ci_timeout_prompt_contains_isolation_guidance(
         self, tmp_path: Path
     ) -> None:
         """The prompt should contain isolation output and common hang causes."""

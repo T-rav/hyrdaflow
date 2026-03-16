@@ -272,8 +272,7 @@ async def test_concurrent_loops_do_not_double_process_same_issue(tmp_path) -> No
         assert _queue_depth(orch, "review") == 1
 
 
-@pytest.mark.asyncio
-async def test_label_transition_atomicity(tmp_path) -> None:
+def test_label_transition_atomicity(tmp_path) -> None:
     """An issue must reside in exactly one stage at every point during transitions."""
     script = PipelineScript()
     config = _config(tmp_path)

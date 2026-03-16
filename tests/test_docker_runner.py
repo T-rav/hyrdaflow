@@ -821,8 +821,7 @@ class TestStaggeredSpawning:
         assert len(times) == 2
         assert times[1] - times[0] >= 0.09  # Allow small tolerance
 
-    @pytest.mark.asyncio
-    async def test_spawn_delay_configurable(self, tmp_path: Path) -> None:
+    def test_spawn_delay_configurable(self, tmp_path: Path) -> None:
         runner, _client = _make_runner(spawn_delay=5.0, log_dir=tmp_path / "logs")
         assert runner._spawn_delay == 5.0
 
@@ -866,6 +865,33 @@ class TestDockerRunnerCleanup:
 
         assert len(runner._containers) == 0
         container1.remove.assert_called_once_with(force=True)
+        container2.remove.assert_called_once_with(force=True)
+
+    @pytest.mark.asyncio
+    async def test_cleanup_continues_after_first_container_fails(
+        self, tmp_path: Path
+    ) -> None:
+        """First container removal fails; second is still removed."""
+        container1 = _make_mock_container()
+        container2 = _make_mock_container()
+        container1.remove.side_effect = RuntimeError("already removed")
+        client = _make_mock_docker_client()
+        client.containers.create.side_effect = [container1, container2]
+
+        runner, _ = _make_runner(log_dir=tmp_path / "logs", mock_client=client)
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        await runner.create_streaming_process(["echo", "1"])
+        await runner.create_streaming_process(["echo", "2"])
+
+        assert len(runner._containers) == 2
+
+        await runner.cleanup()
+
+        assert len(runner._containers) == 0
+        # First container's remove was attempted (and failed)
+        container1.remove.assert_called_once_with(force=True)
+        # Second container's remove succeeded
         container2.remove.assert_called_once_with(force=True)
 
     @pytest.mark.asyncio

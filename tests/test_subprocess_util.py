@@ -570,8 +570,7 @@ class TestRunSubprocessTimeout:
         assert exc_info.value.__cause__ is not None
         assert isinstance(exc_info.value.__cause__, TimeoutError)
 
-    @pytest.mark.asyncio
-    async def test_default_timeout_is_120(self) -> None:
+    def test_default_timeout_is_120(self) -> None:
         """Default timeout should be 120 seconds."""
         import inspect
 
@@ -870,8 +869,7 @@ class TestGhApiSemaphore:
         # Non-gh commands bypass it, so all 3 run concurrently
         assert stats["max_concurrent"] == 3
 
-    @pytest.mark.asyncio
-    async def test_configure_gh_concurrency_sets_limit(self) -> None:
+    def test_configure_gh_concurrency_sets_limit(self) -> None:
         """configure_gh_concurrency should set the semaphore limit."""
         import subprocess_util
 

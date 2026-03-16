@@ -612,8 +612,7 @@ class TestAuditTrail:
         summary = policy.format_audit_summary(999)
         assert summary == "No baseline changes recorded."
 
-    @pytest.mark.asyncio
-    async def test_format_truncates_long_file_lists(
+    def test_format_truncates_long_file_lists(
         self, policy: BaselinePolicy, state: StateTracker
     ):
         record = BaselineAuditRecord(
