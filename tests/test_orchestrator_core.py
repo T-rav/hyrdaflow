@@ -558,65 +558,6 @@ class TestStopMechanism:
         assert not orch._stop_event.is_set()
         assert not orch._running
 
-    def test_reset_clears_all_asyncio_events(self, config: HydraFlowConfig) -> None:
-        """Guard: every asyncio.Event on the orchestrator must be .clear()'d in reset().
-
-        Events retain their set state across stop/start cycles — failing to
-        clear them causes waiters (e.g. _sleep_until_resume) to return
-        immediately on restart.  See #3119 / #3123.
-        """
-        import ast
-        import inspect
-        import textwrap
-
-        source = textwrap.dedent(inspect.getsource(HydraFlowOrchestrator))
-        tree = ast.parse(source)
-        cls_node = tree.body[0]
-        assert isinstance(cls_node, ast.ClassDef)
-
-        # Find all self._*_event = asyncio.Event() assignments in __init__
-        event_fields: list[str] = []
-        for node in ast.walk(cls_node):
-            if isinstance(node, ast.FunctionDef) and node.name == "__init__":
-                for child in ast.walk(node):
-                    if (
-                        isinstance(child, ast.Assign)
-                        and len(child.targets) == 1
-                        and isinstance(child.targets[0], ast.Attribute)
-                        and isinstance(child.targets[0].value, ast.Name)
-                        and child.targets[0].value.id == "self"
-                        and isinstance(child.value, ast.Call)
-                        and isinstance(child.value.func, ast.Attribute)
-                        and child.value.func.attr == "Event"
-                        and isinstance(child.value.func.value, ast.Name)
-                        and child.value.func.value.id == "asyncio"
-                    ):
-                        event_fields.append(child.targets[0].attr)
-
-        assert event_fields, "Expected at least one asyncio.Event in __init__"
-
-        # Find all self.<field>.clear() calls in reset()
-        cleared_fields: set[str] = set()
-        for node in ast.walk(cls_node):
-            if isinstance(node, ast.FunctionDef) and node.name == "reset":
-                for child in ast.walk(node):
-                    if (
-                        isinstance(child, ast.Call)
-                        and isinstance(child.func, ast.Attribute)
-                        and child.func.attr == "clear"
-                        and isinstance(child.func.value, ast.Attribute)
-                        and isinstance(child.func.value.value, ast.Name)
-                        and child.func.value.value.id == "self"
-                    ):
-                        cleared_fields.add(child.func.value.attr)
-
-        missing = [f for f in event_fields if f not in cleared_fields]
-        assert missing == [], (
-            f"asyncio.Event fields not cleared in reset(): {missing}. "
-            "Events must be .clear()'d in reset() to prevent stale state "
-            "across stop/start cycles."
-        )
-
     def test_run_status_idle_by_default(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
         assert orch.run_status == "idle"

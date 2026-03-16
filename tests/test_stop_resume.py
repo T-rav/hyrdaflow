@@ -415,11 +415,12 @@ class TestOrchestratorReset:
 
         assert orch._state.get_interrupted_issues() == {}
 
-    def test_reset_clears_all_asyncio_events(self, tmp_path: Path) -> None:
+    def test_reset_clears_all_asyncio_events_behavioral(self, tmp_path: Path) -> None:
         """After setting all asyncio.Event fields and calling reset(), none remain set.
 
-        Events retain their set state across stop/start cycles — failing to
-        clear them causes waiters to return immediately on restart.
+        Behavioral complement to TestAsyncioEventResetGuard (test_credit_pause.py),
+        which checks the same invariant via AST analysis. This test verifies
+        runtime behavior: events retain their set state across stop/start cycles.
         See #3119 / #3123.
         """
         orch = _make_orchestrator(tmp_path)
