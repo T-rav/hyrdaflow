@@ -363,6 +363,37 @@ class TestCheckSupersession:
         assert "Accepted" in issue.message
         assert issue.fixable is True
 
+    def test_duplicate_supersedes_ref_produces_single_issue(self) -> None:
+        """Same ADR number mentioned twice in 'supersedes' should not double-report."""
+        content = _adr_with_number(
+            2, decision="This supersedes ADR-0001 and also supersedes ADR-0001."
+        )
+        target = _adr_with_number(1, decision="No back-reference here.")
+        all_adrs = [(1, "Test ADR 1", target, "0001-old-adr.md")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        issues = [
+            i for i in result.issues if i.code == "missing_reciprocal_supersession"
+        ]
+        assert len(issues) == 1
+
+    def test_bidirectional_check_skipped_when_no_heading(self) -> None:
+        """When ADR has no standard heading, self_number is None and reciprocity checks are skipped."""
+        content = (
+            "**Status:** Accepted\n\n"
+            "## Context\n\nSome context.\n\n"
+            "## Decision\n\nThis supersedes ADR-0001.\n\n"
+            "## Consequences\n\nSome consequences.\n"
+        )
+        target = _adr_with_number(1, decision="No back-reference here.")
+        all_adrs = [(1, "Test ADR 1", target, "0001-old-adr.md")]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        # Existence check still runs; reciprocity check is silently skipped (self_number=None)
+        codes = [i.code for i in result.issues]
+        assert "invalid_supersession" not in codes
+        assert "missing_reciprocal_supersession" not in codes
+
     def test_proposed_can_supersede_proposed(self) -> None:
         """A Proposed ADR can supersede another Proposed ADR (neither is settled)."""
         content = _adr_with_number(

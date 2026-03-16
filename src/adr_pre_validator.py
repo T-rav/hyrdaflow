@@ -165,9 +165,13 @@ class ADRPreValidator:
         supersedes_refs = _SUPERSEDE_RE.findall(content)
         superseded_by_refs = _SUPERSEDED_BY_RE.findall(content)
 
-        # Remove "superseded by" matches from the general supersede matches
-        # because _SUPERSEDE_RE also matches "superseded" (without "by")
-        supersedes_only = [r for r in supersedes_refs if r not in superseded_by_refs]
+        # De-conflict: if the same number appears in both directions (circular reference),
+        # only process it via the "superseded by" path to avoid double-reporting.
+        # Deduplicate both lists so repeated mentions don't generate duplicate issues.
+        superseded_by_refs = list(dict.fromkeys(superseded_by_refs))
+        supersedes_only = list(
+            dict.fromkeys(r for r in supersedes_refs if r not in superseded_by_refs)
+        )
 
         if not supersedes_only and not superseded_by_refs:
             return
