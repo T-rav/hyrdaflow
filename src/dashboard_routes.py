@@ -3901,8 +3901,6 @@ def create_router(
             # Only re-enqueue if there's no pending entry already
             pending_ids = {p.id for p in state.get_pending_reports()}
             if report.id not in pending_ids:
-                from models import PendingReport
-
                 state.enqueue_report(
                     PendingReport(
                         id=report.id,

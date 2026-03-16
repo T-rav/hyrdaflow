@@ -627,7 +627,7 @@ class PRManager:
         await self._remove_label("issue", issue_number, label)
 
     async def get_issue_state(self, issue_number: int) -> str:
-        """Return the state of a GitHub issue (``'open'`` or ``'closed'``, empty on error)."""
+        """Return the state of a GitHub issue (``'OPEN'`` or ``'CLOSED'``, empty on error)."""
         self._assert_repo()
         try:
             output = await self._run_gh(
@@ -640,9 +640,7 @@ class PRManager:
                 "--json",
                 "state",
             )
-            import json as _json
-
-            data = _json.loads(output)
+            data = json.loads(output)
             return str(data.get("state", "")).upper()
         except Exception:
             logger.warning(
