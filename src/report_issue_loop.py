@@ -194,22 +194,14 @@ class ReportIssueLoop(BaseBackgroundLoop):
             if tracked:
                 tracked.linked_issue_url = issue_url
 
-            # Mark tracked report as fixed (also saves state)
+            # Success — mark tracked report and remove from queue
             self._state.update_tracked_report(
                 report.id,
                 status="fixed",
                 action_label="fixed",
                 detail=f"Created issue #{issue_number}",
             )
-
-            # Success — remove from queue
             self._state.remove_report(report.id)
-            self._state.update_tracked_report(
-                report.id,
-                status="fixed",
-                detail=f"Created issue #{issue_number}",
-                action_label="processed",
-            )
             logger.info(
                 "Processed report %s as issue #%d: %s",
                 report.id,
@@ -226,15 +218,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
         attempt_count = self._state.fail_report(report.id)
         if attempt_count >= _MAX_REPORT_ATTEMPTS:
             self._state.remove_report(report.id)
-            self._state.update_tracked_report(
-                report.id,
-                status="closed",
-                detail=f"Failed {attempt_count} times — escalated to HITL",
-                action_label="escalated",
-            )
             await self._escalate_failed_report(report)
-
-            # Mark tracked report as closed after escalation
             self._state.update_tracked_report(
                 report.id,
                 status="closed",
@@ -383,11 +367,36 @@ class ReportIssueLoop(BaseBackgroundLoop):
 
     @classmethod
     def _extract_issue_number_from_transcript(cls, transcript: str) -> int:
-        """Return issue number parsed from transcript output, or 0 when absent."""
-        match = cls._ISSUE_URL_RE.search(transcript or "")
-        if not match:
+        """Return issue number parsed from transcript output, or 0 when absent.
+
+        Only matches issue URLs that appear near creation context (e.g.,
+        ``gh issue create`` output or "Created issue" text) to avoid
+        false positives from URLs mentioned in agent reasoning.
+        """
+        if not transcript:
             return 0
-        try:
-            return int(match.group(1))
-        except ValueError:
-            return 0
+
+        # Strategy 1: look for `gh issue create` output which prints the URL
+        # on its own line (the most reliable signal)
+        for line in reversed(transcript.splitlines()):
+            stripped = line.strip()
+            match = cls._ISSUE_URL_RE.fullmatch(stripped)
+            if match:
+                try:
+                    return int(match.group(1))
+                except ValueError:
+                    continue
+
+        # Strategy 2: look for "created" context near an issue URL
+        created_re = re.compile(
+            r"(?:creat|open|filed|submitt)\w*\s+.*?" + cls._ISSUE_URL_RE.pattern,
+            re.IGNORECASE,
+        )
+        match = created_re.search(transcript)
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                pass
+
+        return 0

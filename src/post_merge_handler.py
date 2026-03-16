@@ -601,7 +601,12 @@ class PostMergeHandler:
         if len(title) > 256:
             title = title[:253] + "..."
 
-        body = format_verification_issue_body(judge_result, issue, pr)
+        body = format_verification_issue_body(
+            judge_result,
+            issue,
+            pr,
+            max_instructions_chars=self._config.max_verification_instructions_chars,
+        )
         label = self._config.verify_label[0]
         issue_number = await self._prs.create_issue(title, body, [label])
 

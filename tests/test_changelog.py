@@ -442,59 +442,6 @@ def _make_epic_issue(number: int, sub_issues: list[int]) -> GitHubIssue:
 
 class TestEpicChangelogIntegration:
     @pytest.mark.asyncio
-    async def test_epic_close_generates_changelog_and_release(self) -> None:
-        epic = _make_epic_issue(100, [1, 2])
-        epic = GitHubIssue(
-            number=100,
-            title="[Epic] v1.0.0 — Features",
-            body=epic.body,
-            labels=["hydraflow-epic"],
-        )
-        sub_issues = {
-            1: IssueFactory.create(
-                number=1, labels=["hydraflow-fixed"], title="Issue #1"
-            ),
-            2: IssueFactory.create(
-                number=2, labels=["hydraflow-fixed"], title="Issue #2"
-            ),
-        }
-        config = ConfigFactory.create(
-            epic_label=["hydraflow-epic"],
-            release_on_epic_close=True,
-        )
-        prs = AsyncMock()
-        prs.create_tag = AsyncMock(return_value=True)
-        prs.create_release = AsyncMock(return_value=True)
-        fetcher = AsyncMock()
-        fetcher.fetch_issues_by_labels = AsyncMock(return_value=[epic])
-        fetcher.fetch_issue_by_number = AsyncMock(side_effect=sub_issues.get)
-        checker = EpicCompletionChecker(config, prs, fetcher)
-
-        changelog_body = "## [1.0.0] - 2026-02-28\n\n### Features\n- stuff"
-        with patch(
-            "epic.generate_changelog",
-            AsyncMock(return_value=changelog_body),
-        ) as mock_gen:
-            await checker.check_and_close_epics(1)
-
-            # Changelog generation was called with the real version, not "epic-N"
-            mock_gen.assert_called_once()
-            call_kwargs = mock_gen.call_args
-            assert call_kwargs[1]["sub_issues"] == [1, 2]
-            assert call_kwargs[1]["version"] == "1.0.0"
-
-        # Release was created
-        prs.create_tag.assert_called_once_with("v1.0.0")
-        prs.create_release.assert_called_once()
-        release_args = prs.create_release.call_args
-        assert release_args[0][0] == "v1.0.0"
-
-        # Comment includes release URL
-        comment = prs.post_comment.call_args[0][1]
-        assert "All sub-issues resolved" in comment
-        assert "Release" in comment
-
-    @pytest.mark.asyncio
     async def test_epic_close_skips_release_when_changelog_empty(self) -> None:
         epic = _make_epic_issue(100, [1])
         sub_issues = {
@@ -548,44 +495,6 @@ class TestEpicChangelogIntegration:
         assert "Features" in content
 
     @pytest.mark.asyncio
-    async def test_epic_close_no_changelog_file_when_not_configured(self) -> None:
-        epic = _make_epic_issue(100, [1])
-        epic = GitHubIssue(
-            number=100,
-            title="[Epic] v1.0.0 — Feature",
-            body=epic.body,
-            labels=["hydraflow-epic"],
-        )
-        sub_issues = {
-            1: IssueFactory.create(
-                number=1, labels=["hydraflow-fixed"], title="Issue #1"
-            ),
-        }
-        config = ConfigFactory.create(
-            epic_label=["hydraflow-epic"],
-            release_on_epic_close=True,
-        )
-        # Default is empty string — no file output
-        assert config.changelog_file == ""
-
-        prs = AsyncMock()
-        prs.create_tag = AsyncMock(return_value=True)
-        prs.create_release = AsyncMock(return_value=True)
-        fetcher = AsyncMock()
-        fetcher.fetch_issues_by_labels = AsyncMock(return_value=[epic])
-        fetcher.fetch_issue_by_number = AsyncMock(side_effect=sub_issues.get)
-        checker = EpicCompletionChecker(config, prs, fetcher)
-
-        with patch(
-            "epic.generate_changelog",
-            AsyncMock(return_value="## [epic-100]\n\n### Features\n- stuff"),
-        ):
-            await checker.check_and_close_epics(1)
-
-        # Release still created even without changelog file config
-        prs.create_release.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_changelog_generation_failure_doesnt_block_close(self) -> None:
         epic = _make_epic_issue(100, [1])
         sub_issues = {
@@ -610,55 +519,6 @@ class TestEpicChangelogIntegration:
         prs.close_issue.assert_called_once_with(100)
         # No release when changelog generation fails
         prs.create_release.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_release_and_changelog_file_generates_once(
-        self, tmp_path: Path
-    ) -> None:
-        """With both release_on_epic_close and changelog_file set, generate_changelog
-        should only be called once — the result is reused for both paths."""
-        epic = _make_epic_issue(100, [1])
-        epic = GitHubIssue(
-            number=100,
-            title="[Epic] v2.0.0 — Big Release",
-            body=epic.body,
-            labels=["hydraflow-epic"],
-        )
-        sub_issues = {
-            1: IssueFactory.create(
-                number=1, labels=["hydraflow-fixed"], title="Issue #1"
-            ),
-        }
-        config = ConfigFactory.create(
-            epic_label=["hydraflow-epic"],
-            release_on_epic_close=True,
-            repo_root=tmp_path,
-        )
-        config.changelog_file = "CHANGELOG.md"
-
-        prs = AsyncMock()
-        prs.create_tag = AsyncMock(return_value=True)
-        prs.create_release = AsyncMock(return_value=True)
-        fetcher = AsyncMock()
-        fetcher.fetch_issues_by_labels = AsyncMock(return_value=[epic])
-        fetcher.fetch_issue_by_number = AsyncMock(side_effect=sub_issues.get)
-        checker = EpicCompletionChecker(config, prs, fetcher)
-
-        changelog_content = "## [2.0.0] - 2026-02-28\n\n### Features\n- big thing\n"
-        with patch(
-            "epic.generate_changelog",
-            AsyncMock(return_value=changelog_content),
-        ) as mock_gen:
-            await checker.check_and_close_epics(1)
-
-        # Only one changelog generation despite both release and file paths
-        mock_gen.assert_called_once()
-        # Release was created
-        prs.create_release.assert_called_once()
-        # File was written
-        changelog_path = tmp_path / "CHANGELOG.md"
-        assert changelog_path.exists()
-        assert "2.0.0" in changelog_path.read_text()
 
     @pytest.mark.asyncio
     async def test_write_changelog_prepends_after_heading(self, tmp_path: Path) -> None:

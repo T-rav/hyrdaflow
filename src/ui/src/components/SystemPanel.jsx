@@ -266,51 +266,6 @@ function BackgroundWorkerCard({ def, state, pipelinePollerLastRun, pipelineIssue
 const NON_SYSTEM_WORKERS = BACKGROUND_WORKERS.filter(w => !w.system)
 const SYSTEM_WORKERS = BACKGROUND_WORKERS.filter(w => w.system)
 
-function MemoryAutoApproveToggle() {
-  const { config, selectedRepoSlug } = useHydraFlow()
-  const [localEnabled, setLocalEnabled] = useState(null)
-
-  const isEnabled = localEnabled !== null ? localEnabled : (config?.memory_auto_approve ?? false)
-
-  const handleToggle = useCallback(async () => {
-    const newValue = !isEnabled
-    setLocalEnabled(newValue)
-    try {
-      const url = selectedRepoSlug
-        ? `/api/control/config?repo=${encodeURIComponent(selectedRepoSlug)}`
-        : '/api/control/config'
-      const resp = await fetch(url, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memory_auto_approve: newValue, persist: true }),
-      })
-      if (!resp.ok) {
-        setLocalEnabled(isEnabled)
-      }
-    } catch {
-      setLocalEnabled(isEnabled)
-    }
-  }, [isEnabled, selectedRepoSlug])
-
-  return (
-    <div style={styles.autoApproveRow}>
-      <div style={styles.autoApproveLabel}>
-        <span style={styles.autoApproveText}>Memory Auto-Approve</span>
-        <span style={styles.autoApproveHint}>
-          Skip HITL queue for memory suggestions
-        </span>
-      </div>
-      <button
-        style={isEnabled ? styles.toggleOn : styles.toggleOff}
-        onClick={handleToggle}
-        data-testid="memory-auto-approve-toggle"
-      >
-        {isEnabled ? 'On' : 'Off'}
-      </button>
-    </div>
-  )
-}
-
 function UnstickWorkersDropdown() {
   const { config, selectedRepoSlug } = useHydraFlow()
   const [localValue, setLocalValue] = useState(null)
@@ -418,7 +373,6 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onTriggerBgWo
                     onUpdateInterval={onUpdateInterval}
                     events={events}
                     extraContent={
-                      def.key === 'memory_sync' ? <MemoryAutoApproveToggle /> :
                       def.key === 'pr_unsticker' ? <UnstickWorkersDropdown /> :
                       undefined
                     }

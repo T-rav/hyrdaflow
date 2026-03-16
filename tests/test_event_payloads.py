@@ -377,6 +377,16 @@ class TestSystemAlertPayload:
         }
         assert p["epic_number"] == 5
 
+    def test_with_resume_at_field(self) -> None:
+        from models import SystemAlertPayload
+
+        p: SystemAlertPayload = {
+            "message": "Credit limit reached.",
+            "source": "plan",
+            "resume_at": "2026-03-15T18:00:00+00:00",
+        }
+        assert p["resume_at"] == "2026-03-15T18:00:00+00:00"
+
 
 class TestTranscriptSummaryPayload:
     def test_as_comment(self) -> None:

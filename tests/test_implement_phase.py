@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -2122,6 +2123,15 @@ class TestCriticalExceptionPropagation:
 class TestADRSequence:
     """Tests for ADR-specific implementation sequencing."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_assigned(self) -> Generator[None, None, None]:
+        """Reset the module-level assigned set before and after each test."""
+        import phase_utils
+
+        phase_utils._assigned_adr_numbers.clear()
+        yield
+        phase_utils._assigned_adr_numbers.clear()
+
     def test_prepare_adr_plan_writes_fallback_plan_for_adr_issue(
         self, config: HydraFlowConfig
     ) -> None:
@@ -2139,6 +2149,45 @@ class TestADRSequence:
         content = plan_path.read_text()
         assert "## Implementation Plan" in content
         assert "docs/adr/" in content
+
+    def test_prepare_adr_plan_assigns_unique_adr_number(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Each ADR plan must embed a pre-assigned unique number."""
+        issue = TaskFactory.create(
+            id=600,
+            title="[ADR] First decision",
+            body="## Context\nA\n\n## Decision\nB\n\n## Consequences\nC",
+        )
+        phase, _, _ = make_implement_phase(config, [issue])
+        phase._prepare_adr_plan(issue)
+
+        content = (config.plans_dir / "issue-600.md").read_text()
+        assert "0001" in content
+        assert "do NOT pick a different number" in content
+
+    def test_prepare_adr_plan_increments_across_calls(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Successive ADR plan preparations must get different numbers."""
+        issues = [
+            TaskFactory.create(
+                id=700 + i,
+                title=f"[ADR] Decision {i}",
+                body="## Context\nA\n\n## Decision\nB\n\n## Consequences\nC",
+            )
+            for i in range(3)
+        ]
+        phase, _, _ = make_implement_phase(config, issues)
+        for issue in issues:
+            phase._prepare_adr_plan(issue)
+
+        contents = [
+            (config.plans_dir / f"issue-{700 + i}.md").read_text() for i in range(3)
+        ]
+        assert "0001" in contents[0]
+        assert "0002" in contents[1]
+        assert "0003" in contents[2]
 
     def test_prepare_adr_plan_skips_non_adr_issue(
         self, config: HydraFlowConfig

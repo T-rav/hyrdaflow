@@ -474,6 +474,34 @@ class TestParseTaskLinks:
         assert len(links) == 1
         assert links[0].kind == TaskLinkKind.SUPERSEDES
 
+    def test_supersedes_pattern_supersede_base(self) -> None:
+        links = parse_task_links("will supersede #9")
+
+        assert len(links) == 1
+        assert links[0].kind == TaskLinkKind.SUPERSEDES
+        assert links[0].target_id == 9
+
+    def test_supersedes_pattern_superseded(self) -> None:
+        links = parse_task_links("This superseded #5")
+
+        assert len(links) == 1
+        assert links[0].kind == TaskLinkKind.SUPERSEDES
+        assert links[0].target_id == 5
+
+    def test_supersedes_pattern_superseding(self) -> None:
+        links = parse_task_links("superseding #12")
+
+        assert len(links) == 1
+        assert links[0].kind == TaskLinkKind.SUPERSEDES
+        assert links[0].target_id == 12
+
+    def test_supersedes_uppercase_superseded(self) -> None:
+        links = parse_task_links("SUPERSEDED #7")
+
+        assert len(links) == 1
+        assert links[0].kind == TaskLinkKind.SUPERSEDES
+        assert links[0].target_id == 7
+
     # --- replies_to ---
 
     def test_replies_to_pattern_replies_to(self) -> None:

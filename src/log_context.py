@@ -28,12 +28,9 @@ def truncate_log(log_text: str, max_chars: int) -> str:
 def load_runtime_logs(config: HydraFlowConfig) -> str:
     """Read the HydraFlow application log tail for agent context injection.
 
-    Returns an empty string when the feature is disabled, the log file is
-    missing, or it is empty.  Output is capped at ``config.max_runtime_log_chars``.
+    Returns an empty string when the log file is missing or empty.
+    Output is capped at ``config.max_runtime_log_chars``.
     """
-    if not config.inject_runtime_logs:
-        return ""
-
     log_path = config.data_path("logs", "hydraflow.log")
     if not log_path.is_file():
         return ""

@@ -247,27 +247,8 @@ export function WorkLogPanel() {
     }
   }, [fetchData])
 
-  const handleToggleAutoCrate = useCallback(async () => {
-    const newValue = !(activeCrate?.auto_crate)
-    try {
-      const url = selectedRepoSlug
-        ? `/api/control/config?repo=${encodeURIComponent(selectedRepoSlug)}`
-        : '/api/control/config'
-      const res = await fetch(url, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ auto_crate: newValue }),
-      })
-      if (res.ok) {
-        setActiveCrate(prev => prev ? { ...prev, auto_crate: newValue } : prev)
-      }
-    } catch {
-      setError('Failed to toggle auto-crate')
-    }
-  }, [activeCrate, selectedRepoSlug])
-
   const activeCrateNumber = activeCrate?.crate_number
-  const noActiveCrate = activeCrateNumber == null && !activeCrate?.auto_crate
+  const noActiveCrate = activeCrateNumber == null
 
   return (
     <div style={styles.container}>
@@ -311,15 +292,6 @@ export function WorkLogPanel() {
       <div style={styles.sectionHeader}>
         <span style={styles.sectionTitle}>Crates</span>
         <div style={styles.createRow}>
-          <label style={styles.toggleLabel}>
-            <input
-              type="checkbox"
-              checked={!!activeCrate?.auto_crate}
-              onChange={handleToggleAutoCrate}
-              data-testid="auto-crate-toggle"
-            />
-            <span style={styles.toggleText}>Auto-crate</span>
-          </label>
           <input
             type="text"
             placeholder="yyyy-mm-dd.N"
