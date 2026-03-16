@@ -115,7 +115,6 @@ class HydraFlowEvent(BaseModel):
         cast at runtime — no validation is performed — but gives the caller
         full type-checker support for the returned dict keys.
         """
-        _ = cls  # unused at runtime; TypeVar binding in signature drives type inference
         return cast(_T, self.data)
 
 

@@ -11,7 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from events import EventBus, EventLog, EventType, HydraFlowEvent, _log_persist_failure
-from models import WorkerUpdatePayload
+from models import SessionLog, WorkerUpdatePayload
 from tests.conftest import EventFactory
 
 # ---------------------------------------------------------------------------
@@ -178,6 +178,12 @@ class TestEventDataType:
         with pytest.raises(ValidationError):
             HydraFlowEvent(type=EventType.ERROR, data=None)  # type: ignore[arg-type]
 
+    def test_rejects_basemodel_payload(self) -> None:
+        """BaseModel instances must be passed via .model_dump(), not directly."""
+        log = SessionLog(id="sess-1", repo="org/repo", started_at="2026-01-01T00:00:00")
+        with pytest.raises(ValidationError):
+            HydraFlowEvent(type=EventType.SESSION_START, data=log)  # type: ignore[arg-type]
+
     def test_accepts_dict_payload(self) -> None:
         event = HydraFlowEvent(type=EventType.ERROR, data={"msg": "oops"})
         assert event.data == {"msg": "oops"}
@@ -202,8 +208,6 @@ class TestEventDataType:
         assert event.data["status"] == "active"
 
     def test_accepts_pydantic_model_dump_payload(self) -> None:
-        from models import SessionLog
-
         log = SessionLog(id="sess-1", repo="org/repo", started_at="2026-01-01T00:00:00")
         event = HydraFlowEvent(type=EventType.SESSION_START, data=log.model_dump())
         assert event.data["id"] == "sess-1"
