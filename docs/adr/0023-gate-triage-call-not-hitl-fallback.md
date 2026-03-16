@@ -3,8 +3,8 @@
 **Status:** Superseded
 **Date:** 2026-03-08
 
-> **Superseded by [ADR-0023: Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking](0023-auto-triage-toggle-must-gate-routing.md).**
-> That ADR covers the same toggle-bypass bug with broader scope (centralized helper, stats coupling, pre-review failure paths) and uses the correct toggle name `adr_auto_triage`.
+> **Superseded by [ADR-0023 (Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking)](0023-auto-triage-toggle-must-gate-routing.md).**
+> That ADR covers the same toggle-bypass bug with broader scope: centralized helper, stats coupling, and pre-review failure paths.
 
 ## Context
 
@@ -16,7 +16,7 @@ deadlocked, the system must choose between two paths:
    plan → implement → review pipeline (`_route_to_triage`).
 2. **HITL** — escalate to a human-in-the-loop issue (`_escalate_to_hitl`).
 
-A config toggle (e.g., `adr_review_auto_triage`) is intended to control whether
+A config toggle (e.g., `adr_auto_triage`) is intended to control whether
 the system uses automatic triage or always escalates to HITL. The current
 implementation in `_route_result` always calls `_route_to_triage` first and only
 falls back to `_escalate_to_hitl` when triage fails (returns `False`):
@@ -113,7 +113,7 @@ When reviewing any routing method that calls both `_route_to_triage` and
 
 ## Related
 
-- **Superseded by:** [ADR-0023: Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking](0023-auto-triage-toggle-must-gate-routing.md)
+- **Superseded by:** [ADR-0023 (Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking)](0023-auto-triage-toggle-must-gate-routing.md)
 - Source memory: #2345
 - Issue: #2355
 - Related learning: #2346, #2350
