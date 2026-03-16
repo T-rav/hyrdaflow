@@ -20,7 +20,6 @@ def _make_loop(
     tmp_path: Path,
     *,
     enabled: bool = True,
-    adr_review_enabled: bool = True,
     interval: int = 86400,
     review_error: Exception | None = None,
 ) -> tuple[ADRReviewerLoop, asyncio.Event]:
@@ -29,7 +28,6 @@ def _make_loop(
         tmp_path,
         enabled=enabled,
         adr_review_interval=interval,
-        adr_review_enabled=adr_review_enabled,
     )
 
     adr_reviewer = MagicMock()
@@ -43,11 +41,7 @@ def _make_loop(
     loop = ADRReviewerLoop(
         config=deps.config,
         adr_reviewer=adr_reviewer,
-        event_bus=deps.bus,
-        stop_event=deps.stop_event,
-        status_cb=deps.status_cb,
-        enabled_cb=deps.enabled_cb,
-        sleep_fn=deps.sleep_fn,
+        deps=deps.loop_deps,
     )
     return loop, deps.stop_event
 
@@ -63,16 +57,6 @@ class TestADRReviewerLoopRun:
         await loop.run()
 
         loop._adr_reviewer.review_proposed_adrs.assert_awaited()
-
-    @pytest.mark.asyncio
-    async def test_do_work__skips_when_config_disabled(self, tmp_path: Path) -> None:
-        """The loop skips review when adr_review_enabled is False."""
-        loop, _stop = _make_loop(tmp_path, adr_review_enabled=False)
-
-        result = await loop._do_work()
-
-        assert result is None
-        loop._adr_reviewer.review_proposed_adrs.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_do_work__skips_when_loop_disabled(self, tmp_path: Path) -> None:

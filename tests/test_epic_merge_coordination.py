@@ -245,6 +245,8 @@ class TestStateTrackerEpicApproval:
         state = StateTracker(tmp_path / "state.json")
         # Should not raise
         state.mark_epic_child_approved(999, 1)
+        # Verify no epic state was created for the unknown epic
+        assert state.get_epic_state(999) is None
 
     def test_get_epic_progress_empty(self, tmp_path: Path) -> None:
         state = StateTracker(tmp_path / "state.json")

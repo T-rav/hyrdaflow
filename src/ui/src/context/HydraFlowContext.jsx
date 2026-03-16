@@ -124,10 +124,14 @@ export function reducer(state, action) {
       const newStatus = action.data.status
       const isStopped = newStatus === 'idle' || newStatus === 'done' || newStatus === 'stopping'
       const isSessionStart = newStatus === 'running' && action.data.reset === true
+      const creditsPaused = action.data.credits_paused_until || null
+      // Clear the system alert banner when credits are no longer paused
+      const clearAlert = !creditsPaused && state.systemAlert?.message?.includes('Credit limit')
       return {
         ...addEvent(state, action),
         orchestratorStatus: newStatus,
-        creditsPausedUntil: action.data.credits_paused_until || null,
+        creditsPausedUntil: creditsPaused,
+        ...(clearAlert ? { systemAlert: null } : {}),
         ...(isStopped ? {
           workers: {},
           sessionPrsCount: 0,
@@ -481,6 +485,9 @@ export function reducer(state, action) {
     case 'system_alert':
       return { ...addEvent(state, action), systemAlert: action.data }
 
+    case 'CLEAR_SYSTEM_ALERT':
+      return { ...state, systemAlert: null }
+
     case 'error':
       return addEvent(state, action)
 
@@ -746,6 +753,31 @@ function getReporterId() {
     localStorage.setItem(key, id)
   }
   return id
+}
+
+/** Maps a WebSocket event to a WS_PIPELINE_UPDATE action, or null if not applicable. */
+export function getPipelineAction(event) {
+  const issueNum = event.data?.issue != null ? Number(event.data.issue) : null
+  if (issueNum == null) return null
+  const s = event.data?.status
+  if (event.type === 'triage_update') {
+    if (s === 'done') return { type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: 'triage', toStage: 'plan', status: 'queued' } }
+    if (s === 'failed') return { type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: null, toStage: null, status: 'failed' } }
+    if (s) return { type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: null, toStage: null, status: 'active' } }
+  } else if (event.type === 'planner_update') {
+    if (s === 'done') return { type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: 'plan', toStage: 'implement', status: 'queued' } }
+    if (s === 'failed') return { type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: null, toStage: null, status: 'failed' } }
+    if (s) return { type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: null, toStage: null, status: 'active' } }
+  } else if (event.type === 'worker_update') {
+    if (s === 'done') return { type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: 'implement', toStage: 'review', status: 'queued' } }
+    if (s) return { type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: null, toStage: null, status: 'active' } }
+  } else if (event.type === 'review_update') {
+    if (s === 'done') return { type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: null, toStage: null, status: 'done' } }
+    if (s) return { type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: null, toStage: null, status: 'active' } }
+  } else if (event.type === 'merge_update' && s === 'merged') {
+    return { type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: 'review', toStage: 'merged', status: 'done' } }
+  }
+  return null
 }
 
 export function HydraFlowProvider({ children }) {
@@ -1376,28 +1408,8 @@ export function HydraFlowProvider({ children }) {
           lastEventTsRef.current = event.timestamp
         }
         // Dispatch WS pipeline updates for stage transitions
-        const issueNum = event.data?.issue != null ? Number(event.data.issue) : null
-        if (issueNum != null) {
-          if (event.type === 'triage_update' && event.data?.status === 'done') {
-            dispatch({ type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: 'triage', toStage: 'plan', status: 'queued' } })
-          } else if (event.type === 'triage_update' && event.data?.status && event.data.status !== 'done') {
-            dispatch({ type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: null, toStage: null, status: 'active' } })
-          } else if (event.type === 'planner_update' && event.data?.status === 'done') {
-            dispatch({ type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: 'plan', toStage: 'implement', status: 'queued' } })
-          } else if (event.type === 'planner_update' && event.data?.status && event.data.status !== 'done') {
-            dispatch({ type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: null, toStage: null, status: 'active' } })
-          } else if (event.type === 'worker_update' && event.data?.status === 'done') {
-            dispatch({ type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: 'implement', toStage: 'review', status: 'queued' } })
-          } else if (event.type === 'worker_update' && event.data?.status && event.data.status !== 'done') {
-            dispatch({ type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: null, toStage: null, status: 'active' } })
-          } else if (event.type === 'review_update' && event.data?.status === 'done') {
-            dispatch({ type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: null, toStage: null, status: 'done' } })
-          } else if (event.type === 'review_update' && event.data?.status && event.data.status !== 'done') {
-            dispatch({ type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: null, toStage: null, status: 'active' } })
-          } else if (event.type === 'merge_update' && event.data?.status === 'merged') {
-            dispatch({ type: 'WS_PIPELINE_UPDATE', data: { issueNumber: issueNum, fromStage: 'review', toStage: 'merged', status: 'done' } })
-          }
-        }
+        const pipelineAction = getPipelineAction(event)
+        if (pipelineAction) dispatch(pipelineAction)
 
         if (event.type === 'metrics_update') {
           fetchLifetimeStats()
@@ -1569,6 +1581,7 @@ export function HydraFlowProvider({ children }) {
     toggleBgWorker,
     triggerBgWorker,
     updateBgWorkerInterval,
+    dismissSystemAlert: useCallback(() => dispatch({ type: 'CLEAR_SYSTEM_ALERT' }), [dispatch]),
     refreshHitl: fetchHitlItems,
     selectSession,
     selectRepo,

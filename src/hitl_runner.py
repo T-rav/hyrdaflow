@@ -11,10 +11,9 @@ from typing import Literal
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
 from models import GitHubIssue, HITLResult, HITLUpdatePayload
-from phase_utils import is_likely_bug
-from prompt_stats import build_prompt_stats, truncate_with_notice
+from phase_utils import reraise_on_credit_or_bug
+from prompt_builder import PromptBuilder
 from runner_constants import MEMORY_SUGGESTION_PROMPT
-from subprocess_util import CreditExhaustedError
 
 logger = logging.getLogger("hydraflow.hitl_runner")
 
@@ -66,9 +65,6 @@ _CAUSE_INSTRUCTIONS: dict[HITLCauseKey, str] = {
         '4. Commit with message: "hitl-fix: <description> (#{issue})".'
     ),
 }
-
-_MAX_HITL_CORRECTION_CHARS = 4000
-_MAX_HITL_CAUSE_CHARS = 2000
 
 
 def _classify_cause(cause: str) -> HITLCauseKey:
@@ -152,11 +148,8 @@ class HITLRunner(BaseRunner):
 
             self._save_transcript("hitl-issue", issue.number, transcript)
 
-        except CreditExhaustedError:
-            raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             result.success = False
             result.error = repr(exc)
             logger.exception("HITL run failed for issue #%d: %s", issue.number, exc)
@@ -187,14 +180,15 @@ class HITLRunner(BaseRunner):
         instructions = _CAUSE_INSTRUCTIONS[cause_key].replace(
             "#{issue}", f"#{issue.number}"
         )
-        issue_body, body_before, body_after = truncate_with_notice(
-            issue.body or "", self._config.max_issue_body_chars, label="Issue body"
+        builder = PromptBuilder()
+        issue_body = builder.add_context_section(
+            "Issue body", issue.body or "", self._config.max_issue_body_chars
         )
-        cause_text, cause_before, cause_after = truncate_with_notice(
-            cause or "", _MAX_HITL_CAUSE_CHARS, label="Escalation reason"
+        cause_text = builder.add_history_section(
+            "Escalation reason", cause or "", self._config.max_hitl_cause_chars
         )
-        correction_text, correction_before, correction_after = truncate_with_notice(
-            correction or "", _MAX_HITL_CORRECTION_CHARS, label="Human guidance"
+        correction_text = builder.add_history_section(
+            "Human guidance", correction or "", self._config.max_hitl_correction_chars
         )
 
         manifest_section, memory_section = self._inject_manifest_and_memory()
@@ -226,18 +220,5 @@ class HITLRunner(BaseRunner):
 - Ensure `make quality` passes before committing.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="correction")}"""
-        stats = build_prompt_stats(
-            history_before=cause_before + correction_before,
-            history_after=cause_after + correction_after,
-            context_before=body_before,
-            context_after=body_after,
-            section_chars={
-                "issue_body_before": body_before,
-                "issue_body_after": body_after,
-                "cause_before": cause_before,
-                "cause_after": cause_after,
-                "guidance_before": correction_before,
-                "guidance_after": correction_after,
-            },
-        )
+        stats = builder.build_stats()
         return prompt, stats

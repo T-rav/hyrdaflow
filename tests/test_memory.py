@@ -1336,34 +1336,6 @@ class TestMemoryConfig:
         config = HydraFlowConfig(repo="test/repo")
         assert config.memory_sync_interval == 60
 
-    def test_memory_auto_approve_default_false(self) -> None:
-        from config import HydraFlowConfig
-
-        config = HydraFlowConfig(repo="test/repo")
-        assert config.memory_auto_approve is False
-
-    def test_memory_auto_approve_explicit_true(self) -> None:
-        config = ConfigFactory.create(memory_auto_approve=True)
-        assert config.memory_auto_approve is True
-
-    def test_memory_auto_approve_env_override(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from config import HydraFlowConfig
-
-        monkeypatch.setenv("HYDRAFLOW_MEMORY_AUTO_APPROVE", "true")
-        config = HydraFlowConfig(repo="test/repo")
-        assert config.memory_auto_approve is True
-
-    def test_memory_auto_approve_env_override_false(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from config import HydraFlowConfig
-
-        monkeypatch.setenv("HYDRAFLOW_MEMORY_AUTO_APPROVE", "false")
-        config = HydraFlowConfig(repo="test/repo")
-        assert config.memory_auto_approve is False
-
 
 # --- Models tests ---
 
@@ -1384,18 +1356,6 @@ class TestMemoryModels:
 
         cfg = ControlStatusConfig(memory_label=["hydraflow-memory"])
         assert cfg.memory_label == ["hydraflow-memory"]
-
-    def test_control_status_config_memory_auto_approve_default(self) -> None:
-        from models import ControlStatusConfig
-
-        cfg = ControlStatusConfig()
-        assert cfg.memory_auto_approve is False
-
-    def test_control_status_config_memory_auto_approve_true(self) -> None:
-        from models import ControlStatusConfig
-
-        cfg = ControlStatusConfig(memory_auto_approve=True)
-        assert cfg.memory_auto_approve is True
 
     def test_github_issue_created_at_from_camel_case(self) -> None:
         from models import GitHubIssue
@@ -1563,11 +1523,60 @@ class TestSummariseWithModel:
         runner.run_simple.assert_awaited_once()
         call_args = runner.run_simple.call_args
         cmd = call_args[0][0]
-        assert cmd[0] == "claude"
+        # Assert the configured tool name is used (default is "claude"), not a hardcoded literal.
+        assert cmd[0] == config.memory_compaction_tool
         assert cmd[1] == "-p"
         # Prompt must be immediately after -p for the CLI to recognise it.
         assert cmd[2] not in ("--model",), "prompt must follow -p, not a flag"
         assert call_args[1].get("input") is None
+
+    @pytest.mark.asyncio
+    async def test_custom_tool_uses_tool_variable_not_hardcoded_claude(
+        self, tmp_path: Path
+    ) -> None:
+        """Non-codex tool must use the configured tool name, not hardcoded 'claude'."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path,
+            memory_compaction_tool="pi",
+            memory_compaction_model="pi-model",
+        )
+        runner = AsyncMock()
+        runner.run_simple = AsyncMock(
+            return_value=SimpleResult(stdout="Summary", stderr="", returncode=0)
+        )
+        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
+
+        await worker._summarise_with_model("content", 4000)
+
+        runner.run_simple.assert_awaited_once()
+        cmd = runner.run_simple.call_args[0][0]
+        assert cmd[0] == "pi", f"Expected tool 'pi' but got '{cmd[0]}'"
+        assert cmd[1] == "-p"
+        assert "--model" in cmd
+        assert cmd[cmd.index("--model") + 1] == "pi-model"
+
+    @pytest.mark.asyncio
+    async def test_default_claude_tool_uses_tool_variable(self, tmp_path: Path) -> None:
+        """Default 'claude' tool must still come from config, not a hardcoded string."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path,
+            memory_compaction_tool="claude",
+            memory_compaction_model="haiku",
+        )
+        runner = AsyncMock()
+        runner.run_simple = AsyncMock(
+            return_value=SimpleResult(stdout="Summary", stderr="", returncode=0)
+        )
+        worker = MemorySyncWorker(config, MagicMock(), MagicMock(), runner=runner)
+
+        await worker._summarise_with_model("content", 4000)
+
+        runner.run_simple.assert_awaited_once()
+        cmd = runner.run_simple.call_args[0][0]
+        assert cmd[0] == "claude"
+        assert cmd[1] == "-p"
+        assert "--model" in cmd
+        assert cmd[cmd.index("--model") + 1] == "haiku"
 
     @pytest.mark.asyncio
     async def test_codex_tool_passes_prompt_as_cli_arg(self, tmp_path: Path) -> None:
@@ -2052,217 +2061,6 @@ class TestFileMemorySuggestionLabelRouting:
 
 
 # --- Auto-approve tests ---
-
-
-class TestFileMemorySuggestionAutoApprove:
-    """Tests for file_memory_suggestion with memory_auto_approve enabled."""
-
-    @pytest.mark.asyncio
-    async def test_file_memory_suggestion__auto_approve__uses_memory_label(
-        self, tmp_path: Path
-    ) -> None:
-        """When memory_auto_approve is True, issue is created with memory_label only."""
-        config = ConfigFactory.create(
-            repo_root=tmp_path / "repo",
-            state_file=tmp_path / "state.json",
-            memory_auto_approve=True,
-        )
-        state = StateTracker(config.state_file)
-        mock_prs = AsyncMock()
-        mock_prs.create_issue = AsyncMock(return_value=77)
-
-        transcript = (
-            "MEMORY_SUGGESTION_START\n"
-            "title: Auto-approved learning\n"
-            "learning: Tests should run before commits\n"
-            "context: During implementation\n"
-            "MEMORY_SUGGESTION_END\n"
-        )
-
-        await file_memory_suggestion(
-            transcript, "implementer", "issue #10", config, mock_prs, state
-        )
-
-        mock_prs.create_issue.assert_awaited_once()
-        call_labels = mock_prs.create_issue.call_args.args[2]
-        assert config.memory_label[0] in call_labels
-        assert config.improve_label[0] not in call_labels
-        assert config.hitl_label[0] not in call_labels
-
-    @pytest.mark.asyncio
-    async def test_file_memory_suggestion__auto_approve__skips_hitl_state(
-        self, tmp_path: Path
-    ) -> None:
-        """When memory_auto_approve is True, no hitl_origin or hitl_cause is set."""
-        config = ConfigFactory.create(
-            repo_root=tmp_path / "repo",
-            state_file=tmp_path / "state.json",
-            memory_auto_approve=True,
-        )
-        state = StateTracker(config.state_file)
-        mock_prs = AsyncMock()
-        mock_prs.create_issue = AsyncMock(return_value=77)
-
-        transcript = (
-            "MEMORY_SUGGESTION_START\n"
-            "title: Auto-approved learning\n"
-            "learning: Tests should run before commits\n"
-            "context: During implementation\n"
-            "MEMORY_SUGGESTION_END\n"
-        )
-
-        await file_memory_suggestion(
-            transcript, "implementer", "issue #10", config, mock_prs, state
-        )
-
-        # No HITL state should be set for auto-approved suggestions
-        assert state.get_hitl_origin(77) is None
-        assert state.get_hitl_cause(77) is None
-
-    @pytest.mark.asyncio
-    async def test_file_memory_suggestion__auto_approve_false__knowledge_improve_only(
-        self, tmp_path: Path
-    ) -> None:
-        """When auto_approve=False and type is knowledge (default), improve-only flow."""
-        config = ConfigFactory.create(
-            repo_root=tmp_path / "repo",
-            state_file=tmp_path / "state.json",
-            memory_auto_approve=False,
-        )
-        state = StateTracker(config.state_file)
-        mock_prs = AsyncMock()
-        mock_prs.create_issue = AsyncMock(return_value=88)
-
-        transcript = (
-            "MEMORY_SUGGESTION_START\n"
-            "title: Manual approval learning\n"
-            "learning: Review before merge\n"
-            "context: During review\n"
-            "MEMORY_SUGGESTION_END\n"
-        )
-
-        await file_memory_suggestion(
-            transcript, "reviewer", "PR #5", config, mock_prs, state
-        )
-
-        call_labels = mock_prs.create_issue.call_args.args[2]
-        assert config.improve_label[0] in call_labels
-        assert config.hitl_label[0] not in call_labels
-        assert config.memory_label[0] not in call_labels
-
-    @pytest.mark.asyncio
-    async def test_file_memory_suggestion__auto_approve__no_suggestion_is_noop(
-        self, tmp_path: Path
-    ) -> None:
-        """When transcript has no suggestion, auto-approve mode is a no-op."""
-        config = ConfigFactory.create(
-            repo_root=tmp_path / "repo",
-            state_file=tmp_path / "state.json",
-            memory_auto_approve=True,
-        )
-        state = StateTracker(config.state_file)
-        mock_prs = AsyncMock()
-        mock_prs.create_issue = AsyncMock(return_value=0)
-
-        transcript = "Just regular agent output, no memory block."
-
-        await file_memory_suggestion(
-            transcript, "implementer", "issue #10", config, mock_prs, state
-        )
-
-        mock_prs.create_issue.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_file_memory_suggestion__auto_approve__create_issue_failure(
-        self, tmp_path: Path
-    ) -> None:
-        """When auto-approve is on but create_issue returns 0, nothing crashes."""
-        config = ConfigFactory.create(
-            repo_root=tmp_path / "repo",
-            state_file=tmp_path / "state.json",
-            memory_auto_approve=True,
-        )
-        state = StateTracker(config.state_file)
-        mock_prs = AsyncMock()
-        mock_prs.create_issue = AsyncMock(return_value=0)
-
-        transcript = (
-            "MEMORY_SUGGESTION_START\n"
-            "title: Learning\n"
-            "learning: Something\n"
-            "context: Somewhere\n"
-            "MEMORY_SUGGESTION_END\n"
-        )
-
-        await file_memory_suggestion(
-            transcript, "implementer", "issue #10", config, mock_prs, state
-        )
-
-        mock_prs.create_issue.assert_awaited_once()
-        # No state should be set when issue creation fails
-        assert state.get_hitl_origin(0) is None
-
-    @pytest.mark.asyncio
-    async def test_file_memory_suggestion__auto_approve__actionable_uses_memory_label(
-        self, tmp_path: Path
-    ) -> None:
-        """Actionable type (config) with auto_approve=True gets memory_label only."""
-        config = ConfigFactory.create(
-            repo_root=tmp_path / "repo",
-            state_file=tmp_path / "state.json",
-            memory_auto_approve=True,
-        )
-        state = StateTracker(config.state_file)
-        mock_prs = AsyncMock()
-        mock_prs.create_issue = AsyncMock(return_value=90)
-
-        transcript = (
-            "MEMORY_SUGGESTION_START\n"
-            "title: Increase CI timeout\n"
-            "type: config\n"
-            "learning: CI timeout too low\n"
-            "context: During implementation\n"
-            "MEMORY_SUGGESTION_END\n"
-        )
-
-        await file_memory_suggestion(
-            transcript, "implementer", "issue #5", config, mock_prs, state
-        )
-
-        call_labels = mock_prs.create_issue.call_args.args[2]
-        assert config.memory_label[0] in call_labels
-        assert config.improve_label[0] not in call_labels
-        assert config.hitl_label[0] not in call_labels
-
-    @pytest.mark.asyncio
-    async def test_file_memory_suggestion__auto_approve__actionable_skips_hitl_state(
-        self, tmp_path: Path
-    ) -> None:
-        """Instruction type with auto_approve=True sets no HITL state."""
-        config = ConfigFactory.create(
-            repo_root=tmp_path / "repo",
-            state_file=tmp_path / "state.json",
-            memory_auto_approve=True,
-        )
-        state = StateTracker(config.state_file)
-        mock_prs = AsyncMock()
-        mock_prs.create_issue = AsyncMock(return_value=91)
-
-        transcript = (
-            "MEMORY_SUGGESTION_START\n"
-            "title: Always run lint before push\n"
-            "type: instruction\n"
-            "learning: Lint catches issues early\n"
-            "context: During review\n"
-            "MEMORY_SUGGESTION_END\n"
-        )
-
-        await file_memory_suggestion(
-            transcript, "reviewer", "PR #8", config, mock_prs, state
-        )
-
-        assert state.get_hitl_origin(91) is None
-        assert state.get_hitl_cause(91) is None
 
 
 class TestSyncWithTypedIssues:

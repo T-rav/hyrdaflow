@@ -11,7 +11,9 @@ from acceptance_criteria import AcceptanceCriteriaGenerator
 from adr_reviewer import ADRCouncilReviewer
 from adr_reviewer_loop import ADRReviewerLoop
 from agent import AgentRunner
+from base_background_loop import LoopDeps
 from baseline_policy import BaselinePolicy
+from beads_manager import BeadsManager
 from config import HydraFlowConfig
 from crate_manager import CrateManager
 from docker_runner import get_docker_runner
@@ -168,6 +170,9 @@ def build_services(
     epic_checker = EpicCompletionChecker(config, prs, fetcher, state=state)
     epic_manager = EpicManager(config, state, prs, fetcher, event_bus)
 
+    # Beads manager (always active — fails hard if bd not installed)
+    beads_mgr = BeadsManager()
+
     # Phase coordinators
     triager = TriagePhase(
         config,
@@ -191,6 +196,7 @@ def build_services(
         harness_insights=harness_insights,
         epic_manager=epic_manager,
         research_runner=researcher,
+        beads_manager=beads_mgr,
     )
     hitl_phase = HITLPhase(
         config,
@@ -215,6 +221,7 @@ def build_services(
         stop_event,
         run_recorder=run_recorder,
         harness_insights=harness_insights,
+        beads_manager=beads_mgr,
     )
 
     from metrics_manager import MetricsManager
@@ -288,137 +295,61 @@ def build_services(
         baseline_policy=baseline_policy,
     )
 
-    # Background loops
-    memory_sync_bg = MemorySyncLoop(
-        config,
-        fetcher,
-        memory_sync,
-        event_bus,
-        stop_event,
+    # Background loops — shared deps bundled into a single LoopDeps object
+    loop_deps = LoopDeps(
+        event_bus=event_bus,
+        stop_event=stop_event,
         status_cb=callbacks.update_bg_worker_status,
         enabled_cb=callbacks.is_bg_worker_enabled,
         sleep_fn=callbacks.sleep_or_stop,
         interval_cb=callbacks.get_bg_worker_interval,
     )
-    metrics_sync_bg = MetricsSyncLoop(
-        config,
-        store,
-        metrics_manager,
-        event_bus,
-        stop_event,
-        status_cb=callbacks.update_bg_worker_status,
-        enabled_cb=callbacks.is_bg_worker_enabled,
-        sleep_fn=callbacks.sleep_or_stop,
-        interval_cb=callbacks.get_bg_worker_interval,
-    )
-    pr_unsticker_loop = PRUnstickerLoop(
-        config,
-        pr_unsticker,
-        prs,
-        event_bus,
-        stop_event,
-        status_cb=callbacks.update_bg_worker_status,
-        enabled_cb=callbacks.is_bg_worker_enabled,
-        sleep_fn=callbacks.sleep_or_stop,
-    )
+    memory_sync_bg = MemorySyncLoop(config, fetcher, memory_sync, deps=loop_deps)
+    metrics_sync_bg = MetricsSyncLoop(config, store, metrics_manager, deps=loop_deps)
+    pr_unsticker_loop = PRUnstickerLoop(config, pr_unsticker, prs, deps=loop_deps)
     manifest_manager = ProjectManifestManager(config)
     manifest_refresh_loop = ManifestRefreshLoop(
         config,
         manifest_manager,
         state,
-        event_bus,
-        stop_event,
-        status_cb=callbacks.update_bg_worker_status,
-        enabled_cb=callbacks.is_bg_worker_enabled,
-        sleep_fn=callbacks.sleep_or_stop,
-        interval_cb=callbacks.get_bg_worker_interval,
+        deps=loop_deps,
         manifest_syncer=manifest_syncer,
     )
-
     report_issue_loop = ReportIssueLoop(
         config=config,
         state=state,
         pr_manager=prs,
-        event_bus=event_bus,
-        stop_event=stop_event,
-        status_cb=callbacks.update_bg_worker_status,
-        enabled_cb=callbacks.is_bg_worker_enabled,
-        sleep_fn=callbacks.sleep_or_stop,
-        interval_cb=callbacks.get_bg_worker_interval,
+        deps=loop_deps,
         runner=subprocess_runner,
     )
-
     epic_monitor_loop = EpicMonitorLoop(
-        config=config,
-        epic_manager=epic_manager,
-        event_bus=event_bus,
-        stop_event=stop_event,
-        status_cb=callbacks.update_bg_worker_status,
-        enabled_cb=callbacks.is_bg_worker_enabled,
-        sleep_fn=callbacks.sleep_or_stop,
-        interval_cb=callbacks.get_bg_worker_interval,
+        config=config, epic_manager=epic_manager, deps=loop_deps
     )
-
     epic_sweeper_loop = EpicSweeperLoop(
         config=config,
         fetcher=fetcher,
         prs=prs,
         state=state,
-        event_bus=event_bus,
-        stop_event=stop_event,
-        status_cb=callbacks.update_bg_worker_status,
-        enabled_cb=callbacks.is_bg_worker_enabled,
-        sleep_fn=callbacks.sleep_or_stop,
-        interval_cb=callbacks.get_bg_worker_interval,
+        deps=loop_deps,
     )
-
     verify_monitor_loop = VerifyMonitorLoop(
         config=config,
         fetcher=fetcher,
         state=state,
-        event_bus=event_bus,
-        stop_event=stop_event,
-        status_cb=callbacks.update_bg_worker_status,
-        enabled_cb=callbacks.is_bg_worker_enabled,
-        sleep_fn=callbacks.sleep_or_stop,
-        interval_cb=callbacks.get_bg_worker_interval,
+        deps=loop_deps,
     )
-
     worktree_gc_loop = WorkspaceGCLoop(
         config=config,
         worktrees=worktrees,
         prs=prs,
         state=state,
-        event_bus=event_bus,
-        stop_event=stop_event,
-        status_cb=callbacks.update_bg_worker_status,
-        enabled_cb=callbacks.is_bg_worker_enabled,
-        sleep_fn=callbacks.sleep_or_stop,
-        interval_cb=callbacks.get_bg_worker_interval,
+        deps=loop_deps,
         is_in_pipeline_cb=store.is_in_pipeline,
     )
-
-    runs_gc_loop = RunsGCLoop(
-        config=config,
-        run_recorder=run_recorder,
-        event_bus=event_bus,
-        stop_event=stop_event,
-        status_cb=callbacks.update_bg_worker_status,
-        enabled_cb=callbacks.is_bg_worker_enabled,
-        sleep_fn=callbacks.sleep_or_stop,
-        interval_cb=callbacks.get_bg_worker_interval,
-    )
-
+    runs_gc_loop = RunsGCLoop(config=config, run_recorder=run_recorder, deps=loop_deps)
     adr_reviewer = ADRCouncilReviewer(config, event_bus, prs, subprocess_runner)
     adr_reviewer_loop = ADRReviewerLoop(
-        config=config,
-        adr_reviewer=adr_reviewer,
-        event_bus=event_bus,
-        stop_event=stop_event,
-        status_cb=callbacks.update_bg_worker_status,
-        enabled_cb=callbacks.is_bg_worker_enabled,
-        sleep_fn=callbacks.sleep_or_stop,
-        interval_cb=callbacks.get_bg_worker_interval,
+        config=config, adr_reviewer=adr_reviewer, deps=loop_deps
     )
 
     return ServiceRegistry(

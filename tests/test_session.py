@@ -293,6 +293,9 @@ class TestSessionPruning:
         tracker = make_state(tmp_path)
         # Should not raise
         tracker.prune_sessions("test-org/test-repo", max_keep=5)
+        # No sessions file means nothing to load
+        result = tracker.load_sessions()
+        assert result == []
 
     def test_prune_deduplicates_before_counting(self, tmp_path: Path) -> None:
         """Prune must count unique sessions, not raw JSONL lines.
@@ -323,6 +326,8 @@ class TestSessionPruning:
         sessions_file.parent.mkdir(parents=True, exist_ok=True)
         sessions_file.write_text("")
         tracker.prune_sessions("test-org/test-repo", max_keep=5)
+        result = tracker.load_sessions()
+        assert result == []
 
 
 # ---------------------------------------------------------------------------

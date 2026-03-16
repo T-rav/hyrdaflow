@@ -44,6 +44,7 @@ class TestInitialization:
         expected_keys = {
             "active_branches",
             "active_crate_number",
+            "bead_mappings",
             "active_issue_numbers",
             "active_worktrees",
             "baseline_audit",

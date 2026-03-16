@@ -8,8 +8,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 
 from events import EventBus, EventLog, EventType, HydraFlowEvent, _log_persist_failure
+from models import SessionLog, WorkerUpdatePayload
 from tests.conftest import EventFactory
 
 # ---------------------------------------------------------------------------
@@ -153,6 +155,113 @@ class TestHydraFlowEvent:
 
 
 # ---------------------------------------------------------------------------
+# EventData type constraint
+# ---------------------------------------------------------------------------
+
+
+class TestEventDataType:
+    """EventData must reject non-dict payloads at the Pydantic level."""
+
+    def test_rejects_string_payload(self) -> None:
+        with pytest.raises(ValidationError):
+            HydraFlowEvent(type=EventType.ERROR, data="bad")  # type: ignore[arg-type]
+
+    def test_rejects_list_payload(self) -> None:
+        with pytest.raises(ValidationError):
+            HydraFlowEvent(type=EventType.ERROR, data=[1, 2])  # type: ignore[arg-type]
+
+    def test_rejects_int_payload(self) -> None:
+        with pytest.raises(ValidationError):
+            HydraFlowEvent(type=EventType.ERROR, data=42)  # type: ignore[arg-type]
+
+    def test_rejects_none_payload(self) -> None:
+        with pytest.raises(ValidationError):
+            HydraFlowEvent(type=EventType.ERROR, data=None)  # type: ignore[arg-type]
+
+    def test_rejects_basemodel_payload(self) -> None:
+        """BaseModel instances must be passed via .model_dump(), not directly."""
+        log = SessionLog(id="sess-1", repo="org/repo", started_at="2026-01-01T00:00:00")
+        with pytest.raises(ValidationError):
+            HydraFlowEvent(type=EventType.SESSION_START, data=log)  # type: ignore[arg-type]
+
+    def test_accepts_dict_payload(self) -> None:
+        event = HydraFlowEvent(type=EventType.ERROR, data={"msg": "oops"})
+        assert event.data == {"msg": "oops"}
+
+    def test_accepts_empty_dict_payload(self) -> None:
+        event = HydraFlowEvent(type=EventType.ERROR, data={})
+        assert event.data == {}
+
+    def test_default_data_is_empty_dict(self) -> None:
+        event = HydraFlowEvent(type=EventType.ERROR)
+        assert event.data == {}
+
+    def test_accepts_typed_dict_payload(self) -> None:
+        payload: WorkerUpdatePayload = {
+            "issue": 42,
+            "worker": 1,
+            "status": "active",
+            "role": "implement",
+        }
+        event = HydraFlowEvent(type=EventType.WORKER_UPDATE, data=payload)
+        assert event.data["issue"] == 42
+        assert event.data["status"] == "active"
+
+    def test_accepts_pydantic_model_dump_payload(self) -> None:
+        log = SessionLog(id="sess-1", repo="org/repo", started_at="2026-01-01T00:00:00")
+        event = HydraFlowEvent(type=EventType.SESSION_START, data=log.model_dump())
+        assert event.data["id"] == "sess-1"
+        assert event.data["repo"] == "org/repo"
+
+    def test_data_get_returns_expected_values(self) -> None:
+        event = HydraFlowEvent(type=EventType.ERROR, data={"key": "value", "count": 5})
+        assert event.data.get("key") == "value"
+        assert event.data.get("count") == 5
+        assert event.data.get("missing") is None
+
+    def test_serialization_roundtrip_preserves_data(self) -> None:
+        payload = {"issue": 42, "nested": {"key": "value"}, "tags": [1, 2, 3]}
+        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data=payload)
+        json_str = event.model_dump_json()
+        restored = HydraFlowEvent.model_validate_json(json_str)
+        assert restored.data == payload
+        assert restored.type == event.type
+
+
+# ---------------------------------------------------------------------------
+# typed_data
+# ---------------------------------------------------------------------------
+
+
+class TestTypedDataCast:
+    def test_typed_data_returns_data_dict(self) -> None:
+        event = HydraFlowEvent(
+            type=EventType.WORKER_UPDATE,
+            data={"issue_number": 1, "status": "active"},
+        )
+        result = event.typed_data(dict)
+        assert result == {"issue_number": 1, "status": "active"}
+
+    def test_typed_data_preserves_nested_values(self) -> None:
+        payload = {"issue_number": 42, "nested": {"key": "value"}}
+        event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data=payload)
+        result = event.typed_data(dict)
+        assert result["nested"]["key"] == "value"
+
+    def test_typed_data_with_typed_dict_class(self) -> None:
+        payload: WorkerUpdatePayload = {
+            "issue": 7,
+            "worker": 2,
+            "status": "done",
+            "role": "implement",
+        }
+        event = HydraFlowEvent(type=EventType.WORKER_UPDATE, data=payload)
+        result = event.typed_data(WorkerUpdatePayload)
+        assert result.get("issue") == 7
+        assert result.get("role") == "implement"
+
+
+# ---------------------------------------------------------------------------
 # HydraFlowEvent ID
 # ---------------------------------------------------------------------------
 
@@ -241,6 +350,7 @@ class TestEventBusPublishSubscribe:
         bus = EventBus()
         event = EventFactory.create(type=EventType.ORCHESTRATOR_STATUS)
         await bus.publish(event)  # should not raise
+        assert len(bus._subscribers) == 0
 
     @pytest.mark.asyncio
     async def test_set_session_id_auto_injects(self) -> None:
@@ -376,6 +486,7 @@ class TestEventBusUnsubscribe:
         orphan: asyncio.Queue[HydraFlowEvent] = asyncio.Queue()
         # Should not raise
         bus.unsubscribe(orphan)
+        assert orphan not in bus._subscribers
 
     @pytest.mark.asyncio
     async def test_unsubscribe_same_queue_twice_is_noop(self) -> None:
@@ -383,6 +494,7 @@ class TestEventBusUnsubscribe:
         queue = bus.subscribe()
         bus.unsubscribe(queue)
         bus.unsubscribe(queue)  # second call should not raise
+        assert queue not in bus._subscribers
 
 
 # ---------------------------------------------------------------------------
@@ -521,6 +633,7 @@ class TestEventBusClear:
     async def test_clear_on_empty_bus_does_not_raise(self) -> None:
         bus = EventBus()
         bus.clear()  # should not raise
+        assert bus._subscribers == []
 
     @pytest.mark.asyncio
     async def test_bus_usable_after_clear(self) -> None:

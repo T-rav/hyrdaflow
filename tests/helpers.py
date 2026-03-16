@@ -8,7 +8,7 @@ from collections.abc import Callable, Coroutine
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple
 from unittest.mock import AsyncMock, MagicMock, patch
 
 if TYPE_CHECKING:
@@ -146,6 +146,7 @@ class BgLoopDeps(NamedTuple):
     status_cb: MagicMock
     enabled_cb: Callable[[str], bool]
     sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]]
+    loop_deps: Any  # LoopDeps
 
 
 def make_bg_loop_deps(
@@ -157,12 +158,13 @@ def make_bg_loop_deps(
     """Create common dependencies for background worker loop tests.
 
     Returns a BgLoopDeps NamedTuple with config, bus, stop_event,
-    status_cb, enabled_cb, and sleep_fn — the 6 constructor args
-    shared by all background loop classes.
+    status_cb, enabled_cb, sleep_fn, and loop_deps — the shared
+    constructor args for all background loop classes.
 
     Pass interval overrides via config_overrides, e.g.:
         make_bg_loop_deps(tmp_path, memory_sync_interval=30)
     """
+    from base_background_loop import LoopDeps
     from events import EventBus
 
     config = ConfigFactory.create(
@@ -172,14 +174,27 @@ def make_bg_loop_deps(
     bus = EventBus()
     stop_event = asyncio.Event()
     sleep_fn = instant_sleep_factory(stop_event)
+    status_cb = MagicMock()
+
+    def enabled_cb(_name: str) -> bool:
+        return enabled
+
+    loop_deps = LoopDeps(
+        event_bus=bus,
+        stop_event=stop_event,
+        status_cb=status_cb,
+        enabled_cb=enabled_cb,
+        sleep_fn=sleep_fn,
+    )
 
     return BgLoopDeps(
         config=config,
         bus=bus,
         stop_event=stop_event,
-        status_cb=MagicMock(),
-        enabled_cb=lambda _name: enabled,
+        status_cb=status_cb,
+        enabled_cb=enabled_cb,
         sleep_fn=sleep_fn,
+        loop_deps=loop_deps,
     )
 
 
@@ -295,15 +310,11 @@ class ConfigFactory:
         ui_dirs: list[str] | None = None,
         docker_network: str = "",
         docker_extra_mounts: list[str] | None = None,
-        memory_auto_approve: bool = False,
         memory_prune_stale_items: bool = True,
-        transcript_summary_as_issue: bool = False,
         harness_insight_window: int = 20,
         harness_pattern_threshold: int = 3,
-        inject_runtime_logs: bool = False,
         max_runtime_log_chars: int = 8_000,
         max_ci_log_chars: int = 12_000,
-        code_scanning_enabled: bool = False,
         max_code_scanning_chars: int = 6_000,
         visual_gate_enabled: bool = False,
         visual_gate_bypass: bool = False,
@@ -322,7 +333,6 @@ class ConfigFactory:
         enable_fresh_branch_rebuild: bool = True,
         max_troubleshooting_prompt_chars: int = 3000,
         epic_group_planning: bool = False,
-        epic_auto_decompose: bool = False,
         epic_decompose_complexity_threshold: int = 8,
         epic_monitor_interval: int = 1800,
         epic_sweep_interval: int = 3600,
@@ -337,7 +347,6 @@ class ConfigFactory:
         artifact_retention_days: int = 30,
         artifact_max_size_mb: int = 500,
         runs_gc_interval: int = 3600,
-        release_on_epic_close: bool = False,
         release_version_source: Literal[
             "epic_title", "milestone", "manual"
         ] = "epic_title",
@@ -359,11 +368,22 @@ class ConfigFactory:
         adr_review_interval: int = 86400,
         adr_review_approval_threshold: int = 2,
         adr_review_max_rounds: int = 3,
-        adr_review_enabled: bool = False,
-        adr_review_auto_triage: bool = False,
         adr_review_model: str = "sonnet",
         adr_auto_triage: bool = False,
         adr_pre_review: bool = True,
+        # Prompt budget configuration
+        max_discussion_comment_chars: int = 500,
+        max_common_feedback_chars: int = 2_000,
+        max_impl_plan_chars: int = 6_000,
+        max_review_feedback_chars: int = 2_000,
+        max_planner_comment_chars: int = 1_000,
+        max_planner_line_chars: int = 500,
+        max_planner_failed_plan_chars: int = 4_000,
+        max_hitl_correction_chars: int = 4_000,
+        max_hitl_cause_chars: int = 2_000,
+        max_ci_log_prompt_chars: int = 6_000,
+        max_unsticker_cause_chars: int = 3_000,
+        max_verification_instructions_chars: int = 50_000,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -509,15 +529,11 @@ class ConfigFactory:
                 docker_extra_mounts=docker_extra_mounts
                 if docker_extra_mounts is not None
                 else [],
-                memory_auto_approve=memory_auto_approve,
                 memory_prune_stale_items=memory_prune_stale_items,
-                transcript_summary_as_issue=transcript_summary_as_issue,
                 harness_insight_window=harness_insight_window,
                 harness_pattern_threshold=harness_pattern_threshold,
-                inject_runtime_logs=inject_runtime_logs,
                 max_runtime_log_chars=max_runtime_log_chars,
                 max_ci_log_chars=max_ci_log_chars,
-                code_scanning_enabled=code_scanning_enabled,
                 max_code_scanning_chars=max_code_scanning_chars,
                 visual_gate_enabled=visual_gate_enabled,
                 visual_gate_bypass=visual_gate_bypass,
@@ -533,7 +549,6 @@ class ConfigFactory:
                 enable_fresh_branch_rebuild=enable_fresh_branch_rebuild,
                 max_troubleshooting_prompt_chars=max_troubleshooting_prompt_chars,
                 epic_group_planning=epic_group_planning,
-                epic_auto_decompose=epic_auto_decompose,
                 epic_decompose_complexity_threshold=epic_decompose_complexity_threshold,
                 epic_monitor_interval=epic_monitor_interval,
                 epic_sweep_interval=epic_sweep_interval,
@@ -546,7 +561,6 @@ class ConfigFactory:
                 artifact_retention_days=artifact_retention_days,
                 artifact_max_size_mb=artifact_max_size_mb,
                 runs_gc_interval=runs_gc_interval,
-                release_on_epic_close=release_on_epic_close,
                 release_version_source=release_version_source,
                 release_tag_prefix=release_tag_prefix,
                 baseline_snapshot_patterns=baseline_snapshot_patterns
@@ -587,11 +601,21 @@ class ConfigFactory:
                 adr_review_interval=adr_review_interval,
                 adr_review_approval_threshold=adr_review_approval_threshold,
                 adr_review_max_rounds=adr_review_max_rounds,
-                adr_review_enabled=adr_review_enabled,
-                adr_review_auto_triage=adr_review_auto_triage,
                 adr_review_model=adr_review_model,
                 adr_auto_triage=adr_auto_triage,
                 adr_pre_review=adr_pre_review,
+                max_discussion_comment_chars=max_discussion_comment_chars,
+                max_common_feedback_chars=max_common_feedback_chars,
+                max_impl_plan_chars=max_impl_plan_chars,
+                max_review_feedback_chars=max_review_feedback_chars,
+                max_planner_comment_chars=max_planner_comment_chars,
+                max_planner_line_chars=max_planner_line_chars,
+                max_planner_failed_plan_chars=max_planner_failed_plan_chars,
+                max_hitl_correction_chars=max_hitl_correction_chars,
+                max_hitl_cause_chars=max_hitl_cause_chars,
+                max_ci_log_prompt_chars=max_ci_log_prompt_chars,
+                max_unsticker_cause_chars=max_unsticker_cause_chars,
+                max_verification_instructions_chars=max_verification_instructions_chars,
             )
 
 
@@ -617,7 +641,6 @@ class PipelineHarness:
             max_planners=1,
             max_reviewers=1,
             visual_validation_enabled=False,
-            code_scanning_enabled=False,
             max_ci_fix_attempts=0,
         )
         self._ensure_test_dirs()
@@ -1037,6 +1060,7 @@ def make_implement_phase(
             worker_id: int = 0,
             review_feedback: str = "",
             prior_failure: str = "",
+            bead_mapping: dict[str, str] | None = None,
         ) -> WorkerResult:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
@@ -1090,6 +1114,105 @@ def make_implement_phase(
     )
 
     return phase, mock_wt, mock_prs
+
+
+class ImplementPhaseMockBuilder:
+    """Fluent builder for ImplementPhase test mocks.
+
+    Consolidates inline ``mock_prs.*`` and ``mock_wt.*`` overrides into
+    chainable ``.with_*()`` calls, following the same pattern as
+    ``ReviewMockBuilder`` in conftest.py.
+
+    Usage::
+
+        phase, mock_wt, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_push_return(False)
+            .with_prs_method("find_open_pr_for_branch", AsyncMock(return_value=pr))
+            .build()
+        )
+    """
+
+    _UNSET: ClassVar[object] = object()  # sentinel for "not explicitly set"
+
+    def __init__(self, config: object) -> None:
+        self._config = config
+        self._issues: list[object] = []
+        self._push_return: bool = True
+        self._create_pr_return: object = self._UNSET
+        self._agent_run: object | None = None
+        self._success: bool = True
+        self._prs_overrides: dict[str, object] = {}
+        self._wt_overrides: dict[str, object] = {}
+
+    def with_issues(self, issues: list[object]) -> ImplementPhaseMockBuilder:
+        """Set the issues to be returned by get_implementable."""
+        self._issues = issues
+        return self
+
+    def with_push_return(self, val: bool) -> ImplementPhaseMockBuilder:
+        """Set the return value for mock_prs.push_branch."""
+        self._push_return = val
+        return self
+
+    def with_create_pr_return(self, val: object) -> ImplementPhaseMockBuilder:
+        """Set the return value for mock_prs.create_pr.
+
+        ``val`` must be a non-None object (e.g. ``PRInfoFactory.create()``).
+        To make ``create_pr`` return ``None``, use
+        ``with_prs_method("create_pr", AsyncMock(return_value=None))`` instead,
+        because ``make_implement_phase`` treats ``None`` as "use the factory
+        default" rather than as an explicit return value.
+        """
+        self._create_pr_return = val
+        return self
+
+    def with_agent_run(self, fn: object) -> ImplementPhaseMockBuilder:
+        """Set a custom agent_run callable."""
+        self._agent_run = fn
+        return self
+
+    def with_success(self, val: bool) -> ImplementPhaseMockBuilder:
+        """Set the default agent success value.
+
+        Only takes effect when no custom ``agent_run`` is provided via
+        ``with_agent_run()``.  If a custom callable is set, ``success`` is
+        silently ignored because the callable controls the result directly.
+        """
+        self._success = val
+        return self
+
+    def with_prs_method(self, name: str, mock: object) -> ImplementPhaseMockBuilder:
+        """Override a specific mock_prs method/attribute after construction."""
+        self._prs_overrides[name] = mock
+        return self
+
+    def with_wt_method(self, name: str, mock: object) -> ImplementPhaseMockBuilder:
+        """Override a specific mock_wt method/attribute after construction."""
+        self._wt_overrides[name] = mock
+        return self
+
+    def build(self) -> tuple[Any, Any, Any]:
+        """Build and return ``(phase, mock_wt, mock_prs)``."""
+        create_pr_kwarg: dict[str, Any] = (
+            {}
+            if self._create_pr_return is self._UNSET
+            else {"create_pr_return": self._create_pr_return}
+        )
+        phase, mock_wt, mock_prs = make_implement_phase(
+            self._config,
+            self._issues,
+            agent_run=self._agent_run,
+            success=self._success,
+            push_return=self._push_return,
+            **create_pr_kwarg,
+        )
+        for name, mock in self._prs_overrides.items():
+            setattr(mock_prs, name, mock)
+        for name, mock in self._wt_overrides.items():
+            setattr(mock_wt, name, mock)
+        return phase, mock_wt, mock_prs
 
 
 def make_hitl_phase(config):
@@ -1193,6 +1316,12 @@ def make_dashboard_router(
     registry=None,
     ui_dist_dir=None,
     template_dir=None,
+    register_repo_cb=None,
+    remove_repo_cb=None,
+    list_repos_cb=None,
+    repo_store=None,
+    default_repo_slug=None,
+    allowed_repo_roots_fn=None,
 ):
     """Create a dashboard router with test-friendly defaults.
 
@@ -1208,6 +1337,14 @@ def make_dashboard_router(
         Optional ``RepoRuntimeRegistry`` for multi-repo tests.
     ui_dist_dir / template_dir:
         Override the default ``tmp_path / "no-dist"`` / ``"no-templates"``.
+    register_repo_cb / remove_repo_cb / list_repos_cb:
+        Optional callbacks for repo management endpoints.
+    repo_store:
+        Optional ``RepoRegistryStore`` for config persistence tests.
+    default_repo_slug:
+        Optional default repo slug for multi-repo routing.
+    allowed_repo_roots_fn:
+        Optional callable returning allowed filesystem roots.
     """
     from dashboard_routes import create_router
     from pr_manager import PRManager
@@ -1224,6 +1361,12 @@ def make_dashboard_router(
         ui_dist_dir=ui_dist_dir or (tmp_path / "no-dist"),
         template_dir=template_dir or (tmp_path / "no-templates"),
         registry=registry,
+        register_repo_cb=register_repo_cb,
+        remove_repo_cb=remove_repo_cb,
+        list_repos_cb=list_repos_cb,
+        repo_store=repo_store,
+        default_repo_slug=default_repo_slug,
+        allowed_repo_roots_fn=allowed_repo_roots_fn,
     )
     return router, pr_mgr
 

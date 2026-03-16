@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from collections.abc import Callable, Coroutine
 from typing import Any
 
-from base_background_loop import BaseBackgroundLoop
+from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
-from events import EventBus
-from models import StatusCallback
 from pr_manager import PRManager
 from pr_unsticker import PRUnsticker
 
@@ -25,21 +21,9 @@ class PRUnstickerLoop(BaseBackgroundLoop):
         config: HydraFlowConfig,
         pr_unsticker: PRUnsticker,
         prs: PRManager,
-        event_bus: EventBus,
-        stop_event: asyncio.Event,
-        status_cb: StatusCallback,
-        enabled_cb: Callable[[str], bool],
-        sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]],
+        deps: LoopDeps,
     ) -> None:
-        super().__init__(
-            worker_name="pr_unsticker",
-            config=config,
-            bus=event_bus,
-            stop_event=stop_event,
-            status_cb=status_cb,
-            enabled_cb=enabled_cb,
-            sleep_fn=sleep_fn,
-        )
+        super().__init__(worker_name="pr_unsticker", config=config, deps=deps)
         self._pr_unsticker = pr_unsticker
         self._prs = prs
 

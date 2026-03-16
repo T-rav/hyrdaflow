@@ -11,7 +11,7 @@ from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
 from models import NewIssueSpec, PlannerStatus, PlannerUpdatePayload, PlanResult, Task
-from phase_utils import is_likely_bug
+from phase_utils import reraise_on_credit_or_bug
 from plan_constants import (
     LITE_BODY_THRESHOLD,
     LITE_REQUIRED_SECTIONS,
@@ -22,8 +22,8 @@ from plan_constants import (
 )
 from plan_scoring import score_actionability
 from plan_validation import run_phase_gates, validate_plan
+from prompt_builder import PromptBuilder
 from runner_constants import MEMORY_SUGGESTION_PROMPT
-from subprocess_util import CreditExhaustedError
 
 logger = logging.getLogger("hydraflow.planner")
 
@@ -201,11 +201,8 @@ class PlannerRunner(BaseRunner):
             status = PlannerStatus.DONE if result.success else PlannerStatus.FAILED
             await self._emit_status(task.id, worker_id, status)
 
-        except CreditExhaustedError:
-            raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             result.success = False
             result.error = repr(exc)
             logger.exception(
@@ -251,11 +248,8 @@ class PlannerRunner(BaseRunner):
             disallowed_tools="Write,Edit,NotebookEdit",
         )
 
-    # Maximum characters for comments in the prompt.
-    # Keep conservative to avoid hitting Claude CLI's internal text-splitter
-    # limits (RecursiveCharacterTextSplitter fails on very long unsplittable lines).
-    _MAX_COMMENT_CHARS = 1_000
-    _MAX_LINE_CHARS = 500
+    # Comment/line char limits are now configurable via HydraFlowConfig:
+    # max_planner_comment_chars and max_planner_line_chars.
 
     @staticmethod
     def _truncate_text(text: str, char_limit: int, line_limit: int) -> str:
@@ -305,26 +299,32 @@ class PlannerRunner(BaseRunner):
         *scale* is ``"lite"`` or ``"full"``.  The prompt adjusts which
         sections are required and whether to include the pre-mortem step.
         """
+        builder = PromptBuilder()
         comments_section = ""
-        history_before = sum(len(c) for c in issue.comments)
-        history_after = 0
         if issue.comments:
             max_comments = 6
             selected_comments = issue.comments[:max_comments]
             truncated = [
-                self._truncate_text(c, self._MAX_COMMENT_CHARS, self._MAX_LINE_CHARS)
+                self._truncate_text(
+                    c,
+                    self._config.max_planner_comment_chars,
+                    self._config.max_planner_line_chars,
+                )
                 for c in selected_comments
             ]
             formatted = "\n".join(f"- {c}" for c in truncated)
-            history_after = len(formatted)
+            builder.record_history("Discussion", "".join(issue.comments), formatted)
             comments_section = f"\n\n## Discussion\n{formatted}"
             if len(issue.comments) > max_comments:
                 comments_section += f"\n- ... ({len(issue.comments) - max_comments} more comments omitted)"
 
         body_raw = issue.body or ""
         body = self._truncate_text(
-            issue.body or "", self._config.max_issue_body_chars, self._MAX_LINE_CHARS
+            issue.body or "",
+            self._config.max_issue_body_chars,
+            self._config.max_planner_line_chars,
         )
+        builder.record_context("Issue body", body_raw, body)
 
         # Detect attached images and add a note for the planner.
         image_note = ""
@@ -508,21 +508,7 @@ ALREADY_SATISFIED_END
 This closes the issue automatically. False positives waste significant human time.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="planning")}"""
-        stats = {
-            "history_chars_before": history_before,
-            "history_chars_after": history_after,
-            "context_chars_before": len(body_raw),
-            "context_chars_after": len(body),
-            "pruned_chars_total": max(0, history_before - history_after)
-            + max(0, len(body_raw) - len(body)),
-            "section_chars": {
-                "issue_body_before": len(body_raw),
-                "issue_body_after": len(body),
-                "discussion_before": history_before,
-                "discussion_after": history_after,
-            },
-        }
-        return prompt, stats
+        return prompt, builder.build_stats()
 
     def _detect_plan_scale(self, issue: Task) -> PlanScale:
         """Determine whether *issue* needs a ``"lite"`` or ``"full"`` plan."""
@@ -772,10 +758,14 @@ This closes the issue automatically. False positives waste significant human tim
         sections_list = self._format_sections_list(scale)
         raw_body = issue.body or ""
         compact_body = self._truncate_text(
-            raw_body, self._config.max_issue_body_chars, self._MAX_LINE_CHARS
+            raw_body,
+            self._config.max_issue_body_chars,
+            self._config.max_planner_line_chars,
         )
         compact_failed_plan = self._truncate_text(
-            failed_plan, 4_000, self._MAX_LINE_CHARS
+            failed_plan,
+            self._config.max_planner_failed_plan_chars,
+            self._config.max_planner_line_chars,
         )
 
         prompt = f"""You previously generated a plan for GitHub issue #{issue.id} but it failed validation.
@@ -811,23 +801,14 @@ PLAN_END
 Then provide a one-line summary:
 SUMMARY: <brief one-line description of the plan>
 """
-        before = (
-            len(raw_body) + len(failed_plan) + sum(len(e) for e in validation_errors)
+        retry_builder = PromptBuilder()
+        retry_builder.record_context("Retry issue body", raw_body, compact_body)
+        retry_builder.record_context(
+            "Retry failed plan", failed_plan, compact_failed_plan
         )
-        after = len(compact_body) + len(compact_failed_plan) + len(error_list)
-        stats: dict[str, object] = {
-            "context_chars_before": before,
-            "context_chars_after": after,
-            "pruned_chars_total": max(0, before - after),
-            "section_chars": {
-                "retry_issue_body_before": len(raw_body),
-                "retry_issue_body_after": len(compact_body),
-                "retry_failed_plan_before": len(failed_plan),
-                "retry_failed_plan_after": len(compact_failed_plan),
-                "retry_validation_errors_after": len(error_list),
-            },
-        }
-        return prompt, stats
+        raw_errors = "\n".join(f"- {e}" for e in validation_errors)
+        retry_builder.record_context("Retry validation errors", raw_errors, error_list)
+        return prompt, retry_builder.build_stats()
 
     async def _emit_status(
         self, issue_number: int, worker_id: int, status: PlannerStatus

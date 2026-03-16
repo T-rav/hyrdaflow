@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -25,7 +26,7 @@ from tests.conftest import (
     TaskFactory,
     WorkerResultFactory,
 )
-from tests.helpers import make_implement_phase
+from tests.helpers import ImplementPhaseMockBuilder, make_implement_phase
 
 # ---------------------------------------------------------------------------
 # run_batch
@@ -244,14 +245,15 @@ class TestImplementIncludesPush:
                 worktree_path=str(wt_path),
             )
 
-        phase, _, mock_prs = make_implement_phase(
-            config,
-            [issue],
-            agent_run=fake_agent_run,
-            create_pr_return=PRInfoFactory.create(),
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_agent_run(fake_agent_run)
+            .with_create_pr_return(PRInfoFactory.create())
+            .with_prs_method("push_branch", fake_push)
+            .with_prs_method("post_comment", fake_comment)
+            .build()
         )
-        mock_prs.push_branch = fake_push
-        mock_prs.post_comment = fake_comment
 
         await phase.run_batch()
 
@@ -418,8 +420,12 @@ class TestWorktreeCreationFailure:
         """When worktrees.create raises, worker should return a failed result."""
         issue = TaskFactory.create(id=42)
 
-        phase, mock_wt, _ = make_implement_phase(config, [issue])
-        mock_wt.create = AsyncMock(side_effect=RuntimeError("disk full"))
+        phase, mock_wt, _ = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_wt_method("create", AsyncMock(side_effect=RuntimeError("disk full")))
+            .build()
+        )
 
         results, _ = await phase.run_batch()
 
@@ -440,8 +446,12 @@ class TestWorktreeCreationFailure:
                 raise RuntimeError("disk full")
             return config.worktree_base / f"issue-{num}"
 
-        phase, mock_wt, _ = make_implement_phase(config, issues)
-        mock_wt.create = AsyncMock(side_effect=create_side_effect)
+        phase, mock_wt, _ = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues(issues)
+            .with_wt_method("create", AsyncMock(side_effect=create_side_effect))
+            .build()
+        )
 
         results, _ = await phase.run_batch()
 
@@ -885,15 +895,17 @@ class TestReviewFeedbackPassing:
                 worktree_path=str(wt_path),
             )
 
-        phase, _, mock_prs = make_implement_phase(
-            config,
-            [issue],
-            agent_run=simple_agent,
-            create_pr_return=PRInfoFactory.create(),
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_agent_run(simple_agent)
+            .with_create_pr_return(PRInfoFactory.create())
+            .with_prs_method(
+                "find_open_pr_for_branch",
+                AsyncMock(return_value=PRInfoFactory.create()),
+            )
+            .build()
         )
-        # On retry, find_open_pr_for_branch returns the existing PR (used by
-        # _handle_implementation_result to recover the PR on the retry path)
-        mock_prs.find_open_pr_for_branch.return_value = PRInfoFactory.create()
         # Set review feedback to simulate a retry cycle
         phase._state.set_review_feedback(42, "Fix error handling")
 
@@ -1120,10 +1132,13 @@ class TestZeroCommitEscalation:
                 worktree_path=str(wt_path),
             )
 
-        phase, _, mock_prs = make_implement_phase(
-            config, [issue], agent_run=failing_with_commits
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_agent_run(failing_with_commits)
+            .with_prs_method("close_task", AsyncMock())
+            .build()
         )
-        mock_prs.close_task = AsyncMock()
 
         await phase.run_batch()
 
@@ -1283,11 +1298,14 @@ class TestPostMortemMemoryFiling:
 
         # create_pr returns a PR with number=0 to trigger the zero-diff check
         null_pr = PRInfoFactory.create(number=0)
-        phase, _, mock_prs = make_implement_phase(
-            config, [issue], agent_run=zero_diff_agent, create_pr_return=null_pr
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_agent_run(zero_diff_agent)
+            .with_create_pr_return(null_pr)
+            .with_prs_method("branch_has_diff_from_main", AsyncMock(return_value=False))
+            .build()
         )
-        # Make branch_has_diff_from_main return False to trigger zero-diff path
-        mock_prs.branch_has_diff_from_main = AsyncMock(return_value=False)
 
         await phase.run_batch()
 
@@ -1757,8 +1775,15 @@ class TestHandleImplementationResult:
             worktree_path=str(config.worktree_path_for_issue(42)),
         )
 
-        phase, _, mock_prs = make_implement_phase(config, [issue])
-        mock_prs.find_open_pr_for_branch.return_value = PRInfoFactory.create()
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_prs_method(
+                "find_open_pr_for_branch",
+                AsyncMock(return_value=PRInfoFactory.create()),
+            )
+            .build()
+        )
 
         returned = await phase._handle_implementation_result(issue, result, True)
 
@@ -1779,11 +1804,14 @@ class TestHandleImplementationResult:
             worktree_path=str(config.worktree_path_for_issue(42)),
         )
 
-        phase, _, mock_prs = make_implement_phase(
-            config, [issue], create_pr_return=PRInfoFactory.create(number=0)
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_create_pr_return(PRInfoFactory.create(number=0))
+            .with_prs_method("find_open_pr_for_branch", AsyncMock(return_value=None))
+            .with_prs_method("branch_has_diff_from_main", AsyncMock(return_value=False))
+            .build()
         )
-        mock_prs.find_open_pr_for_branch.return_value = None
-        mock_prs.branch_has_diff_from_main.return_value = False
 
         await phase._handle_implementation_result(issue, result, False)
 
@@ -1806,11 +1834,14 @@ class TestHandleImplementationResult:
             worktree_path=str(config.worktree_path_for_issue(42)),
         )
 
-        phase, _, mock_prs = make_implement_phase(
-            config, [issue], create_pr_return=PRInfoFactory.create(number=0)
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_create_pr_return(PRInfoFactory.create(number=0))
+            .with_prs_method("find_open_pr_for_branch", AsyncMock(return_value=None))
+            .with_prs_method("branch_has_diff_from_main", AsyncMock(return_value=True))
+            .build()
         )
-        mock_prs.find_open_pr_for_branch.return_value = None
-        mock_prs.branch_has_diff_from_main.return_value = True
 
         returned = await phase._handle_implementation_result(issue, result, False)
 
@@ -1934,10 +1965,16 @@ class TestWorkerInner:
                 issue_number=issue.id, worktree_path=str(wt_path)
             )
 
-        phase, _, mock_prs = make_implement_phase(
-            config, [issue], agent_run=tracking_agent
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_agent_run(tracking_agent)
+            .with_prs_method(
+                "find_open_pr_for_branch",
+                AsyncMock(return_value=existing_pr),
+            )
+            .build()
         )
-        mock_prs.find_open_pr_for_branch.return_value = existing_pr
 
         result = await phase._worker_inner(0, issue, "agent/issue-42")
 
@@ -1954,10 +1991,16 @@ class TestWorkerInner:
         issue = TaskFactory.create()
         draft_pr = PRInfoFactory.create(number=99, draft=True)
 
-        phase, _, mock_prs = make_implement_phase(
-            config, [issue], create_pr_return=PRInfoFactory.create()
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_create_pr_return(PRInfoFactory.create())
+            .with_prs_method(
+                "find_open_pr_for_branch",
+                AsyncMock(return_value=draft_pr),
+            )
+            .build()
         )
-        mock_prs.find_open_pr_for_branch.return_value = draft_pr
 
         result = await phase._worker_inner(0, issue, "agent/issue-42")
 
@@ -2080,6 +2123,15 @@ class TestCriticalExceptionPropagation:
 class TestADRSequence:
     """Tests for ADR-specific implementation sequencing."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_assigned(self) -> Generator[None, None, None]:
+        """Reset the module-level assigned set before and after each test."""
+        import phase_utils
+
+        phase_utils._assigned_adr_numbers.clear()
+        yield
+        phase_utils._assigned_adr_numbers.clear()
+
     def test_prepare_adr_plan_writes_fallback_plan_for_adr_issue(
         self, config: HydraFlowConfig
     ) -> None:
@@ -2097,6 +2149,45 @@ class TestADRSequence:
         content = plan_path.read_text()
         assert "## Implementation Plan" in content
         assert "docs/adr/" in content
+
+    def test_prepare_adr_plan_assigns_unique_adr_number(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Each ADR plan must embed a pre-assigned unique number."""
+        issue = TaskFactory.create(
+            id=600,
+            title="[ADR] First decision",
+            body="## Context\nA\n\n## Decision\nB\n\n## Consequences\nC",
+        )
+        phase, _, _ = make_implement_phase(config, [issue])
+        phase._prepare_adr_plan(issue)
+
+        content = (config.plans_dir / "issue-600.md").read_text()
+        assert "0001" in content
+        assert "do NOT pick a different number" in content
+
+    def test_prepare_adr_plan_increments_across_calls(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Successive ADR plan preparations must get different numbers."""
+        issues = [
+            TaskFactory.create(
+                id=700 + i,
+                title=f"[ADR] Decision {i}",
+                body="## Context\nA\n\n## Decision\nB\n\n## Consequences\nC",
+            )
+            for i in range(3)
+        ]
+        phase, _, _ = make_implement_phase(config, issues)
+        for issue in issues:
+            phase._prepare_adr_plan(issue)
+
+        contents = [
+            (config.plans_dir / f"issue-{700 + i}.md").read_text() for i in range(3)
+        ]
+        assert "0001" in contents[0]
+        assert "0002" in contents[1]
+        assert "0003" in contents[2]
 
     def test_prepare_adr_plan_skips_non_adr_issue(
         self, config: HydraFlowConfig
@@ -2173,12 +2264,20 @@ class TestWorktreeResetOnRetry:
         wt_path = config.worktree_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
 
-        phase, mock_wt, _ = make_implement_phase(config, [issue])
+        phase, mock_wt, _ = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_wt_method(
+                "reset_to_main",
+                AsyncMock(side_effect=RuntimeError("reset failed")),
+            )
+            .build()
+        )
         phase._state.set_worker_result_meta(42, {"error": "prior error"})
-        mock_wt.reset_to_main = AsyncMock(side_effect=RuntimeError("reset failed"))
 
         # Should not raise
         await phase._run_implementation(issue, "agent/issue-42", 0, "")
+        mock_wt.reset_to_main.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -2407,8 +2506,15 @@ class TestHandleSuccessfulPush:
             worktree_path=str(config.worktree_path_for_issue(42)),
         )
 
-        phase, _, mock_prs = make_implement_phase(config, [issue])
-        mock_prs.find_open_pr_for_branch.return_value = PRInfoFactory.create()
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_prs_method(
+                "find_open_pr_for_branch",
+                AsyncMock(return_value=PRInfoFactory.create()),
+            )
+            .build()
+        )
 
         early = await phase._handle_successful_push(issue, result, is_retry=True)
 
@@ -2426,10 +2532,13 @@ class TestHandleSuccessfulPush:
             worktree_path=str(config.worktree_path_for_issue(42)),
         )
 
-        phase, _, mock_prs = make_implement_phase(
-            config, [issue], create_pr_return=PRInfoFactory.create(number=0)
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_create_pr_return(PRInfoFactory.create(number=0))
+            .with_prs_method("branch_has_diff_from_main", AsyncMock(return_value=True))
+            .build()
         )
-        mock_prs.branch_has_diff_from_main.return_value = True
 
         early = await phase._handle_successful_push(issue, result, is_retry=False)
 
@@ -2477,8 +2586,12 @@ class TestHandleNoPrFallback:
             worktree_path=str(config.worktree_path_for_issue(42)),
         )
 
-        phase, _, mock_prs = make_implement_phase(config, [issue])
-        mock_prs.branch_has_diff_from_main.return_value = False
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_prs_method("branch_has_diff_from_main", AsyncMock(return_value=False))
+            .build()
+        )
 
         returned = await phase._handle_no_pr_fallback(issue, result)
 
@@ -2497,8 +2610,12 @@ class TestHandleNoPrFallback:
             worktree_path=str(config.worktree_path_for_issue(42)),
         )
 
-        phase, _, mock_prs = make_implement_phase(config, [issue])
-        mock_prs.branch_has_diff_from_main.return_value = True
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_prs_method("branch_has_diff_from_main", AsyncMock(return_value=True))
+            .build()
+        )
 
         returned = await phase._handle_no_pr_fallback(issue, result)
 
@@ -2528,8 +2645,15 @@ class TestRetryPrTitleConsistency:
         )
         existing_pr = PRInfoFactory.create(number=200, issue_number=99)
 
-        phase, _, mock_prs = make_implement_phase(config, [issue])
-        mock_prs.find_open_pr_for_branch.return_value = existing_pr
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_prs_method(
+                "find_open_pr_for_branch",
+                AsyncMock(return_value=existing_pr),
+            )
+            .build()
+        )
 
         pr = await phase._resolve_pr(issue, result, is_retry=True)
 
@@ -2550,8 +2674,12 @@ class TestRetryPrTitleConsistency:
             worktree_path=str(config.worktree_path_for_issue(99)),
         )
 
-        phase, _, mock_prs = make_implement_phase(config, [issue])
-        mock_prs.find_open_pr_for_branch.return_value = None
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_prs_method("find_open_pr_for_branch", AsyncMock(return_value=None))
+            .build()
+        )
 
         pr = await phase._resolve_pr(issue, result, is_retry=True)
 
@@ -2594,8 +2722,15 @@ class TestRetryPrTitleConsistency:
         )
         zero_pr = PRInfoFactory.create(number=0, issue_number=99)
 
-        phase, _, mock_prs = make_implement_phase(config, [issue])
-        mock_prs.find_open_pr_for_branch.return_value = zero_pr
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_prs_method(
+                "find_open_pr_for_branch",
+                AsyncMock(return_value=zero_pr),
+            )
+            .build()
+        )
 
         pr = await phase._resolve_pr(issue, result, is_retry=True)
 

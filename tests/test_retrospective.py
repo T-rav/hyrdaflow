@@ -381,6 +381,7 @@ class TestRecord:
         review = ReviewResultFactory.create(merged=True)
         # Should not raise
         await collector.record(42, 101, review)
+        mock_prs.get_pr_diff_names.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

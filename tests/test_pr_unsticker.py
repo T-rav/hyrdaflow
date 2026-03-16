@@ -1751,6 +1751,7 @@ class TestNarrowedExceptionHandling:
         wt_dir.mkdir(parents=True)
 
         wt.start_merge_main = AsyncMock(side_effect=RuntimeError("git failed"))
+        # Assertion added after function call below
 
         items = [
             _make_hitl_item(
@@ -1759,6 +1760,7 @@ class TestNarrowedExceptionHandling:
         ]
         # Should not raise
         await unsticker._re_rebase_remaining(items)
+        wt.start_merge_main.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_re_rebase_propagates_type_error(self, tmp_path: Path) -> None:

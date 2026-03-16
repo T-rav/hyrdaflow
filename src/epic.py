@@ -274,13 +274,8 @@ class EpicCompletionChecker:
         if fixed_label:
             await self._prs.add_labels(epic_number, [fixed_label])
 
-        # Create release if feature is enabled
         release_url = ""
         generated_changelog = ""
-        if self._config.release_on_epic_close:
-            release_url, generated_changelog = await self._create_release_for_epic(
-                epic_number, epic_title, sub_issues
-            )
 
         close_comment = "All sub-issues resolved — closing epic automatically."
         if excluded_issues:

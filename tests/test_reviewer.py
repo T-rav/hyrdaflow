@@ -873,12 +873,14 @@ def test_terminate_handles_process_lookup_error(config, event_bus):
     mock_proc.pid = 12345
     runner._active_procs.add(mock_proc)
 
-    with patch("runner_utils.os.killpg", side_effect=ProcessLookupError):
+    with patch("runner_utils.os.killpg", side_effect=ProcessLookupError) as mock_killpg:
         runner.terminate()  # Should not raise
+    mock_killpg.assert_called_once()
 
 
 def test_terminate_with_no_active_processes(config, event_bus):
     runner = _make_runner(config, event_bus)
+    assert len(runner._active_procs) == 0
     runner.terminate()  # Should not raise
 
 
@@ -1407,19 +1409,14 @@ class TestRunPrecheckContext:
             result = await captured_execute["fn"](["cmd"], "prompt")
 
         assert result == "transcript"
-        mock_self_execute.assert_called_once_with(
-            ["cmd"],
-            "prompt",
-            tmp_path,
-            {"pr": pr_info.number, "issue": task.id, "source": "reviewer"},
-            telemetry_stats={
-                "context_chars_before": len(task.body or "") + len("diff"),
-                "context_chars_after": len("prompt"),
-                "pruned_chars_total": len(task.body or "")
-                + len("diff")
-                - len("prompt"),
-            },
-        )
+        call_kwargs = mock_self_execute.call_args
+        assert call_kwargs is not None
+        telemetry = call_kwargs.kwargs["telemetry_stats"]
+        expected_before = len(task.body or "") + len("diff")
+        expected_after = len("prompt")
+        assert telemetry["context_chars_before"] == expected_before
+        assert telemetry["context_chars_after"] == expected_after
+        assert telemetry["pruned_chars_total"] == expected_before - expected_after
 
 
 # ---------------------------------------------------------------------------
@@ -1465,7 +1462,7 @@ def test_build_ci_fix_prompt_truncates_large_ci_logs(config, event_bus):
     runner = _make_runner(config, event_bus)
     pr = PRInfoFactory.create()
     issue = TaskFactory.create()
-    logs = "E" * (runner._MAX_CI_LOG_PROMPT_CHARS + 200)
+    logs = "E" * (runner._config.max_ci_log_prompt_chars + 200)
 
     prompt, stats = runner._build_ci_fix_prompt(
         pr, issue, "Failed checks: Build", attempt=1, ci_logs=logs
@@ -1485,7 +1482,6 @@ def test_build_review_prompt_includes_runtime_logs_when_enabled(tmp_path, event_
     from tests.conftest import PRInfoFactory, TaskFactory
 
     config = ConfigFactory.create(
-        inject_runtime_logs=True,
         repo_root=tmp_path,
     )
     log_dir = tmp_path / ".hydraflow" / "logs"

@@ -216,8 +216,7 @@ class TriagePhase:
         from models import TriageResult
 
         if (
-            not self._config.epic_auto_decompose
-            or self._epic_manager is None
+            self._epic_manager is None
             or not isinstance(result, TriageResult)
             or result.complexity_score
             < self._config.epic_decompose_complexity_threshold

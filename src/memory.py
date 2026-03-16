@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agent_cli import build_lightweight_command
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from execution import SubprocessRunner, get_default_runner
@@ -166,20 +167,11 @@ async def file_memory_suggestion(
     )
     title = f"[Memory] {suggestion['title']}"
 
-    # Routing matrix (auto_approve x is_actionable):
-    #   auto_approve=True  + any type    -> memory_label directly (skip HITL)
-    #   auto_approve=False + knowledge   -> improve_label only (no HITL)
-    #   auto_approve=False + actionable  -> improve_label + hitl_label (HITL)
-    if config.memory_auto_approve:
-        # Auto-approve: all types skip HITL, label for memory sync pickup
-        labels = list(config.memory_label)
-        hitl_cause = None
-    elif MemoryType.is_actionable(memory_type):
-        # No auto-approve + actionable: route through HITL
+    # Routing: actionable types go through HITL, knowledge goes to improve pipeline
+    if MemoryType.is_actionable(memory_type):
         labels = list(config.improve_label) + list(config.hitl_label)
         hitl_cause = f"Actionable memory suggestion ({memory_type.value})"
     else:
-        # No auto-approve + knowledge: normal improve pipeline
         labels = list(config.improve_label)
         hitl_cause = None
 
@@ -756,23 +748,9 @@ class MemorySyncWorker:
             "Output ONLY the condensed markdown list — no preamble.\n\n"
             f"{content}"
         )
-        if tool == "codex":
-            cmd = [
-                "codex",
-                "exec",
-                "--json",
-                "--model",
-                model,
-                "--sandbox",
-                "danger-full-access",
-                "--dangerously-bypass-approvals-and-sandbox",
-                "--skip-git-repo-check",
-                prompt,
-            ]
-            cmd_input = None
-        else:
-            cmd = ["claude", "-p", prompt, "--model", model]
-            cmd_input = None
+        cmd, cmd_input = build_lightweight_command(
+            tool=tool, model=model, prompt=prompt
+        )
         env = make_clean_env(self._config.gh_token)
 
         try:

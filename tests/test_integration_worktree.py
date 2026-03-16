@@ -189,6 +189,9 @@ class TestWorkspaceDestroy:
         mgr = WorkspaceManager(config)
         # Should not raise
         await mgr.destroy(999)
+        # Non-existent worktree means no path was created
+        wt_path = config.worktree_path_for_issue(999)
+        assert not wt_path.exists()
 
 
 # ---------------------------------------------------------------------------

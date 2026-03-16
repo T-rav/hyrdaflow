@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from agent_cli import build_lightweight_command
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from execution import SubprocessRunner, get_default_runner
@@ -256,22 +257,13 @@ class TranscriptSummarizer:
         """Summarize a transcript and publish as a GitHub issue.
 
         Returns the created issue number, or ``None`` if skipped/failed.
-        Only active when ``transcript_summary_as_issue`` is enabled.
         Never raises — all errors are logged and swallowed.
+
+        .. deprecated::
+            The ``transcript_summary_as_issue`` feature was removed. This method
+            is now a permanent no-op and always returns ``None``.
         """
-        if not self._config.transcript_summary_as_issue:
-            return None
-        try:
-            return await self._summarize_and_publish_inner(
-                transcript, issue_number, phase, issue_title, duration_seconds
-            )
-        except Exception:
-            logger.exception(
-                "Transcript summarization failed for issue #%d (%s phase)",
-                issue_number,
-                phase,
-            )
-            return None
+        return None
 
     async def _summarize_and_publish_inner(
         self,
@@ -327,23 +319,9 @@ class TranscriptSummarizer:
         """
         tool = self._config.transcript_summary_tool
         model = self._config.transcript_summary_model
-        if tool == "codex":
-            cmd = [
-                "codex",
-                "exec",
-                "--json",
-                "--model",
-                model,
-                "--sandbox",
-                "danger-full-access",
-                "--dangerously-bypass-approvals-and-sandbox",
-                "--skip-git-repo-check",
-                prompt,
-            ]
-            cmd_input = None
-        else:
-            cmd = ["claude", "-p", prompt, "--model", model]
-            cmd_input = None
+        cmd, cmd_input = build_lightweight_command(
+            tool=tool, model=model, prompt=prompt
+        )
         env = make_clean_env(self._config.gh_token)
 
         try:

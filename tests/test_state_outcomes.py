@@ -358,7 +358,9 @@ class TestOutcomeTrackingAdditional:
             tracker.record_outcome(
                 100 + hash(otype) % 1000, otype, "test", phase="test"
             )
-        # No assertion failure means success
+        # Verify outcomes were recorded for all types without crashing
+        outcomes = tracker.get_all_outcomes()
+        assert len(outcomes) >= 1
 
     def test_get_all_outcomes_returns_deep_copy(self, tmp_path: Path) -> None:
         """Mutating the returned dict should not affect internal state."""
@@ -721,7 +723,7 @@ class TestGetActiveWorktreesValueError:
             result = tracker.get_active_worktrees()
 
         assert result == {42: "/wt/42"}
-        assert "Skipping non-integer worktree key" in caplog.text
+        assert "Skipping non-integer state key" in caplog.text
 
     def test_returns_empty_dict_when_all_keys_invalid(self, tmp_path: Path) -> None:
         """All non-integer keys should result in an empty dict."""
@@ -742,3 +744,50 @@ class TestGetActiveWorktreesValueError:
 
         result = tracker.get_active_worktrees()
         assert result == {10: "/wt/10", 20: "/wt/20"}
+
+
+class TestStateKeyHelpers:
+    """Tests for the centralized _key and _int_keys helpers."""
+
+    def test_key_converts_int_to_str(self, tmp_path: Path) -> None:
+        tracker = StateTracker(tmp_path / "state.json")
+        assert tracker._key(42) == "42"
+
+    def test_key_passes_str_through(self, tmp_path: Path) -> None:
+        tracker = StateTracker(tmp_path / "state.json")
+        assert tracker._key("99") == "99"
+
+    def test_int_keys_converts_str_keys_to_int(self, tmp_path: Path) -> None:
+        tracker = StateTracker(tmp_path / "state.json")
+        result = tracker._int_keys({"1": "a", "2": "b"})
+        assert result == {1: "a", 2: "b"}
+
+    def test_int_keys_skips_invalid(self, tmp_path: Path) -> None:
+        tracker = StateTracker(tmp_path / "state.json")
+        result = tracker._int_keys({"1": "a", "bad": "b", "3": "c"})
+        assert result == {1: "a", 3: "c"}
+
+    def test_int_keys_empty_dict(self, tmp_path: Path) -> None:
+        tracker = StateTracker(tmp_path / "state.json")
+        assert tracker._int_keys({}) == {}
+
+    def test_roundtrip_state_preserves_all_fields(self, tmp_path: Path) -> None:
+        """Save state, reload, and verify key fields survive the roundtrip."""
+        state_file = tmp_path / "state.json"
+        tracker = StateTracker(state_file)
+
+        tracker.mark_issue(100, "reviewed")
+        tracker.set_worktree(100, "/wt/100")
+        tracker.set_branch(100, "agent/issue-100")
+        tracker.increment_issue_attempts(100)
+        tracker.set_hitl_origin(100, "hydraflow-review")
+        tracker.increment_review_attempts(100)
+        tracker.save()
+
+        tracker2 = StateTracker(state_file)
+        assert tracker2._data.processed_issues["100"] == "reviewed"
+        assert tracker2.get_active_worktrees() == {100: "/wt/100"}
+        assert tracker2.get_branch(100) == "agent/issue-100"
+        assert tracker2.get_issue_attempts(100) == 1
+        assert tracker2.get_hitl_origin(100) == "hydraflow-review"
+        assert tracker2.get_review_attempts(100) == 1

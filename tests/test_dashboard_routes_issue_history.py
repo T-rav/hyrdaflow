@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -11,13 +12,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventBus, EventType, HydraFlowEvent
-
-
-@pytest.fixture(autouse=True)
-def _disable_hitl_summary_autowarm(config) -> None:
-    """Keep route tests deterministic unless a test explicitly opts in."""
-    config.transcript_summarization_enabled = False
-    config.gh_token = ""
+from tests.helpers import find_endpoint, make_dashboard_router
 
 
 class TestIssueHistoryEndpoint:
@@ -25,10 +20,6 @@ class TestIssueHistoryEndpoint:
     async def test_issue_history_aggregates_inference_and_events(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
         from prompt_telemetry import PromptTelemetry
 
         telemetry = PromptTelemetry(config)
@@ -69,28 +60,9 @@ class TestIssueHistoryEndpoint:
             )
         )
 
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
 
-        endpoint = None
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/issues/history"
-                and hasattr(route, "endpoint")
-            ):
-                endpoint = route.endpoint
-                break
+        endpoint = find_endpoint(router, "/api/issues/history")
         assert endpoint is not None
 
         response = await endpoint(limit=100)
@@ -111,10 +83,6 @@ class TestIssueHistoryEndpoint:
     async def test_issue_history_provides_issue_url_fallback(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
         from prompt_telemetry import PromptTelemetry
 
         issue_number = 314
@@ -133,23 +101,8 @@ class TestIssueHistoryEndpoint:
             stats={"total_tokens": 11, "input_tokens": 6, "output_tokens": 5},
         )
 
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         mock_fetcher = AsyncMock()
         mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
@@ -170,10 +123,6 @@ class TestIssueHistoryEndpoint:
     async def test_issue_history_fallback_skips_when_repo_missing(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
         from prompt_telemetry import PromptTelemetry
 
         config.repo = ""
@@ -193,23 +142,8 @@ class TestIssueHistoryEndpoint:
             stats={"total_tokens": 9, "input_tokens": 4, "output_tokens": 5},
         )
 
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         mock_fetcher = AsyncMock()
         mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
@@ -227,10 +161,6 @@ class TestIssueHistoryEndpoint:
     async def test_issue_history_fallback_strips_github_url_prefix(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
         from prompt_telemetry import PromptTelemetry
 
         config.repo = "https://github.com/test-org/test-repo"
@@ -250,23 +180,8 @@ class TestIssueHistoryEndpoint:
             stats={"total_tokens": 7, "input_tokens": 3, "output_tokens": 4},
         )
 
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         mock_fetcher = AsyncMock()
         mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
@@ -287,10 +202,6 @@ class TestIssueHistoryEndpoint:
     async def test_issue_history_fallback_strips_http_github_url_prefix(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
         from prompt_telemetry import PromptTelemetry
 
         config.repo = "http://github.com/test-org/test-repo"
@@ -310,23 +221,8 @@ class TestIssueHistoryEndpoint:
             stats={"total_tokens": 6, "input_tokens": 3, "output_tokens": 3},
         )
 
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         mock_fetcher = AsyncMock()
         mock_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
@@ -347,29 +243,9 @@ class TestIssueHistoryEndpoint:
     async def test_issue_history_uses_latest_status_not_highest_rank(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
-        import json
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
 
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -396,28 +272,8 @@ class TestIssueHistoryEndpoint:
     async def test_issue_history_merges_with_pr_created_outside_range(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -448,28 +304,8 @@ class TestIssueHistoryEndpoint:
     async def test_issue_history_filters_by_status_and_query(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -518,29 +354,8 @@ class TestIssueHistoryEndpoint:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """linked_issues populated via GitHub enrichment carry kind through."""
-        import json
-        from unittest.mock import AsyncMock, patch
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -586,28 +401,8 @@ class TestIssueHistoryEndpoint:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """An issue with no links still returns an empty list (not ints)."""
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -628,28 +423,8 @@ class TestIssueHistoryEndpoint:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Issue history items include crate_number and crate_title fields."""
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -674,28 +449,8 @@ class TestIssueHistoryEndpoint:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Milestone number from ISSUE_CREATED event flows into crate_number."""
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -720,28 +475,8 @@ class TestIssueHistoryEndpoint:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Milestone number supplied as string is coerced to int."""
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -766,28 +501,8 @@ class TestIssueHistoryEndpoint:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """First milestone_number wins; later events do not overwrite."""
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -823,29 +538,8 @@ class TestIssueHistoryEndpoint:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """When milestone lookup fails, items still have empty crate_title."""
-        import json
-        from unittest.mock import AsyncMock, patch
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -882,34 +576,15 @@ class TestIssueHistoryEpicBackfill:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """When an issue is a child of an epic, the epic title is shown."""
-        import json
-
-        from dashboard_routes import create_router
         from models import EpicState
-        from pr_manager import PRManager
 
         # Register the epic with a child issue in state
         state.upsert_epic_state(
             EpicState(epic_number=100, title="My Big Epic", child_issues=[42])
         )
 
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -929,33 +604,14 @@ class TestIssueHistoryEpicBackfill:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Epic from event labels takes precedence over state backfill."""
-        import json
-
-        from dashboard_routes import create_router
         from models import EpicState
-        from pr_manager import PRManager
 
         state.upsert_epic_state(
             EpicState(epic_number=100, title="State Epic", child_issues=[43])
         )
 
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -980,28 +636,8 @@ class TestIssueHistoryEpicBackfill:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Issues not belonging to any epic have empty epic field."""
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -1021,31 +657,12 @@ class TestIssueHistoryEpicBackfill:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """When epic state has no title, fallback to 'Epic #N'."""
-        import json
-
-        from dashboard_routes import create_router
         from models import EpicState
-        from pr_manager import PRManager
 
         state.upsert_epic_state(EpicState(epic_number=200, title="", child_issues=[45]))
 
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -1069,28 +686,8 @@ class TestIssueHistoryEpicLabelFiltering:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Labels like 'hydraflow-epic-child' should not be used as epic name."""
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         # Emit event with internal epic label only
         await event_bus.publish(
@@ -1116,28 +713,8 @@ class TestIssueHistoryEpicLabelFiltering:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Real epic labels like 'epic:payments' should be used."""
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -1165,28 +742,8 @@ class TestIssueHistoryOutcomeDerivation:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Issue with a merged PR but no recorded outcome should derive 'merged'."""
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         # Create issue and add a merged PR
         await event_bus.publish(
@@ -1221,29 +778,10 @@ class TestIssueHistoryOutcomeDerivation:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Explicit outcome should not be overwritten by PR-derived one."""
-        import json
-
-        from dashboard_routes import create_router
         from models import IssueOutcomeType
-        from pr_manager import PRManager
 
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -1283,28 +821,8 @@ class TestIssueHistoryOutcomeDerivation:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Issue with unmerged PR and no outcome should have no outcome."""
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            r.endpoint
-            for r in router.routes
-            if getattr(r, "path", "") == "/api/issues/history"
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
 
         await event_bus.publish(
             HydraFlowEvent(
@@ -1329,40 +847,11 @@ class TestIssueHistoryOutcomeDerivation:
 class TestIssueHistoryCache:
     """Tests for issue history disk cache (save / load / warm-up / invalidation)."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _get_history_endpoint(self, router):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/issues/history"
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        raise AssertionError("history endpoint not found")
-
     @pytest.mark.asyncio
     async def test_save_load_round_trip_preserves_int_keys(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Cache round-trip: int keys for prs / linked_issues survive JSON."""
-        import json
-
         from prompt_telemetry import PromptTelemetry
 
         telemetry = PromptTelemetry(config)
@@ -1381,8 +870,8 @@ class TestIssueHistoryCache:
         )
 
         # First request — populates and saves cache.
-        router = self._make_router(config, event_bus, state, tmp_path)
-        ep = self._get_history_endpoint(router)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        ep = find_endpoint(router, "/api/issues/history")
         resp = await ep(limit=100)
         payload = json.loads(resp.body)
         assert payload["totals"]["issues"] >= 1
@@ -1394,8 +883,8 @@ class TestIssueHistoryCache:
         assert "issue_rows" in raw
 
         # Verify round-trip: load the cache in a fresh router and query again.
-        router2 = self._make_router(config, event_bus, state, tmp_path)
-        ep2 = self._get_history_endpoint(router2)
+        router2, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        ep2 = find_endpoint(router2, "/api/issues/history")
         resp2 = await ep2(limit=100)
         payload2 = json.loads(resp2.body)
         issue = next((x for x in payload2["items"] if x["issue_number"] == 50), None)
@@ -1412,9 +901,8 @@ class TestIssueHistoryCache:
         cache_file.write_text("NOT VALID JSON {{{")
 
         # Router should create without error — corrupt file is silently skipped.
-        router = self._make_router(config, event_bus, state, tmp_path)
-        ep = self._get_history_endpoint(router)
-        import json
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        ep = find_endpoint(router, "/api/issues/history")
 
         resp = await ep(limit=10)
         payload = json.loads(resp.body)
@@ -1430,9 +918,8 @@ class TestIssueHistoryCache:
         cache_file = config.data_path("metrics", "history_cache.json")
         assert not cache_file.exists()
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        ep = self._get_history_endpoint(router)
-        import json
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        ep = find_endpoint(router, "/api/issues/history")
 
         resp = await ep(limit=10)
         payload = json.loads(resp.body)
@@ -1443,8 +930,6 @@ class TestIssueHistoryCache:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Second identical request within TTL should hit cache."""
-        import json
-
         from prompt_telemetry import PromptTelemetry
 
         telemetry = PromptTelemetry(config)
@@ -1462,8 +947,8 @@ class TestIssueHistoryCache:
             stats={"total_tokens": 80},
         )
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        ep = self._get_history_endpoint(router)
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        ep = find_endpoint(router, "/api/issues/history")
 
         resp1 = await ep(limit=100)
         p1 = json.loads(resp1.body)
@@ -1479,10 +964,8 @@ class TestIssueHistoryCache:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Publishing a new event should invalidate the cache."""
-        import json
-
-        router = self._make_router(config, event_bus, state, tmp_path)
-        ep = self._get_history_endpoint(router)
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        ep = find_endpoint(router, "/api/issues/history")
 
         resp1 = await ep(limit=100)
         json.loads(resp1.body)  # populate cache
@@ -1506,8 +989,6 @@ class TestIssueHistoryCache:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """Ensure _load_history_cache restores linked_issues dict keys to int."""
-        import json
-
         cache_file = config.data_path("metrics", "history_cache.json")
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         # Simulate JSON file with string keys (as produced by json.dumps).
@@ -1557,8 +1038,8 @@ class TestIssueHistoryCache:
         cache_file.write_text(json.dumps(cache_data))
 
         # Load via router warm-up.
-        router = self._make_router(config, event_bus, state, tmp_path)
-        ep = self._get_history_endpoint(router)
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        ep = find_endpoint(router, "/api/issues/history")
 
         resp = await ep(limit=100)
         payload = json.loads(resp.body)
@@ -1579,31 +1060,8 @@ class TestEnrichmentErrorResilience:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """One failing fetch should not crash enrichment for other issues."""
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            (
-                r.endpoint
-                for r in router.routes
-                if getattr(r, "path", "") == "/api/issues/history"
-            ),
-            None,
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
         assert endpoint is not None, "/api/issues/history route not found"
 
         # Create two issues
@@ -1668,31 +1126,8 @@ class TestEnrichmentErrorResilience:
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
         """A link with a non-integer target_id should be silently skipped."""
-        import json
-
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-        endpoint = next(
-            (
-                r.endpoint
-                for r in router.routes
-                if getattr(r, "path", "") == "/api/issues/history"
-            ),
-            None,
-        )
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
         assert endpoint is not None, "/api/issues/history route not found"
 
         await event_bus.publish(

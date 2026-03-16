@@ -61,8 +61,12 @@ class TestTerminate:
         mock_proc.pid = 12345
         runner._active_procs.add(mock_proc)
 
-        with patch("runner_utils.os.killpg", side_effect=ProcessLookupError):
+        with patch(
+            "runner_utils.os.killpg", side_effect=ProcessLookupError
+        ) as mock_killpg:
             runner.terminate()  # Should not raise
+
+        mock_killpg.assert_called_once()
 
     def test_terminate_with_no_active_processes(
         self, config, event_bus: EventBus
@@ -70,6 +74,9 @@ class TestTerminate:
         """terminate() with empty _active_procs should be a no-op."""
         runner = AgentRunner(config, event_bus)
         runner.terminate()  # Should not raise
+        assert (
+            len(runner._active_procs) == 0
+        )  # empty procs remain unchanged after no-op
 
 
 class TestExecuteStreaming:
@@ -526,12 +533,11 @@ class TestCountCommitsTimeout:
 class TestBuildPromptRuntimeLogs:
     """Tests for runtime log injection in _build_prompt_with_stats."""
 
-    def test_prompt_includes_runtime_logs_when_enabled(
+    def test_prompt_includes_runtime_logs_when_present(
         self, tmp_path: Path, event_bus: EventBus
     ) -> None:
-        """When inject_runtime_logs is True and logs exist, prompt includes them."""
+        """When logs exist, prompt includes them."""
         config = ConfigFactory.create(
-            inject_runtime_logs=True,
             repo_root=tmp_path,
         )
         # Create a log file
@@ -569,9 +575,8 @@ class TestBuildPromptRuntimeLogs:
     def test_prompt_excludes_runtime_logs_when_empty(
         self, tmp_path: Path, event_bus: EventBus
     ) -> None:
-        """Enabled but no log file — no log section in prompt."""
+        """No log file — no log section in prompt."""
         config = ConfigFactory.create(
-            inject_runtime_logs=True,
             repo_root=tmp_path,
         )
         runner = AgentRunner(config, event_bus)

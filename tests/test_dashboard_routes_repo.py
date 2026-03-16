@@ -13,14 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventBus
 from repo_store import RepoRecord, RepoRegistryStore
-
-
-@pytest.fixture(autouse=True)
-def _disable_hitl_summary_autowarm(config) -> None:
-    """Keep route tests deterministic unless a test explicitly opts in."""
-    config.transcript_summarization_enabled = False
-    config.gh_token = ""
-
+from tests.helpers import find_endpoint, make_dashboard_router
 
 # ---------------------------------------------------------------------------
 # Crate (milestone) endpoint tests
@@ -30,46 +23,15 @@ def _disable_hitl_summary_autowarm(config) -> None:
 class TestCrateEndpoints:
     """Tests for /api/crates routes backed by GitHub milestones."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        ), pr_mgr
-
-    def _find_endpoint(self, router, path, method=None):
-        for route in router.routes:
-            if not (
-                hasattr(route, "path")
-                and route.path == path
-                and hasattr(route, "endpoint")
-            ):
-                continue
-            if method is None or (
-                hasattr(route, "methods") and method in route.methods
-            ):
-                return route.endpoint
-        return None
-
     @pytest.mark.asyncio
     async def test_list_crates_returns_empty_list(
         self, config, event_bus, state, tmp_path
     ) -> None:
         import json
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
         pr_mgr.list_milestones = AsyncMock(return_value=[])
-        endpoint = self._find_endpoint(router, "/api/crates", "GET")
+        endpoint = find_endpoint(router, "/api/crates", "GET")
         assert endpoint is not None
         response = await endpoint()
         data = json.loads(response.body)
@@ -83,7 +45,7 @@ class TestCrateEndpoints:
 
         from models import Crate
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
         pr_mgr.list_milestones = AsyncMock(
             return_value=[
                 Crate(
@@ -95,7 +57,7 @@ class TestCrateEndpoints:
                 )
             ]
         )
-        endpoint = self._find_endpoint(router, "/api/crates", "GET")
+        endpoint = find_endpoint(router, "/api/crates", "GET")
         response = await endpoint()
         data = json.loads(response.body)
         assert len(data) == 1
@@ -112,7 +74,7 @@ class TestCrateEndpoints:
 
         from models import Crate
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
         pr_mgr.list_milestones = AsyncMock(
             return_value=[
                 Crate(
@@ -124,7 +86,7 @@ class TestCrateEndpoints:
                 )
             ]
         )
-        endpoint = self._find_endpoint(router, "/api/crates", "GET")
+        endpoint = find_endpoint(router, "/api/crates", "GET")
         response = await endpoint()
         data = json.loads(response.body)
         assert data[0]["total_issues"] == 0
@@ -136,9 +98,9 @@ class TestCrateEndpoints:
     ) -> None:
         import json
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
         pr_mgr.list_milestones = AsyncMock(side_effect=RuntimeError("gh failed"))
-        endpoint = self._find_endpoint(router, "/api/crates", "GET")
+        endpoint = find_endpoint(router, "/api/crates", "GET")
         response = await endpoint()
         assert response.status_code == 500
         data = json.loads(response.body)
@@ -152,11 +114,11 @@ class TestCrateEndpoints:
 
         from models import Crate, CrateCreateRequest
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
         pr_mgr.create_milestone = AsyncMock(
             return_value=Crate(number=5, title="Sprint 3", state="open")
         )
-        endpoint = self._find_endpoint(router, "/api/crates", "POST")
+        endpoint = find_endpoint(router, "/api/crates", "POST")
         body = CrateCreateRequest(title="Sprint 3")
         response = await endpoint(body)
         data = json.loads(response.body)
@@ -172,9 +134,9 @@ class TestCrateEndpoints:
 
         from models import CrateCreateRequest
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
         pr_mgr.create_milestone = AsyncMock(side_effect=RuntimeError("rate limit"))
-        endpoint = self._find_endpoint(router, "/api/crates", "POST")
+        endpoint = find_endpoint(router, "/api/crates", "POST")
         body = CrateCreateRequest(title="Fail")
         response = await endpoint(body)
         assert response.status_code == 500
@@ -189,11 +151,11 @@ class TestCrateEndpoints:
 
         from models import Crate, CrateUpdateRequest
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
         pr_mgr.update_milestone = AsyncMock(
             return_value=Crate(number=1, title="Updated", state="closed")
         )
-        endpoint = self._find_endpoint(router, "/api/crates/{crate_number}", "PATCH")
+        endpoint = find_endpoint(router, "/api/crates/{crate_number}", "PATCH")
         body = CrateUpdateRequest(title="Updated", state="closed")
         response = await endpoint(1, body)
         data = json.loads(response.body)
@@ -206,9 +168,9 @@ class TestCrateEndpoints:
     ) -> None:
         import json
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
         pr_mgr.delete_milestone = AsyncMock()
-        endpoint = self._find_endpoint(router, "/api/crates/{crate_number}", "DELETE")
+        endpoint = find_endpoint(router, "/api/crates/{crate_number}", "DELETE")
         response = await endpoint(1)
         data = json.loads(response.body)
         assert data["ok"] is True
@@ -222,11 +184,9 @@ class TestCrateEndpoints:
 
         from models import CrateItemsRequest
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
         pr_mgr.set_issue_milestone = AsyncMock()
-        endpoint = self._find_endpoint(
-            router, "/api/crates/{crate_number}/items", "POST"
-        )
+        endpoint = find_endpoint(router, "/api/crates/{crate_number}/items", "POST")
         body = CrateItemsRequest(issue_numbers=[10, 11, 12])
         response = await endpoint(5, body)
         data = json.loads(response.body)
@@ -243,15 +203,13 @@ class TestCrateEndpoints:
 
         from models import CrateItemsRequest
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
         # Issue 10 belongs to milestone 5, issue 99 does not
         pr_mgr.list_milestone_issues = AsyncMock(
             return_value=[{"number": 10}, {"number": 11}]
         )
         pr_mgr.set_issue_milestone = AsyncMock()
-        endpoint = self._find_endpoint(
-            router, "/api/crates/{crate_number}/items", "DELETE"
-        )
+        endpoint = find_endpoint(router, "/api/crates/{crate_number}/items", "DELETE")
         body = CrateItemsRequest(issue_numbers=[10, 99])
         response = await endpoint(5, body)
         data = json.loads(response.body)
@@ -266,98 +224,12 @@ class TestCrateEndpoints:
 
         from models import CrateItemsRequest
 
-        router, pr_mgr = self._make_router(config, event_bus, state, tmp_path)
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
         pr_mgr.list_milestone_issues = AsyncMock(side_effect=RuntimeError("fail"))
-        endpoint = self._find_endpoint(
-            router, "/api/crates/{crate_number}/items", "DELETE"
-        )
+        endpoint = find_endpoint(router, "/api/crates/{crate_number}/items", "DELETE")
         body = CrateItemsRequest(issue_numbers=[10])
         response = await endpoint(5, body)
         assert response.status_code == 500
-
-
-class TestFindRepoMatch:
-    """Tests for the _find_repo_match cascading match helper."""
-
-    def _call(self, slug: str, repos: list[dict]) -> dict | None:
-        from dashboard_routes import _find_repo_match
-
-        return _find_repo_match(slug, repos)
-
-    def test_exact_slug_match(self) -> None:
-        repos = [{"slug": "insightmesh", "path": "/repos/insightmesh"}]
-        assert self._call("insightmesh", repos) == repos[0]
-
-    def test_owner_repo_format_strips_prefix(self) -> None:
-        repos = [{"slug": "insightmesh", "path": "/repos/insightmesh"}]
-        assert self._call("8thlight/insightmesh", repos) == repos[0]
-
-    def test_path_tail_match(self) -> None:
-        repos = [{"slug": "mesh", "path": "/home/user/insightmesh"}]
-        assert self._call("insightmesh", repos) == repos[0]
-
-    def test_path_component_match(self) -> None:
-        repos = [{"slug": "mesh", "path": "/repos/8thlight/insightmesh"}]
-        assert self._call("8thlight", repos) == repos[0]
-
-    def test_exact_match_has_priority_over_path_match(self) -> None:
-        exact = {"slug": "myrepo", "path": "/other/path"}
-        path_match = {"slug": "other", "path": "/repos/myrepo"}
-        repos = [path_match, exact]
-        assert self._call("myrepo", repos) == exact
-
-    def test_empty_slug_returns_none(self) -> None:
-        repos = [{"slug": "foo", "path": "/repos/foo"}]
-        assert self._call("", repos) is None
-
-    def test_no_match_returns_none(self) -> None:
-        repos = [{"slug": "foo", "path": "/repos/foo"}]
-        assert self._call("bar", repos) is None
-
-    def test_empty_repos_list_returns_none(self) -> None:
-        assert self._call("foo", []) is None
-
-    def test_slash_only_returns_none(self) -> None:
-        repos = [{"slug": "foo", "path": "/repos/foo"}]
-        assert self._call("/", repos) is None
-
-    def test_trailing_slash_stripped(self) -> None:
-        repos = [{"slug": "insightmesh", "path": "/repos/insightmesh"}]
-        assert self._call("8thlight/insightmesh/", repos) == repos[0]
-
-    def test_multi_slash_input(self) -> None:
-        repos = [{"slug": "repo", "path": "/repos/repo"}]
-        assert self._call("github.com/owner/repo", repos) == repos[0]
-
-    def test_case_insensitive_slug_match(self) -> None:
-        repos = [{"slug": "insightmesh", "path": "/repos/insightmesh"}]
-        assert self._call("InsightMesh", repos) == repos[0]
-
-    def test_case_insensitive_owner_repo(self) -> None:
-        repos = [{"slug": "insightmesh", "path": "/repos/insightmesh"}]
-        assert self._call("8thLight/InsightMesh", repos) == repos[0]
-
-    def test_repo_with_none_slug(self) -> None:
-        repos = [{"slug": None, "path": "/repos/myrepo"}]
-        assert self._call("myrepo", repos) == repos[0]
-
-    def test_repo_with_missing_slug_key(self) -> None:
-        repos = [{"path": "/repos/myrepo"}]
-        assert self._call("myrepo", repos) == repos[0]
-
-    def test_repo_with_none_path(self) -> None:
-        repos = [{"slug": "foo", "path": None}]
-        assert self._call("foo", repos) == repos[0]
-
-    def test_whitespace_only_returns_none(self) -> None:
-        repos = [{"slug": "foo", "path": "/repos/foo"}]
-        assert self._call("   ", repos) is None
-
-    def test_no_partial_substring_match(self) -> None:
-        """Strategy 4 requires full path component, not substring."""
-        repos = [{"slug": "mesh", "path": "/repos/insightmesh"}]
-        # "insight" is a substring of "insightmesh" but not a full component
-        assert self._call("insight", repos) is None
 
 
 class TestDetectRepoSlugFromPath:
@@ -365,21 +237,7 @@ class TestDetectRepoSlugFromPath:
 
     @pytest.fixture(autouse=True)
     def _setup(self, config, event_bus, state, tmp_path: Path) -> None:
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        self.router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
+        self.router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
 
     def _get_helper(self):
         """Extract the _detect_repo_slug_from_path closure from the router scope."""
@@ -458,34 +316,6 @@ class TestAddRepoByPath:
             side_effect=fake_create_subprocess_exec,
         )
 
-    def _make_router(self, config, event_bus, state, tmp_path):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _get_endpoint(self, router):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/repos/add"
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        msg = "add_repo_by_path endpoint not found"
-        raise AssertionError(msg)
-
     @pytest.mark.asyncio
     async def test_missing_path_returns_400(
         self,
@@ -496,8 +326,8 @@ class TestAddRepoByPath:
     ) -> None:
         import json as json_mod
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._get_endpoint(router)
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos/add", "POST")
 
         resp = await endpoint({"path": ""})
         data = json_mod.loads(resp.body)
@@ -514,8 +344,8 @@ class TestAddRepoByPath:
     ) -> None:
         import json as json_mod
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._get_endpoint(router)
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos/add", "POST")
 
         resp = await endpoint(None)
         data = json_mod.loads(resp.body)
@@ -532,8 +362,8 @@ class TestAddRepoByPath:
     ) -> None:
         import json as json_mod
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._get_endpoint(router)
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos/add", "POST")
 
         resp = await endpoint({"path": 123})
         data = json_mod.loads(resp.body)
@@ -550,8 +380,8 @@ class TestAddRepoByPath:
     ) -> None:
         import json as json_mod
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._get_endpoint(router)
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos/add", "POST")
 
         resp = await endpoint({"path": str(tmp_path / "missing-repo-dir")})
         data = json_mod.loads(resp.body)
@@ -570,8 +400,8 @@ class TestAddRepoByPath:
 
         fake_dir = tmp_path / "not-a-repo"
         fake_dir.mkdir()
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._get_endpoint(router)
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos/add", "POST")
 
         resp = await endpoint({"path": str(fake_dir)})
         data = json_mod.loads(resp.body)
@@ -588,8 +418,8 @@ class TestAddRepoByPath:
     ) -> None:
         import json as json_mod
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._get_endpoint(router)
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos/add", "POST")
 
         resp = await endpoint({"path": "/"})
         data = json_mod.loads(resp.body)
@@ -617,23 +447,10 @@ class TestAddRepoByPath:
         )
         register_cb = AsyncMock(return_value=(returned_record, config))
 
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-            register_repo_cb=register_cb,
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, register_repo_cb=register_cb
         )
-        endpoint = self._get_endpoint(router)
+        endpoint = find_endpoint(router, "/api/repos/add", "POST")
 
         with (
             self._mock_git_validation(
@@ -670,23 +487,10 @@ class TestAddRepoByPath:
         )
         register_cb = AsyncMock(return_value=(returned_record, config))
 
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-            register_repo_cb=register_cb,
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, register_repo_cb=register_cb
         )
-        endpoint = self._get_endpoint(router)
+        endpoint = find_endpoint(router, "/api/repos/add", "POST")
 
         with (
             self._mock_git_validation(
@@ -720,8 +524,8 @@ class TestAddRepoByPath:
         repo_dir = tmp_path / "supervisor-down-repo"
         repo_dir.mkdir()
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._get_endpoint(router)
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos/add", "POST")
         with self._mock_git_validation(
             repo_dir, remote_url="https://github.com/org/down.git"
         ):
@@ -729,7 +533,7 @@ class TestAddRepoByPath:
 
         data = json_mod.loads(resp.body)
         assert resp.status_code == 503
-        assert "HydraFlow supervisor is not running" in data["error"]
+        assert data["error"] == "supervisor unavailable"
 
     @pytest.mark.asyncio
     async def test_register_repo_cb_succeeds(
@@ -752,23 +556,10 @@ class TestAddRepoByPath:
         )
         register_cb = AsyncMock(return_value=(returned_record, config))
 
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        router = create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-            register_repo_cb=register_cb,
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, register_repo_cb=register_cb
         )
-        endpoint = self._get_endpoint(router)
+        endpoint = find_endpoint(router, "/api/repos/add", "POST")
         with (
             self._mock_git_validation(
                 repo_dir, remote_url="https://github.com/org/autostart.git"
@@ -794,8 +585,8 @@ class TestAddRepoByPath:
 
         fake_dir = tmp_path / "query-path-repo"
         fake_dir.mkdir()
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._get_endpoint(router)
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos/add", "POST")
 
         resp = await endpoint(
             req=None,
@@ -819,8 +610,8 @@ class TestAddRepoByPath:
 
         fake_dir = tmp_path / "query-json-path-repo"
         fake_dir.mkdir()
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._get_endpoint(router)
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos/add", "POST")
 
         resp = await endpoint(
             req=None,
@@ -836,34 +627,6 @@ class TestAddRepoByPath:
 class TestPickRepoFolder:
     """Tests for POST /api/repos/pick-folder endpoint."""
 
-    def _make_router(self, config, event_bus, state, tmp_path):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-        )
-
-    def _get_endpoint(self, router):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/repos/pick-folder"
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        msg = "pick_repo_folder endpoint not found"
-        raise AssertionError(msg)
-
     @pytest.mark.asyncio
     async def test_no_selection_returns_400(
         self,
@@ -874,8 +637,8 @@ class TestPickRepoFolder:
     ) -> None:
         import json as json_mod
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._get_endpoint(router)
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos/pick-folder", "POST")
 
         with patch(
             "dashboard_routes._pick_folder_with_dialog",
@@ -900,8 +663,8 @@ class TestPickRepoFolder:
 
         repo_dir = tmp_path / "picked-repo"
         repo_dir.mkdir()
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._get_endpoint(router)
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/repos/pick-folder", "POST")
 
         with patch(
             "dashboard_routes._pick_folder_with_dialog",
@@ -918,37 +681,6 @@ class TestPickRepoFolder:
 class TestBrowsableFilesystemAPI:
     """Tests for /api/fs/roots and /api/fs/list endpoints."""
 
-    def _make_router(
-        self, config, event_bus, state, tmp_path, *, allowed_repo_roots_fn=None
-    ):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-            allowed_repo_roots_fn=allowed_repo_roots_fn,
-        )
-
-    def _get_endpoint(self, router, target_path: str):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == target_path
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        msg = f"{target_path} endpoint not found"
-        raise AssertionError(msg)
-
     @pytest.mark.asyncio
     async def test_fs_roots_returns_allowed_roots(
         self,
@@ -959,8 +691,8 @@ class TestBrowsableFilesystemAPI:
     ) -> None:
         import json as json_mod
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._get_endpoint(router, "/api/fs/roots")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/fs/roots")
         resp = await endpoint()
         data = json_mod.loads(resp.body)
         assert resp.status_code == 200
@@ -980,14 +712,14 @@ class TestBrowsableFilesystemAPI:
         import json as json_mod
 
         custom_root = str(tmp_path / "custom-root")
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config,
             event_bus,
             state,
             tmp_path,
             allowed_repo_roots_fn=lambda: (custom_root,),
         )
-        endpoint = self._get_endpoint(router, "/api/fs/roots")
+        endpoint = find_endpoint(router, "/api/fs/roots")
         resp = await endpoint()
         data = json_mod.loads(resp.body)
         assert resp.status_code == 200
@@ -1007,14 +739,14 @@ class TestBrowsableFilesystemAPI:
 
         root_a = str(tmp_path / "root-a")
         root_b = str(tmp_path / "root-b")
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config,
             event_bus,
             state,
             tmp_path,
             allowed_repo_roots_fn=lambda: (root_a, root_b),
         )
-        endpoint = self._get_endpoint(router, "/api/fs/roots")
+        endpoint = find_endpoint(router, "/api/fs/roots")
         resp = await endpoint()
         data = json_mod.loads(resp.body)
         assert resp.status_code == 200
@@ -1034,14 +766,14 @@ class TestBrowsableFilesystemAPI:
         """Empty allowed_repo_roots_fn triggers the no-roots guard with 500."""
         import json as json_mod
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config,
             event_bus,
             state,
             tmp_path,
             allowed_repo_roots_fn=lambda: (),
         )
-        endpoint = self._get_endpoint(router, "/api/fs/list")
+        endpoint = find_endpoint(router, "/api/fs/list")
         resp = await endpoint(path=None)
         data = json_mod.loads(resp.body)
         assert resp.status_code == 500
@@ -1057,8 +789,8 @@ class TestBrowsableFilesystemAPI:
     ) -> None:
         import json as json_mod
 
-        router = self._make_router(config, event_bus, state, tmp_path)
-        endpoint = self._get_endpoint(router, "/api/fs/list")
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/fs/list")
         resp = await endpoint(path="/")
         data = json_mod.loads(resp.body)
         assert resp.status_code == 400
@@ -1079,14 +811,14 @@ class TestBrowsableFilesystemAPI:
         (root / "repo-a").mkdir()
         (root / "repo-b").mkdir()
         (root / ".hidden").mkdir()
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config,
             event_bus,
             state,
             tmp_path,
             allowed_repo_roots_fn=lambda: (str(root),),
         )
-        endpoint = self._get_endpoint(router, "/api/fs/list")
+        endpoint = find_endpoint(router, "/api/fs/list")
         resp = await endpoint(path=str(root))
 
         data = json_mod.loads(resp.body)
@@ -1145,52 +877,6 @@ class _StubRegistry:
 class TestRepoStoreRuntimeIntegration:
     """Ensure repo_store-backed endpoints persist repos and manage runtimes."""
 
-    def _make_router(
-        self,
-        config,
-        event_bus: EventBus,
-        state,
-        tmp_path: Path,
-        registry,
-        repo_store,
-        *,
-        register_repo_cb=None,
-        remove_repo_cb=None,
-        list_repos_cb=None,
-    ):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-            registry=registry,
-            repo_store=repo_store,
-            register_repo_cb=register_repo_cb,
-            remove_repo_cb=remove_repo_cb,
-            list_repos_cb=list_repos_cb,
-            default_repo_slug=config.repo_slug,
-        )
-
-    def _find_route(self, router, path, method="POST"):
-        for route in router.routes:
-            methods = getattr(route, "methods", set())
-            if (
-                getattr(route, "path", None) == path
-                and method in methods
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        raise AssertionError(f"{method} {path} not found")
-
     def _init_repo(self, repo_path: Path) -> None:
         repo_path.mkdir(parents=True, exist_ok=True)
         subprocess.run(["git", "-C", str(repo_path), "init"], check=True)
@@ -1234,16 +920,17 @@ class TestRepoStoreRuntimeIntegration:
             await registry.register(cfg)
             return record, cfg
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             base_config,
             event_bus,
             state,
             tmp_path,
-            registry,
-            repo_store,
+            registry=registry,
+            repo_store=repo_store,
             register_repo_cb=_register_repo_cb,
+            default_repo_slug=base_config.repo_slug,
         )
-        add_endpoint = self._find_route(router, "/api/repos/add", method="POST")
+        add_endpoint = find_endpoint(router, "/api/repos/add", "POST")
         repo_path = tmp_path / "widgets"
         self._init_repo(repo_path)
         import prep
@@ -1286,12 +973,16 @@ class TestRepoStoreRuntimeIntegration:
         runtime.running = False
         registry._items["acme-widgets"] = runtime
 
-        router = self._make_router(
-            base_config, event_bus, state, tmp_path, registry, repo_store
+        router, _ = make_dashboard_router(
+            base_config,
+            event_bus,
+            state,
+            tmp_path,
+            registry=registry,
+            repo_store=repo_store,
+            default_repo_slug=base_config.repo_slug,
         )
-        start_endpoint = self._find_route(
-            router, "/api/runtimes/{slug}/start", method="POST"
-        )
+        start_endpoint = find_endpoint(router, "/api/runtimes/{slug}/start", "POST")
 
         response = await start_endpoint("acme-widgets")
         assert response.status_code == 200
@@ -1329,16 +1020,17 @@ class TestRepoStoreRuntimeIntegration:
                 registry.remove(slug)
             return repo_store.remove(slug)
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             base_config,
             event_bus,
             state,
             tmp_path,
-            registry,
-            repo_store,
+            registry=registry,
+            repo_store=repo_store,
             remove_repo_cb=_remove_repo_cb,
+            default_repo_slug=base_config.repo_slug,
         )
-        delete_endpoint = self._find_route(router, "/api/repos/{slug}", method="DELETE")
+        delete_endpoint = find_endpoint(router, "/api/repos/{slug}", "DELETE")
 
         response = await delete_endpoint("acme-widgets")
         assert response.status_code == 200
@@ -1353,35 +1045,6 @@ class TestRepoStoreRuntimeIntegration:
 
 class TestAddRepoByPathWithCallback:
     """Tests for POST /api/repos/add when register_repo_cb is provided."""
-
-    def _make_router(self, config, event_bus, state, tmp_path, *, register_repo_cb):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-            register_repo_cb=register_repo_cb,
-        )
-
-    def _get_endpoint(self, router):
-        for route in router.routes:
-            if (
-                hasattr(route, "path")
-                and route.path == "/api/repos/add"
-                and hasattr(route, "endpoint")
-            ):
-                return route.endpoint
-        msg = "add_repo_by_path endpoint not found"
-        raise AssertionError(msg)
 
     @pytest.mark.asyncio
     async def test_register_repo_cb_invoked_on_valid_path(
@@ -1415,10 +1078,10 @@ class TestAddRepoByPathWithCallback:
                 return _FakeGitProcess(b"https://github.com/org/cb-repo.git\n")
             raise AssertionError(f"unexpected: {cmd}")
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, register_repo_cb=cb
         )
-        endpoint = self._get_endpoint(router)
+        endpoint = find_endpoint(router, "/api/repos/add", "POST")
 
         with (
             patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
@@ -1458,10 +1121,10 @@ class TestAddRepoByPathWithCallback:
                 return _FakeGitProcess(b"https://github.com/org/err-repo.git\n")
             raise AssertionError(f"unexpected: {cmd}")
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, register_repo_cb=cb
         )
-        endpoint = self._get_endpoint(router)
+        endpoint = find_endpoint(router, "/api/repos/add", "POST")
 
         with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
             resp = await endpoint({"path": str(repo_dir)})
@@ -1479,25 +1142,6 @@ class TestAddRepoByPathWithCallback:
 class TestListSupervisedReposWithStore:
     """Tests for GET /api/repos when repo_store is provided (no supervisor)."""
 
-    def _make_router(self, config, event_bus, state, tmp_path, *, repo_store, registry):
-        from dashboard_routes import create_router
-        from pr_manager import PRManager
-
-        pr_mgr = PRManager(config, event_bus)
-        return create_router(
-            config=config,
-            event_bus=event_bus,
-            state=state,
-            pr_manager=pr_mgr,
-            get_orchestrator=lambda: None,
-            set_orchestrator=lambda o: None,
-            set_run_task=lambda t: None,
-            ui_dist_dir=tmp_path / "no-dist",
-            template_dir=tmp_path / "no-templates",
-            repo_store=repo_store,
-            registry=registry,
-        )
-
     @pytest.mark.asyncio
     async def test_returns_store_records_when_repo_store_set(
         self, config, event_bus, state, tmp_path
@@ -1513,13 +1157,11 @@ class TestListSupervisedReposWithStore:
             RepoRecord(slug="my-repo", repo="org/my-repo", path=str(repo_path))
         )
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, repo_store=store, registry=None
         )
-        endpoint = next(
-            r for r in router.routes if getattr(r, "path", "") == "/api/repos"
-        )
-        resp = await endpoint.endpoint()
+        endpoint = find_endpoint(router, "/api/repos")
+        resp = await endpoint()
 
         data = json.loads(resp.body)
         assert resp.status_code == 200
@@ -1548,13 +1190,11 @@ class TestListSupervisedReposWithStore:
         mock_registry = MagicMock()
         mock_registry.get.return_value = runtime
 
-        router = self._make_router(
+        router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, repo_store=store, registry=mock_registry
         )
-        endpoint = next(
-            r for r in router.routes if getattr(r, "path", "") == "/api/repos"
-        )
-        resp = await endpoint.endpoint()
+        endpoint = find_endpoint(router, "/api/repos")
+        resp = await endpoint()
 
         data = json.loads(resp.body)
         assert resp.status_code == 200

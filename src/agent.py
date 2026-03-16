@@ -14,14 +14,14 @@ from base_runner import BaseRunner
 from diff_sanity import build_diff_sanity_prompt, parse_diff_sanity_result
 from events import EventBus, EventType, HydraFlowEvent
 from models import LoopResult, Task, WorkerResult, WorkerStatus, WorkerUpdatePayload
-from phase_utils import is_likely_bug
+from phase_utils import is_likely_bug, reraise_on_credit_or_bug
+from prompt_builder import PromptBuilder
 from review_insights import (
     ReviewInsightStore,
     get_common_feedback_section,
     get_escalation_data,
 )
 from runner_constants import MEMORY_SUGGESTION_PROMPT
-from subprocess_util import CreditExhaustedError
 from task_graph import extract_phases, has_task_graph, topological_sort
 from test_adequacy import build_test_adequacy_prompt, parse_test_adequacy_result
 
@@ -40,10 +40,6 @@ class AgentRunner(BaseRunner):
     """
 
     _log = logger
-    _MAX_DISCUSSION_COMMENT_CHARS = 500
-    _MAX_COMMON_FEEDBACK_CHARS = 2_000
-    _MAX_IMPL_PLAN_CHARS = 6_000
-    _MAX_REVIEW_FEEDBACK_CHARS = 2_000
 
     _SELF_CHECK_CHECKLIST = """
 ## Self-Check Before Committing
@@ -102,6 +98,7 @@ Run through this checklist before your final commit:
         worker_id: int = 0,
         review_feedback: str = "",
         prior_failure: str = "",
+        bead_mapping: dict[str, str] | None = None,
     ) -> WorkerResult:
         """Run the implementation agent for *task*.
 
@@ -127,7 +124,10 @@ Run through this checklist before your final commit:
             # Build and run the configured agent command
             cmd = self._build_command(worktree_path)
             prompt, prompt_stats = self._build_prompt_with_stats(
-                task, review_feedback=review_feedback, prior_failure=prior_failure
+                task,
+                review_feedback=review_feedback,
+                prior_failure=prior_failure,
+                bead_mapping=bead_mapping,
             )
             transcript = await self._execute(
                 cmd,
@@ -210,11 +210,8 @@ Run through this checklist before your final commit:
             status = WorkerStatus.DONE if success else WorkerStatus.FAILED
             await self._emit_status(task.id, worker_id, status)
 
-        except CreditExhaustedError:
-            raise
         except Exception as exc:
-            if is_likely_bug(exc):
-                raise
+            reraise_on_credit_or_bug(exc)
             result.success = False
             result.error = repr(exc)
             logger.exception(
@@ -390,19 +387,24 @@ Run through this checklist before your final commit:
     def _truncate_comment_for_prompt(self, text: str) -> str:
         """Return one discussion comment compacted for prompt efficiency."""
         raw = (text or "").strip()
-        if len(raw) <= self._MAX_DISCUSSION_COMMENT_CHARS:
+        limit = self._config.max_discussion_comment_chars
+        if len(raw) <= limit:
             return raw
-        return (
-            raw[: self._MAX_DISCUSSION_COMMENT_CHARS]
-            + f"\n[Comment truncated from {len(raw):,} chars]"
-        )
+        return raw[:limit] + f"\n[Comment truncated from {len(raw):,} chars]"
 
-    def _build_tdd_subagent_plan(self, plan_comment: str) -> str:
+    def _build_tdd_subagent_plan(
+        self,
+        plan_comment: str,
+        bead_mapping: dict[str, str] | None = None,
+    ) -> str:
         """Build a Task Graph plan that instructs the agent to use sub-agents.
 
         Parses phases from the plan, topologically sorts them, and builds
         concrete per-phase RED/GREEN/REFACTOR sub-agent instructions with
         the actual files, tests, and dependency info from each phase.
+
+        When *bead_mapping* is provided, injects ``bd`` claim/close
+        lifecycle commands into each phase.
         """
         phases = topological_sort(extract_phases(plan_comment))
         max_fix = self._config.tdd_max_remediation_loops
@@ -415,10 +417,10 @@ Run through this checklist before your final commit:
 
         rules = (
             "### Rules\n\n"
-            "- Complete each phase fully (RED → GREEN → REFACTOR) before "
+            "- Complete each phase fully (RED \u2192 GREEN \u2192 REFACTOR) before "
             "starting the next\n"
             "- Each sub-agent runs in the same worktree and sees prior commits\n"
-            "- If a sub-agent fails, report the failure with details — do NOT "
+            "- If a sub-agent fails, report the failure with details \u2014 do NOT "
             "retry silently\n"
             f"- REFACTOR sub-agent may attempt up to **{max_fix}** fix cycles "
             "before reporting failure\n\n"
@@ -432,24 +434,40 @@ Run through this checklist before your final commit:
             )
             deps_str = ", ".join(phase.depends_on) or "none"
 
+            # Bead lifecycle instructions
+            bead_id = (bead_mapping or {}).get(phase.id)
+            bead_header = ""
+            bead_claim = ""
+            bead_close = ""
+            if bead_id:
+                bead_header = f"**Bead:** #{bead_id}\n"
+                bead_claim = f"\n> First run: `bd update {bead_id} --claim`\n"
+                bead_close = (
+                    f"\n> After all tests pass, run: "
+                    f'`bd close {bead_id} --reason "Phase complete"`\n'
+                )
+
             phase_sections.append(
                 f"### Phase {i}: {phase.name}\n\n"
+                f"{bead_header}"
                 f"**Files:** {files_str}  \n"
                 f"**Depends on:** {deps_str}\n\n"
-                f"**1. RED sub-agent** — Launch with prompt:\n"
+                f"**1. RED sub-agent** \u2014 Launch with prompt:\n"
+                f"{bead_claim}"
                 f'> "Write FAILING tests for {phase.name}. '
                 f"Test these behavioral specs:\n{tests_str}\n"
                 f"ONLY create/modify files in `tests/`. Do NOT touch source files. "
                 f'Commit when done."\n\n'
-                f"**2. GREEN sub-agent** — Launch with prompt:\n"
+                f"**2. GREEN sub-agent** \u2014 Launch with prompt:\n"
                 f'> "Implement the MINIMUM code to make all failing tests pass '
                 f"for {phase.name}. Modify these files: {files_str}. "
                 f"ONLY change source/implementation files (NOT test files). "
                 f'Commit when done."\n\n'
-                f"**3. REFACTOR sub-agent** — Launch with prompt:\n"
+                f"**3. REFACTOR sub-agent** \u2014 Launch with prompt:\n"
                 f'> "Run `make test`. If tests fail, fix implementation code '
                 f"(not tests). Repeat until the full suite passes (max "
-                f'{max_fix} attempts). Commit fixes."\n\n'
+                f'{max_fix} attempts). Commit fixes."\n'
+                f"{bead_close}\n"
             )
 
         # If parsing found no phases, include the raw plan as fallback
@@ -460,7 +478,7 @@ Run through this checklist before your final commit:
                 "ordered phases.\n"
                 "Execute phases in order (P1 before P2, etc.). For each phase:\n"
                 "1. Write tests that encode the behavioral specs listed.\n"
-                "2. Run tests — they should FAIL.\n"
+                "2. Run tests \u2014 they should FAIL.\n"
                 "3. Implement the minimum code to make tests pass.\n"
                 "4. Run the full test suite before moving to the next phase.\n\n"
                 f"{plan_comment}"
@@ -469,17 +487,21 @@ Run through this checklist before your final commit:
         return header + rules + "\n".join(phase_sections)
 
     def _build_prompt_with_stats(
-        self, issue: Task, review_feedback: str = "", prior_failure: str = ""
+        self,
+        issue: Task,
+        review_feedback: str = "",
+        prior_failure: str = "",
+        bead_mapping: dict[str, str] | None = None,
     ) -> tuple[str, dict[str, object]]:
         """Build the implementation prompt and pruning stats."""
+        builder = PromptBuilder()
         plan_comment, other_comments = self._extract_plan_comment(issue.comments)
-        history_before = len(plan_comment) + sum(len(c) for c in other_comments)
-        history_after = 0
+        raw_plan = plan_comment
 
         # Fallback to saved plan file
         if not plan_comment:
             plan_comment = self._load_plan_fallback(issue.id)
-            history_before += len(plan_comment)
+            raw_plan = plan_comment
             if not plan_comment:
                 logger.error(
                     "No plan found for issue #%d — implementer will proceed without a plan",
@@ -491,13 +513,15 @@ Run through this checklist before your final commit:
         if plan_comment:
             plan_comment = self._summarize_for_prompt(
                 plan_comment,
-                max_chars=self._MAX_IMPL_PLAN_CHARS,
+                max_chars=self._config.max_impl_plan_chars,
                 label="Implementation plan",
             )
-            history_after += len(plan_comment)
+            builder.record_history("Implementation plan", raw_plan, plan_comment)
             # Detect whether the plan uses Task Graph format
             if has_task_graph(plan_comment):
-                plan_section = self._build_tdd_subagent_plan(plan_comment)
+                plan_section = self._build_tdd_subagent_plan(
+                    plan_comment, bead_mapping=bead_mapping
+                )
             else:
                 plan_section = (
                     f"\n\n## Implementation Plan\n\n"
@@ -508,13 +532,15 @@ Run through this checklist before your final commit:
 
         review_feedback_section = ""
         if review_feedback:
-            history_before += len(review_feedback)
+            raw_review_feedback = review_feedback
             review_feedback = self._summarize_for_prompt(
                 review_feedback,
-                max_chars=self._MAX_REVIEW_FEEDBACK_CHARS,
+                max_chars=self._config.max_review_feedback_chars,
                 label="Review feedback",
             )
-            history_after += len(review_feedback)
+            builder.record_history(
+                "Review feedback", raw_review_feedback, review_feedback
+            )
             review_feedback_section = (
                 f"\n\n## Review Feedback\n\n"
                 f"A reviewer rejected the previous implementation. "
@@ -524,13 +550,13 @@ Run through this checklist before your final commit:
 
         prior_failure_section = ""
         if prior_failure:
-            history_before += len(prior_failure)
+            raw_prior_failure = prior_failure
             prior_failure = self._summarize_for_prompt(
                 prior_failure,
                 max_chars=self._config.error_output_max_chars,
                 label="Prior failure",
             )
-            history_after += len(prior_failure)
+            builder.record_history("Prior failure", raw_prior_failure, prior_failure)
             prior_failure_section = (
                 f"\n\n## Prior Attempt Failure\n\n"
                 f"Your previous implementation attempt failed with the following error. "
@@ -546,7 +572,7 @@ Run through this checklist before your final commit:
                 self._truncate_comment_for_prompt(c) for c in selected_comments
             ]
             formatted = "\n".join(f"- {c}" for c in compact_comments)
-            history_after += len(formatted)
+            builder.record_history("Discussion", "".join(other_comments), formatted)
             comments_section = f"\n\n## Discussion\n{formatted}"
             if len(other_comments) > max_comments:
                 comments_section += f"\n- ... ({len(other_comments) - max_comments} more comments omitted)"
@@ -554,13 +580,14 @@ Run through this checklist before your final commit:
         raw_feedback_section = self._get_review_feedback_section()
         feedback_section = ""
         if raw_feedback_section:
-            history_before += len(raw_feedback_section)
             compact_feedback = self._summarize_for_prompt(
                 raw_feedback_section,
-                max_chars=self._MAX_COMMON_FEEDBACK_CHARS,
+                max_chars=self._config.max_common_feedback_chars,
                 label="Common review feedback",
             )
-            history_after += len(compact_feedback)
+            builder.record_history(
+                "Common review feedback", raw_feedback_section, compact_feedback
+            )
             feedback_section = compact_feedback
 
         escalations = self._get_escalation_data()
@@ -568,30 +595,29 @@ Run through this checklist before your final commit:
         if escalations:
             blocks = [str(e["mandatory_block"]) for e in escalations]
             escalation_section = "\n\n" + "\n\n".join(blocks)
-            history_before += len(escalation_section)
-            history_after += len(escalation_section)
+            builder.record_history(
+                "Escalations", escalation_section, escalation_section
+            )
 
         manifest_section, memory_section = self._inject_manifest_and_memory()
 
-        # Runtime log injection (opt-in)
+        # Runtime log injection
         log_section = ""
-        if self._config.inject_runtime_logs:
-            from log_context import load_runtime_logs  # noqa: PLC0415
+        from log_context import load_runtime_logs  # noqa: PLC0415
 
-            logs = load_runtime_logs(self._config)
-            if logs:
-                log_section = f"\n\n## Recent Application Logs\n\n```\n{logs}\n```"
+        logs = load_runtime_logs(self._config)
+        if logs:
+            log_section = f"\n\n## Recent Application Logs\n\n```\n{logs}\n```"
 
         # Truncate issue body if too long
         body = issue.body
         max_body = self._config.max_issue_body_chars
-        body_before = len(body)
         if len(body) > max_body:
             body = (
                 body[:max_body]
                 + f"\n\n[Body truncated at {max_body:,} chars — see full issue on GitHub]"
             )
-        body_after = len(body)
+        builder.record_context("Issue body", issue.body, body)
 
         test_cmd = self._config.test_command
 
@@ -636,21 +662,7 @@ Run through this checklist before your final commit:
   write the code, not to second-guess the plan. Always produce commits.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="implementation")}"""
-        stats = {
-            "history_chars_before": history_before,
-            "history_chars_after": history_after,
-            "context_chars_before": body_before,
-            "context_chars_after": body_after,
-            "pruned_chars_total": max(0, history_before - history_after)
-            + max(0, body_before - body_after),
-            "section_chars": {
-                "issue_body_before": body_before,
-                "issue_body_after": body_after,
-                "history_before": history_before,
-                "history_after": history_after,
-            },
-        }
-        return prompt, stats
+        return prompt, builder.build_stats()
 
     async def _verify_result(self, worktree_path: Path, branch: str) -> LoopResult:
         """Check that the agent produced commits and ``make quality`` passes.

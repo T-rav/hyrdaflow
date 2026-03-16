@@ -12,6 +12,7 @@ import abc
 import asyncio
 import logging
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -21,6 +22,23 @@ from models import BackgroundWorkerStatusPayload, ErrorPayload, StatusCallback
 from subprocess_util import AuthenticationError, CreditExhaustedError
 
 logger = logging.getLogger("hydraflow.base_background_loop")
+
+
+@dataclass(frozen=True)
+class LoopDeps:
+    """Shared dependencies passed to every background loop.
+
+    Bundles the parameters that are identical across all
+    :class:`BaseBackgroundLoop` subclasses so that callers pass a single
+    object instead of repeating six keyword arguments.
+    """
+
+    event_bus: EventBus
+    stop_event: asyncio.Event
+    status_cb: StatusCallback
+    enabled_cb: Callable[[str], bool]
+    sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]]
+    interval_cb: Callable[[str], int] | None = None
 
 
 class BaseBackgroundLoop(abc.ABC):
@@ -37,22 +55,17 @@ class BaseBackgroundLoop(abc.ABC):
         *,
         worker_name: str,
         config: HydraFlowConfig,
-        bus: EventBus,
-        stop_event: asyncio.Event,
-        status_cb: StatusCallback,
-        enabled_cb: Callable[[str], bool],
-        sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]],
-        interval_cb: Callable[[str], int] | None = None,
+        deps: LoopDeps,
         run_on_startup: bool = False,
     ) -> None:
         self._worker_name = worker_name
         self._config = config
-        self._bus = bus
-        self._stop_event = stop_event
-        self._status_cb = status_cb
-        self._enabled_cb = enabled_cb
-        self._sleep_fn = sleep_fn
-        self._interval_cb = interval_cb
+        self._bus = deps.event_bus
+        self._stop_event = deps.stop_event
+        self._status_cb = deps.status_cb
+        self._enabled_cb = deps.enabled_cb
+        self._sleep_fn = deps.sleep_fn
+        self._interval_cb = deps.interval_cb
         self._run_on_startup = run_on_startup
         self._trigger_event = asyncio.Event()
 

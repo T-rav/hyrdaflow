@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any
 
-from base_background_loop import BaseBackgroundLoop
+from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
-from events import EventBus
-from models import StatusCallback
 
 if TYPE_CHECKING:
     from epic import EpicManager
@@ -25,23 +21,9 @@ class EpicMonitorLoop(BaseBackgroundLoop):
         self,
         config: HydraFlowConfig,
         epic_manager: EpicManager,
-        event_bus: EventBus,
-        stop_event: asyncio.Event,
-        status_cb: StatusCallback,
-        enabled_cb: Callable[[str], bool],
-        sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]],
-        interval_cb: Callable[[str], int] | None = None,
+        deps: LoopDeps,
     ) -> None:
-        super().__init__(
-            worker_name="epic_monitor",
-            config=config,
-            bus=event_bus,
-            stop_event=stop_event,
-            status_cb=status_cb,
-            enabled_cb=enabled_cb,
-            sleep_fn=sleep_fn,
-            interval_cb=interval_cb,
-        )
+        super().__init__(worker_name="epic_monitor", config=config, deps=deps)
         self._epic_manager = epic_manager
 
     def _get_default_interval(self) -> int:

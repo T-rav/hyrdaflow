@@ -19,18 +19,14 @@ from tests.helpers import ConfigFactory, make_triage_phase, supply_once
 def _make_reviewer(
     tmp_path: Path,
     *,
-    adr_review_enabled: bool = True,
     adr_review_approval_threshold: int = 2,
     adr_review_max_rounds: int = 3,
-    adr_review_auto_triage: bool = False,
 ) -> ADRCouncilReviewer:
     """Build an ADRCouncilReviewer with test-friendly defaults."""
     config = ConfigFactory.create(
         repo_root=tmp_path / "repo",
-        adr_review_enabled=adr_review_enabled,
         adr_review_approval_threshold=adr_review_approval_threshold,
         adr_review_max_rounds=adr_review_max_rounds,
-        adr_review_auto_triage=adr_review_auto_triage,
     )
     from events import EventBus
 
@@ -66,6 +62,34 @@ Some consequences.
 """
     path.write_text(content, encoding="utf-8")
     return path
+
+
+class TestADRFileREShared:
+    """Verify ADR_FILE_RE is shared between adr_reviewer and phase_utils."""
+
+    def test_adr_reviewer_uses_phase_utils_regex(self) -> None:
+        """adr_reviewer.ADR_FILE_RE must be the exact same object as phase_utils.ADR_FILE_RE."""
+        import adr_reviewer
+        import phase_utils
+
+        assert adr_reviewer.ADR_FILE_RE is phase_utils.ADR_FILE_RE
+
+    def test_shared_regex_matches_adr_filenames(self) -> None:
+        """The shared regex correctly matches NNNN-*.md and captures the number."""
+        import adr_reviewer
+
+        m = adr_reviewer.ADR_FILE_RE.match("0023-some-title.md")
+        assert m is not None
+        assert m.group(1) == "0023"
+
+    def test_shared_regex_rejects_non_adr_filenames(self) -> None:
+        """The shared regex rejects files that don't match the ADR naming pattern."""
+        import adr_reviewer
+
+        assert adr_reviewer.ADR_FILE_RE.match("README.md") is None
+        assert adr_reviewer.ADR_FILE_RE.match("abc-title.md") is None
+        assert adr_reviewer.ADR_FILE_RE.match("00-short.md") is None
+        assert adr_reviewer.ADR_FILE_RE.match("023-title.md") is None
 
 
 class TestFindProposedADRs:
@@ -173,6 +197,14 @@ class TestLoadAllADRs:
         result = reviewer._load_all_adrs(adr_dir)
         assert result[0][1] == "use docker containers"
 
+    def test_includes_filename_in_tuple(self, tmp_path: Path) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        _write_adr(adr_dir, 5, "Use Docker Containers", "Accepted")
+        reviewer = _make_reviewer(tmp_path)
+        result = reviewer._load_all_adrs(adr_dir)
+        assert len(result[0]) == 4
+        assert result[0][3] == "0005-use-docker-containers.md"
+
 
 class TestBuildIndexContext:
     """Tests for _build_index_context."""
@@ -184,15 +216,17 @@ class TestBuildIndexContext:
 
     def test_unknown_status(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
-        all_adrs = [(1, "No Status ADR", "No status field in content")]
+        all_adrs = [
+            (1, "No Status ADR", "No status field in content", "0001-no-status-adr.md")
+        ]
         result = reviewer._build_index_context(all_adrs)
         assert "Unknown" in result
 
     def test_formats_multiple_adrs(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         all_adrs = [
-            (1, "First", "**Status:** Accepted"),
-            (2, "Second", "**Status:** Proposed"),
+            (1, "First", "**Status:** Accepted", "0001-first.md"),
+            (2, "Second", "**Status:** Proposed", "0002-second.md"),
         ]
         result = reviewer._build_index_context(all_adrs)
         assert "ADR-0001" in result
@@ -219,15 +253,19 @@ class TestDuplicateDetection:
                 1,
                 "use docker for isolation",
                 "# Use Docker for Isolation\n\n## Decision\nUse Docker.",
+                "0001-use-docker-for-isolation.md",
             ),
             (
                 2,
                 "use docker for isolation",
                 "# Use Docker for Isolation\n\n## Decision\nUse Docker containers.",
+                "0002-use-docker-for-isolation.md",
             ),
         ]
         content = "# Use Docker for Isolation\n\n## Decision\nUse Docker."
-        result = reviewer._detect_duplicates(1, content, all_adrs)
+        result = reviewer._detect_duplicates(
+            "0001-use-docker-for-isolation.md", content, all_adrs
+        )
         assert len(result) == 1
         assert result[0][0] == 2
         assert result[0][2] >= 0.7
@@ -235,39 +273,98 @@ class TestDuplicateDetection:
     def test_different_adrs_no_duplicates(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         all_adrs = [
-            (1, "use docker", "# Use Docker\n\n## Decision\nUse Docker."),
+            (
+                1,
+                "use docker",
+                "# Use Docker\n\n## Decision\nUse Docker.",
+                "0001-use-docker.md",
+            ),
             (
                 2,
                 "adopt typescript",
                 "# Adopt TypeScript\n\n## Decision\nSwitch to TypeScript.",
+                "0002-adopt-typescript.md",
             ),
         ]
         content = "# Use Docker\n\n## Decision\nUse Docker."
-        result = reviewer._detect_duplicates(1, content, all_adrs)
+        result = reviewer._detect_duplicates("0001-use-docker.md", content, all_adrs)
         assert len(result) == 0
 
     def test_self_exclusion(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         all_adrs = [
-            (1, "use docker", "# Use Docker\n\n## Decision\nUse Docker."),
+            (
+                1,
+                "use docker",
+                "# Use Docker\n\n## Decision\nUse Docker.",
+                "0001-use-docker.md",
+            ),
         ]
         content = "# Use Docker\n\n## Decision\nUse Docker."
-        result = reviewer._detect_duplicates(1, content, all_adrs)
+        result = reviewer._detect_duplicates("0001-use-docker.md", content, all_adrs)
         assert len(result) == 0
 
     def test_threshold_boundary(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         all_adrs = [
-            (1, "a", "# A\n\n## Decision\nX"),
+            (1, "a", "# A\n\n## Decision\nX", "0001-a.md"),
             (
                 2,
                 "completely different thing entirely",
                 "# Completely Different Thing Entirely\n\n## Decision\nY something else entirely different",
+                "0002-completely-different-thing-entirely.md",
             ),
         ]
         content = "# A\n\n## Decision\nX"
-        result = reviewer._detect_duplicates(1, content, all_adrs)
+        result = reviewer._detect_duplicates("0001-a.md", content, all_adrs)
         # Titles "A" and "Completely Different Thing Entirely" should be below threshold
+        assert len(result) == 0
+
+    def test_same_number_different_files_detected(self, tmp_path: Path) -> None:
+        """Files sharing the same ADR number but different filenames must be compared."""
+        reviewer = _make_reviewer(tmp_path)
+        all_adrs = [
+            (
+                23,
+                "use docker for isolation",
+                "# Use Docker for Isolation\n\n## Decision\nUse Docker.",
+                "0023-use-docker-for-isolation.md",
+            ),
+            (
+                23,
+                "use docker for isolation v2",
+                "# Use Docker for Isolation\n\n## Decision\nUse Docker containers.",
+                "0023-use-docker-for-isolation-v2.md",
+            ),
+            (
+                23,
+                "adopt kubernetes",
+                "# Adopt Kubernetes\n\n## Decision\nSwitch to K8s.",
+                "0023-adopt-kubernetes.md",
+            ),
+        ]
+        content = "# Use Docker for Isolation\n\n## Decision\nUse Docker."
+        result = reviewer._detect_duplicates(
+            "0023-use-docker-for-isolation.md", content, all_adrs
+        )
+        # Should detect the v2 file as duplicate (similar title/content), but not self
+        # and not the unrelated kubernetes ADR (different title/content).
+        assert len(result) == 1
+        assert result[0][1] == "use docker for isolation v2"
+
+    def test_same_number_self_excluded_by_filename(self, tmp_path: Path) -> None:
+        """Even with same ADR number, the file should not match against itself."""
+        reviewer = _make_reviewer(tmp_path)
+        all_adrs = [
+            (
+                23,
+                "use docker",
+                "# Use Docker\n\n## Decision\nUse Docker.",
+                "0023-use-docker.md",
+            ),
+        ]
+        content = "# Use Docker\n\n## Decision\nUse Docker."
+        result = reviewer._detect_duplicates("0023-use-docker.md", content, all_adrs)
         assert len(result) == 0
 
 
@@ -505,7 +602,7 @@ class TestVerdictRouting:
 
     @pytest.mark.asyncio
     async def test_reject_routes_to_triage_first(self, tmp_path: Path) -> None:
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",
@@ -534,7 +631,7 @@ class TestVerdictRouting:
 
     @pytest.mark.asyncio
     async def test_request_changes_routes_to_triage_first(self, tmp_path: Path) -> None:
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",
@@ -604,7 +701,7 @@ class TestVerdictRouting:
 
     @pytest.mark.asyncio
     async def test_no_consensus_routes_to_triage_first(self, tmp_path: Path) -> None:
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",
@@ -636,7 +733,7 @@ class TestVerdictRouting:
     async def test_triage_route_fallbacks_to_hitl_when_triage_fails(
         self, tmp_path: Path
     ) -> None:
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",
@@ -1352,7 +1449,6 @@ class TestExecuteOrchestrator:
         """Codex tool uses codex exec."""
         config = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            adr_review_enabled=True,
             background_tool="codex",
         )
         from events import EventBus
@@ -1376,7 +1472,6 @@ class TestExecuteOrchestrator:
         """inherit tool should resolve to claude."""
         config = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            adr_review_enabled=True,
             background_tool="inherit",
         )
         from events import EventBus
@@ -1519,7 +1614,6 @@ class TestCommitAcceptance:
         """Bug fix: dry_run should skip all git operations."""
         config = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            adr_review_enabled=True,
             dry_run=True,
         )
         from events import EventBus
@@ -1550,11 +1644,13 @@ class TestCommitAcceptance:
             "adr_reviewer.run_subprocess",
             new_callable=AsyncMock,
             side_effect=RuntimeError("git worktree add failed"),
-        ):
+        ) as mock_run:
             # Should not raise
             await reviewer._commit_acceptance(
                 adr_path, tmp_path / "repo" / "docs" / "adr" / "README.md", result
             )
+        # Verify the error-raising subprocess was invoked
+        mock_run.assert_awaited()
 
     @pytest.mark.asyncio
     async def test_pr_creation_failure_does_not_crash(self, tmp_path: Path) -> None:
@@ -1582,6 +1678,7 @@ class TestCommitAcceptance:
             await reviewer._commit_acceptance(
                 adr_path, tmp_path / "repo" / "docs" / "adr" / "README.md", result
             )
+        assert call_count >= 6  # confirms PR creation step was reached
 
 
 class TestTitleTruncation:
@@ -1874,14 +1971,14 @@ class TestReviewProposedADRs:
 
 
 class TestAutoTriage:
-    """Tests for the adr_review_auto_triage config flag."""
+    """Tests for the auto-triage behavior (always on)."""
 
     @pytest.mark.asyncio
     async def test_auto_triage_increments_auto_triaged_not_escalated(
         self, tmp_path: Path
     ) -> None:
         """When auto_triage is True and triage succeeds, auto_triaged increments."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",
@@ -1908,42 +2005,11 @@ class TestAutoTriage:
         assert stats["escalated"] == 0
 
     @pytest.mark.asyncio
-    async def test_auto_triage_disabled_escalates_to_hitl(self, tmp_path: Path) -> None:
-        """When auto_triage is False, triage is skipped and HITL is called directly."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=False)
-        result = ADRCouncilResult(
-            adr_number=1,
-            adr_title="Test",
-            final_decision="REJECT",
-        )
-        stats = {
-            "accepted": 0,
-            "rejected": 0,
-            "escalated": 0,
-            "duplicates": 0,
-            "auto_triaged": 0,
-        }
-        with (
-            patch.object(
-                reviewer, "_route_to_triage", new_callable=AsyncMock, return_value=True
-            ) as mock_triage,
-            patch.object(
-                reviewer, "_escalate_to_hitl", new_callable=AsyncMock
-            ) as mock_hitl,
-        ):
-            await reviewer._route_result(result, MagicMock(), MagicMock(), stats)
-            mock_triage.assert_not_awaited()
-            mock_hitl.assert_awaited_once()
-        assert stats["auto_triaged"] == 0
-        assert stats["escalated"] == 1
-        assert stats["rejected"] == 1
-
-    @pytest.mark.asyncio
     async def test_auto_triage_fallback_to_hitl_on_triage_failure(
         self, tmp_path: Path
     ) -> None:
         """When auto_triage is True but triage fails, escalated increments."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",
@@ -1972,7 +2038,7 @@ class TestAutoTriage:
     @pytest.mark.asyncio
     async def test_duplicate_auto_triaged_when_enabled(self, tmp_path: Path) -> None:
         """Duplicate with auto_triage=True routes to triage label, not HITL."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Dup",
@@ -1990,28 +2056,6 @@ class TestAutoTriage:
 
         # Should use find_label (triage) not hitl_label
         assert stats["auto_triaged"] == 1
-
-    @pytest.mark.asyncio
-    async def test_duplicate_hitl_when_auto_triage_disabled(
-        self, tmp_path: Path
-    ) -> None:
-        """Duplicate with auto_triage=False routes to HITL."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=False)
-        result = ADRCouncilResult(
-            adr_number=1,
-            adr_title="Dup",
-            final_decision="DUPLICATE",
-            duplicate_detected=True,
-            duplicate_of=2,
-        )
-        stats = {"auto_triaged": 0, "escalated": 0}
-        await reviewer._handle_duplicate(result, stats)
-
-        call_args = reviewer._prs.create_issue.await_args
-        labels_kwarg = call_args.kwargs.get("labels", [])
-        assert list(reviewer._config.hitl_label) == labels_kwarg
-        assert stats["escalated"] == 1
-        assert stats["auto_triaged"] == 0
 
 
 class TestPreValidationGate:
@@ -2109,7 +2153,7 @@ class TestPreValidationGate:
         self, tmp_path: Path
     ) -> None:
         """Pre-validation failure creates a triage issue."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         from adr_pre_validator import ADRValidationIssue, ADRValidationResult
 
         validation = ADRValidationResult(
@@ -2140,7 +2184,7 @@ class TestPreValidationGate:
         self, tmp_path: Path
     ) -> None:
         """If triage issue creation fails, pre-validation falls back to HITL."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         # Make first create_issue call fail, second succeed
         reviewer._prs.create_issue = AsyncMock(side_effect=[Exception("API error"), 99])
 
@@ -2162,33 +2206,6 @@ class TestPreValidationGate:
         assert stats["auto_triaged"] == 0
         assert stats["escalated"] == 1
 
-    @pytest.mark.asyncio
-    async def test_pre_validation_failure_auto_triage_disabled_goes_to_hitl(
-        self, tmp_path: Path
-    ) -> None:
-        """When auto_triage is False, pre-validation failure goes directly to HITL."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=False)
-        from adr_pre_validator import ADRValidationIssue, ADRValidationResult
-
-        validation = ADRValidationResult(
-            issues=[
-                ADRValidationIssue(
-                    code="missing_section_context",
-                    message="ADR is missing required section: ## Context",
-                    fixable=False,
-                )
-            ]
-        )
-        stats = {"auto_triaged": 0, "escalated": 0, "pre_validation_skipped": 0}
-        await reviewer._route_pre_validation_failure(1, "Test ADR", validation, stats)
-
-        reviewer._prs.create_issue.assert_awaited_once()
-        call_args = reviewer._prs.create_issue.await_args
-        labels_kwarg = call_args.kwargs.get("labels", [])
-        assert list(reviewer._config.hitl_label) == labels_kwarg
-        assert stats["auto_triaged"] == 0
-        assert stats["escalated"] == 1
-
 
 class TestStatsIntegrity:
     """Tests that stats counters are mutually exclusive — no double-counting."""
@@ -2198,7 +2215,7 @@ class TestStatsIntegrity:
         self, tmp_path: Path
     ) -> None:
         """escalated must not increment when auto_triaged increments."""
-        reviewer = _make_reviewer(tmp_path, adr_review_auto_triage=True)
+        reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1,
             adr_title="Test",

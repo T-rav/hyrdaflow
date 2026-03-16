@@ -8,6 +8,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from agent_cli import build_lightweight_command
 from models import ConflictResolutionResult, HITLUpdatePayload
 from phase_utils import MemorySuggester
 from prompt_stats import build_prompt_stats, truncate_with_notice
@@ -48,7 +49,6 @@ _CI_TIMEOUT_KEYWORDS = ("timeout", "timed out")
 
 # Keywords for review fix cap exceeded
 _REVIEW_CAP_KEYWORDS = ("review fix", "fix attempt", "fix cap", "review cap")
-_MAX_UNSTICKER_CAUSE_CHARS = 3000
 
 
 class FailureCause(StrEnum):
@@ -494,7 +494,9 @@ class PRUnsticker:
     ) -> tuple[str, dict[str, object]]:
         """Build a targeted prompt for CI/quality fix and pruning stats."""
         cause_text, cause_before, cause_after = truncate_with_notice(
-            cause or "", _MAX_UNSTICKER_CAUSE_CHARS, label="Escalation reason"
+            cause or "",
+            self._config.max_unsticker_cause_chars,
+            label="Escalation reason",
         )
         prompt = f"""You are fixing CI/quality failures for a pull request.
 
@@ -759,23 +761,9 @@ If nothing novel, output exactly: NO_NEW_PATTERN"""
             tool = "claude"
         model = self._config.background_model or "haiku"
 
-        if tool == "codex":
-            cmd = [
-                "codex",
-                "exec",
-                "--json",
-                "--model",
-                model,
-                "--sandbox",
-                "danger-full-access",
-                "--dangerously-bypass-approvals-and-sandbox",
-                "--skip-git-repo-check",
-                prompt,
-            ]
-            cmd_input = None
-        else:
-            cmd = [tool, "-p", prompt, "--model", model]
-            cmd_input = None
+        cmd, cmd_input = build_lightweight_command(
+            tool=tool, model=model, prompt=prompt
+        )
 
         env = make_clean_env(self._config.gh_token)
 
@@ -858,10 +846,14 @@ If nothing novel, output exactly: NO_NEW_PATTERN"""
     ) -> tuple[str, dict[str, object]]:
         """Build a targeted prompt for fixing hanging tests."""
         cause_text, cause_before, cause_after = truncate_with_notice(
-            cause or "", _MAX_UNSTICKER_CAUSE_CHARS, label="Escalation reason"
+            cause or "",
+            self._config.max_unsticker_cause_chars,
+            label="Escalation reason",
         )
         isolation_text, iso_before, iso_after = truncate_with_notice(
-            isolation_output or "", _MAX_UNSTICKER_CAUSE_CHARS, label="Test isolation"
+            isolation_output or "",
+            self._config.max_unsticker_cause_chars,
+            label="Test isolation",
         )
 
         learned_block = (

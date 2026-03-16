@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from collections.abc import Callable, Coroutine
 from typing import Any
 
-from base_background_loop import BaseBackgroundLoop
+from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
-from events import EventBus
 from issue_fetcher import IssueFetcher
 from memory import MemorySyncWorker
-from models import MemoryIssueData, StatusCallback
+from models import MemoryIssueData
 
 logger = logging.getLogger("hydraflow.memory_sync_loop")
 _MEMORY_SYNC_FETCH_LIMIT = 500
@@ -26,23 +23,9 @@ class MemorySyncLoop(BaseBackgroundLoop):
         config: HydraFlowConfig,
         fetcher: IssueFetcher,
         memory_sync: MemorySyncWorker,
-        event_bus: EventBus,
-        stop_event: asyncio.Event,
-        status_cb: StatusCallback,
-        enabled_cb: Callable[[str], bool],
-        sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]],
-        interval_cb: Callable[[str], int] | None = None,
+        deps: LoopDeps,
     ) -> None:
-        super().__init__(
-            worker_name="memory_sync",
-            config=config,
-            bus=event_bus,
-            stop_event=stop_event,
-            status_cb=status_cb,
-            enabled_cb=enabled_cb,
-            sleep_fn=sleep_fn,
-            interval_cb=interval_cb,
-        )
+        super().__init__(worker_name="memory_sync", config=config, deps=deps)
         self._fetcher = fetcher
         self._memory_sync = memory_sync
 
