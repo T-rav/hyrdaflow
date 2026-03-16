@@ -86,7 +86,7 @@ def _coerce_merge_strategy(value: str | MergeStrategy) -> MergeStrategy:
 
 
 def parse_epic_sub_issues(body: str) -> list[int]:
-    """Extract issue numbers from checkbox lines in an epic body."""
+    """Extract unique issue numbers from checkbox lines in an epic body, preserving first-occurrence order."""
     return list(dict.fromkeys(int(m) for m in _CHECKBOX_PATTERN.findall(body)))
 
 
