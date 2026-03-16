@@ -1,6 +1,6 @@
 # ADR-0022: Pipeline Integration Harness for Cross-Phase Testing
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-06
 
 ## Context

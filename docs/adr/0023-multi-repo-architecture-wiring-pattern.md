@@ -1,6 +1,6 @@
 # ADR-0023: Multi-Repo Architecture Wiring Pattern
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-08
 **Revised:** 2026-03-15
 

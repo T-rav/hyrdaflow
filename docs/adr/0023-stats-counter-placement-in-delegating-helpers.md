@@ -1,6 +1,6 @@
 # ADR-0023: Stats Counter Placement When Delegating to Conditional Helpers
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-08
 
 ## Context

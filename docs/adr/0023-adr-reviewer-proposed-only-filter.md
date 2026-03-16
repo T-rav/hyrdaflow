@@ -1,6 +1,6 @@
 # ADR-0023: ADR Reviewer Proposed-Only Filter and Validator Scope
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-07
 
 ## Context

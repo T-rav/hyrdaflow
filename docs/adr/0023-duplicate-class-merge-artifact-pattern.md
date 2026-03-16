@@ -1,6 +1,6 @@
 # ADR-0023: Duplicate Class Definitions — Merge-Artifact Pattern
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-08
 
 ## Context
