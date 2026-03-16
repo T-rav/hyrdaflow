@@ -113,10 +113,9 @@ artifacts:
 - Implementation: #1677
 - ADR-0003 — Git Worktrees for Issue Isolation (original worktree decision)
 - ADR-0006 — RepoRuntime Isolation Architecture (broader isolation abstraction)
-- ADR-0021 (Persistence Architecture and Data Layout) — derived-paths table documents
-  the current flat layout (`log_dir = data_root / "logs"`, etc.).
-  Accepting ADR-0010 requires amending that ADR's derived-paths table and layout
-  diagram to reflect repo-scoped paths for `log_dir`, `plans_dir`, and `memory_dir`.
+- ADR-0021 (Persistence Architecture and Data Layout) — amended to reflect
+  repo-scoped paths for `log_dir`, `plans_dir`, and `memory_dir` as mandated
+  by this ADR.
 - `src/config.py:HydraFlowConfig` — `_resolve_paths`, `worktree_path_for_issue`,
   `log_dir`, `plans_dir`, `memory_dir` properties
 - `src/worktree.py:WorktreeManager` — worktree lifecycle and cleanup

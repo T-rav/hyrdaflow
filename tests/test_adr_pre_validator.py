@@ -265,6 +265,51 @@ class TestCheckVolatileLineCitations:
         assert "volatile_line_citation" in codes
 
 
+class TestCheckStaleAmendingNotes:
+    def test_no_amending_notes_passes(self) -> None:
+        content = _valid_adr(
+            consequences="- ADR-0021 — amended to reflect repo-scoped paths.\n"
+        )
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "stale_amending_note" not in codes
+
+    def test_single_amending_note_detected(self) -> None:
+        content = _valid_adr(
+            consequences=("Accepting ADR-0010 requires amending ADR-0021's table.\n")
+        )
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "stale_amending_note" in codes
+
+    def test_multiple_amending_notes_counted(self) -> None:
+        content = _valid_adr(
+            consequences=(
+                "- Requires amending ADR-0021.\n- Also requires amending ADR-0003.\n"
+            )
+        )
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        issue = next(i for i in result.issues if i.code == "stale_amending_note")
+        assert "2 'requires amending'" in issue.message
+
+    def test_amending_note_is_fixable(self) -> None:
+        content = _valid_adr(consequences="This requires amending ADR-0021.\n")
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        issue = next(i for i in result.issues if i.code == "stale_amending_note")
+        assert issue.fixable is True
+
+    def test_case_insensitive_detection(self) -> None:
+        content = _valid_adr(consequences="This REQUIRES AMENDING ADR-0021.\n")
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "stale_amending_note" in codes
+
+
 class TestCheckBareADRReferences:
     def test_bare_reference_detected(self) -> None:
         """A plain ADR-NNNN without title annotation is flagged."""

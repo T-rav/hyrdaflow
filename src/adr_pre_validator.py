@@ -41,6 +41,13 @@ _LINE_CITATION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Matches "requires amending" notes that reference another ADR.
+# These notes become stale once the amendment is completed.
+_REQUIRES_AMENDING_RE = re.compile(
+    r"requires\s+amending\b",
+    re.IGNORECASE,
+)
+
 # Matches ADR-NNNN references. Group 1 = the 4-digit number.
 _ADR_REF_RE = re.compile(r"ADR[- ](\d{4})")
 
@@ -83,6 +90,7 @@ class ADRPreValidator:
         self._check_empty_sections(content, result)
         self._check_supersession(content, all_adrs or [], result)
         self._check_volatile_line_citations(content, result)
+        self._check_stale_amending_notes(content, result)
         self._check_bare_adr_references(content, all_adrs or [], result)
         return result
 
@@ -147,6 +155,23 @@ class ADRPreValidator:
                         f"ADR contains {len(matches)} line-number citation(s) "
                         f"that will become stale as source files change — "
                         f"use function/class names only"
+                    ),
+                    fixable=True,
+                )
+            )
+
+    def _check_stale_amending_notes(
+        self, content: str, result: ADRValidationResult
+    ) -> None:
+        """Flag 'requires amending' notes that may be stale after amendment."""
+        matches = _REQUIRES_AMENDING_RE.findall(content)
+        if matches:
+            result.issues.append(
+                ADRValidationIssue(
+                    code="stale_amending_note",
+                    message=(
+                        f"ADR contains {len(matches)} 'requires amending' "
+                        f"note(s) — update or remove after the amendment is complete"
                     ),
                     fixable=True,
                 )
