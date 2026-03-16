@@ -1,6 +1,6 @@
 # ADR-0023: Supersession Regex Must Include All Verb Forms
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-08
 
 ## Context
@@ -44,8 +44,8 @@ Concretely, the following call sites must use this pattern:
 1. **`src/adr_pre_validator.py`** — `_SUPERSEDE_RE` for ADR-to-ADR references
    (already updated to the full pattern).
 2. **`src/models.py`** — `_LINK_PATTERNS` entry for task-link supersession
-   (currently `supersedes?`; should adopt the same stem for consistency, or
-   document why the narrower pattern is intentional for issue links).
+   must use the same `supersed(?:es?|ed|ing)` stem so that issue-body
+   references such as "superseded #5" and "superseding #12" are captured.
 
 Any future code that detects supersession language must reuse this pattern
 rather than inventing a new variant.

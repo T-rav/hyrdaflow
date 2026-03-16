@@ -533,12 +533,11 @@ class TestCountCommitsTimeout:
 class TestBuildPromptRuntimeLogs:
     """Tests for runtime log injection in _build_prompt_with_stats."""
 
-    def test_prompt_includes_runtime_logs_when_enabled(
+    def test_prompt_includes_runtime_logs_when_present(
         self, tmp_path: Path, event_bus: EventBus
     ) -> None:
-        """When inject_runtime_logs is True and logs exist, prompt includes them."""
+        """When logs exist, prompt includes them."""
         config = ConfigFactory.create(
-            inject_runtime_logs=True,
             repo_root=tmp_path,
         )
         # Create a log file
@@ -576,9 +575,8 @@ class TestBuildPromptRuntimeLogs:
     def test_prompt_excludes_runtime_logs_when_empty(
         self, tmp_path: Path, event_bus: EventBus
     ) -> None:
-        """Enabled but no log file — no log section in prompt."""
+        """No log file — no log section in prompt."""
         config = ConfigFactory.create(
-            inject_runtime_logs=True,
             repo_root=tmp_path,
         )
         runner = AgentRunner(config, event_bus)

@@ -43,13 +43,13 @@ class ADRPreValidator:
     def validate(
         self,
         content: str,
-        all_adrs: list[tuple[int, str, str]] | None = None,
+        all_adrs: list[tuple[int, str, str, str]] | None = None,
     ) -> ADRValidationResult:
         """Run all validation checks on an ADR.
 
         Args:
             content: The full markdown content of the ADR.
-            all_adrs: Optional list of (number, title, content) for cross-reference checks.
+            all_adrs: Optional list of (number, title, content, filename) for cross-reference checks.
 
         Returns:
             ADRValidationResult with any issues found.
@@ -112,7 +112,7 @@ class ADRPreValidator:
     def _check_supersession(
         self,
         content: str,
-        all_adrs: list[tuple[int, str, str]],
+        all_adrs: list[tuple[int, str, str, str]],
         result: ADRValidationResult,
     ) -> None:
         """Check that supersession references point to existing ADRs."""
@@ -120,7 +120,7 @@ class ADRPreValidator:
         if not matches:
             return
 
-        existing_numbers = {num for num, _, _ in all_adrs}
+        existing_numbers = {num for num, *_ in all_adrs}
         for ref_str in matches:
             ref_num = int(ref_str)
             if ref_num not in existing_numbers:

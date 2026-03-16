@@ -162,7 +162,7 @@ class TestCheckEmptySections:
 class TestCheckSupersession:
     def test_valid_supersession_passes(self) -> None:
         content = _valid_adr(decision="This supersedes ADR-0001.")
-        all_adrs = [(1, "Old ADR", "old content")]
+        all_adrs = [(1, "Old ADR", "old content", "0001-old-adr.md")]
         validator = ADRPreValidator()
         result = validator.validate(content, all_adrs)
         codes = [i.code for i in result.issues]
@@ -170,7 +170,7 @@ class TestCheckSupersession:
 
     def test_invalid_supersession_detected(self) -> None:
         content = _valid_adr(decision="This supersedes ADR-9999.")
-        all_adrs = [(1, "Old ADR", "old content")]
+        all_adrs = [(1, "Old ADR", "old content", "0001-old-adr.md")]
         validator = ADRPreValidator()
         result = validator.validate(content, all_adrs)
         codes = [i.code for i in result.issues]
@@ -185,7 +185,7 @@ class TestCheckSupersession:
     def test_superseding_variant_detected(self) -> None:
         """Regex matches 'superseding' variant."""
         content = _valid_adr(decision="This is superseding ADR-8888.")
-        all_adrs = [(1, "Old ADR", "old content")]
+        all_adrs = [(1, "Old ADR", "old content", "0001-old-adr.md")]
         validator = ADRPreValidator()
         result = validator.validate(content, all_adrs)
         codes = [i.code for i in result.issues]
@@ -194,7 +194,7 @@ class TestCheckSupersession:
     def test_superseded_past_tense_detected(self) -> None:
         """Regex matches 'superseded' past-tense variant."""
         content = _valid_adr(decision="This ADR superseded ADR-7777.")
-        all_adrs = [(1, "Old ADR", "old content")]
+        all_adrs = [(1, "Old ADR", "old content", "0001-old-adr.md")]
         validator = ADRPreValidator()
         result = validator.validate(content, all_adrs)
         codes = [i.code for i in result.issues]

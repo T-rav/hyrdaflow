@@ -541,14 +541,11 @@ class TestMetricsManagerExcInfo:
 class TestCrateManagerExcInfo:
     """Crate manager warnings should include exc_info=True."""
 
-    def _make_manager(
-        self, *, auto_crate: bool = False, active_crate: int | None = None
-    ):
+    def _make_manager(self, *, active_crate: int | None = None):
         from crate_manager import CrateManager
         from tests.helpers import ConfigFactory
 
         config = ConfigFactory.create()
-        config.auto_crate = auto_crate
 
         st = MagicMock()
         st.get_active_crate_number.return_value = active_crate
@@ -583,7 +580,7 @@ class TestCrateManagerExcInfo:
         from models import Crate
         from tests.conftest import TaskFactory
 
-        cm, _, pr_mgr, _ = self._make_manager(auto_crate=True)
+        cm, _, pr_mgr, _ = self._make_manager()
         pr_mgr.list_milestones = AsyncMock(return_value=[])
         pr_mgr.create_milestone = AsyncMock(
             return_value=Crate(number=1, title="test", open_issues=0, state="open")

@@ -143,21 +143,10 @@ class TestMaybeDecompose:
         return phase, state, prs, triage
 
     @pytest.mark.asyncio
-    async def test_skips_when_disabled(self, config) -> None:
-        phase, _, prs, _ = self._make_phase(config)
-        task = TaskFactory.create(id=10)
-        result = TriageResult(issue_number=10, ready=True, complexity_score=9)
-
-        decomposed = await phase._maybe_decompose(task, result)
-        assert decomposed is False
-        prs.create_issue.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_skips_when_no_epic_manager(self, tmp_path: Path) -> None:
         config = ConfigFactory.create(
             repo_root=tmp_path / "repo",
             state_file=tmp_path / "state.json",
-            epic_auto_decompose=True,
         )
         phase, _, prs, _ = self._make_phase(config, epic_manager=None)
         task = TaskFactory.create(id=10)
@@ -171,7 +160,6 @@ class TestMaybeDecompose:
         config = ConfigFactory.create(
             repo_root=tmp_path / "repo",
             state_file=tmp_path / "state.json",
-            epic_auto_decompose=True,
             epic_decompose_complexity_threshold=8,
         )
         mgr = AsyncMock()
@@ -187,7 +175,6 @@ class TestMaybeDecompose:
         config = ConfigFactory.create(
             repo_root=tmp_path / "repo",
             state_file=tmp_path / "state.json",
-            epic_auto_decompose=True,
             epic_decompose_complexity_threshold=8,
         )
         mgr = AsyncMock()
@@ -236,7 +223,6 @@ class TestMaybeDecompose:
         config = ConfigFactory.create(
             repo_root=tmp_path / "repo",
             state_file=tmp_path / "state.json",
-            epic_auto_decompose=True,
             epic_decompose_complexity_threshold=8,
         )
         mgr = AsyncMock()
@@ -262,7 +248,6 @@ class TestMaybeDecompose:
         config = ConfigFactory.create(
             repo_root=tmp_path / "repo",
             state_file=tmp_path / "state.json",
-            epic_auto_decompose=True,
             epic_decompose_complexity_threshold=8,
         )
         mgr = AsyncMock()

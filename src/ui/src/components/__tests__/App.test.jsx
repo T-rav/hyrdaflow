@@ -283,6 +283,60 @@ describe('Header renders main Start/Stop controls', () => {
 })
 
 
+describe('SystemAlertBanner', () => {
+  it('renders alert message without resume time when resume_at is absent', async () => {
+    mockState.systemAlert = { message: 'Something happened.', source: 'plan' }
+    const { default: App } = await import('../../App')
+    render(<App />)
+    expect(screen.getByText(/Something happened\./)).toBeInTheDocument()
+    expect(screen.queryByText(/Resumes at/)).toBeNull()
+    mockState.systemAlert = null
+  })
+
+  it('appends local resume time when resume_at is present', async () => {
+    // Use a time later today so formatResumeAt shows time-only format
+    const now = new Date()
+    now.setHours(23, 59, 0, 0)
+    mockState.systemAlert = {
+      message: 'Credit limit reached. Pausing all loops.',
+      source: 'plan',
+      resume_at: now.toISOString(),
+    }
+    const { default: App } = await import('../../App')
+    render(<App />)
+    expect(screen.getByText(/Resumes at/)).toBeInTheDocument()
+    mockState.systemAlert = null
+  })
+
+  it('shows date when resume_at is a different day', async () => {
+    // Use a date far in the future to guarantee it's not today
+    mockState.systemAlert = {
+      message: 'Credit limit reached.',
+      source: 'plan',
+      resume_at: '2099-06-15T10:00:00+00:00',
+    }
+    const { default: App } = await import('../../App')
+    render(<App />)
+    expect(screen.getByText(/Resumes at/)).toBeInTheDocument()
+    // Should include month abbreviation for cross-day display
+    expect(screen.getByText(/Jun/)).toBeInTheDocument()
+    mockState.systemAlert = null
+  })
+
+  it('handles invalid resume_at gracefully', async () => {
+    mockState.systemAlert = {
+      message: 'Credit limit reached.',
+      source: 'plan',
+      resume_at: 'not-a-date',
+    }
+    const { default: App } = await import('../../App')
+    render(<App />)
+    expect(screen.getByText(/Credit limit reached\./)).toBeInTheDocument()
+    expect(screen.queryByText(/Resumes at/)).toBeNull()
+    mockState.systemAlert = null
+  })
+})
+
 describe('Pipeline sub-tab under System', () => {
   it('Pipeline is accessible as a sub-tab under System', async () => {
     const { default: App } = await import('../../App')

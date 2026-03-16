@@ -24,6 +24,9 @@ class ReportStateMixin:
 
     def save(self) -> None: ...  # provided by CoreMixin
 
+    @staticmethod
+    def _key(issue_id: int | str) -> str: ...  # provided by StateTracker
+
     # --- pending reports queue ---
 
     def enqueue_report(self, report: PendingReport) -> None:
@@ -198,7 +201,7 @@ class ReportStateMixin:
         Caps at *max_records* (falls back to ``_MAX_BASELINE_AUDIT_RECORDS``).
         """
         cap = max_records or self._MAX_BASELINE_AUDIT_RECORDS
-        key = str(issue_number)
+        key = self._key(issue_number)
         if key not in self._data.baseline_audit:
             self._data.baseline_audit[key] = []
         self._data.baseline_audit[key].append(record)
@@ -208,13 +211,13 @@ class ReportStateMixin:
 
     def get_baseline_audit(self, issue_number: int) -> list[BaselineAuditRecord]:
         """Return baseline audit records for *issue_number*."""
-        return list(self._data.baseline_audit.get(str(issue_number), []))
+        return list(self._data.baseline_audit.get(self._key(issue_number), []))
 
     def get_latest_baseline_record(
         self, issue_number: int
     ) -> BaselineAuditRecord | None:
         """Return the most recent baseline audit record, or *None*."""
-        records = self._data.baseline_audit.get(str(issue_number), [])
+        records = self._data.baseline_audit.get(self._key(issue_number), [])
         return records[-1] if records else None
 
     def rollback_baseline(
@@ -227,7 +230,7 @@ class ReportStateMixin:
     ) -> BaselineAuditRecord:
         """Record a baseline rollback for *issue_number*."""
         # Find the last non-rollback record to identify files
-        records = self._data.baseline_audit.get(str(issue_number), [])
+        records = self._data.baseline_audit.get(self._key(issue_number), [])
         changed_files: list[str] = []
         for record in reversed(records):
             if record.change_type != BaselineChangeType.ROLLBACK:

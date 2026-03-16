@@ -1462,7 +1462,7 @@ def test_build_ci_fix_prompt_truncates_large_ci_logs(config, event_bus):
     runner = _make_runner(config, event_bus)
     pr = PRInfoFactory.create()
     issue = TaskFactory.create()
-    logs = "E" * (runner._MAX_CI_LOG_PROMPT_CHARS + 200)
+    logs = "E" * (runner._config.max_ci_log_prompt_chars + 200)
 
     prompt, stats = runner._build_ci_fix_prompt(
         pr, issue, "Failed checks: Build", attempt=1, ci_logs=logs
@@ -1482,7 +1482,6 @@ def test_build_review_prompt_includes_runtime_logs_when_enabled(tmp_path, event_
     from tests.conftest import PRInfoFactory, TaskFactory
 
     config = ConfigFactory.create(
-        inject_runtime_logs=True,
         repo_root=tmp_path,
     )
     log_dir = tmp_path / ".hydraflow" / "logs"
