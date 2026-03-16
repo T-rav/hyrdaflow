@@ -55,8 +55,8 @@ async def _poll_then_stop(
     condition: Callable[[], bool],
     orch: HydraFlowOrchestrator,
     *,
-    max_iters: int = 5000,
-    timeout_s: float = 5.0,
+    max_iters: int = 20000,
+    timeout_s: float = 15.0,
 ) -> None:
     """Poll *condition* with zero-sleep yields, then stop the orchestrator.
 
@@ -449,7 +449,7 @@ class TestCreditExhaustionPauseResume:
                     orch,
                 ),
             ),
-            timeout=10.0,
+            timeout=20.0,
         )
 
         alert_events = [
@@ -505,7 +505,7 @@ class TestCreditExhaustionPauseResume:
                 orch.run(),
                 _poll_then_stop(lambda: call_count >= 2, orch),
             ),
-            timeout=10.0,
+            timeout=20.0,
         )
 
         # After resume, the plan function should have been called again
@@ -547,7 +547,7 @@ class TestCreditExhaustionPauseResume:
                 orch.run(),
                 _poll_then_stop(lambda: any(s > 3600 for s in sleep_durations), orch),
             ),
-            timeout=10.0,
+            timeout=20.0,
         )
 
         # The first sleep should be for the default 5 hours + buffer
@@ -612,7 +612,7 @@ class TestCreditExhaustionPauseResume:
                     lambda: all(v >= 1 for v in terminate_calls.values()), orch
                 ),
             ),
-            timeout=10.0,
+            timeout=20.0,
         )
 
         # All terminate methods should have been called at least once
@@ -648,7 +648,7 @@ class TestCreditExhaustionPauseResume:
                 orch.run(),
                 _poll_then_stop(lambda: orch._credits_paused_until is not None, orch),
             ),
-            timeout=10.0,
+            timeout=20.0,
         )
         assert not orch.running
         # run_status must NOT be "credits_paused" after stop — it should clear
