@@ -125,12 +125,11 @@ class TestPruneStaleDisabledWorkers:
         assert bg_workers.is_enabled("memory_sync") is False
 
     def test_noop_when_no_stale(
-        self, restorer: StateRestorer, state: Any, bg_workers: BGWorkerManager
+        self, restorer: StateRestorer, bg_workers: BGWorkerManager
     ) -> None:
         restorer.prune_stale_disabled_workers({"a", "b"})
-        # No workers were disabled, so all should still default to enabled
-        assert bg_workers.is_enabled("a") is True
-        assert bg_workers.is_enabled("b") is True
+        # No workers were disabled, so the enabled-tracking dict stays empty
+        assert bg_workers.worker_enabled == {}
 
     def test_noop_when_no_known(
         self, restorer: StateRestorer, bg_workers: BGWorkerManager
