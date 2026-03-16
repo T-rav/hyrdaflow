@@ -25,7 +25,9 @@ async def test_manifest_issue_syncer_posts_comment(tmp_path: Path) -> None:
     syncer = ManifestIssueSyncer(config, state, prs)
     await syncer.sync("## Manifest Body", "deadbeef", source="unit-test")
 
-    prs.find_issue_number_by_label_and_title.assert_awaited_once()
+    prs.find_issue_number_by_label_and_title.assert_awaited_once_with(
+        "hydraflow-manifest", "tester", state="all"
+    )
     prs.create_issue.assert_awaited_once()
     prs.post_comment.assert_awaited_once()
     prs.close_issue.assert_awaited_once_with(123)

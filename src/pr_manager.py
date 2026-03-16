@@ -873,7 +873,9 @@ class PRManager:
         needle = title_substring.lower()
         for issue in issues:
             if needle in str(issue.get("title", "")).lower():
-                return int(issue["number"])  # type: ignore[arg-type]
+                num = issue.get("number")
+                if num is not None:
+                    return int(num)  # type: ignore[arg-type]
         return None
 
     _SCREENSHOT_RELEASE_TAG = "screenshots"
