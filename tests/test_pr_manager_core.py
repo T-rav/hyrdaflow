@@ -1273,6 +1273,25 @@ async def test_merge_pr_event_omits_title_when_fetch_fails(config, event_bus):
     assert "title" not in merge_events[0].data
 
 
+@pytest.mark.asyncio
+async def test_merge_pr_succeeds_when_title_fetch_raises(config, event_bus):
+    """Merge should succeed even if title fetch raises an unexpected exception."""
+    manager = make_pr_manager(config, event_bus)
+
+    with patch.object(
+        manager, "get_pr_title_and_body", side_effect=OSError("network error")
+    ):
+        merge_proc = SubprocessMockBuilder().with_stdout("").build()
+        with patch("asyncio.create_subprocess_exec", merge_proc):
+            result = await manager.merge_pr(101)
+
+    assert result is True
+    events = event_bus.get_history()
+    merge_events = [e for e in events if e.type == EventType.MERGE_UPDATE]
+    assert len(merge_events) == 1
+    assert "title" not in merge_events[0].data
+
+
 # ---------------------------------------------------------------------------
 # get_pr_diff
 # ---------------------------------------------------------------------------

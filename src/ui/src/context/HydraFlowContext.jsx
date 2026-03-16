@@ -280,14 +280,23 @@ export function reducer(state, action) {
 
     case 'merge_update': {
       const isMerged = action.data.status === 'merged'
-      const updatedPrs = isMerged && action.data.pr
+      if (!isMerged || !action.data.pr) {
+        return { ...addEvent(state, action), prs: state.prs }
+      }
+      const found = state.prs.some(p => p.pr === action.data.pr)
+      const updatedPrs = found
         ? state.prs.map(p => {
             if (p.pr !== action.data.pr) return p
             const updates = { ...p, merged: true }
             if (action.data.title) updates.title = action.data.title
             return updates
           })
-        : state.prs
+        : [...state.prs, {
+            pr: action.data.pr,
+            merged: true,
+            ...(action.data.title ? { title: action.data.title } : {}),
+            ...(action.data.issue ? { issue: action.data.issue } : {}),
+          }]
       return {
         ...addEvent(state, action),
         prs: updatedPrs,

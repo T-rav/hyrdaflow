@@ -2024,4 +2024,22 @@ describe('SESSION_RESET reducer', () => {
     expect(next.prs[0].merged).toBe(true)
     expect(next.prs[0].title).toBe('Existing title')
   })
+
+  it('merge_update adds unknown PR to prs array with title', () => {
+    const next = reducer(initialState, {
+      type: 'merge_update',
+      data: { pr: 99, status: 'merged', title: 'Fixes #50: New feature', issue: 50 },
+    })
+    expect(next.prs).toHaveLength(1)
+    expect(next.prs[0]).toEqual({ pr: 99, merged: true, title: 'Fixes #50: New feature', issue: 50 })
+  })
+
+  it('merge_update adds unknown PR without title when title missing', () => {
+    const next = reducer(initialState, {
+      type: 'merge_update',
+      data: { pr: 99, status: 'merged' },
+    })
+    expect(next.prs).toHaveLength(1)
+    expect(next.prs[0]).toEqual({ pr: 99, merged: true })
+  })
 })

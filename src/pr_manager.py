@@ -433,10 +433,20 @@ class PRManager:
             logger.info("[dry-run] Would merge PR #%d", pr_number)
             return True
 
+        # Fetch title before merging so we can include it in the event.
+        # Isolated from the merge try/except so a title-fetch failure
+        # cannot prevent the merge itself.
+        pr_title = ""
         try:
-            # Fetch title before merging so we can include it in the event
             pr_title, _ = await self.get_pr_title_and_body(pr_number)
+        except Exception:
+            logger.debug(
+                "Could not fetch title for PR #%d before merge",
+                pr_number,
+                exc_info=True,
+            )
 
+        try:
             await run_subprocess(
                 "gh",
                 "pr",
