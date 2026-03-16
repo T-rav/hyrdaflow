@@ -35,6 +35,8 @@ class TestReviewRunnerInheritance:
     def test_inherits_from_base_runner(self, config, event_bus) -> None:
         runner = ReviewRunner(config, event_bus)
         assert isinstance(runner, BaseRunner)
+        assert runner._config is config
+        assert runner._bus is event_bus
 
     def test_has_terminate_method(self, config, event_bus) -> None:
         runner = ReviewRunner(config, event_bus)
