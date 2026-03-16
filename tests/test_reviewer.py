@@ -442,6 +442,7 @@ async def test_review_success_path(config, event_bus, pr_info, task, tmp_path):
     assert result.summary == "Implementation looks good"
     assert result.transcript == transcript
     assert result.fixes_made is False
+    assert result.files_changed == []
 
 
 @pytest.mark.asyncio
@@ -468,8 +469,12 @@ async def test_review_success_path_with_fixes(
     ):
         result = await runner.review(pr_info, task, tmp_path, "some diff")
 
-    assert result.fixes_made is True
+    assert result.pr_number == pr_info.number
+    assert result.issue_number == task.id
     assert result.verdict == ReviewVerdict.APPROVE
+    assert result.summary == "Fixed and approved"
+    assert result.transcript == transcript
+    assert result.fixes_made is True
     assert result.files_changed == ["src/foo.py"]
 
 
@@ -2586,6 +2591,7 @@ async def test_fix_review_findings_success_path(
             runner, "_get_changed_files", AsyncMock(return_value=["src/fix.py"])
         ),
         patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
+        patch.object(runner, "_get_commit_stat", AsyncMock(return_value="")),
         patch.object(runner, "_save_transcript"),
     ):
         result = await runner.fix_review_findings(
