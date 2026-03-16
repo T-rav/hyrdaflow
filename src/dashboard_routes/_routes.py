@@ -1981,6 +1981,17 @@ def create_router(
         await orch.request_stop()
         return JSONResponse({"status": "stopping"})
 
+    @router.post("/api/control/clear-credit-pause")
+    async def clear_credit_pause() -> JSONResponse:
+        """Clear an active credit pause, waking any sleeping loops."""
+        orch = get_orchestrator()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        if orch.credits_paused_until is None:
+            return JSONResponse({"error": "not paused"}, status_code=400)
+        orch.clear_credit_pause()
+        return JSONResponse({"status": "cleared"})
+
     @router.get("/api/control/status")
     async def get_control_status(
         repo: RepoSlugParam = None,

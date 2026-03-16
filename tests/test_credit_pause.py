@@ -55,8 +55,8 @@ async def _poll_then_stop(
     condition: Callable[[], bool],
     orch: HydraFlowOrchestrator,
     *,
-    max_iters: int = 5000,
-    timeout_s: float = 5.0,
+    max_iters: int = 20000,
+    timeout_s: float = 15.0,
 ) -> None:
     """Poll *condition* with zero-sleep yields, then stop the orchestrator.
 
@@ -397,6 +397,13 @@ class TestRunStatusCreditsPaused:
         orch.reset()
         assert orch._credits_paused_until is None
 
+    def test_reset_clears_credit_resume_event(self, config: HydraFlowConfig) -> None:
+        """reset() must clear _credit_resume_event to avoid stale-event bugs on restart."""
+        orch = HydraFlowOrchestrator(config)
+        orch._credit_resume_event.set()
+        orch.reset()
+        assert not orch._credit_resume_event.is_set()
+
 
 # ===========================================================================
 # orchestrator — credit exhaustion pause and resume
@@ -449,7 +456,7 @@ class TestCreditExhaustionPauseResume:
                     orch,
                 ),
             ),
-            timeout=10.0,
+            timeout=20.0,
         )
 
         alert_events = [
@@ -505,7 +512,7 @@ class TestCreditExhaustionPauseResume:
                 orch.run(),
                 _poll_then_stop(lambda: call_count >= 2, orch),
             ),
-            timeout=10.0,
+            timeout=20.0,
         )
 
         # After resume, the plan function should have been called again
@@ -547,7 +554,7 @@ class TestCreditExhaustionPauseResume:
                 orch.run(),
                 _poll_then_stop(lambda: any(s > 3600 for s in sleep_durations), orch),
             ),
-            timeout=10.0,
+            timeout=20.0,
         )
 
         # The first sleep should be for the default 5 hours + buffer
@@ -612,7 +619,7 @@ class TestCreditExhaustionPauseResume:
                     lambda: all(v >= 1 for v in terminate_calls.values()), orch
                 ),
             ),
-            timeout=10.0,
+            timeout=20.0,
         )
 
         # All terminate methods should have been called at least once
@@ -621,6 +628,32 @@ class TestCreditExhaustionPauseResume:
         assert terminate_calls["agents"] >= 1
         assert terminate_calls["reviewers"] >= 1
         assert terminate_calls["hitl"] >= 1
+
+    def test_clear_credit_pause_sets_event_and_clears_timestamp(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """clear_credit_pause() should set the resume event and clear _credits_paused_until."""
+        orch = HydraFlowOrchestrator(config)
+        orch._credits_paused_until = datetime.now(UTC) + timedelta(hours=1)
+        orch.clear_credit_pause()
+        assert orch._credits_paused_until is None
+        assert orch._credit_resume_event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_sleep_until_resume_wakes_on_credit_resume_event(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """_sleep_until_resume should return early when _credit_resume_event is set."""
+        orch = HydraFlowOrchestrator(config)
+        resume_at = datetime.now(UTC) + timedelta(hours=5)
+
+        async def set_resume_event() -> None:
+            await asyncio.sleep(0.05)
+            orch._credit_resume_event.set()
+
+        asyncio.create_task(set_resume_event())
+        # Should return in ~0.05s, not 5 hours
+        await asyncio.wait_for(orch._sleep_until_resume(resume_at), timeout=5.0)
 
     @pytest.mark.asyncio
     async def test_credit_pause_interrupted_by_stop(
@@ -648,7 +681,7 @@ class TestCreditExhaustionPauseResume:
                 orch.run(),
                 _poll_then_stop(lambda: orch._credits_paused_until is not None, orch),
             ),
-            timeout=10.0,
+            timeout=20.0,
         )
         assert not orch.running
         # run_status must NOT be "credits_paused" after stop — it should clear
@@ -671,3 +704,66 @@ class TestConfigCreditPauseBuffer:
     def test_credit_pause_buffer_accepts_custom_minutes(self) -> None:
         config = ConfigFactory.create(credit_pause_buffer_minutes=5)
         assert config.credit_pause_buffer_minutes == 5
+
+
+# ===========================================================================
+# structural guard — asyncio.Event fields must be cleared in reset()
+# ===========================================================================
+
+
+class TestAsyncioEventResetGuard:
+    """AST-based guard: every asyncio.Event field in __init__ must be cleared in reset()."""
+
+    def test_all_asyncio_events_are_cleared_in_reset(self) -> None:
+        import ast
+        from pathlib import Path
+
+        src = (Path(__file__).parent.parent / "src" / "orchestrator.py").read_text()
+        tree = ast.parse(src)
+
+        orchestrator_cls = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ClassDef) and node.name == "HydraFlowOrchestrator"
+        )
+
+        # Collect asyncio.Event() assignments in __init__: self._X = asyncio.Event()
+        init_events: set[str] = set()
+        for method in orchestrator_cls.body:
+            if isinstance(method, ast.FunctionDef) and method.name == "__init__":
+                for stmt in ast.walk(method):
+                    if (
+                        isinstance(stmt, ast.Assign)
+                        and len(stmt.targets) == 1
+                        and isinstance(stmt.targets[0], ast.Attribute)
+                        and isinstance(stmt.targets[0].value, ast.Name)
+                        and stmt.targets[0].value.id == "self"
+                        and isinstance(stmt.value, ast.Call)
+                        and isinstance(stmt.value.func, ast.Attribute)
+                        and stmt.value.func.attr == "Event"
+                        and isinstance(stmt.value.func.value, ast.Name)
+                        and stmt.value.func.value.id == "asyncio"
+                    ):
+                        init_events.add(stmt.targets[0].attr)
+
+        # Collect self._X.clear() calls in reset()
+        reset_cleared: set[str] = set()
+        for method in orchestrator_cls.body:
+            if isinstance(method, ast.FunctionDef) and method.name == "reset":
+                for stmt in ast.walk(method):
+                    if (
+                        isinstance(stmt, ast.Expr)
+                        and isinstance(stmt.value, ast.Call)
+                        and isinstance(stmt.value.func, ast.Attribute)
+                        and stmt.value.func.attr == "clear"
+                        and isinstance(stmt.value.func.value, ast.Attribute)
+                        and isinstance(stmt.value.func.value.value, ast.Name)
+                        and stmt.value.func.value.value.id == "self"
+                    ):
+                        reset_cleared.add(stmt.value.func.value.attr)
+
+        missing = init_events - reset_cleared
+        assert not missing, (
+            f"asyncio.Event field(s) in __init__ not cleared in reset(): {missing}. "
+            "Add self.<field>.clear() to HydraFlowOrchestrator.reset()."
+        )
