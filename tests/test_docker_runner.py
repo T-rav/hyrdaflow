@@ -868,6 +868,33 @@ class TestDockerRunnerCleanup:
         container2.remove.assert_called_once_with(force=True)
 
     @pytest.mark.asyncio
+    async def test_cleanup_continues_after_first_container_fails(
+        self, tmp_path: Path
+    ) -> None:
+        """First container removal fails; second is still removed."""
+        container1 = _make_mock_container()
+        container2 = _make_mock_container()
+        container1.remove.side_effect = RuntimeError("already removed")
+        client = _make_mock_docker_client()
+        client.containers.create.side_effect = [container1, container2]
+
+        runner, _ = _make_runner(log_dir=tmp_path / "logs", mock_client=client)
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        await runner.create_streaming_process(["echo", "1"])
+        await runner.create_streaming_process(["echo", "2"])
+
+        assert len(runner._containers) == 2
+
+        await runner.cleanup()
+
+        assert len(runner._containers) == 0
+        # First container's remove was attempted (and failed)
+        container1.remove.assert_called_once_with(force=True)
+        # Second container's remove succeeded
+        container2.remove.assert_called_once_with(force=True)
+
+    @pytest.mark.asyncio
     async def test_cleanup_suppresses_errors(self, tmp_path: Path) -> None:
         runner, client = _make_runner(log_dir=tmp_path / "logs")
         (tmp_path / "logs").mkdir(parents=True, exist_ok=True)

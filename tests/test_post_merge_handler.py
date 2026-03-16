@@ -1341,6 +1341,28 @@ class TestNarrowedExceptionHandling:
         mock_epic_manager.on_child_approved.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_notify_epic_approval_continues_after_runtime_error(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """First parent epic raises RuntimeError; second is still notified."""
+        handler = _make_handler(config)
+        mock_epic_manager = AsyncMock()
+        mock_epic_manager.find_parent_epics = MagicMock(return_value=[100, 200])
+
+        async def _approval_side_effect(epic_num: int, _issue: int) -> None:
+            if epic_num == 100:
+                raise RuntimeError("API down")
+
+        mock_epic_manager.on_child_approved = AsyncMock(
+            side_effect=_approval_side_effect
+        )
+        handler._epic_manager = mock_epic_manager
+
+        await handler._notify_epic_approval(42)
+        # Both parent epics were attempted
+        assert mock_epic_manager.on_child_approved.await_count == 2
+
+    @pytest.mark.asyncio
     async def test_notify_epic_approval_catches_os_error(
         self, config: HydraFlowConfig
     ) -> None:
