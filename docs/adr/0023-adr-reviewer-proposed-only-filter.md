@@ -82,5 +82,5 @@ pipeline and document the following boundaries:
 
 - Issue #2251 — Source memory: ADR pre-review validator only processes Status: Proposed ADRs
 - Issue #2253 — This ADR task
-- `src/adr_reviewer.py` — `ADRCouncilReviewer._find_proposed_adrs` (line 92)
-- `src/adr_reviewer.py` — `ADRCouncilReviewer.review_proposed_adrs` (line 43)
+- `src/adr_reviewer.py` — `ADRCouncilReviewer._find_proposed_adrs`
+- `src/adr_reviewer.py` — `ADRCouncilReviewer.review_proposed_adrs`
