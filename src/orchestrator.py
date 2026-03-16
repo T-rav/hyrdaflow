@@ -93,6 +93,7 @@ class HydraFlowOrchestrator:
         # Credit pause — set when API credits are exhausted
         self._credits_paused_until: datetime | None = None
         self._credit_pause_lock = asyncio.Lock()
+        self._credit_resume_event = asyncio.Event()
         # Session tracking
         self._current_session: SessionLog | None = None
         self._session_issue_results: dict[int, bool] = {}
@@ -197,6 +198,11 @@ class HydraFlowOrchestrator:
         ):
             return self._credits_paused_until
         return None
+
+    def clear_credit_pause(self) -> None:
+        """Clear a credit pause early, waking ``_sleep_until_resume``."""
+        self._credits_paused_until = None
+        self._credit_resume_event.set()
 
     @property
     def run_status(self) -> str:
@@ -305,6 +311,7 @@ class HydraFlowOrchestrator:
     def reset(self) -> None:
         """Reset the stop event so the orchestrator can be started again."""
         self._stop_event.clear()
+        self._credit_resume_event.clear()
         self._running = False
         self._auth_failed = False
         self._credits_paused_until = None
@@ -1160,9 +1167,20 @@ class HydraFlowOrchestrator:
         self._svc.hitl_runner.terminate()
 
     async def _sleep_until_resume(self, resume_at: datetime) -> None:
-        """Sleep until *resume_at* (interruptible by stop event)."""
+        """Sleep until *resume_at* (interruptible by stop or credit-resume event)."""
         pause_seconds = max((resume_at - datetime.now(UTC)).total_seconds(), 0)
-        await self._sleep_or_stop(pause_seconds)
+        sleep_task = asyncio.create_task(self._sleep_or_stop(pause_seconds))
+        resume_task = asyncio.create_task(self._credit_resume_event.wait())
+        try:
+            await asyncio.wait(
+                {sleep_task, resume_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            for task in (sleep_task, resume_task):
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
     async def _pause_for_credits(
         self,
@@ -1214,6 +1232,7 @@ class HydraFlowOrchestrator:
 
         if self._stop_event.is_set():
             self._credits_paused_until = None
+            self._credit_resume_event.clear()
             return
 
         await self._resume_loops_after_credit_pause(tasks, loop_factories, source)
@@ -1226,6 +1245,7 @@ class HydraFlowOrchestrator:
     ) -> None:
         """Clear pause state and restart all loops after credit pause."""
         self._credits_paused_until = None
+        self._credit_resume_event.clear()
         logger.info("Credit pause ended — restarting all loops")
         data: SystemAlertPayload = {
             "message": "Credit pause ended. Resuming all loops.",

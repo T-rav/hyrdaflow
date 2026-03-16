@@ -538,5 +538,70 @@ class TestBgWorkerIntervalEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# /api/control/clear-credit-pause endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestClearCreditPauseEndpoint:
+    """Tests for POST /api/control/clear-credit-pause endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_returns_error_without_orchestrator(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/control/clear-credit-pause")
+        assert endpoint is not None
+
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert response.status_code == 400
+        assert data["error"] == "no orchestrator"
+
+    @pytest.mark.asyncio
+    async def test_returns_error_when_not_paused(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        mock_orch = MagicMock()
+        mock_orch.credits_paused_until = None
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        endpoint = find_endpoint(router, "/api/control/clear-credit-pause")
+        assert endpoint is not None
+
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert response.status_code == 400
+        assert data["error"] == "not paused"
+
+    @pytest.mark.asyncio
+    async def test_clears_pause_when_paused(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        mock_orch = MagicMock()
+        mock_orch.credits_paused_until = datetime.now(UTC) + timedelta(hours=1)
+        mock_orch.clear_credit_pause = MagicMock()
+        router, _ = make_dashboard_router(
+            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
+        )
+        endpoint = find_endpoint(router, "/api/control/clear-credit-pause")
+        assert endpoint is not None
+
+        response = await endpoint()
+        data = json.loads(response.body)
+        assert response.status_code == 200
+        assert data["status"] == "cleared"
+        mock_orch.clear_credit_pause.assert_called_once()
+
+    def test_route_is_registered(self, config, event_bus, state, tmp_path) -> None:
+        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+        paths = {route.path for route in router.routes if hasattr(route, "path")}
+        assert "/api/control/clear-credit-pause" in paths
+
+
+# ---------------------------------------------------------------------------
 # /api/pipeline endpoint
 # ---------------------------------------------------------------------------
