@@ -115,7 +115,7 @@ When reviewing any routing method that calls both `_route_to_triage` and
 
 ## Related
 
-- Supersedes: ADR-0023 (0023-gate-triage-call-not-hitl-fallback.md)
+- Supersedes: [ADR-0023 — Gate Triage Call on Config Toggle](0023-gate-triage-call-not-hitl-fallback.md)
 - Source memory: #2327
 - Source issue: #2341
 - `src/adr_reviewer.py` — `_triage_or_hitl()`, `_route_to_triage()`, `_handle_pre_review_failure()`, `_handle_duplicate()`
