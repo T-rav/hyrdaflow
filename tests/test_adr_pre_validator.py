@@ -336,9 +336,9 @@ class TestCheckStaleAmendmentNotes:
         result = validator.validate(content, all_adrs)
         stale_issues = [i for i in result.issues if i.code == "stale_amendment_note"]
         assert len(stale_issues) == 2
-        ref_nums = {i.message for i in stale_issues}
-        assert any("ADR-0021" in m for m in ref_nums)
-        assert any("ADR-0003" in m for m in ref_nums)
+        messages = {i.message for i in stale_issues}
+        assert any("ADR-0021" in m for m in messages)
+        assert any("ADR-0003" in m for m in messages)
 
     def test_case_insensitive_detection(self) -> None:
         """Pattern matching is case-insensitive."""
