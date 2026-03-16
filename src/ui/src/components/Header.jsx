@@ -193,6 +193,7 @@ export function Header({ connected, orchestratorStatus }) {
     submitReport,
     trackedReports = [],
     updateTrackedReport,
+    refreshReportStatuses,
     startOrchestrator,
     stopOrchestrator,
   } = useHydraFlow()
@@ -330,6 +331,7 @@ export function Header({ connected, orchestratorStatus }) {
         onClose={() => setTrackerOpen(false)}
         reports={trackedReports}
         onAction={updateTrackedReport}
+        onRefresh={refreshReportStatuses}
       />
     </header>
   )
