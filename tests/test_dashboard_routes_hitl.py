@@ -12,7 +12,86 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventBus, EventType
 from models import HITLItem
-from tests.helpers import find_endpoint, make_dashboard_router
+from state import StateTracker
+from tests.helpers import ConfigFactory, find_endpoint, make_dashboard_router
+
+
+class TestHITLMemoryAutoApproveFiltering:
+    """Tests that /api/hitl filters out memory suggestions when memory_auto_approve is enabled."""
+
+    @pytest.mark.asyncio
+    async def test_memory_suggestions_filtered_when_auto_approve_enabled(
+        self, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """When memory_auto_approve=True, memory suggestion items are omitted from HITL list."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            memory_auto_approve=True,
+        )
+        state = StateTracker(config.state_file)
+        state.set_hitl_origin(42, config.improve_label[0])
+
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        hitl_item = HITLItem(issue=42, title="Memory suggestion", pr=101)
+        pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
+
+        get_hitl = find_endpoint(router, "/api/hitl")
+        assert get_hitl is not None
+        response = await get_hitl()
+        import json
+
+        items = json.loads(response.body)
+        assert len(items) == 0
+
+    @pytest.mark.asyncio
+    async def test_memory_suggestions_not_filtered_when_auto_approve_disabled(
+        self, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """When memory_auto_approve=False (default), memory suggestion items remain in HITL list."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            memory_auto_approve=False,
+        )
+        state = StateTracker(config.state_file)
+        state.set_hitl_origin(42, config.improve_label[0])
+
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        hitl_item = HITLItem(issue=42, title="Memory suggestion", pr=101)
+        pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
+
+        get_hitl = find_endpoint(router, "/api/hitl")
+        assert get_hitl is not None
+        response = await get_hitl()
+        import json
+
+        items = json.loads(response.body)
+        assert len(items) == 1
+        assert items[0]["isMemorySuggestion"] is True
+
+    @pytest.mark.asyncio
+    async def test_non_memory_items_not_filtered_when_auto_approve_enabled(
+        self, event_bus: EventBus, tmp_path: Path
+    ) -> None:
+        """When memory_auto_approve=True, non-memory HITL items are still returned."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            memory_auto_approve=True,
+        )
+        state = StateTracker(config.state_file)
+        # No origin set — not a memory suggestion
+
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        hitl_item = HITLItem(issue=99, title="CI failure", pr=200)
+        pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
+
+        get_hitl = find_endpoint(router, "/api/hitl")
+        assert get_hitl is not None
+        response = await get_hitl()
+        import json
+
+        items = json.loads(response.body)
+        assert len(items) == 1
+        assert items[0]["isMemorySuggestion"] is False
 
 
 class TestHITLEndpointCause:

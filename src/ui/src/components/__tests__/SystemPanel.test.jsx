@@ -256,16 +256,19 @@ describe('SystemPanel', () => {
       expect(screen.getByText('Pipeline Poller')).toBeInTheDocument()
       expect(screen.getByText('Memory Manager')).toBeInTheDocument()
       expect(screen.getByText('Metrics Munger')).toBeInTheDocument()
-      // Count On/Off buttons — should be non-system bg workers
+      // Count On/Off buttons — non-system bg workers plus MemoryAutoApproveToggle (+1 for memory_sync)
       const allToggleButtons = [...screen.getAllByText('On'), ...screen.getAllByText('Off')]
       const nonSystemBgCount = BACKGROUND_WORKERS.filter(w => !w.system).length
-      expect(allToggleButtons.length).toBe(nonSystemBgCount)
+      expect(allToggleButtons.length).toBe(nonSystemBgCount + 1)
     })
 
     it('does not show toggle buttons when onToggleBgWorker is not provided', () => {
       render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
       expect(screen.queryByText('On')).not.toBeInTheDocument()
-      expect(screen.queryByText('Off')).not.toBeInTheDocument()
+      // MemoryAutoApproveToggle renders unconditionally on the memory_sync card (Off by default)
+      const offButtons = screen.getAllByText('Off')
+      expect(offButtons).toHaveLength(1)
+      expect(offButtons[0]).toHaveAttribute('data-testid', 'memory-auto-approve-btn')
     })
 
     it('shows Off button for disabled workers when orchestrator running', () => {
