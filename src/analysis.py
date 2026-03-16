@@ -200,6 +200,11 @@ class PlanAnalyzer:
         When a module is refactored into a package, type aliases like
         ``RepoSlugParam = Annotated[...]`` tend to be copy-pasted into each
         sub-module instead of being imported from a canonical location.
+
+        Note: Only files that already exist on disk are scanned. Files listed
+        in the plan's *New Files* section that have not yet been created are
+        silently skipped — this check cannot catch aliases introduced into
+        brand-new files before they are written.
         """
         modify_section = self._extract_section(plan_text, "Files to Modify")
         new_section = self._extract_section(plan_text, "New Files")

@@ -14,9 +14,6 @@ SRC_DIR = Path(__file__).resolve().parent.parent / "src"
 class TestRepoSlugParam:
     """RepoSlugParam is importable and has expected metadata."""
 
-    def test_import_succeeds(self) -> None:
-        assert RepoSlugParam is not None
-
     def test_is_annotated(self) -> None:
         assert get_origin(RepoSlugParam) is Annotated
 
