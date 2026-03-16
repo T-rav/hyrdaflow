@@ -1,8 +1,9 @@
 """Background worker loop — verification issue lifecycle completion.
 
 Polls pending verification issues (labeled ``hydraflow-verify``) and
-transitions the original issue outcome from ``VERIFY_PENDING`` to
-``VERIFY_RESOLVED`` once the verify issue is closed by a human.
+transitions the original issue outcome to ``MERGED`` once the verify
+issue is closed by a human.  Also reconciles any stale ``VERIFY_PENDING``
+or ``VERIFY_RESOLVED`` outcomes left over from earlier behaviour.
 """
 
 from __future__ import annotations
