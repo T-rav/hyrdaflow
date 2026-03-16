@@ -500,6 +500,11 @@ class TestCreditExhaustionPauseResume:
 
         orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
 
+        async def instant_resume(_resume_at: datetime) -> None:
+            await asyncio.sleep(0)
+
+        orch._sleep_until_resume = instant_resume  # type: ignore[method-assign]
+
         await asyncio.wait_for(
             asyncio.gather(
                 orch.run(),
@@ -534,27 +539,29 @@ class TestCreditExhaustionPauseResume:
         orch._svc.implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
         orch._svc.fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
 
-        sleep_durations: list[float] = []
+        resume_times: list[datetime] = []
 
-        async def capture_sleep(seconds: int | float) -> None:
-            sleep_durations.append(float(seconds))
+        async def capture_resume(resume_at: datetime) -> None:
+            resume_times.append(resume_at)
+
+        async def instant_sleep(seconds: int | float) -> None:
             await asyncio.sleep(0)
 
-        orch._sleep_or_stop = capture_sleep  # type: ignore[method-assign]
+        orch._sleep_or_stop = instant_sleep  # type: ignore[method-assign]
+        orch._sleep_until_resume = capture_resume  # type: ignore[method-assign]
 
         await asyncio.wait_for(
             asyncio.gather(
                 orch.run(),
-                _poll_then_stop(lambda: any(s > 3600 for s in sleep_durations), orch),
+                _poll_then_stop(lambda: len(resume_times) >= 1, orch),
             ),
             timeout=10.0,
         )
 
-        # The first sleep should be for the default 5 hours + buffer
-        credit_sleep = [s for s in sleep_durations if s > 3600]
-        assert len(credit_sleep) >= 1
-        # Should be approximately 5 hours + 1 minute buffer = 18060 seconds
-        assert credit_sleep[0] > 17000  # roughly 5 hours
+        # The resume time should be approximately 5 hours + 1 minute buffer from now
+        assert len(resume_times) >= 1
+        pause_seconds = (resume_times[0] - datetime.now(UTC)).total_seconds()
+        assert pause_seconds > 17000  # roughly 5 hours
 
     @pytest.mark.asyncio
     async def test_credit_exhaustion_terminates_active_processes(
@@ -818,7 +825,7 @@ class TestCreditRefreshEndpoint:
         endpoint = find_endpoint(router, "/api/control/credit-refresh", "POST")
         assert endpoint is not None
         with patch(
-            "src.subprocess_util.probe_credit_availability",
+            "subprocess_util.probe_credit_availability",
             new_callable=AsyncMock,
             return_value=True,
         ):
@@ -843,7 +850,7 @@ class TestCreditRefreshEndpoint:
         endpoint = find_endpoint(router, "/api/control/credit-refresh", "POST")
         assert endpoint is not None
         with patch(
-            "src.subprocess_util.probe_credit_availability",
+            "subprocess_util.probe_credit_availability",
             new_callable=AsyncMock,
             return_value=False,
         ):
