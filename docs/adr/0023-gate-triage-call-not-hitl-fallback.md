@@ -85,7 +85,13 @@ Key rules:
    grep for the routing target (e.g. `_route_to_triage`) is the minimum
    verification step.
 
-4. **Preserve the HITL fallback for triage failures.** When triage is enabled
+4. **Couple stats to the action, not to the toggle check.** The `auto_triaged`
+   counter must increment when triage actually occurs (inside the success branch
+   of the helper), not in a separate conditional block that can drift out of sync
+   with the routing logic. Toggle-gated stats that do not track actual behaviour
+   were the original symptom that exposed this bug class.
+
+5. **Preserve the HITL fallback for triage failures.** When triage is enabled
    but fails (API error, invalid issue number), fall back to HITL as before.
 
 ### Verification checklist
@@ -147,7 +153,7 @@ When reviewing any routing method that calls both `_route_to_triage` and
 
 ## Related
 
-- **Absorbs:** [ADR-0023 (Auto-Triage Toggle Must Gate Routing)](0023-auto-triage-toggle-must-gate-routing.md) — broader-scope duplicate that contributed the routing-path audit table and the stats-coupling framing of the bug; content merged here
+- **Absorbs:** [ADR-0023 (Auto-Triage Toggle Must Gate Routing)](0023-auto-triage-toggle-must-gate-routing.md) — broader-scope duplicate; contributed the routing-path audit table (Context), the stats-coupling decision rule (Rule 4), and the stats-as-symptom framing
 - Source memory: #2345, #2327
 - Issue: #2355, #2341
 - Related learning: #2346, #2350
