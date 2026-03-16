@@ -438,13 +438,11 @@ class TestSummarizeAndPublish:
         """summarize_and_publish is a permanent no-op after feature removal."""
         config = ConfigFactory.create(repo_root=tmp_path)
         prs = MagicMock()
-        prs.create_issue = AsyncMock(return_value=999)
+        prs.create_issue = AsyncMock()
         bus = MagicMock()
-        bus.publish = AsyncMock()
         state = MagicMock()
-        runner = _make_mock_runner(stdout="### Key Decisions\n- Used factory pattern")
 
-        summarizer = TranscriptSummarizer(config, prs, bus, state, runner=runner)
+        summarizer = TranscriptSummarizer(config, prs, bus, state)
         result = await summarizer.summarize_and_publish(
             transcript="x" * 1000, issue_number=42, phase="implement"
         )
