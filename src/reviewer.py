@@ -168,19 +168,20 @@ class ReviewRunner(BaseRunner):
                 worktree_path, before_sha
             )
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
-            if result.fixes_made and result.files_changed:
-                result.commit_stat = await self._get_commit_stat(worktree_path)
-                logger.info(
-                    "Review fix for PR #%d changed files: %s",
-                    pr.number,
-                    result.files_changed,
-                )
-            elif result.fixes_made and not result.files_changed:
-                logger.warning(
-                    "PR #%d: fixes_made is True but no committed file changes detected "
-                    "— review commit may not have persisted all intended changes",
-                    pr.number,
-                )
+            if result.fixes_made:
+                if result.files_changed:
+                    result.commit_stat = await self._get_commit_stat(worktree_path)
+                    logger.info(
+                        "Review fix for PR #%d changed files: %s",
+                        pr.number,
+                        result.files_changed,
+                    )
+                else:
+                    logger.warning(
+                        "PR #%d: fixes_made is True but no committed file changes detected "
+                        "— review commit may not have persisted all intended changes",
+                        pr.number,
+                    )
 
             # Persist to disk
             self._save_transcript("review-pr", pr.number, transcript)
@@ -278,19 +279,20 @@ class ReviewRunner(BaseRunner):
                 worktree_path, before_sha
             )
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
-            if result.fixes_made and result.files_changed:
-                result.commit_stat = await self._get_commit_stat(worktree_path)
-                logger.info(
-                    "CI fix for PR #%d changed files: %s",
-                    pr.number,
-                    result.files_changed,
-                )
-            elif result.fixes_made and not result.files_changed:
-                logger.warning(
-                    "PR #%d: fixes_made is True but no committed file changes detected "
-                    "— CI fix commit may not have persisted all intended changes",
-                    pr.number,
-                )
+            if result.fixes_made:
+                if result.files_changed:
+                    result.commit_stat = await self._get_commit_stat(worktree_path)
+                    logger.info(
+                        "CI fix for PR #%d changed files: %s",
+                        pr.number,
+                        result.files_changed,
+                    )
+                else:
+                    logger.warning(
+                        "PR #%d: fixes_made is True but no committed file changes detected "
+                        "— CI fix commit may not have persisted all intended changes",
+                        pr.number,
+                    )
             self._save_transcript("review-pr", pr.number, transcript)
         except Exception as exc:
             reraise_on_credit_or_bug(exc)
@@ -371,19 +373,20 @@ class ReviewRunner(BaseRunner):
                 worktree_path, before_sha
             )
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
-            if result.fixes_made and result.files_changed:
-                result.commit_stat = await self._get_commit_stat(worktree_path)
-                logger.info(
-                    "Review-fix for PR #%d changed files: %s",
-                    pr.number,
-                    result.files_changed,
-                )
-            elif result.fixes_made and not result.files_changed:
-                logger.warning(
-                    "PR #%d: fixes_made is True but no committed file changes detected "
-                    "— review-fix commit may not have persisted all intended changes",
-                    pr.number,
-                )
+            if result.fixes_made:
+                if result.files_changed:
+                    result.commit_stat = await self._get_commit_stat(worktree_path)
+                    logger.info(
+                        "Review-fix for PR #%d changed files: %s",
+                        pr.number,
+                        result.files_changed,
+                    )
+                else:
+                    logger.warning(
+                        "PR #%d: fixes_made is True but no committed file changes detected "
+                        "— review-fix commit may not have persisted all intended changes",
+                        pr.number,
+                    )
 
             self._save_transcript("review-fix", pr.number, transcript)
         except Exception as exc:
