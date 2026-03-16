@@ -39,8 +39,9 @@ then `_resolve_repo_scoped_paths` then `_apply_env_overrides`.
 
 ### Data layout
 
-> **Note:** `log_dir`, `plans_dir`, and `memory_dir` are currently flat under
-> `data_root/` rather than repo-scoped — see [^1].
+> **Note:** The layout above reflects the target architecture mandated by
+> ADR-0010. `log_dir`, `plans_dir`, and `memory_dir` remain flat under
+> `data_root/` in the current implementation — see [^1].
 
 ```
 <data_root>/                        # default: <repo_root>/.hydraflow/
@@ -60,9 +61,11 @@ then `_resolve_repo_scoped_paths` then `_apply_env_overrides`.
   verification/                     # Verification artifacts
 ```
 
-[^1]: Currently flat under `<data_root>/`. ADR-0010 (Worktree and Path Isolation
-Architecture) mandates moving these to `<data_root>/<repo_slug>/logs/`, etc. for
-full repo-scoped isolation in multi-repo deployments.
+[^1]: `log_dir`, `plans_dir`, and `memory_dir` are still flat under `<data_root>/`
+in the current implementation (`config.py` properties return `data_root / "logs"`
+etc.). ADR-0010 (Worktree and Path Isolation Architecture) mandates migrating them
+to `<data_root>/<repo_slug>/logs/` etc.; the table above documents the target
+paths once that migration is complete.
 
 ### Persistence guarantees
 
@@ -99,9 +102,9 @@ The following `HydraFlowConfig` properties derive directories from `data_root`:
 | `state_file` | `data_root / repo_slug / "state.json"` |
 | `event_log_path` | `data_root / repo_slug / "events.jsonl"` |
 | `sessions.jsonl` (no config property; implicit path) | `repo_data_root / "sessions.jsonl"` |
-| `log_dir` | `data_root / repo_slug / "logs"` |
-| `plans_dir` | `data_root / repo_slug / "plans"` |
-| `memory_dir` | `data_root / repo_slug / "memory"` |
+| `log_dir` | `data_root / repo_slug / "logs"` [^1] |
+| `plans_dir` | `data_root / repo_slug / "plans"` [^1] |
+| `memory_dir` | `data_root / repo_slug / "memory"` [^1] |
 
 All paths can be individually overridden via their respective config fields,
 but the defaults ensure a single `data_root` change relocates everything.
