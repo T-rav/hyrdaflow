@@ -331,6 +331,7 @@ class PRManager:
                         branch=branch,
                         draft=draft,
                         url=pr_url,
+                        title=title,
                     ),
                 )
             )
@@ -433,6 +434,9 @@ class PRManager:
             return True
 
         try:
+            # Fetch title before merging so we can include it in the event
+            pr_title, _ = await self.get_pr_title_and_body(pr_number)
+
             await run_subprocess(
                 "gh",
                 "pr",
@@ -446,10 +450,13 @@ class PRManager:
                 gh_token=self._config.gh_token,
             )
 
+            payload = MergeUpdatePayload(pr=pr_number, status="merged")
+            if pr_title:
+                payload["title"] = pr_title
             await self._bus.publish(
                 HydraFlowEvent(
                     type=EventType.MERGE_UPDATE,
-                    data=MergeUpdatePayload(pr=pr_number, status="merged"),
+                    data=payload,
                 )
             )
             return True

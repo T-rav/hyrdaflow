@@ -1142,16 +1142,30 @@ async def test_create_pr_dry_run_skips_command(dry_config, event_bus, issue):
 # ---------------------------------------------------------------------------
 
 
+def _merge_subprocess_mocks(
+    title_json='{"title":"Fix bug","body":""}', merge_stdout=""
+):
+    """Build a side_effect list for merge_pr: first call fetches title, second merges."""
+    title_proc = SubprocessMockBuilder().with_stdout(title_json).build()
+    merge_proc = SubprocessMockBuilder().with_stdout(merge_stdout).build()
+    calls = iter([title_proc.return_value, merge_proc.return_value])
+    mock = AsyncMock(side_effect=lambda *a, **kw: next(calls))
+    mock._title_proc = title_proc
+    mock._merge_proc = merge_proc
+    return mock
+
+
 @pytest.mark.asyncio
 async def test_merge_pr_calls_gh_pr_merge(config, event_bus):
     manager = make_pr_manager(config, event_bus)
-    mock_create = SubprocessMockBuilder().with_stdout("").build()
+    mock = _merge_subprocess_mocks()
 
-    with patch("asyncio.create_subprocess_exec", mock_create):
+    with patch("asyncio.create_subprocess_exec", mock):
         result = await manager.merge_pr(101)
 
     assert result is True
-    args = mock_create.call_args[0]
+    # Second call is the merge command
+    args = mock.call_args_list[1][0]
     assert args[0] == "gh"
     assert "pr" in args
     assert "merge" in args
@@ -1161,12 +1175,13 @@ async def test_merge_pr_calls_gh_pr_merge(config, event_bus):
 @pytest.mark.asyncio
 async def test_merge_pr_uses_squash_and_delete_branch(config, event_bus):
     manager = make_pr_manager(config, event_bus)
-    mock_create = SubprocessMockBuilder().build()
+    mock = _merge_subprocess_mocks()
 
-    with patch("asyncio.create_subprocess_exec", mock_create):
+    with patch("asyncio.create_subprocess_exec", mock):
         await manager.merge_pr(101)
 
-    args = mock_create.call_args[0]
+    # Second call is the merge command
+    args = mock.call_args_list[1][0]
     assert "--squash" in args
     assert "--auto" not in args
     assert "--delete-branch" in args
@@ -1175,11 +1190,17 @@ async def test_merge_pr_uses_squash_and_delete_branch(config, event_bus):
 @pytest.mark.asyncio
 async def test_merge_pr_failure_returns_false(config, event_bus):
     manager = make_pr_manager(config, event_bus)
-    mock_create = (
+    # Title fetch succeeds, merge fails
+    title_proc = (
+        SubprocessMockBuilder().with_stdout('{"title":"Fix","body":""}').build()
+    )
+    fail_proc = (
         SubprocessMockBuilder().with_returncode(1).with_stderr("merge failed").build()
     )
+    calls = iter([title_proc.return_value, fail_proc.return_value])
+    mock = AsyncMock(side_effect=lambda *a, **kw: next(calls))
 
-    with patch("asyncio.create_subprocess_exec", mock_create):
+    with patch("asyncio.create_subprocess_exec", mock):
         result = await manager.merge_pr(101)
 
     assert result is False
@@ -1195,6 +1216,61 @@ async def test_merge_pr_dry_run_skips_command(dry_config, event_bus):
 
     mock_create.assert_not_called()
     assert result is True
+
+
+@pytest.mark.asyncio
+async def test_create_pr_event_includes_title(config, event_bus, issue):
+    """PR_CREATED event includes the PR title derived from the issue."""
+    manager = make_pr_manager(config, event_bus)
+    pr_url = "https://github.com/test-org/test-repo/pull/77"
+    mock_create = SubprocessMockBuilder().with_stdout(pr_url).build()
+
+    with patch("asyncio.create_subprocess_exec", mock_create):
+        await manager.create_pr(issue, "agent/issue-42")
+
+    events = event_bus.get_history()
+    pr_created = [e for e in events if e.type == EventType.PR_CREATED]
+    assert len(pr_created) == 1
+    assert "title" in pr_created[0].data
+    assert pr_created[0].data["title"] == PRManager.expected_pr_title(
+        issue.number, issue.title
+    )
+
+
+@pytest.mark.asyncio
+async def test_merge_pr_event_includes_title(config, event_bus):
+    """MERGE_UPDATE event includes the PR title fetched before merging."""
+    manager = make_pr_manager(config, event_bus)
+    mock = _merge_subprocess_mocks(
+        title_json='{"title":"Fixes #42: Add retry","body":""}'
+    )
+
+    with patch("asyncio.create_subprocess_exec", mock):
+        result = await manager.merge_pr(101)
+
+    assert result is True
+    events = event_bus.get_history()
+    merge_events = [e for e in events if e.type == EventType.MERGE_UPDATE]
+    assert len(merge_events) == 1
+    assert merge_events[0].data["title"] == "Fixes #42: Add retry"
+    assert merge_events[0].data["status"] == "merged"
+
+
+@pytest.mark.asyncio
+async def test_merge_pr_event_omits_title_when_fetch_fails(config, event_bus):
+    """MERGE_UPDATE event has no title key when title fetch returns empty."""
+    manager = make_pr_manager(config, event_bus)
+    # Title fetch returns empty dict (simulating failure)
+    mock = _merge_subprocess_mocks(title_json="{}")
+
+    with patch("asyncio.create_subprocess_exec", mock):
+        result = await manager.merge_pr(101)
+
+    assert result is True
+    events = event_bus.get_history()
+    merge_events = [e for e in events if e.type == EventType.MERGE_UPDATE]
+    assert len(merge_events) == 1
+    assert "title" not in merge_events[0].data
 
 
 # ---------------------------------------------------------------------------

@@ -1621,6 +1621,7 @@ class PRCreatedPayload(TypedDict, total=False):
     draft: bool
     url: str
     repo: str
+    title: str
 
 
 class CICheckPayload(TypedDict, total=False):
@@ -1871,6 +1872,7 @@ class MergeUpdatePayload(TypedDict, total=False):
 
     pr: int
     status: str
+    title: str
 
 
 class TriageUpdatePayload(TypedDict, total=False):
