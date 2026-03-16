@@ -82,8 +82,8 @@ Extend the dashboard API to support multi-repo scoping through two mechanisms:
 
 The following amendments were generated from council feedback:
 
-- Architect: The ADR is structurally sound and complementary to ADR-0008 (not superseded by it), but
+- Architect: The ADR is structurally sound and complementary to ADR-0008 (Multi-Repo Dashboard Architecture), which does not supersede it, but
 - Pragmatist: ADR-0007 defines the API contract layer (query-param scoping, endpoint signatures, WebSocket
-- Editor: The Architect's evidence that ADR-0008 explicitly references ADR-0007 as a prerequisite settles
+- Editor: The Architect's evidence that ADR-0008 (Multi-Repo Dashboard Architecture) explicitly references ADR-0007 as a prerequisite settles
 
 These notes are intended to be incorporated before final acceptance.

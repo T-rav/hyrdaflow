@@ -48,14 +48,14 @@ spawns a separate subprocess per managed repository, each with its own `asyncio`
 event loop and full service registry. This ADR does **not** revive the in-process
 multi-repo coordination model proposed in ADR-0006 (RepoRuntime Isolation Architecture; now superseded).
 
-Within a single subprocess, ADR-0009's process-per-repo model means the subprocess
+Within a single subprocess, the process-per-repo model from ADR-0009 (Multi-Repo Process-Per-Repo Model) means the subprocess
 manages exactly one repository. The `RepoRuntimeRegistry` is designed to hold
 multiple `RepoRuntime` instances by slug (its API exposes `register()`, `get()`,
 `remove()`, and `all()`), but in this deployment model only one slug is ever
 registered per process. The registry exists at this level for API consistency: the
 `/api/runtimes` endpoints can introspect the local runtime without special-casing
 the single-repo case. Cross-repo coordination remains the supervisor's responsibility
-via subprocess isolation and the TCP JSON protocol, per ADR-0009.
+via subprocess isolation and the TCP JSON protocol, per ADR-0009 (Multi-Repo Process-Per-Repo Model).
 
 ### `/api/runtimes` vs `/api/repos` Endpoint Naming
 
@@ -108,10 +108,10 @@ across the multi-repo deployment. They serve different architectural layers:
 
 - Source memory: #2266 — [Memory] Multi-repo architecture wiring pattern
 - Decision issue: #2267 — [ADR] Draft decision from memory #2266
-- ADR-0006: RepoRuntime Isolation Architecture (Superseded)
-- ADR-0009: Multi-Repo Process-Per-Repo Model (Accepted)
-- ADR-0007: Dashboard API Architecture for Multi-Repo Scoping (Accepted)
-- ADR-0008: Multi-Repo Dashboard Architecture (Accepted)
+- ADR-0006 (RepoRuntime Isolation Architecture) — Superseded
+- ADR-0009 (Multi-Repo Process-Per-Repo Model) — Accepted
+- ADR-0007 (Dashboard API Architecture for Multi-Repo Scoping) — Accepted
+- ADR-0008 (Multi-Repo Dashboard Architecture) — Accepted
 - `src/repo_runtime.py` — `RepoRuntime` and `RepoRuntimeRegistry`
 - `src/server.py` — `_run_with_dashboard()` and `_run_headless()` startup paths
 - `src/dashboard.py` — `HydraFlowDashboard` (already accepts `registry` parameter)

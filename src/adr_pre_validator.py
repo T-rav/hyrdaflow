@@ -46,10 +46,13 @@ _ADR_REF_RE = re.compile(r"ADR[- ](\d{4})")
 _ADR_REF_WITH_TITLE_RE = re.compile(r"ADR[- ]\d{4}\s*(?:\(|—)")
 
 # Captures the title text from a parenthesized annotation: ADR-0006 (Title Here)
-_ADR_PAREN_TITLE_RE = re.compile(r"ADR[- ]\d{4}\s*\(([^)]+)\)")
+# Supports one level of nested parentheses, e.g. ADR-0004 (Title (sub-info)).
+_ADR_PAREN_TITLE_RE = re.compile(r"ADR[- ]\d{4}\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)")
 # Captures the title text from an em-dash annotation: ADR-0006 — Title Here
 # Title runs to end of line or next sentence boundary.
-_ADR_EMDASH_TITLE_RE = re.compile(r"ADR[- ]\d{4}\s*—\s*(.+?)(?:\.|,|;|$)")
+# Uses "\.\s" (period+space) rather than bare "\." to avoid stopping inside
+# titles that contain dots (e.g. "Pi.dev" in ADR-0004's title).
+_ADR_EMDASH_TITLE_RE = re.compile(r"ADR[- ]\d{4}\s*—\s*(.+?)(?:\.\s|,|;|$)")
 
 
 class ADRPreValidator:

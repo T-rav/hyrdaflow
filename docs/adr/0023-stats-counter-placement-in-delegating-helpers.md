@@ -20,7 +20,7 @@ This violates the mutual-exclusivity invariant: a single event should increment
 exactly one counter along its resolution path.
 
 This pattern was identified in memory #2298 and mirrors the counter-placement
-principle established in ADR-0017 (auto-decompose triage counter exclusion),
+principle established in ADR-0017 (Auto-Decompose Triage Path Excluded from Session Counter),
 where `"triaged"` is only incremented inside branches that actually route
 forward to the planning queue.
 
@@ -86,7 +86,7 @@ returns `False`), not unconditionally after the call. A separate
 - Duplicate resolution: #3013
 - Source memory: #2298
 - Issue: #2306
-- ADR-0017 (Auto-Decompose Triage Counter Exclusion) — establishes the
+- ADR-0017 (Auto-Decompose Triage Path Excluded from Session Counter) — establishes the
   counter-placement principle for triage paths
 - [ADR-0023 (Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking)](0023-auto-triage-toggle-must-gate-routing.md) — canonical ADR whose Rule 4 already covers this counter-placement principle
 - ADR-0014 (Session Counter Forward-Progression Semantics) — defines

@@ -106,9 +106,9 @@ Adopt the **process-per-repo** model as the canonical multi-repo architecture:
 
 ## Related
 
-- **Supersedes ADR-0006 (RepoRuntime Isolation Architecture)** — ADR-0006 proposed in-process `RepoRuntime` isolation
+- **Supersedes ADR-0006 (RepoRuntime Isolation Architecture)** — that ADR proposed in-process `RepoRuntime` isolation
   with the supervisor using `RepoRuntime` as the unit of start/stop. This ADR
-  adopts `subprocess.Popen` process-per-repo instead, making ADR-0006's
+  adopts `subprocess.Popen` process-per-repo instead, making that ADR's
   supervisor integration decision obsolete.
 - Source memory: #1627
 - ADR-0001 (Five Concurrent Async Loops)

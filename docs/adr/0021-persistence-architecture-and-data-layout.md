@@ -144,5 +144,5 @@ but the defaults ensure a single `data_root` change relocates everything.
 - `src/config.py:HydraFlowConfig.data_root` (line 701) — data root configuration
 - `src/metrics_manager.py` — repo-slug namespaced metrics
 - `src/file_util.py:atomic_write` — atomic file write helper
-- ADR-0003 for worktree isolation (complementary filesystem layout)
-- ADR-0006 for RepoRuntime isolation (per-repo process boundaries)
+- ADR-0003 (Git Worktrees for Issue Isolation) — worktree isolation (complementary filesystem layout)
+- ADR-0006 (RepoRuntime Isolation Architecture) — RepoRuntime isolation (per-repo process boundaries)
