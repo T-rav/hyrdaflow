@@ -2,6 +2,7 @@
 
 **Status:** Superseded
 **Date:** 2026-03-08
+**Superseded:** 2026-03-15
 
 > **Superseded by [ADR-0023 (Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking)](0023-auto-triage-toggle-must-gate-routing.md).**
 > That ADR covers the same toggle-bypass bug with broader scope: centralized helper, stats coupling, and pre-review failure paths.
@@ -114,8 +115,10 @@ When reviewing any routing method that calls both `_route_to_triage` and
 ## Related
 
 - **Superseded by:** [ADR-0023 (Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking)](0023-auto-triage-toggle-must-gate-routing.md)
+- Council resolution: #2755
 - Source memory: #2345
 - Issue: #2355
 - Related learning: #2346, #2350
+- Duplicate resolution: #2757, #2763
 - `src/adr_reviewer.py` — `_route_result`, `_route_to_triage`, `_escalate_to_hitl`
 - `src/config.py` — `HydraFlowConfig` (toggle definition)
