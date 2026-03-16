@@ -309,7 +309,13 @@ class HydraFlowOrchestrator:
     request_stop = stop
 
     def reset(self) -> None:
-        """Reset the stop event so the orchestrator can be started again."""
+        """Reset all mutable state so the orchestrator can be restarted.
+
+        Every ``asyncio.Event`` field must be explicitly ``.clear()``'d here.
+        Events retain their set state across stop/start cycles — omitting one
+        causes waiters (e.g. ``_sleep_until_resume``) to return immediately on
+        restart.  See #3119 / #3123.
+        """
         self._stop_event.clear()
         self._credit_resume_event.clear()
         self._running = False
