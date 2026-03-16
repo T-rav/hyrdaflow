@@ -402,6 +402,23 @@ describe('SystemAlertBanner refresh button', () => {
     mockState.systemAlert = null
   })
 
+  it('shows "Refresh failed" when refreshCreditStatus returns an error', async () => {
+    mockState.refreshCreditStatus = vi.fn().mockResolvedValue({ ok: false, status: 'error' })
+    mockState.systemAlert = {
+      message: 'Credit limit reached. Pausing all loops.',
+      source: 'plan',
+    }
+    const { default: App } = await import('../../App')
+    render(<App />)
+    await act(async () => {
+      fireEvent.click(screen.getByText('Refresh'))
+    })
+    await waitFor(() => {
+      expect(screen.getByText('Refresh failed')).toBeInTheDocument()
+    })
+    mockState.systemAlert = null
+  })
+
   it('calls refreshCreditStatus when Refresh is clicked', async () => {
     const mockRefresh = vi.fn().mockResolvedValue({ ok: true, status: 'resuming' })
     mockState.refreshCreditStatus = mockRefresh

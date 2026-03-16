@@ -271,6 +271,18 @@ export default function App() {
   )
 }
 
+const _alertRefreshBase = {
+  padding: '4px 12px',
+  fontSize: 11,
+  fontWeight: 600,
+  border: `1px solid ${theme.red}`,
+  borderRadius: 4,
+  background: 'transparent',
+  color: theme.red,
+  marginLeft: 'auto',
+  flexShrink: 0,
+}
+
 const styles = {
   layout: {
     display: 'flex',
@@ -352,32 +364,8 @@ const styles = {
     fontWeight: 400,
     opacity: 0.8,
   },
-  alertRefresh: {
-    padding: '4px 12px',
-    fontSize: 11,
-    fontWeight: 600,
-    border: `1px solid ${theme.red}`,
-    borderRadius: 4,
-    background: 'transparent',
-    color: theme.red,
-    cursor: 'pointer',
-    transition: 'all 0.15s',
-    marginLeft: 'auto',
-    flexShrink: 0,
-  },
-  alertRefreshDisabled: {
-    padding: '4px 12px',
-    fontSize: 11,
-    fontWeight: 600,
-    border: `1px solid ${theme.red}`,
-    borderRadius: 4,
-    background: 'transparent',
-    color: theme.red,
-    cursor: 'not-allowed',
-    opacity: 0.5,
-    marginLeft: 'auto',
-    flexShrink: 0,
-  },
+  alertRefresh: { ..._alertRefreshBase, cursor: 'pointer', transition: 'all 0.15s' },
+  alertRefreshDisabled: { ..._alertRefreshBase, cursor: 'not-allowed', opacity: 0.5 },
   alertStillExhausted: {
     fontSize: 11,
     fontWeight: 600,
