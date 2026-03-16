@@ -693,6 +693,73 @@ class TestCheckCrossReferenceTitles:
         assert "abbreviated_cross_ref_title" not in codes
 
 
+class TestWordPrefixOverlap:
+    """Tests for _word_prefix_overlap — handles em-dash trailing prose."""
+
+    def test_matching_prefix_returns_true(self) -> None:
+        """Strings sharing a word-prefix longer than the real title are detected."""
+        assert ADRPreValidator._word_prefix_overlap(
+            "auto-triage toggle must gate routing for details.",
+            "Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking",
+        )
+
+    def test_exact_match_returns_false(self) -> None:
+        """Exact match is not an abbreviation."""
+        assert not ADRPreValidator._word_prefix_overlap(
+            "auto-triage toggle must gate routing",
+            "Auto-Triage Toggle Must Gate Routing",
+        )
+
+    def test_too_few_common_words_returns_false(self) -> None:
+        """Fewer than min_words shared words returns False."""
+        assert not ADRPreValidator._word_prefix_overlap(
+            "auto-triage toggle different words",
+            "Auto-Triage Toggle Must Gate Routing",
+        )
+
+    def test_no_overlap_returns_false(self) -> None:
+        """Completely different strings return False."""
+        assert not ADRPreValidator._word_prefix_overlap(
+            "completely different title here",
+            "Auto-Triage Toggle Must Gate Routing",
+        )
+
+    def test_custom_min_words(self) -> None:
+        """Custom min_words threshold is respected."""
+        # 3 common words, but min_words=4
+        assert not ADRPreValidator._word_prefix_overlap(
+            "alpha beta gamma different",
+            "Alpha Beta Gamma Delta Epsilon",
+            min_words=4,
+        )
+        # 3 common words, min_words=3
+        assert ADRPreValidator._word_prefix_overlap(
+            "alpha beta gamma different",
+            "Alpha Beta Gamma Delta Epsilon",
+            min_words=3,
+        )
+
+    def test_emdash_abbreviated_not_double_flagged(self) -> None:
+        """Em-dash abbreviated title with trailing prose is not flagged as mismatched."""
+        content = _valid_adr(
+            decision="See ADR-0023 \u2014 Auto-Triage Toggle Must Gate Routing for details."
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (
+                23,
+                "Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking",
+                "c",
+                "0023-gate.md",
+            ),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "abbreviated_cross_ref_title" in codes
+        assert "mismatched_adr_title" not in codes
+
+
 class TestDictCollisionSharedNumbers:
     """Tests that title checking handles multiple ADRs sharing the same number."""
 

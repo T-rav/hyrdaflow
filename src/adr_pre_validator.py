@@ -278,6 +278,29 @@ class ADRPreValidator:
             )
 
     @staticmethod
+    def _word_prefix_overlap(cited: str, real: str, min_words: int = 3) -> bool:
+        """Check if *cited* and *real* share a significant word-prefix.
+
+        Strips trailing punctuation from each word so that ``"routing"``
+        matches ``"routing,"`` — this handles em-dash titles where the regex
+        captures trailing prose (e.g. ``"Title for details."``) while the real
+        title continues with different words (e.g. ``"Title, Not Just X"``).
+
+        Returns True when the shared word-prefix is at least *min_words* long
+        and shorter than the real title (i.e. the cited text is an abbreviation).
+        """
+        strip = str.maketrans("", "", ".,;:!?")
+        cited_words = [w.translate(strip) for w in cited.lower().split()]
+        real_words = [w.translate(strip) for w in real.lower().split()]
+        common = 0
+        for cw, rw in zip(cited_words, real_words, strict=False):
+            if cw == rw:
+                common += 1
+            else:
+                break
+        return common >= min_words and common < len(real_words)
+
+    @staticmethod
     def _extract_cited_title(text: str) -> str | None:
         """Extract the cited title from parenthesized or em-dash annotation."""
         paren_match = _ADR_PAREN_TITLE_RE.match(text)
@@ -322,6 +345,10 @@ class ADRPreValidator:
             # Let _check_cross_reference_titles flag it as abbreviated_cross_ref_title
             # to avoid double-flagging with mismatched_adr_title.
             if real_lower.startswith(cited_lower):
+                return
+            # Em-dash form may capture trailing prose (e.g. "Title for details.")
+            # so the simple prefix check fails.  Fall back to word-prefix overlap.
+            if ADRPreValidator._word_prefix_overlap(cited_lower, real_lower):
                 return
         # No match against any title for this number
         mismatched[ref_num] = (cited_title, titles[0])
@@ -370,9 +397,13 @@ class ADRPreValidator:
                 if any(cited_lower == t.lower() for t in titles):
                     continue
 
-                # Abbreviated: cited is a prefix of a real title
+                # Abbreviated: cited is a prefix of a real title, or shares
+                # a significant word-prefix (handles em-dash trailing prose)
                 abbreviated_of = [
-                    t for t in titles if t.lower().startswith(cited_lower)
+                    t
+                    for t in titles
+                    if t.lower().startswith(cited_lower)
+                    or ADRPreValidator._word_prefix_overlap(cited_lower, t)
                 ]
                 if abbreviated_of:
                     result.issues.append(
