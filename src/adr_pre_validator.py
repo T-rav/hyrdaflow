@@ -59,6 +59,9 @@ _ADR_PAREN_TITLE_RE = re.compile(r"ADR[- ]\d{4}\s*\(([^()]*(?:\([^()]*\)[^()]*)*
 # titles that contain dots (e.g. "Pi.dev" in ADR-0004's title).
 _ADR_EMDASH_TITLE_RE = re.compile(r"ADR[- ]\d{4}\s*—\s*(.+?)(?:\.\s|,|;|$)")
 
+# Captures ADR number and parenthesized title text: ADR-0023 (Title Here)
+_CROSS_REF_RE = re.compile(r"ADR[- ]?(\d{4})\s*\(([^)]+)\)")
+
 
 class ADRPreValidator:
     """Validates ADR structure before sending to the council."""
@@ -84,6 +87,7 @@ class ADRPreValidator:
         self._check_supersession(content, all_adrs or [], result)
         self._check_volatile_line_citations(content, result)
         self._check_bare_adr_references(content, all_adrs or [], result)
+        self._check_cross_reference_titles(content, all_adrs or [], result)
         return result
 
     def _check_status_field(self, content: str, result: ADRValidationResult) -> None:
@@ -198,8 +202,11 @@ class ADRPreValidator:
         Exceptions: the ADR's own heading line (``# ADR-NNNN: Title``) and
         markdown table rows (which may contain example/illustration text).
         """
-        # Build lookup from ADR number → title for existence and title checks
-        adr_titles: dict[int, str] = {num: title for num, title, *_ in all_adrs}
+        # Build lookup from ADR number → titles for existence and title checks.
+        # Use list values to handle multiple ADRs sharing the same number.
+        adr_titles: dict[int, list[str]] = {}
+        for num, title, *_ in all_adrs:
+            adr_titles.setdefault(num, []).append(title)
 
         # Extract self-number from the heading to skip self-references
         heading_match = re.search(r"^#\s+ADR[- ](\d{4})", content, re.MULTILINE)
@@ -274,37 +281,103 @@ class ADRPreValidator:
             )
 
     @staticmethod
+    def _extract_cited_title(text: str) -> str | None:
+        """Extract the cited title from parenthesized or em-dash annotation."""
+        paren_match = _ADR_PAREN_TITLE_RE.match(text)
+        if paren_match:
+            return paren_match.group(1).strip()
+        emdash_match = _ADR_EMDASH_TITLE_RE.match(text)
+        if emdash_match:
+            return emdash_match.group(1).strip()
+        return None
+
+    @staticmethod
     def _check_title_accuracy(
         ref_num: str,
         text: str,
-        adr_titles: dict[int, str],
+        adr_titles: dict[int, list[str]],
         mismatched: dict[str, tuple[str, str]],
     ) -> None:
-        """Compare a cited title annotation against the real ADR title."""
+        """Compare a cited title annotation against the real ADR title(s).
+
+        Handles multiple ADRs sharing the same number by checking against
+        all titles for that number.
+        """
         num = int(ref_num)
         if num not in adr_titles:
             return  # Can't verify — nonexistence is flagged separately.
-        real_title = adr_titles[num]
+        titles = adr_titles[num]
 
-        # Extract the cited title from either parenthesized or em-dash form
-        cited_title: str | None = None
-        paren_match = _ADR_PAREN_TITLE_RE.match(text)
-        if paren_match:
-            cited_title = paren_match.group(1).strip()
-        else:
-            emdash_match = _ADR_EMDASH_TITLE_RE.match(text)
-            if emdash_match:
-                cited_title = emdash_match.group(1).strip()
-
+        cited_title = ADRPreValidator._extract_cited_title(text)
         if not cited_title:
             return
 
-        # For em-dash form, the captured text may include trailing words
-        # (e.g. "Title for details") — check if the real title is a prefix.
         cited_lower = cited_title.lower()
-        real_lower = real_title.lower()
-        if cited_lower == real_lower:
+        for real_title in titles:
+            real_lower = real_title.lower()
+            if cited_lower == real_lower:
+                return
+            # For em-dash form, the captured text may include trailing words
+            # (e.g. "Title for details") — check if a real title is a prefix.
+            if cited_lower.startswith(real_lower):
+                return
+        # No match against any title for this number
+        mismatched[ref_num] = (cited_title, titles[0])
+
+    def _check_cross_reference_titles(
+        self,
+        content: str,
+        all_adrs: list[tuple[int, str, str, str]],
+        result: ADRValidationResult,
+    ) -> None:
+        """Check that cross-reference titles use the full ADR title.
+
+        When multiple ADRs share the same number, abbreviated titles are
+        ambiguous.  This check flags cited titles that are a prefix of a
+        real title but not an exact match.
+        """
+        if not all_adrs:
             return
-        if cited_lower.startswith(real_lower):
-            return
-        mismatched[ref_num] = (cited_title, real_title)
+
+        # Build multi-value lookup: number → list of titles
+        adr_titles: dict[int, list[str]] = {}
+        for num, title, *_ in all_adrs:
+            adr_titles.setdefault(num, []).append(title)
+
+        # Extract self-number from the heading to skip self-references
+        heading_match = re.search(r"^#\s+ADR[- ](\d{4})", content, re.MULTILINE)
+        self_number: int | None = int(heading_match.group(1)) if heading_match else None
+
+        for line in content.splitlines():
+            if line.lstrip().startswith("#") or "|" in line:
+                continue
+            for match in _CROSS_REF_RE.finditer(line):
+                ref_num = int(match.group(1))
+                if ref_num == self_number:
+                    continue
+                if ref_num not in adr_titles:
+                    continue  # Nonexistence is flagged by _check_bare_adr_references
+                cited_title = match.group(2).strip()
+                titles = adr_titles[ref_num]
+                cited_lower = cited_title.lower()
+
+                # Exact match against any title — pass
+                if any(cited_lower == t.lower() for t in titles):
+                    continue
+
+                # Abbreviated: cited is a prefix of a real title
+                abbreviated_of = [
+                    t for t in titles if t.lower().startswith(cited_lower)
+                ]
+                if abbreviated_of:
+                    result.issues.append(
+                        ADRValidationIssue(
+                            code="abbreviated_cross_ref_title",
+                            message=(
+                                f"ADR-{ref_num:04d} cross-reference uses abbreviated "
+                                f'title "{cited_title}" — use the full title '
+                                f'"{abbreviated_of[0]}"'
+                            ),
+                            fixable=True,
+                        )
+                    )
