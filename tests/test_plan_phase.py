@@ -1265,7 +1265,7 @@ class TestPlanPhaseErrorPaths:
         # No label swap, no HITL escalation, no comment
         prs.transition.assert_not_awaited()
         prs.post_comment.assert_not_awaited()
-        assert any("skipping label swap" in r.message for r in caplog.records)
+        assert "skipping label swap" in caplog.text
 
     @pytest.mark.asyncio
     async def test_issue_with_empty_body_plans_normally(

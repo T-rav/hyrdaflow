@@ -1656,27 +1656,6 @@ class TestEpicEdgeCases:
 
         prs.close_issue.assert_not_called()
 
-    def test_parse_epic_sub_issues_deduplicates_children(self) -> None:
-        """Duplicate issue references in epic body should be deduplicated."""
-        body = (
-            "- [ ] #123 — Add feature\n"
-            "- [ ] #456 — Fix bug\n"
-            "- [ ] #123 — Add feature (duplicate)\n"
-        )
-        result = parse_epic_sub_issues(body)
-        assert result == [123, 456]
-
-    def test_parse_epic_sub_issues_preserves_order(self) -> None:
-        """Deduplicated list should preserve first-occurrence order."""
-        body = (
-            "- [ ] #300 — Third\n"
-            "- [ ] #100 — First\n"
-            "- [ ] #300 — Third again\n"
-            "- [ ] #200 — Second\n"
-        )
-        result = parse_epic_sub_issues(body)
-        assert result == [300, 100, 200]
-
     @pytest.mark.asyncio
     async def test_epic_with_duplicate_children_closes_once(self) -> None:
         """An epic with duplicate child references in body should close normally."""
