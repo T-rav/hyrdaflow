@@ -7,6 +7,9 @@ from pathlib import Path
 
 from models import AnalysisResult, AnalysisSection, AnalysisVerdict
 
+# Pattern matching type alias definitions like: FooParam = Annotated[
+_TYPE_ALIAS_RE = re.compile(r"^(\w+)\s*=\s*Annotated\[", re.MULTILINE)
+
 # File extensions considered valid code/config references in plans.
 _CODE_EXTENSIONS = frozenset(
     {
@@ -37,10 +40,11 @@ class PlanAnalyzer:
         """Run all analysis checks and return the combined result."""
         file_section = self._validate_file_references(plan_text)
         test_section = self._validate_test_patterns(plan_text)
+        alias_section = self._validate_duplicate_type_aliases(plan_text)
 
         return AnalysisResult(
             issue_number=issue_number,
-            sections=[file_section, test_section],
+            sections=[file_section, test_section, alias_section],
         )
 
     @staticmethod
@@ -188,4 +192,76 @@ class PlanAnalyzer:
             name="Test Pattern Check",
             verdict=verdict,
             details=details,
+        )
+
+    def _validate_duplicate_type_aliases(self, plan_text: str) -> AnalysisSection:
+        """Detect duplicate ``Annotated[...]`` type aliases across package sub-modules.
+
+        When a module is refactored into a package, type aliases like
+        ``RepoSlugParam = Annotated[...]`` tend to be copy-pasted into each
+        sub-module instead of being imported from a canonical location.
+        """
+        modify_section = self._extract_section(plan_text, "Files to Modify")
+        new_section = self._extract_section(plan_text, "New Files")
+        all_files = self._extract_file_paths(modify_section + "\n" + new_section)
+
+        # Only check Python files
+        py_files = [f for f in all_files if f.endswith(".py")]
+
+        # Group files by package (directory)
+        packages: dict[str, list[str]] = {}
+        for fp in py_files:
+            parent = str(Path(fp).parent)
+            if parent == ".":
+                continue
+            packages.setdefault(parent, []).append(fp)
+
+        # Only scan packages with 2+ files (where duplication is possible)
+        packages = {k: v for k, v in packages.items() if len(v) >= 2}
+
+        if not packages:
+            return AnalysisSection(
+                name="Type Alias Dedup",
+                verdict=AnalysisVerdict.PASS,
+                details=["No multi-file packages in plan to check."],
+            )
+
+        # Scan each package for duplicate Annotated type aliases
+        details: list[str] = []
+        # alias_name -> list of files defining it
+        alias_locations: dict[str, list[str]] = {}
+
+        for pkg_files in packages.values():
+            alias_locations.clear()
+            for fp in pkg_files:
+                full = self._repo_root / fp
+                if not full.is_file():
+                    continue
+                try:
+                    content = full.read_text()
+                except OSError:
+                    continue
+                for m in _TYPE_ALIAS_RE.finditer(content):
+                    name = m.group(1)
+                    alias_locations.setdefault(name, []).append(fp)
+
+            for alias, files in alias_locations.items():
+                if len(files) > 1:
+                    file_list = ", ".join(f"`{f}`" for f in sorted(files))
+                    details.append(
+                        f"Duplicate type alias `{alias}` in: {file_list}"
+                        " — import from a single canonical location instead."
+                    )
+
+        if details:
+            return AnalysisSection(
+                name="Type Alias Dedup",
+                verdict=AnalysisVerdict.WARN,
+                details=details,
+            )
+
+        return AnalysisSection(
+            name="Type Alias Dedup",
+            verdict=AnalysisVerdict.PASS,
+            details=["No duplicate Annotated type aliases found."],
         )
