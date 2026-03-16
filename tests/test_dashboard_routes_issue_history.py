@@ -755,7 +755,7 @@ class TestIssueHistoryOutcomeDerivation:
         await event_bus.publish(
             HydraFlowEvent(
                 type=EventType.PR_CREATED,
-                data={"issue": 60, "pr_number": 100, "title": "Fix #60"},
+                data={"issue": 60, "pr": 100, "title": "Fix #60"},
             )
         )
         await event_bus.publish(
@@ -792,7 +792,7 @@ class TestIssueHistoryOutcomeDerivation:
         await event_bus.publish(
             HydraFlowEvent(
                 type=EventType.PR_CREATED,
-                data={"issue": 61, "pr_number": 101, "title": "Fix #61"},
+                data={"issue": 61, "pr": 101, "title": "Fix #61"},
             )
         )
         await event_bus.publish(
@@ -833,7 +833,7 @@ class TestIssueHistoryOutcomeDerivation:
         await event_bus.publish(
             HydraFlowEvent(
                 type=EventType.PR_CREATED,
-                data={"issue": 62, "pr_number": 102, "title": "Fix #62"},
+                data={"issue": 62, "pr": 102, "title": "Fix #62"},
             )
         )
 
@@ -842,6 +842,114 @@ class TestIssueHistoryOutcomeDerivation:
         issue = next((x for x in payload["items"] if x["issue_number"] == 62), None)
         assert issue is not None
         assert issue["outcome"] is None
+
+
+class TestIssueHistoryPRTitlePropagation:
+    """Tests for PR title propagation into the /api/issues/history prs array."""
+
+    @pytest.mark.asyncio
+    async def test_pr_created_title_appears_in_history_prs(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Title from PR_CREATED event is stored and returned in prs[].title."""
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                data={"issue": 70, "title": "Issue with titled PR"},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.PR_CREATED,
+                data={
+                    "issue": 70,
+                    "pr": 600,
+                    "url": "https://github.com/org/repo/pull/600",
+                    "title": "Fixes #70: Add feature",
+                },
+            )
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 70), None)
+        assert issue is not None
+        assert len(issue["prs"]) == 1
+        assert issue["prs"][0]["number"] == 600
+        assert issue["prs"][0]["title"] == "Fixes #70: Add feature"
+
+    @pytest.mark.asyncio
+    async def test_merge_update_title_overwrites_pr_created_title(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """Title from MERGE_UPDATE overwrites the earlier PR_CREATED title."""
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                data={"issue": 71, "title": "Issue with retitled PR"},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.PR_CREATED,
+                data={"issue": 71, "pr": 601, "title": "Draft: Fixes #71"},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.MERGE_UPDATE,
+                data={"pr": 601, "status": "merged", "title": "Fixes #71: Final title"},
+            )
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 71), None)
+        assert issue is not None
+        assert len(issue["prs"]) == 1
+        assert issue["prs"][0]["merged"] is True
+        assert issue["prs"][0]["title"] == "Fixes #71: Final title"
+
+    @pytest.mark.asyncio
+    async def test_merge_update_without_title_preserves_pr_created_title(
+        self, config, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """When MERGE_UPDATE has no title, the title from PR_CREATED is retained."""
+        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/issues/history")
+
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.ISSUE_CREATED,
+                data={"issue": 72, "title": "Issue with merge no title"},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.PR_CREATED,
+                data={"issue": 72, "pr": 602, "title": "Fixes #72: Feature"},
+            )
+        )
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.MERGE_UPDATE,
+                data={"pr": 602, "status": "merged"},
+            )
+        )
+
+        response = await endpoint(limit=100)
+        payload = json.loads(response.body)
+        issue = next((x for x in payload["items"] if x["issue_number"] == 72), None)
+        assert issue is not None
+        assert len(issue["prs"]) == 1
+        assert issue["prs"][0]["merged"] is True
+        assert issue["prs"][0]["title"] == "Fixes #72: Feature"
 
 
 class TestIssueHistoryCache:
