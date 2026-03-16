@@ -702,6 +702,7 @@ Quality: No issues — <justification>
      - New branches/conditions introduced by the PR have corresponding test cases
    - Check for security issues (injection, crypto, auth)
    - Merge-artifact check: look for duplicate Pydantic Field definitions, duplicate function parameters, or duplicate keyword arguments — these arise when concurrent PRs add the same field and get merged sequentially
+   - **Duplicate type alias check** — for any module-to-package refactors in the diff, grep for `= Annotated[` defined in multiple sub-modules; flag inline copies that should be imported from a single canonical location
 {ui_criteria}
 ## If Issues Found
 

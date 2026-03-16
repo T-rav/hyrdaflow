@@ -29,7 +29,9 @@ class TestDashboardRoutesDocstrings:
 
     @pytest.fixture(autouse=True)
     def _load_docstrings(self) -> None:
-        self.docstrings = _get_function_docstrings(SRC / "dashboard_routes.py")
+        routes = _get_function_docstrings(SRC / "dashboard_routes" / "_routes.py")
+        common = _get_function_docstrings(SRC / "dashboard_routes" / "_common.py")
+        self.docstrings = {**common, **routes}
 
     @pytest.mark.parametrize(
         "func_name",

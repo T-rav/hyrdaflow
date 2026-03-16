@@ -134,7 +134,7 @@ class TestHitlSummaryFailureMessage:
 
         state.set_hitl_summary_failure = tracking_set
 
-        with patch("dashboard_routes.IssueFetcher") as mock_fetcher_cls:
+        with patch("dashboard_routes._routes.IssueFetcher") as mock_fetcher_cls:
             mock_fetcher = MagicMock()
             # Raise from fetch_issue_by_number so the exception propagates to
             # _warm_hitl_summary's except block (not caught inside _compute_hitl_summary).

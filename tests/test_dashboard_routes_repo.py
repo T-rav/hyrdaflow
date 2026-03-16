@@ -641,7 +641,7 @@ class TestPickRepoFolder:
         endpoint = find_endpoint(router, "/api/repos/pick-folder", "POST")
 
         with patch(
-            "dashboard_routes._pick_folder_with_dialog",
+            "dashboard_routes._routes._pick_folder_with_dialog",
             new_callable=AsyncMock,
             return_value=None,
         ):
@@ -667,7 +667,7 @@ class TestPickRepoFolder:
         endpoint = find_endpoint(router, "/api/repos/pick-folder", "POST")
 
         with patch(
-            "dashboard_routes._pick_folder_with_dialog",
+            "dashboard_routes._routes._pick_folder_with_dialog",
             new_callable=AsyncMock,
             return_value=str(repo_dir),
         ):

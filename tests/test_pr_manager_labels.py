@@ -7,18 +7,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from pr_manager import PRManager
 from tests.conftest import SubprocessMockBuilder
-from tests.helpers import ConfigFactory
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_manager(config, event_bus):
-    return PRManager(config=config, event_bus=event_bus)
-
+from tests.helpers import ConfigFactory, make_pr_manager
 
 # ---------------------------------------------------------------------------
 # add_labels
@@ -27,7 +17,7 @@ def _make_manager(config, event_bus):
 
 @pytest.mark.asyncio
 async def test_add_labels_calls_issue_labels_api_for_each_label(config, event_bus):
-    manager = _make_manager(config, event_bus)
+    manager = make_pr_manager(config, event_bus)
     mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
@@ -48,7 +38,7 @@ async def test_add_labels_calls_issue_labels_api_for_each_label(config, event_bu
 
 @pytest.mark.asyncio
 async def test_add_labels_dry_run_skips_command(dry_config, event_bus):
-    manager = _make_manager(dry_config, event_bus)
+    manager = make_pr_manager(dry_config, event_bus)
     mock_create = SubprocessMockBuilder().build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
@@ -59,7 +49,7 @@ async def test_add_labels_dry_run_skips_command(dry_config, event_bus):
 
 @pytest.mark.asyncio
 async def test_add_labels_empty_list_skips_command(config, event_bus):
-    manager = _make_manager(config, event_bus)
+    manager = make_pr_manager(config, event_bus)
     mock_create = SubprocessMockBuilder().build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
@@ -75,7 +65,7 @@ async def test_add_labels_empty_list_skips_command(config, event_bus):
 
 @pytest.mark.asyncio
 async def test_remove_label_calls_issue_labels_api(config, event_bus):
-    manager = _make_manager(config, event_bus)
+    manager = make_pr_manager(config, event_bus)
     mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
@@ -91,7 +81,7 @@ async def test_remove_label_calls_issue_labels_api(config, event_bus):
 
 @pytest.mark.asyncio
 async def test_remove_label_dry_run_skips_command(dry_config, event_bus):
-    manager = _make_manager(dry_config, event_bus)
+    manager = make_pr_manager(dry_config, event_bus)
     mock_create = SubprocessMockBuilder().build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
@@ -107,7 +97,7 @@ async def test_remove_label_dry_run_skips_command(dry_config, event_bus):
 
 @pytest.mark.asyncio
 async def test_add_pr_labels_calls_issue_labels_api_for_each_label(config, event_bus):
-    manager = _make_manager(config, event_bus)
+    manager = make_pr_manager(config, event_bus)
     mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
@@ -128,7 +118,7 @@ async def test_add_pr_labels_calls_issue_labels_api_for_each_label(config, event
 
 @pytest.mark.asyncio
 async def test_add_pr_labels_dry_run_skips_command(dry_config, event_bus):
-    manager = _make_manager(dry_config, event_bus)
+    manager = make_pr_manager(dry_config, event_bus)
     mock_create = SubprocessMockBuilder().build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
@@ -139,7 +129,7 @@ async def test_add_pr_labels_dry_run_skips_command(dry_config, event_bus):
 
 @pytest.mark.asyncio
 async def test_add_pr_labels_empty_list_skips_command(config, event_bus):
-    manager = _make_manager(config, event_bus)
+    manager = make_pr_manager(config, event_bus)
     mock_create = SubprocessMockBuilder().build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
@@ -150,7 +140,7 @@ async def test_add_pr_labels_empty_list_skips_command(config, event_bus):
 
 @pytest.mark.asyncio
 async def test_add_pr_labels_subprocess_error_does_not_raise(config, event_bus):
-    manager = _make_manager(config, event_bus)
+    manager = make_pr_manager(config, event_bus)
     mock_create = (
         SubprocessMockBuilder().with_returncode(1).with_stderr("label error").build()
     )
@@ -168,7 +158,7 @@ async def test_add_pr_labels_subprocess_error_does_not_raise(config, event_bus):
 
 @pytest.mark.asyncio
 async def test_remove_pr_label_calls_issue_labels_api(config, event_bus):
-    manager = _make_manager(config, event_bus)
+    manager = make_pr_manager(config, event_bus)
     mock_create = SubprocessMockBuilder().with_stdout("").build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
@@ -182,7 +172,7 @@ async def test_remove_pr_label_calls_issue_labels_api(config, event_bus):
 
 @pytest.mark.asyncio
 async def test_remove_pr_label_dry_run_skips_command(dry_config, event_bus):
-    manager = _make_manager(dry_config, event_bus)
+    manager = make_pr_manager(dry_config, event_bus)
     mock_create = SubprocessMockBuilder().build()
 
     with patch("asyncio.create_subprocess_exec", mock_create):
@@ -193,7 +183,7 @@ async def test_remove_pr_label_dry_run_skips_command(dry_config, event_bus):
 
 @pytest.mark.asyncio
 async def test_remove_pr_label_subprocess_error_does_not_raise(config, event_bus):
-    manager = _make_manager(config, event_bus)
+    manager = make_pr_manager(config, event_bus)
     mock_create = (
         SubprocessMockBuilder().with_returncode(1).with_stderr("label error").build()
     )
@@ -219,7 +209,7 @@ class TestCommentHelper:
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
-        mgr = _make_manager(cfg, event_bus)
+        mgr = make_pr_manager(cfg, event_bus)
         mock_create = SubprocessMockBuilder().with_stdout("").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
@@ -237,7 +227,7 @@ class TestCommentHelper:
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
-        mgr = _make_manager(cfg, event_bus)
+        mgr = make_pr_manager(cfg, event_bus)
         mock_create = SubprocessMockBuilder().with_stdout("").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
@@ -250,7 +240,7 @@ class TestCommentHelper:
 
     @pytest.mark.asyncio
     async def test_comment_dry_run(self, dry_config, event_bus):
-        mgr = _make_manager(dry_config, event_bus)
+        mgr = make_pr_manager(dry_config, event_bus)
         mock_create = SubprocessMockBuilder().build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
@@ -267,7 +257,7 @@ class TestCommentHelper:
             worktree_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
-        mgr = _make_manager(cfg, event_bus)
+        mgr = make_pr_manager(cfg, event_bus)
         mock_create = (
             SubprocessMockBuilder()
             .with_returncode(1)
@@ -291,7 +281,7 @@ class TestAddLabelsHelper:
 
     @pytest.mark.asyncio
     async def test_add_labels_issue_target(self, config, event_bus):
-        mgr = _make_manager(config, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mock_create = SubprocessMockBuilder().with_stdout("").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
@@ -305,7 +295,7 @@ class TestAddLabelsHelper:
 
     @pytest.mark.asyncio
     async def test_add_labels_pr_target(self, config, event_bus):
-        mgr = _make_manager(config, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mock_create = SubprocessMockBuilder().with_stdout("").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
@@ -319,7 +309,7 @@ class TestAddLabelsHelper:
 
     @pytest.mark.asyncio
     async def test_add_labels_dry_run(self, dry_config, event_bus):
-        mgr = _make_manager(dry_config, event_bus)
+        mgr = make_pr_manager(dry_config, event_bus)
         mock_create = SubprocessMockBuilder().build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
@@ -329,7 +319,7 @@ class TestAddLabelsHelper:
 
     @pytest.mark.asyncio
     async def test_add_labels_empty_list(self, config, event_bus):
-        mgr = _make_manager(config, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mock_create = SubprocessMockBuilder().build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
@@ -340,7 +330,7 @@ class TestAddLabelsHelper:
     @pytest.mark.asyncio
     async def test_add_labels_error_does_not_raise(self, config, event_bus):
         """_add_labels should log a warning on failure without propagating the error."""
-        mgr = _make_manager(config, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mock_create = (
             SubprocessMockBuilder()
             .with_returncode(1)
@@ -364,7 +354,7 @@ class TestRemoveLabelHelper:
 
     @pytest.mark.asyncio
     async def test_remove_label_issue_target(self, config, event_bus):
-        mgr = _make_manager(config, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mock_create = SubprocessMockBuilder().with_stdout("").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
@@ -377,7 +367,7 @@ class TestRemoveLabelHelper:
 
     @pytest.mark.asyncio
     async def test_remove_label_pr_target(self, config, event_bus):
-        mgr = _make_manager(config, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mock_create = SubprocessMockBuilder().with_stdout("").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
@@ -390,7 +380,7 @@ class TestRemoveLabelHelper:
 
     @pytest.mark.asyncio
     async def test_remove_label_dry_run(self, dry_config, event_bus):
-        mgr = _make_manager(dry_config, event_bus)
+        mgr = make_pr_manager(dry_config, event_bus)
         mock_create = SubprocessMockBuilder().build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
@@ -401,7 +391,7 @@ class TestRemoveLabelHelper:
     @pytest.mark.asyncio
     async def test_remove_label_error_does_not_raise(self, config, event_bus):
         """_remove_label should log a warning on failure without propagating the error."""
-        mgr = _make_manager(config, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mock_create = (
             SubprocessMockBuilder()
             .with_returncode(1)
@@ -419,7 +409,7 @@ class TestRemoveLabelHelper:
         self, config, event_bus, caplog
     ):
         """Missing-label 404 should be treated as expected no-op (not warning)."""
-        mgr = _make_manager(config, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mock_create = (
             SubprocessMockBuilder()
             .with_returncode(1)
@@ -449,7 +439,7 @@ class TestSwapPipelineLabels:
     async def test_removes_all_other_pipeline_labels_from_issue(
         self, config, event_bus
     ) -> None:
-        mgr = _make_manager(config, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mgr._remove_label = AsyncMock()
         mgr._add_labels = AsyncMock()
 
@@ -463,7 +453,7 @@ class TestSwapPipelineLabels:
 
     @pytest.mark.asyncio
     async def test_adds_new_label_to_issue(self, config, event_bus) -> None:
-        mgr = _make_manager(config, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mgr._remove_label = AsyncMock()
         mgr._add_labels = AsyncMock()
 
@@ -475,7 +465,7 @@ class TestSwapPipelineLabels:
     async def test_also_removes_from_pr_when_pr_number_given(
         self, config, event_bus
     ) -> None:
-        mgr = _make_manager(config, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mgr._remove_label = AsyncMock()
         mgr._add_labels = AsyncMock()
 
@@ -491,7 +481,7 @@ class TestSwapPipelineLabels:
 
     @pytest.mark.asyncio
     async def test_no_pr_label_ops_when_pr_number_none(self, config, event_bus) -> None:
-        mgr = _make_manager(config, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mgr._remove_label = AsyncMock()
         mgr._add_labels = AsyncMock()
 

@@ -81,7 +81,7 @@ class TestControlStatusAppVersion:
         from update_check import UpdateCheckResult
 
         monkeypatch.setattr(
-            "dashboard_routes.load_cached_update_result",
+            "dashboard_routes._routes.load_cached_update_result",
             lambda **_kwargs: UpdateCheckResult(
                 current_version="0.9.1",
                 latest_version="0.9.2",

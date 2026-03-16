@@ -626,6 +626,43 @@ class PRManager:
         """Remove *label* from a GitHub issue."""
         await self._remove_label("issue", issue_number, label)
 
+    async def get_issue_state(self, issue_number: int) -> str:
+        """Return the resolved state of a GitHub issue.
+
+        Returns ``'COMPLETED'`` when the issue was closed as resolved,
+        ``'OPEN'`` when still open, ``'NOT_PLANNED'`` when closed as
+        won't-fix/duplicate/invalid, or ``''`` on error.
+        """
+        self._assert_repo()
+        try:
+            output = await self._run_gh(
+                "gh",
+                "issue",
+                "view",
+                str(issue_number),
+                "--repo",
+                self._repo,
+                "--json",
+                "state,stateReason",
+            )
+            data = json.loads(output)
+            state = str(data.get("state", "")).upper()
+            if state == "CLOSED":
+                # stateReason: "COMPLETED" | "NOT_PLANNED" | null
+                # Fall back to "" (not "COMPLETED") when stateReason is null so
+                # that issues closed before GitHub added stateReason tracking are
+                # not incorrectly treated as resolved.
+                reason = str(data.get("stateReason") or "").upper()
+                return reason
+            return state
+        except Exception:
+            logger.warning(
+                "Could not fetch state of issue #%d",
+                issue_number,
+                exc_info=True,
+            )
+            return ""
+
     async def close_issue(self, issue_number: int) -> None:
         """Close a GitHub issue."""
         self._assert_repo()
@@ -802,6 +839,44 @@ class PRManager:
         except (RuntimeError, ValueError) as exc:
             logger.error("Issue creation failed for %r: %s", title, exc)
             return 0
+
+    async def find_issue_number_by_label_and_title(
+        self,
+        label: str,
+        title_substring: str,
+        *,
+        state: str = "all",
+    ) -> int | None:
+        """Find a GitHub issue by label and title substring.
+
+        Searches for issues with the given *label* whose title contains
+        *title_substring* (case-insensitive).  Returns the issue number
+        of the first match, or ``None`` if no match is found.
+        """
+        issues: list[dict[str, object]] = await self._gh_json_query(  # type: ignore[assignment]
+            "gh",
+            "issue",
+            "list",
+            "--repo",
+            self._repo,
+            "--label",
+            label,
+            "--state",
+            state,
+            "--json",
+            "number,title",
+            "--limit",
+            "100",
+            dry_run_return=[],
+            error_log="Could not search issues by label and title",
+        )
+        needle = title_substring.lower()
+        for issue in issues:
+            if needle in str(issue.get("title", "")).lower():
+                num = issue.get("number")
+                if num is not None:
+                    return int(num)  # type: ignore[arg-type]
+        return None
 
     _SCREENSHOT_RELEASE_TAG = "screenshots"
 
