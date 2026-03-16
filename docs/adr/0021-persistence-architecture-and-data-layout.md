@@ -34,20 +34,24 @@ precedence:
 3. Default: `<repo_root>/.hydraflow/`.
 
 Full config load order is: Pydantic defaults, config file, env vars, CLI args.
-Path resolution runs in the order `_resolve_paths` then `_resolve_repo_and_identity`
-then `_apply_env_overrides`.
+Path resolution runs in the order `_resolve_base_paths` then `_resolve_repo_and_identity`
+then `_resolve_repo_scoped_paths` then `_apply_env_overrides`.
 
 ### Data layout
 
+> **Note:** `log_dir`, `plans_dir`, and `memory_dir` are currently flat under
+> `data_root/` rather than repo-scoped — see [^1].
+
 ```
 <data_root>/                        # default: <repo_root>/.hydraflow/
-  state.json                        # StateTracker crash-recovery state
-  events.jsonl                      # EventBus append-only event log
-  sessions.jsonl                    # Session history
+  <repo_slug>/                      # repo-scoped subdirectory (via _resolve_repo_scoped_paths)
+    state.json                      # StateTracker crash-recovery state
+    events.jsonl                    # EventBus append-only event log
+    sessions.jsonl                  # Session history
   config.json                       # Persisted config snapshot
-  logs/                             # Transcript and log files
-  plans/                            # Saved implementation plans
-  memory/                           # Memory and review-insight files
+  logs/                             # Transcript and log files  [^1]
+  plans/                            # Saved implementation plans [^1]
+  memory/                           # Memory and review-insight files [^1]
   metrics/<owner-repo>/             # Per-repo metrics (repo-slug namespaced)
     snapshots.jsonl                 # Dashboard-consumable metric snapshots
   runs/                             # Run artifacts
@@ -55,6 +59,10 @@ then `_apply_env_overrides`.
   cache/                            # Ephemeral caches
   verification/                     # Verification artifacts
 ```
+
+[^1]: Currently flat under `<data_root>/`. ADR-0010 (Worktree and Path Isolation
+Architecture) mandates moving these to `<data_root>/<repo_slug>/logs/`, etc. for
+full repo-scoped isolation in multi-repo deployments.
 
 ### Persistence guarantees
 
@@ -84,14 +92,15 @@ then `_apply_env_overrides`.
 
 The following `HydraFlowConfig` properties derive directories from `data_root`:
 
-| Property | Path |
-|----------|------|
-| `log_dir` | `data_root / "logs"` |
-| `plans_dir` | `data_root / "plans"` |
-| `memory_dir` | `data_root / "memory"` |
-| `state_file` | `data_root / "state.json"` |
-| `event_log_path` | `data_root / "events.jsonl"` |
-| `repo_data_root` | `data_root / repo_slug` |
+| Property | Path | Scope |
+|----------|------|-------|
+| `state_file` | `data_root / repo_slug / "state.json"` | repo-scoped |
+| `event_log_path` | `data_root / repo_slug / "events.jsonl"` | repo-scoped |
+| `sessions.jsonl` (no config property; implicit path) | `repo_data_root / "sessions.jsonl"` | repo-scoped |
+| `repo_data_root` | `data_root / repo_slug` | repo-scoped |
+| `log_dir` | `data_root / "logs"` | flat [^1] |
+| `plans_dir` | `data_root / "plans"` | flat [^1] |
+| `memory_dir` | `data_root / "memory"` | flat [^1] |
 
 All paths can be individually overridden via their respective config fields,
 but the defaults ensure a single `data_root` change relocates everything.
@@ -140,9 +149,10 @@ but the defaults ensure a single `data_root` change relocates everything.
 - Source memory: [#1624 — HydraFlow persistence architecture and data layout](https://github.com/T-rav/hydra/issues/1624)
 - This ADR: [#1633](https://github.com/T-rav/hydra/issues/1633)
 - `src/state.py:StateTracker` — crash-recovery state persistence
-- `src/config.py:_resolve_paths` (line 1122) — data root and path resolution
+- `src/config.py:_resolve_base_paths`, `_resolve_repo_and_identity`, `_resolve_repo_scoped_paths` — data root and path resolution
 - `src/config.py:HydraFlowConfig.data_root` (line 701) — data root configuration
 - `src/metrics_manager.py` — repo-slug namespaced metrics
 - `src/file_util.py:atomic_write` — atomic file write helper
 - ADR-0003 (Git Worktrees for Issue Isolation) — worktree isolation (complementary filesystem layout)
-- ADR-0006 (RepoRuntime Isolation Architecture) — RepoRuntime isolation (per-repo process boundaries)
+- ADR-0006 (RepoRuntime Isolation Architecture, superseded by ADR-0009 Multi-Repo Process-Per-Repo Model) — RepoRuntime isolation (per-repo process boundaries)
+- ADR-0010 (Worktree and Path Isolation Architecture) — mandates repo-scoping `log_dir`, `plans_dir`, and `memory_dir` to `data_root/<repo_slug>/`; requires this ADR's derived-paths table and layout diagram to reflect repo-scoped paths
