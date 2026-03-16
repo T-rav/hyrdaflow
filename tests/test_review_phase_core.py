@@ -498,6 +498,34 @@ class TestPostMergeConflictFix:
         assert phase._state.to_dict()["processed_issues"].get(str(42)) == "merged"
 
     @pytest.mark.asyncio
+    async def test_review_merge_calls_store_mark_merged(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Successful merge must call IssueStore.mark_merged so the pipeline snapshot is updated."""
+        phase = make_review_phase(config, default_mocks=True)
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
+
+        await phase.review_prs([pr], [issue])
+
+        phase._store.mark_merged.assert_called_once_with(pr.issue_number)
+
+    @pytest.mark.asyncio
+    async def test_review_merge_failure_does_not_call_store_mark_merged(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Failed merge must NOT call mark_merged on the issue store."""
+        phase = make_review_phase(config, default_mocks=True)
+        issue = TaskFactory.create()
+        pr = PRInfoFactory.create()
+
+        phase._prs.merge_pr = AsyncMock(return_value=False)
+
+        await phase.review_prs([pr], [issue])
+
+        phase._store.mark_merged.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_review_merge_failure_keeps_reviewed_status(
         self, config: HydraFlowConfig
     ) -> None:
