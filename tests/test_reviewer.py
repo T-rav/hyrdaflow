@@ -1462,7 +1462,7 @@ def test_build_ci_fix_prompt_truncates_large_ci_logs(config, event_bus):
     runner = _make_runner(config, event_bus)
     pr = PRInfoFactory.create()
     issue = TaskFactory.create()
-    logs = "E" * (runner._MAX_CI_LOG_PROMPT_CHARS + 200)
+    logs = "E" * (runner._config.max_ci_log_prompt_chars + 200)
 
     prompt, stats = runner._build_ci_fix_prompt(
         pr, issue, "Failed checks: Build", attempt=1, ci_logs=logs
