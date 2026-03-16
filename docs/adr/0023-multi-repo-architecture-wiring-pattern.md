@@ -14,7 +14,7 @@ accept an optional `registry` parameter with a `_resolve_runtime()` fallback tha
 transparently supports single-repo and multi-repo modes.
 
 `HydraFlowDashboard` (in `src/dashboard.py`) already accepts an optional `registry`
-parameter in its constructor and forwards it to `create_router()` (lines 51 and 127).
+parameter in its constructor and forwards it to `create_router()`.
 The multi-repo API endpoints (`/api/runtimes`, `/api/runtimes/{slug}`, etc.) are
 fully implemented in the router and become operative when a registry is provided.
 

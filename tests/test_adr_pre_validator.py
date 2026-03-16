@@ -255,6 +255,15 @@ class TestCheckVolatileLineCitations:
         codes = [i.code for i in result.issues]
         assert "volatile_line_citation" in codes
 
+    def test_lines_and_citation_detected(self) -> None:
+        content = _valid_adr(
+            consequences="- `src/foo.py` (lines 51 and 127) — something\n"
+        )
+        validator = ADRPreValidator()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "volatile_line_citation" in codes
+
 
 class TestCheckBareADRReferences:
     def test_bare_reference_detected(self) -> None:

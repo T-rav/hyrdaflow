@@ -35,8 +35,11 @@ _SUPERSEDE_RE = re.compile(
     r"supersed(?:es?|ed|ing)\s+(?:ADR[- ]?)(\d{4})", re.IGNORECASE
 )
 _REQUIRED_SECTIONS = ("## Context", "## Decision", "## Consequences")
-# Matches patterns like "(line 42)", "(line 1122)", "(lines 10-20)"
-_LINE_CITATION_RE = re.compile(r"\(lines?\s+\d+(?:\s*[-–]\s*\d+)?\)")
+# Matches patterns like "(line 42)", "(line 1122)", "(lines 10-20)", "(lines 51 and 127)"
+_LINE_CITATION_RE = re.compile(
+    r"\(lines?\s+\d+(?:(?:\s*[-–]\s*|\s+and\s+)\d+)?\)",
+    re.IGNORECASE,
+)
 
 # Matches ADR-NNNN references. Group 1 = the 4-digit number.
 _ADR_REF_RE = re.compile(r"ADR[- ](\d{4})")
