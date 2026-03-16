@@ -1590,9 +1590,10 @@ def make_review_result(
     transcript: str = "",
 ) -> Any:
     """Create a minimal ReviewResult for orchestrator tests."""
-    from models import ReviewResult, ReviewVerdict
+    from models import ReviewVerdict
+    from tests.conftest import ReviewResultFactory
 
-    return ReviewResult(
+    return ReviewResultFactory.create(
         pr_number=pr_number,
         issue_number=issue_number,
         verdict=verdict if verdict is not None else ReviewVerdict.APPROVE,
