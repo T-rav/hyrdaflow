@@ -38,6 +38,7 @@ class TestManifestRefreshIntegration:
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.manifest_refresh_loop, ManifestRefreshLoop)
+        assert orch._svc.manifest_refresh_loop._config is config
 
     def test_manifest_refresh_bg_loop_method_exists(
         self, config: HydraFlowConfig
@@ -635,6 +636,7 @@ class TestHITLLoop:
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.hitl_runner, HITLRunner)
+        assert orch._svc.hitl_runner._config is config
 
     def test_hitl_loop_in_loop_factories(self, config: HydraFlowConfig) -> None:
         """The hitl loop should be listed in _supervise_loops."""

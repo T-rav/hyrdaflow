@@ -33,42 +33,49 @@ class TestInit:
     def test_creates_event_bus(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._bus, EventBus)
+        assert orch._svc.agents._bus is orch._bus
 
     def test_creates_state_tracker(self, config: HydraFlowConfig) -> None:
         from state import StateTracker
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._state, StateTracker)
+        assert orch._state._path == config.state_file
 
     def test_creates_worktree_manager(self, config: HydraFlowConfig) -> None:
         from workspace import WorkspaceManager
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.worktrees, WorkspaceManager)
+        assert orch._svc.worktrees._config is config
 
     def test_creates_agent_runner(self, config: HydraFlowConfig) -> None:
         from agent import AgentRunner
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.agents, AgentRunner)
+        assert orch._svc.agents._config is config
 
     def test_creates_pr_manager(self, config: HydraFlowConfig) -> None:
         from pr_manager import PRManager
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.prs, PRManager)
+        assert orch._svc.prs._config is config
 
     def test_creates_planner_runner(self, config: HydraFlowConfig) -> None:
         from planner import PlannerRunner
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.planners, PlannerRunner)
+        assert orch._svc.planners._config is config
 
     def test_creates_review_runner(self, config: HydraFlowConfig) -> None:
         from reviewer import ReviewRunner
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.reviewers, ReviewRunner)
+        assert orch._svc.reviewers._config is config
 
     def test_human_input_requests_starts_empty(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
@@ -87,18 +94,21 @@ class TestInit:
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.fetcher, IssueFetcher)
+        assert orch._svc.fetcher._config is config
 
     def test_creates_implementer(self, config: HydraFlowConfig) -> None:
         from implement_phase import ImplementPhase
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.implementer, ImplementPhase)
+        assert orch._svc.implementer._config is config
 
     def test_creates_reviewer(self, config: HydraFlowConfig) -> None:
         from review_phase import ReviewPhase
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc.reviewer, ReviewPhase)
+        assert orch._svc.reviewer._config is config
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +126,7 @@ class TestProperties:
     def test_event_bus_is_event_bus_instance(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch.event_bus, EventBus)
+        assert orch.event_bus is orch._svc.agents._bus
 
     def test_state_returns_internal_state(self, config: HydraFlowConfig) -> None:
         from state import StateTracker
@@ -123,6 +134,7 @@ class TestProperties:
         orch = HydraFlowOrchestrator(config)
         assert orch.state is orch._state
         assert isinstance(orch.state, StateTracker)
+        assert orch.state._path == config.state_file
 
     def test_human_input_requests_returns_internal_dict(
         self, config: HydraFlowConfig
@@ -468,6 +480,7 @@ class TestConstructorInjection:
     def test_uses_provided_event_bus(self, config: HydraFlowConfig, event_bus) -> None:
         orch = HydraFlowOrchestrator(config, event_bus=event_bus)
         assert orch._bus is event_bus
+        assert orch._svc.agents._bus is event_bus
 
     def test_uses_provided_state(self, config: HydraFlowConfig) -> None:
         state = StateTracker(config.state_file)
@@ -477,12 +490,14 @@ class TestConstructorInjection:
     def test_creates_own_bus_when_none_provided(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._bus, EventBus)
+        assert orch._svc.agents._bus is orch._bus
 
     def test_creates_own_state_when_none_provided(
         self, config: HydraFlowConfig
     ) -> None:
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._state, StateTracker)
+        assert orch._state._path == config.state_file
 
     def test_shared_bus_receives_events(
         self, config: HydraFlowConfig, event_bus
@@ -989,22 +1004,16 @@ class TestOrchestratorPropertyAccessors:
         assert orch.current_session_id is None
 
     def test_issue_store_returns_store(self, config: HydraFlowConfig) -> None:
-        from issue_store import IssueStore
-
         orch = HydraFlowOrchestrator(config)
-        assert isinstance(orch.issue_store, IssueStore)
+        assert orch.issue_store is orch._svc.store
 
     def test_metrics_manager_returns_manager(self, config: HydraFlowConfig) -> None:
-        from metrics_manager import MetricsManager
-
         orch = HydraFlowOrchestrator(config)
-        assert isinstance(orch.metrics_manager, MetricsManager)
+        assert orch.metrics_manager is orch._svc.metrics_manager
 
     def test_run_recorder_returns_recorder(self, config: HydraFlowConfig) -> None:
-        from run_recorder import RunRecorder
-
         orch = HydraFlowOrchestrator(config)
-        assert isinstance(orch.run_recorder, RunRecorder)
+        assert orch.run_recorder is orch._svc.run_recorder
 
 
 # ---------------------------------------------------------------------------
@@ -1020,6 +1029,7 @@ class TestServiceRegistry:
 
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._svc, ServiceRegistry)
+        assert orch._svc.worktrees._config is config
 
     def test_svc_exposes_all_services(self, config: HydraFlowConfig) -> None:
         """Core services are accessible through _svc."""
