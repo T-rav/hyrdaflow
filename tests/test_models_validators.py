@@ -13,6 +13,7 @@ from models import (
     ReviewResult,
     WorkerResult,
 )
+from tests.conftest import ReviewResultFactory, WorkerResultFactory
 
 
 class TestWorkerResultValidators:
@@ -20,22 +21,37 @@ class TestWorkerResultValidators:
 
     def test_duration_seconds_rejects_negative(self) -> None:
         with pytest.raises(ValidationError, match="duration_seconds"):
-            WorkerResult(issue_number=1, branch="b", duration_seconds=-1.0)
+            WorkerResultFactory.create(
+                use_defaults=True, issue_number=1, branch="b", duration_seconds=-1.0
+            )
 
     def test_commits_rejects_negative(self) -> None:
         with pytest.raises(ValidationError, match="commits"):
-            WorkerResult(issue_number=1, branch="b", commits=-1)
+            WorkerResultFactory.create(
+                use_defaults=True, issue_number=1, branch="b", commits=-1
+            )
 
     def test_quality_fix_attempts_rejects_negative(self) -> None:
         with pytest.raises(ValidationError, match="quality_fix_attempts"):
-            WorkerResult(issue_number=1, branch="b", quality_fix_attempts=-1)
+            WorkerResultFactory.create(
+                use_defaults=True,
+                issue_number=1,
+                branch="b",
+                quality_fix_attempts=-1,
+            )
 
     def test_pre_quality_review_attempts_rejects_negative(self) -> None:
         with pytest.raises(ValidationError, match="pre_quality_review_attempts"):
-            WorkerResult(issue_number=1, branch="b", pre_quality_review_attempts=-1)
+            WorkerResultFactory.create(
+                use_defaults=True,
+                issue_number=1,
+                branch="b",
+                pre_quality_review_attempts=-1,
+            )
 
     def test_ge0_fields_accept_zero(self) -> None:
-        result = WorkerResult(
+        result = WorkerResultFactory.create(
+            use_defaults=True,
             issue_number=1,
             branch="b",
             duration_seconds=0.0,
@@ -76,14 +92,16 @@ class TestReviewResultValidators:
 
     def test_duration_seconds_rejects_negative(self) -> None:
         with pytest.raises(ValidationError, match="duration_seconds"):
-            ReviewResult(pr_number=1, issue_number=1, duration_seconds=-1.0)
+            ReviewResultFactory.create(
+                pr_number=1, issue_number=1, duration_seconds=-1.0
+            )
 
     def test_ci_fix_attempts_rejects_negative(self) -> None:
         with pytest.raises(ValidationError, match="ci_fix_attempts"):
-            ReviewResult(pr_number=1, issue_number=1, ci_fix_attempts=-1)
+            ReviewResultFactory.create(pr_number=1, issue_number=1, ci_fix_attempts=-1)
 
     def test_ge0_fields_accept_zero(self) -> None:
-        result = ReviewResult(
+        result = ReviewResultFactory.create(
             pr_number=1, issue_number=1, duration_seconds=0.0, ci_fix_attempts=0
         )
         assert result.duration_seconds == pytest.approx(0.0)

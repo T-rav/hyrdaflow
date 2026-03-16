@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from models import GitHubIssue, GitHubIssueState
+from tests.conftest import IssueFactory  # noqa: E402
 from tests.helpers import make_tracker
 
 # ---------------------------------------------------------------------------
@@ -18,22 +19,22 @@ class TestNormaliseState:
     """Verify _normalise_state accepts str and returns lowered string."""
 
     def test_lowercase_string(self) -> None:
-        issue = GitHubIssue(number=1, title="t", state="OPEN")
+        issue = IssueFactory.create(number=1, title="t", state="OPEN")
         assert issue.state == GitHubIssueState.OPEN
 
     def test_mixed_case_string(self) -> None:
-        issue = GitHubIssue(number=2, title="t", state="Closed")
+        issue = IssueFactory.create(number=2, title="t", state="Closed")
         assert issue.state == GitHubIssueState.CLOSED
 
     def test_already_enum(self) -> None:
-        issue = GitHubIssue(number=3, title="t", state=GitHubIssueState.OPEN)
+        issue = IssueFactory.create(number=3, title="t", state=GitHubIssueState.OPEN)
         assert issue.state == GitHubIssueState.OPEN
 
     def test_invalid_state_raises(self) -> None:
         from pydantic import ValidationError
 
         with pytest.raises(ValidationError):
-            GitHubIssue(number=4, title="t", state="invalid_state")
+            IssueFactory.create(number=4, title="t", state="invalid_state")
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +231,7 @@ class TestDashboardRouteAnnotations:
         _build_hitl_context is a closure inside create_router; test its logic
         inline to confirm GitHubIssue attributes work with the formatter.
         """
-        issue = GitHubIssue(
+        issue = IssueFactory.create(
             number=99,
             title="Test issue",
             body="  body text  ",

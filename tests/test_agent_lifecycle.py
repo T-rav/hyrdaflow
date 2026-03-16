@@ -20,14 +20,7 @@ from tests.helpers import ConfigFactory
 
 @pytest.fixture
 def agent_task() -> Task:
-    return Task(
-        id=42,
-        title="Fix the frobnicator",
-        body="The frobnicator is broken. Please fix it.",
-        tags=["ready"],
-        comments=[],
-        source_url="https://github.com/test-org/test-repo/issues/42",
-    )
+    return TaskFactory.create()
 
 
 # ---------------------------------------------------------------------------

@@ -169,8 +169,8 @@ class IssueFactory:
             number=number,
             title=title,
             body=body,
-            labels=labels or ["ready"],
-            comments=comments or [],
+            labels=["ready"] if labels is None else labels,
+            comments=[] if comments is None else comments,
             url=url or f"https://github.com/test-org/test-repo/issues/{number}",
             author=author,
             state=state if state is not None else GitHubIssueState.OPEN,
@@ -798,7 +798,6 @@ class ReviewMockBuilder:
 
     def build(self) -> tuple[AsyncMock, AsyncMock, AsyncMock]:
         """Wire mocks into orch and return (mock_reviewers, mock_prs, mock_wt)."""
-        from models import ReviewResult as RR
         from models import ReviewVerdict as RV
 
         # Reviewer mock
@@ -807,7 +806,7 @@ class ReviewMockBuilder:
             mock_reviewers.review = self._review_side_effect
         else:
             verdict = self._verdict if self._verdict is not None else RV.APPROVE
-            result = self._review_result or RR(
+            result = self._review_result or ReviewResultFactory.create(
                 pr_number=101,
                 issue_number=self._issue_number,
                 verdict=verdict,
