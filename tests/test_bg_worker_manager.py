@@ -157,8 +157,9 @@ class TestRestoreMethods:
         assert manager.is_enabled("x") is True
 
     def test_remove_enabled_entry_missing(self, manager: BGWorkerManager) -> None:
-        # Should not raise
+        # Removing a nonexistent entry should be a no-op
         manager.remove_enabled_entry("nonexistent")
+        assert manager.is_enabled("nonexistent") is True
 
     def test_restore_worker_state(self, manager: BGWorkerManager) -> None:
         from models import BackgroundWorkerState
