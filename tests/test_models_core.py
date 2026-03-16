@@ -987,7 +987,16 @@ class TestPRListItem:
             "url": "",
             "draft": False,
             "title": "Add tests",
+            "merged": False,
         }
+
+    def test_merged_field_defaults_false(self) -> None:
+        item = PRListItem(pr=1)
+        assert item.merged is False
+
+    def test_merged_field_can_be_set_true(self) -> None:
+        item = PRListItem(pr=1, merged=True)
+        assert item.merged is True
 
 
 # ---------------------------------------------------------------------------

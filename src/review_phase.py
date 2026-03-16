@@ -213,7 +213,10 @@ class ReviewPhase:
             if self._stop_event.is_set():
                 break
             async with store_lifecycle(self._store, issue.id, "review"):
-                results.append(await self._review_single_adr(issue))
+                adr_result = await self._review_single_adr(issue)
+                if adr_result.merged:
+                    self._store.mark_merged(issue.id)
+                results.append(adr_result)
         return results
 
     async def _review_single_adr(self, issue: Task) -> ReviewResult:
@@ -1067,6 +1070,8 @@ class ReviewPhase:
             visual_decision=visual_decision,
             merge_conflict_fix_fn=self._attempt_post_merge_conflict_fix,
         )
+        if result.merged:
+            self._store.mark_merged(pr.issue_number)
 
     async def _attempt_post_merge_conflict_fix(
         self,

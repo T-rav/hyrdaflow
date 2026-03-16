@@ -296,12 +296,13 @@ export function reducer(state, action) {
       return { ...state, config: action.data }
 
     case 'EXISTING_PRS': {
-      // /api/prs only returns open PRs — preserve merged PRs from session
-      const existingMerged = state.prs.filter(p => p.merged)
-      const openPrs = action.data || []
-      const openNumbers = new Set(openPrs.map(p => p.pr))
-      const merged = existingMerged.filter(p => !openNumbers.has(p.pr))
-      return { ...state, prs: [...openPrs, ...merged] }
+      // Backend now provides merged flag on PRs — use as-is.
+      // Still preserve session-only merged flags for PRs not yet in the
+      // next API response (real-time merge_update arrives before poll).
+      const incoming = action.data || []
+      const incomingNumbers = new Set(incoming.map(p => p.pr))
+      const sessionMerged = state.prs.filter(p => p.merged && !incomingNumbers.has(p.pr))
+      return { ...state, prs: [...incoming, ...sessionMerged] }
     }
 
     case 'HITL_ITEMS':

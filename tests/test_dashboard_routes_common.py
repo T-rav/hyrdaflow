@@ -62,7 +62,7 @@ class TestSharedConstants:
         assert "hydraflow-epic" in _EPIC_INTERNAL_LABELS
 
     def test_stage_name_map_covers_all_stages(self) -> None:
-        expected_values = {"triage", "plan", "implement", "review", "hitl"}
+        expected_values = {"triage", "plan", "implement", "review", "hitl", "merged"}
         assert set(_STAGE_NAME_MAP.values()) == expected_values
 
     def test_frontend_stage_to_label_field_keys(self) -> None:

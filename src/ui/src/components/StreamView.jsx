@@ -419,11 +419,11 @@ export function StreamView({ intents, expandedStages, onToggleStage, onRequestCh
 
   // Build stage groups from pipelineIssues
   const stageGroups = useMemo(() => {
-    // Build merged issues from PRs that are merged
+    // Build merged issues from PRs that are merged (supplements backend pipeline data)
     const mergedFromPrs = (prs || [])
       .filter(p => p.merged && p.issue)
       .map(p => toStreamIssue(
-        { issue_number: p.issue, title: p.title || `Issue #${p.issue}`, url: null, status: 'done' },
+        { issue_number: p.issue, title: p.title || `Issue #${p.issue}`, url: null, status: 'merged' },
         'merged',
         prs,
       ))

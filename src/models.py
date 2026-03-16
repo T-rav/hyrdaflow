@@ -1392,6 +1392,7 @@ class PipelineIssueStatus(StrEnum):
     ACTIVE = "active"
     PROCESSING = "processing"
     HITL = "hitl"
+    MERGED = "merged"
 
 
 class PipelineIssue(BaseModel):
@@ -1500,6 +1501,7 @@ class PRListItem(BaseModel):
     url: HttpUrl = ""
     draft: bool = False
     title: str = ""
+    merged: bool = False
 
 
 class HITLItem(BaseModel):
