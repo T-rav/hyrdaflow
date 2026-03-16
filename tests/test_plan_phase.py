@@ -1215,10 +1215,10 @@ class TestPlanPhaseErrorPaths:
         prs.transition.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_whitespace_only_plan_text_skips_success_handler(
+    async def test_whitespace_only_plan_text_triggers_success_handler(
         self, config: HydraFlowConfig
     ) -> None:
-        """When planner returns plan with only whitespace, success path is NOT taken."""
+        """Whitespace-only plan is truthy in Python, so it enters the success path."""
         phase, _state, planners, prs, store, _stop = make_plan_phase(config)
         issue = TaskFactory.create(id=42)
         plan_result = PlanResultFactory.create(
