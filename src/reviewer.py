@@ -170,8 +170,6 @@ class ReviewRunner(BaseRunner):
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
             if result.fixes_made and result.files_changed:
                 result.commit_stat = await self._get_commit_stat(worktree_path)
-
-            if result.fixes_made and result.files_changed:
                 logger.info(
                     "Review fix for PR #%d changed files: %s",
                     pr.number,
@@ -282,8 +280,6 @@ class ReviewRunner(BaseRunner):
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
             if result.fixes_made and result.files_changed:
                 result.commit_stat = await self._get_commit_stat(worktree_path)
-
-            if result.fixes_made and result.files_changed:
                 logger.info(
                     "CI fix for PR #%d changed files: %s",
                     pr.number,
@@ -377,8 +373,6 @@ class ReviewRunner(BaseRunner):
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
             if result.fixes_made and result.files_changed:
                 result.commit_stat = await self._get_commit_stat(worktree_path)
-
-            if result.fixes_made and result.files_changed:
                 logger.info(
                     "Review-fix for PR #%d changed files: %s",
                     pr.number,
