@@ -559,13 +559,22 @@ class TriageResultFactory:
         issue_number: int = 42,
         ready: bool = True,
         reasons: list[str] | None = None,
+        complexity_score: int = 0,
+        issue_type: str = "feature",
+        enrichment: str = "",
     ) -> TriageResult:
+        from models import IssueType
         from models import TriageResult as TR
 
         return TR(
             issue_number=issue_number,
             ready=ready,
             reasons=reasons or [],
+            complexity_score=complexity_score,
+            issue_type=IssueType(issue_type)
+            if isinstance(issue_type, str)
+            else issue_type,
+            enrichment=enrichment,
         )
 
 
