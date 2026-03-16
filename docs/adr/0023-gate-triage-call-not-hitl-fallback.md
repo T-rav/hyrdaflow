@@ -1,7 +1,7 @@
 # ADR-0023: Gate Triage Call on Config Toggle, Not Just HITL Fallback
 
 **Status:** Accepted
-**Date:** 2026-03-08
+**Date:** 2026-03-15
 
 ## Context
 
@@ -147,7 +147,7 @@ When reviewing any routing method that calls both `_route_to_triage` and
 
 ## Related
 
-- **Absorbs:** [ADR-0023 (Auto-Triage Toggle Must Gate Routing)](0023-auto-triage-toggle-must-gate-routing.md) — broader-scope duplicate that added the routing-path audit table and audit rule, now merged here
+- **Absorbs:** [ADR-0023 (Auto-Triage Toggle Must Gate Routing)](0023-auto-triage-toggle-must-gate-routing.md) — broader-scope duplicate that contributed the routing-path audit table and the stats-coupling framing of the bug; content merged here
 - Source memory: #2345, #2327
 - Issue: #2355, #2341
 - Related learning: #2346, #2350
