@@ -93,6 +93,7 @@ class HydraFlowOrchestrator:
         # Credit pause — set when API credits are exhausted
         self._credits_paused_until: datetime | None = None
         self._credit_pause_lock = asyncio.Lock()
+        self._credit_resume_event = asyncio.Event()
         # Session tracking
         self._current_session: SessionLog | None = None
         self._session_issue_results: dict[int, bool] = {}
@@ -308,11 +309,23 @@ class HydraFlowOrchestrator:
         self._running = False
         self._auth_failed = False
         self._credits_paused_until = None
+        self._credit_resume_event = asyncio.Event()
         self._svc.store.clear_active()
         self._active_impl_issues.clear()
         self._active_review_issues.clear()
         self._hitl_ctrl.active_hitl_issues.clear()
         self._state.clear_interrupted_issues()
+
+    def try_clear_credit_pause(self) -> bool:
+        """Attempt to clear the credit pause and resume loops early.
+
+        Returns ``True`` if a pause was active and the resume signal was sent,
+        ``False`` if no pause was active.
+        """
+        if self._credits_paused_until is None:
+            return False
+        self._credit_resume_event.set()
+        return True
 
     @property
     def _active_hitl_issues(self) -> set[int]:
@@ -1160,9 +1173,24 @@ class HydraFlowOrchestrator:
         self._svc.hitl_runner.terminate()
 
     async def _sleep_until_resume(self, resume_at: datetime) -> None:
-        """Sleep until *resume_at* (interruptible by stop event)."""
+        """Sleep until *resume_at* (interruptible by stop or credit-resume event)."""
         pause_seconds = max((resume_at - datetime.now(UTC)).total_seconds(), 0)
-        await self._sleep_or_stop(pause_seconds)
+        stop_task = asyncio.create_task(self._stop_event.wait())
+        resume_task = asyncio.create_task(self._credit_resume_event.wait())
+        try:
+            await asyncio.wait(
+                {stop_task, resume_task},
+                timeout=pause_seconds,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            stop_task.cancel()
+            resume_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await stop_task
+            with contextlib.suppress(asyncio.CancelledError):
+                await resume_task
+            self._credit_resume_event.clear()
 
     async def _pause_for_credits(
         self,

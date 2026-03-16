@@ -2041,6 +2041,20 @@ def create_router(
         data["current_session_id"] = current_session
         return JSONResponse(data)
 
+    @router.post("/api/control/credit-refresh")
+    async def credit_refresh(
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
+        """Attempt to clear credit pause and resume processing."""
+        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
+        orch = _get_orch()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        cleared = orch.try_clear_credit_pause()
+        if not cleared:
+            return JSONResponse({"status": "not_paused"})
+        return JSONResponse({"status": "resuming"})
+
     @router.post("/api/admin/prep")
     async def admin_prep(
         repo: str | None = Query(default=None, description="Repo slug to target"),
