@@ -155,6 +155,36 @@ async def test_find_issue_returns_first_match(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_find_issue_skips_entry_with_null_number(tmp_path: Path) -> None:
+    """Skips matching title entries where number is null; returns None if no valid match."""
+    prs = _make_prs(tmp_path)
+    prs._run_gh = AsyncMock(
+        return_value=json.dumps(
+            [{"number": None, "title": "HydraFlow Manifest — tester", "state": "open"}]
+        )
+    )
+
+    result = await prs.find_issue_number_by_label_and_title(
+        "hydraflow-manifest", "tester"
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_find_issue_default_state_is_all(tmp_path: Path) -> None:
+    """Default state parameter is 'all'."""
+    prs = _make_prs(tmp_path)
+    prs._run_gh = AsyncMock(return_value=json.dumps([]))
+
+    await prs.find_issue_number_by_label_and_title("hydraflow-manifest", "tester")
+
+    call_args = prs._run_gh.call_args[0]
+    state_idx = list(call_args).index("--state")
+    assert call_args[state_idx + 1] == "all"
+
+
+@pytest.mark.asyncio
 async def test_find_issue_dry_run_returns_none(tmp_path: Path) -> None:
     """In dry-run mode, returns None without calling gh."""
     prs = _make_prs(tmp_path, dry_run=True)

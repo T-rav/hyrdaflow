@@ -56,7 +56,7 @@ async def test_manifest_issue_syncer_reuses_existing_issue(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_manifest_issue_syncer_creates_when_owner_missing(
+async def test_manifest_issue_syncer_creates_when_no_existing_issue(
     tmp_path: Path,
 ) -> None:
     config = ConfigFactory.create(repo_root=tmp_path, git_user_name="tester")
