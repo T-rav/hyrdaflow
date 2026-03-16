@@ -267,3 +267,25 @@ class TestPRManagerTransitionerDelegation:
 
         mgr.create_issue.assert_awaited_once_with("t", "b", None)  # type: ignore[attr-defined]
         assert result == 456
+
+    @pytest.mark.asyncio
+    async def test_post_comment_delegates_to_comment(self) -> None:
+        """post_comment() calls self._comment with 'issue' type and correct args."""
+        mgr = self._make_pr_manager()
+        mgr._comment = AsyncMock()  # type: ignore[attr-defined]
+
+        await mgr.post_comment(77, "hello world")  # type: ignore[union-attr]
+
+        mgr._comment.assert_awaited_once_with("issue", 77, "hello world")  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_transition_unknown_stage_uses_stage_as_label(self) -> None:
+        """transition() with an unmapped stage passes the stage string directly as the label."""
+        mgr = self._make_pr_manager()
+        mgr.swap_pipeline_labels = AsyncMock()  # type: ignore[attr-defined]
+
+        await mgr.transition(5, "unknown-stage")  # type: ignore[union-attr]
+
+        mgr.swap_pipeline_labels.assert_awaited_once_with(  # type: ignore[attr-defined]
+            5, "unknown-stage", pr_number=None
+        )
