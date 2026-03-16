@@ -14,6 +14,7 @@ from epic import (
     check_all_checkboxes,
     parse_epic_sub_issues,
 )
+from events import EventType
 from models import EpicChildInfo, EpicState, GitHubIssue
 from tests.conftest import IssueFactory, make_state
 from tests.helpers import ConfigFactory
@@ -1501,6 +1502,36 @@ class TestNarrowedExceptionHandling:
             await manager.refresh_cache()
 
     @pytest.mark.asyncio
+    async def test_refresh_cache_continues_after_runtime_error(
+        self, tmp_path: Path
+    ) -> None:
+        """First epic raises RuntimeError; second epic is still processed."""
+        manager, _, _ = _make_epic_manager(tmp_path)
+        manager._state.upsert_epic_state(EpicState(epic_number=100, child_issues=[1]))
+        manager._state.upsert_epic_state(EpicState(epic_number=200, child_issues=[2]))
+
+        detail_sentinel = MagicMock()
+        detail_sentinel.model_dump.return_value = {}
+        detail_sentinel.readiness.all_implemented = False
+
+        async def _build_side_effect(epic_number: int) -> MagicMock:
+            if epic_number == 100:
+                raise RuntimeError("API flake")
+            return detail_sentinel
+
+        manager._build_detail = AsyncMock(side_effect=_build_side_effect)
+        await manager.refresh_cache()
+        # Both epics attempted; second succeeded despite first failing
+        assert manager._build_detail.await_count == 2
+        # Verify _bus.publish was called with EPIC_PROGRESS for the second epic
+        publish_calls = manager._bus.publish.call_args_list
+        progress_events = [
+            c for c in publish_calls if c.args[0].type == EventType.EPIC_PROGRESS
+        ]
+        assert len(progress_events) == 1
+        assert progress_events[0].args[0].data["epic_number"] == 200
+
+    @pytest.mark.asyncio
     async def test_check_stale_epics_catches_runtime_error(
         self, tmp_path: Path
     ) -> None:
@@ -1535,6 +1566,45 @@ class TestNarrowedExceptionHandling:
         prs.post_comment = AsyncMock(side_effect=TypeError("bad arg"))
         with pytest.raises(TypeError, match="bad arg"):
             await manager.check_stale_epics()
+
+    @pytest.mark.asyncio
+    async def test_check_stale_epics_continues_after_runtime_error(
+        self, tmp_path: Path
+    ) -> None:
+        """First stale epic's post_comment raises; second is still processed."""
+        manager, prs, _ = _make_epic_manager(tmp_path)
+        manager._state.upsert_epic_state(
+            EpicState(
+                epic_number=100,
+                child_issues=[1],
+                last_activity="2000-01-01T00:00:00+00:00",
+            )
+        )
+        manager._state.upsert_epic_state(
+            EpicState(
+                epic_number=200,
+                child_issues=[2],
+                last_activity="2000-01-01T00:00:00+00:00",
+            )
+        )
+
+        async def _post_side_effect(issue_number: int, body: str) -> None:
+            if issue_number == 100:
+                raise RuntimeError("post failed")
+
+        prs.post_comment = AsyncMock(side_effect=_post_side_effect)
+        stale = await manager.check_stale_epics()
+        # Both stale epics are returned despite first post_comment failing
+        assert 100 in stale
+        assert 200 in stale
+        assert prs.post_comment.await_count == 2
+        # Verify _bus.publish emitted SYSTEM_ALERT for both epics
+        alert_events = [
+            c
+            for c in manager._bus.publish.call_args_list
+            if c.args[0].type == EventType.SYSTEM_ALERT
+        ]
+        assert len(alert_events) == 2
 
     @pytest.mark.asyncio
     async def test_release_epic_merge_loop_catches_runtime_error(
@@ -1591,6 +1661,32 @@ class TestNarrowedExceptionHandling:
         prs.close_issue = AsyncMock(side_effect=TypeError("bad arg"))
         with pytest.raises(TypeError, match="bad arg"):
             await checker.check_and_close_epics(1)
+
+    @pytest.mark.asyncio
+    async def test_check_and_close_epics_inner_continues_after_runtime_error(
+        self,
+    ) -> None:
+        """First epic raises RuntimeError in _try_close_epic; second is still processed."""
+        epic_a = _make_epic(100, [1])
+        epic_b = _make_epic(200, [1])
+        sub1 = IssueFactory.create(number=1, labels=["hydraflow-fixed"], title="A")
+        checker, prs, fetcher = _make_checker(
+            epics=[epic_a, epic_b], sub_issues={1: sub1}
+        )
+
+        async def _try_close_side_effect(
+            epic_number: int, *_a: object, **_kw: object
+        ) -> bool:
+            if epic_number == 100:
+                raise RuntimeError("close failed")
+            return True
+
+        checker._try_close_epic = AsyncMock(side_effect=_try_close_side_effect)
+        result = await checker.check_and_close_epics(1)
+        # _try_close_epic was awaited for both epics
+        assert checker._try_close_epic.await_count == 2
+        # Second epic closed successfully
+        assert result is True
 
     @pytest.mark.asyncio
     async def test_enrich_pr_status_propagates_type_error_on_reviews(

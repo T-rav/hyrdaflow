@@ -855,7 +855,7 @@ class TestTrackedReportStatusTransitions:
         assert tracked.status == "filed"
 
     @pytest.mark.asyncio
-    async def test_fixed_report_has_linked_issue_url(self, tmp_path: Path) -> None:
+    async def test_filed_report_has_linked_issue_url(self, tmp_path: Path) -> None:
         """On success, the tracked report's linked_issue_url is populated."""
         loop, _stop, state, _pr = _make_loop(tmp_path)
         report = _enqueue_with_tracking(state)
@@ -1269,3 +1269,186 @@ class TestStaleReportSweep:
         # Sweep should have removed the stale report, drain exits, super().run() called
         assert state.peek_report() is None
         assert super_run_called == [True]
+
+
+# ---------------------------------------------------------------------------
+# Filed report auto-sync tests
+# ---------------------------------------------------------------------------
+
+
+class TestSyncFiledReports:
+    """Tests for _sync_filed_reports auto-transitioning filed reports."""
+
+    @pytest.mark.asyncio
+    async def test_filed_report_transitions_to_fixed_on_completed(
+        self, tmp_path: Path
+    ) -> None:
+        """A filed report whose linked issue is COMPLETED transitions to fixed."""
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        state.add_tracked_report(
+            TrackedReport(
+                id="r1",
+                reporter_id="u1",
+                description="Bug",
+                status="filed",
+                linked_issue_url=f"https://github.com/{loop._config.repo}/issues/99",
+            )
+        )
+        pr_mgr.get_issue_state = AsyncMock(return_value="COMPLETED")
+
+        count = await loop._sync_filed_reports()
+
+        assert count == 1
+        report = state.get_tracked_report("r1")
+        assert report is not None
+        assert report.status == "fixed"
+        assert any(h.action == "fixed" for h in report.history)
+
+    @pytest.mark.asyncio
+    async def test_filed_report_transitions_to_closed_on_not_planned(
+        self, tmp_path: Path
+    ) -> None:
+        """A filed report whose linked issue is NOT_PLANNED transitions to closed."""
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        state.add_tracked_report(
+            TrackedReport(
+                id="r1",
+                reporter_id="u1",
+                description="Bug",
+                status="filed",
+                linked_issue_url=f"https://github.com/{loop._config.repo}/issues/50",
+            )
+        )
+        pr_mgr.get_issue_state = AsyncMock(return_value="NOT_PLANNED")
+
+        count = await loop._sync_filed_reports()
+
+        assert count == 1
+        report = state.get_tracked_report("r1")
+        assert report is not None
+        assert report.status == "closed"
+
+    @pytest.mark.asyncio
+    async def test_filed_report_stays_filed_when_open(self, tmp_path: Path) -> None:
+        """A filed report whose linked issue is still OPEN stays filed."""
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        state.add_tracked_report(
+            TrackedReport(
+                id="r1",
+                reporter_id="u1",
+                description="Bug",
+                status="filed",
+                linked_issue_url=f"https://github.com/{loop._config.repo}/issues/50",
+            )
+        )
+        pr_mgr.get_issue_state = AsyncMock(return_value="OPEN")
+
+        count = await loop._sync_filed_reports()
+
+        assert count == 0
+        report = state.get_tracked_report("r1")
+        assert report is not None
+        assert report.status == "filed"
+
+    @pytest.mark.asyncio
+    async def test_sync_skips_reports_without_linked_issue(
+        self, tmp_path: Path
+    ) -> None:
+        """Filed reports without a linked_issue_url are skipped."""
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        state.add_tracked_report(
+            TrackedReport(
+                id="r1",
+                reporter_id="u1",
+                description="Bug",
+                status="filed",
+                linked_issue_url="",
+            )
+        )
+        pr_mgr.get_issue_state = AsyncMock()
+
+        count = await loop._sync_filed_reports()
+
+        assert count == 0
+        pr_mgr.get_issue_state.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sync_continues_on_api_error(self, tmp_path: Path) -> None:
+        """If get_issue_state raises, the report is skipped and others proceed."""
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        state.add_tracked_report(
+            TrackedReport(
+                id="r1",
+                reporter_id="u1",
+                description="Bug A",
+                status="filed",
+                linked_issue_url=f"https://github.com/{loop._config.repo}/issues/10",
+            )
+        )
+        state.add_tracked_report(
+            TrackedReport(
+                id="r2",
+                reporter_id="u1",
+                description="Bug B",
+                status="filed",
+                linked_issue_url=f"https://github.com/{loop._config.repo}/issues/20",
+            )
+        )
+        pr_mgr.get_issue_state = AsyncMock(
+            side_effect=[RuntimeError("API down"), "COMPLETED"]
+        )
+
+        count = await loop._sync_filed_reports()
+
+        assert count == 1
+        assert state.get_tracked_report("r1").status == "filed"
+        assert state.get_tracked_report("r2").status == "fixed"
+
+    @pytest.mark.asyncio
+    async def test_sync_runs_during_do_work_even_without_pending(
+        self, tmp_path: Path
+    ) -> None:
+        """_sync_filed_reports runs even when no pending reports exist."""
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        state.add_tracked_report(
+            TrackedReport(
+                id="r1",
+                reporter_id="u1",
+                description="Bug",
+                status="filed",
+                linked_issue_url=f"https://github.com/{loop._config.repo}/issues/77",
+            )
+        )
+        pr_mgr.get_issue_state = AsyncMock(return_value="COMPLETED")
+
+        result = await loop._do_work()
+
+        # No pending reports, so result is None, but sync still ran
+        assert result is None
+        report = state.get_tracked_report("r1")
+        assert report is not None
+        assert report.status == "fixed"
+
+
+class TestExtractIssueNumberFromUrl:
+    """Tests for _extract_issue_number_from_url static method."""
+
+    def test_valid_url(self) -> None:
+        result = ReportIssueLoop._extract_issue_number_from_url(
+            "https://github.com/acme/repo/issues/42"
+        )
+        assert result == 42
+
+    def test_empty_string(self) -> None:
+        assert ReportIssueLoop._extract_issue_number_from_url("") == 0
+
+    def test_no_match(self) -> None:
+        assert ReportIssueLoop._extract_issue_number_from_url("not a url") == 0
+
+    def test_pr_url_not_matched(self) -> None:
+        assert (
+            ReportIssueLoop._extract_issue_number_from_url(
+                "https://github.com/acme/repo/pull/42"
+            )
+            == 0
+        )
