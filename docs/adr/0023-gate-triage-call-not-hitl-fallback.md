@@ -45,6 +45,7 @@ between triage and HITL based on a config toggle. The correct structure is:
 
 ```python
 # Correct pattern: gate triage on the toggle
+# Note: adr_review_auto_triage was the draft toggle name; actual field is adr_auto_triage
 if not self._config.adr_review_auto_triage:
     await self._escalate_to_hitl(result, reason=reason)
     return
@@ -110,6 +111,7 @@ When reviewing any routing method that calls both `_route_to_triage` and
 
 ## Related
 
+- Superseded by: ADR-0023 (0023-auto-triage-toggle-must-gate-routing.md)
 - Source memory: #2345
 - Issue: #2355
 - Related learning: #2346, #2350

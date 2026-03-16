@@ -178,7 +178,10 @@ _LINK_PATTERNS: list[tuple[re.Pattern[str], TaskLinkKind]] = [
     (re.compile(r"\brelated:?\s+#(\d+)", re.IGNORECASE), TaskLinkKind.RELATES_TO),
     (re.compile(r"\bduplicates?\s+#(\d+)", re.IGNORECASE), TaskLinkKind.DUPLICATES),
     (re.compile(r"\bduplicate\s+of\s+#(\d+)", re.IGNORECASE), TaskLinkKind.DUPLICATES),
-    (re.compile(r"\bsupersedes?\s+#(\d+)", re.IGNORECASE), TaskLinkKind.SUPERSEDES),
+    (
+        re.compile(r"\bsupersed(?:es?|ed|ing)\s+#(\d+)", re.IGNORECASE),
+        TaskLinkKind.SUPERSEDES,
+    ),
     (re.compile(r"\breplaces?\s+#(\d+)", re.IGNORECASE), TaskLinkKind.SUPERSEDES),
     (
         re.compile(r"\brepl(?:ies|y)\s+to\s+#(\d+)", re.IGNORECASE),
