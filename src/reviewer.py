@@ -168,8 +168,8 @@ class ReviewRunner(BaseRunner):
                 worktree_path, before_sha
             )
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
-
             if result.fixes_made and result.files_changed:
+                result.commit_stat = await self._get_commit_stat(worktree_path)
                 logger.info(
                     "Review fix for PR #%d changed files: %s",
                     pr.number,
@@ -279,6 +279,7 @@ class ReviewRunner(BaseRunner):
             )
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
             if result.fixes_made and result.files_changed:
+                result.commit_stat = await self._get_commit_stat(worktree_path)
                 logger.info(
                     "CI fix for PR #%d changed files: %s",
                     pr.number,
@@ -370,8 +371,8 @@ class ReviewRunner(BaseRunner):
                 worktree_path, before_sha
             )
             result.fixes_made = await self._has_changes(worktree_path, before_sha)
-
             if result.fixes_made and result.files_changed:
+                result.commit_stat = await self._get_commit_stat(worktree_path)
                 logger.info(
                     "Review-fix for PR #%d changed files: %s",
                     pr.number,
@@ -896,6 +897,22 @@ Diff snippet:
         if result.returncode == 0:
             return result.stdout
         return None
+
+    async def _get_commit_stat(self, worktree_path: Path) -> str:
+        """Run ``git diff --stat HEAD~1`` and return the output for audit trail."""
+        try:
+            result = await self._runner.run_simple(
+                ["git", "diff", "--stat", "HEAD~1"],
+                cwd=str(worktree_path),
+                timeout=self._config.git_command_timeout,
+            )
+        except (TimeoutError, FileNotFoundError):
+            return ""
+        if result.returncode == 0 and result.stdout:
+            stat = result.stdout.strip()
+            logger.info("Commit stat for %s:\n%s", worktree_path.name, stat)
+            return stat
+        return ""
 
     async def _get_changed_files(
         self, worktree_path: Path, before_sha: str | None

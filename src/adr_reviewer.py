@@ -82,7 +82,9 @@ class ADRCouncilReviewer:
             logger.info("Reviewing ADR-%04d: %s", adr_number, adr_title)
 
             # Pre-review validation gate
-            validation = self._pre_validator.validate(adr_content, all_adrs)
+            validation = self._pre_validator.validate(
+                adr_content, all_adrs, repo_root=self._config.repo_root
+            )
             if not validation.passed:
                 issue_msgs = "; ".join(i.message for i in validation.issues)
                 logger.info(

@@ -758,6 +758,10 @@ class ReviewResult(BaseModel):
     duration_seconds: float = Field(
         default=0.0, ge=0, description="Wall-clock seconds for the review run"
     )
+    commit_stat: str = Field(
+        default="",
+        description="Output of git diff --stat HEAD~1 after fixes, for audit trail",
+    )
     visual_passed: bool | None = Field(
         default=None,
         description="Visual validation outcome: None=not checked, True/False=result",
