@@ -515,3 +515,22 @@ class TestDuplicateTypeAliasDetection:
 
         section_names = [s.name for s in result.sections]
         assert "Type Alias Dedup" in section_names
+
+    def test_detects_duplicates_in_new_files_section(self, tmp_path: Path) -> None:
+        """Duplicate aliases referenced in New Files section are also caught."""
+        repo = _setup_repo(tmp_path)
+        pkg = repo / "routes"
+        pkg.mkdir()
+        alias_def = "from typing import Annotated\nFooParam = Annotated[str, 'foo']\n"
+        (pkg / "a.py").write_text(alias_def)
+        (pkg / "b.py").write_text(alias_def)
+        analyzer = PlanAnalyzer(repo_root=repo)
+
+        # Both files are in New Files section (not Files to Modify)
+        plan = (
+            "## New Files\n\n- `routes/a.py`: new module\n- `routes/b.py`: new module\n"
+        )
+        section = analyzer._validate_duplicate_type_aliases(plan)
+
+        assert section.verdict == AnalysisVerdict.WARN
+        assert any("FooParam" in d for d in section.details)

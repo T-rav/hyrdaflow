@@ -36,10 +36,10 @@ class TestRepoSlugParam:
 class TestNoDuplicateAnnotatedAliases:
     """Guard: RepoSlugParam must be defined in exactly one src file."""
 
-    def _find_definitions(self, name: str) -> list[Path]:
-        """Scan src/ for files that define ``name = Annotated[...]``."""
+    def _find_definitions(self, name: str, scan_dir: Path | None = None) -> list[Path]:
+        """Scan src/ (or *scan_dir*) for files that define ``name = Annotated[...]``."""
         hits: list[Path] = []
-        for py_file in SRC_DIR.rglob("*.py"):
+        for py_file in (scan_dir or SRC_DIR).rglob("*.py"):
             try:
                 tree = ast.parse(py_file.read_text(), filename=str(py_file))
             except SyntaxError:
@@ -66,25 +66,19 @@ class TestNoDuplicateAnnotatedAliases:
         assert hits[0].name == "route_types.py"
 
     def test_detects_duplicate(self, tmp_path: Path) -> None:
-        """Verify the scanner would catch a duplicate definition."""
-        # Create a fake second file with the alias
-        dup = tmp_path / "fake_routes.py"
-        dup.write_text(
+        """Verify _find_definitions catches a duplicate definition in an isolated dir."""
+        # Create a fake source tree with two files defining RepoSlugParam
+        fake_src = tmp_path / "src"
+        fake_src.mkdir()
+        alias_def = (
             "from typing import Annotated\n"
             "from fastapi import Query\n"
             "RepoSlugParam = Annotated[str | None, Query(description='dup')]\n"
         )
-        tree = ast.parse(dup.read_text(), filename=str(dup))
-        found = False
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Assign)
-                and len(node.targets) == 1
-                and isinstance(node.targets[0], ast.Name)
-                and node.targets[0].id == "RepoSlugParam"
-                and isinstance(node.value, ast.Subscript)
-                and isinstance(node.value.value, ast.Name)
-                and node.value.value.id == "Annotated"
-            ):
-                found = True
-        assert found, "Scanner should detect Annotated alias definitions"
+        (fake_src / "routes_a.py").write_text(alias_def)
+        (fake_src / "routes_b.py").write_text(alias_def)
+
+        hits = self._find_definitions("RepoSlugParam", scan_dir=fake_src)
+        assert len(hits) == 2, (
+            f"Scanner should find 2 definitions, found {len(hits)}: {hits}"
+        )

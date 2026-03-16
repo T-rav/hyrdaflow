@@ -228,11 +228,10 @@ class PlanAnalyzer:
 
         # Scan each package for duplicate Annotated type aliases
         details: list[str] = []
-        # alias_name -> list of files defining it
-        alias_locations: dict[str, list[str]] = {}
 
         for pkg_files in packages.values():
-            alias_locations.clear()
+            # alias_name -> list of files defining it (scoped per package)
+            alias_locations: dict[str, list[str]] = {}
             for fp in pkg_files:
                 full = self._repo_root / fp
                 if not full.is_file():
