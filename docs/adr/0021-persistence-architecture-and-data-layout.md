@@ -33,9 +33,16 @@ precedence:
 2. Explicit `data_root` field in `HydraFlowConfig`.
 3. Default: `<repo_root>/.hydraflow/`.
 
-Path resolution runs in the order `_resolve_base_paths` then `_resolve_repo_and_identity`
-then `_resolve_repo_scoped_paths` then `_apply_env_overrides` (see `src/config.py` for
-the full config load order).
+Full config load order is: Pydantic defaults, config file, env vars, CLI args.
+Path resolution runs via the `resolve_defaults` validator in seven steps:
+
+1. `_resolve_base_paths` — repo_root, worktree_base, data_root
+2. `_resolve_repo_and_identity` — repo slug, gh_token, git identity
+3. `_resolve_repo_scoped_paths` — state_file, event_log_path, config_file
+4. `_apply_env_overrides` — env-var overrides for labels, tokens, etc.
+5. `_apply_profile_overrides` — grouped tool/model defaults for profiles
+6. `_harmonize_tool_model_defaults` — tool and model consistency
+7. `_validate_docker` — Docker configuration validation
 
 ### Data layout
 
@@ -61,11 +68,11 @@ the full config load order).
   verification/                     # Verification artifacts
 ```
 
-[^1]: `log_dir`, `plans_dir`, and `memory_dir` are still flat under `<data_root>/`
+[^1]: `log_dir`, `plans_dir`, and `memory_dir` are flat under `<data_root>/`
 in the current implementation (`config.py` properties return `data_root / "logs"`
 etc.). ADR-0010 (Worktree and Path Isolation Architecture) mandates migrating them
-to `<data_root>/<repo_slug>/logs/` etc.; the table above documents the target
-paths once that migration is complete.
+to `<data_root>/<repo_slug>/logs/` etc. The layout tree above documents the target
+structure; the derived-paths table documents current behaviour.
 
 ### Persistence guarantees
 
@@ -122,9 +129,9 @@ The following `HydraFlowConfig` properties derive directories from `data_root`:
 | `state_file` | `data_root / repo_slug / "state.json"` |
 | `event_log_path` | `data_root / repo_slug / "events.jsonl"` |
 | `sessions.jsonl` (no config property; implicit path) | `repo_data_root / "sessions.jsonl"` |
-| `log_dir` | `data_root / repo_slug / "logs"` [^1] |
-| `plans_dir` | `data_root / repo_slug / "plans"` [^1] |
-| `memory_dir` | `data_root / repo_slug / "memory"` [^1] |
+| `log_dir` | `data_root / "logs"` [^1] |
+| `plans_dir` | `data_root / "plans"` [^1] |
+| `memory_dir` | `data_root / "memory"` [^1] |
 
 All paths can be individually overridden via their respective config fields,
 but the defaults ensure a single `data_root` change relocates everything.
