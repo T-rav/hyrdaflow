@@ -667,6 +667,14 @@ class TestBuildPrompt:
         prompt = runner._build_pre_quality_review_prompt(agent_task, attempt=1)
         assert "is anything missing" in prompt
 
+    def test_pre_quality_review_forbids_unrelated_refactoring(
+        self, config, event_bus: EventBus, agent_task
+    ) -> None:
+        """Pre-quality review constraints should forbid unrelated refactoring."""
+        runner = AgentRunner(config, event_bus)
+        prompt = runner._build_pre_quality_review_prompt(agent_task, attempt=1)
+        assert "do not refactor, migrate, or rename code that is unrelated" in prompt
+
     def test_prompt_includes_test_step(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
@@ -702,6 +710,15 @@ class TestBuildPrompt:
         assert "NEVER conclude that the issue is" in prompt
         assert "already satisfied" in prompt.lower()
         assert "Always produce commits" in prompt
+
+    def test_prompt_forbids_unrelated_refactoring(
+        self, config, event_bus: EventBus, agent_task
+    ) -> None:
+        """Prompt must warn agent not to bundle unrelated refactoring."""
+        runner = AgentRunner(config, event_bus)
+        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        assert "Do NOT bundle unrelated refactoring" in prompt
+        assert "Each concern is a separate PR" in prompt
 
 
 # ---------------------------------------------------------------------------

@@ -228,6 +228,15 @@ class TestBuildPrompt:
         prompt, _ = hitl_runner._build_prompt_with_stats(issue, "Fix", "CI failed")
         assert "## Accumulated Learnings" not in prompt
 
+    def test_prompt_forbids_unrelated_refactoring(self, hitl_runner) -> None:
+        """Prompt must warn agent not to bundle unrelated refactoring."""
+        issue = IssueFactory.create(number=42)
+        prompt, _ = hitl_runner._build_prompt_with_stats(
+            issue, "Fix the test", "CI failed"
+        )
+        assert "Do NOT bundle unrelated refactoring" in prompt
+        assert "Each concern is a separate PR" in prompt
+
 
 # ---------------------------------------------------------------------------
 # Command building

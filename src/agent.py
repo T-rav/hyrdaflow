@@ -660,6 +660,9 @@ Run through this checklist before your final commit:
 - NEVER conclude that the issue is "already satisfied" or that no work is needed.
   The planner already verified this issue requires implementation. Your job is to
   write the code, not to second-guess the plan. Always produce commits.
+- Do NOT bundle unrelated refactoring with the assigned fix. For example, do not
+  migrate raw model constructors to factories, rename variables, or reformat code
+  in files you are not otherwise changing for the issue. Each concern is a separate PR.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="implementation")}"""
         return prompt, builder.build_stats()
@@ -747,7 +750,7 @@ Apply fixes:
 Constraints:
 - Do not push or open PRs
 - Prefer minimal safe changes
-- Keep edits scoped to issue intent
+- Keep edits scoped to issue intent — do not refactor, migrate, or rename code that is unrelated to the fix
 
 Required output:
 PRE_QUALITY_REVIEW_RESULT: OK
