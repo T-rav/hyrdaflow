@@ -134,6 +134,7 @@ class TestProperties:
         orch = HydraFlowOrchestrator(config)
         assert orch.state is orch._state
         assert isinstance(orch.state, StateTracker)
+        assert orch.state._path == config.state_file
 
     def test_human_input_requests_returns_internal_dict(
         self, config: HydraFlowConfig
