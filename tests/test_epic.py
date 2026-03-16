@@ -1604,7 +1604,7 @@ class TestNarrowedExceptionHandling:
             for c in manager._bus.publish.call_args_list
             if c.args[0].type == EventType.SYSTEM_ALERT
         ]
-        assert len(alert_events) >= 2
+        assert len(alert_events) == 2
 
     @pytest.mark.asyncio
     async def test_release_epic_merge_loop_catches_runtime_error(
