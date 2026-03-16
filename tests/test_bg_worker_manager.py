@@ -130,3 +130,59 @@ class TestInterval:
         manager.set_interval("x", 99)
         saved = manager._state.get_worker_intervals()
         assert saved["x"] == 99
+
+
+class TestRestoreMethods:
+    """Tests for bulk restore methods used by StateRestorer."""
+
+    def test_restore_intervals(self, manager: BGWorkerManager) -> None:
+        manager.restore_intervals({"memory_sync": 120, "metrics": 60})
+        assert manager.get_interval("memory_sync") == 120
+        assert manager.get_interval("metrics") == 60
+
+    def test_restore_enabled_flags(self, manager: BGWorkerManager) -> None:
+        manager.restore_enabled_flags({"memory_sync", "metrics"})
+        assert manager.is_enabled("memory_sync") is False
+        assert manager.is_enabled("metrics") is False
+        assert manager.is_enabled("other") is True
+
+    def test_remove_enabled_entry(self, manager: BGWorkerManager) -> None:
+        manager.set_enabled("x", False)
+        assert manager.is_enabled("x") is False
+        manager.remove_enabled_entry("x")
+        # Defaults back to True since entry is gone
+        assert manager.is_enabled("x") is True
+
+    def test_remove_enabled_entry_missing(self, manager: BGWorkerManager) -> None:
+        # Should not raise
+        manager.remove_enabled_entry("nonexistent")
+
+    def test_restore_worker_state(self, manager: BGWorkerManager) -> None:
+        from models import BackgroundWorkerState
+
+        s = BackgroundWorkerState(
+            name="x", status="ok", last_run="2026-01-01T00:00:00Z", details={}
+        )
+        manager.restore_worker_state("x", s)
+        assert manager.worker_states["x"]["status"] == "ok"
+
+    def test_restore_worker_states_bulk(self, manager: BGWorkerManager) -> None:
+        from models import BackgroundWorkerState
+
+        states = {
+            "a": BackgroundWorkerState(
+                name="a", status="ok", last_run=None, details={}
+            ),
+            "b": BackgroundWorkerState(
+                name="b", status="idle", last_run=None, details={}
+            ),
+        }
+        manager.restore_worker_states(states)
+        assert "a" in manager.worker_states
+        assert "b" in manager.worker_states
+
+    def test_known_worker_state_names(self, manager: BGWorkerManager) -> None:
+        assert manager.known_worker_state_names() == set()
+        manager.update_status("x", "ok")
+        manager.update_status("y", "idle")
+        assert manager.known_worker_state_names() == {"x", "y"}

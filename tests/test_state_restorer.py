@@ -51,7 +51,7 @@ class TestRestoreAll:
         review: set[int] = set()
         hitl: set[int] = set()
         restorer.restore_all(recovered, impl, review, hitl)
-        assert restorer._bg_workers.worker_intervals.get("memory_sync") == 120
+        assert restorer._bg_workers.get_interval("memory_sync") == 120
 
     def test_restores_crash_recovered_issues(
         self, restorer: StateRestorer, state: Any

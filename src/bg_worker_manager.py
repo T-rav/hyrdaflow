@@ -88,6 +88,31 @@ class BGWorkerManager:
         loop.trigger()
         return True
 
+    def restore_intervals(self, intervals: dict[str, int]) -> None:
+        """Bulk-restore interval overrides (used during startup recovery)."""
+        self._bg_worker_intervals.update(intervals)
+
+    def restore_enabled_flags(self, disabled_names: set[str]) -> None:
+        """Bulk-restore disabled flags (used during startup recovery)."""
+        for name in disabled_names:
+            self._bg_worker_enabled[name] = False
+
+    def remove_enabled_entry(self, name: str) -> None:
+        """Remove an enabled-flag entry entirely (for stale worker pruning)."""
+        self._bg_worker_enabled.pop(name, None)
+
+    def restore_worker_state(self, name: str, state: BackgroundWorkerState) -> None:
+        """Set a single worker state entry (used during startup recovery)."""
+        self._bg_worker_states[name] = state
+
+    def restore_worker_states(self, states: dict[str, BackgroundWorkerState]) -> None:
+        """Bulk-restore worker heartbeat states (used during startup recovery)."""
+        self._bg_worker_states.update(states)
+
+    def known_worker_state_names(self) -> set[str]:
+        """Return the set of worker names that have heartbeat state."""
+        return set(self._bg_worker_states)
+
     def set_interval(self, name: str, seconds: int) -> None:
         """Set a dynamic interval override for a background worker."""
         self._bg_worker_intervals[name] = seconds
