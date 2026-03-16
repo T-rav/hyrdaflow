@@ -1,6 +1,6 @@
 # ADR-0023: Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking
 
-**Status:** Accepted
+**Status:** Superseded
 **Date:** 2026-03-15
 
 ## Context
@@ -115,7 +115,7 @@ When reviewing any routing method that calls both `_route_to_triage` and
 
 ## Related
 
-- **Supersedes:** [ADR-0023 (Gate Triage Call on Config Toggle, Not Just HITL Fallback)](0023-gate-triage-call-not-hitl-fallback.md)
+- **Superseded by:** [ADR-0023 (Gate Triage Call on Config Toggle, Not Just HITL Fallback)](0023-gate-triage-call-not-hitl-fallback.md) — content merged into the peer ADR
 - Source memory: #2327
 - Source issue: #2341
 - `src/adr_reviewer.py` — `_triage_or_hitl()`, `_route_to_triage()`, `_handle_pre_review_failure()`, `_handle_duplicate()`
