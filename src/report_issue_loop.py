@@ -117,11 +117,66 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 closed += 1
         return closed
 
+    async def _sync_filed_reports(self) -> int:
+        """Check linked GitHub issues for filed reports and auto-transition.
+
+        Returns the number of reports transitioned.
+        """
+        transitioned = 0
+        for report in self._state.get_filed_reports():
+            issue_number = self._extract_issue_number_from_url(report.linked_issue_url)
+            if issue_number <= 0:
+                continue
+            try:
+                issue_state = await self._pr_manager.get_issue_state(issue_number)
+            except Exception:
+                logger.debug(
+                    "Failed to check issue state for report %s (issue #%d)",
+                    report.id,
+                    issue_number,
+                    exc_info=True,
+                )
+                continue
+            if issue_state == "COMPLETED":
+                self._state.update_tracked_report(
+                    report.id,
+                    status="fixed",
+                    action_label="fixed",
+                    detail=f"Issue #{issue_number} resolved",
+                )
+                transitioned += 1
+                logger.info(
+                    "Report %s auto-transitioned to fixed (issue #%d resolved)",
+                    report.id,
+                    issue_number,
+                )
+            elif issue_state == "NOT_PLANNED":
+                self._state.update_tracked_report(
+                    report.id,
+                    status="closed",
+                    action_label="closed",
+                    detail=f"Issue #{issue_number} closed as won't fix",
+                )
+                transitioned += 1
+                logger.info(
+                    "Report %s auto-transitioned to closed (issue #%d won't fix)",
+                    report.id,
+                    issue_number,
+                )
+        return transitioned
+
+    @classmethod
+    def _extract_issue_number_from_url(cls, url: str) -> int:
+        """Extract the issue number from a GitHub issue URL, or return 0."""
+        m = cls._ISSUE_URL_RE.search(url)
+        return int(m.group(1)) if m else 0
+
     async def _do_work(self) -> dict[str, Any] | None:
         if self._config.dry_run:
             return None
 
         self._sweep_stale_reports()
+        await self._sync_filed_reports()
 
         report = self._state.peek_report()
         if report is None:
