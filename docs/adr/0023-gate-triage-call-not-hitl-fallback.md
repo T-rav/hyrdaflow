@@ -40,15 +40,15 @@ operator disabling it. The HITL path is dead code in practice.
 
 Three routing paths required audit for toggle consistency:
 
-| Method                         | Purpose                                          |
-|--------------------------------|--------------------------------------------------|
-| `_handle_pre_review_failure()` | Routes ADRs that fail structural validation      |
-| `_triage_or_hitl()`           | Routes post-council rejected/changes-requested   |
-| `_handle_duplicate()`          | Always escalates duplicates to HITL (correct)    |
+| Method                              | Purpose                                          |
+|-------------------------------------|--------------------------------------------------|
+| `_route_pre_validation_failure()`   | Routes ADRs that fail structural validation      |
+| `_execute_triage_or_hitl()`         | Routes post-council rejected/changes-requested   |
+| `_handle_duplicate()`               | Always escalates duplicates to HITL (correct)    |
 
-The fix unified post-council routing through `_triage_or_hitl()`, which gates
-the `_route_to_triage()` call on the toggle before any action is taken.
-`_handle_pre_review_failure()` was also corrected to check the toggle before
+The fix unified post-council routing through `_execute_triage_or_hitl()`, which
+gates the `_route_to_triage()` call on the toggle before any action is taken.
+`_route_pre_validation_failure()` was also corrected to check the toggle before
 attempting triage.
 
 ## Decision
@@ -75,8 +75,8 @@ Key rules:
 
 2. **Centralise gated routing through a single helper.** All post-council
    routing decisions (reject, changes requested, no consensus) must flow
-   through `_triage_or_hitl()`, which encapsulates the toggle check, the
-   triage attempt, the stat increment, and the HITL fallback in one place.
+   through `_execute_triage_or_hitl()`, which encapsulates the toggle check,
+   the triage attempt, the stat increment, and the HITL fallback in one place.
    Individual routing call-sites must not duplicate this logic.
 
 3. **Audit all routing paths when adding or modifying a routing toggle.**
@@ -110,8 +110,8 @@ When reviewing any routing method that calls both `_route_to_triage` and
 
 - Eliminates silent toggle bypass — operators can trust that disabling
   auto-triage actually disables it across all code paths.
-- Centralised routing helper (`_triage_or_hitl`) reduces duplication and
-  makes the routing logic auditable from a single location.
+- Centralised routing helper (`_execute_triage_or_hitl`) reduces duplication
+  and makes the routing logic auditable from a single location.
 - Stats accurately reflect system behaviour, improving observability and
   debugging.
 - Establishes a review checklist item: "does every call-site for the gated
@@ -158,5 +158,5 @@ When reviewing any routing method that calls both `_route_to_triage` and
 - Issue: #2355, #2341
 - Related learning: #2346, #2350
 - See also: [ADR-0023 (Stats Counter Placement in Delegating Helpers)](0023-stats-counter-placement-in-delegating-helpers.md) — stats-coupling rule for counter placement
-- `src/adr_reviewer.py` — `_triage_or_hitl()`, `_route_to_triage()`, `_handle_pre_review_failure()`, `_handle_duplicate()`
+- `src/adr_reviewer.py` — `_execute_triage_or_hitl()`, `_route_to_triage()`, `_route_pre_validation_failure()`, `_handle_duplicate()`
 - `src/config.py` — `adr_auto_triage` toggle definition

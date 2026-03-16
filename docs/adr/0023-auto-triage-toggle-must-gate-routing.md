@@ -137,5 +137,5 @@ When reviewing any routing method that calls both `_route_to_triage` and
 - Source memory: #2327
 - Source issue: #2341
 - Related: #2345, #2355, #2346, #2350
-- `src/adr_reviewer.py` — `_triage_or_hitl()`, `_route_to_triage()`, `_handle_pre_review_failure()`, `_handle_duplicate()`
+- `src/adr_reviewer.py` — `_execute_triage_or_hitl()`, `_route_to_triage()`, `_route_pre_validation_failure()`, `_handle_duplicate()`
 - `src/config.py` — `adr_auto_triage` toggle definition
