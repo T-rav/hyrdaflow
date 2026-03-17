@@ -57,7 +57,11 @@ class TestBuildServices:
 
         registry = build_services(config, bus, state, stop_event, callbacks)
 
+        # hindsight is None when not configured — that's expected
+        optional_fields = {"hindsight"}
         for field_name in ServiceRegistry.__dataclass_fields__:
+            if field_name in optional_fields:
+                continue
             assert getattr(registry, field_name) is not None, f"{field_name} is None"
 
     def test_agents_runner_is_shared(self, config: HydraFlowConfig) -> None:

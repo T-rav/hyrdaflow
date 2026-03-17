@@ -148,6 +148,9 @@ class HindsightClient:
                     content=raw.get("text") or "",
                     text=raw.get("text") or "",
                     context=raw.get("context") or "",
+                    metadata=raw.get("metadata") or {},
+                    relevance_score=float(raw.get("relevance_score") or 0.0),
+                    timestamp=raw.get("occurred_start") or raw.get("timestamp") or "",
                 )
             )
         return memories

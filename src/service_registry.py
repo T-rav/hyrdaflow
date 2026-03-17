@@ -62,6 +62,7 @@ from workspace import WorkspaceManager
 from workspace_gc_loop import WorkspaceGCLoop
 
 if TYPE_CHECKING:
+    from hindsight import HindsightClient
     from metrics_manager import MetricsManager
 
 
@@ -115,6 +116,9 @@ class ServiceRegistry:
     worktree_gc_loop: WorkspaceGCLoop
     runs_gc_loop: RunsGCLoop
     adr_reviewer_loop: ADRReviewerLoop
+
+    # Optional integrations
+    hindsight: HindsightClient | None = None
 
 
 @dataclass
@@ -446,4 +450,5 @@ def build_services(
         worktree_gc_loop=worktree_gc_loop,
         runs_gc_loop=runs_gc_loop,
         adr_reviewer_loop=adr_reviewer_loop,
+        hindsight=hindsight_client,
     )

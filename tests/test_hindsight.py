@@ -303,3 +303,99 @@ class TestFormatMemoriesAsMarkdown:
         assert "- Lesson 1" in result
         assert "- Lesson 2" in result
         assert "_Context: bug fix_" in result
+
+
+# ---------------------------------------------------------------------------
+# Recall field extraction
+# ---------------------------------------------------------------------------
+
+
+class TestRecallFieldExtraction:
+    """Tests that recall extracts metadata, relevance_score, and timestamp."""
+
+    @pytest.mark.asyncio
+    async def test_recall_extracts_metadata(self) -> None:
+        client = HindsightClient("http://localhost:8080")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "results": [
+                {
+                    "text": "Always lint first",
+                    "context": "CI",
+                    "metadata": {"issue": "42", "repo": "org/repo"},
+                    "relevance_score": 0.95,
+                    "occurred_start": "2026-01-15T10:00:00Z",
+                }
+            ]
+        }
+        mock_resp.raise_for_status = MagicMock()
+        with patch.object(
+            client._client, "post", new_callable=AsyncMock, return_value=mock_resp
+        ):
+            memories = await client.recall(Bank.LEARNINGS, "how to fix CI")
+
+        assert len(memories) == 1
+        assert memories[0].metadata == {"issue": "42", "repo": "org/repo"}
+        assert memories[0].relevance_score == 0.95
+        assert memories[0].timestamp == "2026-01-15T10:00:00Z"
+
+    @pytest.mark.asyncio
+    async def test_recall_uses_occurred_start_over_timestamp(self) -> None:
+        """Hindsight API uses ``occurred_start`` for timestamps in recall responses."""
+        client = HindsightClient("http://localhost:8080")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "results": [
+                {
+                    "text": "lesson",
+                    "context": "",
+                    "occurred_start": "2026-02-01T00:00:00Z",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                }
+            ]
+        }
+        mock_resp.raise_for_status = MagicMock()
+        with patch.object(
+            client._client, "post", new_callable=AsyncMock, return_value=mock_resp
+        ):
+            memories = await client.recall(Bank.LEARNINGS, "query")
+
+        assert memories[0].timestamp == "2026-02-01T00:00:00Z"
+
+    @pytest.mark.asyncio
+    async def test_recall_falls_back_to_timestamp_field(self) -> None:
+        """When ``occurred_start`` is absent, fall back to ``timestamp``."""
+        client = HindsightClient("http://localhost:8080")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "results": [
+                {
+                    "text": "lesson",
+                    "context": "",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                }
+            ]
+        }
+        mock_resp.raise_for_status = MagicMock()
+        with patch.object(
+            client._client, "post", new_callable=AsyncMock, return_value=mock_resp
+        ):
+            memories = await client.recall(Bank.LEARNINGS, "query")
+
+        assert memories[0].timestamp == "2026-01-01T00:00:00Z"
+
+    @pytest.mark.asyncio
+    async def test_recall_handles_missing_optional_fields(self) -> None:
+        """Missing metadata/relevance_score/timestamp default gracefully."""
+        client = HindsightClient("http://localhost:8080")
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"results": [{"text": "bare result"}]}
+        mock_resp.raise_for_status = MagicMock()
+        with patch.object(
+            client._client, "post", new_callable=AsyncMock, return_value=mock_resp
+        ):
+            memories = await client.recall(Bank.LEARNINGS, "query")
+
+        assert memories[0].metadata == {}
+        assert memories[0].relevance_score == 0.0
+        assert memories[0].timestamp == ""

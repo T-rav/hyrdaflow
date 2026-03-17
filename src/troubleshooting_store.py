@@ -90,6 +90,11 @@ class TroubleshootingPatternStore:
         if not merged:
             all_patterns.append(pattern)
 
+        # NOTE: File writes are NOT skipped when Hindsight is set because the
+        # dedup logic in this method reads from the JSONL file via _load_all().
+        # Skipping the write would cause _load_all() to return stale data on the
+        # next call, breaking deduplication.  The store dual-writes: file for
+        # dedup, Hindsight for semantic recall.
         self._write_all(all_patterns)
 
         if self._hindsight:

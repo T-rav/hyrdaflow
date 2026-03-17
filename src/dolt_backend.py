@@ -136,7 +136,7 @@ class DoltBackend:
         Uses a temp SQL file for large payloads to avoid CLI argument limits.
         """
         now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
-        escaped = data.replace("\\", "\\\\").replace("'", "\\'")
+        escaped = data.replace("'", "''")
         sql = f"REPLACE INTO state (id, data, updated_at) VALUES (1, '{escaped}', '{now}');"
 
         # Write SQL to temp file and execute via source
@@ -169,7 +169,8 @@ class DoltBackend:
 
     def load_sessions(self, repo: str | None = None, limit: int = 50) -> list[dict]:
         """Load recent sessions, newest first."""
-        where = f"WHERE repo = '{repo}'" if repo else ""
+        escaped_repo = repo.replace("'", "''") if repo else ""
+        where = f"WHERE repo = '{escaped_repo}'" if repo else ""
         try:
             raw = self._sql(
                 f"SELECT data FROM sessions {where} ORDER BY started_at DESC LIMIT {limit};"  # nosec B608

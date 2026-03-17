@@ -231,3 +231,35 @@ class TestDoltStateTrackerIntegration:
             from state import build_state_tracker
 
             build_state_tracker(cfg)
+
+
+# ---------------------------------------------------------------------------
+# SQL injection safety
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not shutil.which("dolt"), reason="dolt CLI not installed")
+class TestDoltSQLInjection:
+    """Tests that user-supplied strings are properly escaped."""
+
+    def test_load_sessions_escapes_repo_with_single_quotes(
+        self, dolt_dir: Path
+    ) -> None:
+        """A repo name containing single quotes must not break the SQL query."""
+        backend = DoltBackend(dolt_dir)
+        # Save a session with a normal repo name
+        backend.save_session("s1", "org/repo", json.dumps({"id": "s1"}), "active")
+
+        # Query with a repo name that contains a single quote — should not raise
+        result = backend.load_sessions("org/repo'; DROP TABLE sessions; --")
+        assert result == []  # no match, but no crash
+
+    def test_save_state_escapes_single_quotes(self, dolt_dir: Path) -> None:
+        """State data containing single quotes uses SQL-standard '' escaping."""
+        backend = DoltBackend(dolt_dir)
+        data_with_quotes = json.dumps({"note": "it's got 'quotes'"})
+        backend.save_state(data_with_quotes)
+
+        loaded = backend.load_state()
+        assert loaded is not None
+        assert loaded["note"] == "it's got 'quotes'"

@@ -279,6 +279,10 @@ class HydraFlowOrchestrator:
                 task.cancel()
                 logger.debug("Cancelled loop task %r", name)
 
+        # Close the Hindsight HTTP client if present
+        if hasattr(self._svc, "hindsight") and self._svc.hindsight:
+            await self._svc.hindsight.close()
+
         await self._publish_status()
 
     async def _build_interrupted_issues(self) -> dict[int, str]:
