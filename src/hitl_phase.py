@@ -230,9 +230,9 @@ class HITLPhase:
                         target_label = (
                             self._config.find_label[0]
                             if self._config.find_label
-                            else None
+                            else self._config.hitl_label[0]
                         )
-                        target_stage = target_label or "pipeline"
+                        target_stage = target_label
                     elif origin:
                         target_label = origin
                         target_stage = origin
