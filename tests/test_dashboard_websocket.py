@@ -599,6 +599,7 @@ class TestHITLSkipEndpoint:
         client = TestClient(app)
         with (
             patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.close_issue", new_callable=AsyncMock),
             patch("pr_manager.PRManager.post_comment", new_callable=AsyncMock),
         ):
             response = client.post("/api/hitl/42/skip", json={"reason": "not needed"})
@@ -621,6 +622,7 @@ class TestHITLSkipEndpoint:
         client = TestClient(app)
         with (
             patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.close_issue", new_callable=AsyncMock),
             patch("pr_manager.PRManager.post_comment", new_callable=AsyncMock),
         ):
             client.post("/api/hitl/42/skip", json={"reason": "not needed"})
@@ -658,6 +660,7 @@ class TestHITLSkipEndpoint:
         client = TestClient(app)
         with (
             patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.close_issue", new_callable=AsyncMock),
             patch("pr_manager.PRManager.post_comment", new_callable=AsyncMock),
         ):
             client.post("/api/hitl/42/skip", json={"reason": "not needed"})
@@ -685,6 +688,7 @@ class TestHITLSkipEndpoint:
         client = TestClient(app)
         with (
             patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
+            patch("pr_manager.PRManager.close_issue", new_callable=AsyncMock),
             patch("pr_manager.PRManager.post_comment", new_callable=AsyncMock),
         ):
             client.post("/api/hitl/42/skip", json={"reason": "not needed"})

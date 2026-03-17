@@ -451,7 +451,7 @@ class TestSwapPipelineLabels:
     ) -> None:
         mgr = _make_manager(config, event_bus)
         mgr._remove_label = AsyncMock()
-        mgr._add_labels = AsyncMock()
+        mgr._add_labels_strict = AsyncMock()
 
         await mgr.swap_pipeline_labels(42, config.ready_label[0])
 
@@ -465,11 +465,11 @@ class TestSwapPipelineLabels:
     async def test_adds_new_label_to_issue(self, config, event_bus) -> None:
         mgr = _make_manager(config, event_bus)
         mgr._remove_label = AsyncMock()
-        mgr._add_labels = AsyncMock()
+        mgr._add_labels_strict = AsyncMock()
 
         await mgr.swap_pipeline_labels(42, "hydraflow-review")
 
-        mgr._add_labels.assert_any_call("issue", 42, ["hydraflow-review"])
+        mgr._add_labels_strict.assert_any_call("issue", 42, ["hydraflow-review"])
 
     @pytest.mark.asyncio
     async def test_also_removes_from_pr_when_pr_number_given(
@@ -477,7 +477,7 @@ class TestSwapPipelineLabels:
     ) -> None:
         mgr = _make_manager(config, event_bus)
         mgr._remove_label = AsyncMock()
-        mgr._add_labels = AsyncMock()
+        mgr._add_labels_strict = AsyncMock()
 
         await mgr.swap_pipeline_labels(42, "hydraflow-review", pr_number=101)
 
@@ -486,21 +486,56 @@ class TestSwapPipelineLabels:
         assert "issue" in targets
         assert "pr" in targets
         # Should add to both issue and pr
-        mgr._add_labels.assert_any_call("issue", 42, ["hydraflow-review"])
-        mgr._add_labels.assert_any_call("pr", 101, ["hydraflow-review"])
+        mgr._add_labels_strict.assert_any_call("issue", 42, ["hydraflow-review"])
+        mgr._add_labels_strict.assert_any_call("pr", 101, ["hydraflow-review"])
 
     @pytest.mark.asyncio
     async def test_no_pr_label_ops_when_pr_number_none(self, config, event_bus) -> None:
         mgr = _make_manager(config, event_bus)
         mgr._remove_label = AsyncMock()
-        mgr._add_labels = AsyncMock()
+        mgr._add_labels_strict = AsyncMock()
 
         await mgr.swap_pipeline_labels(42, "hydraflow-review")
 
         targets = [call.args[0] for call in mgr._remove_label.call_args_list]
         assert "pr" not in targets
-        # Only one add_labels call (for issue)
-        assert mgr._add_labels.call_count == 1
+        # Only one add_labels_strict call (for issue)
+        assert mgr._add_labels_strict.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_adds_before_removing(self, config, event_bus) -> None:
+        """New label must be added before old labels are removed."""
+        mgr = _make_manager(config, event_bus)
+        call_order: list[str] = []
+        mgr._add_labels_strict = AsyncMock(
+            side_effect=lambda *a, **kw: call_order.append("add")
+        )
+        mgr._remove_label = AsyncMock(
+            side_effect=lambda *a, **kw: call_order.append("remove")
+        )
+
+        await mgr.swap_pipeline_labels(42, "hydraflow-review")
+
+        # All adds must come before any removes
+        first_remove = call_order.index("remove")
+        last_add = len(call_order) - 1 - call_order[::-1].index("add")
+        assert last_add < first_remove, (
+            f"Expected all adds before any removes, got: {call_order}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_add_failure_leaves_old_labels_intact(
+        self, config, event_bus
+    ) -> None:
+        """If the add fails, no labels should be removed."""
+        mgr = _make_manager(config, event_bus)
+        mgr._add_labels_strict = AsyncMock(side_effect=RuntimeError("API down"))
+        mgr._remove_label = AsyncMock()
+
+        with pytest.raises(RuntimeError, match="API down"):
+            await mgr.swap_pipeline_labels(42, "hydraflow-review")
+
+        mgr._remove_label.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

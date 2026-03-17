@@ -237,15 +237,12 @@ class HITLPhase:
                         target_label = origin
                         target_stage = origin
                     else:
-                        target_label = None
-                        target_stage = "pipeline"
+                        # No origin recorded — fall back to HITL so the
+                        # issue stays visible rather than becoming an orphan.
+                        target_label = self._config.hitl_label[0]
+                        target_stage = target_label
 
-                    if target_label:
-                        await self._prs.swap_pipeline_labels(issue_number, target_label)
-                    else:
-                        # No target label — just remove active
-                        for lbl in self._config.hitl_active_label:
-                            await self._prs.remove_label(issue_number, lbl)
+                    await self._prs.swap_pipeline_labels(issue_number, target_label)
 
                     self._state.remove_hitl_origin(issue_number)
                     self._state.remove_hitl_cause(issue_number)
