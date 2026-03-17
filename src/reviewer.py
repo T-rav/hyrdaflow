@@ -681,7 +681,9 @@ Then a brief summary on the next line starting with "SUMMARY: ".
 
         min_findings = self._config.min_review_findings
 
-        manifest_section, memory_section = await self._inject_manifest_and_memory()
+        manifest_section, memory_section = await self._inject_manifest_and_memory(
+            query_context=f"{issue.title}\n{(issue.body or '')[:200]}",
+        )
 
         # Runtime log injection
         log_section = ""

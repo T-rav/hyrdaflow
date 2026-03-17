@@ -603,7 +603,7 @@ Run through this checklist before your final commit:
             )
 
         manifest_section, memory_section = await self._inject_manifest_and_memory(
-            query_context=issue.title,
+            query_context=f"{issue.title}\n{(issue.body or '')[:200]}",
         )
 
         # Runtime log injection

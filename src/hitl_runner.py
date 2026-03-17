@@ -191,7 +191,9 @@ class HITLRunner(BaseRunner):
             "Human guidance", correction or "", self._config.max_hitl_correction_chars
         )
 
-        manifest_section, memory_section = await self._inject_manifest_and_memory()
+        manifest_section, memory_section = await self._inject_manifest_and_memory(
+            query_context=f"{issue.title}\n{(issue.body or '')[:200]}",
+        )
 
         prompt = f"""You are applying a human-in-the-loop correction for GitHub issue #{issue.number}.
 

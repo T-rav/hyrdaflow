@@ -108,7 +108,9 @@ class ResearchRunner(BaseRunner):
 
     async def _build_prompt(self, task: Task) -> str:
         """Build the research prompt for *task*."""
-        manifest_section, memory_section = await self._inject_manifest_and_memory()
+        manifest_section, memory_section = await self._inject_manifest_and_memory(
+            query_context=f"{task.title}\n{(task.body or '')[:200]}",
+        )
 
         return f"""You are a research agent exploring the codebase for GitHub issue #{task.id}.
 
