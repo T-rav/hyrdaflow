@@ -110,11 +110,10 @@ class TestHindsightClient:
 
         assert result == {"id": "abc"}
         call_args = mock_post.call_args
-        assert call_args[0][0] == "/retain"
+        assert "/hydraflow-learnings/memories/retain" in call_args[0][0]
         payload = call_args[1]["json"]
-        assert payload["bank"] == "hydraflow-learnings"
-        assert payload["content"] == "lesson learned"
-        assert payload["context"] == "fixing bug"
+        assert payload["items"][0]["content"] == "lesson learned"
+        assert payload["items"][0]["context"] == "fixing bug"
 
     @pytest.mark.asyncio
     async def test_retain_raises_on_http_error(self) -> None:
@@ -136,13 +135,9 @@ class TestHindsightClient:
         client = HindsightClient("http://localhost:8080")
         mock_resp = MagicMock()
         mock_resp.json.return_value = {
-            "memories": [
-                {
-                    "content": "Always lint first",
-                    "context": "CI",
-                    "relevance_score": 0.9,
-                },
-                {"content": "Check types", "relevance_score": 0.8},
+            "results": [
+                {"text": "Always lint first", "context": "CI"},
+                {"text": "Check types"},
             ]
         }
         mock_resp.raise_for_status = MagicMock()
@@ -152,16 +147,16 @@ class TestHindsightClient:
             memories = await client.recall(Bank.LEARNINGS, "how to fix CI")
 
         assert len(memories) == 2
-        assert memories[0].content == "Always lint first"
-        assert memories[0].relevance_score == 0.9
-        assert memories[1].content == "Check types"
+        assert memories[0].display_text == "Always lint first"
+        assert memories[0].context == "CI"
+        assert memories[1].display_text == "Check types"
 
     @pytest.mark.asyncio
-    async def test_recall_handles_results_key(self) -> None:
-        """Some API versions use 'results' instead of 'memories'."""
+    async def test_recall_uses_results_key(self) -> None:
+        """Hindsight API uses 'results' key in recall response."""
         client = HindsightClient("http://localhost:8080")
         mock_resp = MagicMock()
-        mock_resp.json.return_value = {"results": [{"content": "one result"}]}
+        mock_resp.json.return_value = {"results": [{"text": "one result"}]}
         mock_resp.raise_for_status = MagicMock()
         with patch.object(
             client._client, "post", new_callable=AsyncMock, return_value=mock_resp
@@ -169,7 +164,7 @@ class TestHindsightClient:
             memories = await client.recall(Bank.LEARNINGS, "query")
 
         assert len(memories) == 1
-        assert memories[0].content == "one result"
+        assert memories[0].display_text == "one result"
 
     @pytest.mark.asyncio
     async def test_recall_raises_on_http_error(self) -> None:
@@ -190,7 +185,7 @@ class TestHindsightClient:
     async def test_reflect_returns_reflection(self) -> None:
         client = HindsightClient("http://localhost:8080")
         mock_resp = MagicMock()
-        mock_resp.json.return_value = {"reflection": "Key insight: always test first"}
+        mock_resp.json.return_value = {"text": "Key insight: always test first"}
         mock_resp.raise_for_status = MagicMock()
         with patch.object(
             client._client, "post", new_callable=AsyncMock, return_value=mock_resp

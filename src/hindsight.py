@@ -41,11 +41,17 @@ class Bank(StrEnum):
 class HindsightMemory(BaseModel):
     """A single memory item returned by Hindsight recall."""
 
-    content: str
+    content: str = ""
+    text: str = ""
     context: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
     relevance_score: float = 0.0
     timestamp: str = ""
+
+    @property
+    def display_text(self) -> str:
+        """Return the best available text (``text`` from API, or ``content``)."""
+        return self.text or self.content
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +94,13 @@ class HindsightClient:
 
     # -- Retain ---------------------------------------------------------------
 
+    @staticmethod
+    def _bank_path(bank: Bank | str, suffix: str) -> str:
+        """Build the versioned bank API path."""
+        return f"/v1/default/banks/{bank}/{suffix}"
+
+    # -- Retain ---------------------------------------------------------------
+
     async def retain(
         self,
         bank: Bank | str,
@@ -97,14 +110,18 @@ class HindsightClient:
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Store a memory in *bank*."""
-        payload: dict[str, Any] = {
-            "bank": str(bank),
+        item: dict[str, Any] = {
             "content": content,
-            "context": context,
-            "metadata": metadata or {},
             "timestamp": datetime.now(UTC).isoformat(),
         }
-        resp = await self._client.post("/retain", json=payload)
+        if context:
+            item["context"] = context
+        if metadata:
+            item["metadata"] = {k: str(v) for k, v in metadata.items()}
+        payload: dict[str, Any] = {"items": [item]}
+        resp = await self._client.post(
+            self._bank_path(bank, "memories/retain"), json=payload
+        )
         resp.raise_for_status()
         return resp.json()
 
@@ -118,16 +135,23 @@ class HindsightClient:
         limit: int = 10,
     ) -> list[HindsightMemory]:
         """Retrieve relevant memories from *bank*."""
-        payload: dict[str, Any] = {
-            "bank": str(bank),
-            "query": query,
-            "limit": limit,
-        }
-        resp = await self._client.post("/recall", json=payload)
+        payload: dict[str, Any] = {"query": query}
+        resp = await self._client.post(
+            self._bank_path(bank, "memories/recall"), json=payload
+        )
         resp.raise_for_status()
         data = resp.json()
-        items: list[dict[str, Any]] = data.get("memories", data.get("results", []))
-        return [HindsightMemory.model_validate(m) for m in items]
+        items: list[dict[str, Any]] = data.get("results", [])
+        memories = []
+        for raw in items[:limit]:
+            memories.append(
+                HindsightMemory(
+                    content=raw.get("text", ""),
+                    text=raw.get("text", ""),
+                    context=raw.get("context", ""),
+                )
+            )
+        return memories
 
     # -- Reflect --------------------------------------------------------------
 
@@ -137,14 +161,11 @@ class HindsightClient:
         query: str,
     ) -> str:
         """Ask Hindsight for a synthesised reflection on *bank*."""
-        payload: dict[str, Any] = {
-            "bank": str(bank),
-            "query": query,
-        }
-        resp = await self._client.post("/reflect", json=payload)
+        payload: dict[str, Any] = {"query": query}
+        resp = await self._client.post(self._bank_path(bank, "reflect"), json=payload)
         resp.raise_for_status()
         data = resp.json()
-        return data.get("reflection", "")
+        return data.get("text", "")
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +218,7 @@ def format_memories_as_markdown(memories: list[HindsightMemory]) -> str:
         return ""
     lines: list[str] = []
     for mem in memories:
-        lines.append(f"- {mem.content}")
+        lines.append(f"- {mem.display_text}")
         if mem.context:
             lines.append(f"  _Context: {mem.context}_")
     return "\n".join(lines)
