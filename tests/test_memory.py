@@ -2435,3 +2435,37 @@ class TestMemorySyncHindsightDualWrite:
             assert call_kw.args[2] == "Use env vars"
             assert call_kw.kwargs["metadata"]["issue_number"] == 7
             assert call_kw.kwargs["metadata"]["memory_type"] == "config"
+
+    @pytest.mark.asyncio
+    async def test_file_writes_skipped_when_hindsight_enabled(
+        self, tmp_path: Path
+    ) -> None:
+        """When hindsight client is set, digest and item file writes are skipped."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = StateTracker(config.state_file)
+        bus = MagicMock()
+        bus.publish = AsyncMock()
+        mock_hindsight = MagicMock()
+        worker = MemorySyncWorker(config, state, bus, hindsight=mock_hindsight)
+
+        issues = [
+            {
+                "number": 1,
+                "title": "[Memory] Learn A",
+                "body": "**Type:** knowledge\n\n**Learning:** First insight",
+                "labels": list(config.memory_label),
+                "createdAt": "2024-01-01",
+            },
+        ]
+
+        with patch("hindsight.retain_safe", new_callable=AsyncMock):
+            await worker.sync(issues)
+
+        # Digest file should NOT be written
+        digest_path = config.data_path("memory", "digest.md")
+        assert not digest_path.exists()
+
+        # Item files should NOT be written
+        items_dir = config.data_path("memory", "items")
+        item_files = list(items_dir.glob("*.md")) if items_dir.exists() else []
+        assert item_files == []

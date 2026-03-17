@@ -884,6 +884,41 @@ class TestRetrospectiveHindsightDualWrite:
         ):
             collector._append_entry(entry)  # should not raise
 
-        # File write still happened
+        # File write skipped because hindsight is set
         retro_path = config.data_path("memory", "retrospectives.jsonl")
-        assert retro_path.exists()
+        assert not retro_path.exists()
+
+    def test_file_write_skipped_when_hindsight_enabled(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When hindsight client is set, JSONL file write is skipped."""
+        from unittest.mock import MagicMock
+
+        mock_hindsight = MagicMock()
+        state = StateTracker(config.state_file)
+        mock_prs = AsyncMock()
+        collector = RetrospectiveCollector(
+            config, state, mock_prs, hindsight=mock_hindsight
+        )
+
+        entry = RetrospectiveEntry(
+            issue_number=42,
+            pr_number=100,
+            timestamp="2026-02-20T10:30:00Z",
+        )
+
+        mock_loop = MagicMock()
+        mock_loop.create_task = MagicMock()
+
+        with (
+            patch("asyncio.get_running_loop", return_value=mock_loop),
+            patch("hindsight.retain_safe") as mock_retain,
+        ):
+            collector._append_entry(entry)
+            # Hindsight retain fires
+            mock_loop.create_task.assert_called_once()
+            mock_retain.assert_called_once()
+
+        # File write does NOT happen
+        retro_path = config.data_path("memory", "retrospectives.jsonl")
+        assert not retro_path.exists()

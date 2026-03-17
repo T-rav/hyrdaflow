@@ -298,21 +298,23 @@ class MemorySyncWorker:
             digest = await self._compact_digest(learnings, max_chars)
             compacted = True
 
-        # Write individual items
-        items_dir = self._config.data_path("memory", "items")
-        items_dir.mkdir(parents=True, exist_ok=True)
-        for record in learnings:
-            num, learning, _, _ = self._coerce_learning_tuple(record)
-            item_path = items_dir / f"{num}.md"
-            item_path.write_text(learning)
+        # Write individual items and digest to disk (skip when Hindsight is
+        # the exclusive write target).
+        if not self._hindsight:
+            items_dir = self._config.data_path("memory", "items")
+            items_dir.mkdir(parents=True, exist_ok=True)
+            for record in learnings:
+                num, learning, _, _ = self._coerce_learning_tuple(record)
+                item_path = items_dir / f"{num}.md"
+                item_path.write_text(learning)
 
-        # Prune stale item files
+            # Atomic write of digest
+            self._write_digest(digest)
+
+        # Prune stale item files (always — cleans up legacy files)
         pruned = 0
         if self._config.memory_prune_stale_items:
             pruned = self._prune_stale_items(current_ids)
-
-        # Atomic write of digest
-        self._write_digest(digest)
 
         # Dual-write learnings to Hindsight
         if self._hindsight:

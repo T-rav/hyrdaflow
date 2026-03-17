@@ -723,6 +723,29 @@ class TestReviewInsightHindsightDualWrite:
         ):
             store.append_review(record)  # should not raise
 
-        # File write still happened
+        # File write skipped because hindsight is set
         reviews_path = tmp_path / "reviews.jsonl"
-        assert reviews_path.exists()
+        assert not reviews_path.exists()
+
+    def test_file_write_skipped_when_hindsight_enabled(self, tmp_path: Path) -> None:
+        """When hindsight client is set, JSONL file write is skipped."""
+        from unittest.mock import MagicMock, patch
+
+        mock_hindsight = MagicMock()
+        store = ReviewInsightStore(tmp_path, hindsight=mock_hindsight)
+        record = _make_record()
+
+        mock_loop = MagicMock()
+        mock_loop.create_task = MagicMock()
+
+        with (
+            patch("asyncio.get_running_loop", return_value=mock_loop),
+            patch("hindsight.retain_safe") as mock_retain,
+        ):
+            store.append_review(record)
+            mock_loop.create_task.assert_called_once()
+            mock_retain.assert_called_once()
+
+        # File write does NOT happen
+        reviews_path = tmp_path / "reviews.jsonl"
+        assert not reviews_path.exists()
