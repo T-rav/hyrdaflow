@@ -2768,6 +2768,7 @@ async def test_fix_ci_logs_changed_files_when_fixes_made(
     """fix_ci(): when fixes are committed with file changes, an INFO log lists them."""
     runner = _make_runner(config, event_bus)
     transcript = "Fixed CI.\nVERDICT: APPROVE\nSUMMARY: Done"
+    mock_stat = AsyncMock(return_value="stat")
 
     with (
         patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
@@ -2778,7 +2779,7 @@ async def test_fix_ci_logs_changed_files_when_fixes_made(
             AsyncMock(return_value=["src/ci_fix.py"]),
         ),
         patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
-        patch.object(runner, "_get_commit_stat", AsyncMock(return_value="stat")),
+        patch.object(runner, "_get_commit_stat", mock_stat),
         patch.object(runner, "_save_transcript"),
         caplog.at_level("INFO", logger="hydraflow.reviewer"),
     ):
@@ -2788,6 +2789,7 @@ async def test_fix_ci_logs_changed_files_when_fixes_made(
     assert any(
         "CI fix" in r.message and "src/ci_fix.py" in r.message for r in caplog.records
     )
+    mock_stat.assert_called_once_with(tmp_path, "abc123")
 
 
 @pytest.mark.asyncio
@@ -2797,6 +2799,7 @@ async def test_fix_review_findings_logs_changed_files_when_fixes_made(
     """fix_review_findings(): when fixes are committed with file changes, an INFO log lists them."""
     runner = _make_runner(config, event_bus)
     transcript = "Fixed.\nVERDICT: APPROVE\nSUMMARY: Done"
+    mock_stat = AsyncMock(return_value="stat")
 
     with (
         patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
@@ -2807,7 +2810,7 @@ async def test_fix_review_findings_logs_changed_files_when_fixes_made(
             AsyncMock(return_value=["src/review_fix.py"]),
         ),
         patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
-        patch.object(runner, "_get_commit_stat", AsyncMock(return_value="stat")),
+        patch.object(runner, "_get_commit_stat", mock_stat),
         patch.object(runner, "_save_transcript"),
         caplog.at_level("INFO", logger="hydraflow.reviewer"),
     ):
@@ -2820,6 +2823,7 @@ async def test_fix_review_findings_logs_changed_files_when_fixes_made(
         "Review-fix" in r.message and "src/review_fix.py" in r.message
         for r in caplog.records
     )
+    mock_stat.assert_called_once_with(tmp_path, "abc123")
 
 
 @pytest.mark.asyncio
@@ -2830,6 +2834,7 @@ async def test_review_commit_stat_and_log_both_set_in_single_branch(
     runner = _make_runner(config, event_bus)
     transcript = "Fixed.\nVERDICT: APPROVE\nSUMMARY: Done"
     stat = " src/merged.py | 3 ++-\n 1 file changed"
+    mock_stat = AsyncMock(return_value=stat)
 
     with (
         patch.object(runner, "_get_head_sha", AsyncMock(return_value="abc123")),
@@ -2840,7 +2845,7 @@ async def test_review_commit_stat_and_log_both_set_in_single_branch(
             AsyncMock(return_value=["src/merged.py"]),
         ),
         patch.object(runner, "_has_changes", AsyncMock(return_value=True)),
-        patch.object(runner, "_get_commit_stat", AsyncMock(return_value=stat)),
+        patch.object(runner, "_get_commit_stat", mock_stat),
         patch.object(runner, "_save_transcript"),
         caplog.at_level("INFO", logger="hydraflow.reviewer"),
     ):
@@ -2849,6 +2854,7 @@ async def test_review_commit_stat_and_log_both_set_in_single_branch(
     # Both commit_stat AND log must be present (merged condition)
     assert result.commit_stat == stat
     assert any("changed files" in r.message for r in caplog.records)
+    mock_stat.assert_called_once_with(tmp_path, "abc123")
 
 
 @pytest.mark.asyncio
