@@ -11,6 +11,25 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'Makefile'
+              - '.github/workflows/**'
+
   discover-projects:
     runs-on: ubuntu-latest
     outputs:
@@ -75,7 +94,8 @@ jobs:
 
   quality:
     runs-on: ubuntu-latest
-    needs: discover-projects
+    needs: [changes, discover-projects]
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.discover-projects.outputs.matrix) }}
