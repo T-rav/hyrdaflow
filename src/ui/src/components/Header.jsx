@@ -244,7 +244,7 @@ export function Header({ connected, orchestratorStatus }) {
             </span>
           )}
         </div>
-        <span style={connected ? dotConnected : dotDisconnected} />
+        <span style={connected && orchestratorStatus === 'running' ? dotConnected : dotDisconnected} />
       </div>
       <div style={styles.center}>
         <div style={styles.sessionBox} data-testid="session-box" aria-label="Session pipeline statistics">

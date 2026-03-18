@@ -3566,7 +3566,7 @@ def create_router(
         return JSONResponse(
             {
                 "status": "ok",
-                "slug": slug.replace("/", "-"),
+                "slug": slug,
                 "path": str(clone_target),
                 "already_cloned": already_cloned,
                 "labels_created": False,

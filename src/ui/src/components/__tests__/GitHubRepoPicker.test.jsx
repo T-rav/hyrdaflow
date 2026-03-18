@@ -129,7 +129,7 @@ describe('GitHubRepoPicker', () => {
     // Mock the clone response
     fetchSpy.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ status: 'ok', slug: 'alice-myrepo', path: '/repos/alice/myrepo' }),
+      json: () => Promise.resolve({ status: 'ok', slug: 'alice/myrepo', path: '/repos/alice/myrepo' }),
     })
 
     await act(async () => {
