@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from visual_validator import VisualValidator
 
 from baseline_policy import BaselinePolicy
+from confidence import ConfidenceSignals, ConfidenceWeights, compute_confidence
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from harness_insights import FailureCategory, HarnessInsightStore
@@ -54,6 +55,7 @@ from phase_utils import (
 )
 from post_merge_handler import PostMergeHandler
 from pr_manager import PRManager, SelfReviewError
+from release_decision import ReleasePolicy, decide_release
 from review_insights import (
     CATEGORY_DESCRIPTIONS,
     ReviewInsightStore,
@@ -63,6 +65,7 @@ from review_insights import (
     extract_categories,
 )
 from reviewer import ReviewRunner
+from risk_model import RiskDimensions, assess_risk
 from state import StateTracker
 from task_source import TaskTransitioner
 from workspace import WorkspaceManager
@@ -1046,6 +1049,157 @@ class ReviewPhase:
             return summary
         return ""
 
+    def _collect_confidence_signals(
+        self,
+        issue: Task,
+        result: ReviewResult,
+        code_scanning_alerts: list[CodeScanningAlert] | None,
+    ) -> ConfidenceSignals:
+        """Aggregate signals from existing phase outputs for confidence scoring."""
+        alert_count = len(code_scanning_alerts) if code_scanning_alerts else 0
+        stats = self._state.get_lifetime_stats()
+        total_reviews = (
+            stats.total_review_approvals + stats.total_review_request_changes
+        )
+        approval_rate = (
+            stats.total_review_approvals / total_reviews if total_reviews > 0 else 0.0
+        )
+
+        return ConfidenceSignals(
+            complexity_score=issue.complexity_score,
+            review_verdict=result.verdict,
+            ci_passed=result.ci_passed,
+            ci_fix_attempts=result.ci_fix_attempts,
+            visual_passed=result.visual_passed,
+            fixes_made=result.fixes_made,
+            code_scanning_alert_count=alert_count,
+            historical_approval_rate=min(approval_rate, 1.0),
+        )
+
+    def _collect_risk_dimensions(
+        self,
+        result: ReviewResult,
+        diff: str,
+        issue: Task,
+        visual_decision: VisualValidationDecision | None,
+    ) -> RiskDimensions:
+        """Aggregate structural dimensions for risk scoring."""
+        from escalation_gate import high_risk_diff_touched  # noqa: PLC0415
+
+        diff_lines = diff.count("\n") if diff else 0
+        files = result.files_changed
+        tests_only = (
+            all(f.startswith("tests/") or f.startswith("test_") for f in files)
+            if files
+            else False
+        )
+        visual_triggers = (
+            visual_decision.triggered_patterns
+            if visual_decision and hasattr(visual_decision, "triggered_patterns")
+            else []
+        )
+        issue_type = issue.metadata.get("type", "feature")
+
+        return RiskDimensions(
+            files_changed=files,
+            diff_line_count=diff_lines,
+            high_risk_paths_touched=high_risk_diff_touched(diff),
+            issue_type=issue_type,
+            touches_tests_only=tests_only,
+            is_epic_child=issue.parent_epic is not None,
+            visual_triggers=visual_triggers,
+        )
+
+    async def _compute_and_log_confidence(
+        self,
+        pr: PRInfo,
+        issue: Task,
+        result: ReviewResult,
+        diff: str,
+        worker_id: int,
+        code_scanning_alerts: list[CodeScanningAlert] | None = None,
+        visual_decision: VisualValidationDecision | None = None,
+    ) -> None:
+        """Compute confidence and risk scores, log and publish events.
+
+        Active in observe/advisory/enforce modes. In observe mode, only logs.
+        """
+        mode = self._config.release_confidence_mode
+        if mode == "off":
+            return
+
+        signals = self._collect_confidence_signals(issue, result, code_scanning_alerts)
+        weights = ConfidenceWeights(
+            complexity=self._config.confidence_weight_complexity,
+            plan_quality=self._config.confidence_weight_plan_quality,
+            delta_fidelity=self._config.confidence_weight_delta_fidelity,
+            review_clean=self._config.confidence_weight_review_clean,
+            ci_clean=self._config.confidence_weight_ci_clean,
+            visual_clean=self._config.confidence_weight_visual_clean,
+            escalation_free=self._config.confidence_weight_escalation_free,
+            security_clean=self._config.confidence_weight_security_clean,
+            history=self._config.confidence_weight_history,
+            rework_penalty=self._config.confidence_weight_rework_penalty,
+        )
+        confidence = compute_confidence(signals, weights)
+
+        dims = self._collect_risk_dimensions(result, diff, issue, visual_decision)
+        risk = assess_risk(dims)
+
+        policy = ReleasePolicy(
+            auto_merge_confidence=self._config.confidence_auto_merge_threshold,
+            stage_confidence=self._config.confidence_stage_threshold,
+            hold_confidence=self._config.confidence_hold_threshold,
+            reject_confidence=self._config.confidence_reject_threshold,
+            max_rework_rate=self._config.dora_max_rework_rate,
+            max_change_failure_rate=self._config.dora_max_change_failure_rate,
+        )
+        decision = decide_release(confidence, risk, policy=policy, mode=mode)
+
+        logger.info(
+            "PR #%d confidence=%.2f (%s) risk=%.2f (%s) → %s [mode=%s]",
+            pr.number,
+            confidence.score,
+            confidence.rank,
+            risk.score,
+            risk.level,
+            decision.action.value,
+            mode,
+        )
+
+        await self._bus.publish(
+            HydraFlowEvent(
+                type=EventType.CONFIDENCE_SCORE,
+                data={
+                    "pr": pr.number,
+                    "issue": issue.id,
+                    "worker": worker_id,
+                    "score": confidence.score,
+                    "rank": confidence.rank,
+                    "components": confidence.components,
+                    "summary": confidence.signals_summary,
+                },
+            )
+        )
+        await self._bus.publish(
+            HydraFlowEvent(
+                type=EventType.RELEASE_DECISION,
+                data={
+                    "pr": pr.number,
+                    "issue": issue.id,
+                    "worker": worker_id,
+                    "action": decision.action.value,
+                    "confidence_score": confidence.score,
+                    "confidence_rank": confidence.rank,
+                    "risk_score": risk.score,
+                    "risk_level": risk.level,
+                    "blast_radius": risk.blast_radius,
+                    "reasons": decision.reasons,
+                    "mode": mode,
+                },
+            )
+        )
+
     async def _handle_approved_merge(
         self,
         pr: PRInfo,
@@ -1057,6 +1211,15 @@ class ReviewPhase:
         visual_decision: VisualValidationDecision | None = None,
     ) -> None:
         """Attempt merge for an approved PR (with optional CI gate)."""
+        await self._compute_and_log_confidence(
+            pr,
+            issue,
+            result,
+            diff,
+            worker_id,
+            code_scanning_alerts,
+            visual_decision,
+        )
         await self._post_merge.handle_approved(
             pr,
             issue,
