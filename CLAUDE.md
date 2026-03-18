@@ -93,6 +93,7 @@ HydraFlow creates isolated git worktrees for each issue. **Always clean up workt
 2. Before committing: `make quality` (lint + typecheck + security + tests in parallel)
 3. If lint auto-fixes files, re-check for type errors introduced by removed imports
 4. Track your edits across files — avoid creating duplicate helpers or inconsistent naming when refactoring multiple test files
+- Merge consecutive identical if-conditions so the shared guard is evaluated once. When you see redundant chains like `if A and B: ... elif A and not B: ...`, restructure them as `if A: if B: ... else: ...` to keep the shared condition centralized and avoid logic drift.
 
 The `/hf.quality-gate` command runs a structured quality check sequence. Use it before presenting work as complete.
 
