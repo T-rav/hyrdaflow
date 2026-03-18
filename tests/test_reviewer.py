@@ -1539,6 +1539,21 @@ def test_build_review_prompt_includes_test_coverage_audit(
     assert "New branches/conditions" in prompt
 
 
+def test_build_review_prompt_includes_redundant_guard_audit(
+    config, event_bus, pr_info, task
+):
+    """Reviewer prompt must remind reviewers to flag redundant guard chains."""
+    runner = _make_runner(config, event_bus)
+    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "diff")
+
+    audits_index = prompt.index("Run project audits on changed code:")
+    guard_index = prompt.index("redundant guard conditions in if/elif chains")
+    merge_index = prompt.index("Merge-artifact check")
+
+    assert guard_index > audits_index
+    assert guard_index < merge_index
+
+
 def test_build_review_prompt_includes_scope_creep_check(
     config, event_bus, pr_info, task
 ):
