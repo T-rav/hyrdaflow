@@ -93,23 +93,18 @@ export function RegisterRepoDialog({ isOpen, onClose }) {
     onClose?.()
   }, [slug, path, submitting, addRepoBySlug, addRepoByPath, onClose])
 
-  const handlePickerSelect = useCallback(async (slug) => {
+  const handlePickerSelect = useCallback(async () => {
     setError('')
     try {
-      if (slug) {
-        const result = await addRepoBySlug(slug)
-        if (!result?.ok) {
-          setError(result?.error || 'Registration failed')
-          return
-        }
-      } else if (fetchRepos) {
+      // Clone endpoint already registers the repo — just refresh the list.
+      if (fetchRepos) {
         await fetchRepos()
       }
       onClose?.()
     } catch (err) {
       setError(err?.message || 'Registration failed')
     }
-  }, [addRepoBySlug, fetchRepos, onClose])
+  }, [fetchRepos, onClose])
 
   if (!isOpen) return null
 
