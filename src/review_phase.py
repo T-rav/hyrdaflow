@@ -73,6 +73,67 @@ from workspace import WorkspaceManager
 logger = logging.getLogger("hydraflow.review_phase")
 
 
+def _format_confidence_comment(
+    confidence: Any,
+    risk: Any,
+    decision: Any,
+) -> str:
+    """Format a PR comment with confidence/risk breakdown table."""
+    rank_emoji = {"high": "🟢", "medium": "🟡", "low": "🔴"}.get(confidence.rank, "⚪")
+    risk_emoji = {"low": "🟢", "medium": "🟡", "high": "🔴", "critical": "🔴"}.get(
+        risk.level, "⚪"
+    )
+
+    lines = [
+        "## 📊 Release Confidence Assessment",
+        "",
+        "| Metric | Value |",
+        "|--------|-------|",
+        f"| Confidence | {rank_emoji} **{confidence.score:.2f}** ({confidence.rank}) |",
+        f"| Risk | {risk_emoji} **{risk.score:.2f}** ({risk.level}) |",
+        f"| Blast Radius | {risk.blast_radius} |",
+        f"| Recommended Action | **{decision.action.value}** |",
+        "",
+        "<details>",
+        "<summary>Signal breakdown</summary>",
+        "",
+        "| Signal | Score |",
+        "|--------|-------|",
+    ]
+
+    for name, value in sorted(
+        confidence.components.items(), key=lambda kv: kv[1], reverse=True
+    ):
+        bar = "█" * int(value * 10) + "░" * (10 - int(value * 10))
+        lines.append(f"| {name} | {bar} {value:.2f} |")
+
+    lines.append("")
+    lines.append("</details>")
+
+    if risk.factors:
+        lines.append("")
+        lines.append("<details>")
+        lines.append("<summary>Risk factors</summary>")
+        lines.append("")
+        for factor in risk.factors:
+            lines.append(f"- {factor}")
+        lines.append("")
+        lines.append("</details>")
+
+    if decision.reasons:
+        lines.append("")
+        lines.append(f"**Decision reasoning:** {'; '.join(decision.reasons)}")
+
+    lines.append("")
+    lines.append(
+        f"_Mode: {decision.mode} | Not enforced_"
+        if decision.mode != "enforce"
+        else "_Mode: enforce | **Actively gating**_"
+    )
+
+    return "\n".join(lines)
+
+
 @dataclass(slots=True)
 class ReviewGuardContext:
     """Successful result from _run_initial_guards."""
@@ -1199,6 +1260,11 @@ class ReviewPhase:
                 },
             )
         )
+
+        # Advisory mode: post confidence breakdown as PR comment
+        if mode in ("advisory", "enforce"):
+            comment = _format_confidence_comment(confidence, risk, decision)
+            await self._prs.post_pr_comment(pr.number, comment)
 
     async def _handle_approved_merge(
         self,

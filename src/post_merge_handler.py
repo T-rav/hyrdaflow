@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from acceptance_criteria import AcceptanceCriteriaGenerator
+from confidence_calibration import CalibrationStore
 from config import HydraFlowConfig
 from epic import EpicCompletionChecker
 from events import EventBus, EventType, HydraFlowEvent
@@ -99,6 +100,7 @@ class PostMergeHandler:
         update_bg_worker_status: StatusCallback | None = None,
         epic_manager: EpicManager | None = None,
         store: IssueStore | None = None,
+        calibration_store: CalibrationStore | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -112,6 +114,7 @@ class PostMergeHandler:
         self._prompt_telemetry = PromptTelemetry(config)
         self._epic_manager = epic_manager
         self._store = store
+        self._calibration_store = calibration_store
 
     def _should_defer_merge(self, issue_number: int) -> bool:
         """Return True if merge should be deferred for bundled epic strategy."""
@@ -123,6 +126,41 @@ class PostMergeHandler:
             if epic is not None and epic.merge_strategy != "independent":
                 return True
         return False
+
+    def _record_confidence_outcome(self, pr: PRInfo, result: ReviewResult) -> None:
+        """Record a decision outcome for confidence calibration after merge."""
+        if self._calibration_store is None:
+            return
+        if self._config.release_confidence_mode == "off":
+            return
+
+        # Check the most recent RELEASE_DECISION event for this PR
+        for event in reversed(self._bus.get_history()):
+            if (
+                event.type == EventType.RELEASE_DECISION
+                and event.data.get("pr") == pr.number
+            ):
+                from confidence_calibration import DecisionOutcome  # noqa: PLC0415
+                from release_decision import ReleaseAction  # noqa: PLC0415
+
+                outcome = DecisionOutcome(
+                    issue_number=pr.issue_number,
+                    pr_number=pr.number,
+                    action=ReleaseAction(event.data["action"]),
+                    confidence_score=event.data.get("confidence_score", 0.0),
+                    confidence_rank=event.data.get("confidence_rank", "low"),
+                    risk_score=event.data.get("risk_score", 0.0),
+                    risk_level=event.data.get("risk_level", "low"),
+                    mode=event.data.get("mode", "off"),
+                )
+                self._calibration_store.record_outcome(outcome)
+                logger.info(
+                    "Recorded confidence outcome for PR #%d (action=%s, confidence=%.2f)",
+                    pr.number,
+                    outcome.action.value,
+                    outcome.confidence_score,
+                )
+                return
 
     async def _notify_epic_approval(self, issue_number: int) -> None:
         """Notify EpicManager that a child issue's PR was approved."""
@@ -286,6 +324,7 @@ class PostMergeHandler:
             await self._prs.close_issue(pr.issue_number)
             await self._post_inference_totals_comment(pr, issue)
             await self._run_post_merge_hooks(pr, issue, result, diff, visual_decision)
+            self._record_confidence_outcome(pr, result)
         else:
             logger.warning("PR #%d merge failed — escalating to HITL", pr.number)
             await publish_fn(pr, worker_id, "escalating")
