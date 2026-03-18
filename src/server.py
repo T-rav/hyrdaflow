@@ -44,16 +44,25 @@ async def _run_with_dashboard(config: HydraFlowConfig) -> None:
                 **({"repo": slug} if slug else {}),
             }
         )
+        # Use the GitHub slug (owner/repo) for the record, not the
+        # filesystem-safe repo_slug (owner-repo).
+        github_slug = slug or repo_cfg.repo
         record = repo_store.upsert(
             RepoRecord(
-                slug=repo_cfg.repo_slug,
-                repo=repo_cfg.repo_slug,
+                slug=github_slug,
+                repo=github_slug,
                 path=str(repo_path),
             )
         )
         if record.slug not in registry:
             await registry.register(repo_cfg)
         return record, repo_cfg
+
+    async def _remove_repo(slug: str) -> bool:
+        rt = registry.remove(slug)
+        if rt is not None:
+            await rt.stop()
+        return repo_store.remove(slug)
 
     dashboard = HydraFlowDashboard(
         config=config,
@@ -62,6 +71,7 @@ async def _run_with_dashboard(config: HydraFlowConfig) -> None:
         registry=registry,
         repo_store=repo_store,
         register_repo_cb=_register_repo,
+        remove_repo_cb=_remove_repo,
         list_repos_cb=repo_store.list,
     )
     await dashboard.start()
