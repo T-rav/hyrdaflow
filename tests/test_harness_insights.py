@@ -664,28 +664,28 @@ class TestMarkPatternProposedOSError:
 
         with (
             patch.object(
-                type(store._proposed_path),
+                type(store._proposed._file_path),
                 "write_text",
                 side_effect=OSError("disk full"),
             ),
-            caplog.at_level(logging.WARNING, logger="hydraflow.harness_insights"),
+            caplog.at_level(logging.WARNING, logger="hydraflow.dedup_store"),
         ):
             store.mark_pattern_proposed("category:quality_gate")
 
-        assert "Could not write proposed patterns" in caplog.text
+        assert "Could not write dedup set" in caplog.text
 
     def test_does_not_raise_on_write_oserror(self, tmp_path: Path) -> None:
         """mark_pattern_proposed should not raise when write_text fails."""
         store = HarnessInsightStore(memory_dir=tmp_path)
 
         with patch.object(
-            type(store._proposed_path),
+            type(store._proposed._file_path),
             "write_text",
             side_effect=OSError("read-only filesystem"),
         ):
             store.mark_pattern_proposed("category:ci_failure")  # should not raise
         # write_text failed so file should not exist
-        assert not store._proposed_path.exists()
+        assert not store._proposed._file_path.exists()
 
 
 # ---------------------------------------------------------------------------

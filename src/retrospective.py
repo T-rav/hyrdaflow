@@ -54,13 +54,19 @@ class RetrospectiveCollector:
         hindsight: HindsightClient | None = None,
         dolt: DoltBackend | None = None,
     ) -> None:
+        from dedup_store import DedupStore  # noqa: PLC0415
+
         self._config = config
         self._state = state
         self._prs = prs
         self._hindsight = hindsight
         self._dolt = dolt
         self._retro_path = config.data_path("memory", "retrospectives.jsonl")
-        self._filed_patterns_path = config.data_path("memory", "filed_patterns.json")
+        self._filed = DedupStore(
+            "filed_patterns",
+            config.data_path("memory", "filed_patterns.json"),
+            dolt=dolt,
+        )
 
     async def record(
         self,
@@ -224,9 +230,7 @@ class RetrospectiveCollector:
                 )
 
         if self._hindsight:
-            import asyncio
-
-            from hindsight import Bank, retain_safe
+            from hindsight import Bank, schedule_retain  # noqa: PLC0415
 
             content = (
                 f"Issue #{entry.issue_number} PR #{entry.pr_number}: "
@@ -234,18 +238,12 @@ class RetrospectiveCollector:
                 f"quality_fixes={entry.quality_fix_rounds}, "
                 f"review={entry.review_verdict}"
             )
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(
-                    retain_safe(
-                        self._hindsight,
-                        Bank.RETROSPECTIVES,
-                        content,
-                        context=f"retrospective for issue #{entry.issue_number}",
-                    )
-                )
-            except RuntimeError:
-                pass  # no event loop — skip dual-write
+            schedule_retain(
+                self._hindsight,
+                Bank.RETROSPECTIVES,
+                content,
+                context=f"retrospective for issue #{entry.issue_number}",
+            )
 
     def _load_recent(self, n: int) -> list[RetrospectiveEntry]:
         """Load the last *n* entries from the retrospective log."""
@@ -361,27 +359,8 @@ class RetrospectiveCollector:
 
     def _load_filed_patterns(self) -> set[str]:
         """Load the set of already-filed pattern keys."""
-        if self._dolt:
-            return self._dolt.get_dedup_set("filed_patterns")
-        if not self._filed_patterns_path.exists():
-            return set()
-        try:
-            data = json.loads(self._filed_patterns_path.read_text())
-            return set(data) if isinstance(data, list) else set()
-        except (OSError, json.JSONDecodeError):
-            return set()
+        return self._filed.get()
 
     def _save_filed_patterns(self, patterns: set[str]) -> None:
         """Persist the set of filed pattern keys."""
-        if self._dolt:
-            self._dolt.set_dedup_set("filed_patterns", patterns)
-            return
-        try:
-            self._filed_patterns_path.parent.mkdir(parents=True, exist_ok=True)
-            self._filed_patterns_path.write_text(json.dumps(sorted(patterns)))
-        except OSError:
-            logger.warning(
-                "Could not save filed patterns to %s",
-                self._filed_patterns_path,
-                exc_info=True,
-            )
+        self._filed.set_all(patterns)

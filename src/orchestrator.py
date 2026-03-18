@@ -282,8 +282,9 @@ class HydraFlowOrchestrator:
         # Close the Hindsight HTTP client if present
         from hindsight import HindsightClient
 
-        if isinstance(getattr(self._svc, "hindsight", None), HindsightClient):
-            await self._svc.hindsight.close()
+        hs = getattr(self._svc, "hindsight", None)
+        if isinstance(hs, HindsightClient):
+            await hs.close()
 
         await self._publish_status()
 

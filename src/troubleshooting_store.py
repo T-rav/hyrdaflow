@@ -98,29 +98,21 @@ class TroubleshootingPatternStore:
         self._write_all(all_patterns)
 
         if self._hindsight:
-            import asyncio
-
-            from hindsight import Bank, retain_safe
+            from hindsight import Bank, schedule_retain  # noqa: PLC0415
 
             content = f"{pattern.pattern_name}: {pattern.description}\nFix: {pattern.fix_strategy}"
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(
-                    retain_safe(
-                        self._hindsight,
-                        Bank.TROUBLESHOOTING,
-                        content,
-                        context=f"language={pattern.language} frequency={pattern.frequency}",
-                        metadata={
-                            "language": pattern.language,
-                            "pattern_name": pattern.pattern_name,
-                            "frequency": pattern.frequency,
-                            "source_issues": pattern.source_issues,
-                        },
-                    )
-                )
-            except RuntimeError:
-                pass  # no event loop — skip dual-write
+            schedule_retain(
+                self._hindsight,
+                Bank.TROUBLESHOOTING,
+                content,
+                context=f"language={pattern.language} frequency={pattern.frequency}",
+                metadata={
+                    "language": pattern.language,
+                    "pattern_name": pattern.pattern_name,
+                    "frequency": pattern.frequency,
+                    "source_issues": pattern.source_issues,
+                },
+            )
 
     def load_patterns(
         self, *, language: str | None = None, limit: int | None = 10

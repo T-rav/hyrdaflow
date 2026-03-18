@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import re
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agent_cli import build_lightweight_command
@@ -219,6 +217,13 @@ class MemorySyncWorker:
         self._manifest_syncer = manifest_syncer
         self._hindsight = hindsight
         self._dolt = dolt
+        from dedup_store import DedupStore  # noqa: PLC0415
+
+        self._adr_sources = DedupStore(
+            "adr_sources",
+            config.data_path("memory", "adr_sources.json"),
+            dolt=dolt,
+        )
 
     _TypedLearning = tuple[int, str, str, MemoryType]
     _LearningRecord = CuratedLearning | _TypedLearning
@@ -595,30 +600,11 @@ class MemorySyncWorker:
             )
         return reasons
 
-    def _adr_sources_path(self) -> Path:
-        return self._config.data_path("memory", "adr_sources.json")
-
     def _load_adr_source_ids(self) -> set[int]:
-        if self._dolt:
-            return {int(v) for v in self._dolt.get_dedup_set("adr_sources")}
-        path = self._adr_sources_path()
-        if not path.exists():
-            return set()
-        try:
-            data = json.loads(path.read_text())
-        except (OSError, json.JSONDecodeError):
-            return set()
-        if not isinstance(data, list):
-            return set()
-        return {int(x) for x in data if isinstance(x, int)}
+        return {int(v) for v in self._adr_sources.get() if v.isdigit()}
 
     def _save_adr_source_ids(self, issue_ids: set[int]) -> None:
-        if self._dolt:
-            self._dolt.set_dedup_set("adr_sources", {str(i) for i in issue_ids})
-            return
-        path = self._adr_sources_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write(path, json.dumps(sorted(issue_ids)) + "\n")
+        self._adr_sources.set_all({str(i) for i in issue_ids})
 
     async def _refresh_manifest(self, source: str) -> None:
         """Regenerate the manifest and optionally sync it upstream."""

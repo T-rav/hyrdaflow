@@ -209,6 +209,31 @@ async def recall_safe(
         return []
 
 
+def schedule_retain(
+    client: HindsightClient | None,
+    bank: Bank | str,
+    content: str,
+    *,
+    context: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """Schedule a fire-and-forget retain as an asyncio task.
+
+    No-op when *client* is None or no event loop is running.
+    """
+    import asyncio  # noqa: PLC0415
+
+    if client is None:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(
+            retain_safe(client, bank, content, context=context, metadata=metadata)
+        )
+    except RuntimeError:
+        pass  # no event loop — skip
+
+
 # ---------------------------------------------------------------------------
 # Formatting
 # ---------------------------------------------------------------------------

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from dedup_store import DedupStore
 from models import IsoTimestamp, ReviewVerdict
 
 if TYPE_CHECKING:
@@ -202,7 +202,11 @@ class ReviewInsightStore:
     ) -> None:
         self._memory_dir = memory_dir
         self._reviews_path = memory_dir / "reviews.jsonl"
-        self._proposed_path = memory_dir / "proposed_categories.json"
+        self._proposed = DedupStore(
+            "proposed_categories",
+            memory_dir / "proposed_categories.json",
+            dolt=dolt,
+        )
         self._hindsight = hindsight
         self._dolt = dolt
 
@@ -221,28 +225,20 @@ class ReviewInsightStore:
                 )
 
         if self._hindsight:
-            import asyncio
+            from hindsight import Bank, schedule_retain  # noqa: PLC0415
 
-            from hindsight import Bank, retain_safe
-
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(
-                    retain_safe(
-                        self._hindsight,
-                        Bank.REVIEW_INSIGHTS,
-                        record.summary,
-                        context=f"PR #{record.pr_number} issue #{record.issue_number} verdict={record.verdict}",
-                        metadata={
-                            "pr_number": record.pr_number,
-                            "issue_number": record.issue_number,
-                            "verdict": str(record.verdict),
-                            "categories": record.categories,
-                        },
-                    )
-                )
-            except RuntimeError:
-                pass  # no event loop — skip dual-write
+            schedule_retain(
+                self._hindsight,
+                Bank.REVIEW_INSIGHTS,
+                record.summary,
+                context=f"PR #{record.pr_number} issue #{record.issue_number} verdict={record.verdict}",
+                metadata={
+                    "pr_number": record.pr_number,
+                    "issue_number": record.issue_number,
+                    "verdict": str(record.verdict),
+                    "categories": record.categories,
+                },
+            )
 
     def load_recent(self, n: int = 10) -> list[ReviewRecord]:
         """Load the last *n* review records from disk."""
@@ -260,25 +256,11 @@ class ReviewInsightStore:
 
     def get_proposed_categories(self) -> set[str]:
         """Return the set of categories that already have filed proposals."""
-        if self._dolt:
-            return self._dolt.get_dedup_set("proposed_categories")
-        if not self._proposed_path.exists():
-            return set()
-        try:
-            data = json.loads(self._proposed_path.read_text())
-            return set(data)
-        except (json.JSONDecodeError, TypeError):
-            return set()
+        return self._proposed.get()
 
     def mark_category_proposed(self, category: str) -> None:
         """Record that an improvement proposal has been filed for *category*."""
-        if self._dolt:
-            self._dolt.add_to_dedup_set("proposed_categories", category)
-            return
-        proposed = self.get_proposed_categories()
-        proposed.add(category)
-        self._memory_dir.mkdir(parents=True, exist_ok=True)
-        self._proposed_path.write_text(json.dumps(sorted(proposed)))
+        self._proposed.add(category)
 
 
 # ---------------------------------------------------------------------------

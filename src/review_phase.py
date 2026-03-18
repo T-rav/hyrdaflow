@@ -1468,24 +1468,22 @@ class ReviewPhase:
 
             # Dual-write review rejections as troubleshooting context
             if result.verdict != ReviewVerdict.APPROVE and self._hindsight:
-                from hindsight import Bank, retain_safe  # noqa: PLC0415
+                from hindsight import Bank, schedule_retain  # noqa: PLC0415
 
-                asyncio.create_task(
-                    retain_safe(
-                        self._hindsight,
-                        Bank.TROUBLESHOOTING,
-                        f"Review rejection pattern: {result.summary[:500]}",
-                        context=(
-                            f"PR #{result.pr_number} issue #{result.issue_number}"
-                            f" verdict={result.verdict}"
-                        ),
-                        metadata={
-                            "pr_number": str(result.pr_number),
-                            "issue_number": str(result.issue_number),
-                            "verdict": str(result.verdict),
-                            "source": "review_rejection",
-                        },
-                    )
+                schedule_retain(
+                    self._hindsight,
+                    Bank.TROUBLESHOOTING,
+                    f"Review rejection pattern: {result.summary[:500]}",
+                    context=(
+                        f"PR #{result.pr_number} issue #{result.issue_number}"
+                        f" verdict={result.verdict}"
+                    ),
+                    metadata={
+                        "pr_number": str(result.pr_number),
+                        "issue_number": str(result.issue_number),
+                        "verdict": str(result.verdict),
+                        "source": "review_rejection",
+                    },
                 )
 
             recent = self._insights.load_recent(self._config.review_insight_window)

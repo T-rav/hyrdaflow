@@ -639,11 +639,16 @@ class TestFiledPatterns:
     def test_save_filed_patterns_handles_oserror(
         self, config: HydraFlowConfig, caplog: pytest.LogCaptureFixture
     ) -> None:
+        import logging
+
         collector, _, _ = _make_collector(config)
-        with patch.object(Path, "write_text", side_effect=OSError("disk full")):
+        with (
+            patch.object(Path, "write_text", side_effect=OSError("disk full")),
+            caplog.at_level(logging.WARNING, logger="hydraflow.dedup_store"),
+        ):
             collector._save_filed_patterns({"quality_fix"})  # should not raise
 
-        assert "Could not save filed patterns" in caplog.text
+        assert "Could not write dedup set" in caplog.text
 
 
 # ---------------------------------------------------------------------------
