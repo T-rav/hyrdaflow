@@ -218,7 +218,7 @@ class TestGitHubRepoEndpoints:
             response = await endpoint(req={"slug": "alice/myrepo"})
         data = json.loads(response.body)
         assert data["status"] == "ok"
-        assert data["slug"] == "alice-myrepo"
+        assert data["slug"] == "alice/myrepo"
         assert "alice" in data["path"]
         assert "myrepo" in data["path"]
 

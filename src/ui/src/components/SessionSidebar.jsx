@@ -17,6 +17,7 @@ export function SessionSidebar() {
     selectedSessionId,
     selectedRepoSlug,
     stageStatus,
+    orchestratorStatus,
     selectSession,
     selectRepo,
     deleteSession,
@@ -181,7 +182,7 @@ export function SessionSidebar() {
               </div>
 
               {isExpanded && repoSessions.map(session => {
-                const isActive = session.status === 'active'
+                const isActive = session.status === 'active' && orchestratorStatus === 'running'
                 const isCurrent = session.id === currentSessionId
                 const isSelected = session.id === selectedSessionId
                 const isHovered = session.id === hoveredSession

@@ -15,6 +15,7 @@ function defaultContext(overrides = {}) {
     currentSessionId: null,
     selectedSessionId: null,
     selectedRepoSlug: null,
+    orchestratorStatus: 'idle',
     stageStatus: { workload: { total: 0, active: 0, done: 0, failed: 0 } },
     selectSession: vi.fn(),
     selectRepo: vi.fn(),
@@ -317,6 +318,7 @@ describe('SessionSidebar active session state', () => {
         sessions: [SESSION_B],
         currentSessionId: SESSION_B.id,
         selectedSessionId: null,
+        orchestratorStatus: 'running',
       })
     )
     render(<SessionSidebar />)
@@ -330,6 +332,7 @@ describe('SessionSidebar active session state', () => {
       defaultContext({
         sessions: [SESSION_B],
         currentSessionId: SESSION_B.id,
+        orchestratorStatus: 'running',
         stageStatus: { workload: { total: 9, active: 2, done: 4, failed: 1 } },
       })
     )
