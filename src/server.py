@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import signal
+from pathlib import Path
 
 from config import HydraFlowConfig
 from log import setup_logging
@@ -16,6 +17,8 @@ async def _run_with_dashboard(config: HydraFlowConfig) -> None:
     from dashboard import HydraFlowDashboard  # noqa: PLC0415
     from events import EventBus, EventLog, EventType, HydraFlowEvent  # noqa: PLC0415
     from models import Phase  # noqa: PLC0415
+    from repo_runtime import RepoRuntimeRegistry  # noqa: PLC0415
+    from repo_store import RepoRecord, RepoRegistryStore  # noqa: PLC0415
     from state import StateTracker  # noqa: PLC0415
 
     event_log = EventLog(config.event_log_path)
@@ -27,10 +30,39 @@ async def _run_with_dashboard(config: HydraFlowConfig) -> None:
     await bus.load_history_from_disk()
     state = StateTracker(config.state_file)
 
+    repo_store = RepoRegistryStore(config.data_root)
+    registry = RepoRuntimeRegistry()
+
+    async def _register_repo(
+        repo_path: Path, slug: str | None
+    ) -> tuple[RepoRecord, HydraFlowConfig]:
+        from runtime_config import load_runtime_config  # noqa: PLC0415
+
+        repo_cfg = load_runtime_config(
+            overrides={
+                "repo_root": str(repo_path),
+                **({"repo": slug} if slug else {}),
+            }
+        )
+        record = repo_store.upsert(
+            RepoRecord(
+                slug=repo_cfg.repo_slug,
+                repo=repo_cfg.repo_slug,
+                path=str(repo_path),
+            )
+        )
+        if record.slug not in registry:
+            await registry.register(repo_cfg)
+        return record, repo_cfg
+
     dashboard = HydraFlowDashboard(
         config=config,
         event_bus=bus,
         state=state,
+        registry=registry,
+        repo_store=repo_store,
+        register_repo_cb=_register_repo,
+        list_repos_cb=repo_store.list,
     )
     await dashboard.start()
 
