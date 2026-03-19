@@ -139,13 +139,20 @@ class RepoRuntimeRegistry:
         logger.info("Registered runtime %r", runtime.slug)
         return runtime
 
+    @staticmethod
+    def _normalize(slug: str) -> str:
+        """Normalize ``owner/repo`` to the dash-separated key format."""
+        return slug.replace("/", "-") if slug else slug
+
     def get(self, slug: str) -> RepoRuntime | None:
-        """Look up a runtime by slug."""
-        return self._runtimes.get(slug)
+        """Look up a runtime by slug (accepts ``owner/repo`` or ``owner-repo``)."""
+        return self._runtimes.get(slug) or self._runtimes.get(self._normalize(slug))
 
     def remove(self, slug: str) -> RepoRuntime | None:
         """Remove and return a runtime (does not stop it)."""
-        return self._runtimes.pop(slug, None)
+        return self._runtimes.pop(slug, None) or self._runtimes.pop(
+            self._normalize(slug), None
+        )
 
     @property
     def slugs(self) -> list[str]:
@@ -167,7 +174,7 @@ class RepoRuntimeRegistry:
         return len(self._runtimes)
 
     def __contains__(self, slug: str) -> bool:
-        return slug in self._runtimes
+        return slug in self._runtimes or self._normalize(slug) in self._runtimes
 
     def __repr__(self) -> str:
         return f"<RepoRuntimeRegistry runtimes={len(self._runtimes)}>"
