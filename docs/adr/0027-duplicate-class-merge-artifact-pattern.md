@@ -93,8 +93,9 @@ Before this ADR moves to Accepted, a time-boxed audit must be completed:
 
 - **Scope:** All Python class definitions in `src/` that subclass `BaseModel`,
   use `@dataclass`, or extend `TypedDict`.
-- **Method:** Run `grep -rn "^class " src/ | sort -t: -k2` and group by class
-  name. Flag any name that appears in more than one module (excluding `tests/`).
+- **Method:** Run `grep -rn "^class " src/ | awk -F: '{print $NF, $1}' | sort` and
+  group by class name. Flag any name that appears in more than one module
+  (excluding `tests/`).
 - **Time box:** The audit must be completed within one calendar week of this ADR
   being accepted. Open a tracking issue for the audit before acceptance.
 - **Output:** Each confirmed duplicate is resolved per Rule 3 (conflict resolution
@@ -103,12 +104,13 @@ Before this ADR moves to Accepted, a time-boxed audit must be completed:
 
 ### Operational impact on HydraFlow workers
 
-- **Review agent** (`reviewer.py`): Must flag duplicate class names as a review
-  finding. A grep-based check during the review phase catches this pattern until
-  an automated lint rule replaces it (see Rule 5 automation triggers).
-- **Implementation agent** (`agent.py`): When adding new model classes, the agent
-  must search for existing classes with the same name before creating a new
-  definition.
+- **Review agent** (`src/reviewer.py:ReviewRunner`): Must flag duplicate class
+  names as a review finding. A grep-based check during the review phase catches
+  this pattern until an automated lint rule replaces it (see Rule 5 automation
+  triggers).
+- **Implementation agent** (`src/agent.py:AgentRunner`): When adding new model
+  classes, the agent must search for existing classes with the same name before
+  creating a new definition.
 - No runtime behaviour changes — this is a development and review discipline.
 
 ## Consequences
