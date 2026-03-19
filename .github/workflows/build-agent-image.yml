@@ -23,7 +23,7 @@ jobs:
   build:
     name: Build & Test
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
@@ -36,6 +36,13 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Build base image locally if not available
+        run: |
+          if ! docker pull "$BASE_IMAGE" 2>/dev/null; then
+            echo "Base image not available — building locally from Dockerfile.agent-base"
+            docker build -f Dockerfile.agent-base -t "$BASE_IMAGE" .
+          fi
 
       - name: Build image
         uses: docker/build-push-action@v6
@@ -67,7 +74,7 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     permissions:
       packages: write
     steps:
@@ -88,6 +95,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build base image locally if not available
+        run: |
+          if ! docker pull "$BASE_IMAGE" 2>/dev/null; then
+            echo "Base image not available — building locally from Dockerfile.agent-base"
+            docker build -f Dockerfile.agent-base -t "$BASE_IMAGE" .
+          fi
 
       - name: Build and push
         uses: docker/build-push-action@v6
