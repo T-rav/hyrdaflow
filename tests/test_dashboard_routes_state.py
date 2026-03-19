@@ -1737,9 +1737,10 @@ class TestRuntimeEndpointsWithRegistry:
 
         data = json_mod.loads(resp.body)
         # Default (host) repo is always included; no additional registered runtimes
-        default_entries = [r for r in data["runtimes"] if r["slug"] == config.repo]
+        default_slug = config.repo.replace("/", "-")
+        default_entries = [r for r in data["runtimes"] if r["slug"] == default_slug]
         assert len(default_entries) == 1
-        registered = [r for r in data["runtimes"] if r["slug"] != config.repo]
+        registered = [r for r in data["runtimes"] if r["slug"] != default_slug]
         assert registered == []
 
     @pytest.mark.asyncio

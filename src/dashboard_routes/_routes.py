@@ -3073,10 +3073,11 @@ def create_router(
         # Always include the default (host) repo.
         orch = get_orchestrator()
         pipeline_active = _default_repo_pipeline_running()
+        default_slug = config.repo.replace("/", "-") if config.repo else ""
         if config.repo:
             infos.append(
                 RepoRuntimeInfo(
-                    slug=config.repo,
+                    slug=default_slug,
                     repo=config.repo,
                     running=pipeline_active,
                     session_id=orch.current_session_id
@@ -3106,8 +3107,9 @@ def create_router(
         if _is_default_repo(slug):
             orch = get_orchestrator()
             pipeline_active = _default_repo_pipeline_running()
+            default_slug = config.repo.replace("/", "-") if config.repo else ""
             info = RepoRuntimeInfo(
-                slug=config.repo,
+                slug=default_slug,
                 repo=config.repo,
                 running=pipeline_active,
                 session_id=orch.current_session_id if orch and orch.running else None,
@@ -3225,9 +3227,10 @@ def create_router(
             payload: list[dict[str, Any]] = []
             for rec in records:
                 runtime = registry.get(rec.slug) if registry else None
+                safe_slug = rec.slug.replace("/", "-") if rec.slug else rec.slug
                 payload.append(
                     {
-                        "slug": rec.slug,
+                        "slug": safe_slug,
                         "repo": rec.repo,
                         "path": rec.path,
                         "running": bool(runtime.running) if runtime else False,
