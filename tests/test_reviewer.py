@@ -3273,3 +3273,146 @@ async def test_fix_review_findings_dry_run_sets_success_true(
     )
 
     assert result.success is True
+
+
+# ---------------------------------------------------------------------------
+# Symmetric field assertion checklist — coverage guard (#3191)
+# ---------------------------------------------------------------------------
+#
+# Every shared ReviewResult field populated by multiple methods must have
+# a 3-leg test checklist per method.  The guard introspects this module and
+# fails if any required test function is missing.
+
+# (method, field, [(leg_label, test_function_name), ...])
+_SHARED_FIELD_CHECKLIST: list[tuple[str, str, list[tuple[str, str]]]] = [
+    # --- files_changed ---
+    (
+        "review",
+        "files_changed",
+        [
+            ("happy_path", "test_review_success_path_with_fixes"),
+            ("populates", "test_review_populates_files_changed"),
+            (
+                "empty_when_no_changes",
+                "test_review_empty_files_changed_when_no_commits",
+            ),
+        ],
+    ),
+    (
+        "fix_ci",
+        "files_changed",
+        [
+            ("happy_path", "test_fix_ci_success_path"),
+            ("populates", "test_fix_ci_populates_files_changed"),
+            (
+                "empty_when_no_changes",
+                "test_fix_ci_empty_files_changed_when_no_commits",
+            ),
+        ],
+    ),
+    (
+        "fix_review_findings",
+        "files_changed",
+        [
+            ("happy_path", "test_fix_review_findings_success_path_with_fixes"),
+            ("populates", "test_fix_review_findings_populates_files_changed"),
+            (
+                "empty_when_no_changes",
+                "test_fix_review_findings_empty_files_changed_when_no_commits",
+            ),
+        ],
+    ),
+    # --- success (#3185 / #3187) ---
+    (
+        "review",
+        "success",
+        [
+            ("happy_path", "test_review_success_path_sets_success_true"),
+            ("failure_path", "test_review_failure_path_leaves_success_false"),
+            ("dry_run", "test_review_dry_run_sets_success_true"),
+        ],
+    ),
+    (
+        "fix_ci",
+        "success",
+        [
+            ("happy_path", "test_fix_ci_success_path_sets_success_true"),
+            ("failure_path", "test_fix_ci_failure_path_leaves_success_false"),
+            ("dry_run", "test_fix_ci_dry_run_sets_success_true"),
+        ],
+    ),
+    (
+        "fix_review_findings",
+        "success",
+        [
+            ("happy_path", "test_fix_review_findings_success_path_sets_success_true"),
+            (
+                "failure_path",
+                "test_fix_review_findings_failure_path_leaves_success_false",
+            ),
+            ("dry_run", "test_fix_review_findings_dry_run_sets_success_true"),
+        ],
+    ),
+]
+
+
+def _find_missing_shared_field_legs(
+    checklist: list[tuple[str, str, list[tuple[str, str]]]],
+    test_names: frozenset[str],
+) -> list[str]:
+    """Return human-readable descriptions of missing test legs."""
+    missing: list[str] = []
+    for method, field, legs in checklist:
+        for leg_label, test_name in legs:
+            if test_name not in test_names:
+                missing.append(f"{method}() × {field} [{leg_label}]: {test_name}")
+    return missing
+
+
+def _get_module_test_names() -> frozenset[str]:
+    """Collect all test function names defined in this module."""
+    mod = sys.modules[__name__]
+    return frozenset(name for name in dir(mod) if name.startswith("test_"))
+
+
+def test_shared_field_coverage_guard():
+    """Every shared ReviewResult field must have all required test legs.
+
+    If this test fails, a new method×field combination was added to the
+    checklist but the corresponding test functions have not been written yet.
+    """
+    test_names = _get_module_test_names()
+    missing = _find_missing_shared_field_legs(_SHARED_FIELD_CHECKLIST, test_names)
+    assert not missing, "Missing symmetric field test legs:\n" + "\n".join(
+        f"  - {m}" for m in missing
+    )
+
+
+def test_guard_detects_removed_leg():
+    """Removing test_fix_ci_populates_files_changed causes the guard to
+    fail with a message mentioning ``fix_ci() × files_changed``."""
+    test_names = _get_module_test_names() - {"test_fix_ci_populates_files_changed"}
+    missing = _find_missing_shared_field_legs(_SHARED_FIELD_CHECKLIST, test_names)
+    assert len(missing) == 1
+    assert "fix_ci() × files_changed" in missing[0]
+    assert "test_fix_ci_populates_files_changed" in missing[0]
+
+
+def test_guard_detects_uncovered_new_field():
+    """Adding a checklist entry for a field with no tests causes the guard to
+    fail, listing exactly which method×leg combinations are missing."""
+    extended = _SHARED_FIELD_CHECKLIST + [
+        (
+            "review",
+            "new_field",
+            [
+                ("happy_path", "test_review_populates_new_field"),
+                ("empty", "test_review_empty_new_field"),
+                ("integration", "test_review_new_field_integration"),
+            ],
+        ),
+    ]
+    test_names = _get_module_test_names()
+    missing = _find_missing_shared_field_legs(extended, test_names)
+    assert len(missing) == 3
+    assert all("review() × new_field" in m for m in missing)
