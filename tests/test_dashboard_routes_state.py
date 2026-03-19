@@ -1736,7 +1736,11 @@ class TestRuntimeEndpointsWithRegistry:
         import json as json_mod
 
         data = json_mod.loads(resp.body)
-        assert data == {"runtimes": []}
+        # Default (host) repo is always included; no additional registered runtimes
+        default_entries = [r for r in data["runtimes"] if r["slug"] == config.repo]
+        assert len(default_entries) == 1
+        registered = [r for r in data["runtimes"] if r["slug"] != config.repo]
+        assert registered == []
 
     @pytest.mark.asyncio
     async def test_list_runtimes_with_registered_runtime(
@@ -1759,9 +1763,9 @@ class TestRuntimeEndpointsWithRegistry:
         import json as json_mod
 
         data = json_mod.loads(resp.body)
-        assert len(data["runtimes"]) == 1
-        assert data["runtimes"][0]["slug"] == "owner-repo"
-        assert data["runtimes"][0]["running"] is False
+        registered = [r for r in data["runtimes"] if r["slug"] == "owner-repo"]
+        assert len(registered) == 1
+        assert registered[0]["running"] is False
 
     @pytest.mark.asyncio
     async def test_get_runtime_status_found(
