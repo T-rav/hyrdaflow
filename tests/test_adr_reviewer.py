@@ -270,6 +270,14 @@ class TestTitleFromContent:
             == "CLI-based Agent Runtime"
         )
 
+    def test_strips_adr_prefix_with_endash(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        content = "# ADR-0004 \u2013 CLI-based Agent Runtime\n\nBody."
+        assert (
+            reviewer._title_from_content(content, "0004-agent-cli")
+            == "CLI-based Agent Runtime"
+        )
+
     def test_fallback_to_slug(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         content = "No heading here.\n\nJust body."
