@@ -2368,6 +2368,30 @@ async def test_fix_review_findings_dry_run_returns_auto_approved(
     assert "Dry-run" in result.summary
 
 
+@pytest.mark.asyncio
+async def test_fix_review_findings_dry_run_publishes_done_event(
+    dry_config, event_bus, pr_info, task, tmp_path
+):
+    """fix_review_findings() dry-run path publishes FIX_FINDINGS_DONE event."""
+    runner = _make_runner(dry_config, event_bus)
+
+    with patch.object(runner, "_execute", AsyncMock()):
+        await runner.fix_review_findings(pr_info, task, tmp_path, "Missing null check")
+
+    events = event_bus.get_history()
+    review_events = [e for e in events if e.type == EventType.REVIEW_UPDATE]
+    statuses = [e.data["status"] for e in review_events]
+    assert ReviewerStatus.FIX_FINDINGS_DONE.value in statuses
+
+    done_event = next(
+        e
+        for e in review_events
+        if e.data["status"] == ReviewerStatus.FIX_FINDINGS_DONE.value
+    )
+    assert done_event.data["verdict"] == "approve"
+    assert done_event.data["duration"] is not None
+
+
 # ---------------------------------------------------------------------------
 # fix_review_findings — REVIEW_UPDATE events
 # ---------------------------------------------------------------------------
