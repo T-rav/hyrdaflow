@@ -96,6 +96,42 @@ class ReviewRunner(BaseRunner):
         )
         return truncated + note
 
+    async def _record_fix_outcome(
+        self,
+        result: ReviewResult,
+        worktree_path: Path,
+        before_sha: str | None,
+        transcript: str,
+        *,
+        transcript_prefix: str,
+        label: str,
+    ) -> None:
+        """Gather post-execution changes and populate *result* fields.
+
+        Shared by :meth:`review`, :meth:`fix_ci`, and
+        :meth:`fix_review_findings` to avoid duplicating the
+        change-detection / transcript-saving block.  Also saves the
+        transcript to disk via :meth:`~BaseRunner._save_transcript`.
+        """
+        result.files_changed = await self._get_changed_files(worktree_path, before_sha)
+        result.fixes_made = await self._has_changes(worktree_path, before_sha)
+        if result.fixes_made and result.files_changed:
+            result.commit_stat = await self._get_commit_stat(worktree_path, before_sha)
+            logger.info(
+                "%s for PR #%d changed files: %s",
+                label,
+                result.pr_number,
+                result.files_changed,
+            )
+        elif result.fixes_made and not result.files_changed:
+            logger.warning(
+                "PR #%d: fixes_made is True but no committed file changes detected "
+                "— agent may have left uncommitted changes or the commit was empty",
+                result.pr_number,
+            )
+        self._save_transcript(transcript_prefix, result.pr_number, transcript)
+        result.success = True
+
     async def review(
         self,
         pr: PRInfo,
@@ -164,31 +200,15 @@ class ReviewRunner(BaseRunner):
             result.verdict = self._parse_verdict(transcript)
             result.summary = self._extract_summary(transcript)
 
-            # Check if the reviewer made any commits or left uncommitted changes
-            result.files_changed = await self._get_changed_files(
-                worktree_path, before_sha
+            # Gather changes, save transcript, mark success
+            await self._record_fix_outcome(
+                result,
+                worktree_path,
+                before_sha,
+                transcript,
+                transcript_prefix="review-pr",
+                label="Review fix",
             )
-            result.fixes_made = await self._has_changes(worktree_path, before_sha)
-            if result.fixes_made:
-                if result.files_changed:
-                    result.commit_stat = await self._get_commit_stat(
-                        worktree_path, before_sha
-                    )
-                    logger.info(
-                        "Review fix for PR #%d changed files: %s",
-                        pr.number,
-                        result.files_changed,
-                    )
-                else:
-                    logger.warning(
-                        "PR #%d: fixes_made is True but no committed file changes detected "
-                        "— review commit may not have persisted all intended changes",
-                        pr.number,
-                    )
-
-            # Persist to disk
-            self._save_transcript("review-pr", pr.number, transcript)
-            result.success = True
 
         except Exception as exc:
             reraise_on_credit_or_bug(exc)
@@ -280,28 +300,14 @@ class ReviewRunner(BaseRunner):
             result.transcript = transcript
             result.verdict = self._parse_verdict(transcript)
             result.summary = self._extract_summary(transcript)
-            result.files_changed = await self._get_changed_files(
-                worktree_path, before_sha
+            await self._record_fix_outcome(
+                result,
+                worktree_path,
+                before_sha,
+                transcript,
+                transcript_prefix="review-pr",
+                label="CI fix",
             )
-            result.fixes_made = await self._has_changes(worktree_path, before_sha)
-            if result.fixes_made:
-                if result.files_changed:
-                    result.commit_stat = await self._get_commit_stat(
-                        worktree_path, before_sha
-                    )
-                    logger.info(
-                        "CI fix for PR #%d changed files: %s",
-                        pr.number,
-                        result.files_changed,
-                    )
-                else:
-                    logger.warning(
-                        "PR #%d: fixes_made is True but no committed file changes detected "
-                        "— CI fix commit may not have persisted all intended changes",
-                        pr.number,
-                    )
-            self._save_transcript("review-pr", pr.number, transcript)
-            result.success = True
         except Exception as exc:
             reraise_on_credit_or_bug(exc)
             result.verdict = ReviewVerdict.REQUEST_CHANGES
@@ -378,29 +384,14 @@ class ReviewRunner(BaseRunner):
             result.transcript = transcript
             result.verdict = self._parse_verdict(transcript)
             result.summary = self._extract_summary(transcript)
-            result.files_changed = await self._get_changed_files(
-                worktree_path, before_sha
+            await self._record_fix_outcome(
+                result,
+                worktree_path,
+                before_sha,
+                transcript,
+                transcript_prefix="review-fix",
+                label="Review-fix",
             )
-            result.fixes_made = await self._has_changes(worktree_path, before_sha)
-            if result.fixes_made:
-                if result.files_changed:
-                    result.commit_stat = await self._get_commit_stat(
-                        worktree_path, before_sha
-                    )
-                    logger.info(
-                        "Review-fix for PR #%d changed files: %s",
-                        pr.number,
-                        result.files_changed,
-                    )
-                else:
-                    logger.warning(
-                        "PR #%d: fixes_made is True but no committed file changes detected "
-                        "— review-fix commit may not have persisted all intended changes",
-                        pr.number,
-                    )
-
-            self._save_transcript("review-fix", pr.number, transcript)
-            result.success = True
         except Exception as exc:
             reraise_on_credit_or_bug(exc)
             result.verdict = ReviewVerdict.REQUEST_CHANGES

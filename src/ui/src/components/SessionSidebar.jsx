@@ -168,6 +168,20 @@ export function SessionSidebar() {
                 </div>
                 <div style={styles.repoMeta}>
                   <span style={styles.repoCount}>{repoSessions.length}</span>
+                  {(entry.info || entry.runtime) && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const slug = entry.repoSlug || entry.displayName
+                        if (isRunning) { stopRuntime(slug) } else { startRuntime(slug) }
+                      }}
+                      style={isRunning ? styles.runtimeStopBtn : styles.runtimeStartBtn}
+                      aria-label={isRunning ? 'Stop repo' : 'Start repo'}
+                      title={isRunning ? 'Stop processing' : 'Start processing'}
+                    >
+                      {isRunning ? '■' : '▶'}
+                    </button>
+                  )}
                   {entry.info && (
                     <button
                       onClick={(e) => handleDisconnect(e, entry.repoSlug || entry.displayName, isRunning)}
