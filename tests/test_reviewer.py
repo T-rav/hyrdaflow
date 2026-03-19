@@ -2551,6 +2551,11 @@ async def test_fix_review_findings_failure_path(
     assert result.verdict == ReviewVerdict.REQUEST_CHANGES
     assert "Review fix failed" in result.summary
 
+    events = event_bus.get_history()
+    review_events = [e for e in events if e.type == EventType.REVIEW_UPDATE]
+    statuses = [e.data["status"] for e in review_events]
+    assert ReviewerStatus.FIX_FINDINGS_DONE.value in statuses
+
 
 # ---------------------------------------------------------------------------
 # fix_review_findings — dry-run
@@ -2581,9 +2586,11 @@ async def test_fix_review_findings_dry_run_publishes_done_event(
     """fix_review_findings() dry-run path publishes FIX_FINDINGS_DONE event."""
     runner = _make_runner(dry_config, event_bus)
 
-    with patch.object(runner, "_execute", AsyncMock()):
+    mock_execute = AsyncMock()
+    with patch.object(runner, "_execute", mock_execute):
         await runner.fix_review_findings(pr_info, task, tmp_path, "Missing null check")
 
+    mock_execute.assert_not_called()
     events = event_bus.get_history()
     review_events = [e for e in events if e.type == EventType.REVIEW_UPDATE]
     statuses = [e.data["status"] for e in review_events]
