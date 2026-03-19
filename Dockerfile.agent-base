@@ -1,17 +1,9 @@
-# Dockerfile.agent — Hydra agent container image
+# Dockerfile.agent-base — Heavy base image with all system deps and tools
 #
-# Self-contained: builds everything from scratch by default.
-# When the pre-built base image exists, pass --build-arg to skip the
-# heavy stages and rebuild in seconds:
+# Rebuilt only when system packages, CLIs, or Python dependencies change.
+# The agent image (Dockerfile.agent) layers on top of this.
 #
-#   docker build -f Dockerfile.agent \
-#     --build-arg BASE_IMAGE=ghcr.io/t-rav/hydraflow-agent-base:latest \
-#     -t ghcr.io/t-rav/hydraflow-agent:latest .
-#
-# Test:  docker run --rm ghcr.io/t-rav/hydraflow-agent:latest bash /opt/hydraflow/docker-smoke-test.sh
-
-# Global ARG — must be before the first FROM to be usable in FROM lines
-ARG BASE_IMAGE=default-base
+# Build:  docker build -f Dockerfile.agent-base -t ghcr.io/t-rav/hydraflow-agent-base:latest .
 
 # ---------------------------------------------------------------------------
 # Stage 1: base — system packages + Node.js + gh CLI + uv
@@ -63,9 +55,9 @@ RUN uv venv /opt/hydraflow-venv \
     && UV_PROJECT_ENVIRONMENT=/opt/hydraflow-venv uv sync --all-extras --no-install-project
 
 # ---------------------------------------------------------------------------
-# Stage 3: default-base — full build from scratch (skipped when BASE_IMAGE is set)
+# Stage 3: runtime — final lean image
 # ---------------------------------------------------------------------------
-FROM base AS default-base
+FROM base AS runtime
 
 # Copy Node.js global packages (Claude, Codex, Pi CLIs)
 COPY --from=tools /usr/lib/node_modules /usr/lib/node_modules
@@ -96,13 +88,5 @@ RUN ARCH=$(dpkg --print-architecture) \
 
 WORKDIR /workspace
 USER hydraflow
-
-# ---------------------------------------------------------------------------
-# Stage 4: runtime — use pre-built base if available, otherwise default-base
-# ---------------------------------------------------------------------------
-FROM ${BASE_IMAGE} AS runtime
-
-# Copy smoke test script
-COPY scripts/docker-smoke-test.sh /opt/hydraflow/docker-smoke-test.sh
 
 CMD ["bash"]

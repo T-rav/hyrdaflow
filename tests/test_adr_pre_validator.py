@@ -895,6 +895,45 @@ class TestMismatchedADRTitle:
         assert "nonexistent_adr_reference" in codes
         assert "mismatched_adr_title" not in codes
 
+    def test_emdash_with_double_dash_captures_trailing_prose_as_title(self) -> None:
+        """Em-dash citation with a second em-dash captures trailing prose, causing mismatch.
+
+        Regression test for issue #3241: ADR-0023 cited ADR-0004 as
+        'ADR-0004 — CLI-based Agent Runtime (Claude / Codex / Pi.dev) — related...'
+        which captured everything after the first em-dash as the title.
+        The fix is to use the parenthesized format instead.
+        """
+        # The em-dash format captures through the second em-dash — this IS a mismatch
+        content = _valid_adr(
+            decision=("See ADR-0004 — Wrong Title Here — related but distinct"),
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (4, "agent cli as runtime", "content", "0004-agent-cli-as-runtime.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "mismatched_adr_title" in codes
+
+    def test_paren_title_matching_filename_slug_passes(self) -> None:
+        """Parenthesized title matching the filename-derived slug passes validation.
+
+        Regression test for issue #3241: the fix converts em-dash citations
+        to the parenthesized format so the title is clearly delimited.
+        """
+        content = _valid_adr(
+            decision=("See ADR-0004 (agent cli as runtime) — related but distinct"),
+        )
+        all_adrs = [
+            (1, "Test ADR", "content", "0001-test.md"),
+            (4, "agent cli as runtime", "content", "0004-agent-cli-as-runtime.md"),
+        ]
+        validator = ADRPreValidator()
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "mismatched_adr_title" not in codes
+
 
 class TestCheckSourceFunctionRefs:
     """Tests for phantom source symbol detection."""
