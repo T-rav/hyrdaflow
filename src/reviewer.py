@@ -115,20 +115,23 @@ class ReviewRunner(BaseRunner):
         """
         result.files_changed = await self._get_changed_files(worktree_path, before_sha)
         result.fixes_made = await self._has_changes(worktree_path, before_sha)
-        if result.fixes_made and result.files_changed:
-            result.commit_stat = await self._get_commit_stat(worktree_path, before_sha)
-            logger.info(
-                "%s for PR #%d changed files: %s",
-                label,
-                result.pr_number,
-                result.files_changed,
-            )
-        elif result.fixes_made and not result.files_changed:
-            logger.warning(
-                "PR #%d: fixes_made is True but no committed file changes detected "
-                "— agent may have left uncommitted changes or the commit was empty",
-                result.pr_number,
-            )
+        if result.fixes_made:
+            if result.files_changed:
+                result.commit_stat = await self._get_commit_stat(
+                    worktree_path, before_sha
+                )
+                logger.info(
+                    "%s for PR #%d changed files: %s",
+                    label,
+                    result.pr_number,
+                    result.files_changed,
+                )
+            else:
+                logger.warning(
+                    "PR #%d: fixes_made is True but no committed file changes detected "
+                    "— agent may have left uncommitted changes or the commit was empty",
+                    result.pr_number,
+                )
         self._save_transcript(transcript_prefix, result.pr_number, transcript)
         result.success = True
 
