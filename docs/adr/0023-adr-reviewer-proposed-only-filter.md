@@ -1,7 +1,8 @@
 # ADR-0023: ADR Reviewer Proposed-Only Filter and Validator Scope
 
-**Status:** Proposed
-**Date:** 2026-03-07
+**Status:** Rejected
+**Date:** 2026-03-18
+**Rejection reason:** Council consensus (issue #3213) — content is below the ADR significance threshold (filter-method-filters-things is an obvious invariant), rationale belongs in inline docstrings rather than a permanent architectural record, and the ADR number collides with multiple existing documents (a hard blocker requiring resubmission). The underlying Proposed-only filter design is not disputed; the ADR-as-document was rejected.
 
 ## Context
 
