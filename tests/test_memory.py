@@ -2226,6 +2226,9 @@ class TestMemoryAutoApproveRouting:
         assert state.get_hitl_cause(777) is None, (
             f"{memory_type} suggestions should skip HITL"
         )
+        assert state.get_hitl_origin(777) is None, (
+            f"{memory_type} suggestions should not set hitl_origin when auto-approve is on"
+        )
         call_labels = mock_prs.create_issue.call_args.args[2]
         assert config.hitl_label[0] not in call_labels, (
             f"{memory_type} suggestions should not include HITL label"

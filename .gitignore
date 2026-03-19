@@ -209,7 +209,6 @@ __marimo__/
 
 # Node
 node_modules/
-node_modules
 
 # Playwright e2e artifacts (generated; platform-specific PNGs must not be committed)
 src/ui/e2e/screenshots/
