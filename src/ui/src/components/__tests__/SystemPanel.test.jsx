@@ -869,5 +869,20 @@ describe('MemoryAutoApproveToggle', () => {
     })
     fetchSpy.mockRestore()
   })
+
+  it('reverts toggle state when fetch throws a network error', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network error'))
+    mockUseHydraFlow.mockReturnValue(defaultMockContext({
+      orchestratorStatus: 'running',
+      config: { memory_auto_approve: false },
+    }))
+    render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
+    const btn = screen.getByTestId('memory-auto-approve-btn')
+    fireEvent.click(btn)
+    await waitFor(() => {
+      expect(btn).toHaveTextContent('Off')
+    })
+    fetchSpy.mockRestore()
+  })
 })
 

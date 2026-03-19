@@ -2170,6 +2170,7 @@ class TestMemoryAutoApproveRouting:
         )
 
         assert state.get_hitl_cause(501) is None
+        assert state.get_hitl_origin(501) is None
         call_labels = mock_prs.create_issue.call_args.args[2]
         assert call_labels == list(config.improve_label)
 

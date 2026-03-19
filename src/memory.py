@@ -167,7 +167,7 @@ async def file_memory_suggestion(
     )
     title = f"[Memory] {suggestion['title']}"
 
-    # Routing: when auto-approve is on, all types bypass HITL
+    # Routing: when auto-approve is on, actionable types skip HITL and go directly to improve pipeline
     if config.memory_auto_approve:
         labels = list(config.improve_label)
         hitl_cause = None
