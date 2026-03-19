@@ -1,7 +1,7 @@
 # ADR-0015: Protocol-Based Callback Injection for Merge-Phase Gates
 
-**Status:** Proposed
-**Date:** 2026-03-01
+**Status:** Accepted
+**Date:** 2026-03-18
 
 ## Context
 
@@ -53,7 +53,7 @@ for all merge-phase gates in HydraFlow. Specifically:
 
 4. **Use decision objects for multi-factor gates**. Where a gate's outcome
    depends on multiple inputs (file patterns, labels, overrides), return a
-   typed decision object (`VisualValidationDecision`, `EscalationDecision`)
+   typed decision object (`VisualValidationDecision`, `EscalationDecision` [^2])
    rather than a bare boolean.
 
 5. **Follow the four-phase protocol** for every new gate:
@@ -72,14 +72,14 @@ for all merge-phase gates in HydraFlow. Specifically:
 | Merge conflict fix | Async callback | `MergeConflictFixFn` | `max_merge_conflict_fix_attempts > 0` |
 | Escalation | Async callback | `EscalateFn` | `debug_escalation_enabled` |
 | Status publishing | Async callback | `PublishFn` | Always active [^1] |
-| Adversarial threshold | Async method (not yet injected) | `_check_adversarial_threshold` | `min_review_findings > 0` |
+| Adversarial threshold | Async method (not yet injected) | — (not yet a Protocol) | `min_review_findings > 0` |
 
 **Note:** The visual validation row represents the pre-gate decision object that
 determines *whether* validation is required. The visual gate row (`VisualGateFn`)
 is the actual async callback that enforces the gate at merge time. The adversarial
 threshold is currently an embedded async method on `ReviewPhase` rather than an
-injected Protocol callback — it follows the four-phase protocol pattern but does
-not yet conform to Rule 2 (injection as a parameter).
+injected Protocol callback — it follows the four-phase protocol pattern but has
+not yet been extracted into a Protocol (Rules 1–2).
 
 [^1]: **Rule 3 exception — Status publishing.** `PublishFn` is an infrastructure
 callback that broadcasts state transitions to the dashboard via WebSocket. It is
@@ -87,6 +87,16 @@ always active because disabling it would silently break observability for all
 gates. Unlike feature gates, it has no independent business logic to guard; it
 is a cross-cutting concern analogous to logging. This exception is intentional
 and does not warrant a config toggle.
+
+[^2]: **Rule 4 exception — `EscalationDecision`.** `EscalationDecision` is a
+`@dataclass` defined in `src/escalation_gate.py` rather than a `BaseModel` in
+`src/models.py`. The established convention (set by `VisualValidationDecision` in
+`models.py`) places decision objects centrally, but `EscalationDecision` is
+co-located with `should_escalate_debug()` in `escalation_gate.py` because the
+decision type is tightly coupled to that gate module. Its only external caller
+is `precheck.py:run_precheck_context`, which consumes the `.escalate` field to
+decide whether to launch the debug agent. This mirrors the `PublishFn`
+exception in spirit: pragmatic co-location where the type has a narrow scope.
 
 ## Consequences
 
@@ -102,7 +112,11 @@ and does not warrant a config toggle.
 - Callers must wire up callbacks explicitly, increasing `handle_approved()`
   parameter count as gates accumulate.
 - Sync decision objects and async callbacks coexist, requiring developers to
-  choose the right variant for each gate type.
+  choose the right variant for each gate type. **Heuristic:** use a sync
+  decision object when the gate outcome is computed from in-memory data
+  (config flags, labels, file patterns) with no I/O; use an async callback
+  when the gate must perform I/O (HTTP calls, subprocess execution, file
+  system checks) or coordinate with external services.
 
 ## Alternatives considered
 
