@@ -472,9 +472,10 @@ class TestRuntimeLifecycleEndpoints:
         import json
 
         data = json.loads(resp.body)
-        assert len(data["runtimes"]) == 1
-        assert data["runtimes"][0]["slug"] == "org-repo"
-        assert data["runtimes"][0]["running"] is True
+        # First entry is the default (host) repo, subsequent are registered runtimes
+        registered = [r for r in data["runtimes"] if r["slug"] == "org-repo"]
+        assert len(registered) == 1
+        assert registered[0]["running"] is True
 
     @pytest.mark.asyncio
     async def test_get_runtime_status_not_found(
