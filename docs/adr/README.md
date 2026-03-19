@@ -36,7 +36,7 @@ Consequences), use `module:function_or_class` format (e.g. `src/config.py:HydraF
 | [0019](0019-background-task-delegation-abstraction-layer.md) | Background Task Delegation Abstraction Layer | Accepted |
 | [0020](0020-autoApproveRow-border-context-awareness.md) | autoApproveRow Border Context Awareness | Superseded |
 | [0021](0021-persistence-architecture-and-data-layout.md) | Persistence Architecture and Data Layout | Accepted |
-| [0022](0022-integration-test-architecture-cross-phase.md) | Pipeline Integration Harness for Cross-Phase Testing | Proposed |
+| [0022](0022-integration-test-architecture-cross-phase.md) | Integration Test Architecture — Cross-Phase Pipeline Harness | Accepted |
 | [0023](0023-gate-triage-call-not-hitl-fallback.md) | Gate Triage Call on Config Toggle, Not Just HITL Fallback | Superseded |
 | [0023](0023-tests-must-match-toggle-state-they-assert.md) | Tests Must Match Toggle State They Assert | Proposed |
 | [0023](0023-auto-triage-toggle-must-gate-routing.md) | Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking | Accepted |

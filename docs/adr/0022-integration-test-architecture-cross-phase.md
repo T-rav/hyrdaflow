@@ -1,4 +1,4 @@
-# ADR-0022: Pipeline Integration Harness for Cross-Phase Testing
+# ADR-0022: Integration Test Architecture — Cross-Phase Pipeline Harness
 
 **Status:** Accepted
 **Date:** 2026-03-06
@@ -7,16 +7,17 @@
 
 HydraFlow's orchestrator spans five asynchronous phases that all rely on a shared
 `IssueStore`, persistent `StateTracker`, and in-process `EventBus`. Individual test
-modules cover each phase in isolation (see `tests/helpers.py` `make_plan_phase`, `make_implement_phase`, etc. for the
-single-phase factories), but regressions have started to appear when changes alter
-how queues, runners, and GitHub labels interact across phase boundaries. Issue
-#1953 captured the lesson learned while debugging those regressions: integration
-tests must exercise the real queueing/data layers so they see the same routing
-logic implemented in `src/issue_store.py`, the label-to-stage mapping in
-`HydraFlowConfig` (`src/config.py`), and the persistence semantics inside
-`src/state.py`.
+modules cover each phase in isolation (see `tests/helpers.py` `make_plan_phase`,
+`make_implement_phase`, etc. for the single-phase factories), but regressions
+started to appear when changes altered how queues, runners, and GitHub labels
+interact across phase boundaries. Issue #1953 captured the lesson learned while
+debugging those regressions: integration tests must exercise the real queueing and
+data layers so they see the same routing logic implemented in
+`src/issue_store.py:IssueStore`, the label-to-stage mapping in
+`src/config.py:HydraFlowConfig`, and the persistence semantics inside
+`src/state:StateTracker`.
 
-Several concrete requirements flow from today's code:
+Several concrete requirements flow from the production code:
 
 - `IssueStore` manages internal queues via `enqueue_transition()`, which places a
   `Task` into the appropriate stage queue and publishes queue-update events.
@@ -32,14 +33,16 @@ Several concrete requirements flow from today's code:
   `await asyncio.sleep(0)` so those fire-and-forget `EventBus.publish()` tasks drain
   before making assertions.
 - Planner/implement/review loops need the persisted state transitions tracked by
-  `StateTracker` (`src/state.py`). Using the real tracker against a `tmp_path`
+  `src/state:StateTracker`. Using the real tracker against a `tmp_path`
   ensures the harness observes activity counters, crate membership, and crash
   recovery semantics that single-phase mocks currently skip.
 
 ## Decision
 
-Adopt a dedicated **Pipeline Harness** for cross-phase integration tests that uses
-real queueing/state components and controlled mocks for external systems.
+Ratify the existing **Pipeline Harness** pattern for cross-phase integration tests.
+The harness, already implemented in `tests/helpers.py:PipelineHarness` and exercised
+by `tests/test_integration_pipeline.py`, uses real queueing and state components with
+controlled mocks for external systems.
 
 ### Harness composition
 
@@ -54,14 +57,14 @@ real queueing/state components and controlled mocks for external systems.
    is an `AsyncMock` that is not invoked during normal harness operation.
 3. **Phase runners:** Keep runners that invoke external AI agents or GitHub APIs
    mocked (`TriageRunner`, `PlannerRunner`, `AgentRunner`, `ReviewRunner`, and the
-   `PRManager`). They expose deterministic hooks (e.g., AsyncMocks) the tests can
-   assert on while allowing the harness to drive real orchestrator loops.
-4. **Event propagation:** Share the `EventBus` instance with every phase so queue
-   metrics, worker updates, and transcript events mirror production routing.
+   `PRManager`). They expose deterministic hooks (e.g., `AsyncMock` side effects)
+   that tests assert on while allowing the harness to drive real orchestrator loops.
+4. **Event propagation:** The `EventBus` instance is shared with every phase so
+   queue metrics, worker updates, and transcript events mirror production routing.
    Integration tests subscribe to the bus via `async for` iterators or capture
    snapshots directly from `EventBus` to verify emitted events.
-5. **Clocking:** Manage a single `asyncio.Event` stop flag so the harness can start
-   and stop each phase loop deterministically while still running inside
+5. **Clocking:** A single `asyncio.Event` stop flag lets the harness start and stop
+   each phase loop deterministically while still running inside
    `pytest.mark.asyncio` tests.
 
 ### Execution semantics
