@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from base_runner import BaseRunner
 from config import HydraFlowConfig
 from events import EventBus, EventType
-from hitl_runner import HITLRunner, _classify_cause
+from hitl_runner import HITLRunner, _classify_cause, classify_cause
 from models import LoopResult
 from tests.conftest import HITLResultFactory, IssueFactory
 
@@ -100,6 +100,29 @@ class TestClassifyCause:
         # "deficit" contains "ci" as a substring — should not misclassify
         assert _classify_cause("deficit in implementation coverage") == "default"
 
+    def test_scope_creep_maps_correctly(self) -> None:
+        assert (
+            classify_cause("scope creep from previous agent attempts") == "scope_creep"
+        )
+
+    def test_scope_unrelated_maps_to_scope_creep(self) -> None:
+        assert classify_cause("scope: unrelated files changed") == "scope_creep"
+
+    def test_scope_creep_case_insensitive(self) -> None:
+        assert classify_cause("Scope Creep detected in branch") == "scope_creep"
+
+    def test_scope_creep_before_ci(self) -> None:
+        """scope_creep should match before ci when both keywords present."""
+        assert classify_cause("scope creep in CI branch") == "scope_creep"
+
+    def test_scope_without_creep_or_unrelated_is_default(self) -> None:
+        """'scope' alone (without 'creep' or 'unrelated') should not match."""
+        assert classify_cause("out of scope issue") == "default"
+
+    def test_classify_cause_is_public_alias(self) -> None:
+        """classify_cause and _classify_cause should be the same function."""
+        assert classify_cause is _classify_cause
+
 
 # ---------------------------------------------------------------------------
 # Prompt building
@@ -165,6 +188,14 @@ class TestBuildPrompt:
         assert "visual" in prompt.lower()
         assert "screenshot" in prompt.lower()
         assert "visual regression" in prompt.lower()
+
+    def test_prompt_uses_scope_creep_instructions(self, hitl_runner) -> None:
+        issue = IssueFactory.create(number=42)
+        prompt, _ = hitl_runner._build_prompt_with_stats(
+            issue, "Remove unrelated files", "scope creep from previous attempts"
+        )
+        assert "git reset --soft main" in prompt
+        assert "scope-creep" in prompt.lower()
 
     def test_prompt_includes_issue_number_in_commit_message(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=99)

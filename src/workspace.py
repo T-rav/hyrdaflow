@@ -599,6 +599,76 @@ class WorkspaceManager:
             "Reset worktree %s to origin/%s", worktree_path, self._config.main_branch
         )
 
+    async def soft_reset_to_main(self, worktree_path: Path) -> None:
+        """Soft-reset worktree to ``origin/main`` and unstage all files.
+
+        Preserves the working-tree contents so that callers can selectively
+        re-stage only the in-scope changes.  Each git step has its own
+        try/except so failures are attributable (learning #3305).
+        """
+        try:
+            await self._fetch_origin_with_retry(worktree_path, self._config.main_branch)
+        except RuntimeError:
+            logger.error("soft_reset_to_main: fetch failed in %s", worktree_path)
+            raise
+
+        try:
+            await run_subprocess(
+                "git",
+                "reset",
+                "--soft",
+                f"origin/{self._config.main_branch}",
+                cwd=worktree_path,
+                gh_token=self._config.gh_token,
+            )
+        except RuntimeError:
+            logger.error(
+                "soft_reset_to_main: git reset --soft failed in %s",
+                worktree_path,
+            )
+            raise
+
+        try:
+            await run_subprocess(
+                "git",
+                "reset",
+                "HEAD",
+                cwd=worktree_path,
+                gh_token=self._config.gh_token,
+            )
+        except RuntimeError:
+            logger.error(
+                "soft_reset_to_main: git reset HEAD (unstage) failed in %s",
+                worktree_path,
+            )
+            raise
+
+        logger.info(
+            "Soft-reset worktree %s to origin/%s (unstaged)",
+            worktree_path,
+            self._config.main_branch,
+        )
+
+    async def get_branch_diff_stat(self, worktree_path: Path) -> list[str]:
+        """Return the list of files changed on the branch relative to main.
+
+        Runs ``git diff main...HEAD --stat --name-only`` in *worktree_path*.
+        Returns an empty list on failure.
+        """
+        try:
+            output = await run_subprocess(
+                "git",
+                "diff",
+                f"origin/{self._config.main_branch}...HEAD",
+                "--name-only",
+                cwd=worktree_path,
+                gh_token=self._config.gh_token,
+            )
+            return [f.strip() for f in output.strip().splitlines() if f.strip()]
+        except RuntimeError:
+            logger.warning("Could not get branch diff stat in %s", worktree_path)
+            return []
+
     async def merge_main(self, worktree_path: Path, branch: str) -> bool:
         """Merge latest main into *branch* inside *worktree_path*.
 

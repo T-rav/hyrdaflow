@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
-from hitl_runner import HITLRunner
+from hitl_runner import HITLRunner, classify_cause
 from issue_fetcher import IssueFetcher
 from issue_store import IssueStore
 from models import GitHubIssue, HITLUpdatePayload
@@ -213,6 +213,22 @@ class HITLPhase:
                 await self._prs.swap_pipeline_labels(
                     issue_number, self._config.hitl_active_label[0]
                 )
+
+                # Pre-run scope-creep cleanup: reset branch to main and
+                # let the HITL agent selectively re-apply in-scope changes.
+                if classify_cause(cause) == "scope_creep":
+                    try:
+                        await self._worktrees.soft_reset_to_main(wt_path)
+                        logger.info(
+                            "Scope-creep cleanup: soft-reset branch for issue #%d",
+                            issue_number,
+                        )
+                    except RuntimeError as exc:
+                        logger.warning(
+                            "Scope-creep cleanup failed for issue #%d: %s",
+                            issue_number,
+                            exc,
+                        )
 
                 result = await self._hitl_runner.run(issue, correction, cause, wt_path)
 

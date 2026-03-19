@@ -17,7 +17,9 @@ from runner_constants import MEMORY_SUGGESTION_PROMPT
 
 logger = logging.getLogger("hydraflow.hitl_runner")
 
-HITLCauseKey = Literal["ci", "merge_conflict", "needs_info", "visual", "default"]
+HITLCauseKey = Literal[
+    "ci", "merge_conflict", "needs_info", "scope_creep", "visual", "default"
+]
 
 # Prompt instructions keyed by escalation cause category.
 _CAUSE_INSTRUCTIONS: dict[HITLCauseKey, str] = {
@@ -56,6 +58,17 @@ _CAUSE_INSTRUCTIONS: dict[HITLCauseKey, str] = {
         "5. Run `make quality` to verify.\n"
         '6. Commit with message: "hitl-fix: resolve visual regression (#{issue})".'
     ),
+    "scope_creep": (
+        "The branch has scope-creep from previous agent attempts.\n"
+        "Files unrelated to the issue were modified or committed.\n"
+        "1. Run `git diff main...HEAD --stat` to see all changed files.\n"
+        "2. Identify which files are relevant to the issue and which are not.\n"
+        "3. Run `git reset --soft main` to unstage everything.\n"
+        "4. Selectively `git add` only the files related to the issue.\n"
+        "5. Discard unrelated changes with `git checkout -- <file>`.\n"
+        "6. Run `make quality` to verify the in-scope changes pass.\n"
+        '7. Commit with message: "hitl-fix: remove scope-creep (#{issue})".'
+    ),
     "default": (
         "This issue was escalated to human review.\n"
         "The human operator has provided guidance below.\n"
@@ -67,13 +80,16 @@ _CAUSE_INSTRUCTIONS: dict[HITLCauseKey, str] = {
 }
 
 
-def _classify_cause(cause: str) -> HITLCauseKey:
+def classify_cause(cause: str) -> HITLCauseKey:
     """Map a free-text escalation cause to a prompt template key."""
     lower = cause.lower()
     # Check visual BEFORE needs_info — visual summaries can contain "needs"
     # (e.g. "login screen needs baseline update").
     if any(kw in lower for kw in ("visual", "screenshot", "diff image")):
         return "visual"
+    # Check scope_creep BEFORE needs_info/ci — "scope" is unambiguous.
+    if "scope" in lower and ("creep" in lower or "unrelated" in lower):
+        return "scope_creep"
     # Check needs_info BEFORE ci — "insufficient" contains the substring "ci".
     if "insufficient" in lower or "needs" in lower or "detail" in lower:
         return "needs_info"
@@ -82,6 +98,10 @@ def _classify_cause(cause: str) -> HITLCauseKey:
     if "merge" in lower and "conflict" in lower:
         return "merge_conflict"
     return "default"
+
+
+# Backward-compatible alias for internal callers.
+_classify_cause = classify_cause
 
 
 class HITLRunner(BaseRunner):
@@ -176,7 +196,7 @@ class HITLRunner(BaseRunner):
         self, issue: GitHubIssue, correction: str, cause: str
     ) -> tuple[str, dict[str, object]]:
         """Build the HITL prompt with pruning stats."""
-        cause_key = _classify_cause(cause)
+        cause_key = classify_cause(cause)
         instructions = _CAUSE_INSTRUCTIONS[cause_key].replace(
             "#{issue}", f"#{issue.number}"
         )

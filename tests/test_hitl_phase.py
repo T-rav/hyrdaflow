@@ -847,3 +847,89 @@ class TestHITLAutoFix:
 
         assert 42 not in phase._hitl_corrections
         assert 43 not in phase._hitl_corrections
+
+
+# ---------------------------------------------------------------------------
+# HITL scope-creep branch cleanup
+# ---------------------------------------------------------------------------
+
+
+class TestHITLScopeCreepCleanup:
+    """Tests for scope-creep branch reset in _process_one_hitl."""
+
+    @pytest.mark.asyncio
+    async def test_scope_creep_cause_triggers_soft_reset(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When cause classifies as scope_creep, soft_reset_to_main is called."""
+        phase, state, fetcher, prs, wt, runner, _bus = make_hitl_phase(config)
+        issue = TaskFactory.create(id=42, title="Fix scope creep")
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "scope creep from previous agent attempts")
+
+        runner.run = AsyncMock(return_value=HITLResultFactory.create())
+
+        semaphore = asyncio.Semaphore(1)
+        await phase._process_one_hitl(42, "Remove unrelated files", semaphore)
+
+        wt.soft_reset_to_main.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_non_scope_creep_cause_skips_soft_reset(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When cause is not scope_creep, soft_reset_to_main is not called."""
+        phase, state, fetcher, prs, wt, runner, _bus = make_hitl_phase(config)
+        issue = TaskFactory.create(id=42, title="Fix CI")
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "CI failed after 2 fix attempt(s)")
+
+        runner.run = AsyncMock(return_value=HITLResultFactory.create())
+
+        semaphore = asyncio.Semaphore(1)
+        await phase._process_one_hitl(42, "Fix the tests", semaphore)
+
+        wt.soft_reset_to_main.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_scope_creep_cleanup_failure_does_not_block_runner(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """If soft_reset_to_main fails, the HITL runner should still execute."""
+        phase, state, fetcher, prs, wt, runner, _bus = make_hitl_phase(config)
+        issue = TaskFactory.create(id=42, title="Fix scope creep")
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "scope creep from previous agent attempts")
+
+        wt.soft_reset_to_main = AsyncMock(side_effect=RuntimeError("reset failed"))
+        runner.run = AsyncMock(return_value=HITLResultFactory.create())
+
+        semaphore = asyncio.Semaphore(1)
+        await phase._process_one_hitl(42, "Remove unrelated files", semaphore)
+
+        # Runner still executed despite cleanup failure
+        runner.run.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_scope_creep_with_no_cause_uses_default(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """When no cause is stored, classify_cause('Unknown escalation') -> default."""
+        phase, state, fetcher, prs, wt, runner, _bus = make_hitl_phase(config)
+        issue = TaskFactory.create(id=42, title="Test")
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        # No hitl_cause set — falls back to "Unknown escalation"
+
+        runner.run = AsyncMock(return_value=HITLResultFactory.create())
+
+        semaphore = asyncio.Semaphore(1)
+        await phase._process_one_hitl(42, "Fix it", semaphore)
+
+        wt.soft_reset_to_main.assert_not_awaited()

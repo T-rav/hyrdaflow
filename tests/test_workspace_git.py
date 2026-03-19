@@ -731,3 +731,151 @@ class TestGetMainCommitsSinceDiverge:
         # Second call is git log
         log_call = mock_exec.call_args_list[1]
         assert "-30" in log_call.args
+
+
+# ---------------------------------------------------------------------------
+# WorkspaceManager.soft_reset_to_main
+# ---------------------------------------------------------------------------
+
+
+class TestSoftResetToMain:
+    """Tests for WorkspaceManager.soft_reset_to_main."""
+
+    @pytest.mark.asyncio
+    async def test_success_runs_three_git_commands(
+        self, config, tmp_path: Path
+    ) -> None:
+        """soft_reset_to_main should fetch, reset --soft, then reset HEAD."""
+        manager = WorkspaceManager(config)
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*cmd, **kwargs):
+            calls.append(tuple(str(p) for p in cmd))
+            return ""
+
+        with patch("workspace.run_subprocess", side_effect=fake_run):
+            await manager.soft_reset_to_main(tmp_path)
+
+        assert len(calls) == 3
+        # 1. git fetch origin main
+        assert calls[0][:3] == ("git", "fetch", "origin")
+        # 2. git reset --soft origin/main
+        assert calls[1][:3] == ("git", "reset", "--soft")
+        assert f"origin/{config.main_branch}" in calls[1]
+        # 3. git reset HEAD (unstage)
+        assert calls[2] == ("git", "reset", "HEAD")
+
+    @pytest.mark.asyncio
+    async def test_fetch_failure_raises_and_skips_reset(
+        self, config, tmp_path: Path
+    ) -> None:
+        """If fetch fails, should raise RuntimeError without running reset."""
+        manager = WorkspaceManager(config)
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*cmd, **kwargs):
+            calls.append(tuple(str(p) for p in cmd))
+            if cmd[:3] == ("git", "fetch", "origin"):
+                raise RuntimeError("network error")
+            return ""
+
+        with (
+            patch("workspace.run_subprocess", side_effect=fake_run),
+            pytest.raises(RuntimeError, match="network error"),
+        ):
+            await manager.soft_reset_to_main(tmp_path)
+
+        # Only fetch was attempted
+        assert len(calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_soft_reset_failure_raises_and_skips_unstage(
+        self, config, tmp_path: Path
+    ) -> None:
+        """If git reset --soft fails, should raise without running unstage."""
+        manager = WorkspaceManager(config)
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*cmd, **kwargs):
+            calls.append(tuple(str(p) for p in cmd))
+            if "--soft" in cmd:
+                raise RuntimeError("reset failed")
+            return ""
+
+        with (
+            patch("workspace.run_subprocess", side_effect=fake_run),
+            pytest.raises(RuntimeError, match="reset failed"),
+        ):
+            await manager.soft_reset_to_main(tmp_path)
+
+        # Fetch succeeded, reset --soft failed, unstage not attempted
+        assert len(calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_unstage_failure_raises(self, config, tmp_path: Path) -> None:
+        """If git reset HEAD (unstage) fails, should raise."""
+        manager = WorkspaceManager(config)
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*cmd, **kwargs):
+            calls.append(tuple(str(p) for p in cmd))
+            if cmd == ("git", "reset", "HEAD"):
+                raise RuntimeError("unstage failed")
+            return ""
+
+        with (
+            patch("workspace.run_subprocess", side_effect=fake_run),
+            pytest.raises(RuntimeError, match="unstage failed"),
+        ):
+            await manager.soft_reset_to_main(tmp_path)
+
+        assert len(calls) == 3
+
+
+# ---------------------------------------------------------------------------
+# WorkspaceManager.get_branch_diff_stat
+# ---------------------------------------------------------------------------
+
+
+class TestGetBranchDiffStat:
+    """Tests for WorkspaceManager.get_branch_diff_stat."""
+
+    @pytest.mark.asyncio
+    async def test_returns_changed_files(self, config, tmp_path: Path) -> None:
+        manager = WorkspaceManager(config)
+        proc = make_proc(returncode=0, stdout=b"src/foo.py\nsrc/bar.py\n")
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            result = await manager.get_branch_diff_stat(tmp_path)
+
+        assert result == ["src/foo.py", "src/bar.py"]
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_failure(self, config, tmp_path: Path) -> None:
+        manager = WorkspaceManager(config)
+        proc = make_proc(returncode=1, stderr=b"fatal: bad revision")
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            result = await manager.get_branch_diff_stat(tmp_path)
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_no_changes(self, config, tmp_path: Path) -> None:
+        manager = WorkspaceManager(config)
+        proc = make_proc(returncode=0, stdout=b"")
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            result = await manager.get_branch_diff_stat(tmp_path)
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_strips_whitespace(self, config, tmp_path: Path) -> None:
+        manager = WorkspaceManager(config)
+        proc = make_proc(returncode=0, stdout=b"  foo.py  \n  bar.py  \n\n")
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            result = await manager.get_branch_diff_stat(tmp_path)
+
+        assert result == ["foo.py", "bar.py"]
