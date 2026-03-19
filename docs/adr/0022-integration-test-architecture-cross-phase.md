@@ -49,7 +49,9 @@ controlled mocks for external systems.
 
 1. **Core services:** Instantiate `HydraFlowConfig`, `StateTracker`, `EventBus`, and
    `IssueStore` exactly as production code does. The tracker persists to a
-   temporary directory so repeated phase invocations observe real disk writes.
+   temporary directory so repeated phase invocations observe real disk writes,
+   including crash-recovery markers and pause/resume semantics that detect
+   regressions only surfacing when HydraFlow processes restart.
 2. **Task seeding:** Seed work into `IssueStore` queues via `seed_issue()`, which
    calls `IssueStore.enqueue_transition(task, stage)` to place a `Task` directly
    into the target stage queue (where `stage` is an `IssueStoreStage` value, the
