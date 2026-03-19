@@ -170,7 +170,7 @@ export function SessionSidebar() {
                 </div>
                 <div style={styles.repoMeta}>
                   <span style={styles.repoCount}>{repoSessions.length}</span>
-                  {entry.info && (
+                  {(entry.info || entry.runtime) && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
