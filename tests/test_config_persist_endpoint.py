@@ -232,3 +232,26 @@ class TestPatchConfigEndpoint:
 
         assert data["status"] == "ok"
         assert config.max_workers == 10
+
+    @pytest.mark.asyncio
+    async def test_patch_config_skips_persist_when_no_changes_applied(
+        self, event_bus: EventBus, state, tmp_path: Path
+    ) -> None:
+        """PATCH with only unknown fields should not write to disk even with persist=true."""
+        config_path = tmp_path / ".hydraflow" / "config.json"
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path / "repo",
+            worktree_base=tmp_path / "worktrees",
+            state_file=tmp_path / "state.json",
+        )
+        object.__setattr__(cfg, "config_file", config_path)
+        router = _make_router(cfg, event_bus, state, tmp_path)
+        endpoint = _find_endpoint(router, "/api/control/config")
+        assert endpoint is not None
+
+        response = await endpoint({"not_a_real_field": "value", "persist": True})
+        data = json.loads(response.body)
+
+        assert data["status"] == "ok"
+        assert data["updated"] == {}
+        assert not config_path.exists()

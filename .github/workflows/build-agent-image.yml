@@ -6,15 +6,15 @@ on:
     paths:
       - "Dockerfile.agent"
       - "scripts/docker-smoke-test.sh"
-      - "pyproject.toml"
-      - "uv.lock"
   pull_request:
     branches: [main]
     paths:
       - "Dockerfile.agent"
       - "scripts/docker-smoke-test.sh"
-      - "pyproject.toml"
-      - "uv.lock"
+  workflow_run:
+    workflows: ["Build Agent Base Image"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
@@ -24,16 +24,47 @@ jobs:
     name: Build & Test
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set lowercase image name
-        run: echo "IMAGE_NAME=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/hydraflow-agent" >> "$GITHUB_ENV"
+      - name: Set lowercase image names
+        run: |
+          OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=ghcr.io/${OWNER}/hydraflow-agent" >> "$GITHUB_ENV"
+          echo "BASE_IMAGE=ghcr.io/${OWNER}/hydraflow-agent-base:latest" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build image
+      # Dockerfile.agent is self-contained (builds from scratch via inline
+      # stages) unless BASE_IMAGE is overridden to a pre-built image.
+      # Only pass the override when the base image is actually pullable.
+      - name: Check if base image is available
+        id: base-check
+        run: |
+          if docker pull "$BASE_IMAGE" 2>/dev/null; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Base image not published yet — full build from Dockerfile.agent"
+          fi
+
+      - name: Build image (with pre-built base)
+        if: steps.base-check.outputs.available == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.agent
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:test
+          build-args: BASE_IMAGE=${{ env.BASE_IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build image (full, no base)
+        if: steps.base-check.outputs.available == 'false'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -60,7 +91,7 @@ jobs:
   push:
     name: Push to GHCR
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -68,8 +99,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set lowercase image name
-        run: echo "IMAGE_NAME=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/hydraflow-agent" >> "$GITHUB_ENV"
+      - name: Set lowercase image names
+        run: |
+          OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=ghcr.io/${OWNER}/hydraflow-agent" >> "$GITHUB_ENV"
+          echo "BASE_IMAGE=ghcr.io/${OWNER}/hydraflow-agent-base:latest" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -91,5 +125,6 @@ jobs:
           tags: |
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          build-args: BASE_IMAGE=${{ env.BASE_IMAGE }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

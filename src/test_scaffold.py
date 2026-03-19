@@ -383,16 +383,17 @@ def _scaffold_python_tests(
 
     # Handle pyproject.toml
     pyproject = repo_root / "pyproject.toml"
-    if include_baseline and not pyproject.is_file():
-        # Create minimal pyproject.toml with pytest config
-        pyproject.write_text(_PYTEST_CONFIG_TEMPLATE.lstrip())
-        result.created_files.append("pyproject.toml")
-    elif include_baseline and not _has_pytest_config(repo_root):
-        # Append pytest config to existing pyproject.toml
-        existing = pyproject.read_text()
-        separator = "" if existing.endswith("\n") else "\n"
-        pyproject.write_text(existing + separator + _PYTEST_CONFIG_TEMPLATE)
-        result.modified_files.append("pyproject.toml")
+    if include_baseline:
+        if not pyproject.is_file():
+            # Create minimal pyproject.toml with pytest config
+            pyproject.write_text(_PYTEST_CONFIG_TEMPLATE.lstrip())
+            result.created_files.append("pyproject.toml")
+        elif not _has_pytest_config(repo_root):
+            # Append pytest config to existing pyproject.toml
+            existing = pyproject.read_text()
+            separator = "" if existing.endswith("\n") else "\n"
+            pyproject.write_text(existing + separator + _PYTEST_CONFIG_TEMPLATE)
+            result.modified_files.append("pyproject.toml")
 
     return result
 

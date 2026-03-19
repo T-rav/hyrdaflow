@@ -697,6 +697,7 @@ class ReviewerStatus(StrEnum):
     FIXING = "fixing"
     FIXING_REVIEW_FINDINGS = "fixing_review_findings"
     FIX_DONE = "fix_done"
+    FIX_FINDINGS_DONE = "fix_findings_done"
 
 
 class ReviewVerdict(StrEnum):

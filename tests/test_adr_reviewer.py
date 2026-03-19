@@ -190,23 +190,9 @@ class TestLoadAllADRs:
         assert len(result) == 1
         assert result[0][0] == 1
 
-    def test_extracts_title_from_h1_heading(self, tmp_path: Path) -> None:
+    def test_extracts_title_from_filename(self, tmp_path: Path) -> None:
         adr_dir = tmp_path / "docs" / "adr"
         _write_adr(adr_dir, 5, "Use Docker Containers", "Accepted")
-        reviewer = _make_reviewer(tmp_path)
-        result = reviewer._load_all_adrs(adr_dir)
-        assert result[0][1] == "Use Docker Containers"
-
-    def test_falls_back_to_filename_when_no_h1(self, tmp_path: Path) -> None:
-        adr_dir = tmp_path / "docs" / "adr"
-        adr_dir.mkdir(parents=True, exist_ok=True)
-        path = adr_dir / "0005-use-docker-containers.md"
-        # Write content without a standard ADR H1 heading
-        path.write_text(
-            "**Status:** Accepted\n\n## Context\n\nSome context.\n\n"
-            "## Decision\n\nDecided.\n\n## Consequences\n\nNone.\n",
-            encoding="utf-8",
-        )
         reviewer = _make_reviewer(tmp_path)
         result = reviewer._load_all_adrs(adr_dir)
         assert result[0][1] == "use docker containers"
@@ -218,46 +204,6 @@ class TestLoadAllADRs:
         result = reviewer._load_all_adrs(adr_dir)
         assert len(result[0]) == 4
         assert result[0][3] == "0005-use-docker-containers.md"
-
-
-class TestExtractH1Title:
-    """Tests for _extract_h1_title static method."""
-
-    def test_extracts_title_after_adr_number_colon(self, tmp_path: Path) -> None:
-        reviewer = _make_reviewer(tmp_path)
-        content = "# ADR-0004: CLI-based Agent Runtime (Claude / Codex / Pi.dev)\n"
-        result = reviewer._extract_h1_title(content, "fallback")
-        assert result == "CLI-based Agent Runtime (Claude / Codex / Pi.dev)"
-
-    def test_extracts_title_with_em_dash_separator(self, tmp_path: Path) -> None:
-        reviewer = _make_reviewer(tmp_path)
-        content = "# ADR-0023\u2014CLI Architecture\n"
-        result = reviewer._extract_h1_title(content, "fallback")
-        assert result == "CLI Architecture"
-
-    def test_extracts_title_with_space_separator(self, tmp_path: Path) -> None:
-        reviewer = _make_reviewer(tmp_path)
-        content = "# ADR 0001 Some Title\n"
-        result = reviewer._extract_h1_title(content, "fallback")
-        assert result == "Some Title"
-
-    def test_falls_back_when_no_h1(self, tmp_path: Path) -> None:
-        reviewer = _make_reviewer(tmp_path)
-        content = "No heading here\n"
-        result = reviewer._extract_h1_title(content, "my fallback")
-        assert result == "my fallback"
-
-    def test_falls_back_when_h1_lacks_adr_prefix(self, tmp_path: Path) -> None:
-        reviewer = _make_reviewer(tmp_path)
-        content = "# Just A Regular Heading\n"
-        result = reviewer._extract_h1_title(content, "filename title")
-        assert result == "filename title"
-
-    def test_strips_whitespace_from_extracted_title(self, tmp_path: Path) -> None:
-        reviewer = _make_reviewer(tmp_path)
-        content = "# ADR-0010:   Spaced Out Title   \n"
-        result = reviewer._extract_h1_title(content, "fallback")
-        assert result == "Spaced Out Title"
 
 
 class TestBuildIndexContext:

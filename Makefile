@@ -34,8 +34,9 @@ RESET := \033[0m
 
 # Docker agent image
 DOCKER_IMAGE ?= ghcr.io/t-rav/hydraflow-agent:latest
+DOCKER_BASE_IMAGE ?= ghcr.io/t-rav/hydraflow-agent-base:latest
 
-.PHONY: help run dev dry-run clean coverage cover smoke test test-fast test-cov lint lint-check lint-fix typecheck security quality quality-lite install setup status ui ui-dev ui-clean ensure-labels prep scaffold hot docker-build docker-test deps integration soak screenshot screenshot-update check-node-ui
+.PHONY: help run dev dry-run clean coverage cover smoke test test-fast test-cov lint lint-check lint-fix typecheck security quality quality-lite install setup status ui ui-dev ui-clean ensure-labels prep scaffold hot docker-build docker-ensure docker-test deps integration soak screenshot screenshot-update check-node-ui
 
 check-node-ui:
 	@cd $(HYDRAFLOW_DIR)src/ui && $(HYDRAFLOW_DIR)scripts/ui-npm.sh --version >/dev/null
@@ -92,7 +93,12 @@ help:
 	@echo "  PLANNERS         Max concurrent planners (default: 2)"
 	@echo "  PLANNER_MODEL    Planner model (default: opus)"
 
-run: check-node-ui
+docker-ensure:
+	@docker image inspect $(DOCKER_IMAGE) >/dev/null 2>&1 \
+		|| docker pull $(DOCKER_IMAGE) 2>/dev/null \
+		|| $(MAKE) docker-build
+
+run: check-node-ui docker-ensure
 	@mkdir -p $(LOG_DIR)
 	@echo "$(BLUE)Starting HydraFlow — backend :$(PORT) + frontend :5556$(RESET)"
 	@echo "$(GREEN)Open http://localhost:5556 to use the dashboard$(RESET)"
@@ -463,7 +469,11 @@ screenshot-update: check-node-ui
 
 docker-build:
 	@echo "$(BLUE)Building Hydra agent Docker image...$(RESET)"
-	docker build --no-cache --platform linux/amd64 -f Dockerfile.agent -t $(DOCKER_IMAGE) .
+	@docker pull $(DOCKER_BASE_IMAGE) 2>/dev/null \
+		&& echo "$(GREEN)Using pre-built base image$(RESET)" \
+		&& docker build --platform linux/amd64 --build-arg BASE_IMAGE=$(DOCKER_BASE_IMAGE) -f Dockerfile.agent -t $(DOCKER_IMAGE) . \
+		|| ( echo "$(YELLOW)Base image not available — full build$(RESET)" \
+		&& docker build --platform linux/amd64 -f Dockerfile.agent -t $(DOCKER_IMAGE) . )
 	@echo "$(GREEN)Image built: $(DOCKER_IMAGE)$(RESET)"
 
 docker-test: docker-build

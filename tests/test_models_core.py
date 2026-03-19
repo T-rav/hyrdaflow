@@ -714,6 +714,7 @@ class TestReviewerStatus:
             (ReviewerStatus.FIXING, "fixing"),
             (ReviewerStatus.FIXING_REVIEW_FINDINGS, "fixing_review_findings"),
             (ReviewerStatus.FIX_DONE, "fix_done"),
+            (ReviewerStatus.FIX_FINDINGS_DONE, "fix_findings_done"),
         ],
     )
     def test_enum_values(self, member: ReviewerStatus, expected_value: str) -> None:
@@ -723,7 +724,7 @@ class TestReviewerStatus:
         assert isinstance(ReviewerStatus.DONE, str)
 
     def test_all_members_present(self) -> None:
-        assert len(ReviewerStatus) == 6
+        assert len(ReviewerStatus) == 7
 
     def test_lookup_by_value(self) -> None:
         status = ReviewerStatus("reviewing")
