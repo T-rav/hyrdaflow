@@ -49,8 +49,8 @@ controlled mocks for external systems.
 1. **Core services:** Instantiate `HydraFlowConfig`, `StateTracker`, `EventBus`, and
    `IssueStore` exactly as production code does. The tracker persists to a
    temporary directory so repeated phase invocations observe real disk writes,
-   including crash-recovery markers and pause/resume semantics that detect
-   regressions only surfacing when HydraFlow processes restart.
+   including crash-recovery markers that detect regressions only surfacing
+   when HydraFlow processes restart.
 2. **Task seeding:** Seed work into `IssueStore` queues via `seed_issue()`, which
    calls `IssueStore.enqueue_transition(task, stage)` to place a `Task` directly
    into the target stage queue (where `stage` is an `IssueStoreStage` value, the
@@ -108,8 +108,9 @@ does not exist.
 - The HITL phase is included in the harness (`HITLPhase` is wired with
   `HITLRunner` and issue-fetcher mocks) but is not exercised by the default
   `run_full_lifecycle()` path, which covers triage → plan → implement → review.
-  HITL-specific integration scenarios can be tested by seeding issues into the
-  HITL queue and invoking `hitl_phase` directly.
+  HITL-specific integration scenarios can be tested by seeding issues via
+  `enqueue_transition(task, "hitl")` (which populates the `_hitl_numbers` set)
+  and invoking `hitl_phase.process_corrections()` directly.
 - Background GitHub polling is omitted; work is seeded directly via
   `enqueue_transition()`. The `refresh()` → `_build_label_map` → `_route_issues`
   path is intentionally not exercised by the harness; it is covered by dedicated
