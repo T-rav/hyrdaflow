@@ -1121,7 +1121,10 @@ class HydraFlowOrchestrator:
                 active_in_store, prefetched_issues=[gh_issue]
             )
             if not prs:
-                # PR not visible yet — re-queue for next cycle
+                # PR not visible yet — wait before re-queuing so the
+                # review pool doesn't tight-loop on issues whose PRs
+                # haven't propagated to the GitHub API yet.
+                await self._sleep_or_stop(min(self._config.poll_interval, 30))
                 self._svc.store.enqueue_transition(issue, "review")
                 return False
 
