@@ -1,6 +1,6 @@
 # ADR-0022: Pipeline Integration Harness for Cross-Phase Testing
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-06
 
 ## Context
@@ -19,9 +19,9 @@ logic implemented in `src/issue_store.py`, the label-to-stage mapping in
 Several concrete requirements flow from today's code:
 
 - `IssueStore` manages internal queues via `enqueue_transition()`, which places a
-  `Task` into the appropriate stage queue and publishes queue-update events. Tests
-  seed work into these queues directly through the harness's `seed_issue()` method
-  rather than going through external fetcher polling.
+  `Task` into the appropriate stage queue and publishes queue-update events.
+  Integration tests need a mechanism to seed work directly into these queues without
+  going through external fetcher polling.
 - Label routing depends on config-driven tags (`hydraflow-find`, `hydraflow-plan`,
   `hydraflow-ready`, `hydraflow-review`). Without realistic tags, the queue-stage
   logic in `IssueStore` will route nothing to downstream phases, so integration tests
@@ -72,9 +72,7 @@ real queueing/state components and controlled mocks for external systems.
   sync with expectations.
 - When tests need to seed new work mid-run, call `harness.seed_issue(task, stage)`
   which invokes `IssueStore.enqueue_transition()` to place the task in the target
-  queue. This exercises the same transition machinery that phase hand-offs use,
-  though it does not exercise the `refresh()` → `_build_label_map` → `_route_issues`
-  external-polling path (which remains covered by dedicated `IssueStore` unit tests).
+  queue. This exercises the same transition machinery that phase hand-offs use.
 - Use `pytest-asyncio` to provide the event loop and rely on the same config labels
   used in production (read from `HydraFlowConfig.find_label`, `planner_label`,
   `ready_label`, and `review_label`).
