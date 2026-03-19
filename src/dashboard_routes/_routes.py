@@ -388,14 +388,33 @@ class RouteContext:
         slug_lower = slug.lower()
         return slug_lower in (default.lower(), normalized.lower())
 
+    def _is_default_pipeline_active(self) -> bool:
+        """Check if the default repo's pipeline workers are enabled.
+
+        Returns True when no orchestrator exists (headless/test mode).
+        """
+        orch = self.get_orchestrator()
+        if orch is None:
+            return True
+        if not orch.running:
+            return False
+        pipeline_workers = ("triage", "plan", "implement", "review", "hitl")
+        return any(orch.is_bg_worker_enabled(w) for w in pipeline_workers)
+
     def is_repo_pipeline_active(self, slug: str | None) -> bool:
-        """Return whether the resolved repo's pipeline is actively processing."""
-        if slug is None or self._is_default_repo(slug):
-            orch = self.get_orchestrator()
-            if not orch or not orch.running:
-                return False
-            pipeline_workers = ("triage", "plan", "implement", "review", "hitl")
-            return any(orch.is_bg_worker_enabled(w) for w in pipeline_workers)
+        """Return whether the resolved repo's pipeline is actively processing.
+
+        When *slug* is ``None`` (All repos view), returns True if ANY
+        repo (default or added) has an active pipeline.
+        """
+        if slug is None:
+            if self._is_default_pipeline_active():
+                return True
+            if self.registry is not None:
+                return any(getattr(rt, "running", False) for rt in self.registry.all)
+            return False
+        if self._is_default_repo(slug):
+            return self._is_default_pipeline_active()
         if self.registry is not None:
             rt = self.registry.get(slug)
             if rt is not None:
@@ -649,11 +668,10 @@ def create_router(
     def _is_pipeline_active(slug: str | None) -> bool:
         """Check if the selected repo's pipeline is running.
 
-        Returns True when no repo is selected (All repos view) so the
-        dashboard always shows aggregate data.
+        When no repo is selected (All repos view), checks the default
+        repo's pipeline state — data only shows when something is
+        actually running.
         """
-        if slug is None:
-            return True
         return ctx.is_repo_pipeline_active(slug)
 
     async def _execute_admin_task(

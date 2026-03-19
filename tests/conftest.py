@@ -1006,6 +1006,7 @@ def make_orchestrator_mock(
     orch.credits_paused_until = None
     orch.stop = AsyncMock()
     orch.request_stop = AsyncMock()
+    orch.is_bg_worker_enabled = MagicMock(return_value=running)
     return orch
 
 
