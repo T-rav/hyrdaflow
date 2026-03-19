@@ -311,6 +311,24 @@ class DockerRunner:
         self._user_tool_mounts_cache: dict[str, dict[str, str]] | None = None
         self._user_tool_mounts_cache_key: tuple[str, str, str, str] | None = None
 
+    def _ensure_client(self) -> None:
+        """Verify Docker is reachable; reconnect if the daemon was restarted."""
+        import docker  # noqa: PLC0415
+
+        try:
+            self._client.ping()
+        except Exception:
+            logger.warning("Docker daemon unreachable — attempting reconnect")
+            try:
+                self._client = docker.from_env()
+                self._client.ping()
+                logger.info("Docker daemon reconnected")
+            except Exception:
+                raise RuntimeError(
+                    "Docker daemon is not available. "
+                    "Start Docker Desktop or check the Docker socket."
+                ) from None
+
     async def __aenter__(self) -> DockerRunner:
         return self
 
@@ -476,6 +494,10 @@ class DockerRunner:
 
         needs_stdin = stdin is None or stdin == asyncio.subprocess.PIPE
 
+        # Pre-flight: verify Docker is reachable (handles daemon restarts)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._ensure_client)
+
         container_kwargs: dict[str, Any] = {
             "image": self._image,
             "command": list(cmd),
@@ -542,6 +564,10 @@ class DockerRunner:
         await self._enforce_spawn_delay()
 
         loop = asyncio.get_running_loop()
+
+        # Pre-flight: verify Docker is reachable (handles daemon restarts)
+        await loop.run_in_executor(None, self._ensure_client)
+
         mounts = self._build_mounts(cwd)
         container_env = self._build_env()
         working_dir = "/workspace" if cwd else None
