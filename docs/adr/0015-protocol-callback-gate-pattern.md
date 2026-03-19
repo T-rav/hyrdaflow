@@ -88,14 +88,15 @@ gates. Unlike feature gates, it has no independent business logic to guard; it
 is a cross-cutting concern analogous to logging. This exception is intentional
 and does not warrant a config toggle.
 
-[^2]: **Rule 1 exception — `EscalationDecision`.** `EscalationDecision` is a
+[^2]: **Rule 4 exception — `EscalationDecision`.** `EscalationDecision` is a
 `@dataclass` defined in `src/escalation_gate.py` rather than a `BaseModel` in
-`models.py`. Rule 1 requires Protocol classes to live in `models.py`, but
-`EscalationDecision` is a decision return type (per Rule 4), not a Protocol.
-It is co-located with its sole consumer `should_escalate_debug()` in
-`escalation_gate.py` because the decision type is tightly coupled to that
-single gate module and has no other callers. This mirrors the `PublishFn`
-exception in spirit: pragmatic co-location where the type is module-scoped.
+`models.py`. The established convention (set by `VisualValidationDecision` in
+`models.py`) places decision objects centrally, but `EscalationDecision` is
+co-located with `should_escalate_debug()` in `escalation_gate.py` because the
+decision type is tightly coupled to that gate module. Its only external caller
+is `precheck.py:run_precheck_context`, which consumes the `.escalate` field to
+decide whether to launch the debug agent. This mirrors the `PublishFn`
+exception in spirit: pragmatic co-location where the type has a narrow scope.
 
 ## Consequences
 
