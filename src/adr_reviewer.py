@@ -171,7 +171,7 @@ class ADRCouncilReviewer:
         compared against each other rather than silently excluded.
         """
         decision = self._extract_decision(content)
-        title = self._title_from_content(content, adr_filename)
+        title = self._title_from_content(content, Path(adr_filename).stem)
 
         candidates: list[tuple[int, str, float]] = []
         for other_number, other_title, other_content, other_filename in all_adrs:

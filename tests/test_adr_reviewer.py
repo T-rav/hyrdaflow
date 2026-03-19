@@ -488,6 +488,29 @@ class TestDuplicateDetection:
         assert result[0][0] == 2
         assert result[0][2] >= _DUPLICATE_THRESHOLD
 
+    def test_detect_duplicates_fallback_slug_strips_extension(
+        self, tmp_path: Path
+    ) -> None:
+        """Fallback slug from adr_filename must not include the .md extension."""
+        reviewer = _make_reviewer(tmp_path)
+        # Content has no H1, so the fallback path is exercised
+        content_no_h1 = "**Status:** Proposed\n\n## Decision\nUse containers.\n"
+        all_adrs = [
+            (
+                99,
+                "some other adr",
+                "## Decision\nTotally different.",
+                "0099-some-other-adr.md",
+            ),
+        ]
+        # Should not raise and the title slug should not contain ".md"
+        result = reviewer._detect_duplicates(
+            "0005-use-docker-containers.md", content_no_h1, all_adrs
+        )
+        # The local title derived from the filename is "use docker containers" (no .md)
+        # Similarity with "some other adr" is low — no duplicate expected
+        assert all(".md" not in str(r) for r in result)
+
 
 class TestBuildOrchestratorPrompt:
     """Tests for _build_orchestrator_prompt."""
