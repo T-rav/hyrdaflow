@@ -310,6 +310,7 @@ class ConfigFactory:
         ui_dirs: list[str] | None = None,
         docker_network: str = "",
         docker_extra_mounts: list[str] | None = None,
+        memory_auto_approve: bool = False,
         memory_prune_stale_items: bool = True,
         harness_insight_window: int = 20,
         harness_pattern_threshold: int = 3,
@@ -528,6 +529,7 @@ class ConfigFactory:
                 docker_extra_mounts=docker_extra_mounts
                 if docker_extra_mounts is not None
                 else [],
+                memory_auto_approve=memory_auto_approve,
                 memory_prune_stale_items=memory_prune_stale_items,
                 harness_insight_window=harness_insight_window,
                 harness_pattern_threshold=harness_pattern_threshold,

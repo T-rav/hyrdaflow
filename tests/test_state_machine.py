@@ -329,7 +329,7 @@ class TestSwapPipelineLabelsAsync:
             added.extend(labels)
 
         mgr._remove_label = fake_remove  # type: ignore[method-assign]
-        mgr._add_labels = fake_add  # type: ignore[method-assign]
+        mgr._add_labels_strict = fake_add  # type: ignore[method-assign]
 
         await mgr.swap_pipeline_labels(42, new_label)
 

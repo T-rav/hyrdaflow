@@ -304,16 +304,14 @@ class PRUnsticker:
                 if not self._config.unstick_auto_merge:
                     # Restore origin label when not auto-merging
                     origin = self._state.get_hitl_origin(issue_number)
-                    if origin:
-                        origin_kwargs: dict[str, int] = {}
-                        if item.pr is not None and item.pr > 0:
-                            origin_kwargs["pr_number"] = item.pr
-                        await self._prs.swap_pipeline_labels(
-                            issue_number, origin, **origin_kwargs
-                        )
-                    else:
-                        for lbl in self._config.hitl_active_label:
-                            await self._prs.remove_label(issue_number, lbl)
+                    # Fall back to HITL label so the issue stays visible
+                    target = origin or self._config.hitl_label[0]
+                    origin_kwargs: dict[str, int] = {}
+                    if item.pr is not None and item.pr > 0:
+                        origin_kwargs["pr_number"] = item.pr
+                    await self._prs.swap_pipeline_labels(
+                        issue_number, target, **origin_kwargs
+                    )
 
                     self._state.remove_hitl_origin(issue_number)
                     self._state.remove_hitl_cause(issue_number)

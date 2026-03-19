@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from events import EventType
-from models import AnalysisVerdict, GitHubIssueState
+from models import AnalysisVerdict, GitHubIssueState, ReviewVerdict
 from tests.conftest import (
     AnalysisResultFactory,
     EventFactory,
     IssueFactory,
+    ReviewResultFactory,
     TaskFactory,
     TestScaffoldResultFactory,
     TriageResultFactory,
@@ -180,3 +181,48 @@ class TestScaffoldResultFactoryNoneSentinels:
     def test_explicit_empty_modified_files_preserved(self):
         result = TestScaffoldResultFactory.create(modified_files=[])
         assert result.modified_files == []
+
+
+class TestReviewResultFactoryFieldCoverage:
+    """ReviewResultFactory must support all ReviewResult fields."""
+
+    def test_success_true_produces_success_true(self):
+        result = ReviewResultFactory.create(success=True)
+        assert result.success is True
+        assert result.verdict == ReviewVerdict.APPROVE
+
+    def test_success_false_produces_success_false(self):
+        result = ReviewResultFactory.create(success=False)
+        assert result.success is False
+
+    def test_default_success_is_false(self):
+        result = ReviewResultFactory.create()
+        assert result.success is False
+
+    def test_visual_passed_true(self):
+        result = ReviewResultFactory.create(visual_passed=True)
+        assert result.visual_passed is True
+
+    def test_visual_passed_false(self):
+        result = ReviewResultFactory.create(visual_passed=False)
+        assert result.visual_passed is False
+
+    def test_visual_passed_default_is_none(self):
+        result = ReviewResultFactory.create()
+        assert result.visual_passed is None
+
+    def test_files_changed_explicit(self):
+        result = ReviewResultFactory.create(files_changed=["src/a.py"])
+        assert result.files_changed == ["src/a.py"]
+
+    def test_files_changed_default_is_empty(self):
+        result = ReviewResultFactory.create()
+        assert result.files_changed == []
+
+    def test_use_defaults_preserves_success(self):
+        result = ReviewResultFactory.create(use_defaults=True, success=True)
+        assert result.success is True
+
+    def test_use_defaults_preserves_visual_passed(self):
+        result = ReviewResultFactory.create(use_defaults=True, visual_passed=True)
+        assert result.visual_passed is True

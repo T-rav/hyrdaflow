@@ -1670,7 +1670,11 @@ def create_router(
                     cause = "Escalation (reason not recorded)"
             if cause:
                 data["cause"] = cause
-            if origin and origin in _cfg.improve_label:
+            is_memory_suggestion = bool(origin and origin in _cfg.improve_label)
+            # When memory auto-approve is on, filter out memory suggestions
+            if _cfg.memory_auto_approve and is_memory_suggestion:
+                continue
+            if is_memory_suggestion:
                 data["isMemorySuggestion"] = True
             # Flag items held for issue type review
             if cause and (
@@ -1849,13 +1853,12 @@ def create_router(
         # Read origin before clearing state
         origin = state.get_hitl_origin(issue_number)
 
-        # If this was an improve issue, transition to triage for implementation
+        # If this was an improve issue, transition to triage for implementation.
+        # Otherwise close the issue so it doesn't become an orphan with no labels.
         if origin and origin in config.improve_label and config.find_label:
             await pr_manager.swap_pipeline_labels(issue_number, config.find_label[0])
         else:
-            # Just remove all pipeline labels
-            for lbl in config.all_pipeline_labels:
-                await pr_manager.remove_label(issue_number, lbl)
+            await pr_manager.close_issue(issue_number)
 
         return await _resolve_hitl_item(
             issue_number,
@@ -1888,10 +1891,11 @@ def create_router(
     @router.post("/api/hitl/{issue_number}/approve-memory")
     async def hitl_approve_memory(issue_number: int) -> JSONResponse:
         """Approve a HITL item as a memory suggestion, relabeling for sync."""
-        # Remove all pipeline labels and add memory label
+        # Add memory label first, then remove pipeline labels (add-first
+        # prevents orphaning if the add succeeds but a remove fails).
+        await pr_manager.add_labels(issue_number, config.memory_label)
         for lbl in config.all_pipeline_labels:
             await pr_manager.remove_label(issue_number, lbl)
-        await pr_manager.add_labels(issue_number, config.memory_label)
         _clear_hitl_state(get_orchestrator(), issue_number)
         await event_bus.publish(
             HydraFlowEvent(
@@ -2137,6 +2141,7 @@ def create_router(
         "pr_unstick_batch_size",
         "unstick_auto_merge",
         "unstick_all_causes",
+        "memory_auto_approve",
         "worktree_base",
     }
 
@@ -3566,7 +3571,7 @@ def create_router(
         return JSONResponse(
             {
                 "status": "ok",
-                "slug": slug.replace("/", "-"),
+                "slug": slug,
                 "path": str(clone_target),
                 "already_cloned": already_cloned,
                 "labels_created": False,

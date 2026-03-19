@@ -799,3 +799,70 @@ class TestGCPrunesStaleActiveBranches:
         assert pruned == 1
         assert state.get_branch(10) == "agent/issue-10"
         assert state.get_branch(20) is None
+
+
+class TestCollectOrphanedBranchesPerItemIsolation:
+    """Per-item try/except in _collect_orphaned_branches prevents one failure from aborting the pass."""
+
+    @pytest.mark.asyncio
+    async def test_pipeline_check_error_skips_branch_and_continues(
+        self, tmp_path: Path
+    ) -> None:
+        """An exception in _issue_has_pipeline_label for one branch doesn't abort the loop."""
+        loop, _s, _e = _make_loop(tmp_path)
+        loop._collect_orphaned_branches = (
+            WorkspaceGCLoop._collect_orphaned_branches.__get__(loop)
+        )  # type: ignore[attr-defined]
+
+        call_count = 0
+
+        async def fail_for_first(issue_number: int) -> bool:
+            nonlocal call_count
+            call_count += 1
+            if issue_number == 10:
+                raise RuntimeError("API failure")
+            return False
+
+        loop._issue_has_pipeline_label = AsyncMock(side_effect=fail_for_first)  # type: ignore[method-assign]
+
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+            m.side_effect = ["  agent/issue-10\n  agent/issue-20\n", ""]
+            count = await loop._collect_orphaned_branches()
+
+        # issue-10 raised — skipped; issue-20 succeeded — deleted
+        assert count == 1
+        assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_is_in_pipeline_error_skips_branch_and_continues(
+        self, tmp_path: Path
+    ) -> None:
+        """An exception in is_in_pipeline callback doesn't abort the loop."""
+        call_log: list[int] = []
+
+        def exploding_pipeline(n: int) -> bool:
+            call_log.append(n)
+            if n == 10:
+                raise RuntimeError("callback boom")
+            return False
+
+        deps = make_bg_loop_deps(tmp_path, enabled=True, worktree_gc_interval=600)
+        state = StateTracker(deps.config.state_file)
+        loop = WorkspaceGCLoop(
+            config=deps.config,
+            worktrees=MagicMock(),
+            prs=MagicMock(),
+            state=state,
+            deps=deps.loop_deps,
+            is_in_pipeline_cb=exploding_pipeline,
+        )
+        loop._issue_has_pipeline_label = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+            m.side_effect = ["  agent/issue-10\n  agent/issue-20\n", ""]
+            count = await loop._collect_orphaned_branches()
+
+        # issue-10 raised in pipeline check — skipped; issue-20 succeeded
+        assert count == 1
+        assert 10 in call_log
+        assert 20 in call_log

@@ -49,6 +49,7 @@ See the full product walkthrough and visuals at [hydraflow.ai](https://hydraflow
 - [GitHub CLI](https://cli.github.com/) authenticated (`gh auth login`)
 - Claude CLI and/or Codex CLI available on PATH
 - Node.js 20.19+ or 22.12+ (dashboard only)
+- [Beads](https://www.npmjs.com/package/@beads/bd) for task decomposition: `npm install -g @beads/bd`
 
 ## Quick Start
 
