@@ -36,7 +36,7 @@ Consequences), use `module:function_or_class` format (e.g. `src/config.py:HydraF
 | [0019](0019-background-task-delegation-abstraction-layer.md) | Background Task Delegation Abstraction Layer | Accepted |
 | [0020](0020-autoApproveRow-border-context-awareness.md) | autoApproveRow Border Context Awareness | Superseded |
 | [0021](0021-persistence-architecture-and-data-layout.md) | Persistence Architecture and Data Layout | Accepted |
-| [0022](0022-integration-test-architecture-cross-phase.md) | Pipeline Integration Harness for Cross-Phase Testing | Proposed |
+| [0022](0022-integration-test-architecture-cross-phase.md) | Integration Test Architecture — Cross-Phase Pipeline Harness | Accepted |
 | [0023](0023-gate-triage-call-not-hitl-fallback.md) | Gate Triage Call on Config Toggle, Not Just HITL Fallback | Superseded |
 | [0023](0023-dead-class-artifacts-in-mock-based-tests.md) | Require Instantiation Verification for Test-Local Classes | Proposed |
 | [0023](0023-tests-must-match-toggle-state-they-assert.md) | Tests Must Match Toggle State They Assert | Proposed |
@@ -46,6 +46,7 @@ Consequences), use `module:function_or_class` format (e.g. `src/config.py:HydraF
 | [0023](0023-multi-repo-architecture-wiring-pattern.md) | Multi-Repo Architecture Wiring Pattern | Proposed |
 | [0023](0023-supersession-regex-all-verb-forms.md) | Supersession Regex Must Include All Verb Forms | Proposed |
 | [0023](0023-duplicate-class-merge-artifact-pattern.md) | Duplicate Class Definitions — Merge-Artifact Pattern | Proposed |
+| [0023](0023-adr-reviewer-proposed-only-filter.md) | ADR Reviewer Proposed-Only Filter and Validator Scope | Rejected |
 | [0024](0024-implementation-retry-recovery-architecture.md) | Implementation Retry Recovery Architecture | Accepted |
 | [0025](0025-symmetric-field-assertion-checklist-shared-return-types.md) | Symmetric Field Assertion Checklist for Shared Return Types | Accepted |
 

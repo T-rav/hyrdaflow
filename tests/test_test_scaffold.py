@@ -761,3 +761,36 @@ class TestScaffoldTests:
         result = scaffold_tests(tmp_path, dry_run=True)
 
         assert "package.json" not in result.modified_files
+
+
+# ---------------------------------------------------------------------------
+# Nested guard: include_baseline=False skips pyproject handling entirely
+# ---------------------------------------------------------------------------
+
+
+class TestIncludeBaselineGuard:
+    """Verify that include_baseline=False bypasses pyproject.toml logic."""
+
+    def test_no_pyproject_created_when_baseline_disabled(self, tmp_path: Path) -> None:
+        """With include_baseline=False and no pyproject.toml, none should be created."""
+        (tmp_path / "requirements.txt").write_text("flask\n")
+
+        result = _scaffold_python_tests(tmp_path, include_baseline=False)
+
+        assert not (tmp_path / "pyproject.toml").exists()
+        assert "pyproject.toml" not in result.created_files
+        assert "pyproject.toml" not in result.modified_files
+
+    def test_existing_pyproject_untouched_when_baseline_disabled(
+        self, tmp_path: Path
+    ) -> None:
+        """With include_baseline=False and existing pyproject.toml, it should not be modified."""
+        original = "[project]\nname = 'foo'\n"
+        (tmp_path / "pyproject.toml").write_text(original)
+        (tmp_path / "requirements.txt").write_text("flask\n")
+
+        result = _scaffold_python_tests(tmp_path, include_baseline=False)
+
+        assert (tmp_path / "pyproject.toml").read_text() == original
+        assert "pyproject.toml" not in result.created_files
+        assert "pyproject.toml" not in result.modified_files

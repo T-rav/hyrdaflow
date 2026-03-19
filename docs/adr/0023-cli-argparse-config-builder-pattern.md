@@ -108,5 +108,5 @@ without requiring a shared CLI framework.
 - `src/cli.py` — `build_config()`, `parse_args()`, `main()`
 - `src/hf_cli/__main__.py` — Two-layer CLI dispatcher
 - `src/config.py` — `HydraFlowConfig` Pydantic model
-- ADR-0004 — CLI-based Agent Runtime (Claude / Codex / Pi.dev) — related but distinct: that ADR covers
+- ADR-0004 (agent cli as runtime) — related but distinct: that ADR covers
   agent invocation via CLI subprocesses, this ADR covers HydraFlow's own CLI

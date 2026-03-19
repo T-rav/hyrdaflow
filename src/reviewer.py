@@ -96,6 +96,45 @@ class ReviewRunner(BaseRunner):
         )
         return truncated + note
 
+    async def _record_fix_outcome(
+        self,
+        result: ReviewResult,
+        worktree_path: Path,
+        before_sha: str | None,
+        transcript: str,
+        *,
+        transcript_prefix: str,
+        label: str,
+    ) -> None:
+        """Gather post-execution changes and populate *result* fields.
+
+        Shared by :meth:`review`, :meth:`fix_ci`, and
+        :meth:`fix_review_findings` to avoid duplicating the
+        change-detection / transcript-saving block.  Also saves the
+        transcript to disk via :meth:`~BaseRunner._save_transcript`.
+        """
+        result.files_changed = await self._get_changed_files(worktree_path, before_sha)
+        result.fixes_made = await self._has_changes(worktree_path, before_sha)
+        if result.fixes_made:
+            if result.files_changed:
+                result.commit_stat = await self._get_commit_stat(
+                    worktree_path, before_sha
+                )
+                logger.info(
+                    "%s for PR #%d changed files: %s",
+                    label,
+                    result.pr_number,
+                    result.files_changed,
+                )
+            else:
+                logger.warning(
+                    "PR #%d: fixes_made is True but no committed file changes detected "
+                    "— agent may have left uncommitted changes or the commit was empty",
+                    result.pr_number,
+                )
+        self._save_transcript(transcript_prefix, result.pr_number, transcript)
+        result.success = True
+
     async def review(
         self,
         pr: PRInfo,
@@ -164,30 +203,15 @@ class ReviewRunner(BaseRunner):
             result.verdict = self._parse_verdict(transcript)
             result.summary = self._extract_summary(transcript)
 
-            # Check if the reviewer made any commits or left uncommitted changes
-            result.files_changed = await self._get_changed_files(
-                worktree_path, before_sha
+            # Gather changes, save transcript, mark success
+            await self._record_fix_outcome(
+                result,
+                worktree_path,
+                before_sha,
+                transcript,
+                transcript_prefix="review-pr",
+                label="Review fix",
             )
-            result.fixes_made = await self._has_changes(worktree_path, before_sha)
-            if result.fixes_made and result.files_changed:
-                result.commit_stat = await self._get_commit_stat(
-                    worktree_path, before_sha
-                )
-                logger.info(
-                    "Review fix for PR #%d changed files: %s",
-                    pr.number,
-                    result.files_changed,
-                )
-            elif result.fixes_made and not result.files_changed:
-                logger.warning(
-                    "PR #%d: fixes_made is True but no committed file changes detected "
-                    "— agent may have left uncommitted changes or the commit was empty",
-                    pr.number,
-                )
-
-            # Persist to disk
-            self._save_transcript("review-pr", pr.number, transcript)
-            result.success = True
 
         except Exception as exc:
             reraise_on_credit_or_bug(exc)
@@ -279,27 +303,14 @@ class ReviewRunner(BaseRunner):
             result.transcript = transcript
             result.verdict = self._parse_verdict(transcript)
             result.summary = self._extract_summary(transcript)
-            result.files_changed = await self._get_changed_files(
-                worktree_path, before_sha
+            await self._record_fix_outcome(
+                result,
+                worktree_path,
+                before_sha,
+                transcript,
+                transcript_prefix="review-pr",
+                label="CI fix",
             )
-            result.fixes_made = await self._has_changes(worktree_path, before_sha)
-            if result.fixes_made and result.files_changed:
-                result.commit_stat = await self._get_commit_stat(
-                    worktree_path, before_sha
-                )
-                logger.info(
-                    "CI fix for PR #%d changed files: %s",
-                    pr.number,
-                    result.files_changed,
-                )
-            elif result.fixes_made and not result.files_changed:
-                logger.warning(
-                    "PR #%d: fixes_made is True but no committed file changes detected "
-                    "— agent may have left uncommitted changes or the commit was empty",
-                    pr.number,
-                )
-            self._save_transcript("review-pr", pr.number, transcript)
-            result.success = True
         except Exception as exc:
             reraise_on_credit_or_bug(exc)
             result.verdict = ReviewVerdict.REQUEST_CHANGES
@@ -361,6 +372,20 @@ class ReviewRunner(BaseRunner):
             result.summary = "Dry-run: review fix skipped"
             result.success = True
             result.duration_seconds = time.monotonic() - start
+            await self._bus.publish(
+                HydraFlowEvent(
+                    type=EventType.REVIEW_UPDATE,
+                    data=ReviewUpdatePayload(
+                        pr=pr.number,
+                        issue=issue.id,
+                        worker=worker_id,
+                        status=ReviewerStatus.FIX_FINDINGS_DONE.value,
+                        verdict=result.verdict.value,
+                        duration=result.duration_seconds,
+                        role="reviewer",
+                    ),
+                )
+            )
             return result
 
         try:
@@ -376,28 +401,14 @@ class ReviewRunner(BaseRunner):
             result.transcript = transcript
             result.verdict = self._parse_verdict(transcript)
             result.summary = self._extract_summary(transcript)
-            result.files_changed = await self._get_changed_files(
-                worktree_path, before_sha
+            await self._record_fix_outcome(
+                result,
+                worktree_path,
+                before_sha,
+                transcript,
+                transcript_prefix="review-fix",
+                label="Review-fix",
             )
-            result.fixes_made = await self._has_changes(worktree_path, before_sha)
-            if result.fixes_made and result.files_changed:
-                result.commit_stat = await self._get_commit_stat(
-                    worktree_path, before_sha
-                )
-                logger.info(
-                    "Review-fix for PR #%d changed files: %s",
-                    pr.number,
-                    result.files_changed,
-                )
-            elif result.fixes_made and not result.files_changed:
-                logger.warning(
-                    "PR #%d: fixes_made is True but no committed file changes detected "
-                    "— agent may have left uncommitted changes or the commit was empty",
-                    pr.number,
-                )
-
-            self._save_transcript("review-fix", pr.number, transcript)
-            result.success = True
         except Exception as exc:
             reraise_on_credit_or_bug(exc)
             result.verdict = ReviewVerdict.REQUEST_CHANGES
@@ -405,6 +416,22 @@ class ReviewRunner(BaseRunner):
             logger.error("Review fix failed for PR #%d: %s", pr.number, exc)
 
         result.duration_seconds = time.monotonic() - start
+
+        await self._bus.publish(
+            HydraFlowEvent(
+                type=EventType.REVIEW_UPDATE,
+                data=ReviewUpdatePayload(
+                    pr=pr.number,
+                    issue=issue.id,
+                    worker=worker_id,
+                    status=ReviewerStatus.FIX_FINDINGS_DONE.value,
+                    verdict=result.verdict.value,
+                    duration=result.duration_seconds,
+                    role="reviewer",
+                ),
+            )
+        )
+
         return result
 
     def _build_review_fix_prompt(
@@ -764,6 +791,7 @@ Quality: No issues — <justification>
      - Every new public function/method is actually called from production code (flag dead code that is tested but never invoked)
      - New branches/conditions introduced by the PR have corresponding test cases
    - Check for security issues (injection, crypto, auth)
+   - Flag redundant guard conditions in if/elif chains — hoist the shared guard (e.g., rewrite `if A and B: ... elif A and not B: ...` into `if A: if B: ... else: ...`)
    - Merge-artifact check: look for duplicate Pydantic Field definitions, duplicate function parameters, or duplicate keyword arguments — these arise when concurrent PRs add the same field and get merged sequentially
 {ui_criteria}
 ## If Issues Found
