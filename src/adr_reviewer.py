@@ -212,7 +212,7 @@ class ADRCouncilReviewer:
         if match:
             raw = match.group(1).strip()
             # Strip "ADR-NNNN: " or "ADR-NNNN — " prefix
-            prefix_match = re.match(r"ADR-\d+[:\u2014\u2013]\s*", raw)
+            prefix_match = re.match(r"ADR-\d+\s*[:\u2014\u2013]\s*", raw)
             if prefix_match:
                 return raw[prefix_match.end() :].strip()
             return raw

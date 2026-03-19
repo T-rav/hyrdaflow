@@ -248,10 +248,15 @@ class TestExtractH1Title:
             == "Use Docker Containers"
         )
 
-    def test_em_dash_prefix(self, tmp_path: Path) -> None:
+    def test_colon_separator_with_em_dash_in_title(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         content = "# ADR-0022: Foo \u2014 Bar\n"
         assert reviewer._extract_h1_title(content, "0022-foo-bar") == "Foo \u2014 Bar"
+
+    def test_em_dash_as_separator_with_spaces(self, tmp_path: Path) -> None:
+        reviewer = _make_reviewer(tmp_path)
+        content = "# ADR-0022 \u2014 Some Title\n"
+        assert reviewer._extract_h1_title(content, "0022-some-title") == "Some Title"
 
     def test_no_adr_prefix_in_h1(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
@@ -432,7 +437,9 @@ class TestDuplicateDetection:
         result = reviewer._detect_duplicates("0023-use-docker.md", content, all_adrs)
         assert len(result) == 0
 
-    def test_uses_h1_title_not_extract_title(self, tmp_path: Path) -> None:
+    def test_detect_duplicates_extracts_h1_title_for_incoming_adr(
+        self, tmp_path: Path
+    ) -> None:
         """_detect_duplicates extracts H1 title (sans ADR prefix) for the proposed ADR."""
         reviewer = _make_reviewer(tmp_path)
         all_adrs = [
