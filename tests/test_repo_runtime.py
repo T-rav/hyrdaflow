@@ -265,6 +265,44 @@ class TestRepoRuntimeRegistry:
         registry = RepoRuntimeRegistry()
         assert "runtimes=0" in repr(registry)
 
+    # ------------------------------------------------------------------
+    # Slug normalization (owner/repo → owner-repo)
+    # ------------------------------------------------------------------
+
+    def test_normalize_replaces_slash_with_dash(self):
+        assert RepoRuntimeRegistry._normalize("owner/repo") == "owner-repo"
+
+    def test_normalize_leaves_dash_slug_unchanged(self):
+        assert RepoRuntimeRegistry._normalize("owner-repo") == "owner-repo"
+
+    def test_normalize_empty_string_returns_empty(self):
+        assert RepoRuntimeRegistry._normalize("") == ""
+
+    def test_get_by_slash_slug_finds_dash_keyed_runtime(self):
+        registry = RepoRuntimeRegistry()
+        sentinel = MagicMock()
+        registry._runtimes["owner-repo"] = sentinel
+        assert registry.get("owner/repo") is sentinel
+
+    def test_get_by_dash_slug_still_works(self):
+        registry = RepoRuntimeRegistry()
+        sentinel = MagicMock()
+        registry._runtimes["owner-repo"] = sentinel
+        assert registry.get("owner-repo") is sentinel
+
+    def test_contains_slash_slug_finds_dash_keyed_runtime(self):
+        registry = RepoRuntimeRegistry()
+        registry._runtimes["owner-repo"] = MagicMock()
+        assert "owner/repo" in registry
+
+    def test_remove_by_slash_slug_removes_dash_keyed_runtime(self):
+        registry = RepoRuntimeRegistry()
+        sentinel = MagicMock()
+        registry._runtimes["owner-repo"] = sentinel
+        removed = registry.remove("owner/repo")
+        assert removed is sentinel
+        assert "owner-repo" not in registry._runtimes
+
     @pytest.mark.asyncio
     async def test_two_runtimes_isolated(self, tmp_path):
         """Two runtimes for different repos have independent state."""
