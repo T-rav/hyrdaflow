@@ -1,25 +1,26 @@
-# ADR-0022: Pipeline Integration Harness for Cross-Phase Testing
+# ADR-0022: Integration Test Architecture — Cross-Phase Pipeline Harness
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-06
 
 ## Context
 
 HydraFlow's orchestrator spans five asynchronous phases that all rely on a shared
 `IssueStore`, persistent `StateTracker`, and in-process `EventBus`. Individual test
-modules cover each phase in isolation (see `tests/helpers.py` `make_plan_phase`, `make_implement_phase`, etc. for the
-single-phase factories), but regressions have started to appear when changes alter
-how queues, runners, and GitHub labels interact across phase boundaries. Issue
-#1953 captured the lesson learned while debugging those regressions: integration
-tests must exercise the real queueing/data layers so they see the same routing
-logic implemented in `src/issue_store.py`, the label-to-stage mapping in
-`HydraFlowConfig` (`src/config.py`), and the persistence semantics inside
-`src/state.py`.
+modules cover each phase in isolation (see `tests/helpers.py` `make_plan_phase`,
+`make_implement_phase`, etc. for the single-phase factories), but regressions
+started to appear when changes altered how queues, runners, and GitHub labels
+interact across phase boundaries. Issue #1953 captured the lesson learned while
+debugging those regressions: integration tests must exercise the real queueing and
+data layers so they see the same routing logic implemented in
+`src/issue_store.py:IssueStore`, the label-to-stage mapping in
+`src/config.py:HydraFlowConfig`, and the persistence semantics inside
+`src/state.py:StateTracker`.
 
-Several concrete requirements flow from today's code:
+Several concrete requirements flow from the production code:
 
 - `IssueStore.refresh()` pulls tasks via a `TaskFetcher` protocol
-  (`src/task_source.py`). Tests must provide a mock fetcher that implements
+  (`src/task_source.py`). Tests must provide a fetcher that implements
   `fetch_all()` so refresh() repopulates the queues exactly like production.
 - Label routing depends on config-driven tags (`hydraflow-find`, `hydraflow-plan`,
   `hydraflow-ready`, `hydraflow-review`). Without realistic tags, the `_build_label_map`
@@ -37,43 +38,48 @@ Several concrete requirements flow from today's code:
 
 ## Decision
 
-Adopt a dedicated **Pipeline Harness** for cross-phase integration tests that uses
-real queueing/state components and controlled mocks for external systems.
+Ratify the existing **Pipeline Harness** pattern for cross-phase integration tests.
+The harness, already implemented in `tests/helpers.py:PipelineHarness` and exercised
+by `tests/test_integration_pipeline.py`, uses real queueing and state components with
+controlled mocks for external systems.
 
 ### Harness composition
 
-1. **Core services:** Instantiate `HydraFlowConfig`, `StateTracker`, `EventBus`, and
-   `IssueStore` exactly as production code does. The tracker persists to a
-   temporary directory so repeated phase invocations observe real disk writes.
-2. **Task ingestion:** Provide a purpose-built `MockTaskFetcher` that satisfies the
-   `TaskFetcher.fetch_all()` protocol and returns `Task` instances whose `tags`
-   already match the configured HydraFlow labels. Call `await IssueStore.refresh()`
-   inside the harness setup so queues populate from this fetcher instead of
-   hand-inserting tasks.
-3. **Phase runners:** Keep runners that invoke external AI agents or GitHub APIs
+1. **Core services:** `PipelineHarness.__init__` instantiates `HydraFlowConfig`,
+   `StateTracker`, `EventBus`, and `IssueStore` exactly as production code does.
+   The tracker persists to a temporary directory so repeated phase invocations
+   observe real disk writes.
+2. **Task ingestion:** Two implementations satisfy the `TaskFetcher.fetch_all()`
+   protocol. `PipelineHarness` uses an `AsyncMock` fetcher whose return value tests
+   control directly. `tests/orchestrator_integration_utils.py:StaticTaskFetcher`
+   provides a reusable concrete implementation that returns `Task` instances whose
+   `tags` already match the configured HydraFlow labels. Both approaches call
+   `await IssueStore.refresh()` inside harness setup so queues populate from the
+   fetcher instead of hand-inserting tasks.
+3. **Phase runners:** Runners that invoke external AI agents or GitHub APIs are
    mocked (`TriageRunner`, `PlannerRunner`, `AgentRunner`, `ReviewRunner`, and the
-   `PRManager`). They expose deterministic hooks (e.g., AsyncMocks) the tests can
-   assert on while allowing the harness to drive real orchestrator loops.
-4. **Event propagation:** Share the `EventBus` instance with every phase so queue
-   metrics, worker updates, and transcript events mirror production routing.
+   `PRManager`). They expose deterministic hooks (e.g., `AsyncMock` side effects)
+   that tests assert on while allowing the harness to drive real orchestrator loops.
+4. **Event propagation:** The `EventBus` instance is shared with every phase so
+   queue metrics, worker updates, and transcript events mirror production routing.
    Integration tests subscribe to the bus via `async for` iterators or capture
    snapshots directly from `EventBus` to verify emitted events.
-5. **Clocking:** Manage a single `asyncio.Event` stop flag so the harness can start
-   and stop each phase loop deterministically while still running inside
+5. **Clocking:** A single `asyncio.Event` stop flag lets the harness start and stop
+   each phase loop deterministically while still running inside
    `pytest.mark.asyncio` tests.
 
 ### Execution semantics
 
 - After each `refresh()` or queue-modifying action, `await asyncio.sleep(0)` (or an
-  explicit helper) to flush `loop.create_task()` callbacks emitted by
+  explicit helper) flushes `loop.create_task()` callbacks emitted by
   `_publish_queue_update_nowait()`. This keeps queue stats observed by the harness in
   sync with expectations.
-- When tests need to seed new work mid-run, update the `MockTaskFetcher` return
-  value and call `await IssueStore.refresh()` again rather than mutating queues
-  directly. That guarantees `_route_issues()` and `IssueStoreStage` priorities are
-  exercised end-to-end.
-- Use `pytest-asyncio` to provide the event loop and rely on the same config labels
-  used in production (read from `HydraFlowConfig.find_label`, `planner_label`,
+- When tests need to seed new work mid-run, they update the fetcher's return value
+  and call `await IssueStore.refresh()` again rather than mutating queues directly.
+  That guarantees `_route_issues()` and `IssueStoreStage` priorities are exercised
+  end-to-end.
+- Tests use `pytest-asyncio` to provide the event loop and rely on the same config
+  labels used in production (read from `HydraFlowConfig.find_label`, `planner_label`,
   `ready_label`, and `review_label`).
 
 ### Scope boundaries
@@ -106,8 +112,8 @@ real queueing/state components and controlled mocks for external systems.
   than leaking into production orchestrator runs.
 - Shared harness code reduces bespoke mock setups across test files and increases
   confidence that future multi-phase scenarios reuse the same proven fixture.
-- EventBus metrics and queue snapshots emitted during tests double as living
-  documentation for the dashboard contract, aiding reviewers and future ADRs.
+- EventBus metrics and queue snapshots emitted during tests provide observability
+  into cross-phase event flow, aiding reviewers and future ADRs.
 
 **Negative / Trade-offs**
 
@@ -126,6 +132,11 @@ real queueing/state components and controlled mocks for external systems.
 2. **Full end-to-end tests with live GitHub** — rejected for cost and brittleness; a
    hermetic harness with mocked runners provides 90% coverage without network IO or
    secrets management.
+3. **pytest fixtures instead of a helper class** — considered but rejected because a
+   standalone `PipelineHarness` class encapsulates the wiring of five phases, their
+   shared stores, and mock setup in one place. A fixture-based approach would scatter
+   this wiring across conftest files or require a factory fixture that duplicates the
+   class structure, with no clear advantage.
 
 ## Related
 
