@@ -24,7 +24,6 @@ logger = logging.getLogger("hydraflow.adr_reviewer")
 
 # Valid statuses are single words: Proposed, Accepted, Superseded, Deprecated, Rejected.
 _STATUS_RE = re.compile(r"\*\*Status:\*\*\s*(\w+)", re.IGNORECASE)
-_H1_TITLE_RE = re.compile(r"^#\s+ADR[- ]\d{4}[:\s\u2014]+(.+)$", re.MULTILINE)
 _DUPLICATE_THRESHOLD = 0.7
 
 
@@ -76,12 +75,11 @@ class ADRCouncilReviewer:
 
         for adr_number, adr_path, adr_content in proposed:
             try:
-                fallback = (
+                adr_title = (
                     adr_path.stem.split("-", 1)[-1].replace("-", " ")
                     if "-" in adr_path.stem
                     else adr_path.stem
                 )
-                adr_title = self._extract_h1_title(adr_content, fallback)
                 logger.info("Reviewing ADR-%04d: %s", adr_number, adr_title)
 
                 # Pre-review validation gate
@@ -146,17 +144,16 @@ class ADRCouncilReviewer:
             if not match:
                 continue
             adr_number = int(match.group(1))
+            title = (
+                path.stem.split("-", 1)[-1].replace("-", " ")
+                if "-" in path.stem
+                else path.stem
+            )
             try:
                 content = path.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 logger.warning("Skipping unreadable ADR file: %s", path)
                 continue
-            fallback = (
-                path.stem.split("-", 1)[-1].replace("-", " ")
-                if "-" in path.stem
-                else path.stem
-            )
-            title = self._extract_h1_title(content, fallback)
             results.append((adr_number, title, content, path.name))
         return results
 
@@ -215,17 +212,6 @@ class ADRCouncilReviewer:
         """Extract the title from an ADR (first H1 heading)."""
         match = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
         return match.group(1).strip() if match else ""
-
-    @staticmethod
-    def _extract_h1_title(content: str, fallback: str) -> str:
-        """Extract the title portion after the ADR number from the H1 heading.
-
-        Matches patterns like ``# ADR-0004: Some Title`` and returns
-        ``Some Title``.  Falls back to *fallback* (typically derived from
-        the filename) when no H1 match is found.
-        """
-        match = _H1_TITLE_RE.search(content)
-        return match.group(1).strip() if match else fallback
 
     def _build_duplicate_context(self, duplicates: list[tuple[int, str, float]]) -> str:
         """Format duplicate warnings for the orchestrator prompt."""

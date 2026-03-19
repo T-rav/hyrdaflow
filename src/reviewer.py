@@ -761,6 +761,7 @@ Quality: No issues — <justification>
      - Every new public function/method is actually called from production code (flag dead code that is tested but never invoked)
      - New branches/conditions introduced by the PR have corresponding test cases
    - Check for security issues (injection, crypto, auth)
+   - Flag redundant guard conditions in if/elif chains — hoist the shared guard (e.g., rewrite `if A and B: ... elif A and not B: ...` into `if A: if B: ... else: ...`)
    - Merge-artifact check: look for duplicate Pydantic Field definitions, duplicate function parameters, or duplicate keyword arguments — these arise when concurrent PRs add the same field and get merged sequentially
 {ui_criteria}
 ## If Issues Found
