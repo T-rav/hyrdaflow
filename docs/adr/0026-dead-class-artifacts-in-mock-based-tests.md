@@ -1,4 +1,4 @@
-# ADR-0023: Require Instantiation Verification for Test-Local Classes
+# ADR-0026: Require Instantiation Verification for Test-Local Classes
 
 **Status:** Proposed
 **Date:** 2026-03-08
@@ -33,8 +33,9 @@ Current tooling gaps:
 
 ## Decision
 
-Adopt a review-time and CI-enforced policy that every class defined inside a test
-function body must be instantiated or explicitly referenced within that test.
+Adopt a review-time and agent-heuristic-enforced policy that every class defined
+inside a test function body must be instantiated or explicitly referenced within
+that test.
 
 ### Review checklist addition
 
@@ -63,7 +64,7 @@ During code review of test files, reviewers must verify:
 
 ### Operational impact on HydraFlow workers
 
-- **Review agent** (`reviewer.py`): The review prompt can be augmented with a
+- **Review agent** (`reviewer.py`): The review prompt will be augmented with a
   heuristic check — scan `class` definitions inside test functions and verify each
   class name appears at least once more in the same function body. This is a
   string-level check that does not require AST parsing and fits within the existing
