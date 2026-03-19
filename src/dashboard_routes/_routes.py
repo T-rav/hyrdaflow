@@ -1670,7 +1670,11 @@ def create_router(
                     cause = "Escalation (reason not recorded)"
             if cause:
                 data["cause"] = cause
-            if origin and origin in _cfg.improve_label:
+            is_memory_suggestion = bool(origin and origin in _cfg.improve_label)
+            # When memory auto-approve is on, filter out memory suggestions
+            if _cfg.memory_auto_approve and is_memory_suggestion:
+                continue
+            if is_memory_suggestion:
                 data["isMemorySuggestion"] = True
             # Flag items held for issue type review
             if cause and (
@@ -2137,6 +2141,7 @@ def create_router(
         "pr_unstick_batch_size",
         "unstick_auto_merge",
         "unstick_all_causes",
+        "memory_auto_approve",
         "worktree_base",
     }
 

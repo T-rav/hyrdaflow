@@ -167,8 +167,11 @@ async def file_memory_suggestion(
     )
     title = f"[Memory] {suggestion['title']}"
 
-    # Routing: actionable types go through HITL, knowledge goes to improve pipeline
-    if MemoryType.is_actionable(memory_type):
+    # Routing: when auto-approve is on, actionable types skip HITL and go directly to improve pipeline
+    if config.memory_auto_approve:
+        labels = list(config.improve_label)
+        hitl_cause = None
+    elif MemoryType.is_actionable(memory_type):
         labels = list(config.improve_label) + list(config.hitl_label)
         hitl_cause = f"Actionable memory suggestion ({memory_type.value})"
     else:

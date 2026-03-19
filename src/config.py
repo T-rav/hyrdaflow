@@ -156,6 +156,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         True,
     ),
     ("collaborator_check_enabled", "HYDRAFLOW_COLLABORATOR_CHECK_ENABLED", True),
+    ("memory_auto_approve", "HYDRAFLOW_MEMORY_AUTO_APPROVE", False),
     ("visual_gate_enabled", "HYDRAFLOW_VISUAL_GATE_ENABLED", False),
     ("visual_gate_bypass", "HYDRAFLOW_VISUAL_GATE_BYPASS", False),
     ("visual_validation_enabled", "HYDRAFLOW_VISUAL_VALIDATION_ENABLED", True),
@@ -712,6 +713,11 @@ class HydraFlowConfig(BaseModel):
     memory_compaction_model: str = Field(
         default="haiku",
         description="Cheap model for summarising memory digest when over size limit",
+    )
+
+    memory_auto_approve: bool = Field(
+        default=False,
+        description="When enabled, all memory suggestions bypass HITL and go directly to sync queue",
     )
 
     memory_prune_stale_items: bool = Field(
