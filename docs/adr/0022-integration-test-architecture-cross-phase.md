@@ -70,9 +70,6 @@ real queueing/state components and controlled mocks for external systems.
   helper) to flush `loop.create_task()` callbacks emitted by
   `_publish_queue_update_nowait()`. This keeps queue stats observed by the harness in
   sync with expectations.
-- When tests need to seed new work mid-run, call `harness.seed_issue(task, stage)`
-  which invokes `IssueStore.enqueue_transition()` to place the task in the target
-  queue. This exercises the same transition machinery that phase hand-offs use.
 - Use `pytest-asyncio` to provide the event loop and rely on the same config labels
   used in production (read from `HydraFlowConfig.find_label`, `planner_label`,
   `ready_label`, and `review_label`).
@@ -100,7 +97,7 @@ does not exist.
 
 - The harness stops at the PR boundary: `PRManager`, `WorktreeManager`, and
   external CLI invocations remain mocked so tests stay hermetic.
-- Background GitHub polling is replaced by direct queue seeding via
+- Background GitHub polling is omitted; work is seeded directly via
   `enqueue_transition()`. The `refresh()` → `_build_label_map` → `_route_issues`
   path is intentionally not exercised by the harness; it is covered by dedicated
   `IssueStore` unit tests instead.
@@ -128,10 +125,10 @@ does not exist.
   in Worktree orchestration continue to rely on dedicated implement-phase tests.
 - The harness introduces more moving parts per test case, raising the bar for
   contributors who only need to cover a single phase.
-- The `enqueue_transition`-based seeding strategy deliberately skips the
-  `refresh()` → `_route_issues` external-polling path. Label-routing correctness
-  depends on separate `IssueStore` unit tests covering `_build_label_map` and
-  `_route_issues` directly.
+- The `enqueue_transition`-based seeding strategy deliberately skips the external
+  polling path (see Scope boundaries), which means label-routing correctness for
+  `_build_label_map` and `_route_issues` depends entirely on dedicated `IssueStore`
+  unit tests — a gap contributors must remember to maintain.
 
 ## Alternatives considered
 
