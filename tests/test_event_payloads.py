@@ -274,6 +274,25 @@ class TestReviewerStatusFixingReviewFindings:
         )
 
 
+class TestReviewerStatusFixFindingsDone:
+    """Verify the FIX_FINDINGS_DONE enum member."""
+
+    def test_member_exists(self) -> None:
+        from models import ReviewerStatus
+
+        assert hasattr(ReviewerStatus, "FIX_FINDINGS_DONE")
+
+    def test_fix_findings_done_has_expected_string_value(self) -> None:
+        from models import ReviewerStatus
+
+        assert ReviewerStatus.FIX_FINDINGS_DONE == "fix_findings_done"
+
+    def test_fix_findings_done_roundtrips_from_string(self) -> None:
+        from models import ReviewerStatus
+
+        assert ReviewerStatus("fix_findings_done") is ReviewerStatus.FIX_FINDINGS_DONE
+
+
 # ---------------------------------------------------------------------------
 # HydraFlowEvent.typed_data()
 # ---------------------------------------------------------------------------
