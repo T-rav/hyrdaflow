@@ -388,6 +388,20 @@ class RouteContext:
         slug_lower = slug.lower()
         return slug_lower in (default.lower(), normalized.lower())
 
+    def is_repo_pipeline_active(self, slug: str | None) -> bool:
+        """Return whether the resolved repo's pipeline is actively processing."""
+        if slug is None or self._is_default_repo(slug):
+            orch = self.get_orchestrator()
+            if not orch or not orch.running:
+                return False
+            pipeline_workers = ("triage", "plan", "implement", "review", "hitl")
+            return any(orch.is_bg_worker_enabled(w) for w in pipeline_workers)
+        if self.registry is not None:
+            rt = self.registry.get(slug)
+            if rt is not None:
+                return getattr(rt, "running", False)
+        return False
+
     def resolve_runtime(
         self,
         slug: str | None,
@@ -631,6 +645,16 @@ def create_router(
         Callable[[], HydraFlowOrchestrator | None],
     ]:
         return ctx.resolve_runtime(slug)
+
+    def _is_pipeline_active(slug: str | None) -> bool:
+        """Check if the selected repo's pipeline is running.
+
+        Returns True when no repo is selected (All repos view) so the
+        dashboard always shows aggregate data.
+        """
+        if slug is None:
+            return True
+        return ctx.is_repo_pipeline_active(slug)
 
     async def _execute_admin_task(
         task_name: str,
@@ -1287,6 +1311,8 @@ def create_router(
         repo: RepoSlugParam = None,
     ) -> JSONResponse:
         """Return current queue depths, active counts, and throughput."""
+        if not _is_pipeline_active(repo):
+            return JSONResponse(QueueStats().model_dump())
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
         orch = _get_orch()
         if orch:
@@ -1342,6 +1368,8 @@ def create_router(
         repo: RepoSlugParam = None,
     ) -> JSONResponse:
         """Return current pipeline snapshot with issues per stage."""
+        if not _is_pipeline_active(repo):
+            return JSONResponse(PipelineSnapshot().model_dump())
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
         orch = _get_orch()
         if orch:
@@ -1364,6 +1392,8 @@ def create_router(
         repo: RepoSlugParam = None,
     ) -> JSONResponse:
         """Return lightweight pipeline stats (counts only, no issue details)."""
+        if not _is_pipeline_active(repo):
+            return JSONResponse({})
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
         orch = _get_orch()
         if orch:
@@ -1668,6 +1698,8 @@ def create_router(
         repo: RepoSlugParam = None,
     ) -> JSONResponse:
         """Fetch issues/PRs labeled for human-in-the-loop (stuck on CI)."""
+        if not _is_pipeline_active(repo):
+            return JSONResponse([])
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
         hitl_labels = list(dict.fromkeys([*_cfg.hitl_label, *_cfg.hitl_active_label]))
         manager = _pr_manager_for(_cfg, _bus)

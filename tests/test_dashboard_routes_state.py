@@ -1583,6 +1583,7 @@ class TestRepoScopedEndpoints:
             event_bus=MagicMock(),
             state=_State(),
             orchestrator=None,
+            running=True,
         )
         registry = MagicMock()
         registry.get.return_value = runtime
