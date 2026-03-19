@@ -4,6 +4,7 @@ import { useHydraFlow } from '../context/HydraFlowContext'
 import { PIPELINE_STAGES, SENSITIVE_SELECTORS } from '../constants'
 import { ReportIssueModal } from './ReportIssueModal'
 import { BugReportTracker } from './BugReportTracker'
+import html2canvasLib from 'html2canvas'
 
 function isCrossOriginImage(el) {
   if (!el || el.tagName !== 'IMG') return false
@@ -209,10 +210,8 @@ export function Header({ connected, orchestratorStatus }) {
     // Capture screenshot BEFORE opening the modal so the overlay isn't in the shot.
     let dataUrl = null
     try {
-      const mod = await import('html2canvas')
-      const html2canvas = mod.default || mod
       const root = document.getElementById('root')
-      dataUrl = await captureDashboardScreenshot(root, html2canvas)
+      dataUrl = await captureDashboardScreenshot(root, html2canvasLib)
     } catch (err) {
       console.error('Screenshot capture failed:', err)
     }
