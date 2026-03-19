@@ -3056,12 +3056,13 @@ def create_router(
 
         # Always include the default (host) repo.
         orch = get_orchestrator()
+        pipeline_active = _default_repo_pipeline_running()
         if config.repo:
             infos.append(
                 RepoRuntimeInfo(
                     slug=config.repo,
                     repo=config.repo,
-                    running=bool(orch and orch.running),
+                    running=pipeline_active,
                     session_id=orch.current_session_id
                     if orch and orch.running
                     else None,
@@ -3088,10 +3089,11 @@ def create_router(
 
         if _is_default_repo(slug):
             orch = get_orchestrator()
+            pipeline_active = _default_repo_pipeline_running()
             info = RepoRuntimeInfo(
                 slug=config.repo,
                 repo=config.repo,
-                running=bool(orch and orch.running),
+                running=pipeline_active,
                 session_id=orch.current_session_id if orch and orch.running else None,
             )
             return JSONResponse(info.model_dump())
@@ -3111,28 +3113,26 @@ def create_router(
         )
         return JSONResponse(info.model_dump())
 
+    _DEFAULT_PIPELINE_WORKERS = ("triage", "plan", "implement", "review", "hitl")
+
+    def _default_repo_pipeline_running() -> bool:
+        """Return True if any pipeline worker is enabled on the default repo."""
+        orch = get_orchestrator()
+        if not orch or not orch.running:
+            return False
+        return any(orch.is_bg_worker_enabled(w) for w in _DEFAULT_PIPELINE_WORKERS)
+
     @router.post("/api/runtimes/{slug}/start")
     async def start_runtime(slug: str) -> JSONResponse:
         """Start a specific repo runtime."""
         if _is_default_repo(slug):
             orch = get_orchestrator()
-            if orch and orch.running:
-                return JSONResponse({"error": "Already running"}, status_code=409)
-            from orchestrator import HydraFlowOrchestrator
-
-            new_orch = HydraFlowOrchestrator(
-                config,
-                event_bus=event_bus,
-                state=state,
-            )
-            set_orchestrator(new_orch)
-            set_run_task(asyncio.create_task(new_orch.run()))
-            await event_bus.publish(
-                HydraFlowEvent(
-                    type=EventType.ORCHESTRATOR_STATUS,
-                    data=OrchestratorStatusPayload(status="running", reset=True),
+            if not orch or not orch.running:
+                return JSONResponse(
+                    {"error": "Orchestrator not running"}, status_code=400
                 )
-            )
+            for w in _DEFAULT_PIPELINE_WORKERS:
+                orch.set_bg_worker_enabled(w, True)
             return JSONResponse({"status": "started", "slug": slug})
 
         if registry is None:
@@ -3154,7 +3154,8 @@ def create_router(
             orch = get_orchestrator()
             if not orch or not orch.running:
                 return JSONResponse({"error": "Not running"}, status_code=400)
-            await orch.request_stop()
+            for w in _DEFAULT_PIPELINE_WORKERS:
+                orch.set_bg_worker_enabled(w, False)
             return JSONResponse({"status": "stopped", "slug": slug})
 
         if registry is None:
