@@ -1088,7 +1088,7 @@ class TestHITLEnrichedRoute:
 
         from dashboard import HydraFlowDashboard
 
-        orch = make_orchestrator_mock()
+        orch = make_orchestrator_mock(running=True)
         orch.get_hitl_status = MagicMock(return_value="processing")
         dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
         app = dashboard.create_app()
