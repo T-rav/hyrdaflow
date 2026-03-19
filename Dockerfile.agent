@@ -10,6 +10,9 @@
 #
 # Test:  docker run --rm ghcr.io/t-rav/hydraflow-agent:latest bash /opt/hydraflow/docker-smoke-test.sh
 
+# Global ARG — must be before the first FROM to be usable in FROM lines
+ARG BASE_IMAGE=default-base
+
 # ---------------------------------------------------------------------------
 # Stage 1: base — system packages + Node.js + gh CLI + uv
 # ---------------------------------------------------------------------------
@@ -97,7 +100,6 @@ USER hydraflow
 # ---------------------------------------------------------------------------
 # Stage 4: runtime — use pre-built base if available, otherwise default-base
 # ---------------------------------------------------------------------------
-ARG BASE_IMAGE=default-base
 FROM ${BASE_IMAGE} AS runtime
 
 # Copy smoke test script
