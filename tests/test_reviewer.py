@@ -1866,6 +1866,34 @@ class TestRecordFixOutcome:
             if r.levelname == "INFO"
         )
 
+    @pytest.mark.asyncio
+    async def test_before_sha_none_skips_commit_stat(
+        self, runner, result, tmp_path
+    ) -> None:
+        """_record_fix_outcome with before_sha=None still sets success=True.
+
+        _get_changed_files returns [] immediately for None before_sha;
+        _has_changes only checks uncommitted changes (no SHA comparison).
+        """
+        with (
+            patch.object(runner, "_get_changed_files", AsyncMock(return_value=[])),
+            patch.object(runner, "_has_changes", AsyncMock(return_value=False)),
+            patch.object(runner, "_save_transcript"),
+        ):
+            await runner._record_fix_outcome(
+                result,
+                tmp_path,
+                None,
+                42,
+                "transcript text",
+                transcript_prefix="review-pr",
+                label="Review fix",
+            )
+
+        assert result.success is True
+        assert result.commit_stat == ""
+        assert result.files_changed == []
+
 
 # ---------------------------------------------------------------------------
 # _build_precheck_prompt
