@@ -93,7 +93,7 @@ Before this ADR moves to Accepted, a time-boxed audit must be completed:
 
 - **Scope:** All Python class definitions in `src/` that subclass `BaseModel`,
   use `@dataclass`, or extend `TypedDict`.
-- **Method:** Run `grep -rn "^class " src/ | awk -F: '{print $NF, $1}' | sort` and
+- **Method:** Run `grep -rn "^class " src/ | awk -F: '{print $3, $1}' | sort` and
   group by class name. Flag any name that appears in more than one module
   (excluding `tests/`).
 - **Time box:** The audit must be completed within one calendar week of this ADR
