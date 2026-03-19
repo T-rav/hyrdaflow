@@ -37,11 +37,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build base image locally if not available
+      - name: Ensure base image is available
         run: |
           if ! docker pull "$BASE_IMAGE" 2>/dev/null; then
             echo "Base image not available — building locally from Dockerfile.agent-base"
-            docker build -f Dockerfile.agent-base -t "$BASE_IMAGE" .
+            docker buildx build -f Dockerfile.agent-base --load -t "$BASE_IMAGE" .
           fi
 
       - name: Build image
