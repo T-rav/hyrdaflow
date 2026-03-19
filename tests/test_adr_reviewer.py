@@ -299,6 +299,13 @@ class TestTitleFromContent:
             == "Some Custom Title"
         )
 
+    def test_prefix_only_h1_falls_back_to_raw(self, tmp_path: Path) -> None:
+        """H1 that is just an ADR prefix with no title text falls back to raw heading."""
+        reviewer = _make_reviewer(tmp_path)
+        content = "# ADR-0004:\n\nBody."
+        # stripped becomes empty → fallback to raw heading text
+        assert reviewer._title_from_content(content, "0004-some-feature") == "ADR-0004:"
+
 
 class TestBuildIndexContext:
     """Tests for _build_index_context."""
@@ -503,21 +510,24 @@ class TestDuplicateDetection:
         reviewer = _make_reviewer(tmp_path)
         # Content has no H1, so the fallback path is exercised
         content_no_h1 = "**Status:** Proposed\n\n## Decision\nUse containers.\n"
+        # Use a highly-similar title to force the fallback slug into a match if .md leaks
         all_adrs = [
             (
-                99,
-                "some other adr",
-                "## Decision\nTotally different.",
-                "0099-some-other-adr.md",
+                5,
+                "use docker containers md",  # only matches if ".md" is included in slug
+                "## Decision\nUse containers.",
+                "0005-use-docker-containers-md.md",
             ),
         ]
-        # Should not raise and the title slug should not contain ".md"
         result = reviewer._detect_duplicates(
             "0005-use-docker-containers.md", content_no_h1, all_adrs
         )
-        # The local title derived from the filename is "use docker containers" (no .md)
-        # Similarity with "some other adr" is low — no duplicate expected
-        assert all(".md" not in str(r) for r in result)
+        # If ".md" leaked into the slug, the title becomes "use docker containers.md"
+        # which would score high similarity to "use docker containers md".
+        # Without the leak the slug is "use docker containers" — similarity is lower.
+        assert len(result) == 0, (
+            "Expected no duplicate: slug must not include the .md extension"
+        )
 
 
 class TestBuildOrchestratorPrompt:
