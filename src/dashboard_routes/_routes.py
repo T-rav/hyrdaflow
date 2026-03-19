@@ -1987,6 +1987,11 @@ def create_router(
             event_bus=event_bus,
             state=state,
         )
+        # Start the orchestrator with pipeline workers disabled so the
+        # default repo behaves like added repos — pipeline only runs
+        # when the user clicks the play button in the sidebar.
+        for w in _DEFAULT_PIPELINE_WORKERS:
+            new_orch.set_bg_worker_enabled(w, False)
         set_orchestrator(new_orch)
         set_run_task(asyncio.create_task(new_orch.run()))
         await event_bus.publish(
