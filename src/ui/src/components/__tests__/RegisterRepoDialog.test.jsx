@@ -293,18 +293,46 @@ describe('RegisterRepoDialog', () => {
   // GitHub picker tab flow
   // -------------------------------------------------------------------------
 
-  it('refreshes repos and closes after picker selects', async () => {
-    const fetchRepos = vi.fn()
+  it('calls addRepoBySlug with slug from picker and closes on success', async () => {
+    const addRepoBySlug = vi.fn().mockResolvedValue({ ok: true })
     const onClose = vi.fn()
     mockUseHydraFlow.mockReturnValue({
-      addRepoBySlug: vi.fn(),
+      addRepoBySlug,
       addRepoByPath: vi.fn(),
-      fetchRepos,
+      fetchRepos: vi.fn(),
     })
     render(<RegisterRepoDialog isOpen onClose={onClose} />)
     fireEvent.click(screen.getByTestId('mock-pick-btn'))
-    await waitFor(() => expect(fetchRepos).toHaveBeenCalled())
+    await waitFor(() => expect(addRepoBySlug).toHaveBeenCalledWith('acme/app'))
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('shows error and stays open when picker addRepoBySlug returns failure', async () => {
+    const addRepoBySlug = vi.fn().mockResolvedValue({ ok: false, error: 'Repo not found' })
+    const onClose = vi.fn()
+    mockUseHydraFlow.mockReturnValue({
+      addRepoBySlug,
+      addRepoByPath: vi.fn(),
+      fetchRepos: vi.fn(),
+    })
+    render(<RegisterRepoDialog isOpen onClose={onClose} />)
+    fireEvent.click(screen.getByTestId('mock-pick-btn'))
+    await waitFor(() => expect(screen.getByText('Repo not found')).toBeInTheDocument())
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('shows error and stays open when picker addRepoBySlug throws', async () => {
+    const addRepoBySlug = vi.fn().mockRejectedValue(new Error('Network failure'))
+    const onClose = vi.fn()
+    mockUseHydraFlow.mockReturnValue({
+      addRepoBySlug,
+      addRepoByPath: vi.fn(),
+      fetchRepos: vi.fn(),
+    })
+    render(<RegisterRepoDialog isOpen onClose={onClose} />)
+    fireEvent.click(screen.getByTestId('mock-pick-btn'))
+    await waitFor(() => expect(screen.getByText('Network failure')).toBeInTheDocument())
+    expect(onClose).not.toHaveBeenCalled()
   })
 })
 

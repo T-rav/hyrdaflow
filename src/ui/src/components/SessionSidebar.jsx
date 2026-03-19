@@ -23,8 +23,6 @@ export function SessionSidebar() {
     deleteSession,
     supervisedRepos = [],
     runtimes = [],
-    startRuntime,
-    stopRuntime,
     removeRepoShortcut,
   } = useHydraFlow()
   const [expandedRepos, setExpandedRepos] = useState({})
@@ -172,20 +170,6 @@ export function SessionSidebar() {
                   <span style={styles.repoCount}>{repoSessions.length}</span>
                   {entry.info && (
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        const slug = entry.repoSlug || entry.displayName
-                        if (isRunning) { stopRuntime(slug) } else { startRuntime(slug) }
-                      }}
-                      style={isRunning ? styles.runtimeStopBtn : styles.runtimeStartBtn}
-                      aria-label={isRunning ? 'Stop repo' : 'Start repo'}
-                      title={isRunning ? 'Stop processing' : 'Start processing'}
-                    >
-                      {isRunning ? '■' : '▶'}
-                    </button>
-                  )}
-                  {entry.info && (
-                    <button
                       onClick={(e) => handleDisconnect(e, entry.repoSlug || entry.displayName, isRunning)}
                       style={styles.disconnectBtn}
                       aria-label="Disconnect repo"
@@ -306,28 +290,6 @@ const styles = {
     padding: '1px 6px',
     background: theme.accentSubtle,
     color: theme.accent,
-  },
-  runtimeStartBtn: {
-    background: 'none',
-    border: 'none',
-    color: theme.green,
-    fontSize: 10,
-    cursor: 'pointer',
-    padding: '0 4px',
-    lineHeight: 1,
-    borderRadius: 4,
-    transition: 'color 0.15s',
-  },
-  runtimeStopBtn: {
-    background: 'none',
-    border: 'none',
-    color: theme.red,
-    fontSize: 10,
-    cursor: 'pointer',
-    padding: '0 4px',
-    lineHeight: 1,
-    borderRadius: 4,
-    transition: 'color 0.15s',
   },
   disconnectBtn: {
     background: 'none',

@@ -314,51 +314,6 @@ function UnstickWorkersDropdown() {
   )
 }
 
-function MemoryAutoApproveToggle() {
-  const { config, selectedRepoSlug } = useHydraFlow()
-  const [localValue, setLocalValue] = useState(null)
-
-  const enabled = localValue !== null ? localValue : (config?.memory_auto_approve ?? false)
-
-  const handleToggle = useCallback(async () => {
-    const newValue = !enabled
-    setLocalValue(newValue)
-    try {
-      const url = selectedRepoSlug
-        ? `/api/control/config?repo=${encodeURIComponent(selectedRepoSlug)}`
-        : '/api/control/config'
-      const resp = await fetch(url, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memory_auto_approve: newValue, persist: true }),
-      })
-      if (!resp.ok) {
-        setLocalValue(enabled)
-      }
-    } catch {
-      setLocalValue(enabled)
-    }
-  }, [enabled, selectedRepoSlug])
-
-  return (
-    <div style={styles.autoApproveRow} data-testid="memory-auto-approve-toggle">
-      <div style={styles.autoApproveLabel}>
-        <span style={styles.autoApproveText}>Auto-approve</span>
-        <span style={styles.autoApproveHint}>
-          Skip HITL for memory suggestions
-        </span>
-      </div>
-      <button
-        style={enabled ? styles.toggleOn : styles.toggleOff}
-        onClick={handleToggle}
-        data-testid="memory-auto-approve-btn"
-      >
-        {enabled ? 'On' : 'Off'}
-      </button>
-    </div>
-  )
-}
-
 export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onTriggerBgWorker, onUpdateInterval }) {
   const { pipelinePollerLastRun, orchestratorStatus, events, pipelineIssues } = useHydraFlow()
   const [activeSubTab, setActiveSubTab] = useState('workers')
@@ -419,7 +374,6 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onTriggerBgWo
                     events={events}
                     extraContent={
                       def.key === 'pr_unsticker' ? <UnstickWorkersDropdown /> :
-                      def.key === 'memory_sync' ? <MemoryAutoApproveToggle /> :
                       undefined
                     }
                   />
