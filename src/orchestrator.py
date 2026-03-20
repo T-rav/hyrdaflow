@@ -74,6 +74,7 @@ class HydraFlowOrchestrator:
         config: HydraFlowConfig,
         event_bus: EventBus | None = None,
         state: StateTracker | None = None,
+        pipeline_enabled: bool = True,
     ) -> None:
         self._config = config
         self._bus = event_bus or EventBus()
@@ -88,6 +89,9 @@ class HydraFlowOrchestrator:
         # Stop mechanism for dashboard control
         self._stop_event = asyncio.Event()
         self._running = False
+        # Pipeline gate — when False, pipeline loops sleep until play is pressed.
+        # Defaults to True for headless mode / tests; dashboard passes False.
+        self._pipeline_enabled = pipeline_enabled
         # Auth failure flag — set when a loop crashes due to AuthenticationError
         self._auth_failed = False
         # Credit pause — set when API credits are exhausted
@@ -174,6 +178,15 @@ class HydraFlowOrchestrator:
     def running(self) -> bool:
         """Whether the orchestrator is currently executing."""
         return self._running
+
+    @property
+    def pipeline_enabled(self) -> bool:
+        """Whether the pipeline loops should process work."""
+        return self._pipeline_enabled
+
+    @pipeline_enabled.setter
+    def pipeline_enabled(self, value: bool) -> None:
+        self._pipeline_enabled = value
 
     @property
     def current_session_id(self) -> str | None:
@@ -822,6 +835,7 @@ class HydraFlowOrchestrator:
         interval: int,
         enabled_name: str | None = None,
         max_consecutive_failures: int = 5,
+        is_pipeline: bool = False,
     ) -> None:
         """Generic polling loop: check enabled -> try work -> except -> sleep.
 
@@ -834,6 +848,9 @@ class HydraFlowOrchestrator:
         last_exc_type: type[BaseException] | None = None
 
         while not self._stop_event.is_set():
+            if is_pipeline and not self._pipeline_enabled:
+                await self._sleep_or_stop(interval)
+                continue
             if enabled_name is not None and not self.is_bg_worker_enabled(enabled_name):
                 await self._sleep_or_stop(interval)
                 continue
@@ -931,6 +948,7 @@ class HydraFlowOrchestrator:
             self._svc.triager.triage_issues,
             self._config.poll_interval,
             enabled_name="triage",
+            is_pipeline=True,
         )
 
     async def _plan_loop(self) -> None:
@@ -940,6 +958,7 @@ class HydraFlowOrchestrator:
             self._svc.planner_phase.plan_issues,
             self._config.poll_interval,
             enabled_name="plan",
+            is_pipeline=True,
         )
 
     async def _implement_loop(self) -> None:
@@ -949,6 +968,7 @@ class HydraFlowOrchestrator:
             self._do_implement_work,
             self._config.poll_interval,
             enabled_name="implement",
+            is_pipeline=True,
         )
 
     async def _review_loop(self) -> None:
@@ -958,6 +978,7 @@ class HydraFlowOrchestrator:
             self._do_review_work,
             self._config.poll_interval,
             enabled_name="review",
+            is_pipeline=True,
         )
 
     async def _hitl_loop(self) -> None:
@@ -966,6 +987,7 @@ class HydraFlowOrchestrator:
             "hitl",
             self._hitl_ctrl.do_work,
             self._config.poll_interval,
+            is_pipeline=True,
         )
 
     async def _memory_sync_loop(self) -> None:

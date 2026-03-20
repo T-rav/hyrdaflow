@@ -389,7 +389,7 @@ class RouteContext:
         return slug_lower in (default.lower(), normalized.lower())
 
     def _is_default_pipeline_active(self) -> bool:
-        """Check if the default repo's pipeline workers are enabled.
+        """Check if the default repo's pipeline is enabled.
 
         Returns True when no orchestrator exists (headless/test mode).
         """
@@ -398,8 +398,7 @@ class RouteContext:
             return True
         if not orch.running:
             return False
-        pipeline_workers = ("triage", "plan", "implement", "review", "hitl")
-        return any(orch.is_bg_worker_enabled(w) for w in pipeline_workers)
+        return orch.pipeline_enabled
 
     def is_repo_pipeline_active(self, slug: str | None) -> bool:
         """Return whether the resolved repo's pipeline is actively processing.
@@ -2054,6 +2053,7 @@ def create_router(
             config,
             event_bus=event_bus,
             state=state,
+            pipeline_enabled=False,
         )
         set_orchestrator(new_orch)
         set_run_task(asyncio.create_task(new_orch.run()))
@@ -3186,11 +3186,11 @@ def create_router(
     _DEFAULT_PIPELINE_WORKERS = ("triage", "plan", "implement", "review", "hitl")
 
     def _default_repo_pipeline_running() -> bool:
-        """Return True if any pipeline worker is enabled on the default repo."""
+        """Return True if the default repo's pipeline is enabled."""
         orch = get_orchestrator()
         if not orch or not orch.running:
             return False
-        return any(orch.is_bg_worker_enabled(w) for w in _DEFAULT_PIPELINE_WORKERS)
+        return orch.pipeline_enabled
 
     @router.post("/api/runtimes/{slug}/start")
     async def start_runtime(slug: str) -> JSONResponse:
@@ -3201,8 +3201,7 @@ def create_router(
                 return JSONResponse(
                     {"error": "Orchestrator not running"}, status_code=400
                 )
-            for w in _DEFAULT_PIPELINE_WORKERS:
-                orch.set_bg_worker_enabled(w, True)
+            orch.pipeline_enabled = True
             return JSONResponse({"status": "started", "slug": slug})
 
         if registry is None:
@@ -3224,8 +3223,7 @@ def create_router(
             orch = get_orchestrator()
             if not orch or not orch.running:
                 return JSONResponse({"error": "Not running"}, status_code=400)
-            for w in _DEFAULT_PIPELINE_WORKERS:
-                orch.set_bg_worker_enabled(w, False)
+            orch.pipeline_enabled = False
             return JSONResponse({"status": "stopped", "slug": slug})
 
         if registry is None:
