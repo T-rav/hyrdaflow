@@ -170,20 +170,26 @@ export function SessionSidebar() {
                 </div>
                 <div style={styles.repoMeta}>
                   <span style={styles.repoCount}>{repoSessions.length}</span>
-                  {(entry.info || entry.runtime) && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        const slug = entry.repoSlug || entry.displayName
-                        if (isRunning) { stopRuntime(slug) } else { startRuntime(slug) }
-                      }}
-                      style={isRunning ? styles.runtimeStopBtn : styles.runtimeStartBtn}
-                      aria-label={isRunning ? 'Stop repo' : 'Start repo'}
-                      title={isRunning ? 'Stop processing' : 'Start processing'}
-                    >
-                      {isRunning ? '■' : '▶'}
-                    </button>
-                  )}
+                  {(entry.info || entry.runtime) && (() => {
+                    const orchRunning = orchestratorStatus === 'running'
+                    const disabled = !orchRunning && !isRunning
+                    return (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (disabled) return
+                          const slug = entry.repoSlug || entry.displayName
+                          if (isRunning) { stopRuntime(slug) } else { startRuntime(slug) }
+                        }}
+                        disabled={disabled}
+                        style={isRunning ? styles.runtimeStopBtn : disabled ? styles.runtimeDisabledBtn : styles.runtimeStartBtn}
+                        aria-label={isRunning ? 'Stop repo' : 'Start repo'}
+                        title={disabled ? 'Start the orchestrator first' : isRunning ? 'Stop processing' : 'Start processing'}
+                      >
+                        {isRunning ? '■' : '▶'}
+                      </button>
+                    )
+                  })()}
                   {entry.info && (
                     <button
                       onClick={(e) => handleDisconnect(e, entry.repoSlug || entry.displayName, isRunning)}
@@ -328,6 +334,17 @@ const styles = {
     lineHeight: 1,
     borderRadius: 4,
     transition: 'color 0.15s',
+  },
+  runtimeDisabledBtn: {
+    background: 'none',
+    border: 'none',
+    color: theme.textMuted,
+    fontSize: 10,
+    cursor: 'not-allowed',
+    padding: '0 4px',
+    lineHeight: 1,
+    borderRadius: 4,
+    opacity: 0.4,
   },
   disconnectBtn: {
     background: 'none',
