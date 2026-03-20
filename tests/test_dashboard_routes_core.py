@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
 
 from events import EventBus
 from tests.helpers import find_endpoint, make_dashboard_router
@@ -395,18 +394,19 @@ class TestResolveRuntime:
         assert resp.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_state_endpoint_with_unknown_repo_raises(
+    async def test_state_endpoint_with_unknown_repo_falls_back_to_defaults(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """GET /api/state?repo=unknown should raise HTTPException 404."""
+        """GET /api/state?repo=unknown should fall back to default state."""
         mock_registry = MagicMock()
         mock_registry.get.return_value = None  # Unknown repo
+        mock_registry.all = []
         router, _ = make_dashboard_router(
             config, event_bus, state, tmp_path, registry=mock_registry
         )
         ep = find_endpoint(router, "/api/state")
-        with pytest.raises(HTTPException, match="Unknown repo"):
-            await ep(repo="unknown-slug")
+        resp = await ep(repo="unknown-slug")
+        assert resp.status_code == 200
 
     @pytest.mark.asyncio
     async def test_state_endpoint_with_valid_repo_uses_runtime(

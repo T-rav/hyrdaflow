@@ -450,7 +450,11 @@ class RouteContext:
                         registered_rt.event_bus,
                         lambda _rt=registered_rt: _rt.orchestrator,
                     )
-            raise HTTPException(status_code=404, detail=f"Unknown repo: {slug}")
+            # Repo may be registered (in /api/repos) but not yet started
+            # (not in the runtime registry). Fall back to defaults so the
+            # WS connects and the UI renders — just with no live events.
+            logger.debug("Repo %r not in runtime registry — using defaults", slug)
+            return self.config, self.state, self.event_bus, self.get_orchestrator
         return self.config, self.state, self.event_bus, self.get_orchestrator
 
     async def execute_admin_task(
