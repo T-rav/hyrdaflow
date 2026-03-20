@@ -2046,8 +2046,8 @@ def create_router(
             config,
             event_bus=event_bus,
             state=state,
+            pipeline_enabled=False,
         )
-        # Pipeline stays off until user clicks play on the repo
         set_orchestrator(new_orch)
         set_run_task(asyncio.create_task(new_orch.run()))
         await event_bus.publish(

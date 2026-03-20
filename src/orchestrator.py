@@ -74,6 +74,7 @@ class HydraFlowOrchestrator:
         config: HydraFlowConfig,
         event_bus: EventBus | None = None,
         state: StateTracker | None = None,
+        pipeline_enabled: bool = True,
     ) -> None:
         self._config = config
         self._bus = event_bus or EventBus()
@@ -88,8 +89,9 @@ class HydraFlowOrchestrator:
         # Stop mechanism for dashboard control
         self._stop_event = asyncio.Event()
         self._running = False
-        # Pipeline gate — False until the user explicitly starts the repo
-        self._pipeline_enabled = False
+        # Pipeline gate — when False, pipeline loops sleep until play is pressed.
+        # Defaults to True for headless mode / tests; dashboard passes False.
+        self._pipeline_enabled = pipeline_enabled
         # Auth failure flag — set when a loop crashes due to AuthenticationError
         self._auth_failed = False
         # Credit pause — set when API credits are exhausted
