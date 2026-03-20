@@ -258,13 +258,13 @@ class GitHubCacheLoop(BaseBackgroundLoop):
         )
         self._cache = cache
 
-    async def _do_work(self) -> bool:
+    async def _do_work(self) -> dict[str, Any] | None:
         stats = await self._cache.poll()
         logger.info(
             "GitHub cache refreshed: %s",
             ", ".join(f"{k}={v}" for k, v in stats.items()),
         )
-        return bool(stats)
+        return stats or None
 
     def _get_default_interval(self) -> int:
         return self._config.data_poll_interval
