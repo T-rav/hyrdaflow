@@ -1465,13 +1465,24 @@ def create_router(
             items = await manager.list_open_prs(all_labels)
         # Overlay merged flag from IssueStore so the frontend has
         # authoritative merged state instead of session-volatile flags.
-        orch = _get_orch()
+        if not orch:
+            orch = _get_orch()
         if orch:
             merged_numbers = orch.issue_store.get_merged_numbers()
             for item in items:
-                if item.issue in merged_numbers:
-                    item.merged = True
-        return JSONResponse([item.model_dump() for item in items])
+                issue_num = (
+                    item.get("issue")
+                    if isinstance(item, dict)
+                    else getattr(item, "issue", None)
+                )
+                if issue_num in merged_numbers:
+                    if isinstance(item, dict):
+                        item["merged"] = True
+                    else:
+                        item.merged = True
+        return JSONResponse(
+            [item if isinstance(item, dict) else item.model_dump() for item in items]
+        )
 
     @router.get("/api/epics")
     async def get_epics(
@@ -1740,11 +1751,14 @@ def create_router(
             items = await manager.list_hitl_items(hitl_labels)
         enriched = []
         for item in items:
-            data = item.model_dump()
+            data = dict(item) if isinstance(item, dict) else item.model_dump()
+            issue_num: int = int(
+                data.get("issue", 0) if isinstance(item, dict) else item.issue
+            )
             if orch:
-                data["status"] = orch.get_hitl_status(item.issue)
-            cause = _state.get_hitl_cause(item.issue)
-            origin = _state.get_hitl_origin(item.issue)
+                data["status"] = orch.get_hitl_status(issue_num)
+            cause = _state.get_hitl_cause(issue_num)
+            origin = _state.get_hitl_origin(issue_num)
             if not cause and origin:
                 if origin in _cfg.improve_label:
                     cause = "Self-improvement proposal"
@@ -1768,10 +1782,10 @@ def create_router(
                 or "bug report detected" in cause.lower()
             ):
                 data["issueTypeReview"] = True
-            cached_summary = state.get_hitl_summary(item.issue)
+            cached_summary = state.get_hitl_summary(issue_num)
             data["llmSummary"] = cached_summary or ""
-            data["llmSummaryUpdatedAt"] = state.get_hitl_summary_updated_at(item.issue)
-            visual_ev = state.get_hitl_visual_evidence(item.issue)
+            data["llmSummaryUpdatedAt"] = state.get_hitl_summary_updated_at(issue_num)
+            visual_ev = state.get_hitl_visual_evidence(issue_num)
             if visual_ev:
                 data["visualEvidence"] = visual_ev.model_dump()
             if (
@@ -1779,10 +1793,10 @@ def create_router(
                 and config.transcript_summarization_enabled
                 and not config.dry_run
                 and bool(config.gh_token)
-                and _hitl_summary_retry_due(item.issue)
+                and _hitl_summary_retry_due(issue_num)
             ):
                 asyncio.create_task(
-                    _warm_hitl_summary(item.issue, cause=cause or "", origin=origin)
+                    _warm_hitl_summary(issue_num, cause=cause or "", origin=origin)
                 )
             enriched.append(data)
 
