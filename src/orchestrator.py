@@ -51,6 +51,7 @@ from subprocess_util import (
 if TYPE_CHECKING:
     from base_background_loop import BaseBackgroundLoop
     from crate_manager import CrateManager
+    from github_cache import GitHubDataCache
     from issue_store import IssueStore
     from metrics_manager import MetricsManager
     from run_recorder import RunRecorder
@@ -163,6 +164,11 @@ class HydraFlowOrchestrator:
     def state(self) -> StateTracker:
         """Expose state for dashboard integration."""
         return self._state
+
+    @property
+    def github_cache(self) -> GitHubDataCache:
+        """Expose GitHub data cache for dashboard endpoints."""
+        return self._svc.github_cache
 
     @property
     def run_recorder(self) -> RunRecorder:
@@ -788,6 +794,7 @@ class HydraFlowOrchestrator:
             ("worktree_gc", self._svc.worktree_gc_loop.run),
             ("runs_gc", self._svc.runs_gc_loop.run),
             ("adr_reviewer", self._svc.adr_reviewer_loop.run),
+            ("github_cache", self._svc.github_cache_loop.run),
             ("pipeline_stats", self._pipeline_stats_loop),
         ]
         self._state_restorer.prune_stale_disabled_workers(

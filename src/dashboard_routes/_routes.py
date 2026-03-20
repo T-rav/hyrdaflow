@@ -49,6 +49,7 @@ from dashboard_routes._common import (
     _status_sort_key,
 )
 from events import EventBus, EventType, HydraFlowEvent
+from github_cache import GitHubDataCache
 from issue_fetcher import IssueFetcher
 from metrics_manager import get_metrics_cache_dir
 from models import (
@@ -1444,19 +1445,24 @@ def create_router(
     ) -> JSONResponse:
         """Fetch all open HydraFlow PRs from GitHub."""
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
-        manager = _pr_manager_for(_cfg, _bus)
-        all_labels = list(
-            {
-                *_cfg.ready_label,
-                *_cfg.review_label,
-                *_cfg.fixed_label,
-                *_cfg.hitl_label,
-                *_cfg.hitl_active_label,
-                *_cfg.planner_label,
-                *_cfg.improve_label,
-            }
-        )
-        items = await manager.list_open_prs(all_labels)
+        # Use cached data when orchestrator has a github cache
+        orch = _get_orch()
+        if orch and isinstance(getattr(orch, "github_cache", None), GitHubDataCache):
+            items = orch.github_cache.get_open_prs()
+        else:
+            manager = _pr_manager_for(_cfg, _bus)
+            all_labels = list(
+                {
+                    *_cfg.ready_label,
+                    *_cfg.review_label,
+                    *_cfg.fixed_label,
+                    *_cfg.hitl_label,
+                    *_cfg.hitl_active_label,
+                    *_cfg.planner_label,
+                    *_cfg.improve_label,
+                }
+            )
+            items = await manager.list_open_prs(all_labels)
         # Overlay merged flag from IssueStore so the frontend has
         # authoritative merged state instead of session-volatile flags.
         orch = _get_orch()
@@ -1722,10 +1728,16 @@ def create_router(
         if not _is_pipeline_active(repo):
             return JSONResponse([])
         _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
-        hitl_labels = list(dict.fromkeys([*_cfg.hitl_label, *_cfg.hitl_active_label]))
-        manager = _pr_manager_for(_cfg, _bus)
-        items = await manager.list_hitl_items(hitl_labels)
         orch = _get_orch()
+        # Use cached data when available
+        if orch and isinstance(getattr(orch, "github_cache", None), GitHubDataCache):
+            items = orch.github_cache.get_hitl_items()
+        else:
+            hitl_labels = list(
+                dict.fromkeys([*_cfg.hitl_label, *_cfg.hitl_active_label])
+            )
+            manager = _pr_manager_for(_cfg, _bus)
+            items = await manager.list_hitl_items(hitl_labels)
         enriched = []
         for item in items:
             data = item.model_dump()

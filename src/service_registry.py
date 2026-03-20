@@ -22,6 +22,7 @@ from epic_monitor_loop import EpicMonitorLoop
 from epic_sweeper_loop import EpicSweeperLoop
 from events import EventBus
 from execution import SubprocessRunner
+from github_cache import GitHubCacheLoop, GitHubDataCache
 from harness_insights import HarnessInsightStore
 from hitl_phase import HITLPhase
 from hitl_runner import HITLRunner
@@ -101,6 +102,10 @@ class ServiceRegistry:
     epic_checker: EpicCompletionChecker
     epic_manager: EpicManager
 
+    # GitHub data cache
+    github_cache: GitHubDataCache
+    github_cache_loop: GitHubCacheLoop
+
     # Background loops
     memory_sync_bg: MemorySyncLoop
     metrics_sync_bg: MetricsSyncLoop
@@ -154,6 +159,7 @@ def build_services(
 
     # Data layer
     fetcher = IssueFetcher(config)
+    gh_cache = GitHubDataCache(config, prs, fetcher)  # noqa: F841
     store = IssueStore(config, GitHubTaskFetcher(fetcher), event_bus)
 
     # Crate management
@@ -353,6 +359,7 @@ def build_services(
     adr_reviewer_loop = ADRReviewerLoop(
         config=config, adr_reviewer=adr_reviewer, deps=loop_deps
     )
+    gh_cache_loop = GitHubCacheLoop(config, gh_cache, deps=loop_deps)  # noqa: F841
 
     return ServiceRegistry(
         worktrees=worktrees,
@@ -392,4 +399,6 @@ def build_services(
         worktree_gc_loop=worktree_gc_loop,
         runs_gc_loop=runs_gc_loop,
         adr_reviewer_loop=adr_reviewer_loop,
+        github_cache=gh_cache,
+        github_cache_loop=gh_cache_loop,
     )
