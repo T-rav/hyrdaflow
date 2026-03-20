@@ -174,15 +174,27 @@ export function reducer(state, action) {
     case 'transcript_line': {
       if (isDuplicate(state, action)) return state
       let key = action.data.issue || action.data.pr
+      let role = 'implementer'
       if (action.data.source === 'triage') {
         key = `triage-${action.data.issue}`
+        role = 'triage'
       } else if (action.data.source === 'planner') {
         key = `plan-${action.data.issue}`
+        role = 'planner'
       } else if (action.data.source === 'reviewer') {
         key = `review-${action.data.pr}`
+        role = 'reviewer'
       }
-      if (!key || !state.workers[key]) return addEvent(state, action)
-      const w = state.workers[key]
+      if (!key) return addEvent(state, action)
+      const w = state.workers[key] || {
+        status: 'active',
+        worker: 0,
+        role,
+        title: `Issue #${action.data.issue || action.data.pr || ''}`,
+        branch: '',
+        transcript: [],
+        pr: action.data.pr || null,
+      }
       return {
         ...addEvent(state, action),
         workers: {
