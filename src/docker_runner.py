@@ -311,23 +311,42 @@ class DockerRunner:
         self._user_tool_mounts_cache: dict[str, dict[str, str]] | None = None
         self._user_tool_mounts_cache_key: tuple[str, str, str, str] | None = None
 
-    def _ensure_client(self) -> None:
-        """Verify Docker is reachable; reconnect if the daemon was restarted."""
+    def _ensure_client(self, max_retries: int = 6, delay: float = 5.0) -> None:
+        """Verify Docker is reachable; wait and retry if the daemon is restarting.
+
+        Retries up to *max_retries* times with *delay* seconds between attempts,
+        giving Docker Desktop time to restart (e.g. via launchd auto-restart).
+        """
+        import time  # noqa: PLC0415
+
         import docker  # noqa: PLC0415
 
         try:
             self._client.ping()
+            return
         except Exception:
-            logger.warning("Docker daemon unreachable — attempting reconnect")
+            pass
+
+        for attempt in range(1, max_retries + 1):
+            logger.warning(
+                "Docker daemon unreachable — waiting %ds (attempt %d/%d)",
+                delay,
+                attempt,
+                max_retries,
+            )
+            time.sleep(delay)
             try:
                 self._client = docker.from_env()
                 self._client.ping()
-                logger.info("Docker daemon reconnected")
+                logger.info("Docker daemon reconnected after %d attempt(s)", attempt)
+                return
             except Exception:
-                raise RuntimeError(
-                    "Docker daemon is not available. "
-                    "Start Docker Desktop or check the Docker socket."
-                ) from None
+                continue
+
+        raise RuntimeError(
+            f"Docker daemon not available after {max_retries} retries "
+            f"({max_retries * delay:.0f}s). Start Docker Desktop or check the Docker socket."
+        )
 
     async def __aenter__(self) -> DockerRunner:
         return self
