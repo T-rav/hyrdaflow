@@ -1752,7 +1752,9 @@ def create_router(
         enriched = []
         for item in items:
             data = dict(item) if isinstance(item, dict) else item.model_dump()
-            issue_num = data.get("issue") if isinstance(item, dict) else item.issue
+            issue_num: int = int(
+                data.get("issue", 0) if isinstance(item, dict) else item.issue
+            )
             if orch:
                 data["status"] = orch.get_hitl_status(issue_num)
             cause = _state.get_hitl_cause(issue_num)
