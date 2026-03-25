@@ -457,11 +457,32 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
         validation: ADRValidationResult,
         stats: dict[str, int],
     ) -> None:
-        """Route a pre-validation failure to triage, falling back to HITL."""
-        issue_msgs = "\n".join(f"- {i.message}" for i in validation.issues)
+        """Route a pre-validation failure to triage, falling back to HITL.
+
+        Deduplicates by checking for an existing open issue with the same
+        title before creating a new one.
+        """
         title = f"[ADR Pre-validation] ADR-{adr_number:04d}: structural issues"
         if len(title) > 70:
             title = title[:67] + "..."
+
+        # Dedup: skip if an open issue already exists for this ADR
+        search_key = f"[ADR Pre-validation] ADR-{adr_number:04d}"
+        existing = await self._prs.find_issue_number_by_label_and_title(
+            label=self._config.find_label[0] if self._config.find_label else "",
+            title_substring=search_key,
+            state="open",
+        )
+        if existing is not None:
+            logger.debug(
+                "ADR-%04d pre-validation issue already open (#%d) — skipping",
+                adr_number,
+                existing,
+            )
+            stats["pre_validation_skipped"] += 1
+            return
+
+        issue_msgs = "\n".join(f"- {i.message}" for i in validation.issues)
         body = (
             "## Pre-validation Failure\n\n"
             f"**ADR:** ADR-{adr_number:04d} — {adr_title}\n\n"
