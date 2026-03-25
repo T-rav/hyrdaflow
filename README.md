@@ -47,7 +47,7 @@ See the full product walkthrough and visuals at [hydraflow.ai](https://hydraflow
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/)
 - [GitHub CLI](https://cli.github.com/) authenticated (`gh auth login`)
-- Claude CLI and/or Codex CLI available on PATH
+- [Claude Code](https://claude.ai/code) and/or [Codex CLI](https://openai.com/index/introducing-codex/) available on PATH
 - Node.js 20.19+ or 22.12+ (dashboard only)
 - [Beads](https://www.npmjs.com/package/@beads/bd) (optional — auto-installed when needed for task decomposition)
 
@@ -220,10 +220,6 @@ ANTHROPIC_API_KEY=sk-ant-...
 **Codex:**
 
 Codex credentials are mounted automatically from `~/.codex/` on your host. No extra `.env` configuration is needed.
-
-**Other supported providers** (set in `.env` as needed):
-
-`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `TOGETHER_API_KEY`, `GROQ_API_KEY`
 
 ### 4. Verify
 
