@@ -3167,6 +3167,16 @@ def create_router(
             return JSONResponse({"error": "Issue not found"}, status_code=404)
         return JSONResponse(timeline.model_dump())
 
+    @router.get("/api/timeline/completed")
+    async def get_completed_timelines() -> JSONResponse:
+        """Return persisted timelines for completed (merged) issues.
+
+        Unlike /api/timeline which derives from ephemeral events,
+        these survive event log rotation.
+        """
+        timelines = state.get_all_completed_timelines()
+        return JSONResponse([t.model_dump() for t in timelines.values()])
+
     # --- Repo runtime lifecycle endpoints ---
 
     def _is_default_repo(slug: str) -> bool:

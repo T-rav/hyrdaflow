@@ -124,6 +124,37 @@ class PostMergeHandler:
                 return True
         return False
 
+    def _persist_completed_timeline(
+        self,
+        pr: PRInfo,
+        issue: GitHubIssue | Task,
+        result: ReviewResult,
+        merge_seconds: float,
+    ) -> None:
+        """Build and persist a CompletedTimeline for the merged issue."""
+        from models import CompletedTimeline  # noqa: PLC0415
+
+        phase_durations: dict[str, float] = {}
+        if result.duration_seconds > 0:
+            phase_durations["review"] = round(result.duration_seconds, 1)
+        # Pull worker result meta for implementation duration
+        meta = self._state.get_worker_result_meta(pr.issue_number)
+        dur = meta.get("duration_seconds") if meta else None
+        if dur:
+            phase_durations["implement"] = round(float(dur), 1)
+
+        timeline = CompletedTimeline(
+            issue_number=pr.issue_number,
+            title=issue.title,
+            completed_at=datetime.now(UTC).isoformat(),
+            total_duration_seconds=round(merge_seconds, 1)
+            if merge_seconds > 0
+            else 0.0,
+            phase_durations=phase_durations,
+            pr_number=pr.number,
+        )
+        self._state.record_completed_timeline(timeline)
+
     async def _notify_epic_approval(self, issue_number: int) -> None:
         """Notify EpicManager that a child issue's PR was approved."""
         if self._epic_manager is None:
@@ -240,7 +271,8 @@ class PostMergeHandler:
                 self._state.record_ci_fix_rounds(result.ci_fix_attempts)
                 for _ in range(result.ci_fix_attempts):
                     self._state.record_stage_retry(pr.issue_number, "ci_fix")
-            # Track time-to-merge
+            # Track time-to-merge and persist completed timeline
+            merge_seconds: float = 0.0
             if issue.created_at:
                 try:
                     created = datetime.fromisoformat(issue.created_at)
@@ -248,6 +280,7 @@ class PostMergeHandler:
                     self._state.record_merge_duration(merge_seconds)
                 except (ValueError, TypeError):
                     pass
+            self._persist_completed_timeline(pr, issue, result, merge_seconds)
             # Check thresholds and publish alerts
             proposals = self._state.check_thresholds(
                 self._config.quality_fix_rate_threshold,

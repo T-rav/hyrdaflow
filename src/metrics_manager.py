@@ -239,6 +239,9 @@ class MetricsManager:
                 "Could not fetch GitHub label counts for snapshot", exc_info=True
             )
 
+        # Per-phase duration stats
+        phase_stats = self._state.get_phase_duration_stats()
+
         return MetricsSnapshot(
             timestamp=now,
             issues_completed=issues_completed,
@@ -257,6 +260,10 @@ class MetricsManager:
             hitl_escalation_rate=hitl_escalation_rate,
             first_pass_approval_rate=first_pass_approval_rate,
             avg_implementation_seconds=avg_impl_seconds,
+            plan_duration_stats=phase_stats.get("plan", {}),
+            implement_duration_stats=phase_stats.get("implement", {}),
+            review_duration_stats=phase_stats.get("review", {}),
+            merge_duration_stats=phase_stats.get("merge", {}),
             queue_depth=queue_depth,
             github_open_by_label=github_open_by_label,
             github_total_closed=github_total_closed,
