@@ -250,7 +250,8 @@ class TestExecute:
 class TestInjectManifestAndMemory:
     """Tests for BaseRunner._inject_manifest_and_memory."""
 
-    def test_inject_returns_manifest_and_memory_when_both_present(
+    @pytest.mark.asyncio
+    async def test_inject_returns_manifest_and_memory_when_both_present(
         self, config, event_bus: EventBus
     ) -> None:
         runner = _TestRunner(config, event_bus)
@@ -259,14 +260,15 @@ class TestInjectManifestAndMemory:
             patch("base_runner.load_project_manifest", return_value="manifest text"),
             patch("base_runner.load_memory_digest", return_value="digest text"),
         ):
-            manifest_sec, memory_sec = runner._inject_manifest_and_memory()
+            manifest_sec, memory_sec = await runner._inject_manifest_and_memory()
 
         assert "## Project Context" in manifest_sec
         assert "manifest text" in manifest_sec
         assert "## Accumulated Learnings" in memory_sec
         assert "digest text" in memory_sec
 
-    def test_inject_returns_manifest_section_when_only_manifest_exists(
+    @pytest.mark.asyncio
+    async def test_inject_returns_manifest_section_when_only_manifest_exists(
         self, config, event_bus: EventBus
     ) -> None:
         runner = _TestRunner(config, event_bus)
@@ -275,12 +277,13 @@ class TestInjectManifestAndMemory:
             patch("base_runner.load_project_manifest", return_value="manifest text"),
             patch("base_runner.load_memory_digest", return_value=""),
         ):
-            manifest_sec, memory_sec = runner._inject_manifest_and_memory()
+            manifest_sec, memory_sec = await runner._inject_manifest_and_memory()
 
         assert "## Project Context" in manifest_sec
         assert memory_sec == ""
 
-    def test_inject_returns_memory_section_when_only_digest_exists(
+    @pytest.mark.asyncio
+    async def test_inject_returns_memory_section_when_only_digest_exists(
         self, config, event_bus: EventBus
     ) -> None:
         runner = _TestRunner(config, event_bus)
@@ -289,12 +292,13 @@ class TestInjectManifestAndMemory:
             patch("base_runner.load_project_manifest", return_value=""),
             patch("base_runner.load_memory_digest", return_value="digest text"),
         ):
-            manifest_sec, memory_sec = runner._inject_manifest_and_memory()
+            manifest_sec, memory_sec = await runner._inject_manifest_and_memory()
 
         assert manifest_sec == ""
         assert "## Accumulated Learnings" in memory_sec
 
-    def test_inject_returns_empty_strings_when_no_manifest_or_digest(
+    @pytest.mark.asyncio
+    async def test_inject_returns_empty_strings_when_no_manifest_or_digest(
         self, config, event_bus: EventBus
     ) -> None:
         runner = _TestRunner(config, event_bus)
@@ -303,10 +307,141 @@ class TestInjectManifestAndMemory:
             patch("base_runner.load_project_manifest", return_value=""),
             patch("base_runner.load_memory_digest", return_value=""),
         ):
-            manifest_sec, memory_sec = runner._inject_manifest_and_memory()
+            manifest_sec, memory_sec = await runner._inject_manifest_and_memory()
 
         assert manifest_sec == ""
         assert memory_sec == ""
+
+    @pytest.mark.asyncio
+    async def test_hindsight_recall_used_when_client_and_query_provided(
+        self, config, event_bus: EventBus
+    ) -> None:
+        from hindsight import HindsightMemory
+
+        mock_client = MagicMock()
+        runner = _TestRunner(config, event_bus, hindsight=mock_client)
+
+        memories = [HindsightMemory(content="Always run lint before committing")]
+        with (
+            patch("base_runner.load_project_manifest", return_value="manifest text"),
+            patch(
+                "hindsight.recall_safe",
+                new_callable=AsyncMock,
+                return_value=memories,
+            ),
+        ):
+            manifest_sec, memory_sec = await runner._inject_manifest_and_memory(
+                query_context="Fix the widget"
+            )
+
+        assert "## Accumulated Learnings" in memory_sec
+        assert "Always run lint before committing" in memory_sec
+
+    @pytest.mark.asyncio
+    async def test_hindsight_fallback_to_file_when_recall_empty(
+        self, config, event_bus: EventBus
+    ) -> None:
+        mock_client = MagicMock()
+        runner = _TestRunner(config, event_bus, hindsight=mock_client)
+
+        with (
+            patch("base_runner.load_project_manifest", return_value=""),
+            patch("base_runner.load_memory_digest", return_value="file digest"),
+            patch(
+                "hindsight.recall_safe",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+        ):
+            _, memory_sec = await runner._inject_manifest_and_memory(
+                query_context="Fix the widget"
+            )
+
+        assert "file digest" in memory_sec
+
+    @pytest.mark.asyncio
+    async def test_hindsight_not_used_when_client_is_none(
+        self, config, event_bus: EventBus
+    ) -> None:
+        runner = _TestRunner(config, event_bus)
+
+        with (
+            patch("base_runner.load_project_manifest", return_value=""),
+            patch("base_runner.load_memory_digest", return_value="file digest"),
+        ):
+            _, memory_sec = await runner._inject_manifest_and_memory(
+                query_context="Fix the widget"
+            )
+
+        assert "file digest" in memory_sec
+
+    @pytest.mark.asyncio
+    async def test_hindsight_exclusive_skips_file_fallback(
+        self, config, event_bus: EventBus
+    ) -> None:
+        config.hindsight_exclusive = True
+        mock_client = MagicMock()
+        runner = _TestRunner(config, event_bus, hindsight=mock_client)
+
+        with (
+            patch("base_runner.load_project_manifest", return_value=""),
+            patch(
+                "base_runner.load_memory_digest", return_value="file digest"
+            ) as mock_digest,
+            patch(
+                "hindsight.recall_safe",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+        ):
+            _, memory_sec = await runner._inject_manifest_and_memory(
+                query_context="Fix the widget"
+            )
+
+        # With exclusive mode and a client configured, file fallback is skipped
+        mock_digest.assert_not_called()
+        assert memory_sec == ""
+
+    @pytest.mark.asyncio
+    async def test_hindsight_exclusive_without_client_still_uses_file(
+        self, config, event_bus: EventBus
+    ) -> None:
+        config.hindsight_exclusive = True
+        runner = _TestRunner(config, event_bus)  # no hindsight client
+
+        with (
+            patch("base_runner.load_project_manifest", return_value=""),
+            patch("base_runner.load_memory_digest", return_value="file digest"),
+        ):
+            _, memory_sec = await runner._inject_manifest_and_memory(
+                query_context="Fix the widget"
+            )
+
+        # Without a client, exclusive mode is ignored — file fallback works
+        assert "file digest" in memory_sec
+
+    @pytest.mark.asyncio
+    async def test_empty_query_context_skips_hindsight(
+        self, config, event_bus: EventBus
+    ) -> None:
+        """When query_context is empty, Hindsight recall should NOT be called."""
+        mock_client = MagicMock()
+        runner = _TestRunner(config, event_bus, hindsight=mock_client)
+
+        with (
+            patch("base_runner.load_project_manifest", return_value=""),
+            patch("base_runner.load_memory_digest", return_value="file digest"),
+            patch(
+                "hindsight.recall_safe",
+                new_callable=AsyncMock,
+            ) as mock_recall,
+        ):
+            _, memory_sec = await runner._inject_manifest_and_memory(query_context="")
+
+        # Hindsight should not be called with an empty query
+        mock_recall.assert_not_called()
+        # File-based fallback should still work
+        assert "file digest" in memory_sec
 
 
 # ---------------------------------------------------------------------------

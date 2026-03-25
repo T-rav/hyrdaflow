@@ -6,17 +6,21 @@ escalations, detects recurring patterns, and generates improvement suggestions.
 
 from __future__ import annotations
 
-import json
 import logging
 from collections import Counter
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
 
 from models import IsoTimestamp, PipelineStage
+
+if TYPE_CHECKING:
+    from dolt_backend import DoltBackend
+    from hindsight import HindsightClient
+    from hindsight_wal import HindsightWAL
 
 logger = logging.getLogger("hydraflow.harness_insights")
 
@@ -132,22 +136,56 @@ def extract_subcategories(details: str) -> list[str]:
 class HarnessInsightStore:
     """File-backed store for pipeline failure records and proposed-pattern tracking."""
 
-    def __init__(self, memory_dir: Path) -> None:
+    def __init__(
+        self,
+        memory_dir: Path,
+        *,
+        hindsight: HindsightClient | None = None,
+        dolt: DoltBackend | None = None,
+        wal: HindsightWAL | None = None,
+    ) -> None:
+        from dedup_store import DedupStore  # noqa: PLC0415
+
         self._memory_dir = memory_dir
         self._failures_path = memory_dir / "harness_failures.jsonl"
-        self._proposed_path = memory_dir / "harness_proposed.json"
+        self._proposed = DedupStore(
+            "harness_proposed",
+            memory_dir / "harness_proposed.json",
+            dolt=dolt,
+        )
+        self._hindsight = hindsight
+        self._dolt = dolt
+        self._wal = wal
 
     def append_failure(self, record: FailureRecord) -> None:
         """Append *record* as a JSON line to ``harness_failures.jsonl``."""
-        try:
-            from file_util import append_jsonl  # noqa: PLC0415
+        if not self._hindsight:
+            try:
+                from file_util import append_jsonl  # noqa: PLC0415
 
-            append_jsonl(self._failures_path, record.model_dump_json())
-        except OSError:
-            logger.warning(
-                "Could not append failure to %s",
-                self._failures_path,
-                exc_info=True,
+                append_jsonl(self._failures_path, record.model_dump_json())
+            except OSError:
+                logger.warning(
+                    "Could not append failure to %s",
+                    self._failures_path,
+                    exc_info=True,
+                )
+
+        if self._hindsight:
+            from hindsight import Bank, schedule_retain  # noqa: PLC0415
+
+            schedule_retain(
+                self._hindsight,
+                Bank.HARNESS_INSIGHTS,
+                record.details,
+                context=f"issue #{record.issue_number} category={record.category} stage={record.stage}",
+                metadata={
+                    "issue_number": record.issue_number,
+                    "pr_number": record.pr_number,
+                    "category": str(record.category),
+                    "subcategories": record.subcategories,
+                },
+                wal=self._wal,
             )
 
     def load_recent(self, n: int = 20) -> list[FailureRecord]:
@@ -169,27 +207,11 @@ class HarnessInsightStore:
 
     def get_proposed_patterns(self) -> set[str]:
         """Return the set of pattern keys that already have filed proposals."""
-        if not self._proposed_path.exists():
-            return set()
-        try:
-            data = json.loads(self._proposed_path.read_text())
-            return set(data) if isinstance(data, list) else set()
-        except (json.JSONDecodeError, TypeError, OSError):
-            return set()
+        return self._proposed.get()
 
     def mark_pattern_proposed(self, key: str) -> None:
         """Record that an improvement proposal has been filed for *key*."""
-        proposed = self.get_proposed_patterns()
-        proposed.add(key)
-        self._memory_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            self._proposed_path.write_text(json.dumps(sorted(proposed)))
-        except OSError:
-            logger.warning(
-                "Could not write proposed patterns to %s",
-                self._proposed_path,
-                exc_info=True,
-            )
+        self._proposed.add(key)
 
 
 # ---------------------------------------------------------------------------

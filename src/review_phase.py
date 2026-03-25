@@ -13,6 +13,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from dolt_backend import DoltBackend
+    from hindsight import HindsightClient
+    from hindsight_wal import HindsightWAL
     from visual_validator import VisualValidator
 
 from baseline_policy import BaselinePolicy
@@ -105,6 +108,9 @@ class ReviewPhase:
         post_merge: PostMergeHandler | None = None,
         update_bg_worker_status: StatusCallback | None = None,
         baseline_policy: BaselinePolicy | None = None,
+        hindsight: HindsightClient | None = None,
+        dolt: DoltBackend | None = None,
+        wal: HindsightWAL | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -118,7 +124,8 @@ class ReviewPhase:
         self._suggest_memory = MemorySuggester(config, prs, state)
         self._update_bg_worker_status = update_bg_worker_status
         self._harness_insights = harness_insights
-        self._insights = ReviewInsightStore(config.memory_dir)
+        self._insights = ReviewInsightStore(config.memory_dir, dolt=dolt, wal=wal)
+        self._wal = wal
         self._active_issues: set[int] = set()
         self._active_issues_lock = asyncio.Lock()
         self._conflict_resolver = conflict_resolver or MergeConflictResolver(
@@ -142,6 +149,7 @@ class ReviewPhase:
             store=store,
         )
         self._baseline_policy = baseline_policy
+        self._hindsight = hindsight
         self._visual_validator: VisualValidator | None = None
         if config.visual_validation_enabled:
             from visual_validator import VisualValidator  # noqa: PLC0415
@@ -1460,6 +1468,27 @@ class ReviewPhase:
                 categories=extract_categories(result.summary),
             )
             self._insights.append_review(record)
+
+            # Dual-write review rejections as troubleshooting context
+            if result.verdict != ReviewVerdict.APPROVE and self._hindsight:
+                from hindsight import Bank, schedule_retain  # noqa: PLC0415
+
+                schedule_retain(
+                    self._hindsight,
+                    Bank.TROUBLESHOOTING,
+                    f"Review rejection pattern: {result.summary[:500]}",
+                    context=(
+                        f"PR #{result.pr_number} issue #{result.issue_number}"
+                        f" verdict={result.verdict}"
+                    ),
+                    metadata={
+                        "pr_number": str(result.pr_number),
+                        "issue_number": str(result.issue_number),
+                        "verdict": str(result.verdict),
+                        "source": "review_rejection",
+                    },
+                    wal=self._wal,
+                )
 
             recent = self._insights.load_recent(self._config.review_insight_window)
             patterns = analyze_patterns(recent, self._config.review_pattern_threshold)

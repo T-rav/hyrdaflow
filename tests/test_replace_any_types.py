@@ -8,7 +8,7 @@ import pytest
 
 from models import GitHubIssue, GitHubIssueState
 from tests.conftest import IssueFactory  # noqa: E402
-from tests.helpers import make_tracker
+from tests.helpers import ConfigFactory, make_tracker
 
 # ---------------------------------------------------------------------------
 # models.py — _normalise_state
@@ -309,6 +309,40 @@ class TestDashboardRouteAnnotations:
         response = get_health()
         data = json.loads(response.body)
         assert "good_worker" not in data.get("worker_errors", [])
+
+    def test_healthz_includes_hindsight_check_disabled(
+        self, config, event_bus, state, tmp_path: Path
+    ) -> None:
+        """Hindsight check reports disabled when feature flag is off."""
+        import json
+
+        router = _make_router(config, event_bus, state, tmp_path)
+        get_health = _find_endpoint(router, "/healthz")
+        assert get_health is not None
+        response = get_health()
+        data = json.loads(response.body)
+        assert "hindsight" in data["checks"]
+        assert data["checks"]["hindsight"]["status"] == "disabled"
+        assert data["checks"]["hindsight"]["enabled"] is False
+
+    def test_healthz_includes_hindsight_check_enabled(
+        self, event_bus, state, tmp_path: Path
+    ) -> None:
+        """Hindsight check reports ok when enabled + configured."""
+        import json
+
+        cfg = ConfigFactory.create(
+            hindsight_enabled=True,
+            hindsight_url="http://localhost:8080",
+        )
+        router = _make_router(cfg, event_bus, state, tmp_path)
+        get_health = _find_endpoint(router, "/healthz")
+        assert get_health is not None
+        response = get_health()
+        data = json.loads(response.body)
+        assert data["checks"]["hindsight"]["status"] == "ok"
+        assert data["checks"]["hindsight"]["enabled"] is True
+        assert data["checks"]["hindsight"]["configured"] is True
 
     def test_normalise_state_return_type(self) -> None:
         """Verify the _normalise_state validator returns correct type."""

@@ -20,7 +20,7 @@ def _runtime_patches():
     return (
         patch("repo_runtime.EventLog"),
         patch("repo_runtime.EventBus", return_value=mock_bus),
-        patch("repo_runtime.StateTracker"),
+        patch("repo_runtime.build_state_tracker"),
         patch("repo_runtime.HydraFlowOrchestrator"),
     )
 
@@ -51,7 +51,7 @@ class TestRepoRuntime:
         with (
             patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus"),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.build_state_tracker"),
             patch("repo_runtime.HydraFlowOrchestrator"),
         ):
             runtime = RepoRuntime(config)
@@ -62,7 +62,7 @@ class TestRepoRuntime:
         with (
             patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus"),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.build_state_tracker"),
             patch("repo_runtime.HydraFlowOrchestrator"),
         ):
             runtime = RepoRuntime(config)
@@ -73,13 +73,13 @@ class TestRepoRuntime:
         with (
             patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus") as mock_bus_cls,
-            patch("repo_runtime.StateTracker") as mock_state_cls,
+            patch("repo_runtime.build_state_tracker") as mock_build_state,
             patch("repo_runtime.HydraFlowOrchestrator") as mock_orch_cls,
         ):
             runtime = RepoRuntime(config)
         assert runtime.config is config
         assert runtime.event_bus is mock_bus_cls.return_value
-        assert runtime.state is mock_state_cls.return_value
+        assert runtime.state is mock_build_state.return_value
         assert runtime.orchestrator is mock_orch_cls.return_value
 
     def test_running_delegates_to_orchestrator(self, tmp_path):
@@ -87,7 +87,7 @@ class TestRepoRuntime:
         with (
             patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus"),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.build_state_tracker"),
             patch("repo_runtime.HydraFlowOrchestrator") as mock_orch_cls,
         ):
             mock_orch_cls.return_value.running = True
@@ -103,7 +103,7 @@ class TestRepoRuntime:
         with (
             patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus", return_value=mock_bus),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.build_state_tracker"),
             patch("repo_runtime.HydraFlowOrchestrator"),
         ):
             runtime = await RepoRuntime.create(config)
@@ -120,7 +120,7 @@ class TestRepoRuntime:
         with (
             patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus"),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.build_state_tracker"),
             patch("repo_runtime.HydraFlowOrchestrator", return_value=mock_orch),
         ):
             runtime = RepoRuntime(config)
@@ -139,7 +139,7 @@ class TestRepoRuntime:
         with (
             patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus"),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.build_state_tracker"),
             patch("repo_runtime.HydraFlowOrchestrator", return_value=mock_orch),
         ):
             runtime = RepoRuntime(config)
@@ -151,7 +151,7 @@ class TestRepoRuntime:
         with (
             patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus"),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.build_state_tracker"),
             patch("repo_runtime.HydraFlowOrchestrator") as mock_orch_cls,
         ):
             mock_orch_cls.return_value.running = False
@@ -172,7 +172,7 @@ class TestRepoRuntimeRegistry:
         with (
             patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus", return_value=mock_bus),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.build_state_tracker"),
             patch("repo_runtime.HydraFlowOrchestrator"),
         ):
             runtime = await registry.register(config)
@@ -191,7 +191,7 @@ class TestRepoRuntimeRegistry:
         with (
             patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus", return_value=mock_bus),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.build_state_tracker"),
             patch("repo_runtime.HydraFlowOrchestrator"),
         ):
             await registry.register(config)
@@ -208,7 +208,7 @@ class TestRepoRuntimeRegistry:
         with (
             patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus", return_value=mock_bus),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.build_state_tracker"),
             patch("repo_runtime.HydraFlowOrchestrator"),
         ):
             await registry.register(config)
@@ -243,7 +243,7 @@ class TestRepoRuntimeRegistry:
         with (
             patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus", side_effect=_make_bus),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.build_state_tracker"),
             patch("repo_runtime.HydraFlowOrchestrator", side_effect=_make_orch),
         ):
             for c in configs:
@@ -283,7 +283,7 @@ class TestRepoRuntimeRegistry:
         with (
             patch("repo_runtime.EventLog"),
             patch("repo_runtime.EventBus", side_effect=_make_bus),
-            patch("repo_runtime.StateTracker"),
+            patch("repo_runtime.build_state_tracker"),
             patch(
                 "repo_runtime.HydraFlowOrchestrator",
                 side_effect=lambda *a, **kw: MagicMock(),

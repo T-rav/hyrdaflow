@@ -26,6 +26,7 @@ from runner_utils import (
 
 if TYPE_CHECKING:
     from execution import SubprocessRunner
+    from hindsight import HindsightClient
 
 
 class BaseRunner:
@@ -44,6 +45,8 @@ class BaseRunner:
         config: HydraFlowConfig,
         event_bus: EventBus,
         runner: SubprocessRunner | None = None,
+        *,
+        hindsight: HindsightClient | None = None,
     ) -> None:
         self._config = config
         self._bus = event_bus
@@ -52,6 +55,7 @@ class BaseRunner:
         self._context_cache = ContextSectionCache(config)
         self._prompt_telemetry = PromptTelemetry(config)
         self._last_context_stats: dict[str, int] = {"cache_hits": 0, "cache_misses": 0}
+        self._hindsight = hindsight
 
     def terminate(self) -> None:
         """Kill all active subprocesses."""
@@ -158,11 +162,17 @@ class BaseRunner:
                 exc_info=True,
             )
 
-    def _inject_manifest_and_memory(self) -> tuple[str, str]:
+    async def _inject_manifest_and_memory(
+        self, *, query_context: str = ""
+    ) -> tuple[str, str]:
         """Load the project manifest and memory digest.
 
         Returns ``(manifest_section, memory_section)`` where each is an
         empty string when the corresponding file is missing.
+
+        When a :class:`HindsightClient` is configured, the memory section is
+        populated via semantic recall instead of the file-based digest.  If
+        recall returns nothing, the file-based digest is used as fallback.
         """
         cache_hits = 0
         cache_misses = 0
@@ -180,21 +190,39 @@ class BaseRunner:
             manifest_section = f"\n\n## Project Context\n\n{manifest}"
 
         memory_section = ""
-        digest_path = self._config.data_path("memory", "digest.md")
-        digest, digest_hit = self._context_cache.get_or_load(
-            key="memory_digest",
-            source_path=digest_path,
-            loader=load_memory_digest,
+        memory_raw = ""
+
+        if self._hindsight and query_context:
+            from hindsight import Bank, format_memories_as_markdown, recall_safe
+
+            memories = await recall_safe(self._hindsight, Bank.LEARNINGS, query_context)
+            memory_raw = format_memories_as_markdown(memories)
+            if memory_raw:
+                memory_raw = memory_raw[: self._config.max_memory_prompt_chars]
+
+        # Fallback to file-based digest when Hindsight is absent or returned nothing.
+        # When hindsight_exclusive is set and a client is configured, skip file-based.
+        skip_file = self._hindsight and getattr(
+            self._config, "hindsight_exclusive", False
         )
-        cache_hits += 1 if digest_hit else 0
-        cache_misses += 0 if digest_hit else 1
-        if digest:
-            memory_section = f"\n\n## Accumulated Learnings\n\n{digest}"
+        if not memory_raw and not skip_file:
+            digest_path = self._config.data_path("memory", "digest.md")
+            digest, digest_hit = self._context_cache.get_or_load(
+                key="memory_digest",
+                source_path=digest_path,
+                loader=load_memory_digest,
+            )
+            cache_hits += 1 if digest_hit else 0
+            cache_misses += 0 if digest_hit else 1
+            memory_raw = digest
+
+        if memory_raw:
+            memory_section = f"\n\n## Accumulated Learnings\n\n{memory_raw}"
 
         self._last_context_stats = {
             "cache_hits": cache_hits,
             "cache_misses": cache_misses,
-            "context_chars_before": len(manifest) + len(digest),
+            "context_chars_before": len(manifest) + len(memory_raw),
             "context_chars_after": len(manifest_section) + len(memory_section),
         }
 

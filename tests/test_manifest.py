@@ -608,7 +608,8 @@ class TestManifestConfig:
 class TestManifestInjectionInRunners:
     """Verify that all agent runners inject ## Project Context when manifest exists."""
 
-    def test_agent_runner__injects_manifest(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_agent_runner__injects_manifest(self, tmp_path: Path) -> None:
         """AgentRunner._build_prompt_with_stats includes ## Project Context from manifest."""
         from agent import AgentRunner
         from events import EventBus
@@ -629,11 +630,12 @@ class TestManifestInjectionInRunners:
             tags=[],
             comments=[],
         )
-        prompt, _ = runner._build_prompt_with_stats(issue)
+        prompt, _ = await runner._build_prompt_with_stats(issue)
         assert "## Project Context" in prompt
         assert "python, make" in prompt
 
-    def test_hitl_runner__injects_manifest(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_hitl_runner__injects_manifest(self, tmp_path: Path) -> None:
         """HITLRunner._build_prompt_with_stats includes ## Project Context from manifest."""
         from events import EventBus
         from hitl_runner import HITLRunner
@@ -654,7 +656,7 @@ class TestManifestInjectionInRunners:
             labels=[],
             comments=[],
         )
-        prompt, _ = runner._build_prompt_with_stats(issue, "fix it", "CI failed")
+        prompt, _ = await runner._build_prompt_with_stats(issue, "fix it", "CI failed")
         assert "## Project Context" in prompt
         assert "rust, cargo" in prompt
 

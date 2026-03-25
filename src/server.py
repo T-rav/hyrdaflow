@@ -21,7 +21,7 @@ async def _run_with_dashboard(config: HydraFlowConfig) -> None:
     from models import Phase  # noqa: PLC0415
     from repo_runtime import RepoRuntimeRegistry  # noqa: PLC0415
     from repo_store import RepoRecord, RepoRegistryStore  # noqa: PLC0415
-    from state import StateTracker  # noqa: PLC0415
+    from state import build_state_tracker  # noqa: PLC0415
 
     event_log = EventLog(config.event_log_path)
     bus = EventBus(event_log=event_log)
@@ -30,7 +30,7 @@ async def _run_with_dashboard(config: HydraFlowConfig) -> None:
         config.event_log_retention_days,
     )
     await bus.load_history_from_disk()
-    state = StateTracker(config.state_file)
+    state = build_state_tracker(config)
 
     repo_store = RepoRegistryStore(config.data_root)
     registry = RepoRuntimeRegistry()

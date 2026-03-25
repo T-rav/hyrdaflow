@@ -1306,6 +1306,13 @@ def create_router(
                 "port": config.dashboard_port,
                 "public": dashboard_public,
             },
+            "hindsight": {
+                "status": "ok"
+                if config.hindsight_enabled and config.hindsight_url
+                else "disabled",
+                "enabled": config.hindsight_enabled,
+                "configured": bool(config.hindsight_url),
+            },
             "github_cache": github_cache_health,
             "queue_depths": queue_depths,
         }
@@ -1328,6 +1335,62 @@ def create_router(
             "checks": checks,
         }
         return JSONResponse(payload)
+
+    @router.get("/api/hindsight/health")
+    async def hindsight_health() -> JSONResponse:
+        """Check Hindsight server connectivity."""
+        if not config.hindsight_enabled or not config.hindsight_url:
+            return JSONResponse(
+                {"status": "disabled", "reachable": False, "url": ""},
+            )
+        from hindsight import HindsightClient
+
+        client = HindsightClient(
+            config.hindsight_url,
+            api_key=config.hindsight_api_key,
+            timeout=min(config.hindsight_timeout, 5),
+        )
+        try:
+            reachable = await client.health_check()
+        finally:
+            await client.close()
+        return JSONResponse(
+            {
+                "status": "ok" if reachable else "unreachable",
+                "reachable": reachable,
+                "url": config.hindsight_url,
+            },
+        )
+
+    @router.post("/api/hindsight/audit")
+    async def hindsight_audit() -> JSONResponse:
+        """Run a memory quality audit across all Hindsight banks."""
+        if not config.hindsight_enabled or not config.hindsight_url:
+            return JSONResponse({"status": "disabled", "results": []})
+        from hindsight import HindsightClient  # noqa: PLC0415
+        from memory_audit import MemoryAuditor  # noqa: PLC0415
+
+        client = HindsightClient(
+            config.hindsight_url,
+            api_key=config.hindsight_api_key,
+            timeout=min(config.hindsight_timeout, 30),
+        )
+        try:
+            auditor = MemoryAuditor(client, config)
+            results = await auditor.audit_all()
+        finally:
+            await client.close()
+        return JSONResponse({"status": "ok", "results": results})
+
+    @router.get("/api/hindsight/banks")
+    async def hindsight_banks() -> JSONResponse:
+        """List Hindsight memory banks with stats."""
+        if not config.hindsight_enabled or not config.hindsight_url:
+            return JSONResponse({"status": "disabled", "banks": []})
+        from hindsight import Bank  # noqa: PLC0415
+
+        banks = [{"id": str(b), "name": b.name} for b in Bank]
+        return JSONResponse({"status": "ok", "banks": banks})
 
     @router.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:

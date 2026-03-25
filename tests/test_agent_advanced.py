@@ -316,7 +316,8 @@ class TestLoadPlanFallback:
 class TestBuildPromptFallbackAndTruncation:
     """Tests for plan fallback, body truncation, and test_command in _build_prompt_with_stats."""
 
-    def test_falls_back_to_plan_file(self, config, event_bus: EventBus) -> None:
+    @pytest.mark.asyncio
+    async def test_falls_back_to_plan_file(self, config, event_bus: EventBus) -> None:
         """When no plan comment exists, should fall back to .hydraflow/plans/."""
         plan_dir = config.repo_root / ".hydraflow" / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
@@ -331,11 +332,14 @@ class TestBuildPromptFallbackAndTruncation:
             comments=[],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(issue)
+        prompt, _ = await runner._build_prompt_with_stats(issue)
         assert "Step 1: saved plan" in prompt
         assert "Follow this plan closely" in prompt
 
-    def test_logs_error_when_no_plan_found(self, config, event_bus: EventBus) -> None:
+    @pytest.mark.asyncio
+    async def test_logs_error_when_no_plan_found(
+        self, config, event_bus: EventBus
+    ) -> None:
         """Should log error when neither comment nor file has a plan."""
         config.repo_root.mkdir(parents=True, exist_ok=True)
         issue = TaskFactory.create(
@@ -346,13 +350,14 @@ class TestBuildPromptFallbackAndTruncation:
         )
         runner = AgentRunner(config, event_bus)
         with patch("agent.logger") as mock_logger:
-            prompt, _ = runner._build_prompt_with_stats(issue)
+            prompt, _ = await runner._build_prompt_with_stats(issue)
         mock_logger.error.assert_called_once()
         # Should still produce a valid prompt without a plan section
         assert "Follow this plan closely" not in prompt
         assert "## Instructions" in prompt
 
-    def test_truncates_long_body(self, config, event_bus: EventBus) -> None:
+    @pytest.mark.asyncio
+    async def test_truncates_long_body(self, config, event_bus: EventBus) -> None:
         """Body exceeding max_issue_body_chars should be truncated with a note."""
         config.repo_root.mkdir(parents=True, exist_ok=True)
         long_body = "x" * 15_000
@@ -363,12 +368,13 @@ class TestBuildPromptFallbackAndTruncation:
             comments=[],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(issue)
+        prompt, _ = await runner._build_prompt_with_stats(issue)
         assert "x" * 10_000 in prompt
         assert "x" * 15_000 not in prompt
         assert "Body truncated" in prompt
 
-    def test_preserves_short_body(self, config, event_bus: EventBus) -> None:
+    @pytest.mark.asyncio
+    async def test_preserves_short_body(self, config, event_bus: EventBus) -> None:
         """Body under max_issue_body_chars should pass through unchanged."""
         config.repo_root.mkdir(parents=True, exist_ok=True)
         short_body = "This is a short body."
@@ -379,11 +385,12 @@ class TestBuildPromptFallbackAndTruncation:
             comments=[],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(issue)
+        prompt, _ = await runner._build_prompt_with_stats(issue)
         assert short_body in prompt
         assert "Body truncated" not in prompt
 
-    def test_uses_configured_test_command(
+    @pytest.mark.asyncio
+    async def test_uses_configured_test_command(
         self, event_bus: EventBus, tmp_path: Path
     ) -> None:
         """Prompt should use test_command from config."""
@@ -401,16 +408,17 @@ class TestBuildPromptFallbackAndTruncation:
             comments=[],
         )
         runner = AgentRunner(cfg, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(issue)
+        prompt, _ = await runner._build_prompt_with_stats(issue)
         assert "npm test" in prompt
         assert "make test-fast" not in prompt
 
-    def test_default_test_command_is_make_test(
+    @pytest.mark.asyncio
+    async def test_default_test_command_is_make_test(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Default test_command should produce 'make test' in the prompt."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "`make test`" in prompt
 
 
@@ -525,7 +533,8 @@ class TestCountCommitsTimeout:
 class TestBuildPromptRuntimeLogs:
     """Tests for runtime log injection in _build_prompt_with_stats."""
 
-    def test_prompt_includes_runtime_logs_when_present(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_runtime_logs_when_present(
         self, tmp_path: Path, event_bus: EventBus
     ) -> None:
         """When logs exist, prompt includes them."""
@@ -544,12 +553,13 @@ class TestBuildPromptRuntimeLogs:
             patch("base_runner.load_project_manifest", return_value=""),
             patch("base_runner.load_memory_digest", return_value=""),
         ):
-            prompt, _ = runner._build_prompt_with_stats(issue)
+            prompt, _ = await runner._build_prompt_with_stats(issue)
 
         assert "## Recent Application Logs" in prompt
         assert "ERROR: timeout" in prompt
 
-    def test_prompt_excludes_runtime_logs_when_disabled(
+    @pytest.mark.asyncio
+    async def test_prompt_excludes_runtime_logs_when_disabled(
         self, config, event_bus: EventBus
     ) -> None:
         """Default config does not include runtime logs."""
@@ -560,11 +570,12 @@ class TestBuildPromptRuntimeLogs:
             patch("base_runner.load_project_manifest", return_value=""),
             patch("base_runner.load_memory_digest", return_value=""),
         ):
-            prompt, _ = runner._build_prompt_with_stats(issue)
+            prompt, _ = await runner._build_prompt_with_stats(issue)
 
         assert "## Recent Application Logs" not in prompt
 
-    def test_prompt_excludes_runtime_logs_when_empty(
+    @pytest.mark.asyncio
+    async def test_prompt_excludes_runtime_logs_when_empty(
         self, tmp_path: Path, event_bus: EventBus
     ) -> None:
         """No log file — no log section in prompt."""
@@ -578,7 +589,7 @@ class TestBuildPromptRuntimeLogs:
             patch("base_runner.load_project_manifest", return_value=""),
             patch("base_runner.load_memory_digest", return_value=""),
         ):
-            prompt, _ = runner._build_prompt_with_stats(issue)
+            prompt, _ = await runner._build_prompt_with_stats(issue)
 
         assert "## Recent Application Logs" not in prompt
 
@@ -591,7 +602,8 @@ class TestBuildPromptRuntimeLogs:
 class TestPriorFailureInPrompt:
     """Tests that prior_failure is included in the implementation prompt."""
 
-    def test_prior_failure_included_in_prompt(
+    @pytest.mark.asyncio
+    async def test_prior_failure_included_in_prompt(
         self, config, event_bus: EventBus
     ) -> None:
         runner = AgentRunner(config, event_bus)
@@ -601,7 +613,7 @@ class TestPriorFailureInPrompt:
             patch("base_runner.load_project_manifest", return_value=""),
             patch("base_runner.load_memory_digest", return_value=""),
         ):
-            prompt, _ = runner._build_prompt_with_stats(
+            prompt, _ = await runner._build_prompt_with_stats(
                 issue,
                 prior_failure="TDD red phase modified non-test files: docs/adr/001.md",
             )
@@ -610,7 +622,8 @@ class TestPriorFailureInPrompt:
         assert "TDD red phase modified non-test files: docs/adr/001.md" in prompt
         assert "Avoid repeating the same mistake" in prompt
 
-    def test_no_prior_failure_section_when_empty(
+    @pytest.mark.asyncio
+    async def test_no_prior_failure_section_when_empty(
         self, config, event_bus: EventBus
     ) -> None:
         runner = AgentRunner(config, event_bus)
@@ -620,6 +633,6 @@ class TestPriorFailureInPrompt:
             patch("base_runner.load_project_manifest", return_value=""),
             patch("base_runner.load_memory_digest", return_value=""),
         ):
-            prompt, _ = runner._build_prompt_with_stats(issue, prior_failure="")
+            prompt, _ = await runner._build_prompt_with_stats(issue, prior_failure="")
 
         assert "## Prior Attempt Failure" not in prompt

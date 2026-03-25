@@ -138,55 +138,62 @@ class TestBuildCommand:
 class TestBuildPrompt:
     """Tests for AgentRunner._build_prompt_with_stats."""
 
-    def test_prompt_includes_issue_number(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_issue_number(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should reference the issue number."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert str(agent_task.id) in prompt
 
-    def test_prompt_includes_title(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_title(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include the issue title."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert agent_task.title in prompt
 
-    def test_prompt_includes_body(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_body(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include the issue body text."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert agent_task.body in prompt
 
-    def test_prompt_includes_rules(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_rules(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should contain the mandatory rules section."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "Rules" in prompt or "rules" in prompt.lower()
 
-    def test_prompt_references_make_quality(
+    @pytest.mark.asyncio
+    async def test_prompt_references_make_quality(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should instruct the agent to run make quality."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "make quality" in prompt
 
-    def test_prompt_does_not_reference_make_test_fast(
+    @pytest.mark.asyncio
+    async def test_prompt_does_not_reference_make_test_fast(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should not reference make test-fast anywhere (replaced by configurable test_command)."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "make test-fast" not in prompt
 
-    def test_prompt_includes_comments_section_when_comments_exist(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_comments_section_when_comments_exist(
         self, config, event_bus: EventBus
     ) -> None:
         """Prompt should include a Discussion section when the issue has comments."""
@@ -197,22 +204,24 @@ class TestBuildPrompt:
             comments=["Please also handle edge case Y", "What about Z?"],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(issue_with_comments)
+        prompt, _ = await runner._build_prompt_with_stats(issue_with_comments)
 
         assert "Discussion" in prompt
         assert "Please also handle edge case Y" in prompt
         assert "What about Z?" in prompt
 
-    def test_prompt_omits_comments_section_when_no_comments(
+    @pytest.mark.asyncio
+    async def test_prompt_omits_comments_section_when_no_comments(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should not include a Discussion section when there are no comments."""
         # Default agent_task fixture has empty comments
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "Discussion" not in prompt
 
-    def test_prompt_extracts_plan_comment_as_dedicated_section(
+    @pytest.mark.asyncio
+    async def test_prompt_extracts_plan_comment_as_dedicated_section(
         self, config, event_bus: EventBus
     ) -> None:
         """When a comment contains '## Implementation Plan', it should be rendered
@@ -227,7 +236,7 @@ class TestBuildPrompt:
             ],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(issue)
+        prompt, _ = await runner._build_prompt_with_stats(issue)
 
         assert "## Implementation Plan" in prompt
         assert "Follow this plan closely" in prompt
@@ -239,7 +248,8 @@ class TestBuildPrompt:
         assert "Discussion" in prompt
         assert "Please also handle edge case Y" in prompt
 
-    def test_prompt_plan_comment_excluded_from_discussion(
+    @pytest.mark.asyncio
+    async def test_prompt_plan_comment_excluded_from_discussion(
         self, config, event_bus: EventBus
     ) -> None:
         """The plan comment should NOT appear in the Discussion section."""
@@ -252,22 +262,24 @@ class TestBuildPrompt:
             ],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(issue)
+        prompt, _ = await runner._build_prompt_with_stats(issue)
 
         # Plan is in dedicated section, no Discussion section at all
         assert "## Implementation Plan" in prompt
         assert "Discussion" not in prompt
 
-    def test_prompt_no_plan_section_when_no_plan_comment(
+    @pytest.mark.asyncio
+    async def test_prompt_no_plan_section_when_no_plan_comment(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """When no comment contains a plan, no plan section should appear."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
 
         assert "Follow this plan closely" not in prompt
 
-    def test_prompt_uses_tdd_subagent_instructions_for_task_graph(
+    @pytest.mark.asyncio
+    async def test_prompt_uses_tdd_subagent_instructions_for_task_graph(
         self, config, event_bus: EventBus
     ) -> None:
         """When plan has Task Graph, prompt has concrete per-phase sub-agent instructions."""
@@ -284,7 +296,7 @@ class TestBuildPrompt:
             ],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(issue)
+        prompt, _ = await runner._build_prompt_with_stats(issue)
 
         # Header and structure
         assert "TDD Sub-Agent Isolation" in prompt
@@ -314,7 +326,8 @@ class TestBuildPrompt:
         # Old generic instructions NOT present
         assert "Execute phases in order" not in prompt
 
-    def test_prompt_uses_standard_instructions_when_plan_has_no_task_graph(
+    @pytest.mark.asyncio
+    async def test_prompt_uses_standard_instructions_when_plan_has_no_task_graph(
         self, config, event_bus: EventBus
     ) -> None:
         """When the plan has no Task Graph, the standard follow-plan instruction is used."""
@@ -327,43 +340,47 @@ class TestBuildPrompt:
             ],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(issue)
+        prompt, _ = await runner._build_prompt_with_stats(issue)
 
         assert "Follow this plan closely" in prompt
         assert "Execute phases in order" not in prompt
 
-    def test_prompt_includes_ui_guidelines(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_ui_guidelines(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include UI guidelines for component reuse and responsive design."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "UI Guidelines" in prompt
         assert "src/ui/src/components/" in prompt
         assert "never duplicate" in prompt.lower()
         assert "minWidth" in prompt
         assert "theme" in prompt.lower()
 
-    def test_prompt_instructs_no_push_or_pr(
+    @pytest.mark.asyncio
+    async def test_prompt_instructs_no_push_or_pr(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should explicitly tell the agent not to push or create PRs."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "push" in prompt.lower() or "Do NOT push" in prompt
         assert "pull request" in prompt.lower() or "pr create" in prompt.lower()
 
-    def test_prompt_forbids_interactive_git(
+    @pytest.mark.asyncio
+    async def test_prompt_forbids_interactive_git(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should forbid interactive git commands (no TTY in Docker)."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "git add -i" in prompt
         assert "git add -p" in prompt
         assert "git rebase -i" in prompt
 
-    def test_prompt_includes_common_feedback_when_reviews_exist(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_common_feedback_when_reviews_exist(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include Common Review Feedback when review data exists."""
@@ -384,11 +401,12 @@ class TestBuildPrompt:
             )
 
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "## Common Review Feedback" in prompt
         assert "Missing or insufficient test coverage" in prompt
 
-    def test_prompt_includes_escalation_block_when_threshold_met(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_escalation_block_when_threshold_met(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include mandatory escalation block when patterns exceed threshold."""
@@ -409,11 +427,12 @@ class TestBuildPrompt:
             )
 
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "Mandatory Requirements: Test Coverage" in prompt
         assert "missing or insufficient test coverage" in prompt
 
-    def test_prompt_omits_escalation_below_threshold(
+    @pytest.mark.asyncio
+    async def test_prompt_omits_escalation_below_threshold(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         from review_insights import ReviewInsightStore, ReviewRecord
@@ -434,32 +453,35 @@ class TestBuildPrompt:
             )
 
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "Mandatory Requirements" not in prompt
         assert "## Common Review Feedback" in prompt
 
-    def test_prompt_includes_new_self_check_items(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_new_self_check_items(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include the new dead-code and failure-path checklist items."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "New code is reachable" in prompt
         assert "Tests verify issue requirements" in prompt
         assert "Failure paths are tested" in prompt
 
-    def test_prompt_works_without_review_data(
+    @pytest.mark.asyncio
+    async def test_prompt_works_without_review_data(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should work normally when no review data exists."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "## Common Review Feedback" not in prompt
         # The rest of the prompt should still be there
         assert "## Instructions" in prompt
         assert "## Rules" in prompt
 
-    def test_prompt_truncates_long_discussion_comments(
+    @pytest.mark.asyncio
+    async def test_prompt_truncates_long_discussion_comments(
         self, config, event_bus: EventBus
     ) -> None:
         issue = Task(
@@ -469,11 +491,12 @@ class TestBuildPrompt:
             comments=["A" * 5000],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, stats = runner._build_prompt_with_stats(issue)
+        prompt, stats = await runner._build_prompt_with_stats(issue)
         assert "[Comment truncated from" in prompt
         assert int(stats["pruned_chars_total"]) > 0
 
-    def test_prompt_truncates_common_feedback_section(
+    @pytest.mark.asyncio
+    async def test_prompt_truncates_common_feedback_section(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         runner = AgentRunner(config, event_bus)
@@ -482,32 +505,37 @@ class TestBuildPrompt:
             "_get_review_feedback_section",
             return_value="B" * 10000,
         ):
-            prompt, stats = runner._build_prompt_with_stats(agent_task)
+            prompt, stats = await runner._build_prompt_with_stats(agent_task)
         assert "Common review feedback summarized" in prompt
         assert int(stats["pruned_chars_total"]) > 0
 
-    def test_prompt_includes_review_feedback_when_provided(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_review_feedback_when_provided(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include Review Feedback section when feedback is provided."""
         runner = AgentRunner(config, event_bus)
         feedback = "Missing error handling in the parse_config function"
-        prompt, _ = runner._build_prompt_with_stats(
+        prompt, _ = await runner._build_prompt_with_stats(
             agent_task, review_feedback=feedback
         )
         assert "## Review Feedback" in prompt
         assert "Missing error handling in the parse_config function" in prompt
         assert "reviewer rejected" in prompt.lower()
 
-    def test_prompt_omits_review_feedback_when_empty(
+    @pytest.mark.asyncio
+    async def test_prompt_omits_review_feedback_when_empty(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should not include Review Feedback section when feedback is empty."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task, review_feedback="")
+        prompt, _ = await runner._build_prompt_with_stats(
+            agent_task, review_feedback=""
+        )
         assert "## Review Feedback" not in prompt
 
-    def test_prompt_review_feedback_after_plan_section(
+    @pytest.mark.asyncio
+    async def test_prompt_review_feedback_after_plan_section(
         self, config, event_bus: EventBus
     ) -> None:
         """Review feedback should appear after the plan section."""
@@ -521,7 +549,9 @@ class TestBuildPrompt:
         )
         runner = AgentRunner(config, event_bus)
         feedback = "Tests are missing for edge cases"
-        prompt, _ = runner._build_prompt_with_stats(issue, review_feedback=feedback)
+        prompt, _ = await runner._build_prompt_with_stats(
+            issue, review_feedback=feedback
+        )
 
         plan_pos = prompt.index("## Implementation Plan")
         feedback_pos = prompt.index("## Review Feedback")
@@ -529,12 +559,13 @@ class TestBuildPrompt:
 
         assert plan_pos < feedback_pos < instructions_pos
 
-    def test_prompt_includes_self_check_checklist(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_self_check_checklist(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt should include the self-check checklist section."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "## Self-Check Before Committing" in prompt
         assert "Tests cover all new/changed code" in prompt
         assert "No missing imports" in prompt
@@ -542,12 +573,13 @@ class TestBuildPrompt:
         assert "Edge cases handled" in prompt
         assert "No leftover debug code" in prompt
 
-    def test_self_check_appears_after_instructions(
+    @pytest.mark.asyncio
+    async def test_self_check_appears_after_instructions(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Self-check should appear after Instructions and before UI Guidelines."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         instructions_pos = prompt.index("## Instructions")
         self_check_pos = prompt.index("## Self-Check Before Committing")
         ui_pos = prompt.index("## UI Guidelines")
@@ -558,7 +590,8 @@ class TestBuildPrompt:
         assert hasattr(AgentRunner, "_SELF_CHECK_CHECKLIST")
         assert len(AgentRunner._SELF_CHECK_CHECKLIST) > 100
 
-    def test_prompt_includes_escalated_mandatory_block_when_recurring(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_escalated_mandatory_block_when_recurring(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """When missing_tests is recurring, prompt should include mandatory block."""
@@ -575,20 +608,22 @@ class TestBuildPrompt:
         ]
         runner = AgentRunner(config, event_bus)
         with patch.object(runner, "_get_escalation_data", return_value=escalation_data):
-            prompt, _ = runner._build_prompt_with_stats(agent_task)
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "## Mandatory Requirements" in prompt
         assert "Every new function MUST have a test" in prompt
 
-    def test_prompt_no_mandatory_block_when_no_escalations(
+    @pytest.mark.asyncio
+    async def test_prompt_no_mandatory_block_when_no_escalations(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """When no escalations, prompt should not include mandatory block."""
         runner = AgentRunner(config, event_bus)
         with patch.object(runner, "_get_escalation_data", return_value=[]):
-            prompt, _ = runner._build_prompt_with_stats(agent_task)
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "## Mandatory Requirements" not in prompt
 
-    def test_self_check_includes_dynamic_items_when_escalated(
+    @pytest.mark.asyncio
+    async def test_self_check_includes_dynamic_items_when_escalated(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Self-check should include category-specific items when escalated."""
@@ -606,7 +641,7 @@ class TestBuildPrompt:
         ]
         runner = AgentRunner(config, event_bus)
         with patch.object(runner, "_get_escalation_data", return_value=escalation_data):
-            prompt, _ = runner._build_prompt_with_stats(agent_task)
+            prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "Every new/modified public function has a dedicated test" in prompt
         assert "Edge cases (None, empty, boundary) are tested" in prompt
 
@@ -679,48 +714,53 @@ class TestBuildPrompt:
         prompt = runner._build_pre_quality_review_prompt(agent_task, attempt=1)
         assert "do not refactor, migrate, or rename code that is unrelated" in prompt
 
-    def test_prompt_includes_test_step(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_test_step(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Implementation prompt should include a test-writing step."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "Write tests" in prompt
         assert "prevent regressions" in prompt
 
-    def test_self_check_includes_dead_code_check(
+    @pytest.mark.asyncio
+    async def test_self_check_includes_dead_code_check(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Self-check checklist should verify no dead code is introduced."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "New code is reachable" in prompt
         assert "dead code" in prompt
 
-    def test_self_check_includes_issue_requirements_check(
+    @pytest.mark.asyncio
+    async def test_self_check_includes_issue_requirements_check(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Self-check checklist should verify tests match issue requirements."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "Tests verify issue requirements" in prompt
 
-    def test_prompt_forbids_already_satisfied(
+    @pytest.mark.asyncio
+    async def test_prompt_forbids_already_satisfied(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt must instruct agent to never claim issue is already satisfied."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "NEVER conclude that the issue is" in prompt
         assert "already satisfied" in prompt.lower()
         assert "Always produce commits" in prompt
 
-    def test_prompt_forbids_unrelated_refactoring(
+    @pytest.mark.asyncio
+    async def test_prompt_forbids_unrelated_refactoring(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
         """Prompt must warn agent not to bundle unrelated refactoring."""
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(agent_task)
+        prompt, _ = await runner._build_prompt_with_stats(agent_task)
         assert "Do NOT bundle unrelated refactoring" in prompt
         assert "Each concern is a separate PR" in prompt
 

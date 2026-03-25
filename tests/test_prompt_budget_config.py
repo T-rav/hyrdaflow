@@ -157,7 +157,8 @@ class TestAgentRunnerUsesConfig:
 
         assert result == short_comment
 
-    def test_build_prompt_truncates_impl_plan(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_build_prompt_truncates_impl_plan(self, tmp_path: Path) -> None:
         """_build_prompt_with_stats truncates plan via max_impl_plan_chars."""
         from agent import AgentRunner
         from events import EventBus
@@ -172,13 +173,14 @@ class TestAgentRunnerUsesConfig:
         long_plan = "## Implementation Plan\n" + "- Implement feature X\n" * 200
         issue = TaskFactory.create(comments=[long_plan])
 
-        prompt, _stats = runner._build_prompt_with_stats(issue)
+        prompt, _stats = await runner._build_prompt_with_stats(issue)
 
         # The full plan should be summarized, not included verbatim
         assert long_plan not in prompt
         assert "summarized" in prompt.lower()
 
-    def test_build_prompt_truncates_review_feedback(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_build_prompt_truncates_review_feedback(self, tmp_path: Path) -> None:
         """_build_prompt_with_stats truncates review feedback via max_review_feedback_chars."""
         from agent import AgentRunner
         from events import EventBus
@@ -193,7 +195,7 @@ class TestAgentRunnerUsesConfig:
         long_feedback = "- Fix error handling\n" * 100
         issue = TaskFactory.create()
 
-        prompt, _stats = runner._build_prompt_with_stats(
+        prompt, _stats = await runner._build_prompt_with_stats(
             issue, review_feedback=long_feedback
         )
 
@@ -267,7 +269,8 @@ class TestPlannerRunnerUsesConfig:
 class TestHITLRunnerUsesConfig:
     """HITLRunner reads truncation limits from config."""
 
-    def test_prompt_truncates_cause_per_config(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_prompt_truncates_cause_per_config(self, tmp_path: Path) -> None:
         """_build_prompt_with_stats respects max_hitl_cause_chars."""
         from events import EventBus
         from hitl_runner import HITLRunner
@@ -281,12 +284,15 @@ class TestHITLRunnerUsesConfig:
         runner = HITLRunner(cfg, EventBus())
         issue = IssueFactory.create(number=42, title="Fix widget")
 
-        prompt, _ = runner._build_prompt_with_stats(issue, "Try this fix", "A" * 500)
+        prompt, _ = await runner._build_prompt_with_stats(
+            issue, "Try this fix", "A" * 500
+        )
 
         # The cause should be truncated — the full 500-char cause should not appear
         assert "A" * 500 not in prompt
 
-    def test_prompt_truncates_correction_per_config(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_prompt_truncates_correction_per_config(self, tmp_path: Path) -> None:
         """_build_prompt_with_stats respects max_hitl_correction_chars."""
         from events import EventBus
         from hitl_runner import HITLRunner
@@ -300,7 +306,9 @@ class TestHITLRunnerUsesConfig:
         runner = HITLRunner(cfg, EventBus())
         issue = IssueFactory.create(number=42, title="Fix widget")
 
-        prompt, _ = runner._build_prompt_with_stats(issue, "B" * 2000, "CI failed")
+        prompt, _ = await runner._build_prompt_with_stats(
+            issue, "B" * 2000, "CI failed"
+        )
 
         # The correction should be truncated
         assert "B" * 2000 not in prompt

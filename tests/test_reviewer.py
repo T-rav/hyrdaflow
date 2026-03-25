@@ -103,35 +103,41 @@ def test_build_command_supports_codex_backend(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_build_review_prompt_includes_pr_number(config, event_bus, pr_info, task):
+@pytest.mark.asyncio
+async def test_build_review_prompt_includes_pr_number(config, event_bus, pr_info, task):
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "some diff")
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, "some diff")
 
     assert f"#{pr_info.number}" in prompt
 
 
-def test_build_review_prompt_includes_issue_context(config, event_bus, pr_info, task):
+@pytest.mark.asyncio
+async def test_build_review_prompt_includes_issue_context(
+    config, event_bus, pr_info, task
+):
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "some diff")
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, "some diff")
 
     assert task.title in prompt
     assert task.body in prompt
     assert f"#{task.id}" in prompt
 
 
-def test_build_review_prompt_includes_diff(config, event_bus, pr_info, task):
+@pytest.mark.asyncio
+async def test_build_review_prompt_includes_diff(config, event_bus, pr_info, task):
     runner = _make_runner(config, event_bus)
     diff = "diff --git a/foo.py b/foo.py\n+added line"
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, diff)
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, diff)
 
     assert diff in prompt
 
 
-def test_build_review_prompt_includes_review_instructions(
+@pytest.mark.asyncio
+async def test_build_review_prompt_includes_review_instructions(
     config, event_bus, pr_info, task
 ):
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "diff")
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, "diff")
 
     assert "VERDICT" in prompt
     assert "SUMMARY" in prompt
@@ -139,7 +145,8 @@ def test_build_review_prompt_includes_review_instructions(
     assert "REQUEST_CHANGES" in prompt
 
 
-def test_build_review_prompt_includes_ui_criteria_when_diff_has_ui_files(
+@pytest.mark.asyncio
+async def test_build_review_prompt_includes_ui_criteria_when_diff_has_ui_files(
     config, event_bus, pr_info, task
 ):
     runner = _make_runner(config, event_bus)
@@ -148,7 +155,7 @@ def test_build_review_prompt_includes_ui_criteria_when_diff_has_ui_files(
         "+import React from 'react';\n"
         "+export const Foo = () => <div>Hello</div>;\n"
     )
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, diff)
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, diff)
 
     assert "DRY" in prompt
     assert "Responsive" in prompt
@@ -157,53 +164,58 @@ def test_build_review_prompt_includes_ui_criteria_when_diff_has_ui_files(
     assert "theme.js" in prompt
 
 
-def test_build_review_prompt_excludes_ui_criteria_when_no_ui_files(
+@pytest.mark.asyncio
+async def test_build_review_prompt_excludes_ui_criteria_when_no_ui_files(
     config, event_bus, pr_info, task
 ):
     runner = _make_runner(config, event_bus)
     diff = "diff --git a/reviewer.py b/reviewer.py\n+# backend-only change\n"
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, diff)
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, diff)
 
     assert "DRY" not in prompt
     assert "theme.js" not in prompt
 
 
-def test_build_review_prompt_skips_local_tests_when_ci_enabled(
+@pytest.mark.asyncio
+async def test_build_review_prompt_skips_local_tests_when_ci_enabled(
     event_bus, pr_info, task
 ):
     ci_config = ConfigFactory.create(max_ci_fix_attempts=2)
     runner = _make_runner(ci_config, event_bus)
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "diff")
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, "diff")
 
     assert "Do NOT run `make lint`, `make test`, or `make quality`" in prompt
     assert "CI will verify" in prompt
 
 
-def test_build_review_prompt_runs_local_tests_when_ci_disabled(
+@pytest.mark.asyncio
+async def test_build_review_prompt_runs_local_tests_when_ci_disabled(
     config, event_bus, pr_info, task
 ):
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "diff")
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, "diff")
 
     assert "Run `make lint` and `make test`" in prompt
     assert "Do NOT run" not in prompt
 
 
-def test_build_review_prompt_fix_section_skips_tests_when_ci_enabled(
+@pytest.mark.asyncio
+async def test_build_review_prompt_fix_section_skips_tests_when_ci_enabled(
     event_bus, pr_info, task
 ):
     ci_config = ConfigFactory.create(max_ci_fix_attempts=1)
     runner = _make_runner(ci_config, event_bus)
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "diff")
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, "diff")
 
     assert "Do NOT run tests locally" in prompt
 
 
-def test_build_review_prompt_fix_section_runs_tests_when_ci_disabled(
+@pytest.mark.asyncio
+async def test_build_review_prompt_fix_section_runs_tests_when_ci_disabled(
     config, event_bus, pr_info, task
 ):
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "diff")
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, "diff")
 
     assert "`make test`" in prompt
 
@@ -1522,13 +1534,14 @@ async def test_fix_ci_failure_records_duration(
 # ---------------------------------------------------------------------------
 
 
-def test_build_review_prompt_truncates_long_diff_with_warning(
+@pytest.mark.asyncio
+async def test_build_review_prompt_truncates_long_diff_with_warning(
     config, event_bus, pr_info, task
 ):
     """Large diffs should be summarized/truncated with a note."""
     runner = _make_runner(config, event_bus)
     long_diff = "x" * 20_000
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, long_diff)
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, long_diff)
 
     assert "### Diff Summary" in prompt
     assert "### Diff Excerpts" in prompt
@@ -1537,29 +1550,36 @@ def test_build_review_prompt_truncates_long_diff_with_warning(
     assert "review may be incomplete" in prompt
 
 
-def test_build_review_prompt_preserves_short_diff(config, event_bus, pr_info, task):
+@pytest.mark.asyncio
+async def test_build_review_prompt_preserves_short_diff(
+    config, event_bus, pr_info, task
+):
     """Diff under max_review_diff_chars should pass through unchanged."""
     runner = _make_runner(config, event_bus)
     short_diff = "diff --git a/foo.py\n+added line"
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, short_diff)
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, short_diff)
 
     assert short_diff in prompt
     assert "Diff truncated" not in prompt
 
 
-def test_build_review_prompt_diff_truncation_configurable(event_bus, pr_info, task):
+@pytest.mark.asyncio
+async def test_build_review_prompt_diff_truncation_configurable(
+    event_bus, pr_info, task
+):
     """Configured max_review_diff_chars should appear in truncation note."""
     cfg = ConfigFactory.create(max_review_diff_chars=5_000)
     runner = _make_runner(cfg, event_bus)
     diff = "x" * 10_000
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, diff)
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, diff)
 
     assert "### Diff Summary" in prompt
     assert "x" * 10_000 not in prompt
     assert "5,000 chars" in prompt
 
 
-def test_build_review_prompt_logs_warning_on_truncation(
+@pytest.mark.asyncio
+async def test_build_review_prompt_logs_warning_on_truncation(
     config, event_bus, pr_info, task
 ):
     """Should log a warning when diff is truncated."""
@@ -1567,7 +1587,7 @@ def test_build_review_prompt_logs_warning_on_truncation(
     long_diff = "x" * 20_000
 
     with patch("reviewer.logger") as mock_logger:
-        runner._build_review_prompt_with_stats(pr_info, task, long_diff)
+        await runner._build_review_prompt_with_stats(pr_info, task, long_diff)
 
     mock_logger.warning.assert_called_once()
 
@@ -1577,30 +1597,35 @@ def test_build_review_prompt_logs_warning_on_truncation(
 # ---------------------------------------------------------------------------
 
 
-def test_build_review_prompt_uses_configured_test_command(event_bus, pr_info, task):
+@pytest.mark.asyncio
+async def test_build_review_prompt_uses_configured_test_command(
+    event_bus, pr_info, task
+):
     """Reviewer prompt should use the configured test_command."""
     cfg = ConfigFactory.create(test_command="npm test", max_ci_fix_attempts=0)
     runner = _make_runner(cfg, event_bus)
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "diff")
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, "diff")
 
     assert "`npm test`" in prompt
     assert "make test-fast" not in prompt
 
 
-def test_build_review_prompt_no_make_test_fast(config, event_bus, pr_info, task):
+@pytest.mark.asyncio
+async def test_build_review_prompt_no_make_test_fast(config, event_bus, pr_info, task):
     """Reviewer prompt should not reference make test-fast anywhere."""
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "diff")
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, "diff")
 
     assert "make test-fast" not in prompt
 
 
-def test_build_review_prompt_includes_test_coverage_audit(
+@pytest.mark.asyncio
+async def test_build_review_prompt_includes_test_coverage_audit(
     config, event_bus, pr_info, task
 ):
     """Reviewer prompt should include expanded test coverage audit criteria."""
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "diff")
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, "diff")
 
     assert "Test coverage audit" in prompt
     assert "issue requirements" in prompt
@@ -1609,12 +1634,13 @@ def test_build_review_prompt_includes_test_coverage_audit(
     assert "New branches/conditions" in prompt
 
 
-def test_build_review_prompt_includes_redundant_guard_audit(
+@pytest.mark.asyncio
+async def test_build_review_prompt_includes_redundant_guard_audit(
     config, event_bus, pr_info, task
 ):
     """Reviewer prompt must remind reviewers to flag redundant guard chains."""
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "diff")
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, "diff")
 
     audits_index = prompt.index("Run project audits on changed code:")
     guard_index = prompt.index("redundant guard conditions in if/elif chains")
@@ -1624,36 +1650,39 @@ def test_build_review_prompt_includes_redundant_guard_audit(
     assert guard_index < merge_index
 
 
-def test_build_review_prompt_includes_scope_creep_check(
+@pytest.mark.asyncio
+async def test_build_review_prompt_includes_scope_creep_check(
     config, event_bus, pr_info, task
 ):
     """Reviewer prompt must instruct mandatory scope check to catch unrelated changes."""
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "diff")
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, "diff")
 
     assert "Scope check" in prompt
     assert "scope creep" in prompt
     assert "unrelated" in prompt
 
 
-def test_build_review_prompt_includes_post_commit_scope_creep_verification(
+@pytest.mark.asyncio
+async def test_build_review_prompt_includes_post_commit_scope_creep_verification(
     config, event_bus, pr_info, task
 ):
     """Reviewer prompt must require git diff --stat verification after commits (scope-creep removal still mentioned)."""
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "diff")
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, "diff")
 
     assert "Post-commit verification" in prompt
     assert "git diff --stat HEAD~1" in prompt
     assert "scope-creep removal" in prompt.lower()
 
 
-def test_build_review_prompt_stat_verification_for_each_commit(
+@pytest.mark.asyncio
+async def test_build_review_prompt_stat_verification_for_each_commit(
     config, event_bus, pr_info, task
 ):
     """Review prompt must require stat verification for each commit, not just scope-creep."""
     runner = _make_runner(config, event_bus)
-    prompt, _ = runner._build_review_prompt_with_stats(pr_info, task, "diff")
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, "diff")
     lower = prompt.lower()
 
     assert "git diff --stat head~1" in lower
@@ -2064,7 +2093,10 @@ def test_build_ci_fix_prompt_truncates_large_ci_logs(config, event_bus):
 # ---------------------------------------------------------------------------
 
 
-def test_build_review_prompt_includes_runtime_logs_when_enabled(tmp_path, event_bus):
+@pytest.mark.asyncio
+async def test_build_review_prompt_includes_runtime_logs_when_enabled(
+    tmp_path, event_bus
+):
     """Review prompt includes Runtime Logs section when enabled and logs exist."""
     from tests.conftest import PRInfoFactory, TaskFactory
 
@@ -2083,7 +2115,7 @@ def test_build_review_prompt_includes_runtime_logs_when_enabled(tmp_path, event_
         patch("base_runner.load_project_manifest", return_value=""),
         patch("base_runner.load_memory_digest", return_value=""),
     ):
-        prompt, _ = runner._build_review_prompt_with_stats(
+        prompt, _ = await runner._build_review_prompt_with_stats(
             pr, issue, "diff --git a/foo.py"
         )
 
@@ -2091,7 +2123,10 @@ def test_build_review_prompt_includes_runtime_logs_when_enabled(tmp_path, event_
     assert "ERROR: failed" in prompt
 
 
-def test_build_review_prompt_excludes_runtime_logs_when_disabled(config, event_bus):
+@pytest.mark.asyncio
+async def test_build_review_prompt_excludes_runtime_logs_when_disabled(
+    config, event_bus
+):
     """Review prompt does NOT include runtime logs when disabled."""
     from tests.conftest import PRInfoFactory, TaskFactory
 
@@ -2103,7 +2138,7 @@ def test_build_review_prompt_excludes_runtime_logs_when_disabled(config, event_b
         patch("base_runner.load_project_manifest", return_value=""),
         patch("base_runner.load_memory_digest", return_value=""),
     ):
-        prompt, _ = runner._build_review_prompt_with_stats(
+        prompt, _ = await runner._build_review_prompt_with_stats(
             pr, issue, "diff --git a/foo.py"
         )
 
@@ -2218,7 +2253,8 @@ class TestFormatCodeScanningAlerts:
 # ---------------------------------------------------------------------------
 
 
-def test_build_review_prompt_includes_code_scanning_alerts(config, event_bus):
+@pytest.mark.asyncio
+async def test_build_review_prompt_includes_code_scanning_alerts(config, event_bus):
     """Review prompt includes Code Scanning Alerts section when provided."""
     from tests.conftest import PRInfoFactory, TaskFactory
 
@@ -2240,7 +2276,7 @@ def test_build_review_prompt_includes_code_scanning_alerts(config, event_bus):
         patch("base_runner.load_project_manifest", return_value=""),
         patch("base_runner.load_memory_digest", return_value=""),
     ):
-        prompt, _ = runner._build_review_prompt_with_stats(
+        prompt, _ = await runner._build_review_prompt_with_stats(
             pr,
             issue,
             "diff --git a/foo.py",
@@ -2252,7 +2288,8 @@ def test_build_review_prompt_includes_code_scanning_alerts(config, event_bus):
     assert "js/sql-injection" in prompt
 
 
-def test_build_review_prompt_excludes_code_scanning_when_none(config, event_bus):
+@pytest.mark.asyncio
+async def test_build_review_prompt_excludes_code_scanning_when_none(config, event_bus):
     """Review prompt does NOT include code scanning section when alerts is None."""
     from tests.conftest import PRInfoFactory, TaskFactory
 
@@ -2264,7 +2301,7 @@ def test_build_review_prompt_excludes_code_scanning_when_none(config, event_bus)
         patch("base_runner.load_project_manifest", return_value=""),
         patch("base_runner.load_memory_digest", return_value=""),
     ):
-        prompt, _ = runner._build_review_prompt_with_stats(
+        prompt, _ = await runner._build_review_prompt_with_stats(
             pr, issue, "diff --git a/foo.py"
         )
 

@@ -467,6 +467,16 @@ screenshot-update: check-node-ui
 	@cd $(HYDRAFLOW_DIR)src/ui && $(HYDRAFLOW_DIR)scripts/ui-npm.sh ci && $(HYDRAFLOW_DIR)scripts/ui-npm.sh exec playwright install --with-deps chromium && $(HYDRAFLOW_DIR)scripts/ui-npm.sh run screenshot:update
 	@echo "$(GREEN)Screenshot baselines updated → src/ui/e2e/screenshots/$(RESET)"
 
+hindsight:
+	@echo "$(BLUE)Starting Hindsight semantic memory server...$(RESET)"
+	docker compose up -d hindsight
+	@echo "$(GREEN)Hindsight running — API: http://localhost:8888  UI: http://localhost:9999$(RESET)"
+
+hindsight-stop:
+	@echo "$(BLUE)Stopping Hindsight...$(RESET)"
+	docker compose down hindsight
+	@echo "$(GREEN)Hindsight stopped$(RESET)"
+
 docker-build:
 	@echo "$(BLUE)Building Hydra agent Docker image...$(RESET)"
 	@docker pull $(DOCKER_BASE_IMAGE) 2>/dev/null \

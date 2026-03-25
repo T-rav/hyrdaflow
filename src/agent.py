@@ -27,7 +27,10 @@ from test_adequacy import build_test_adequacy_prompt, parse_test_adequacy_result
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
+    from dolt_backend import DoltBackend
     from execution import SubprocessRunner
+    from hindsight import HindsightClient
+    from hindsight_wal import HindsightWAL
 
 logger = logging.getLogger("hydraflow.agent")
 
@@ -86,9 +89,15 @@ Run through this checklist before your final commit:
         config: HydraFlowConfig,
         event_bus: EventBus,
         runner: SubprocessRunner | None = None,
+        *,
+        hindsight: HindsightClient | None = None,
+        dolt: DoltBackend | None = None,
+        wal: HindsightWAL | None = None,
     ) -> None:
-        super().__init__(config, event_bus, runner)
-        self._insights = ReviewInsightStore(config.memory_dir)
+        super().__init__(config, event_bus, runner, hindsight=hindsight)
+        self._insights = ReviewInsightStore(
+            config.memory_dir, hindsight=hindsight, dolt=dolt, wal=wal
+        )
 
     async def run(
         self,
@@ -123,7 +132,7 @@ Run through this checklist before your final commit:
         try:
             # Build and run the configured agent command
             cmd = self._build_command(worktree_path)
-            prompt, prompt_stats = self._build_prompt_with_stats(
+            prompt, prompt_stats = await self._build_prompt_with_stats(
                 task,
                 review_feedback=review_feedback,
                 prior_failure=prior_failure,
@@ -486,7 +495,7 @@ Run through this checklist before your final commit:
 
         return header + rules + "\n".join(phase_sections)
 
-    def _build_prompt_with_stats(
+    async def _build_prompt_with_stats(
         self,
         issue: Task,
         review_feedback: str = "",
@@ -599,7 +608,9 @@ Run through this checklist before your final commit:
                 "Escalations", escalation_section, escalation_section
             )
 
-        manifest_section, memory_section = self._inject_manifest_and_memory()
+        manifest_section, memory_section = await self._inject_manifest_and_memory(
+            query_context=f"{issue.title}\n{(issue.body or '')[:200]}",
+        )
 
         # Runtime log injection
         log_section = ""
