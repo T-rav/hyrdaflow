@@ -558,17 +558,44 @@ class TestSanitizeRepo:
     """Tests for WorkspaceManager.sanitize_repo."""
 
     @pytest.mark.asyncio
-    async def test_sanitize_prunes_and_checks_out_main(self, config) -> None:
+    async def test_sanitize_fetches_and_prunes_orphan_branches(self, config) -> None:
+        """sanitize_repo fetches latest main and prunes agent/* branches."""
         manager = WorkspaceManager(config)
 
         calls: list[tuple[str, ...]] = []
 
         async def fake_run(*args, cwd=None, gh_token=None):
             calls.append(args)
-            if args == ("git", "symbolic-ref", "--short", "HEAD"):
-                return "main\n"
             if args == ("git", "branch", "--list", "agent/*"):
                 return "  agent/issue-99\n  agent/issue-100\n"
+            return ""
+
+        fetch_mock = AsyncMock()
+        with (
+            patch("workspace.run_subprocess", side_effect=fake_run),
+            patch.object(manager, "_fetch_origin_with_retry", fetch_mock),
+        ):
+            await manager.sanitize_repo()
+
+        # Fetch must be called
+        fetch_mock.assert_called_once()
+
+        # Orphan branches must be deleted
+        cmd_strs = [" ".join(c) for c in calls]
+        assert any("branch -D agent/issue-99" in c for c in cmd_strs)
+        assert any("branch -D agent/issue-100" in c for c in cmd_strs)
+
+    @pytest.mark.asyncio
+    async def test_sanitize_never_runs_checkout_or_reset(self, config) -> None:
+        """sanitize_repo must not force-checkout or hard-reset the primary checkout."""
+        manager = WorkspaceManager(config)
+
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*args, cwd=None, gh_token=None):
+            calls.append(args)
+            if args == ("git", "branch", "--list", "agent/*"):
+                return "  agent/issue-7\n"
             return ""
 
         with (
@@ -578,19 +605,19 @@ class TestSanitizeRepo:
             await manager.sanitize_repo()
 
         cmd_strs = [" ".join(c) for c in calls]
-        assert any("branch -D agent/issue-99" in c for c in cmd_strs)
-        assert any("branch -D agent/issue-100" in c for c in cmd_strs)
+        assert not any("checkout" in c for c in cmd_strs), (
+            "sanitize_repo must not run git checkout on the primary checkout"
+        )
+        assert not any("reset" in c for c in cmd_strs), (
+            "sanitize_repo must not run git reset on the primary checkout"
+        )
 
     @pytest.mark.asyncio
-    async def test_sanitize_forces_checkout_when_on_wrong_branch(self, config) -> None:
+    async def test_sanitize_tolerates_no_orphan_branches(self, config) -> None:
+        """sanitize_repo succeeds cleanly when there are no agent/* branches."""
         manager = WorkspaceManager(config)
 
-        calls: list[tuple[str, ...]] = []
-
         async def fake_run(*args, cwd=None, gh_token=None):
-            calls.append(args)
-            if args == ("git", "symbolic-ref", "--short", "HEAD"):
-                return "agent/issue-42\n"
             if args == ("git", "branch", "--list", "agent/*"):
                 return ""
             return ""
@@ -599,11 +626,7 @@ class TestSanitizeRepo:
             patch("workspace.run_subprocess", side_effect=fake_run),
             patch.object(manager, "_fetch_origin_with_retry", new_callable=AsyncMock),
         ):
-            await manager.sanitize_repo()
-
-        cmd_strs = [" ".join(c) for c in calls]
-        assert any("checkout -f main" in c for c in cmd_strs)
-        assert any("reset --hard origin/main" in c for c in cmd_strs)
+            await manager.sanitize_repo()  # must not raise
 
 
 # ---------------------------------------------------------------------------
