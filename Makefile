@@ -36,7 +36,7 @@ RESET := \033[0m
 DOCKER_IMAGE ?= ghcr.io/t-rav/hydraflow-agent:latest
 DOCKER_BASE_IMAGE ?= ghcr.io/t-rav/hydraflow-agent-base:latest
 
-.PHONY: help run dev dry-run clean coverage cover smoke test test-fast test-cov lint lint-check lint-fix typecheck security quality quality-lite install setup status ui ui-dev ui-clean ensure-labels prep scaffold hot docker-build docker-ensure docker-test deps integration soak screenshot screenshot-update check-node-ui
+.PHONY: help run dev dry-run clean clean-assets coverage cover smoke test test-fast test-cov lint lint-check lint-fix typecheck security quality quality-lite install setup status ui ui-dev ui-clean ensure-labels prep scaffold hot docker-build docker-ensure docker-test deps integration soak screenshot screenshot-update check-node-ui
 
 check-node-ui:
 	@cd $(HYDRAFLOW_DIR)src/ui && $(HYDRAFLOW_DIR)scripts/ui-npm.sh --version >/dev/null
@@ -98,7 +98,13 @@ docker-ensure:
 		|| docker pull $(DOCKER_IMAGE) 2>/dev/null \
 		|| $(MAKE) docker-build
 
+EXECUTION_MODE ?= $(or $(HYDRAFLOW_EXECUTION_MODE),host)
+
+ifeq ($(EXECUTION_MODE),docker)
 run: check-node-ui docker-ensure
+else
+run: check-node-ui
+endif
 	@mkdir -p $(LOG_DIR)
 	@echo "$(BLUE)Starting HydraFlow — backend :$(PORT) + frontend :5556$(RESET)"
 	@echo "$(GREEN)Open http://localhost:5556 to use the dashboard$(RESET)"
@@ -119,6 +125,11 @@ clean:
 	@curl -sf -X POST "http://localhost:$(PORT)/api/admin/clean" 2>/dev/null \
 		&& echo "$(GREEN)Cleanup finished (via API)$(RESET)" \
 		|| (cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py clean && echo "$(GREEN)Cleanup finished$(RESET)")
+
+clean-assets:
+	@echo "$(BLUE)Removing HydraFlow assets from target repo...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/merge_assets.py \
+		--target "$(TARGET_REPO_ROOT)" --clean
 
 status:
 	@echo "$(BLUE)HydraFlow State:$(RESET)"
@@ -295,23 +306,9 @@ setup: deps
 	else \
 		echo "  AGENTS.md source not found: skipping copy"; \
 	fi
-	@echo "$(BLUE)Bootstrapping agent assets into target repo (.claude/.codex/.pi/.githooks)...$(RESET)"
-	@for ASSET in .claude .codex .pi .githooks; do \
-		if [ -d "$(PROJECT_ROOT)/$$ASSET" ]; then \
-			rm -rf "$(TARGET_REPO_ROOT)/$$ASSET"; \
-			cp -R "$(PROJECT_ROOT)/$$ASSET" "$(TARGET_REPO_ROOT)/$$ASSET"; \
-			echo "  synced $$ASSET"; \
-		fi; \
-	done
-	@echo "$(BLUE)Setting up git hooks...$(RESET)"
-	@if [ "$(TARGET_REPO_ROOT)" != "$(PROJECT_ROOT)" ]; then \
-		mkdir -p "$(TARGET_REPO_ROOT)/.githooks"; \
-		cp "$(HYDRAFLOW_DIR).githooks/pre-commit" "$(TARGET_REPO_ROOT)/.githooks/pre-commit"; \
-		cp "$(HYDRAFLOW_DIR).githooks/pre-push" "$(TARGET_REPO_ROOT)/.githooks/pre-push"; \
-		chmod +x "$(TARGET_REPO_ROOT)/.githooks/pre-commit" "$(TARGET_REPO_ROOT)/.githooks/pre-push"; \
-	else \
-		echo "  target is HydraFlow repo; using existing .githooks files"; \
-	fi
+	@echo "$(BLUE)Merging agent assets into target repo...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/merge_assets.py \
+		--source "$(PROJECT_ROOT)" --target "$(TARGET_REPO_ROOT)"
 	@git -C "$(TARGET_REPO_ROOT)" config core.hooksPath .githooks
 	@if [ ! -f "$(TARGET_REPO_ROOT)/.gitignore" ]; then \
 		touch "$(TARGET_REPO_ROOT)/.gitignore"; \

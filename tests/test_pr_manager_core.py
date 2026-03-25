@@ -1910,8 +1910,8 @@ def test_makefile_setup_runs_label_bootstrap() -> None:
 
     match = re.search(r"^setup:[^\n]*\n((?:\t.*\n)+)", content, re.MULTILINE)
     assert match is not None, "setup target block not found in Makefile"
-    assert "synced $$ASSET" in match.group(1), (
-        "setup target must copy .claude/.codex/.pi/.githooks assets"
+    assert "merge_assets.py" in match.group(1), (
+        "setup target must sync .claude/.codex/.pi/.githooks assets via merge_assets.py"
     )
     assert ".hydraflow-managed" in match.group(1), (
         "setup target should mark managed Codex skills to enable safe stale-skill pruning"

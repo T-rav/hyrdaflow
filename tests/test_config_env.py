@@ -472,3 +472,28 @@ class TestEnvVarOverrideTable:
                 f"_ENV_BOOL_OVERRIDES entry for '{field}' has default={table_default}, "
                 f"but HydraFlowConfig.{field} default is {pydantic_default}"
             )
+
+
+class TestDotenvLoading:
+    """Verify python-dotenv integration."""
+
+    def test_dotenv_loads_hydraflow_env_vars(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """python-dotenv should load HYDRAFLOW_ vars from .env."""
+        import os
+
+        env_file = tmp_path / ".env"
+        env_file.write_text("HYDRAFLOW_MAIN_BRANCH=staging\n")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("HYDRAFLOW_MAIN_BRANCH", raising=False)
+
+        from dotenv import load_dotenv
+
+        load_dotenv(dotenv_path=env_file, override=True)
+
+        assert os.environ.get("HYDRAFLOW_MAIN_BRANCH") == "staging"
+
+        # Clean up: load_dotenv writes directly to os.environ, bypassing
+        # monkeypatch tracking.  Remove explicitly so it doesn't leak.
+        os.environ.pop("HYDRAFLOW_MAIN_BRANCH", None)

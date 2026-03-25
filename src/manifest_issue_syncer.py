@@ -40,6 +40,8 @@ class ManifestIssueSyncer:
         source: str = "manifest-refresh",
     ) -> None:
         """Ensure the manifest issue has an up-to-date snapshot comment."""
+        if not self._config.manifest_issue_enabled:
+            return
         if not self._config.manifest_label:
             return
         if not manifest_markdown.strip():

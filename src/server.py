@@ -15,6 +15,33 @@ from runtime_config import DEFAULT_LOG_FILE, load_runtime_config
 logger = logging.getLogger("hydraflow.server")
 
 
+def _detect_submodule_parent(hydraflow_root: Path) -> Path | None:
+    """Return the parent repo path if HydraFlow is a git submodule, else None."""
+    git_path = hydraflow_root / ".git"
+    if not git_path.is_file():
+        return None  # .git is a directory — standalone repo, not a submodule
+    parent = hydraflow_root.parent
+    if (parent / ".git").exists():
+        return parent
+    return None
+
+
+async def _detect_remote_slug(repo_path: Path) -> str | None:
+    """Detect GitHub slug (owner/repo) from git remote origin URL."""
+    try:
+        import re  # noqa: PLC0415
+
+        from subprocess_util import run_subprocess  # noqa: PLC0415
+
+        url = await run_subprocess("git", "remote", "get-url", "origin", cwd=repo_path)
+        url = url.strip()
+        # Parse: https://github.com/owner/repo.git or git@github.com:owner/repo.git
+        match = re.search(r"[:/]([^/]+/[^/]+?)(?:\.git)?$", url)
+        return match.group(1) if match else None
+    except (RuntimeError, OSError):
+        return None
+
+
 async def _run_with_dashboard(config: HydraFlowConfig) -> None:
     from dashboard import HydraFlowDashboard  # noqa: PLC0415
     from events import EventBus, EventLog, EventType, HydraFlowEvent  # noqa: PLC0415
@@ -59,6 +86,31 @@ async def _run_with_dashboard(config: HydraFlowConfig) -> None:
             logger.info("Restored registered repo %r from store", record.slug)
         except Exception:
             logger.warning("Failed to restore repo %s", record.slug, exc_info=True)
+
+    # Auto-register parent repo when running as a git submodule
+    hydraflow_root = Path(__file__).resolve().parent.parent
+    submodule_parent = _detect_submodule_parent(hydraflow_root)
+    if submodule_parent is not None:
+        try:
+            parent_slug = await _detect_remote_slug(submodule_parent)
+            if parent_slug and parent_slug not in registry:
+                repo_cfg = load_runtime_config(
+                    overrides={
+                        "repo_root": str(submodule_parent),
+                        "repo": parent_slug,
+                    }
+                )
+                await registry.register(repo_cfg)
+                repo_store.upsert(
+                    RepoRecord(
+                        slug=parent_slug, repo=parent_slug, path=str(submodule_parent)
+                    )
+                )
+                logger.info(
+                    "Auto-registered parent repo %s (submodule detected)", parent_slug
+                )
+        except Exception:
+            logger.debug("Submodule auto-registration failed", exc_info=True)
 
     async def _register_repo(
         repo_path: Path, slug: str | None
@@ -163,6 +215,10 @@ async def _run(config: HydraFlowConfig) -> None:
 
 
 def main() -> None:
+    from dotenv import load_dotenv  # noqa: PLC0415
+
+    load_dotenv()
+
     verbose = os.environ.get("HYDRAFLOW_VERBOSE_LOGS", "").strip() not in {
         "",
         "0",

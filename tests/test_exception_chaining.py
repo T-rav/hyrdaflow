@@ -647,6 +647,7 @@ class TestADRReviewerBugGates:
 
         reviewer = ADRCouncilReviewer.__new__(ADRCouncilReviewer)
         reviewer._prs = AsyncMock()
+        reviewer._prs.find_issue_number_by_label_and_title.return_value = None
         reviewer._prs.create_issue.side_effect = TypeError("bad create_issue arg")
         reviewer._config = MagicMock()
         # adr_review_auto_triage is always on
@@ -657,7 +658,10 @@ class TestADRReviewerBugGates:
         )
         with pytest.raises(TypeError, match="bad create_issue arg"):
             await reviewer._route_pre_validation_failure(
-                1, "Test ADR title", validation, {"auto_triaged": 0, "escalated": 0}
+                1,
+                "Test ADR title",
+                validation,
+                {"auto_triaged": 0, "escalated": 0, "pre_validation_skipped": 0},
             )
 
     @pytest.mark.asyncio
@@ -668,6 +672,7 @@ class TestADRReviewerBugGates:
 
         reviewer = ADRCouncilReviewer.__new__(ADRCouncilReviewer)
         reviewer._prs = AsyncMock()
+        reviewer._prs.find_issue_number_by_label_and_title.return_value = None
         # First call (auto_triage path) raises RuntimeError; second (HITL) succeeds
         reviewer._prs.create_issue.side_effect = [RuntimeError("API timeout"), 0]
         reviewer._config = MagicMock()
@@ -678,7 +683,11 @@ class TestADRReviewerBugGates:
         validation = ADRValidationResult(
             issues=[ADRValidationIssue(code="E001", message="Missing heading")]
         )
-        stats: dict[str, int] = {"auto_triaged": 0, "escalated": 0}
+        stats: dict[str, int] = {
+            "auto_triaged": 0,
+            "escalated": 0,
+            "pre_validation_skipped": 0,
+        }
         # Should not raise — falls back to HITL escalation
         await reviewer._route_pre_validation_failure(1, "Test ADR", validation, stats)
         assert stats["escalated"] == 1

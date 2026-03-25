@@ -3,6 +3,28 @@
 
 set -euo pipefail
 
+# ── Guard: CLAUDE.md must never be deleted or have content removed ──
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# Block deletion of CLAUDE.md
+DELETED_CLAUDE=$(git diff --cached --name-only --diff-filter=D -- 'CLAUDE.md' || true)
+if [ -n "$DELETED_CLAUDE" ]; then
+    echo "pre-commit: BLOCKED — CLAUDE.md cannot be deleted." >&2
+    exit 1
+fi
+
+# Block net content removal from CLAUDE.md (overwrites / truncation)
+STAGED_CLAUDE=$(git diff --cached --name-only --diff-filter=M -- 'CLAUDE.md' || true)
+if [ -n "$STAGED_CLAUDE" ]; then
+    LINES_ADDED=$(git diff --cached --numstat -- 'CLAUDE.md' | awk '{print $1}')
+    LINES_REMOVED=$(git diff --cached --numstat -- 'CLAUDE.md' | awk '{print $2}')
+    if [ "${LINES_REMOVED:-0}" -gt "${LINES_ADDED:-0}" ]; then
+        echo "pre-commit: BLOCKED — CLAUDE.md has net content removal (added=$LINES_ADDED, removed=$LINES_REMOVED)." >&2
+        echo "  CLAUDE.md content must be preserved. You may add or modify sections, but not shrink the file." >&2
+        exit 1
+    fi
+fi
+
 # Only check if Python files are staged
 STAGED_PY=$(git diff --cached --name-only --diff-filter=ACM -- '*.py' || true)
 if [ -z "$STAGED_PY" ]; then

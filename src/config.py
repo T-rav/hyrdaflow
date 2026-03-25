@@ -124,6 +124,7 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("adr_review_model", "HYDRAFLOW_ADR_REVIEW_MODEL", "sonnet"),
     ("changelog_file", "HYDRAFLOW_CHANGELOG_FILE", ""),
     ("release_tag_prefix", "HYDRAFLOW_RELEASE_TAG_PREFIX", "v"),
+    ("main_branch", "HYDRAFLOW_MAIN_BRANCH", "main"),
     ("repos_workspace_dir", "HYDRAFLOW_REPOS_WORKSPACE_DIR", "~/.hydra/repos"),
     ("hindsight_url", "HYDRAFLOW_HINDSIGHT_URL", ""),
     ("hindsight_api_key", "HYDRAFLOW_HINDSIGHT_API_KEY", ""),
@@ -174,6 +175,8 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("hindsight_enabled", "HYDRAFLOW_HINDSIGHT_ENABLED", False),
     ("hindsight_exclusive", "HYDRAFLOW_HINDSIGHT_EXCLUSIVE", False),
     ("skip_preflight", "HYDRAFLOW_SKIP_PREFLIGHT", False),
+    ("manifest_issue_enabled", "HYDRAFLOW_MANIFEST_ISSUE_ENABLED", False),
+    ("metrics_issue_enabled", "HYDRAFLOW_METRICS_ISSUE_ENABLED", False),
 ]
 
 # Literal-typed env-var overrides.
@@ -419,9 +422,17 @@ class HydraFlowConfig(BaseModel):
         default=["hydraflow-manifest"],
         description="Labels for manifest snapshot persistence issues (OR logic)",
     )
+    manifest_issue_enabled: bool = Field(
+        default=False,
+        description="Create a GitHub issue to persist manifest snapshots",
+    )
     metrics_label: list[str] = Field(
         default=["hydraflow-metrics"],
         description="Labels for the metrics persistence issue (OR logic)",
+    )
+    metrics_issue_enabled: bool = Field(
+        default=False,
+        description="Create a GitHub issue to persist metrics snapshots",
     )
     dup_label: list[str] = Field(
         default=["hydraflow-dup"],

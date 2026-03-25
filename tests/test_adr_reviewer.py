@@ -33,6 +33,7 @@ def _make_reviewer(
     bus = EventBus()
     prs = MagicMock()
     prs.create_issue = AsyncMock(return_value=42)
+    prs.find_issue_number_by_label_and_title = AsyncMock(return_value=None)
     runner = MagicMock()
     return ADRCouncilReviewer(config, bus, prs, runner)
 
@@ -2240,6 +2241,62 @@ class TestPreValidationGate:
         assert reviewer._prs.create_issue.await_count == 2
         assert stats["auto_triaged"] == 0
         assert stats["escalated"] == 1
+
+    @pytest.mark.asyncio
+    async def test_pre_validation_dedup_skips_when_open_issue_exists(
+        self, tmp_path: Path
+    ) -> None:
+        """Pre-validation should not create a new issue if one already exists."""
+        reviewer = _make_reviewer(tmp_path)
+        # Simulate an existing open issue for this ADR
+        reviewer._prs.find_issue_number_by_label_and_title = AsyncMock(return_value=999)
+
+        from adr_pre_validator import ADRValidationIssue, ADRValidationResult
+
+        validation = ADRValidationResult(
+            issues=[
+                ADRValidationIssue(
+                    code="missing_section_context",
+                    message="ADR is missing required section: ## Context",
+                    fixable=False,
+                )
+            ]
+        )
+        stats = {"auto_triaged": 0, "escalated": 0, "pre_validation_skipped": 0}
+        await reviewer._route_pre_validation_failure(1, "Test ADR", validation, stats)
+
+        # Should NOT create a new issue — dedup kicked in
+        reviewer._prs.create_issue.assert_not_awaited()
+        assert stats["pre_validation_skipped"] == 1
+        assert stats["auto_triaged"] == 0
+
+    @pytest.mark.asyncio
+    async def test_pre_validation_creates_issue_when_no_existing(
+        self, tmp_path: Path
+    ) -> None:
+        """Pre-validation creates an issue when no duplicate exists."""
+        reviewer = _make_reviewer(tmp_path)
+        # No existing issue
+        reviewer._prs.find_issue_number_by_label_and_title = AsyncMock(
+            return_value=None
+        )
+
+        from adr_pre_validator import ADRValidationIssue, ADRValidationResult
+
+        validation = ADRValidationResult(
+            issues=[
+                ADRValidationIssue(
+                    code="missing_section_context",
+                    message="ADR is missing required section: ## Context",
+                    fixable=False,
+                )
+            ]
+        )
+        stats = {"auto_triaged": 0, "escalated": 0, "pre_validation_skipped": 0}
+        await reviewer._route_pre_validation_failure(1, "Test ADR", validation, stats)
+
+        reviewer._prs.create_issue.assert_awaited_once()
+        assert stats["auto_triaged"] == 1
 
 
 class TestStatsIntegrity:

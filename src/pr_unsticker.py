@@ -525,6 +525,8 @@ diff — you may catch things `make quality` won't.
 ## Rules
 
 - Follow the project's CLAUDE.md guidelines strictly.
+- NEVER delete or overwrite existing CLAUDE.md content. You may append new sections or
+  modify existing sections, but you must preserve all information already present.
 - Write tests for all new code — tests are mandatory.
 - Do NOT push to remote. Do NOT create pull requests.
 - Do NOT run `git push` or `gh pr create`.
@@ -919,6 +921,8 @@ TROUBLESHOOTING_PATTERN_END
 ## Rules
 
 - Follow the project's CLAUDE.md guidelines strictly.
+- NEVER delete or overwrite existing CLAUDE.md content. You may append new sections or
+  modify existing sections, but you must preserve all information already present.
 - Write tests for all new code — tests are mandatory.
 - Do NOT push to remote. Do NOT create pull requests.
 - Do NOT run `git push` or `gh pr create`.

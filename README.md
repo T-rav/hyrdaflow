@@ -69,6 +69,24 @@ make prep
 make run
 ```
 
+### Dashboard Mode (multi-repo)
+
+Set `HYDRAFLOW_DASHBOARD_ENABLED=true` in `.env`, then:
+
+```bash
+make run
+```
+
+The dashboard opens at http://localhost:5556. When running as a git
+submodule, the parent repo is auto-registered on startup.
+
+To manually register additional repos:
+
+```bash
+curl -X POST "http://localhost:5556/api/repos/add?path=/path/to/repo"
+curl -X POST "http://localhost:5556/api/runtimes/{slug}/start"
+```
+
 ## Core Commands
 
 ```bash

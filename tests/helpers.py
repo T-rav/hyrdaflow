@@ -235,7 +235,9 @@ class ConfigFactory:
         memory_label: list[str] | None = None,
         transcript_label: list[str] | None = None,
         manifest_label: list[str] | None = None,
+        manifest_issue_enabled: bool = False,
         metrics_label: list[str] | None = None,
+        metrics_issue_enabled: bool = False,
         dup_label: list[str] | None = None,
         epic_label: list[str] | None = None,
         epic_child_label: list[str] | None = None,
@@ -446,9 +448,11 @@ class ConfigFactory:
                 manifest_label=manifest_label
                 if manifest_label is not None
                 else ["hydraflow-manifest"],
+                manifest_issue_enabled=manifest_issue_enabled,
                 metrics_label=metrics_label
                 if metrics_label is not None
                 else ["hydraflow-metrics"],
+                metrics_issue_enabled=metrics_issue_enabled,
                 dup_label=dup_label if dup_label is not None else ["hydraflow-dup"],
                 epic_label=epic_label if epic_label is not None else ["hydraflow-epic"],
                 epic_child_label=(

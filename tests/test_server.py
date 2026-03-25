@@ -80,3 +80,36 @@ class TestRunDispatch:
 
             await _run(mock_config)
             mock_headless.assert_awaited_once_with(mock_config)
+
+
+class TestDetectSubmoduleParent:
+    def test_returns_parent_when_git_is_file(self, tmp_path: Path) -> None:
+        parent = tmp_path / "parent"
+        parent.mkdir()
+        (parent / ".git").mkdir()
+
+        submodule = parent / "hydraflow"
+        submodule.mkdir()
+        (submodule / ".git").write_text("gitdir: ../.git/modules/hydraflow\n")
+
+        from server import _detect_submodule_parent
+
+        assert _detect_submodule_parent(submodule) == parent
+
+    def test_returns_none_when_git_is_dir(self, tmp_path: Path) -> None:
+        repo = tmp_path / "standalone"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        from server import _detect_submodule_parent
+
+        assert _detect_submodule_parent(repo) is None
+
+    def test_returns_none_when_parent_has_no_git(self, tmp_path: Path) -> None:
+        submodule = tmp_path / "orphan"
+        submodule.mkdir()
+        (submodule / ".git").write_text("gitdir: somewhere\n")
+
+        from server import _detect_submodule_parent
+
+        assert _detect_submodule_parent(submodule) is None

@@ -130,6 +130,9 @@ Run through this checklist before your final commit:
             return result
 
         try:
+            # Snapshot CLAUDE.md before agent runs for integrity check
+            claude_md_snapshot = self._snapshot_claude_md(worktree_path)
+
             # Build and run the configured agent command
             cmd = self._build_command(worktree_path)
             prompt, prompt_stats = await self._build_prompt_with_stats(
@@ -146,6 +149,9 @@ Run through this checklist before your final commit:
                 telemetry_stats=prompt_stats,
             )
             result.transcript = transcript
+
+            # Guard: restore CLAUDE.md if the agent removed content
+            self._guard_claude_md(worktree_path, claude_md_snapshot, task.id)
 
             # Force-commit any uncommitted work the agent left behind
             await self._force_commit_uncommitted(task, worktree_path)
@@ -659,6 +665,8 @@ Run through this checklist before your final commit:
 ## Rules
 
 - Follow the project's CLAUDE.md guidelines strictly.
+- NEVER delete or overwrite existing CLAUDE.md content. You may append new sections or
+  modify existing sections, but you must preserve all information already present.
 - Write tests for all new code — tests are mandatory.
 - Do NOT push to remote. Do NOT create pull requests.
 - Do NOT run `git push` or `gh pr create`.
@@ -677,6 +685,65 @@ Run through this checklist before your final commit:
 
 {MEMORY_SUGGESTION_PROMPT.format(context="implementation")}"""
         return prompt, builder.build_stats()
+
+    # ------------------------------------------------------------------
+    # CLAUDE.md integrity guard
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _snapshot_claude_md(worktree_path: Path) -> str | None:
+        """Return the full text of CLAUDE.md before the agent runs, or None if absent."""
+        claude_md = worktree_path / "CLAUDE.md"
+        if claude_md.is_file():
+            try:
+                return claude_md.read_text()
+            except OSError:
+                return None
+        return None
+
+    @staticmethod
+    def _guard_claude_md(
+        worktree_path: Path,
+        snapshot: str | None,
+        issue_id: int,
+    ) -> None:
+        """Restore CLAUDE.md if the agent deleted it or removed content.
+
+        Compares the current file against the pre-agent *snapshot*.
+        If content was lost (file deleted, or line count shrank), the
+        original is restored and a warning is logged.
+        """
+        if snapshot is None:
+            return  # no CLAUDE.md existed before — nothing to protect
+
+        claude_md = worktree_path / "CLAUDE.md"
+
+        # Case 1: file was deleted entirely
+        if not claude_md.is_file():
+            logger.warning(
+                "Issue #%d: agent deleted CLAUDE.md — restoring original",
+                issue_id,
+            )
+            claude_md.write_text(snapshot)
+            return
+
+        # Case 2: content was shrunk (overwrite / truncation)
+        try:
+            current = claude_md.read_text()
+        except OSError:
+            claude_md.write_text(snapshot)
+            return
+
+        original_lines = snapshot.count("\n")
+        current_lines = current.count("\n")
+        if original_lines > 0 and current_lines < original_lines:
+            logger.warning(
+                "Issue #%d: agent shrank CLAUDE.md from %d to %d lines — restoring original",
+                issue_id,
+                original_lines,
+                current_lines,
+            )
+            claude_md.write_text(snapshot)
 
     async def _verify_result(self, worktree_path: Path, branch: str) -> LoopResult:
         """Check that the agent produced commits and ``make quality`` passes.

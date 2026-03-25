@@ -187,69 +187,20 @@ class WorkspaceManager:
     # ------------------------------------------------------------------
 
     async def sanitize_repo(self) -> None:
-        """Ensure the repo is in a clean state before any work begins.
+        """Fetch latest refs and clean up stale agent branches.
 
-        Called once at orchestrator startup.  Fetches latest main,
-        ensures HEAD is on main, and removes orphan agent branches.
+        The primary checkout's branch and working tree belong to the
+        developer.  HydraFlow operates exclusively in worktrees and
+        never force-switches the primary checkout.
         """
         repo = self._repo_root
         main = self._config.main_branch
         gh = self._config.gh_token
 
-        # 1. Fetch latest main
+        # Fetch latest main for worktree creation
         await self._fetch_origin_with_retry(repo, main)
 
-        # 2. Ensure HEAD is on main (not a stray agent branch)
-        try:
-            head_ref = await run_subprocess(
-                "git",
-                "symbolic-ref",
-                "--short",
-                "HEAD",
-                cwd=repo,
-                gh_token=gh,
-            )
-            if head_ref.strip() != main:
-                logger.warning(
-                    "Repo HEAD on %s instead of %s — checking out %s",
-                    head_ref.strip(),
-                    main,
-                    main,
-                )
-                await run_subprocess(
-                    "git",
-                    "checkout",
-                    "-f",
-                    main,
-                    cwd=repo,
-                    gh_token=gh,
-                )
-        except RuntimeError:
-            logger.warning(
-                "Could not verify HEAD branch — forcing checkout of %s", main
-            )
-            with contextlib.suppress(RuntimeError):
-                await run_subprocess(
-                    "git",
-                    "checkout",
-                    "-f",
-                    main,
-                    cwd=repo,
-                    gh_token=gh,
-                )
-
-        # 3. Reset main to match remote
-        with contextlib.suppress(RuntimeError):
-            await run_subprocess(
-                "git",
-                "reset",
-                "--hard",
-                f"origin/{main}",
-                cwd=repo,
-                gh_token=gh,
-            )
-
-        # 4. Delete orphan agent/* branches
+        # Delete orphan agent/* branches (HydraFlow's own branches)
         try:
             branches_output = await run_subprocess(
                 "git",
@@ -275,7 +226,7 @@ class WorkspaceManager:
         except RuntimeError:
             logger.debug("Could not list agent branches for cleanup", exc_info=True)
 
-        logger.info("Repo sanitized — HEAD on %s, orphan branches pruned", main)
+        logger.info("Repo sanitized — fetched %s, orphan branches pruned", main)
 
     async def pre_work_check(self) -> None:
         """Quick validation before creating a workspace.

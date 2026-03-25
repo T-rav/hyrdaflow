@@ -29,6 +29,7 @@ def make_config(**overrides: Any) -> HydraFlowConfig:
         "repo": "test-owner/test-repo",
         "dry_run": False,
         "metrics_label": ["hydraflow-metrics"],
+        "metrics_issue_enabled": True,
     }
     defaults.update(overrides)
     return HydraFlowConfig(**defaults)
@@ -706,3 +707,54 @@ class TestLoadLocalHistoryOSError:
 
         assert result == []
         assert "Could not read snapshots file" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# TestMetricsIssueOptIn
+# ---------------------------------------------------------------------------
+
+
+class TestMetricsIssueOptIn:
+    """Metrics issue creation should be opt-in."""
+
+    @pytest.mark.asyncio
+    async def test_sync_skips_issue_when_disabled(
+        self, state, event_bus, tmp_path: Path
+    ) -> None:
+        """sync() should cache locally but skip issue when metrics_issue_enabled is False."""
+        mgr, state, prs, _ = make_manager(
+            state,
+            event_bus,
+            metrics_issue_enabled=False,
+            state_file=tmp_path / "state.json",
+        )
+        state.record_issue_completed()
+
+        with patch.object(
+            mgr, "_ensure_metrics_issue", new_callable=AsyncMock
+        ) as mock_ensure:
+            result = await mgr.sync()
+
+        mock_ensure.assert_not_called()
+        assert result["status"] == "cached_locally"
+        assert result.get("reason") == "metrics_issue_disabled"
+
+    @pytest.mark.asyncio
+    async def test_sync_proceeds_when_enabled(
+        self, state, event_bus, tmp_path: Path
+    ) -> None:
+        """sync() should post to GitHub when metrics_issue_enabled is True."""
+        mgr, state, prs, _ = make_manager(
+            state,
+            event_bus,
+            metrics_issue_enabled=True,
+            state_file=tmp_path / "state.json",
+        )
+        state.record_issue_completed()
+
+        with patch.object(
+            mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=42
+        ):
+            result = await mgr.sync()
+
+        assert result["status"] == "posted"

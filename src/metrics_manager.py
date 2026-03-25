@@ -92,6 +92,15 @@ class MetricsManager:
                 "timestamp": snapshot.timestamp,
             }
 
+        if not self._config.metrics_issue_enabled:
+            self._state.update_metrics_state(snapshot_hash)
+            return {
+                "status": "cached_locally",
+                "reason": "metrics_issue_disabled",
+                "snapshot_hash": snapshot_hash,
+                "timestamp": snapshot.timestamp,
+            }
+
         # Ensure the metrics issue exists
         issue_number = await self._ensure_metrics_issue()
         if issue_number == 0:

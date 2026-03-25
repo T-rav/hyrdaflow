@@ -14,7 +14,9 @@ from tests.helpers import ConfigFactory
 
 @pytest.mark.asyncio
 async def test_manifest_issue_syncer_posts_comment(tmp_path: Path) -> None:
-    config = ConfigFactory.create(repo_root=tmp_path, git_user_name="tester")
+    config = ConfigFactory.create(
+        repo_root=tmp_path, git_user_name="tester", manifest_issue_enabled=True
+    )
     state = StateTracker(config.state_file)
     prs = MagicMock()
     prs.find_issue_number_by_label_and_title = AsyncMock(return_value=None)
@@ -37,7 +39,9 @@ async def test_manifest_issue_syncer_posts_comment(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_manifest_issue_syncer_reuses_existing_issue(tmp_path: Path) -> None:
-    config = ConfigFactory.create(repo_root=tmp_path, git_user_name="tester")
+    config = ConfigFactory.create(
+        repo_root=tmp_path, git_user_name="tester", manifest_issue_enabled=True
+    )
     state = StateTracker(config.state_file)
     prs = MagicMock()
     prs.find_issue_number_by_label_and_title = AsyncMock(return_value=77)
@@ -59,7 +63,9 @@ async def test_manifest_issue_syncer_reuses_existing_issue(tmp_path: Path) -> No
 async def test_manifest_issue_syncer_creates_when_no_existing_issue(
     tmp_path: Path,
 ) -> None:
-    config = ConfigFactory.create(repo_root=tmp_path, git_user_name="tester")
+    config = ConfigFactory.create(
+        repo_root=tmp_path, git_user_name="tester", manifest_issue_enabled=True
+    )
     state = StateTracker(config.state_file)
     prs = MagicMock()
     prs.find_issue_number_by_label_and_title = AsyncMock(return_value=None)
@@ -92,3 +98,47 @@ async def test_manifest_issue_syncer_skips_when_hash_matches(tmp_path: Path) -> 
 
     prs.post_comment.assert_not_called()
     prs.close_issue.assert_not_called()
+
+
+class TestManifestIssueOptIn:
+    """Manifest issue creation should be opt-in."""
+
+    @pytest.mark.asyncio
+    async def test_sync_returns_early_when_disabled(self, tmp_path: Path) -> None:
+        """sync() should do nothing when manifest_issue_enabled is False."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path,
+            git_user_name="tester",
+            manifest_issue_enabled=False,
+        )
+        state = StateTracker(config.state_file)
+        prs = MagicMock()
+        prs.create_issue = AsyncMock()
+        prs.post_comment = AsyncMock()
+        prs.close_issue = AsyncMock()
+
+        syncer = ManifestIssueSyncer(config, state, prs)
+        await syncer.sync("# Manifest", "abc123")
+
+        prs.create_issue.assert_not_called()
+        prs.post_comment.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sync_proceeds_when_enabled(self, tmp_path: Path) -> None:
+        """sync() should post when manifest_issue_enabled is True."""
+        config = ConfigFactory.create(
+            repo_root=tmp_path,
+            git_user_name="tester",
+            manifest_issue_enabled=True,
+        )
+        state = StateTracker(config.state_file)
+        prs = MagicMock()
+        prs.find_issue_number_by_label_and_title = AsyncMock(return_value=None)
+        prs.create_issue = AsyncMock(return_value=10)
+        prs.post_comment = AsyncMock()
+        prs.close_issue = AsyncMock()
+
+        syncer = ManifestIssueSyncer(config, state, prs)
+        await syncer.sync("# Manifest", "abc123")
+
+        prs.post_comment.assert_awaited_once()

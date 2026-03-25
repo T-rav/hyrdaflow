@@ -577,3 +577,53 @@ class TestRunDryRun:
             await runner.run(agent_task, tmp_path, "agent/issue-42")
 
         verify_mock.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# CLAUDE.md integrity guard
+# ---------------------------------------------------------------------------
+
+
+class TestClaudeMdIntegrityGuard:
+    """Tests for AgentRunner._snapshot_claude_md and _guard_claude_md."""
+
+    def test_snapshot_returns_content_when_file_exists(self, tmp_path: Path) -> None:
+        (tmp_path / "CLAUDE.md").write_text("# Project\nSome rules\n")
+        assert AgentRunner._snapshot_claude_md(tmp_path) == "# Project\nSome rules\n"
+
+    def test_snapshot_returns_none_when_file_absent(self, tmp_path: Path) -> None:
+        assert AgentRunner._snapshot_claude_md(tmp_path) is None
+
+    def test_guard_restores_deleted_file(self, tmp_path: Path) -> None:
+        original = "# Project\nLine 1\nLine 2\n"
+        # File was deleted by agent
+        assert not (tmp_path / "CLAUDE.md").exists()
+        AgentRunner._guard_claude_md(tmp_path, original, issue_id=1)
+        assert (tmp_path / "CLAUDE.md").read_text() == original
+
+    def test_guard_restores_truncated_file(self, tmp_path: Path) -> None:
+        original = "# Project\nLine 1\nLine 2\nLine 3\nLine 4\n"
+        (tmp_path / "CLAUDE.md").write_text("# Overwritten\n")
+        AgentRunner._guard_claude_md(tmp_path, original, issue_id=2)
+        assert (tmp_path / "CLAUDE.md").read_text() == original
+
+    def test_guard_allows_growth(self, tmp_path: Path) -> None:
+        original = "# Project\nLine 1\n"
+        grown = "# Project\nLine 1\nLine 2 added\nLine 3 added\n"
+        (tmp_path / "CLAUDE.md").write_text(grown)
+        AgentRunner._guard_claude_md(tmp_path, original, issue_id=3)
+        # Should NOT restore — file grew
+        assert (tmp_path / "CLAUDE.md").read_text() == grown
+
+    def test_guard_allows_equal_size_modification(self, tmp_path: Path) -> None:
+        original = "# Project\nLine 1\nLine 2\n"
+        modified = "# Project\nEdited 1\nEdited 2\n"
+        (tmp_path / "CLAUDE.md").write_text(modified)
+        AgentRunner._guard_claude_md(tmp_path, original, issue_id=4)
+        # Same line count — allowed
+        assert (tmp_path / "CLAUDE.md").read_text() == modified
+
+    def test_guard_noop_when_snapshot_is_none(self, tmp_path: Path) -> None:
+        # No CLAUDE.md existed before — nothing to protect
+        AgentRunner._guard_claude_md(tmp_path, None, issue_id=5)
+        assert not (tmp_path / "CLAUDE.md").exists()
