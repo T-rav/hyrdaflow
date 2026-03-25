@@ -163,6 +163,10 @@ async def _run(config: HydraFlowConfig) -> None:
 
 
 def main() -> None:
+    from dotenv import load_dotenv  # noqa: PLC0415
+
+    load_dotenv()
+
     verbose = os.environ.get("HYDRAFLOW_VERBOSE_LOGS", "").strip() not in {
         "",
         "0",

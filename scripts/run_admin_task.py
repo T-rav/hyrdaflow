@@ -35,6 +35,10 @@ _TASKS = {
 
 
 async def main() -> None:
+    from dotenv import load_dotenv  # noqa: PLC0415
+
+    load_dotenv()
+
     if len(sys.argv) < 2 or sys.argv[1] not in _TASKS:
         valid = ", ".join(_TASKS)
         print(f"Usage: {sys.argv[0]} <task>\nValid tasks: {valid}", file=sys.stderr)
