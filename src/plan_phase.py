@@ -178,8 +178,11 @@ class PlanPhase:
         analyzer = PlanAnalyzer(repo_root=self._config.repo_root)
         analysis = analyzer.analyze(result.plan, issue.id)
         await self._transitioner.post_comment(issue.id, analysis.format_comment())
-        await self._transitioner.transition(issue.id, "ready")
+        # Activate eager-transition protection BEFORE the GitHub label swap
+        # so that concurrent polling cannot re-queue the issue during the
+        # non-atomic label add/remove window.
         self._store.enqueue_transition(issue, "ready")
+        await self._transitioner.transition(issue.id, "ready")
 
         for new_issue in result.new_issues:
             if len(new_issue.body) < _MIN_ISSUE_BODY_CHARS:

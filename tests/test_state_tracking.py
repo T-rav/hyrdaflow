@@ -78,6 +78,7 @@ class TestInitialization:
             "review_attempts",
             "review_feedback",
             "reviewed_prs",
+            "schema_version",
             "session_counters",
             "verification_issues",
             "worker_heartbeats",

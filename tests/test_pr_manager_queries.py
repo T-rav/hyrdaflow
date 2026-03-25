@@ -1704,14 +1704,14 @@ class TestGetIssueState:
         assert result == ""
 
     @pytest.mark.asyncio
-    async def test_returns_empty_string_on_error(self, event_bus, tmp_path):
+    async def test_returns_unknown_on_error(self, event_bus, tmp_path):
         mgr = self._make_manager(tmp_path, event_bus)
         mock_create = SubprocessMockBuilder().with_stdout("not-json").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
             result = await mgr.get_issue_state(42)
 
-        assert result == ""
+        assert result == "UNKNOWN"
 
     @pytest.mark.asyncio
     async def test_passes_correct_issue_number_to_gh(self, event_bus, tmp_path):

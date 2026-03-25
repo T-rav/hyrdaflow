@@ -1,4 +1,4 @@
-"""Tests for file_util helpers: atomic_write, append_jsonl, file_lock."""
+"""Tests for file_util helpers: atomic_write, append_jsonl, file_lock, rotate_backups."""
 
 from __future__ import annotations
 
@@ -143,3 +143,71 @@ class TestFileLock:
         assert len(calls) == 2
         assert calls[0][1] == fcntl.LOCK_EX
         assert calls[1][1] == fcntl.LOCK_UN
+
+
+class TestRotateBackups:
+    """Tests for the rotate_backups() utility."""
+
+    def test_creates_bak_from_source(self, tmp_path: Path) -> None:
+        target = tmp_path / "state.json"
+        target.write_text("v1")
+        from file_util import rotate_backups
+
+        rotate_backups(target, count=3)
+        assert Path(f"{target}.bak").read_text() == "v1"
+
+    def test_shifts_existing_bak_to_bak_1(self, tmp_path: Path) -> None:
+        target = tmp_path / "state.json"
+        target.write_text("v2")
+        bak = Path(f"{target}.bak")
+        bak.write_text("v1")
+        from file_util import rotate_backups
+
+        rotate_backups(target, count=3)
+        assert bak.read_text() == "v2"
+        assert Path(f"{target}.bak.1").read_text() == "v1"
+
+    def test_rotates_full_chain(self, tmp_path: Path) -> None:
+        target = tmp_path / "state.json"
+        target.write_text("v4")
+        Path(f"{target}.bak").write_text("v3")
+        Path(f"{target}.bak.1").write_text("v2")
+        Path(f"{target}.bak.2").write_text("v1")
+        from file_util import rotate_backups
+
+        rotate_backups(target, count=3)
+        assert Path(f"{target}.bak").read_text() == "v4"
+        assert Path(f"{target}.bak.1").read_text() == "v3"
+        assert Path(f"{target}.bak.2").read_text() == "v2"
+        assert Path(f"{target}.bak.3").read_text() == "v1"
+
+    def test_deletes_oldest_beyond_count(self, tmp_path: Path) -> None:
+        target = tmp_path / "state.json"
+        target.write_text("v5")
+        Path(f"{target}.bak").write_text("v4")
+        Path(f"{target}.bak.1").write_text("v3")
+        Path(f"{target}.bak.2").write_text("v2")
+        Path(f"{target}.bak.3").write_text("v1")
+        from file_util import rotate_backups
+
+        rotate_backups(target, count=3)
+        assert not Path(f"{target}.bak.4").exists()
+        # .bak.3 should exist (was .bak.2 before rotation)
+        assert Path(f"{target}.bak.3").exists()
+
+    def test_noop_when_source_missing(self, tmp_path: Path) -> None:
+        target = tmp_path / "missing.json"
+        from file_util import rotate_backups
+
+        rotate_backups(target, count=3)  # should not raise
+
+    def test_count_of_one(self, tmp_path: Path) -> None:
+        target = tmp_path / "state.json"
+        target.write_text("v2")
+        Path(f"{target}.bak").write_text("v1")
+        from file_util import rotate_backups
+
+        rotate_backups(target, count=1)
+        assert Path(f"{target}.bak").read_text() == "v2"
+        # With count=1, the old .bak (now .bak.1) is the oldest allowed
+        assert Path(f"{target}.bak.1").read_text() == "v1"

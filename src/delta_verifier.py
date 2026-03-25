@@ -7,7 +7,7 @@ import re
 
 from models import DeltaReport
 
-logger = logging.getLogger("hydra.delta_verifier")
+logger = logging.getLogger("hydraflow.delta_verifier")
 
 
 def parse_file_delta(plan_text: str) -> list[str]:

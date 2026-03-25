@@ -227,7 +227,7 @@ class IssueStore:
             unique.append(task)
         if duplicate_count:
             self._dedup_stats["incoming_tasks"] += duplicate_count
-            logger.warning(
+            logger.debug(
                 "IssueStore dropped %d duplicate incoming task(s) in refresh",
                 duplicate_count,
             )

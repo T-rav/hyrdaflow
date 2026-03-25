@@ -1431,7 +1431,7 @@ class TestBuildMountsNoGitDir:
 
 
 class TestContainerCleanupLogging:
-    """Tests that container cleanup failures are logged at DEBUG level."""
+    """Tests that container cleanup failures are logged at WARNING level."""
 
     @pytest.mark.asyncio
     async def test_create_streaming_process_logs_cleanup_failure(
@@ -1454,15 +1454,15 @@ class TestContainerCleanupLogging:
         ):
             await runner.create_streaming_process(["echo", "hi"], cwd=str(tmp_path))
 
-        mock_logger.debug.assert_called()
-        log_msg = mock_logger.debug.call_args[0][0]
+        mock_logger.warning.assert_called()
+        log_msg = mock_logger.warning.call_args[0][0]
         assert "Failed to remove container" in log_msg
-        _, debug_kwargs = mock_logger.debug.call_args
-        assert debug_kwargs.get("exc_info") is True
+        _, warning_kwargs = mock_logger.warning.call_args
+        assert warning_kwargs.get("exc_info") is True
 
     @pytest.mark.asyncio
     async def test_cleanup_logs_removal_failure(self, tmp_path: Path) -> None:
-        """cleanup() logs DEBUG when a container fails to remove."""
+        """cleanup() logs WARNING when a container fails to remove."""
         container = _make_mock_container()
         container.remove.side_effect = RuntimeError("cannot remove")
         client = _make_mock_docker_client(container=container)
@@ -1474,11 +1474,11 @@ class TestContainerCleanupLogging:
         with patch("docker_runner.logger") as mock_logger:
             await runner.cleanup()
 
-        debug_calls = [c[0][0] for c in mock_logger.debug.call_args_list]
-        assert any("Failed to remove container" in msg for msg in debug_calls)
+        warning_calls = [c[0][0] for c in mock_logger.warning.call_args_list]
+        assert any("Failed to remove container" in msg for msg in warning_calls)
         cleanup_call = next(
             c
-            for c in mock_logger.debug.call_args_list
+            for c in mock_logger.warning.call_args_list
             if "Failed to remove container" in c[0][0]
         )
         assert cleanup_call[1].get("exc_info") is True
@@ -1489,7 +1489,7 @@ class TestContainerCleanupLogging:
     async def test_run_simple_logs_kill_failure_on_timeout(
         self, tmp_path: Path
     ) -> None:
-        """run_simple logs DEBUG when container.kill fails on timeout."""
+        """run_simple logs WARNING when container.kill fails on timeout."""
         container = _make_mock_container()
         container.wait.side_effect = TimeoutError()
         container.kill.side_effect = RuntimeError("kill failed")
@@ -1504,9 +1504,9 @@ class TestContainerCleanupLogging:
             await runner.run_simple(["echo", "hi"], timeout=0.01)
 
         # Should have logged the kill failure with exc_info
-        debug_calls = mock_logger.debug.call_args_list
+        warning_calls = mock_logger.warning.call_args_list
         kill_call = next(
-            c for c in debug_calls if "Failed to kill container" in c[0][0]
+            c for c in warning_calls if "Failed to kill container" in c[0][0]
         )
         assert kill_call[1].get("exc_info") is True
 
@@ -1514,7 +1514,7 @@ class TestContainerCleanupLogging:
     async def test_run_simple_logs_remove_failure_in_finally(
         self, tmp_path: Path
     ) -> None:
-        """run_simple logs DEBUG when container.remove fails in the finally block."""
+        """run_simple logs WARNING when container.remove fails in the finally block."""
         container = _make_mock_container()
         container.wait.return_value = {"StatusCode": 0}
         container.logs.return_value = b""
@@ -1528,8 +1528,110 @@ class TestContainerCleanupLogging:
         with patch("docker_runner.logger") as mock_logger:
             await runner.run_simple(["echo", "hi"])
 
-        debug_calls = mock_logger.debug.call_args_list
+        warning_calls = mock_logger.warning.call_args_list
         remove_call = next(
-            c for c in debug_calls if "Failed to remove container" in c[0][0]
+            c for c in warning_calls if "Failed to remove container" in c[0][0]
         )
         assert remove_call[1].get("exc_info") is True
+
+
+# ---------------------------------------------------------------------------
+# _ensure_client logging tests
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureClientLogging:
+    """Tests for _ensure_client error handling and logging."""
+
+    def test_initial_ping_failure_logs_debug(self) -> None:
+        """Initial ping failure should log at DEBUG with exc_info."""
+        runner, client = _make_runner()
+        # First ping fails, second (after retry) succeeds
+        client.ping.side_effect = [ConnectionError("daemon down"), True]
+
+        with patch("docker_runner.logger") as mock_logger:
+            runner._ensure_client(max_retries=1, delay=0.01)
+
+        # Should have logged initial failure at debug level
+        debug_calls = mock_logger.debug.call_args_list
+        initial_call = next(
+            c for c in debug_calls if "Docker ping failed on attempt" in c[0][0]
+        )
+        assert initial_call[1].get("exc_info") is True
+
+    def test_retry_failure_logs_warning_with_exc_info(self) -> None:
+        """Retry failures should log at WARNING with exc_info."""
+        runner, client = _make_runner()
+        # All pings fail
+        client.ping.side_effect = ConnectionError("daemon down")
+
+        with (
+            patch("docker_runner.logger") as mock_logger,
+            patch("docker.from_env", return_value=client),
+            pytest.raises(RuntimeError, match="Docker daemon not available"),
+        ):
+            runner._ensure_client(max_retries=2, delay=0.01)
+
+        # Should have warning logs with exc_info for retry failures
+        warning_calls = mock_logger.warning.call_args_list
+        reconnect_failures = [
+            c for c in warning_calls if "Docker reconnect failed" in c[0][0]
+        ]
+        assert len(reconnect_failures) == 2
+        for call in reconnect_failures:
+            assert call[1].get("exc_info") is True
+
+
+# ---------------------------------------------------------------------------
+# Container tracking order tests
+# ---------------------------------------------------------------------------
+
+
+class TestContainerTrackingOrder:
+    """Tests that containers are only tracked after successful start()."""
+
+    @pytest.mark.asyncio
+    async def test_container_not_tracked_when_start_fails_streaming(
+        self, tmp_path: Path
+    ) -> None:
+        """create_streaming_process must not track a container whose start() failed."""
+        runner, client = _make_runner(log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        container = client.containers.create.return_value
+        container.start.side_effect = RuntimeError("start failed")
+
+        with pytest.raises(RuntimeError, match="start failed"):
+            await runner.create_streaming_process(["echo", "hi"])
+
+        # Container must NOT be in the tracked set
+        assert container not in runner._containers
+
+    @pytest.mark.asyncio
+    async def test_container_not_tracked_when_start_fails_run_simple(
+        self, tmp_path: Path
+    ) -> None:
+        """run_simple must not track a container whose start() failed."""
+        container = _make_mock_container()
+        container.start.side_effect = RuntimeError("start failed")
+        client = _make_mock_docker_client(container=container)
+        runner, _ = _make_runner(log_dir=tmp_path / "logs", mock_client=client)
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        with pytest.raises(RuntimeError, match="start failed"):
+            await runner.run_simple(["echo", "hi"])
+
+        assert container not in runner._containers
+
+    @pytest.mark.asyncio
+    async def test_container_tracked_after_successful_start(
+        self, tmp_path: Path
+    ) -> None:
+        """Container should be in _containers after a successful start()."""
+        runner, client = _make_runner(log_dir=tmp_path / "logs")
+        (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+
+        await runner.create_streaming_process(["echo", "hi"])
+
+        container = client.containers.create.return_value
+        assert container in runner._containers
