@@ -991,8 +991,8 @@ class TestProbeCreditAvailability:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_returns_true_on_network_error(self) -> None:
-        """Network failures should not block resume."""
+    async def test_returns_false_on_network_error(self) -> None:
+        """Network failures should be treated as credits unavailable (fail-safe)."""
         from subprocess_util import probe_credit_availability
 
         mock_client = AsyncMock()
@@ -1005,7 +1005,7 @@ class TestProbeCreditAvailability:
             patch("httpx.AsyncClient", return_value=mock_client),
         ):
             result = await probe_credit_availability()
-        assert result is True
+        assert result is False
 
 
 # ===========================================================================

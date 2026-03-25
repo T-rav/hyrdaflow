@@ -325,7 +325,7 @@ class DockerRunner:
             self._client.ping()
             return
         except Exception:
-            pass
+            logger.debug("Docker ping failed on attempt, will retry", exc_info=True)
 
         for attempt in range(1, max_retries + 1):
             logger.warning(
@@ -341,6 +341,12 @@ class DockerRunner:
                 logger.info("Docker daemon reconnected after %d attempt(s)", attempt)
                 return
             except Exception:
+                logger.warning(
+                    "Docker reconnect failed (attempt %d/%d)",
+                    attempt,
+                    max_retries,
+                    exc_info=True,
+                )
                 continue
 
         raise RuntimeError(
@@ -537,10 +543,10 @@ class DockerRunner:
             None,
             lambda: self._client.containers.create(**container_kwargs),  # type: ignore[arg-type]
         )
-        self._containers.add(container)
 
         try:
             await loop.run_in_executor(None, container.start)
+            self._containers.add(container)
             attach_params = {"stdout": 1, "stderr": 1, "stream": 1}
             if needs_stdin:
                 attach_params["stdin"] = 1
@@ -558,7 +564,9 @@ class DockerRunner:
             try:
                 await loop.run_in_executor(None, lambda: container.remove(force=True))
             except Exception:
-                logger.debug("Failed to remove container during cleanup", exc_info=True)
+                logger.warning(
+                    "Failed to remove container during cleanup", exc_info=True
+                )
             self._containers.discard(container)
             raise
 
@@ -610,10 +618,10 @@ class DockerRunner:
             None,
             lambda: self._client.containers.create(**container_kwargs),
         )
-        self._containers.add(container)
 
         try:
             await loop.run_in_executor(None, container.start)
+            self._containers.add(container)
 
             result = await asyncio.wait_for(
                 loop.run_in_executor(None, container.wait),
@@ -642,13 +650,15 @@ class DockerRunner:
             try:
                 await loop.run_in_executor(None, container.kill)
             except Exception:
-                logger.debug("Failed to kill container on timeout", exc_info=True)
+                logger.warning("Failed to kill container on timeout", exc_info=True)
             raise
         finally:
             try:
                 await loop.run_in_executor(None, lambda: container.remove(force=True))
             except Exception:
-                logger.debug("Failed to remove container during cleanup", exc_info=True)
+                logger.warning(
+                    "Failed to remove container during cleanup", exc_info=True
+                )
             self._containers.discard(container)
 
     async def cleanup(self) -> None:
@@ -660,7 +670,9 @@ class DockerRunner:
                     None, lambda c=container: c.remove(force=True)
                 )
             except Exception:
-                logger.debug("Failed to remove container during cleanup", exc_info=True)
+                logger.warning(
+                    "Failed to remove container during cleanup", exc_info=True
+                )
         self._containers.clear()
 
 

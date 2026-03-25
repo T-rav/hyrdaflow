@@ -385,7 +385,13 @@ class HydraFlowOrchestrator:
         return self._hitl_ctrl.hitl_corrections
 
     def _sync_active_issue_numbers(self) -> None:
-        """Persist the combined active issue set to state."""
+        """Persist the combined active issue set to state.
+
+        Safety: this method is synchronous with no ``await`` points, so the
+        asyncio event loop cannot interleave it with coroutines that modify
+        the active-issue sets.  The set union + list conversion runs
+        atomically from the event loop's perspective.
+        """
         self._state.set_active_issue_numbers(
             list(
                 self._active_impl_issues

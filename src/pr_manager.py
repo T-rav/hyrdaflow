@@ -204,6 +204,8 @@ class PRManager:
                 cwd=worktree_path,
                 gh_token=self._config.gh_token,
             )
+            action = "Force-pushed" if force else "Pushed"
+            logger.info("%s branch %s to origin", action, branch)
             return True
         except RuntimeError as exc:
             action = "Force-push" if force else "Push"
@@ -711,7 +713,7 @@ class PRManager:
                 issue_number,
                 exc_info=True,
             )
-            return ""
+            return "UNKNOWN"
 
     async def close_issue(self, issue_number: int) -> None:
         """Close a GitHub issue."""

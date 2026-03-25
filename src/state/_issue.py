@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypeVar
 
 from models import (
+    CompletedTimeline,
     HookFailureRecord,
     IssueOutcome,
     IssueOutcomeType,
@@ -252,3 +253,32 @@ class IssueStateMixin:
     def get_bead_mapping(self, issue_id: int) -> dict[str, str]:
         """Return the phase→bead ID mapping for *issue_id*, or empty dict."""
         return self._data.bead_mappings.get(self._key(issue_id), {})
+
+    # --- completed timelines ---
+
+    _MAX_COMPLETED_TIMELINES = 500
+
+    def record_completed_timeline(self, timeline: CompletedTimeline) -> None:
+        """Persist a completed issue's lifecycle timing summary."""
+        key = self._key(timeline.issue_number)
+        self._data.completed_timelines[key] = timeline
+        # Cap to prevent unbounded growth
+        if len(self._data.completed_timelines) > self._MAX_COMPLETED_TIMELINES:
+            # Remove oldest by completed_at
+            sorted_keys = sorted(
+                self._data.completed_timelines,
+                key=lambda k: self._data.completed_timelines[k].completed_at,
+            )
+            for old_key in sorted_keys[
+                : len(sorted_keys) - self._MAX_COMPLETED_TIMELINES
+            ]:
+                del self._data.completed_timelines[old_key]
+        self.save()
+
+    def get_completed_timeline(self, issue_number: int) -> CompletedTimeline | None:
+        """Return the persisted timeline for *issue_number*, or None."""
+        return self._data.completed_timelines.get(self._key(issue_number))
+
+    def get_all_completed_timelines(self) -> dict[str, CompletedTimeline]:
+        """Return all completed timelines."""
+        return dict(self._data.completed_timelines)

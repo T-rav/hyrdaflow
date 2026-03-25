@@ -135,11 +135,27 @@ async def _run_headless(config: HydraFlowConfig) -> None:
     await runtime.run()
 
 
+async def _run_preflight(config: HydraFlowConfig) -> bool:
+    """Run preflight checks; return True if startup should proceed."""
+    from preflight import log_preflight_results, run_preflight_checks  # noqa: PLC0415
+
+    if config.skip_preflight:
+        logger.info("Preflight checks skipped (skip_preflight=True)")
+        return True
+    results = await run_preflight_checks(config)
+    healthy = log_preflight_results(results)
+    if not healthy:
+        logger.error("Preflight checks failed — aborting startup")
+    return healthy
+
+
 async def _run(config: HydraFlowConfig) -> None:
     # NOTE: Tests patch _run_with_dashboard / _run_headless (private names)
     # because these are heavyweight server-starting functions that bind ports
     # and block forever.  Extracting them as injectable dependencies would be
     # over-engineering for a two-branch dispatch function.
+    if not await _run_preflight(config):
+        return
     if config.dashboard_enabled:
         await _run_with_dashboard(config)
     else:

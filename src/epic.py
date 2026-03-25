@@ -185,6 +185,8 @@ class EpicCompletionChecker:
 
         Returns True if the epic was closed, False otherwise.
         """
+        # Recursion guard: the membership test + add are synchronous (no
+        # await between them), so no other coroutine can interleave here.
         if epic_number in self._active_closings:
             return False
         self._active_closings.add(epic_number)

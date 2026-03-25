@@ -1128,6 +1128,12 @@ class LifetimeStats(BaseModel):
     # Timing
     total_implementation_seconds: float = 0.0
     total_review_seconds: float = 0.0
+    total_plan_seconds: float = 0.0
+    total_triage_seconds: float = 0.0
+    # Per-phase duration lists for percentile stats
+    plan_durations: list[float] = Field(default_factory=list)
+    implement_durations: list[float] = Field(default_factory=list)
+    review_durations: list[float] = Field(default_factory=list)
     # Time-to-merge tracking (list of seconds from issue creation to PR merge)
     merge_durations: list[float] = Field(default_factory=list)
     # Retries per stage: {issue_number: {stage: count}}
@@ -1196,6 +1202,7 @@ class Release(BaseModel):
 class StateData(BaseModel):
     """Typed schema for the JSON-backed crash-recovery state."""
 
+    schema_version: int = 1
     processed_issues: dict[str, str] = Field(default_factory=dict)
     active_worktrees: dict[str, str] = Field(default_factory=dict)
     active_branches: dict[str, str] = Field(default_factory=dict)
@@ -1240,6 +1247,7 @@ class StateData(BaseModel):
     baseline_audit: dict[str, list[BaselineAuditRecord]] = Field(default_factory=dict)
     active_crate_number: int | None = None
     bead_mappings: dict[str, dict[str, str]] = Field(default_factory=dict)
+    completed_timelines: dict[str, CompletedTimeline] = Field(default_factory=dict)
     last_updated: str | None = None
 
 
@@ -2196,6 +2204,11 @@ class MetricsSnapshot(BaseModel):
     hitl_escalation_rate: float = Field(default=0.0, ge=0.0)
     first_pass_approval_rate: float = Field(default=0.0, ge=0.0, le=1.0)
     avg_implementation_seconds: float = Field(default=0.0, ge=0.0)
+    # Per-phase duration stats (avg/p50/p90)
+    plan_duration_stats: dict[str, float] = Field(default_factory=dict)
+    implement_duration_stats: dict[str, float] = Field(default_factory=dict)
+    review_duration_stats: dict[str, float] = Field(default_factory=dict)
+    merge_duration_stats: dict[str, float] = Field(default_factory=dict)
     # Queue snapshot
     queue_depth: dict[str, int] = Field(default_factory=dict)
     # GitHub label counts
@@ -2256,6 +2269,20 @@ class IssueTimeline(BaseModel):
     pr_number: int | None = None
     pr_url: HttpUrl = ""
     branch: str = ""
+
+
+class CompletedTimeline(BaseModel):
+    """Persisted summary of a completed issue's lifecycle timing.
+
+    Stored in state.json so timing data survives event log rotation.
+    """
+
+    issue_number: int
+    title: str = ""
+    completed_at: str = ""
+    total_duration_seconds: float = 0.0
+    phase_durations: dict[str, float] = Field(default_factory=dict)
+    pr_number: int | None = None
 
 
 # --- Repo Audit ---

@@ -501,14 +501,31 @@ class PipelineEscalator:
     ) -> None:
         """Escalate *issue* to HITL, enqueue transition, and record failure."""
         issue_number = issue.id
-        await escalate_to_hitl(
-            self._state,
-            self._prs,
-            issue_number,
-            cause=cause,
-            origin_label=self._origin_label,
-            hitl_label=self._hitl_label,
-        )
+        try:
+            await escalate_to_hitl(
+                self._state,
+                self._prs,
+                issue_number,
+                cause=cause,
+                origin_label=self._origin_label,
+                hitl_label=self._hitl_label,
+            )
+        except Exception:
+            logger.error(
+                "Escalation to HITL failed for issue #%d — attempting direct label swap",
+                issue_number,
+                exc_info=True,
+            )
+            # Best-effort fallback: try label swap directly so the issue
+            # doesn't get stuck in its current pipeline stage forever.
+            try:
+                await self._prs.swap_pipeline_labels(issue_number, self._hitl_label)
+            except Exception:
+                logger.error(
+                    "Fallback label swap also failed for issue #%d — issue may be stuck",
+                    issue_number,
+                    exc_info=True,
+                )
         self._store.enqueue_transition(issue, "hitl")
         record_harness_failure(
             self._harness_insights,

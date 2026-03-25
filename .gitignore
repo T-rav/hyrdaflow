@@ -234,3 +234,7 @@ jolly-sea-65a9/
 src/ui/src/test/shims/generated/
 
 .hydraflow/prep
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db

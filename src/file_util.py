@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import logging
 import os
+import shutil
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+
+logger = logging.getLogger("hydraflow.file_util")
 
 
 def atomic_write(path: Path, data: str) -> None:
@@ -59,3 +63,50 @@ def file_lock(path: Path) -> Iterator[None]:
             yield
         finally:
             fcntl.flock(lock_f.fileno(), fcntl.LOCK_UN)
+
+
+def rotate_backups(path: Path, count: int = 3) -> None:
+    """Rotate backup copies of *path*, keeping at most *count* generations.
+
+    Copies ``path`` to ``path.bak``, shifting existing ``.bak`` files:
+    ``.bak`` -> ``.bak.1``, ``.bak.1`` -> ``.bak.2``, etc.  Deletes
+    the oldest backup beyond *count*.
+    """
+    if not path.exists():
+        return
+
+    # Delete the oldest backup if it exists
+    oldest = Path(f"{path}.bak.{count}")
+    if oldest.exists():
+        try:
+            oldest.unlink()
+        except OSError:
+            logger.warning("Could not remove oldest backup %s", oldest, exc_info=True)
+
+    # Shift existing backups up: .bak.(n-1) -> .bak.n
+    for i in range(count - 1, 0, -1):
+        src = Path(f"{path}.bak.{i}")
+        dst = Path(f"{path}.bak.{i + 1}")
+        if src.exists():
+            try:
+                shutil.copy2(src, dst)
+                src.unlink()
+            except OSError:
+                logger.warning(
+                    "Could not rotate backup %s -> %s", src, dst, exc_info=True
+                )
+
+    # Shift .bak -> .bak.1
+    bak = Path(f"{path}.bak")
+    if bak.exists():
+        try:
+            shutil.copy2(bak, Path(f"{path}.bak.1"))
+            bak.unlink()
+        except OSError:
+            logger.warning("Could not rotate backup %s", bak, exc_info=True)
+
+    # Copy current file to .bak
+    try:
+        shutil.copy2(path, bak)
+    except OSError:
+        logger.warning("Could not create backup %s", bak, exc_info=True)

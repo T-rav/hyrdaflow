@@ -123,8 +123,8 @@ class TriagePhase:
                     "; ".join(reasons),
                 )
             else:
-                await self._transitioner.transition(issue.id, "ready")
                 self._store.enqueue_transition(issue, "ready")
+                await self._transitioner.transition(issue.id, "ready")
                 self._state.increment_session_counter("triaged")
                 logger.info(
                     "Issue #%d ADR triage → %s (validated ADR shape)",
@@ -157,8 +157,8 @@ class TriagePhase:
                         "Issue #%d enriched by triage before promotion",
                         issue.id,
                     )
-                await self._transitioner.transition(issue.id, "plan")
                 self._store.enqueue_transition(issue, "plan")
+                await self._transitioner.transition(issue.id, "plan")
                 self._state.increment_session_counter("triaged")
                 logger.info(
                     "Issue #%d triaged → %s (ready for planning)",

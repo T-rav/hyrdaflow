@@ -65,11 +65,19 @@ class LifetimeStatsMixin:
     def record_implementation_duration(self, seconds: float) -> None:
         """Accumulate implementation agent duration."""
         self._data.lifetime_stats.total_implementation_seconds += seconds
+        self._data.lifetime_stats.implement_durations.append(round(seconds, 1))
         self.save()
 
     def record_review_duration(self, seconds: float) -> None:
         """Accumulate review agent duration."""
         self._data.lifetime_stats.total_review_seconds += seconds
+        self._data.lifetime_stats.review_durations.append(round(seconds, 1))
+        self.save()
+
+    def record_plan_duration(self, seconds: float) -> None:
+        """Accumulate planning agent duration."""
+        self._data.lifetime_stats.total_plan_seconds += seconds
+        self._data.lifetime_stats.plan_durations.append(round(seconds, 1))
         self.save()
 
     def get_lifetime_stats(self) -> LifetimeStats:
@@ -106,7 +114,29 @@ class LifetimeStatsMixin:
 
         Returns an empty dict if no durations are recorded.
         """
-        durations = self._data.lifetime_stats.merge_durations
+        return self._compute_percentiles(self._data.lifetime_stats.merge_durations)
+
+    def get_phase_duration_stats(self) -> dict[str, dict[str, float]]:
+        """Return per-phase duration stats: {phase: {avg, p50, p90}}.
+
+        Phases with no data are omitted.
+        """
+        stats = self._data.lifetime_stats
+        result: dict[str, dict[str, float]] = {}
+        for phase, durations in (
+            ("plan", stats.plan_durations),
+            ("implement", stats.implement_durations),
+            ("review", stats.review_durations),
+            ("merge", stats.merge_durations),
+        ):
+            pcts = self._compute_percentiles(durations)
+            if pcts:
+                result[phase] = pcts
+        return result
+
+    @staticmethod
+    def _compute_percentiles(durations: list[float]) -> dict[str, float]:
+        """Return avg/p50/p90 for a list of durations, or empty dict."""
         if not durations:
             return {}
         sorted_d = sorted(durations)

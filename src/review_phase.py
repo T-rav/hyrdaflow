@@ -1507,11 +1507,11 @@ class ReviewPhase:
         if esc.visual_evidence is not None:
             self._state.set_hitl_visual_evidence(esc.issue_number, esc.visual_evidence)
 
+        if esc.task is not None:
+            self._store.enqueue_transition(esc.task, "hitl")
         await self._transitioner.transition(
             esc.issue_number, "hitl", pr_number=esc.pr_number
         )
-        if esc.task is not None:
-            self._store.enqueue_transition(esc.task, "hitl")
 
         if esc.post_on_pr and esc.pr_number and esc.pr_number > 0:
             await self._prs.post_pr_comment(esc.pr_number, esc.comment)
@@ -1701,10 +1701,11 @@ class ReviewPhase:
             self._state.set_review_feedback(pr.issue_number, result.summary)
 
             # Swap labels: review → ready (issue and PR)
+            # Activate eager-transition protection before the label swap
+            self._store.enqueue_transition(task, "ready")
             await self._transitioner.transition(
                 pr.issue_number, "ready", pr_number=pr.number
             )
-            self._store.enqueue_transition(task, "ready")
 
             await self._transitioner.post_comment(
                 pr.issue_number,

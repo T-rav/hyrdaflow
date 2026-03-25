@@ -1265,6 +1265,30 @@ def create_router(
         }
         dashboard_public = not _is_loopback_host(config.dashboard_host)
 
+        # GitHub cache health (if available)
+        github_cache_health: dict[str, object] = {"status": "unknown"}
+        if orchestrator is not None and isinstance(
+            getattr(orchestrator, "github_cache", None), GitHubDataCache
+        ):
+            gh_cache: GitHubDataCache = orchestrator.github_cache
+            cache_ages = {
+                ds: round(gh_cache.get_cache_age(ds), 1)
+                for ds in ("open_prs", "hitl_items", "label_counts")
+            }
+            max_age = max(cache_ages.values()) if cache_ages else 0
+            github_cache_health = {
+                "status": "stale" if max_age > config.data_poll_interval * 3 else "ok",
+                "age_seconds": cache_ages,
+            }
+
+        # Queue depths
+        queue_depths: dict[str, int] = {}
+        if orchestrator is not None and hasattr(orchestrator, "_svc"):
+            issue_store = getattr(orchestrator._svc, "store", None)
+            if issue_store is not None and hasattr(issue_store, "queue_stats"):
+                qstats = issue_store.queue_stats()
+                queue_depths = dict(getattr(qstats, "queue_depth", {}).items())
+
         checks = {
             "orchestrator": {
                 "status": orchestrator_status,
@@ -1282,6 +1306,8 @@ def create_router(
                 "port": config.dashboard_port,
                 "public": dashboard_public,
             },
+            "github_cache": github_cache_health,
+            "queue_depths": queue_depths,
         }
         ready = checks["orchestrator"]["status"] == "running" and checks["workers"][
             "status"
@@ -3140,6 +3166,16 @@ def create_router(
         if timeline is None:
             return JSONResponse({"error": "Issue not found"}, status_code=404)
         return JSONResponse(timeline.model_dump())
+
+    @router.get("/api/timeline/completed")
+    async def get_completed_timelines() -> JSONResponse:
+        """Return persisted timelines for completed (merged) issues.
+
+        Unlike /api/timeline which derives from ephemeral events,
+        these survive event log rotation.
+        """
+        timelines = state.get_all_completed_timelines()
+        return JSONResponse([t.model_dump() for t in timelines.values()])
 
     # --- Repo runtime lifecycle endpoints ---
 

@@ -195,12 +195,12 @@ class ImplementPhase:
                     issue.id,
                     existing_pr.number,
                 )
+                self._store.enqueue_transition(issue, "review")
                 await self._transitioner.transition(
                     issue.id,
                     "review",
                     pr_number=existing_pr.number,
                 )
-                self._store.enqueue_transition(issue, "review")
                 self._state.increment_session_counter("implemented")
                 self._state.mark_issue(issue.id, "success")
                 return WorkerResult(
@@ -504,12 +504,12 @@ class ImplementPhase:
             return await self._handle_no_pr_fallback(issue, result)
 
         if result.success:
+            self._store.enqueue_transition(issue, "review")
             await self._transitioner.transition(
                 issue.id,
                 "review",
                 pr_number=pr.number if pr and pr.number > 0 else None,
             )
-            self._store.enqueue_transition(issue, "review")
             self._state.increment_session_counter("implemented")
 
         return None

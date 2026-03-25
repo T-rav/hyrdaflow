@@ -27,6 +27,8 @@ _GH_DEFAULT_CONCURRENCY = 5
 # ALL callers pause until this timestamp (UTC).
 _rate_limit_until: datetime | None = None
 _RATE_LIMIT_COOLDOWN_SECONDS = 60
+_RATE_LIMIT_MAX_COOLDOWN_SECONDS = 480
+_rate_limit_current_cooldown: int = _RATE_LIMIT_COOLDOWN_SECONDS
 
 
 def configure_gh_concurrency(limit: int) -> None:
@@ -54,15 +56,29 @@ def _is_rate_limited(stderr: str) -> bool:
 
 
 def _trigger_rate_limit_cooldown() -> None:
-    """Set the global cooldown so all callers pause."""
-    global _rate_limit_until  # noqa: PLW0603
+    """Set the global cooldown so all callers pause.
+
+    Uses exponential backoff: starts at 60s, doubles on each consecutive
+    rate-limit hit, caps at 480s. Resets to 60s on a successful call
+    (see :func:`_reset_rate_limit_backoff`).
+    """
+    global _rate_limit_until, _rate_limit_current_cooldown  # noqa: PLW0603
     _rate_limit_until = datetime.now(tz=UTC) + timedelta(
-        seconds=_RATE_LIMIT_COOLDOWN_SECONDS
+        seconds=_rate_limit_current_cooldown
     )
     logger.warning(
         "GitHub API rate limit hit — pausing ALL gh/git calls for %ds",
-        _RATE_LIMIT_COOLDOWN_SECONDS,
+        _rate_limit_current_cooldown,
     )
+    _rate_limit_current_cooldown = min(
+        _rate_limit_current_cooldown * 2, _RATE_LIMIT_MAX_COOLDOWN_SECONDS
+    )
+
+
+def _reset_rate_limit_backoff() -> None:
+    """Reset the exponential backoff to the base cooldown after a successful call."""
+    global _rate_limit_current_cooldown  # noqa: PLW0603
+    _rate_limit_current_cooldown = _RATE_LIMIT_COOLDOWN_SECONDS
 
 
 async def _wait_for_rate_limit_cooldown() -> None:
@@ -185,8 +201,8 @@ async def probe_credit_availability() -> bool:
             # Check response body for credit exhaustion patterns
             return not is_credit_exhaustion(resp.text)
     except Exception:  # noqa: BLE001
-        # Network or other transient error — don't block resume.
-        return True
+        # Network or other transient error — fail-safe, assume credits unavailable.
+        return False
 
 
 def parse_credit_resume_time(text: str) -> datetime | None:
@@ -386,6 +402,7 @@ async def run_subprocess(
             if _is_rate_limited(result.stderr):
                 _trigger_rate_limit_cooldown()
             raise RuntimeError(msg) from cause
+        _reset_rate_limit_backoff()
         return result.stdout
 
     if use_semaphore:
