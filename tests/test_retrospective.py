@@ -392,7 +392,7 @@ class TestRecord:
 class TestPatternDetection:
     @pytest.mark.asyncio
     async def test_quality_fix_pattern_detected(self, config: HydraFlowConfig) -> None:
-        """When >50% of entries need quality fixes, pattern should be detected."""
+        """When >50% of entries need quality fixes, file_memory_suggestion is called."""
         collector, mock_prs, _ = _make_collector(config)
         entries = [
             RetrospectiveEntry(
@@ -405,17 +405,20 @@ class TestPatternDetection:
             for i in range(10)
         ]
 
-        await collector._detect_patterns(entries)
+        mock_file_mem = AsyncMock()
+        with patch("memory.file_memory_suggestion", mock_file_mem):
+            await collector._detect_patterns(entries)
 
-        mock_prs.create_issue.assert_awaited_once()
-        title = mock_prs.create_issue.call_args[0][0]
-        assert "quality fix" in title.lower()
+        mock_file_mem.assert_awaited_once()
+        transcript = mock_file_mem.call_args[0][0]
+        assert "quality fix" in transcript.lower()
+        mock_prs.create_issue.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_quality_fix_pattern_not_detected_when_below_threshold(
         self, config: HydraFlowConfig
     ) -> None:
-        """When <=50% of entries need quality fixes, no pattern."""
+        """When <=50% of entries need quality fixes, no pattern filed."""
         collector, mock_prs, _ = _make_collector(config)
         entries = [
             RetrospectiveEntry(
@@ -428,15 +431,18 @@ class TestPatternDetection:
             for i in range(10)
         ]
 
-        await collector._detect_patterns(entries)
+        mock_file_mem = AsyncMock()
+        with patch("memory.file_memory_suggestion", mock_file_mem):
+            await collector._detect_patterns(entries)
 
+        mock_file_mem.assert_not_awaited()
         mock_prs.create_issue.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_plan_accuracy_pattern_detected(
         self, config: HydraFlowConfig
     ) -> None:
-        """When average accuracy drops below 70%, pattern should be detected."""
+        """When average accuracy drops below 70%, file_memory_suggestion is called."""
         collector, mock_prs, _ = _make_collector(config)
         entries = [
             RetrospectiveEntry(
@@ -448,15 +454,17 @@ class TestPatternDetection:
             for i in range(10)
         ]
 
-        await collector._detect_patterns(entries)
+        mock_file_mem = AsyncMock()
+        with patch("memory.file_memory_suggestion", mock_file_mem):
+            await collector._detect_patterns(entries)
 
-        mock_prs.create_issue.assert_awaited_once()
-        title = mock_prs.create_issue.call_args[0][0]
-        assert "plan accuracy" in title.lower()
+        mock_file_mem.assert_awaited_once()
+        transcript = mock_file_mem.call_args[0][0]
+        assert "plan accuracy" in transcript.lower()
 
     @pytest.mark.asyncio
     async def test_reviewer_fix_pattern_detected(self, config: HydraFlowConfig) -> None:
-        """When >40% of entries have reviewer fixes, pattern should be detected."""
+        """When >40% of entries have reviewer fixes, file_memory_suggestion is called."""
         collector, mock_prs, _ = _make_collector(config)
         entries = [
             RetrospectiveEntry(
@@ -469,17 +477,19 @@ class TestPatternDetection:
             for i in range(10)
         ]
 
-        await collector._detect_patterns(entries)
+        mock_file_mem = AsyncMock()
+        with patch("memory.file_memory_suggestion", mock_file_mem):
+            await collector._detect_patterns(entries)
 
-        mock_prs.create_issue.assert_awaited_once()
-        title = mock_prs.create_issue.call_args[0][0]
-        assert "reviewer" in title.lower()
+        mock_file_mem.assert_awaited_once()
+        transcript = mock_file_mem.call_args[0][0]
+        assert "reviewer" in transcript.lower()
 
     @pytest.mark.asyncio
     async def test_unplanned_file_pattern_detected(
         self, config: HydraFlowConfig
     ) -> None:
-        """When same file appears unplanned in >30% of entries."""
+        """When same file appears unplanned in >30% of entries, pattern is filed."""
         collector, mock_prs, _ = _make_collector(config)
         entries = [
             RetrospectiveEntry(
@@ -492,11 +502,13 @@ class TestPatternDetection:
             for i in range(10)
         ]
 
-        await collector._detect_patterns(entries)
+        mock_file_mem = AsyncMock()
+        with patch("memory.file_memory_suggestion", mock_file_mem):
+            await collector._detect_patterns(entries)
 
-        mock_prs.create_issue.assert_awaited_once()
-        title = mock_prs.create_issue.call_args[0][0]
-        assert "src/common.py" in title
+        mock_file_mem.assert_awaited_once()
+        transcript = mock_file_mem.call_args[0][0]
+        assert "src/common.py" in transcript
 
     @pytest.mark.asyncio
     async def test_no_patterns_on_healthy_data(self, config: HydraFlowConfig) -> None:
@@ -515,8 +527,11 @@ class TestPatternDetection:
             for i in range(10)
         ]
 
-        await collector._detect_patterns(entries)
+        mock_file_mem = AsyncMock()
+        with patch("memory.file_memory_suggestion", mock_file_mem):
+            await collector._detect_patterns(entries)
 
+        mock_file_mem.assert_not_awaited()
         mock_prs.create_issue.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -535,8 +550,11 @@ class TestPatternDetection:
             )
         ]
 
-        await collector._detect_patterns(entries)
+        mock_file_mem = AsyncMock()
+        with patch("memory.file_memory_suggestion", mock_file_mem):
+            await collector._detect_patterns(entries)
 
+        mock_file_mem.assert_not_awaited()
         mock_prs.create_issue.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -560,9 +578,12 @@ class TestPatternDetection:
             for i in range(10)
         ]
 
-        await collector._detect_patterns(entries)
+        mock_file_mem = AsyncMock()
+        with patch("memory.file_memory_suggestion", mock_file_mem):
+            await collector._detect_patterns(entries)
 
         # Should not file again since quality_fix is already in filed patterns
+        mock_file_mem.assert_not_awaited()
         mock_prs.create_issue.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -581,16 +602,19 @@ class TestPatternDetection:
             for i in range(10)
         ]
 
-        await collector._detect_patterns(entries)
+        mock_file_mem = AsyncMock()
+        with patch("memory.file_memory_suggestion", mock_file_mem):
+            await collector._detect_patterns(entries)
 
-        # Only 1 issue filed despite multiple patterns matching
-        mock_prs.create_issue.assert_awaited_once()
+        # Only 1 pattern filed despite multiple patterns matching
+        mock_file_mem.assert_awaited_once()
+        mock_prs.create_issue.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_improvement_issue_has_correct_labels(
+    async def test_improvement_suggestion_contains_knowledge_type(
         self, config: HydraFlowConfig
     ) -> None:
-        """Filed improvement issue should have hydraflow-improve + hydraflow-memory labels."""
+        """Filed improvement suggestion should contain 'type: knowledge' in the transcript."""
         collector, mock_prs, _ = _make_collector(config)
         entries = [
             RetrospectiveEntry(
@@ -603,11 +627,13 @@ class TestPatternDetection:
             for i in range(10)
         ]
 
-        await collector._detect_patterns(entries)
+        mock_file_mem = AsyncMock()
+        with patch("memory.file_memory_suggestion", mock_file_mem):
+            await collector._detect_patterns(entries)
 
-        labels = mock_prs.create_issue.call_args[0][2]
-        assert "hydraflow-improve" in labels
-        assert "hydraflow-memory" in labels
+        transcript = mock_file_mem.call_args[0][0]
+        assert "type: knowledge" in transcript
+        assert "MEMORY_SUGGESTION_START" in transcript
 
 
 # ---------------------------------------------------------------------------
@@ -699,42 +725,54 @@ class TestRetrospectiveEntry:
 
 
 class TestFileImprovementIssueSetsOrigin:
-    """Tests for memory-routed issue creation in _file_improvement_issue."""
+    """Tests for memory-routed suggestion filing in _file_improvement_issue."""
 
     @pytest.mark.asyncio
-    async def test_file_improvement_issue_uses_memory_labels_and_prefix(
+    async def test_file_improvement_issue_writes_to_jsonl(
         self, config: HydraFlowConfig
     ) -> None:
-        """Filing an improvement issue should route to improve+memory with [Memory] title."""
-        collector, mock_prs, state = _make_collector(config, create_issue_return=99)
+        """Filing an improvement issue writes to local JSONL via file_memory_suggestion."""
+        from unittest.mock import AsyncMock as _AsyncMock
 
-        await collector._file_improvement_issue("Pattern: test", "Some body text")
+        collector, mock_prs, state = _make_collector(config)
 
-        mock_prs.create_issue.assert_awaited_once()
-        args = mock_prs.create_issue.call_args[0]
-        assert args[0].startswith("[Memory] ")
-        assert args[2] == [config.improve_label[0], config.memory_label[0]]
-        assert state.get_hitl_origin(99) is None
-        assert state.get_hitl_cause(99) is None
+        mock_file_mem = _AsyncMock()
+        with patch("memory.file_memory_suggestion", mock_file_mem):
+            await collector._file_improvement_issue("Pattern: test", "Some body text")
+
+        mock_file_mem.assert_awaited_once()
+        transcript_arg = mock_file_mem.call_args[0][0]
+        assert "Pattern: test" in transcript_arg
+        assert "MEMORY_SUGGESTION_START" in transcript_arg
+        # No GitHub issue created
+        mock_prs.create_issue.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_file_improvement_issue_no_state_change_on_failure(
+    async def test_file_improvement_issue_strips_memory_prefix(
         self, config: HydraFlowConfig
     ) -> None:
-        """When create_issue returns 0, no HITL state should be set."""
-        collector, mock_prs, state = _make_collector(config, create_issue_return=0)
+        """[Memory] prefix is stripped before writing to JSONL."""
+        from unittest.mock import AsyncMock as _AsyncMock
 
-        await collector._file_improvement_issue("Pattern: test", "Some body text")
+        collector, mock_prs, _ = _make_collector(config)
 
-        mock_prs.create_issue.assert_awaited_once()
-        assert state.get_hitl_origin(0) is None
+        mock_file_mem = _AsyncMock()
+        with patch("memory.file_memory_suggestion", mock_file_mem):
+            await collector._file_improvement_issue("[Memory] Pattern: test", "body")
+
+        transcript_arg = mock_file_mem.call_args[0][0]
+        # Title should not double-prefix
+        assert "[Memory] [Memory]" not in transcript_arg
+        assert "Pattern: test" in transcript_arg
 
     @pytest.mark.asyncio
     async def test_pattern_detection_does_not_set_hitl_origin(
         self, config: HydraFlowConfig
     ) -> None:
-        """When pattern detection files an issue, it should not mark HITL state."""
-        collector, mock_prs, state = _make_collector(config, create_issue_return=77)
+        """When pattern detection fires, it writes to JSONL and never sets HITL state."""
+        from unittest.mock import AsyncMock as _AsyncMock
+
+        collector, mock_prs, state = _make_collector(config)
         entries = [
             RetrospectiveEntry(
                 issue_number=i,
@@ -746,9 +784,12 @@ class TestFileImprovementIssueSetsOrigin:
             for i in range(10)
         ]
 
-        await collector._detect_patterns(entries)
+        mock_file_mem = _AsyncMock()
+        with patch("memory.file_memory_suggestion", mock_file_mem):
+            await collector._detect_patterns(entries)
 
-        mock_prs.create_issue.assert_awaited_once()
+        mock_file_mem.assert_awaited_once()
+        mock_prs.create_issue.assert_not_awaited()
         assert state.get_hitl_origin(77) is None
         assert state.get_hitl_cause(77) is None
 

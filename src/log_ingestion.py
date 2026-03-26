@@ -15,7 +15,6 @@ from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
-    from ports import PRPort
 
 logger = logging.getLogger("hydraflow.log_ingestion")
 
@@ -239,7 +238,7 @@ class KnownLogPattern(BaseModel):
     fingerprint: str
     source_module: str
     filed_at: str
-    issue_number: int
+    issue_number: int = 0  # 0 when filed via local JSONL (no GitHub issue)
     last_count: int
     filed_count: int  # count when first filed — baseline for escalation
 
@@ -293,7 +292,7 @@ class LogIngestionResult(BaseModel):
 
 
 def _build_log_memory_body(pattern: LogPattern) -> str:
-    """Format a [Memory] issue body for a novel log pattern."""
+    """Format memory suggestion body text for a novel log pattern."""
     samples = "\n".join(f"- `{m}`" for m in pattern.sample_messages)
     affected = pattern.sample_issues if pattern.sample_issues else "N/A"
     body = (
@@ -336,27 +335,38 @@ def _build_escalation_body(
         f"## Affected Issues\n"
         f"{affected}\n\n"
         f"## Recommendation\n"
-        f"This pattern was first filed as issue #{known.issue_number} on "
-        f"{known.filed_at}.\n"
+        + (
+            f"This pattern was first filed as issue #{known.issue_number} on "
+            if known.issue_number
+            else "This pattern was first recorded on "
+        )
+        + f"{known.filed_at}.\n"
         f"The increasing frequency suggests the root cause has not been addressed.\n"
     )
 
 
-async def _escalate_log_pattern(
+def _escalate_log_pattern(
     pattern: LogPattern,
     known: KnownLogPattern,
-    prs: PRPort,
     config: HydraFlowConfig,
 ) -> None:
-    """File a HITL issue for an escalating log pattern."""
+    """Write a HITL recommendation for an escalating log pattern."""
     title = f"[Health Monitor] Log pattern escalating: {pattern.fingerprint[:60]}"
     body = _build_escalation_body(pattern, known)
     try:
-        await prs.create_issue(title, body, labels=list(config.hitl_label))
-    except Exception:  # noqa: BLE001
-        logger.warning(
-            "Failed to file escalation issue for pattern: %s", pattern.fingerprint
-        )
+        rec = {
+            "title": title,
+            "body": body,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "type": "recommendation",
+        }
+        rec_path = config.data_path("memory", "hitl_recommendations.jsonl")
+        rec_path.parent.mkdir(parents=True, exist_ok=True)
+        with rec_path.open("a") as f:
+            f.write(json.dumps(rec) + "\n")
+        logger.warning("HITL recommendation: %s", title)
+    except OSError:
+        logger.debug("Failed to write HITL recommendation", exc_info=True)
 
     try:
         import sentry_sdk  # noqa: PLC0415
@@ -372,7 +382,6 @@ async def _escalate_log_pattern(
 async def file_log_patterns(
     patterns: list[LogPattern],
     known_patterns: dict[str, KnownLogPattern],
-    prs: PRPort | None,
     config: HydraFlowConfig,
 ) -> LogIngestionResult:
     """File novel patterns as memory items; escalate patterns with 3x frequency increase.
@@ -380,8 +389,11 @@ async def file_log_patterns(
     Mutates *known_patterns* in-place — callers must persist it afterwards via
     :func:`save_known_patterns`.
 
-    When *prs* is ``None`` patterns are still counted but no issues are filed.
+    Novel patterns are written directly to local JSONL via :func:`file_memory_suggestion`.
+    Escalating patterns are written to ``hitl_recommendations.jsonl``.
     """
+    from memory import file_memory_suggestion  # noqa: PLC0415
+
     filed = 0
     escalated = 0
 
@@ -389,31 +401,46 @@ async def file_log_patterns(
         key = f"{pattern.source_module}:{pattern.fingerprint}"
 
         if key not in known_patterns:
-            # Novel pattern — file as memory item (only when prs is available)
-            if prs is not None:
-                title = f"[Memory] Log pattern: {pattern.fingerprint[:60]}"
-                body = _build_log_memory_body(pattern)
-                issue_number = 0
-                try:
-                    issue_number = await prs.create_issue(
-                        title, body, labels=list(config.improve_label)
-                    )
-                except Exception:  # noqa: BLE001
-                    logger.warning(
-                        "Failed to file memory issue for pattern: %s",
-                        pattern.fingerprint,
-                    )
-
-                if issue_number > 0:
-                    known_patterns[key] = KnownLogPattern(
-                        fingerprint=pattern.fingerprint,
-                        source_module=pattern.source_module,
-                        filed_at=datetime.now(UTC).isoformat(),
-                        issue_number=issue_number,
-                        last_count=pattern.count,
-                        filed_count=pattern.count,
-                    )
-                    filed += 1
+            # Novel pattern — write to local JSONL memory store
+            title = f"Log pattern: {pattern.fingerprint[:60]}"
+            learning = (
+                f"Recurring {pattern.level} in `{pattern.source_module}`: "
+                f"{pattern.fingerprint}"
+            )
+            context = (
+                f"Detected {pattern.count} occurrences between "
+                f"{pattern.first_seen} and {pattern.last_seen}. "
+                f"Sample: {pattern.sample_messages[0] if pattern.sample_messages else ''}"
+            )
+            pseudo_transcript = (
+                f"MEMORY_SUGGESTION_START\n"
+                f"title: {title}\n"
+                f"learning: {learning}\n"
+                f"context: {context}\n"
+                f"type: instruction\n"
+                f"MEMORY_SUGGESTION_END"
+            )
+            try:
+                await file_memory_suggestion(
+                    pseudo_transcript,
+                    "log_ingestion",
+                    f"{pattern.source_module}:{pattern.fingerprint}",
+                    config,
+                )
+                known_patterns[key] = KnownLogPattern(
+                    fingerprint=pattern.fingerprint,
+                    source_module=pattern.source_module,
+                    filed_at=datetime.now(UTC).isoformat(),
+                    issue_number=0,
+                    last_count=pattern.count,
+                    filed_count=pattern.count,
+                )
+                filed += 1
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to file memory item for pattern: %s",
+                    pattern.fingerprint,
+                )
 
             try:
                 import sentry_sdk  # noqa: PLC0415
@@ -428,8 +455,8 @@ async def file_log_patterns(
         else:
             # Known pattern — check for escalation (3x increase over filed baseline)
             known = known_patterns[key]
-            if prs is not None and pattern.count >= known.filed_count * 3:
-                await _escalate_log_pattern(pattern, known, prs, config)
+            if pattern.count >= known.filed_count * 3:
+                _escalate_log_pattern(pattern, known, config)
                 escalated += 1
             known.last_count = pattern.count
 

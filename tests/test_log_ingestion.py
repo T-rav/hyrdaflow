@@ -466,22 +466,26 @@ class TestFileLogPatterns:
 
     @pytest.mark.asyncio
     async def test_files_novel_pattern(self) -> None:
-        prs = AsyncMock()
-        prs.create_issue = AsyncMock(return_value=100)
+        """Novel patterns are written to local JSONL via file_memory_suggestion."""
+        from unittest.mock import AsyncMock as _AsyncMock
+        from unittest.mock import patch
+
         config = _make_config()
         known: dict[str, KnownLogPattern] = {}
-
         pattern = self._make_pattern()
-        result = await file_log_patterns([pattern], known, prs, config)
 
-        prs.create_issue.assert_called_once()
-        title, body, *_ = prs.create_issue.call_args[0]
-        assert "[Memory]" in title
-        assert "Score failed for item <N>" in title
+        mock_file_mem = _AsyncMock()
+        with patch("memory.file_memory_suggestion", mock_file_mem):
+            result = await file_log_patterns([pattern], known, None, config)
+
+        mock_file_mem.assert_called_once()
+        _source = mock_file_mem.call_args[0][1]
+        assert _source == "log_ingestion"
         assert result.filed == 1
         assert result.escalated == 0
         assert result.total_patterns == 1
         assert "hydraflow.test:Score failed for item <N>" in known
+        assert known["hydraflow.test:Score failed for item <N>"].issue_number == 0
 
     @pytest.mark.asyncio
     async def test_skips_known_pattern_below_escalation(self) -> None:
@@ -558,41 +562,53 @@ class TestFileLogPatterns:
         assert known[key].last_count == 8
 
     @pytest.mark.asyncio
-    async def test_handles_create_issue_failure_gracefully(self) -> None:
-        prs = AsyncMock()
-        prs.create_issue = AsyncMock(side_effect=RuntimeError("network error"))
+    async def test_handles_memory_filing_failure_gracefully(self) -> None:
+        """When file_memory_suggestion raises, novel pattern is not persisted."""
+        from unittest.mock import patch
+
         config = _make_config()
         known: dict[str, KnownLogPattern] = {}
         pattern = self._make_pattern()
 
-        # Should not raise; novel pattern simply not persisted
-        result = await file_log_patterns([pattern], known, prs, config)
+        with patch(
+            "memory.file_memory_suggestion",
+            side_effect=RuntimeError("disk full"),
+        ):
+            result = await file_log_patterns([pattern], known, None, config)
 
         assert result.filed == 0
         assert known == {}
 
     @pytest.mark.asyncio
-    async def test_create_issue_returns_zero_not_filed(self) -> None:
-        prs = AsyncMock()
-        prs.create_issue = AsyncMock(return_value=0)
+    async def test_novel_pattern_filed_without_prs(self) -> None:
+        """Novel patterns are filed to JSONL regardless of whether prs is available."""
+        from unittest.mock import AsyncMock as _AsyncMock
+        from unittest.mock import patch
+
         config = _make_config()
         known: dict[str, KnownLogPattern] = {}
         pattern = self._make_pattern()
 
-        result = await file_log_patterns([pattern], known, prs, config)
+        mock_file_mem = _AsyncMock()
+        with patch("memory.file_memory_suggestion", mock_file_mem):
+            result = await file_log_patterns([pattern], known, None, config)
 
-        assert result.filed == 0
-        assert known == {}
+        mock_file_mem.assert_called_once()
+        assert result.filed == 1
+        assert "hydraflow.test:Score failed for item <N>" in known
 
     @pytest.mark.asyncio
     async def test_total_patterns_always_set(self) -> None:
-        prs = AsyncMock()
-        prs.create_issue = AsyncMock(return_value=500)
+        from unittest.mock import AsyncMock as _AsyncMock
+        from unittest.mock import patch
+
         config = _make_config()
         known: dict[str, KnownLogPattern] = {}
         patterns = [self._make_pattern(f"fp <N> {i}", count=4) for i in range(5)]
 
-        result = await file_log_patterns(patterns, known, prs, config)
+        mock_file_mem = _AsyncMock()
+        with patch("memory.file_memory_suggestion", mock_file_mem):
+            result = await file_log_patterns(patterns, known, None, config)
 
         assert result.total_patterns == 5
 
@@ -605,22 +621,26 @@ class TestFileLogPatterns:
 
     @pytest.mark.asyncio
     async def test_prs_none_does_not_raise(self) -> None:
-        """When prs is None, no issues are filed but the function succeeds."""
+        """When prs is None, novel patterns are still filed to JSONL."""
+        from unittest.mock import AsyncMock as _AsyncMock
+        from unittest.mock import patch
+
         config = _make_config()
         known: dict[str, KnownLogPattern] = {}
         pattern = self._make_pattern()
 
-        result = await file_log_patterns([pattern], known, None, config)
+        mock_file_mem = _AsyncMock()
+        with patch("memory.file_memory_suggestion", mock_file_mem):
+            result = await file_log_patterns([pattern], known, None, config)
 
-        assert result.filed == 0
+        assert result.filed == 1
         assert result.escalated == 0
         assert result.total_patterns == 1
-        # known dict not populated when prs is None
-        assert known == {}
+        assert "hydraflow.test:Score failed for item <N>" in known
 
     @pytest.mark.asyncio
     async def test_prs_none_known_pattern_no_escalation(self) -> None:
-        """With prs=None, even escalating patterns are counted but not filed."""
+        """With prs=None, even escalating patterns are counted but not escalated."""
         config = _make_config()
         pattern = self._make_pattern(count=15)
         key = f"{pattern.source_module}:{pattern.fingerprint}"
@@ -670,17 +690,20 @@ class TestFileLogPatterns:
     @pytest.mark.asyncio
     async def test_sentry_breadcrumb_called_for_novel_pattern(self) -> None:
         """Sentry breadcrumb is added when a novel pattern is detected."""
+        from unittest.mock import AsyncMock as _AsyncMock
         from unittest.mock import MagicMock, patch
 
-        prs = AsyncMock()
-        prs.create_issue = AsyncMock(return_value=101)
         config = _make_config()
         known: dict[str, KnownLogPattern] = {}
         pattern = self._make_pattern()
 
         mock_sentry = MagicMock()
-        with patch.dict("sys.modules", {"sentry_sdk": mock_sentry}):
-            await file_log_patterns([pattern], known, prs, config)
+        mock_file_mem = _AsyncMock()
+        with (
+            patch.dict("sys.modules", {"sentry_sdk": mock_sentry}),
+            patch("memory.file_memory_suggestion", mock_file_mem),
+        ):
+            await file_log_patterns([pattern], known, None, config)
 
         mock_sentry.add_breadcrumb.assert_called_once()
         call_kwargs = mock_sentry.add_breadcrumb.call_args[1]

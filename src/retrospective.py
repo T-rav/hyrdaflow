@@ -356,10 +356,24 @@ class RetrospectiveCollector:
                 break
 
     async def _file_improvement_issue(self, title: str, body: str) -> None:
-        """File a memory-routed retrospective proposal for automatic ingestion."""
-        labels = self._config.improve_label[:1] + self._config.memory_label[:1]
-        memory_title = title if title.startswith("[Memory]") else f"[Memory] {title}"
-        await self._prs.create_issue(memory_title, body, labels)
+        """Write a retrospective pattern suggestion to local JSONL memory store."""
+        from memory import file_memory_suggestion  # noqa: PLC0415
+
+        clean_title = title.removeprefix("[Memory] ").strip()
+        pseudo_transcript = (
+            f"MEMORY_SUGGESTION_START\n"
+            f"title: {clean_title}\n"
+            f"learning: {body}\n"
+            f"context: Auto-detected by HydraFlow Retrospective\n"
+            f"type: knowledge\n"
+            f"MEMORY_SUGGESTION_END"
+        )
+        await file_memory_suggestion(
+            pseudo_transcript,
+            "retrospective",
+            clean_title,
+            self._config,
+        )
 
     def _load_filed_patterns(self) -> set[str]:
         """Load the set of already-filed pattern keys."""

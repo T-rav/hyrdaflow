@@ -403,41 +403,52 @@ class HealthMonitorLoop(BaseBackgroundLoop):
             logger.debug("Log ingestion failed", exc_info=True)
 
         # Auto-file harness insight suggestions
-        if self._prs is not None:
-            try:
-                from harness_insights import (  # noqa: PLC0415
-                    HarnessInsightStore,
-                    auto_file_suggestions,
-                )
+        try:
+            from harness_insights import (  # noqa: PLC0415
+                HarnessInsightStore,
+                auto_file_suggestions,
+            )
 
-                store = HarnessInsightStore(self._config.memory_dir)
-                await auto_file_suggestions(store, self._prs, self._config)
-            except ImportError:
-                pass
-            except Exception:  # noqa: BLE001
-                logger.debug("Harness auto-file failed", exc_info=True)
+            store = HarnessInsightStore(self._config.memory_dir)
+            await auto_file_suggestions(store, self._config)
+        except ImportError:
+            pass
+        except Exception:  # noqa: BLE001
+            logger.debug("Harness auto-file failed", exc_info=True)
 
         # Verify improvement proposal outcomes
-        if self._prs is not None:
-            try:
-                from review_insights import (  # noqa: PLC0415
-                    ReviewInsightStore,
-                    verify_proposals,
-                )
+        try:
+            from review_insights import (  # noqa: PLC0415
+                ReviewInsightStore,
+                verify_proposals,
+            )
 
-                insight_store = ReviewInsightStore(self._config.memory_dir)
-                records = insight_store.load_recent(50)
-                stale = verify_proposals(insight_store, records)
-                for category in stale:
-                    await self._prs.create_issue(
-                        f"[Health Monitor] Unresolved review insight: {category}",
-                        f"Review insight '{category}' was proposed but pattern frequency has not decreased after 30 days.",
-                        labels=list(self._config.hitl_label),
+            insight_store = ReviewInsightStore(self._config.memory_dir)
+            records = insight_store.load_recent(50)
+            stale = verify_proposals(insight_store, records)
+            for category in stale:
+                title = f"[Health Monitor] Unresolved review insight: {category}"
+                body = f"Review insight '{category}' was proposed but pattern frequency has not decreased after 30 days."
+                try:
+                    rec = {
+                        "title": title,
+                        "body": body,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "type": "recommendation",
+                    }
+                    rec_path = self._config.data_path(
+                        "memory", "hitl_recommendations.jsonl"
                     )
-            except ImportError:
-                pass
-            except Exception:  # noqa: BLE001
-                logger.debug("Proposal verification failed", exc_info=True)
+                    rec_path.parent.mkdir(parents=True, exist_ok=True)
+                    with rec_path.open("a") as f:
+                        f.write(json.dumps(rec) + "\n")
+                    logger.warning("HITL recommendation: %s", title)
+                except OSError:
+                    logger.debug("Failed to write HITL recommendation", exc_info=True)
+        except ImportError:
+            pass
+        except Exception:  # noqa: BLE001
+            logger.debug("Proposal verification failed", exc_info=True)
 
         # Cross-project promotion (only in multi-repo mode)
         try:
@@ -700,10 +711,7 @@ class HealthMonitorLoop(BaseBackgroundLoop):
     # ------------------------------------------------------------------
 
     async def _file_hitl_recommendations(self, metrics: TrendMetrics) -> None:
-        """File a GitHub issue for unsafe problems that need human attention."""
-        if self._prs is None:
-            return
-
+        """Write HITL recommendations to JSONL for unsafe problems needing human attention."""
         try:
             recommendations: list[tuple[str, float, str, str]] = []
 
@@ -787,24 +795,33 @@ class HealthMonitorLoop(BaseBackgroundLoop):
                         recommendation=recommendation,
                         metrics=metrics,
                     )
-                    issue_number = await self._prs.create_issue(
-                        title, body, list(self._config.hitl_label)
-                    )
-                    if issue_number:
-                        logger.info(
-                            "Filed health monitor HITL recommendation #%d for %s",
-                            issue_number,
-                            metric_name,
+                    try:
+                        rec = {
+                            "title": title,
+                            "body": body,
+                            "timestamp": datetime.now(UTC).isoformat(),
+                            "type": "recommendation",
+                        }
+                        rec_path = self._config.data_path(
+                            "memory", "hitl_recommendations.jsonl"
                         )
-                        try:
-                            import sentry_sdk  # noqa: PLC0415
+                        rec_path.parent.mkdir(parents=True, exist_ok=True)
+                        with rec_path.open("a") as f:
+                            f.write(json.dumps(rec) + "\n")
+                        logger.warning("HITL recommendation: %s", title)
+                    except OSError:
+                        logger.debug(
+                            "Failed to write HITL recommendation", exc_info=True
+                        )
+                    try:
+                        import sentry_sdk  # noqa: PLC0415
 
-                            sentry_sdk.capture_message(
-                                f"Health monitor filed HITL recommendation: {metric_name}",
-                                level="warning",
-                            )
-                        except ImportError:
-                            pass
+                        sentry_sdk.capture_message(
+                            f"Health monitor filed HITL recommendation: {metric_name}",
+                            level="warning",
+                        )
+                    except ImportError:
+                        pass
                 except Exception:  # noqa: BLE001
                     logger.warning(
                         "Failed to file HITL recommendation for %s",
