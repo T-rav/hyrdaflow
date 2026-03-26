@@ -309,6 +309,8 @@ class TestHITLPhaseProcessing:
         semaphore = asyncio.Semaphore(1)
         await phase._process_one_hitl(42, "Fix it", semaphore)
 
+        # Behavioral: after processing, issue should no longer be active
+        assert 42 not in phase.active_hitl_issues
         # Check that hitl_active_label was set via swap
         prs.swap_pipeline_labels.assert_any_call(42, config.hitl_active_label[0])
 
