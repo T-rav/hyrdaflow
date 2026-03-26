@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import threading
 from collections import defaultdict
@@ -12,6 +13,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger("hydraflow.memory_scoring")
 
 # ---------------------------------------------------------------------------
 # Module-level lock protecting read-modify-write on item_scores.json.
@@ -125,6 +128,14 @@ class MemoryScorer:
         self._dir.mkdir(parents=True, exist_ok=True)
         with self._outcomes_file.open("a", encoding="utf-8") as fh:
             fh.write(outcome.model_dump_json() + "\n")
+        logger.info(
+            "Recorded outcome for issue #%d: %s (score=%.1f, context=%s, digest=%s)",
+            outcome.issue_id,
+            outcome.outcome,
+            outcome.score,
+            outcome.context,
+            outcome.digest_hash[:8],
+        )
         try:
             import sentry_sdk  # noqa: PLC0415
 
@@ -171,6 +182,16 @@ class MemoryScorer:
                     ) or (old_score < _SURPRISE_LOW and outcome.outcome == "success")
 
                     item["score"] = new_score
+                    logger.debug(
+                        "Score update: item %d %s %.2f → %.2f (delta=%.2f, relevant=%s, surprising=%s)",
+                        item_id,
+                        outcome.outcome,
+                        old_score,
+                        new_score,
+                        delta,
+                        relevant,
+                        surprising,
+                    )
 
                     trail_entry = TrailEntry(
                         issue=outcome.issue_id,
@@ -206,6 +227,12 @@ class MemoryScorer:
                 scores[item_id] = item
 
             self._save_item_scores(scores)
+            logger.info(
+                "Updated scores for %d items on issue #%d outcome=%s",
+                len(active_item_ids),
+                outcome.issue_id,
+                outcome.outcome,
+            )
 
     def apply_temporal_decay(self) -> None:
         """Apply exponential decay toward 0.5 for all item scores."""
@@ -214,16 +241,25 @@ class MemoryScorer:
             for _item_id, item in scores.items():
                 item["score"] = item["score"] * 0.95 + 0.5 * 0.05
             self._save_item_scores(scores)
+        logger.info("Applied temporal decay to %d memory items", len(scores))
 
     def eviction_candidates(self) -> list[int]:
         """Return item IDs with score < 0.3 and appearances >= 5."""
         scores = self.load_item_scores()
-        return [
+        candidates = [
             item_id
             for item_id, item in scores.items()
             if item["score"] < _EVICT_SCORE_THRESHOLD
             and item["appearances"] >= _EVICT_APPEARANCES_THRESHOLD
         ]
+        if candidates:
+            logger.warning(
+                "Eviction candidates: %s (score < %.2f, appearances >= %d)",
+                candidates,
+                _EVICT_SCORE_THRESHOLD,
+                _EVICT_APPEARANCES_THRESHOLD,
+            )
+        return candidates
 
     def classify_for_compaction(self, item_id: int) -> str:
         """Classify an item as 'keep', 'needs_curation', or 'auto_evict'."""
@@ -233,16 +269,27 @@ class MemoryScorer:
 
         item = scores[item_id]
         score: float = item["score"]
+        appearances: int = item.get("appearances", 0)
         trail: list[dict[str, Any]] = item.get("trail", [])
 
         # Any surprising trail entry means human review is needed
         has_surprising = any(e.get("surprising", False) for e in trail)
 
         if score < _AUTO_EVICT_SCORE:
-            return "auto_evict"
-        if score < _NEEDS_CURATION_SCORE or has_surprising:
-            return "needs_curation"
-        return "keep"
+            result = "auto_evict"
+        elif score < _NEEDS_CURATION_SCORE or has_surprising:
+            result = "needs_curation"
+        else:
+            result = "keep"
+
+        logger.debug(
+            "Compaction classification for item %d: %s (score=%.2f, appearances=%d)",
+            item_id,
+            result,
+            score,
+            appearances,
+        )
+        return result
 
     def get_item_score_for_context(
         self, item_id: int, context: str = "feature"
@@ -483,4 +530,11 @@ def detect_knowledge_gaps(
         )
 
     gaps.sort(key=lambda g: g.frequency, reverse=True)
+    if gaps:
+        logger.warning(
+            "Detected %d knowledge gaps (threshold=%d): %s",
+            len(gaps),
+            frequency_threshold,
+            [g.failure_category for g in gaps],
+        )
     return gaps

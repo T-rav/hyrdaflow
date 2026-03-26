@@ -92,9 +92,22 @@ class GlobalMemoryStore:
                 if global_portion
                 else local_digest
             )
-            return combined[:max_chars]
+            result = combined[:max_chars]
+            logger.info(
+                "Combined digest: global=%d chars + local=%d chars (max=%d)",
+                len(global_digest),
+                len(local_digest),
+                max_chars,
+            )
+            return result
 
         # local is larger than budget (or separator leaves no room) — local alone wins.
+        logger.info(
+            "Combined digest: global=%d chars + local=%d chars (max=%d)",
+            len(global_digest),
+            len(local_digest),
+            max_chars,
+        )
         return local_digest[:max_chars]
 
     # ------------------------------------------------------------------
@@ -124,6 +137,12 @@ class GlobalMemoryStore:
         ``record_override_at(overrides_path, ...)`` for that.
         """
         overrides_path = self._project_overrides_dir(project_slug) / _OVERRIDES_FILENAME
+        logger.info(
+            "Recorded override for project %s: global item %s → local (reason: %s)",
+            project_slug,
+            global_item_id,
+            reason[:60],
+        )
         self.record_override_at(overrides_path, global_item_id, reason)
 
     def record_override_at(
@@ -238,6 +257,11 @@ class GlobalMemoryStore:
             seen_indices.add(i)  # the seed item
             seen_indices.update(group_indices)  # the items that joined this group
 
+        logger.info(
+            "Found %d promotion candidates across %d projects",
+            len(candidates),
+            len(project_stores),
+        )
         return candidates
 
     def detect_override_candidates(
@@ -297,6 +321,11 @@ class GlobalMemoryStore:
                     }
                 )
 
+        if results:
+            logger.warning(
+                "Detected %d override candidates (global items underperforming on specific projects)",
+                len(results),
+            )
         return results
 
     # ------------------------------------------------------------------
