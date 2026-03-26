@@ -15,6 +15,7 @@ from test_scaffold import (
     has_test_infrastructure,
     scaffold_tests,
 )
+from tests.helpers import SMOKE_SUITE_SIZE
 
 # ---------------------------------------------------------------------------
 # TestScaffoldResult
@@ -277,7 +278,7 @@ class TestScaffoldPythonTests:
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
         result = _scaffold_python_tests(tmp_path)
         smoke_files = sorted((tmp_path / "tests").glob("test_prep_smoke*.py"))
-        assert len(smoke_files) == 8
+        assert len(smoke_files) == SMOKE_SUITE_SIZE
         assert "tests/test_prep_smoke.py" in result.created_files
         assert "tests/test_prep_smoke_8.py" in result.created_files
 
@@ -427,7 +428,7 @@ class TestScaffoldJsTests:
         (tmp_path / "package.json").write_text('{"name": "foo"}\n')
         result = _scaffold_js_tests(tmp_path)
         smoke_files = sorted((tmp_path / "__tests__").glob("prep.smoke*.test.js"))
-        assert len(smoke_files) == 8
+        assert len(smoke_files) == SMOKE_SUITE_SIZE
         assert "__tests__/prep.smoke.test.js" in result.created_files
         assert "__tests__/prep.smoke.8.test.js" in result.created_files
 
@@ -639,7 +640,7 @@ class TestScaffoldTests:
 
         assert result.skipped is False
         smoke_files = sorted((tmp_path / "tests").glob("test_prep_smoke*.py"))
-        assert len(smoke_files) == 8
+        assert len(smoke_files) == SMOKE_SUITE_SIZE
 
     def test_backfills_smoke_suite_for_existing_js_infrastructure(
         self, tmp_path: Path
@@ -654,7 +655,7 @@ class TestScaffoldTests:
 
         assert result.skipped is False
         smoke_files = sorted((tmp_path / "__tests__").glob("prep.smoke*.test.js"))
-        assert len(smoke_files) == 8
+        assert len(smoke_files) == SMOKE_SUITE_SIZE
 
     def test_dry_run_does_not_write(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
@@ -716,8 +717,8 @@ class TestScaffoldTests:
 
         py_smoke_files = sorted((tmp_path / "tests").glob("test_prep_smoke*.py"))
         js_smoke_files = sorted((tmp_path / "__tests__").glob("prep.smoke*.test.js"))
-        assert len(py_smoke_files) == 8
-        assert len(js_smoke_files) == 8
+        assert len(py_smoke_files) == SMOKE_SUITE_SIZE
+        assert len(js_smoke_files) == SMOKE_SUITE_SIZE
 
     def test_dry_run_js_repo_does_not_write(self, tmp_path: Path) -> None:
         (tmp_path / "package.json").write_text('{"name": "foo"}\n')

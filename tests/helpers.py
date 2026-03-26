@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+
+SMOKE_SUITE_SIZE = 8
 import shutil
 from collections.abc import Callable, Coroutine
 from contextlib import ExitStack

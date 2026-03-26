@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from polyglot_prep import _go_package_name, detect_prep_stack, scaffold_tests_polyglot
+from tests.helpers import SMOKE_SUITE_SIZE
 
 
 @pytest.mark.parametrize(
@@ -55,7 +56,7 @@ def test_scaffold_tests_polyglot_for_extra_stacks(
 
     assert result.skipped is False
     smoke_files = sorted(tmp_path.glob(smoke_glob))
-    assert len(smoke_files) == 8
+    assert len(smoke_files) == SMOKE_SUITE_SIZE
 
 
 def test_scaffold_tests_polyglot_for_rails_smoke_suite(tmp_path: Path) -> None:
@@ -70,7 +71,7 @@ def test_scaffold_tests_polyglot_for_rails_smoke_suite(tmp_path: Path) -> None:
 
     assert result.skipped is False
     smoke_files = sorted((tmp_path / "test").glob("prep_smoke_test*.rb"))
-    assert len(smoke_files) == 8
+    assert len(smoke_files) == SMOKE_SUITE_SIZE
 
 
 def test_scaffold_go_creates_placeholder_tests_per_source_file(tmp_path: Path) -> None:
@@ -89,7 +90,7 @@ def test_scaffold_go_creates_placeholder_tests_per_source_file(tmp_path: Path) -
     assert result.skipped is False
     assert (pkg_dir / "add_test.go").is_file()
     assert (pkg_dir / "sub_test.go").is_file()
-    assert len(list(pkg_dir.glob("prep_smoke*_test.go"))) == 8
+    assert len(list(pkg_dir.glob("prep_smoke*_test.go"))) == SMOKE_SUITE_SIZE
     assert "internal/calc/add_test.go" in result.created_files
     assert "internal/calc/sub_test.go" in result.created_files
     assert "go placeholder batching" in result.progress
@@ -109,7 +110,7 @@ def test_scaffold_rust_creates_placeholder_tests_per_source_file(
     assert result.skipped is False
     assert (tmp_path / "tests" / "prep_src_lib_rs.rs").is_file()
     assert (tmp_path / "tests" / "prep_src_math_rs.rs").is_file()
-    assert len(list((tmp_path / "tests").glob("prep_smoke*.rs"))) == 8
+    assert len(list((tmp_path / "tests").glob("prep_smoke*.rs"))) == SMOKE_SUITE_SIZE
     assert "tests/prep_src_lib_rs.rs" in result.created_files
     assert "tests/prep_src_math_rs.rs" in result.created_files
     assert "rust placeholder batching" in result.progress
