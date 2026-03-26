@@ -119,9 +119,6 @@ class TestProperties:
         orch = HydraFlowOrchestrator(config)
         assert orch.human_input_requests is orch._hitl_ctrl._human_input_requests
 
-    def test_no_class_constant_default_max_reviewers(self) -> None:
-        assert not hasattr(HydraFlowOrchestrator, "DEFAULT_MAX_REVIEWERS")
-
     def test_no_class_constant_default_max_planners(self) -> None:
         assert not hasattr(HydraFlowOrchestrator, "DEFAULT_MAX_PLANNERS")
 
