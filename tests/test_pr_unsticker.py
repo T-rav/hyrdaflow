@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -17,6 +18,19 @@ from models import ConflictResolutionResult, HITLItem, LoopResult
 from pr_unsticker import FailureCause, PRUnsticker, _classify_cause
 from tests.conftest import HITLResultFactory, IssueFactory, make_state
 from tests.helpers import ConfigFactory
+
+
+@dataclass
+class UnstickerHarness:
+    unsticker: object
+    state: object
+    prs: object
+    agents: object
+    wt: object
+    fetcher: object
+    bus: object
+    hitl_runner: object
+    resolver: object
 
 
 def _make_config(tmp_path: Path, **overrides) -> MagicMock:
@@ -58,7 +72,7 @@ def _make_unsticker(
     # save_conflict_transcript is sync; override the auto-generated AsyncMock
     # attribute so callers don't produce "coroutine never awaited" warnings.
     rs.save_conflict_transcript = MagicMock()
-    return SimpleNamespace(
+    return UnstickerHarness(
         unsticker=PRUnsticker(
             cfg,
             st,
@@ -981,7 +995,7 @@ class TestResolverNoneEdgeCases:
 
 def _setup_ci_fix_memory_test(
     tmp_path: Path, *, transcript: str = "transcript"
-) -> SimpleNamespace:
+) -> UnstickerHarness:
     """Set up shared fixtures for memory suggestion tests on the CI fix path."""
     issue = IssueFactory.create(
         title="Test issue", body="body", labels=["hydraflow-hitl"]
