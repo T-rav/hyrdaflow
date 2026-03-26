@@ -295,8 +295,6 @@ class TranscriptSummarizer:
                     f"transcript_summarizer/{phase}",
                     f"issue #{issue_number}",
                     self._config,
-                    self._prs,
-                    self._state,
                 )
                 filed += 1
 
@@ -333,53 +331,6 @@ class TranscriptSummarizer:
             The ``transcript_summary_as_issue`` feature was removed. This method
             is now a permanent no-op and always returns ``None``.
         """
-        return None
-
-    async def _summarize_and_publish_inner(
-        self,
-        transcript: str,
-        issue_number: int,
-        phase: str,
-        issue_title: str,
-        duration_seconds: float,
-    ) -> int | None:
-        """Inner implementation — may raise."""
-        summary_content = await self._generate_summary(transcript)
-        if not summary_content:
-            return None
-
-        # Build issue body
-        body = build_transcript_summary_body(
-            issue_number=issue_number,
-            phase=phase,
-            summary_content=summary_content,
-            issue_title=issue_title,
-            duration_seconds=duration_seconds,
-        )
-
-        title = f"[Transcript Summary] Issue #{issue_number} — {phase} phase"
-        labels = list(self._config.improve_label) + list(self._config.transcript_label)
-
-        created_issue_number = await self._prs.create_issue(title, body, labels)
-        if created_issue_number:
-            await self._bus.publish(
-                HydraFlowEvent(
-                    type=EventType.TRANSCRIPT_SUMMARY,
-                    data=TranscriptSummaryPayload(
-                        source_issue=issue_number,
-                        phase=phase,
-                        summary_issue=created_issue_number,
-                    ),
-                )
-            )
-            logger.info(
-                "Filed transcript summary as issue #%d for issue #%d (%s phase)",
-                created_issue_number,
-                issue_number,
-                phase,
-            )
-            return created_issue_number
-
         return None
 
     async def _call_model(self, prompt: str) -> str | None:

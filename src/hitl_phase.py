@@ -281,8 +281,6 @@ class HITLPhase:
                                 "hitl",
                                 f"issue #{issue_number}",
                                 self._config,
-                                self._prs,
-                                self._state,
                             )
                         except Exception:  # noqa: BLE001
                             logger.warning(
