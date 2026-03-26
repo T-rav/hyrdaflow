@@ -16,6 +16,7 @@ from models import EpicGapReview, IssueOutcomeType, PipelineStage, PlanResult, T
 from phase_utils import (
     MemorySuggester,
     PipelineEscalator,
+    _sentry_transaction,
     release_batch_in_flight,
     run_concurrent_batch,
     run_refilling_pool,
@@ -407,113 +408,114 @@ class PlanPhase:
             if self._stop_event.is_set():
                 return PlanResult(issue_number=issue.id, error="stopped")
 
-            async with store_lifecycle(self._store, issue.id, "plan"):
-                research_context = ""
-                if self._should_research():
-                    research_result = await self._research_runner.research(issue)  # type: ignore[union-attr]
-                    if research_result.success:
-                        research_context = research_result.research
-                        logger.info(
-                            "Research completed for issue #%d (%d chars)",
-                            issue.id,
-                            len(research_context),
-                        )
-                        # Post collapsed research as issue comment
-                        try:
-                            await self._prs.post_comment(
+            with _sentry_transaction("pipeline.plan", f"plan:#{issue.id}"):
+                async with store_lifecycle(self._store, issue.id, "plan"):
+                    research_context = ""
+                    if self._should_research():
+                        research_result = await self._research_runner.research(issue)  # type: ignore[union-attr]
+                        if research_result.success:
+                            research_context = research_result.research
+                            logger.info(
+                                "Research completed for issue #%d (%d chars)",
                                 issue.id,
-                                f"<details><summary>🔬 Research Context</summary>\n\n"
-                                f"{research_context}\n\n</details>",
+                                len(research_context),
                             )
-                        except Exception:  # noqa: BLE001
+                            # Post collapsed research as issue comment
+                            try:
+                                await self._prs.post_comment(
+                                    issue.id,
+                                    f"<details><summary>🔬 Research Context</summary>\n\n"
+                                    f"{research_context}\n\n</details>",
+                                )
+                            except Exception:  # noqa: BLE001
+                                logger.warning(
+                                    "Failed to post research comment for #%d",
+                                    issue.id,
+                                    exc_info=True,
+                                )
+                        else:
                             logger.warning(
-                                "Failed to post research comment for #%d",
+                                "Research failed for issue #%d: %s",
                                 issue.id,
-                                exc_info=True,
+                                research_result.error,
                             )
-                    else:
-                        logger.warning(
-                            "Research failed for issue #%d: %s",
-                            issue.id,
-                            research_result.error,
-                        )
 
-                result = await self._planners.plan(
-                    issue, worker_id=idx, research_context=research_context
-                )
-
-                already_handled = False
-                ts_status = "failed"
-                if result.already_satisfied:
-                    # Guard: never auto-close epic children as "already
-                    # satisfied" — they were explicitly created as part
-                    # of a planned epic and should always get a plan.
-                    if self._is_epic_child(issue):
-                        logger.warning(
-                            "Issue #%d is an epic child — ignoring "
-                            "'already satisfied' claim from planner",
-                            issue.id,
-                        )
-                        result.already_satisfied = False
-                        result.success = False
-                        result.retry_attempted = True
-                        result.error = (
-                            "Planner claimed already satisfied but issue "
-                            "is an epic child — escalating to HITL"
-                        )
-                        await self._escalator(
-                            issue,
-                            cause="Epic child falsely claimed already satisfied",
-                            details="Epic child claimed already satisfied",
-                            category=FailureCategory.PLAN_VALIDATION,
-                        )
-                        already_handled = True
-                        ts_status = "escalated"
-                    else:
-                        closed = await self._handle_already_satisfied(issue, result)
-                        if closed:
-                            return result
-                        # Evidence validation failed — escalate directly
-                        # to HITL (do NOT fall through to _handle_plan_failure
-                        # which would post a second misleading comment).
-                        await self._escalator(
-                            issue,
-                            cause="Already-satisfied evidence rejected: "
-                            + "; ".join(result.validation_errors),
-                            details="; ".join(result.validation_errors),
-                            category=FailureCategory.PLAN_VALIDATION,
-                        )
-                        already_handled = True
-                        ts_status = "escalated"
-
-                if already_handled:
-                    pass
-                elif result.success and result.plan:
-                    await self._handle_plan_success(issue, result)
-                    ts_status = "success"
-                elif result.retry_attempted and result.plan:
-                    # Accept the plan despite validation errors — the
-                    # implementation agent will handle any stale references
-                    # caused by concurrent changes to the codebase.
-                    logger.warning(
-                        "Plan for issue #%d has validation warnings — "
-                        "accepting anyway: %s",
-                        issue.id,
-                        "; ".join(result.validation_errors),
+                    result = await self._planners.plan(
+                        issue, worker_id=idx, research_context=research_context
                     )
-                    result.success = True
-                    result.validation_errors = []
-                    await self._handle_plan_success(issue, result)
-                    ts_status = "success"
-                else:
-                    logger.warning(
-                        "Planning failed for issue #%d — skipping label swap",
-                        issue.id,
-                    )
+
+                    already_handled = False
                     ts_status = "failed"
+                    if result.already_satisfied:
+                        # Guard: never auto-close epic children as "already
+                        # satisfied" — they were explicitly created as part
+                        # of a planned epic and should always get a plan.
+                        if self._is_epic_child(issue):
+                            logger.warning(
+                                "Issue #%d is an epic child — ignoring "
+                                "'already satisfied' claim from planner",
+                                issue.id,
+                            )
+                            result.already_satisfied = False
+                            result.success = False
+                            result.retry_attempted = True
+                            result.error = (
+                                "Planner claimed already satisfied but issue "
+                                "is an epic child — escalating to HITL"
+                            )
+                            await self._escalator(
+                                issue,
+                                cause="Epic child falsely claimed already satisfied",
+                                details="Epic child claimed already satisfied",
+                                category=FailureCategory.PLAN_VALIDATION,
+                            )
+                            already_handled = True
+                            ts_status = "escalated"
+                        else:
+                            closed = await self._handle_already_satisfied(issue, result)
+                            if closed:
+                                return result
+                            # Evidence validation failed — escalate directly
+                            # to HITL (do NOT fall through to _handle_plan_failure
+                            # which would post a second misleading comment).
+                            await self._escalator(
+                                issue,
+                                cause="Already-satisfied evidence rejected: "
+                                + "; ".join(result.validation_errors),
+                                details="; ".join(result.validation_errors),
+                                category=FailureCategory.PLAN_VALIDATION,
+                            )
+                            already_handled = True
+                            ts_status = "escalated"
 
-                await self._post_plan_transcript(issue, result, status=ts_status)
-                return result
+                    if already_handled:
+                        pass
+                    elif result.success and result.plan:
+                        await self._handle_plan_success(issue, result)
+                        ts_status = "success"
+                    elif result.retry_attempted and result.plan:
+                        # Accept the plan despite validation errors — the
+                        # implementation agent will handle any stale references
+                        # caused by concurrent changes to the codebase.
+                        logger.warning(
+                            "Plan for issue #%d has validation warnings — "
+                            "accepting anyway: %s",
+                            issue.id,
+                            "; ".join(result.validation_errors),
+                        )
+                        result.success = True
+                        result.validation_errors = []
+                        await self._handle_plan_success(issue, result)
+                        ts_status = "success"
+                    else:
+                        logger.warning(
+                            "Planning failed for issue #%d — skipping label swap",
+                            issue.id,
+                        )
+                        ts_status = "failed"
+
+                    await self._post_plan_transcript(issue, result, status=ts_status)
+                    return result
 
     def _plan_one_with_context(
         self,

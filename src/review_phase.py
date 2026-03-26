@@ -41,6 +41,7 @@ from models import (
 )
 from phase_utils import (
     MemorySuggester,
+    _sentry_transaction,
     adr_validation_reasons,
     is_adr_issue_title,
     load_existing_adr_topics,
@@ -178,25 +179,26 @@ class ReviewPhase:
                 async with self._active_issues_lock:
                     self._active_issues.add(pr.issue_number)
                     self._state.set_active_issue_numbers(list(self._active_issues))
-                async with store_lifecycle(self._store, pr.issue_number, "review"):
-                    try:
-                        return await run_with_fatal_guard(
-                            self._review_one_inner(idx, pr, issue_map),
-                            on_failure=lambda exc_name: ReviewResult(
-                                pr_number=pr.number,
-                                issue_number=pr.issue_number,
-                                summary=f"Review failed due to unexpected error ({exc_name})",
-                            ),
-                            context=f"Review failed for PR #{pr.number} (issue #{pr.issue_number})",
-                            log=logger,
-                        )
-                    finally:
-                        await self._publish_review_status(pr, idx, "done")
-                        async with self._active_issues_lock:
-                            self._active_issues.discard(pr.issue_number)
-                            self._state.set_active_issue_numbers(
-                                list(self._active_issues)
+                with _sentry_transaction("pipeline.review", f"review:PR#{pr.number}"):
+                    async with store_lifecycle(self._store, pr.issue_number, "review"):
+                        try:
+                            return await run_with_fatal_guard(
+                                self._review_one_inner(idx, pr, issue_map),
+                                on_failure=lambda exc_name: ReviewResult(
+                                    pr_number=pr.number,
+                                    issue_number=pr.issue_number,
+                                    summary=f"Review failed due to unexpected error ({exc_name})",
+                                ),
+                                context=f"Review failed for PR #{pr.number} (issue #{pr.issue_number})",
+                                log=logger,
                             )
+                        finally:
+                            await self._publish_review_status(pr, idx, "done")
+                            async with self._active_issues_lock:
+                                self._active_issues.discard(pr.issue_number)
+                                self._state.set_active_issue_numbers(
+                                    list(self._active_issues)
+                                )
 
         try:
             return await run_concurrent_batch(prs, _review_one, self._stop_event)

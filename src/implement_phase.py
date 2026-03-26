@@ -23,6 +23,7 @@ from models import (
 from phase_utils import (
     MemorySuggester,
     PipelineEscalator,
+    _sentry_transaction,
     is_adr_issue_title,
     next_adr_number,
     record_harness_failure,
@@ -136,37 +137,40 @@ class ImplementPhase:
             async with self._active_issues_lock:
                 self._active_issues.add(issue.id)
                 self._state.set_active_issue_numbers(list(self._active_issues))
-            async with store_lifecycle(self._store, issue.id, "implement"):
-                self._state.mark_issue(issue.id, "in_progress")
-                self._state.set_branch(issue.id, branch)
+            with _sentry_transaction("pipeline.implement", f"implement:#{issue.id}"):
+                async with store_lifecycle(self._store, issue.id, "implement"):
+                    self._state.mark_issue(issue.id, "in_progress")
+                    self._state.set_branch(issue.id, branch)
 
-                def _on_worker_failure(exc_name: str) -> WorkerResult:
-                    self._state.mark_issue(issue.id, "failed")
-                    record_harness_failure(
-                        self._harness_insights,
-                        issue.id,
-                        FailureCategory.IMPLEMENTATION_ERROR,
-                        f"Worker {exc_name} for issue #{issue.id}",
-                        stage=PipelineStage.IMPLEMENT,
-                    )
-                    return WorkerResult(
-                        issue_number=issue.id,
-                        branch=branch,
-                        error=f"Worker {exc_name} for issue #{issue.id}",
-                    )
+                    def _on_worker_failure(exc_name: str) -> WorkerResult:
+                        self._state.mark_issue(issue.id, "failed")
+                        record_harness_failure(
+                            self._harness_insights,
+                            issue.id,
+                            FailureCategory.IMPLEMENTATION_ERROR,
+                            f"Worker {exc_name} for issue #{issue.id}",
+                            stage=PipelineStage.IMPLEMENT,
+                        )
+                        return WorkerResult(
+                            issue_number=issue.id,
+                            branch=branch,
+                            error=f"Worker {exc_name} for issue #{issue.id}",
+                        )
 
-                try:
-                    return await run_with_fatal_guard(
-                        self._worker_inner(idx, issue, branch),
-                        on_failure=_on_worker_failure,
-                        context=f"Worker failed for issue #{issue.id}",
-                        log=logger,
-                    )
-                finally:
-                    async with self._active_issues_lock:
-                        self._active_issues.discard(issue.id)
-                        self._state.set_active_issue_numbers(list(self._active_issues))
-                    release_batch_in_flight(self._store, {issue.id})
+                    try:
+                        return await run_with_fatal_guard(
+                            self._worker_inner(idx, issue, branch),
+                            on_failure=_on_worker_failure,
+                            context=f"Worker failed for issue #{issue.id}",
+                            log=logger,
+                        )
+                    finally:
+                        async with self._active_issues_lock:
+                            self._active_issues.discard(issue.id)
+                            self._state.set_active_issue_numbers(
+                                list(self._active_issues)
+                            )
+                        release_batch_in_flight(self._store, {issue.id})
 
         all_results = await run_refilling_pool(
             supply_fn=_supply_fixed,

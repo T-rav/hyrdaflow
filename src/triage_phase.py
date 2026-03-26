@@ -11,6 +11,7 @@ from events import EventBus, EventType, HydraFlowEvent
 from issue_store import IssueStore
 from models import HITLUpdatePayload, Task, TriageResult
 from phase_utils import (
+    _sentry_transaction,
     adr_validation_reasons,
     escalate_to_hitl,
     is_adr_issue_title,
@@ -76,11 +77,12 @@ class TriagePhase:
 
             self._enrich_parent_epic(issue)
 
-            async with store_lifecycle(self._store, issue.id, "find"):
-                try:
-                    return await self._triage_single(issue)
-                finally:
-                    release_batch_in_flight(self._store, {issue.id})
+            with _sentry_transaction("pipeline.triage", f"triage:#{issue.id}"):
+                async with store_lifecycle(self._store, issue.id, "find"):
+                    try:
+                        return await self._triage_single(issue)
+                    finally:
+                        release_batch_in_flight(self._store, {issue.id})
 
         results = await run_refilling_pool(
             supply_fn=lambda: self._store.get_triageable(1),

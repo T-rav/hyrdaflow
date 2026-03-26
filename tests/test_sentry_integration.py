@@ -126,3 +126,57 @@ class TestCaptureIfBug:
         capture_if_bug(RuntimeError("network timeout"))
         _mock_sentry.capture_exception.assert_not_called()
         _mock_sentry.add_breadcrumb.assert_called_once()
+
+
+class TestSentryTransactionHelper:
+    """Tests for _sentry_transaction context manager in phase_utils."""
+
+    def test_noop_when_sentry_not_available(self) -> None:
+        """Should yield without error when sentry_sdk is not importable."""
+        # Temporarily hide sentry_sdk from sys.modules
+        sys.modules.pop("phase_utils", None)
+        original = sys.modules.pop("sentry_sdk", None)
+        try:
+            from phase_utils import _sentry_transaction
+
+            with _sentry_transaction("test.op", "test:name"):
+                pass  # should not raise
+        finally:
+            if original is not None:
+                sys.modules["sentry_sdk"] = original
+
+    def test_starts_transaction_when_sentry_available(self) -> None:
+        """Should call start_transaction when sentry_sdk is available."""
+        sys.modules.pop("phase_utils", None)
+        # Set up mock transaction context manager
+        mock_txn = MagicMock()
+        mock_txn.__enter__ = MagicMock(return_value=mock_txn)
+        mock_txn.__exit__ = MagicMock(return_value=False)
+        _mock_sentry.start_transaction.return_value = mock_txn
+        _mock_sentry.start_transaction.reset_mock()
+
+        from phase_utils import _sentry_transaction
+
+        with _sentry_transaction("test.op", "test:name"):
+            pass
+
+        _mock_sentry.start_transaction.assert_called_once_with(
+            op="test.op", name="test:name"
+        )
+
+    def test_passes_op_and_name_to_transaction(self) -> None:
+        """Should pass op and name arguments through to start_transaction."""
+        sys.modules.pop("phase_utils", None)
+        mock_txn = MagicMock()
+        mock_txn.__enter__ = MagicMock(return_value=mock_txn)
+        mock_txn.__exit__ = MagicMock(return_value=False)
+        _mock_sentry.start_transaction.return_value = mock_txn
+
+        from phase_utils import _sentry_transaction
+
+        with _sentry_transaction("pipeline.plan", "plan:#99"):
+            pass
+
+        call_kwargs = _mock_sentry.start_transaction.call_args[1]
+        assert call_kwargs["op"] == "pipeline.plan"
+        assert call_kwargs["name"] == "plan:#99"

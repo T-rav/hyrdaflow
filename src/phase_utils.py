@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections.abc import Callable, Coroutine
-from contextlib import asynccontextmanager
+from collections.abc import Callable, Coroutine, Generator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -30,6 +30,28 @@ _ADR_REQUIRED_HEADINGS = ("## Context", "## Decision", "## Consequences")
 # Module-level set tracking ADR numbers already handed out in this process,
 # so concurrent workers each get a unique number even before their files land.
 _assigned_adr_numbers: set[int] = set()
+
+
+@contextmanager
+def _sentry_transaction(op: str, name: str) -> Generator[None, None, None]:
+    """Context manager that wraps a block in a Sentry transaction.
+
+    A no-op when ``sentry_sdk`` is not installed.  The transaction uses
+    ``op`` as the operation name and ``name`` as the human-readable label
+    shown in the Sentry UI (e.g. ``"implement:#42"``).
+
+    Usage::
+
+        with _sentry_transaction("pipeline.implement", f"implement:#{issue.id}"):
+            result = await self._run_worker(issue)
+    """
+    try:
+        import sentry_sdk  # noqa: PLC0415
+
+        with sentry_sdk.start_transaction(op=op, name=name):
+            yield
+    except ImportError:
+        yield
 
 
 async def run_concurrent_batch(

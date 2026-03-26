@@ -14,6 +14,7 @@ from issue_store import IssueStore
 from models import GitHubIssue, HITLUpdatePayload
 from phase_utils import (
     MemorySuggester,
+    _sentry_transaction,
     log_exception_with_bug_classification,
 )
 from pr_manager import PRManager
@@ -190,135 +191,136 @@ class HITLPhase:
 
             self._active_hitl_issues.add(issue_number)
             self._notify_active_issues()
-            try:
-                issue = await self._fetcher.fetch_issue_by_number(issue_number)
-                if not issue:
-                    logger.warning(
-                        "Could not fetch issue #%d for HITL correction",
-                        issue_number,
-                    )
-                    return
-
-                cause = self._state.get_hitl_cause(issue_number) or "Unknown escalation"
-                origin = self._state.get_hitl_origin(issue_number)
-
-                # Get or create worktree
-                branch = self._config.branch_for_issue(issue_number)
-                wt_path = self._config.worktree_path_for_issue(issue_number)
-                if not wt_path.is_dir():
-                    wt_path = await self._worktrees.create(issue_number, branch)
-                self._state.set_worktree(issue_number, str(wt_path))
-
-                # Swap to active label
-                await self._prs.swap_pipeline_labels(
-                    issue_number, self._config.hitl_active_label[0]
-                )
-
-                result = await self._hitl_runner.run(issue, correction, cause, wt_path)
-
-                # File memory suggestion if present in transcript
-                if result.transcript:
-                    await self._suggest_memory(
-                        result.transcript, "hitl", f"issue #{issue_number}"
-                    )
-
-                if result.success:
-                    await self._prs.push_branch(wt_path, branch)
-
-                    if origin and origin in self._config.improve_label:
-                        # Improve issues go to triage for implementation
-                        target_label = (
-                            self._config.find_label[0]
-                            if self._config.find_label
-                            else self._config.hitl_label[0]
-                        )
-                        target_stage = target_label
-                    elif origin:
-                        target_label = origin
-                        target_stage = origin
-                    else:
-                        # No origin recorded — fall back to HITL so the
-                        # issue stays visible rather than becoming an orphan.
-                        target_label = self._config.hitl_label[0]
-                        target_stage = target_label
-
-                    await self._prs.swap_pipeline_labels(issue_number, target_label)
-
-                    self._state.remove_hitl_origin(issue_number)
-                    self._state.remove_hitl_cause(issue_number)
-                    self._state.remove_hitl_visual_evidence(issue_number)
-                    self._state.reset_issue_attempts(issue_number)
-
-                    await self._prs.post_comment(
-                        issue_number,
-                        f"**HITL correction applied successfully.**\n\n"
-                        f"Returning issue to `{target_stage}` stage."
-                        f"\n\n---\n*Applied by HydraFlow HITL*",
-                    )
-                    await self._bus.publish(
-                        HydraFlowEvent(
-                            type=EventType.HITL_UPDATE,
-                            data=HITLUpdatePayload(
-                                issue=issue_number,
-                                action="resolved",
-                                status="resolved",
-                            ),
-                        )
-                    )
-                    logger.info(
-                        "HITL correction succeeded for issue #%d — returning to %s",
-                        issue_number,
-                        origin,
-                    )
-                else:
-                    await self._prs.swap_pipeline_labels(
-                        issue_number, self._config.hitl_label[0]
-                    )
-                    await self._prs.post_comment(
-                        issue_number,
-                        f"**HITL correction failed.**\n\n"
-                        f"Error: {result.error or 'No details available'}"
-                        f"\n\nPlease retry with different guidance."
-                        f"\n\n---\n*Applied by HydraFlow HITL*",
-                    )
-                    await self._bus.publish(
-                        HydraFlowEvent(
-                            type=EventType.HITL_UPDATE,
-                            data=HITLUpdatePayload(
-                                issue=issue_number,
-                                action="failed",
-                                status="pending",
-                            ),
-                        )
-                    )
-                    logger.warning(
-                        "HITL correction failed for issue #%d: %s",
-                        issue_number,
-                        result.error,
-                    )
-
-                # Clean up worktree on success; keep on failure for retry
-                if result.success:
-                    try:
-                        await self._worktrees.destroy(issue_number)
-                        self._state.remove_worktree(issue_number)
-                    except RuntimeError as exc:
+            with _sentry_transaction("pipeline.hitl", f"hitl:#{issue_number}"):
+                try:
+                    issue = await self._fetcher.fetch_issue_by_number(issue_number)
+                    if not issue:
                         logger.warning(
-                            "Could not destroy worktree for issue #%d: %s",
+                            "Could not fetch issue #%d for HITL correction",
                             issue_number,
-                            exc,
                         )
-            except (AuthenticationError, CreditExhaustedError, MemoryError):
-                raise
-            except Exception as exc:
-                log_exception_with_bug_classification(
-                    logger,
-                    exc,
-                    f"HITL processing failed for issue #{issue_number}",
-                )
-            finally:
-                self._active_hitl_issues.discard(issue_number)
-                self._notify_active_issues()
+                        return
+
+                    cause = self._state.get_hitl_cause(issue_number) or "Unknown escalation"
+                    origin = self._state.get_hitl_origin(issue_number)
+
+                    # Get or create worktree
+                    branch = self._config.branch_for_issue(issue_number)
+                    wt_path = self._config.worktree_path_for_issue(issue_number)
+                    if not wt_path.is_dir():
+                        wt_path = await self._worktrees.create(issue_number, branch)
+                    self._state.set_worktree(issue_number, str(wt_path))
+
+                    # Swap to active label
+                    await self._prs.swap_pipeline_labels(
+                        issue_number, self._config.hitl_active_label[0]
+                    )
+
+                    result = await self._hitl_runner.run(issue, correction, cause, wt_path)
+
+                    # File memory suggestion if present in transcript
+                    if result.transcript:
+                        await self._suggest_memory(
+                            result.transcript, "hitl", f"issue #{issue_number}"
+                        )
+
+                    if result.success:
+                        await self._prs.push_branch(wt_path, branch)
+
+                        if origin and origin in self._config.improve_label:
+                            # Improve issues go to triage for implementation
+                            target_label = (
+                                self._config.find_label[0]
+                                if self._config.find_label
+                                else self._config.hitl_label[0]
+                            )
+                            target_stage = target_label
+                        elif origin:
+                            target_label = origin
+                            target_stage = origin
+                        else:
+                            # No origin recorded — fall back to HITL so the
+                            # issue stays visible rather than becoming an orphan.
+                            target_label = self._config.hitl_label[0]
+                            target_stage = target_label
+
+                        await self._prs.swap_pipeline_labels(issue_number, target_label)
+
+                        self._state.remove_hitl_origin(issue_number)
+                        self._state.remove_hitl_cause(issue_number)
+                        self._state.remove_hitl_visual_evidence(issue_number)
+                        self._state.reset_issue_attempts(issue_number)
+
+                        await self._prs.post_comment(
+                            issue_number,
+                            f"**HITL correction applied successfully.**\n\n"
+                            f"Returning issue to `{target_stage}` stage."
+                            f"\n\n---\n*Applied by HydraFlow HITL*",
+                        )
+                        await self._bus.publish(
+                            HydraFlowEvent(
+                                type=EventType.HITL_UPDATE,
+                                data=HITLUpdatePayload(
+                                    issue=issue_number,
+                                    action="resolved",
+                                    status="resolved",
+                                ),
+                            )
+                        )
+                        logger.info(
+                            "HITL correction succeeded for issue #%d — returning to %s",
+                            issue_number,
+                            origin,
+                        )
+                    else:
+                        await self._prs.swap_pipeline_labels(
+                            issue_number, self._config.hitl_label[0]
+                        )
+                        await self._prs.post_comment(
+                            issue_number,
+                            f"**HITL correction failed.**\n\n"
+                            f"Error: {result.error or 'No details available'}"
+                            f"\n\nPlease retry with different guidance."
+                            f"\n\n---\n*Applied by HydraFlow HITL*",
+                        )
+                        await self._bus.publish(
+                            HydraFlowEvent(
+                                type=EventType.HITL_UPDATE,
+                                data=HITLUpdatePayload(
+                                    issue=issue_number,
+                                    action="failed",
+                                    status="pending",
+                                ),
+                            )
+                        )
+                        logger.warning(
+                            "HITL correction failed for issue #%d: %s",
+                            issue_number,
+                            result.error,
+                        )
+
+                    # Clean up worktree on success; keep on failure for retry
+                    if result.success:
+                        try:
+                            await self._worktrees.destroy(issue_number)
+                            self._state.remove_worktree(issue_number)
+                        except RuntimeError as exc:
+                            logger.warning(
+                                "Could not destroy worktree for issue #%d: %s",
+                                issue_number,
+                                exc,
+                            )
+                except (AuthenticationError, CreditExhaustedError, MemoryError):
+                    raise
+                except Exception as exc:
+                    log_exception_with_bug_classification(
+                        logger,
+                        exc,
+                        f"HITL processing failed for issue #{issue_number}",
+                    )
+                finally:
+                    self._active_hitl_issues.discard(issue_number)
+                    self._notify_active_issues()
 
     def _notify_active_issues(self) -> None:
         """Call the active issues callback if registered."""
