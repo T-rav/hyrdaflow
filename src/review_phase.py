@@ -1468,6 +1468,7 @@ class ReviewPhase:
                 summary=result.summary,
                 fixes_made=result.fixes_made,
                 categories=extract_categories(result.summary),
+                raw_feedback=result.transcript,
             )
             self._insights.append_review(record)
 

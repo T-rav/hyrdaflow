@@ -48,6 +48,48 @@ def _make_record(
 
 
 # ---------------------------------------------------------------------------
+# ReviewRecord.raw_feedback
+# ---------------------------------------------------------------------------
+
+
+class TestReviewRecordRawFeedback:
+    """Tests for the raw_feedback field on ReviewRecord."""
+
+    def test_defaults_to_empty_string(self) -> None:
+        record = _make_record()
+        assert record.raw_feedback == ""
+
+    def test_stores_full_feedback_text(self) -> None:
+        feedback = "The implementation is missing error handling for edge cases.\n" * 10
+        record = ReviewRecord(
+            pr_number=5,
+            issue_number=10,
+            timestamp="2026-03-01T12:00:00Z",
+            verdict=ReviewVerdict.REQUEST_CHANGES,
+            summary="Missing error handling",
+            fixes_made=False,
+            categories=["error_handling"],
+            raw_feedback=feedback,
+        )
+        assert record.raw_feedback == feedback
+
+    def test_raw_feedback_survives_json_roundtrip(self) -> None:
+        feedback = "Detailed reviewer output with lots of context.\n"
+        record = ReviewRecord(
+            pr_number=7,
+            issue_number=20,
+            timestamp="2026-03-01T12:00:00Z",
+            verdict=ReviewVerdict.COMMENT,
+            summary="Some issues noted",
+            fixes_made=False,
+            categories=[],
+            raw_feedback=feedback,
+        )
+        restored = ReviewRecord.model_validate_json(record.model_dump_json())
+        assert restored.raw_feedback == feedback
+
+
+# ---------------------------------------------------------------------------
 # extract_categories
 # ---------------------------------------------------------------------------
 

@@ -165,6 +165,7 @@ class ReviewRecord(BaseModel):
     summary: str
     fixes_made: bool
     categories: list[str]
+    raw_feedback: str = ""
 
 
 # ---------------------------------------------------------------------------
