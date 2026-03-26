@@ -712,9 +712,10 @@ class MemorySyncWorker:
 
         Pipeline:
         1. Keyword-overlap deduplication (>70% overlap → drop duplicate).
-        2. Rebuild digest from unique items (grouped by type).
-        3. If still over *max_chars*: call a cheap model to summarise.
-        4. Final truncation safety-net in case the model returns too much.
+        2. Score-based curation: apply temporal decay, evict low-score items.
+        3. Rebuild digest from surviving items (grouped by type).
+        4. If still over *max_chars*: call a cheap model to summarise.
+        5. Final truncation safety-net in case the model returns too much.
         """
         # --- Step 1: Deduplicate by keyword overlap ---
         seen_keywords: list[set[str]] = []
@@ -737,7 +738,40 @@ class MemorySyncWorker:
                 unique.append((num, learning, created, mtype))
                 seen_keywords.append(words)
 
-        # --- Step 2: Build digest from unique items (grouped by type) ---
+        # --- Step 2: Score-based curation (temporal decay + eviction) ---
+        try:
+            from memory_scoring import MemoryScorer  # noqa: PLC0415
+
+            scorer = MemoryScorer(self._config.memory_dir)
+
+            # Apply temporal decay on each compaction
+            scorer.apply_temporal_decay()
+
+            # Check each item for eviction/curation
+            evicted_ids: set[int] = set()
+            for record in unique:
+                item_id, _, _, _ = self._coerce_learning_tuple(record)
+                classification = scorer.classify_for_compaction(item_id)
+                if classification == "auto_evict":
+                    evicted_ids.add(item_id)
+                    logger.info("Memory item %d auto-evicted (score too low)", item_id)
+                elif classification == "needs_curation":
+                    logger.info("Memory item %d flagged for curation", item_id)
+                    # For now, log only. Full curation with model call is future work.
+
+            # Remove evicted items from the unique list
+            if evicted_ids:
+                unique = [
+                    r
+                    for r in unique
+                    if self._coerce_learning_tuple(r)[0] not in evicted_ids
+                ]
+        except ImportError:
+            pass  # memory_scoring not available
+        except Exception:
+            logger.debug("Score-based curation failed", exc_info=True)
+
+        # --- Step 3: Build digest from unique items (grouped by type) ---
         now = datetime.now(UTC).isoformat()
         header = (
             f"## Accumulated Learnings\n"
@@ -760,13 +794,13 @@ class MemorySyncWorker:
 
         digest = header + "\n" + "\n---\n".join(sections) + "\n"
 
-        # --- Step 3: Model-based summarisation if still over limit ---
+        # --- Step 4: Model-based summarisation if still over limit ---
         if len(digest) > max_chars:
             summarised = await self._summarise_with_model(digest, max_chars)
             if summarised:
                 digest = summarised
 
-        # --- Step 4: Final truncation safety-net ---
+        # --- Step 5: Final truncation safety-net ---
         if len(digest) > max_chars:
             digest = digest[:max_chars] + "\n\n…(truncated)"
 
