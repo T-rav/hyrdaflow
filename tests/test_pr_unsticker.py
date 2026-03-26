@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -17,6 +18,19 @@ from models import ConflictResolutionResult, HITLItem, LoopResult
 from pr_unsticker import FailureCause, PRUnsticker, _classify_cause
 from tests.conftest import HITLResultFactory, IssueFactory, make_state
 from tests.helpers import ConfigFactory
+
+
+@dataclass
+class UnstickerHarness:
+    unsticker: object
+    state: object
+    prs: object
+    agents: object
+    wt: object
+    fetcher: object
+    bus: object
+    hitl_runner: object
+    resolver: object
 
 
 def _make_config(tmp_path: Path, **overrides) -> MagicMock:
@@ -58,8 +72,8 @@ def _make_unsticker(
     # save_conflict_transcript is sync; override the auto-generated AsyncMock
     # attribute so callers don't produce "coroutine never awaited" warnings.
     rs.save_conflict_transcript = MagicMock()
-    return (
-        PRUnsticker(
+    return UnstickerHarness(
+        unsticker=PRUnsticker(
             cfg,
             st,
             bus,
@@ -73,14 +87,14 @@ def _make_unsticker(
             troubleshooting_store=troubleshooting_store,
             store=store,
         ),
-        st,
-        prs,
-        ag,
-        wt,
-        ft,
-        bus,
-        hr,
-        rs,
+        state=st,
+        prs=prs,
+        agents=ag,
+        wt=wt,
+        fetcher=ft,
+        bus=bus,
+        hitl_runner=hr,
+        resolver=rs,
     )
 
 
@@ -102,7 +116,8 @@ class TestPRUnstickerInternals:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        unsticker, *_ = _make_unsticker(tmp_path)
+        h = _make_unsticker(tmp_path)
+
         failing_module = SimpleNamespace(
             detect_prep_stack=MagicMock(side_effect=RuntimeError("boom"))
         )
@@ -163,7 +178,8 @@ class TestCauseClassification:
 class TestEmptyItems:
     @pytest.mark.asyncio
     async def test_empty_items_returns_zero_stats(self, tmp_path: Path) -> None:
-        unsticker, *_ = _make_unsticker(tmp_path)
+        h = _make_unsticker(tmp_path)
+
         stats = await unsticker.unstick([])
         assert stats == {
             "processed": 0,
@@ -179,7 +195,7 @@ class TestAllCausesProcessing:
 
     @pytest.mark.asyncio
     async def test_all_causes_processes_everything(self, tmp_path: Path) -> None:
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_all_causes=True, unstick_auto_merge=False
         )
 
@@ -202,7 +218,7 @@ class TestAllCausesProcessing:
 
     @pytest.mark.asyncio
     async def test_conflicts_only_when_disabled(self, tmp_path: Path) -> None:
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_all_causes=False, unstick_auto_merge=False
         )
 
@@ -227,7 +243,7 @@ class TestAllCausesProcessing:
 class TestMergeConflictFilter:
     @pytest.mark.asyncio
     async def test_filters_to_merge_conflict_causes_only(self, tmp_path: Path) -> None:
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_all_causes=False, unstick_auto_merge=False
         )
 
@@ -248,7 +264,8 @@ class TestMergeConflictFilter:
         assert stats["processed"] == 1
 
     def test_is_merge_conflict_matches_various_causes(self, tmp_path: Path) -> None:
-        unsticker, *_ = _make_unsticker(tmp_path)
+        h = _make_unsticker(tmp_path)
+
         assert unsticker._is_merge_conflict("Merge conflict with main")
         assert unsticker._is_merge_conflict("merge conflict")
         assert unsticker._is_merge_conflict("Has CONFLICT markers")
@@ -263,9 +280,10 @@ class TestCleanMerge:
         issue = IssueFactory.create(
             title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_auto_merge=False
         )
+
         state.set_hitl_cause(42, "Merge conflict")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -297,9 +315,10 @@ class TestSuccessfulResolution:
         issue = IssueFactory.create(
             title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_auto_merge=False
         )
+
         state.set_hitl_cause(42, "Merge conflict")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -335,9 +354,10 @@ class TestFailedResolution:
         issue = IssueFactory.create(
             title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_auto_merge=False
         )
+
         state.set_hitl_cause(42, "Merge conflict")
 
         fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
@@ -369,7 +389,7 @@ class TestFailedResolution:
 class TestBatchSizeLimit:
     @pytest.mark.asyncio
     async def test_batch_size_limits_processing(self, tmp_path: Path) -> None:
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, pr_unstick_batch_size=2, unstick_auto_merge=False
         )
 
@@ -395,9 +415,10 @@ class TestCIFailureResolution:
         issue = IssueFactory.create(
             title="Fix widget", body="body", labels=["hydraflow-hitl"]
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_all_causes=True, unstick_auto_merge=False
         )
+
         state.set_hitl_cause(42, "CI failed after 2 fix attempts")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -446,12 +467,13 @@ class TestGenericResolution:
         hitl_runner = AsyncMock()
         hitl_runner.run = AsyncMock(return_value=HITLResultFactory.create())
 
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path,
             unstick_all_causes=True,
             unstick_auto_merge=False,
             hitl_runner=hitl_runner,
         )
+
         state.set_hitl_cause(42, "Manual escalation by user")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -472,7 +494,7 @@ class TestGenericResolution:
         issue = IssueFactory.create(
             title="Fix widget", body="body", labels=["hydraflow-hitl"]
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path,
             unstick_all_causes=True,
             unstick_auto_merge=False,
@@ -503,9 +525,10 @@ class TestAutoMerge:
         issue = IssueFactory.create(
             title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_auto_merge=True
         )
+
         state.set_hitl_cause(42, "Merge conflict")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -541,9 +564,10 @@ class TestAutoMerge:
             title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
         mock_store = MagicMock()
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_auto_merge=True, store=mock_store
         )
+
         state.set_hitl_cause(42, "Merge conflict")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -574,9 +598,10 @@ class TestAutoMerge:
             title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
         mock_store = MagicMock()
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_auto_merge=True, store=mock_store
         )
+
         state.set_hitl_cause(42, "Merge conflict")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -606,9 +631,10 @@ class TestAutoMergeDisabled:
         issue = IssueFactory.create(
             title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_auto_merge=False
         )
+
         state.set_hitl_cause(42, "Merge conflict")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -640,7 +666,7 @@ class TestCascadingRebase:
 
     @pytest.mark.asyncio
     async def test_re_rebase_calls_start_merge_main(self, tmp_path: Path) -> None:
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path
         )
 
@@ -664,7 +690,7 @@ class TestPriorityOrdering:
 
     @pytest.mark.asyncio
     async def test_merge_conflicts_sorted_first(self, tmp_path: Path) -> None:
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_all_causes=True, unstick_auto_merge=False
         )
 
@@ -701,7 +727,7 @@ class TestParallelWorkers:
     @pytest.mark.asyncio
     async def test_semaphore_limits_concurrency(self, tmp_path: Path) -> None:
         max_workers = 2
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path,
             pr_unstick_batch_size=max_workers,
             unstick_all_causes=True,
@@ -745,9 +771,8 @@ class TestPromptTelemetry:
 
     @pytest.mark.asyncio
     async def test_ci_fix_telemetry_includes_pruned_chars(self, tmp_path: Path) -> None:
-        unsticker, state, _prs, agents, wt, _fetcher, _bus, _hr, _resolver = (
-            _make_unsticker(tmp_path)
-        )
+        h = _make_unsticker(tmp_path)
+
         issue = IssueFactory.create(title="Fix CI", body="body", labels=[])
         state.set_hitl_cause(42, "x" * 6000)
 
@@ -778,7 +803,7 @@ class TestGoalDrivenLoop:
         issue_a = IssueFactory.create(number=1, title="Issue A", body="a", labels=[])
         issue_b = IssueFactory.create(number=2, title="Issue B", body="b", labels=[])
 
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_auto_merge=True
         )
 
@@ -835,9 +860,10 @@ class TestMergeConflictDelegation:
             body="Widget description",
             labels=[],
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_auto_merge=False
         )
+
         state.set_hitl_cause(42, "Merge conflict")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -871,9 +897,10 @@ class TestMergeConflictDelegation:
         issue = IssueFactory.create(
             title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_auto_merge=False
         )
+
         state.set_hitl_cause(42, "Merge conflict")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -905,9 +932,10 @@ class TestFreshBranchRebuild:
         issue = IssueFactory.create(
             title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_auto_merge=False
         )
+
         state.set_hitl_cause(42, "Merge conflict")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -938,9 +966,10 @@ class TestFreshBranchRebuild:
         issue = IssueFactory.create(
             title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_auto_merge=False
         )
+
         state.set_hitl_cause(42, "Merge conflict")
 
         fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
@@ -970,10 +999,10 @@ class TestResolverNoneEdgeCases:
         issue = IssueFactory.create(
             title="Test issue", body="body", labels=["hydraflow-hitl"]
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, _ = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_all_causes=False, unstick_auto_merge=False
         )
-        # Explicitly remove the resolver to test the None path
+        # Explicitly remove the h.resolver to test the None path
         unsticker._resolver = None
 
         state.set_hitl_cause(42, "Merge conflict with main")
@@ -990,39 +1019,40 @@ class TestResolverNoneEdgeCases:
         prs.swap_pipeline_labels.assert_any_call(42, "hydraflow-hitl")
 
 
-def _setup_ci_fix_memory_test(tmp_path: Path, *, transcript: str = "transcript"):
+def _setup_ci_fix_memory_test(
+    tmp_path: Path, *, transcript: str = "transcript"
+) -> UnstickerHarness:
     """Set up shared fixtures for memory suggestion tests on the CI fix path."""
     issue = IssueFactory.create(
         title="Test issue", body="body", labels=["hydraflow-hitl"]
     )
-    unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
-        tmp_path, unstick_all_causes=True, unstick_auto_merge=False
-    )
-    state.set_hitl_cause(42, "CI failed after 2 fix attempts")
-    state.set_hitl_origin(42, "hydraflow-review")
+    h = _make_unsticker(tmp_path, unstick_all_causes=True, unstick_auto_merge=False)
 
-    fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
-    wt.start_merge_main = AsyncMock(return_value=True)  # Clean rebase
-    wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
+    h.state.set_hitl_cause(42, "CI failed after 2 fix attempts")
+    h.state.set_hitl_origin(42, "hydraflow-review")
 
-    agents._build_command = MagicMock(return_value=["claude", "-p"])
-    agents._execute = AsyncMock(return_value=transcript)
-    agents._verify_result = AsyncMock(
+    h.fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+    h.wt.start_merge_main = AsyncMock(return_value=True)  # Clean rebase
+    h.wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
+
+    h.agents._build_command = MagicMock(return_value=["claude", "-p"])
+    h.agents._execute = AsyncMock(return_value=transcript)
+    h.agents._verify_result = AsyncMock(
         return_value=LoopResult(passed=True, summary="OK")
     )
 
-    prs.push_branch = AsyncMock(return_value=True)
+    h.prs.push_branch = AsyncMock(return_value=True)
 
-    unsticker._config.worktree_path_for_issue(42).mkdir(parents=True, exist_ok=True)
+    h.unsticker._config.worktree_path_for_issue(42).mkdir(parents=True, exist_ok=True)
     (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
 
-    return unsticker, state, prs, agents, wt, fetcher, bus
+    return h
 
 
 class TestMemorySuggestionExtraction:
     @pytest.mark.asyncio
     async def test_ci_fix_uses_suggest_memory(self, tmp_path: Path) -> None:
-        unsticker, *_ = _setup_ci_fix_memory_test(
+        h = _setup_ci_fix_memory_test(
             tmp_path, transcript="transcript with suggestion"
         )
 
@@ -1048,9 +1078,10 @@ class TestCITimeoutResolution:
             body="body",
             labels=["hydraflow-hitl"],
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_all_causes=True, unstick_auto_merge=False
         )
+
         state.set_hitl_cause(42, "CI failed after 2 fix attempt(s): Timeout after 600s")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -1099,7 +1130,8 @@ class TestCITimeoutResolution:
     ) -> None:
         """The prompt should contain isolation output and common hang causes."""
         issue = IssueFactory.create(title="Fix CI", body="body", labels=[])
-        unsticker, state, *_ = _make_unsticker(tmp_path)
+        h = _make_unsticker(tmp_path)
+
         state.set_hitl_cause(42, "CI failed: Timeout after 600s")
 
         isolation_output = "pytest timed out after 120s — a test is hanging."
@@ -1128,9 +1160,10 @@ class TestCITimeoutResolution:
         issue = IssueFactory.create(
             title="Fix CI", body="body", labels=["hydraflow-hitl"]
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path, unstick_all_causes=True, unstick_auto_merge=False
         )
+
         state.set_hitl_cause(42, "CI failed after 1 fix attempt(s): Timeout after 600s")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -1177,12 +1210,13 @@ class TestCITimeoutResolution:
         issue = IssueFactory.create(
             title="Fix CI", body="body", labels=["hydraflow-hitl"]
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path,
             unstick_all_causes=True,
             unstick_auto_merge=False,
             max_ci_timeout_fix_attempts=2,
         )
+
         state.set_hitl_cause(42, "CI failed after 2 fix attempt(s): Timeout after 600s")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -1252,12 +1286,13 @@ class TestCITimeoutResolution:
             body="body",
             labels=["hydraflow-hitl"],
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path,
             unstick_all_causes=True,
             unstick_auto_merge=False,
             troubleshooting_store=store,
         )
+
         state.set_hitl_cause(42, "Timeout after 600s")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -1322,12 +1357,13 @@ Done."""
             body="body",
             labels=["hydraflow-hitl"],
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path,
             unstick_all_causes=True,
             unstick_auto_merge=False,
             troubleshooting_store=store,
         )
+
         state.set_hitl_cause(42, "Timeout after 600s")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -1374,11 +1410,12 @@ Done."""
             labels=["hydraflow-hitl"],
         )
         # No troubleshooting_store passed — defaults to None
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path,
             unstick_all_causes=True,
             unstick_auto_merge=False,
         )
+
         state.set_hitl_cause(42, "Timeout after 600s")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -1409,7 +1446,7 @@ Done."""
     ) -> None:
         """Prompt tells the agent to emit TROUBLESHOOTING_PATTERN_START/END block."""
         issue = IssueFactory.create(title="Fix CI", body="body", labels=[])
-        unsticker, *_ = _make_unsticker(tmp_path)
+        h = _make_unsticker(tmp_path)
 
         prompt, _ = unsticker._build_ci_timeout_fix_prompt(
             issue,
@@ -1441,12 +1478,13 @@ Done."""
             body="body",
             labels=["hydraflow-hitl"],
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path,
             unstick_all_causes=True,
             unstick_auto_merge=False,
             troubleshooting_store=store,
         )
+
         state.set_hitl_cause(42, "Timeout after 600s")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -1515,12 +1553,13 @@ TROUBLESHOOTING_PATTERN_END
             body="body",
             labels=["hydraflow-hitl"],
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path,
             unstick_all_causes=True,
             unstick_auto_merge=False,
             troubleshooting_store=store,
         )
+
         state.set_hitl_cause(42, "Timeout after 600s")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -1576,12 +1615,13 @@ TROUBLESHOOTING_PATTERN_END
             body="body",
             labels=["hydraflow-hitl"],
         )
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path,
             unstick_all_causes=True,
             unstick_auto_merge=False,
             troubleshooting_store=store,
         )
+
         state.set_hitl_cause(42, "Timeout after 600s")
         state.set_hitl_origin(42, "hydraflow-review")
 
@@ -1634,9 +1674,10 @@ class TestNarrowedExceptionHandling:
     async def test_process_item_reraises_likely_bug(self, tmp_path: Path) -> None:
         """TypeError/KeyError from _resolve_by_cause must propagate."""
         issue = IssueFactory.create(title="Fix bug", body="body", labels=[])
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path
         )
+
         state.set_hitl_cause(42, "ci_failure")
         fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
         wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
@@ -1660,9 +1701,10 @@ class TestNarrowedExceptionHandling:
     async def test_process_item_catches_runtime_error(self, tmp_path: Path) -> None:
         """RuntimeError (subprocess) in _process_item should be caught gracefully."""
         issue = IssueFactory.create(title="Fix bug", body="body", labels=[])
-        unsticker, state, prs, agents, wt, fetcher, bus, _, resolver = _make_unsticker(
+        h = _make_unsticker(
             tmp_path
         )
+
         state.set_hitl_cause(42, "ci_failure")
         fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
         wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
@@ -1685,9 +1727,8 @@ class TestNarrowedExceptionHandling:
         self, tmp_path: Path
     ) -> None:
         """AttributeError in CI fix agent must propagate."""
-        unsticker, state, prs, agents, wt, _fetcher, _bus, _hr, _resolver = (
-            _make_unsticker(tmp_path)
-        )
+        h = _make_unsticker(tmp_path)
+
         issue = IssueFactory.create(title="Fix CI", body="body", labels=[])
         state.set_hitl_cause(42, "ci_failure")
 
@@ -1705,9 +1746,8 @@ class TestNarrowedExceptionHandling:
         self, tmp_path: Path
     ) -> None:
         """RuntimeError in CI fix agent should be caught gracefully."""
-        unsticker, state, prs, agents, wt, _fetcher, _bus, _hr, _resolver = (
-            _make_unsticker(tmp_path)
-        )
+        h = _make_unsticker(tmp_path)
+
         issue = IssueFactory.create(title="Fix CI", body="body", labels=[])
         state.set_hitl_cause(42, "ci_failure")
 
@@ -1723,9 +1763,8 @@ class TestNarrowedExceptionHandling:
     @pytest.mark.asyncio
     async def test_re_rebase_catches_runtime_error(self, tmp_path: Path) -> None:
         """RuntimeError during re-rebase should be caught gracefully."""
-        unsticker, state, prs, agents, wt, _fetcher, _bus, _hr, _resolver = (
-            _make_unsticker(tmp_path)
-        )
+        h = _make_unsticker(tmp_path)
+
         wt_dir = unsticker._config.worktree_path_for_issue(42)
         wt_dir.mkdir(parents=True)
 
@@ -1744,9 +1783,8 @@ class TestNarrowedExceptionHandling:
     @pytest.mark.asyncio
     async def test_re_rebase_propagates_type_error(self, tmp_path: Path) -> None:
         """TypeError during re-rebase must propagate."""
-        unsticker, state, prs, agents, wt, _fetcher, _bus, _hr, _resolver = (
-            _make_unsticker(tmp_path)
-        )
+        h = _make_unsticker(tmp_path)
+
         wt_dir = unsticker._config.worktree_path_for_issue(42)
         wt_dir.mkdir(parents=True)
 
@@ -1767,7 +1805,8 @@ class TestNarrowedExceptionHandling:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """ModuleNotFoundError (module absent in env) falls back to 'general'."""
-        unsticker, *_ = _make_unsticker(tmp_path)
+        h = _make_unsticker(tmp_path)
+
         monkeypatch.delitem(sys.modules, "polyglot_prep", raising=False)
         # Prevent real import by making it raise ModuleNotFoundError
         import builtins
@@ -1793,7 +1832,8 @@ class TestNarrowedExceptionHandling:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """TypeError in detect_language must propagate (not fallback to 'general')."""
-        unsticker, *_ = _make_unsticker(tmp_path)
+        h = _make_unsticker(tmp_path)
+
         failing_module = SimpleNamespace(
             detect_prep_stack=MagicMock(side_effect=TypeError("bad"))
         )
@@ -1807,7 +1847,8 @@ class TestNarrowedExceptionHandling:
         self, tmp_path: Path
     ) -> None:
         """RuntimeError in test isolation should produce a message, not raise."""
-        unsticker, *_ = _make_unsticker(tmp_path)
+        h = _make_unsticker(tmp_path)
+
         unsticker._agents = MagicMock()
         unsticker._agents._runner.run_simple = AsyncMock(
             side_effect=RuntimeError("command failed")
@@ -1820,9 +1861,8 @@ class TestNarrowedExceptionHandling:
     @pytest.mark.asyncio
     async def test_resolve_ci_timeout_reraises_likely_bug(self, tmp_path: Path) -> None:
         """TypeError/AttributeError from the CI timeout agent must propagate."""
-        unsticker, state, prs, agents, wt, _fetcher, _bus, _hr, _resolver = (
-            _make_unsticker(tmp_path)
-        )
+        h = _make_unsticker(tmp_path)
+
         issue = IssueFactory.create(title="Fix timeout", body="body", labels=[])
         state.set_hitl_cause(42, "ci_timeout")
 
