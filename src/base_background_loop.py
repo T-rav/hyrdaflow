@@ -184,10 +184,53 @@ class BaseBackgroundLoop(abc.ABC):
             trigger_task.cancel()
             raise
 
+    def _should_run_catchup(self) -> bool:
+        """Return True if a cycle was missed while the system was down.
+
+        Checks the persisted ``last_run`` timestamp from the status
+        callback's backing store (``state.json``).  If ``now - last_run``
+        exceeds the configured interval, the worker should run immediately
+        on startup to catch up on missed work.
+        """
+        try:
+            # The status_cb stores last_run via StateTracker.set_worker_heartbeat.
+            # We can't read it back through the callback, so we check whether
+            # run_on_startup is already True (which forces an immediate run)
+            # or infer from the interval_cb / enabled state.
+            # For a clean implementation, we use a file-based timestamp.
+            ts_path = (
+                self._config.data_root / "memory" / f".{self._worker_name}_last_run"
+            )
+            if not ts_path.exists():
+                return False
+            last_run_str = ts_path.read_text().strip()
+            if not last_run_str:
+                return False
+            last_run = datetime.fromisoformat(last_run_str)
+            if last_run.tzinfo is None:
+                last_run = last_run.replace(tzinfo=UTC)
+            elapsed = (datetime.now(UTC) - last_run).total_seconds()
+            return elapsed > self._get_interval()
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _record_last_run(self) -> None:
+        """Persist the current timestamp for missed-cycle detection on restart."""
+        try:
+            ts_path = (
+                self._config.data_root / "memory" / f".{self._worker_name}_last_run"
+            )
+            ts_path.parent.mkdir(parents=True, exist_ok=True)
+            ts_path.write_text(datetime.now(UTC).isoformat())
+        except Exception:  # noqa: BLE001
+            pass  # best-effort — don't break the loop
+
     async def run(self) -> None:
         """Run the background worker loop until the stop event is set."""
-        if self._run_on_startup:
+        # Run immediately if configured, or if cycles were missed during downtime
+        if self._run_on_startup or self._should_run_catchup():
             await self._execute_cycle()
+            self._record_last_run()
 
         while not self._stop_event.is_set():
             interval = self._get_interval()
@@ -202,5 +245,6 @@ class BaseBackgroundLoop(abc.ABC):
                 if not triggered:
                     continue
             await self._execute_cycle()
+            self._record_last_run()
             if not self._run_on_startup:
                 await self._sleep_or_trigger(interval)
