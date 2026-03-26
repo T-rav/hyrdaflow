@@ -55,6 +55,7 @@ class OutcomeRecord(BaseModel):
     digest_hash: str
     failure_category: str | None = None
     summary: str = ""
+    context: str = "feature"
     timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
@@ -81,6 +82,18 @@ def _default_item_score() -> ItemScore:
         "trail": [],
         "condensed_summary": "",
     }
+
+
+def _classify_context(tags: list[str]) -> str:
+    """Classify task into a context bucket for scoring."""
+    lower = {t.lower() for t in tags}
+    if "bug" in lower or "fix" in lower or "bugfix" in lower:
+        return "bugfix"
+    if "refactor" in lower or "refactoring" in lower:
+        return "refactor"
+    if "docs" in lower or "documentation" in lower:
+        return "docs"
+    return "feature"
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +170,16 @@ class MemoryScorer:
 
                 item["trail"] = trail
 
+                # Track per-context score in addition to the global score
+                context = outcome.context or "feature"
+                ctx_key = f"ctx_{context}"
+                if ctx_key not in item:
+                    item[ctx_key] = {"score": 0.5, "appearances": 0}
+                item[ctx_key]["appearances"] += 1
+                item[ctx_key]["score"] = max(
+                    0.0, min(1.0, item[ctx_key]["score"] + delta)
+                )
+
             scores[item_id] = item
 
         self._save_item_scores(scores)
@@ -196,6 +219,20 @@ class MemoryScorer:
         if score < _NEEDS_CURATION_SCORE or has_surprising:
             return "needs_curation"
         return "keep"
+
+    def get_item_score_for_context(
+        self, item_id: int, context: str = "feature"
+    ) -> float:
+        """Get context-specific score, falling back to global."""
+        data = self.load_item_scores()
+        key = item_id
+        if key not in data:
+            return 0.5
+        item = data[key]
+        ctx_key = f"ctx_{context}"
+        if ctx_key in item and item[ctx_key]["appearances"] >= 3:
+            return item[ctx_key]["score"]
+        return item["score"]  # fall back to global
 
     # ------------------------------------------------------------------
     # Storage helpers

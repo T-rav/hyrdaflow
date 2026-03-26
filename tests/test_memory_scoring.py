@@ -768,3 +768,199 @@ class TestDetectKnowledgeGaps:
         assert gap.failure_category == "ci_failure"
         assert gap.subcategory == "timeout"
         assert gap.frequency == 5
+
+
+# ---------------------------------------------------------------------------
+# TestClassifyContext
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyContext:
+    def test_bug_tag_returns_bugfix(self) -> None:
+        from memory_scoring import _classify_context  # noqa: PLC0415
+
+        assert _classify_context(["bug"]) == "bugfix"
+
+    def test_fix_tag_returns_bugfix(self) -> None:
+        from memory_scoring import _classify_context  # noqa: PLC0415
+
+        assert _classify_context(["fix"]) == "bugfix"
+
+    def test_bugfix_tag_returns_bugfix(self) -> None:
+        from memory_scoring import _classify_context  # noqa: PLC0415
+
+        assert _classify_context(["bugfix"]) == "bugfix"
+
+    def test_refactor_tag_returns_refactor(self) -> None:
+        from memory_scoring import _classify_context  # noqa: PLC0415
+
+        assert _classify_context(["refactor"]) == "refactor"
+
+    def test_refactoring_tag_returns_refactor(self) -> None:
+        from memory_scoring import _classify_context  # noqa: PLC0415
+
+        assert _classify_context(["refactoring"]) == "refactor"
+
+    def test_docs_tag_returns_docs(self) -> None:
+        from memory_scoring import _classify_context  # noqa: PLC0415
+
+        assert _classify_context(["docs"]) == "docs"
+
+    def test_documentation_tag_returns_docs(self) -> None:
+        from memory_scoring import _classify_context  # noqa: PLC0415
+
+        assert _classify_context(["documentation"]) == "docs"
+
+    def test_unknown_tags_returns_feature(self) -> None:
+        from memory_scoring import _classify_context  # noqa: PLC0415
+
+        assert _classify_context(["enhancement", "performance"]) == "feature"
+
+    def test_empty_tags_returns_feature(self) -> None:
+        from memory_scoring import _classify_context  # noqa: PLC0415
+
+        assert _classify_context([]) == "feature"
+
+    def test_case_insensitive_bug(self) -> None:
+        from memory_scoring import _classify_context  # noqa: PLC0415
+
+        assert _classify_context(["BUG", "Enhancement"]) == "bugfix"
+
+    def test_bug_takes_priority_over_docs(self) -> None:
+        from memory_scoring import _classify_context  # noqa: PLC0415
+
+        # bug check comes first in the function
+        assert _classify_context(["bug", "docs"]) == "bugfix"
+
+
+# ---------------------------------------------------------------------------
+# TestPerContextScoring
+# ---------------------------------------------------------------------------
+
+
+def _make_outcome_with_context(
+    issue_id: int = 1,
+    outcome: str = "success",
+    score: float = 1.0,
+    digest_hash: str = "abc123",
+    summary: str = "PR merged",
+    context: str = "feature",
+    failure_category: str | None = None,
+) -> OutcomeRecord:
+    return OutcomeRecord(
+        issue_id=issue_id,
+        outcome=outcome,  # type: ignore[arg-type]
+        score=score,
+        digest_hash=digest_hash,
+        failure_category=failure_category,
+        summary=summary,
+        context=context,
+    )
+
+
+class TestPerContextScoring:
+    def test_context_field_stored_in_outcome_record(self) -> None:
+        rec = _make_outcome_with_context(context="bugfix")
+        assert rec.context == "bugfix"
+
+    def test_context_defaults_to_feature(self) -> None:
+        rec = OutcomeRecord(
+            issue_id=1,
+            outcome="success",
+            score=1.0,
+            digest_hash="x",
+        )
+        assert rec.context == "feature"
+
+    def test_context_key_created_on_first_update(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path / "mem")
+        rec = _make_outcome_with_context(context="bugfix")
+        scorer.update_scores(rec, active_item_ids=[1])
+        scores = scorer.load_item_scores()
+        assert "ctx_bugfix" in scores[1]
+
+    def test_context_score_starts_at_half_plus_delta(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path / "mem")
+        rec = _make_outcome_with_context(context="bugfix", outcome="success")
+        scorer.update_scores(rec, active_item_ids=[1])
+        scores = scorer.load_item_scores()
+        # 0.5 + 0.1 = 0.6
+        assert scores[1]["ctx_bugfix"]["score"] == pytest.approx(0.6, abs=1e-9)
+
+    def test_context_appearances_incremented(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path / "mem")
+        rec = _make_outcome_with_context(context="bugfix")
+        scorer.update_scores(rec, active_item_ids=[1])
+        scorer.update_scores(rec, active_item_ids=[1])
+        scores = scorer.load_item_scores()
+        assert scores[1]["ctx_bugfix"]["appearances"] == 2
+
+    def test_different_contexts_tracked_separately(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path / "mem")
+        scorer.update_scores(
+            _make_outcome_with_context(context="bugfix", outcome="success"),
+            active_item_ids=[1],
+        )
+        scorer.update_scores(
+            _make_outcome_with_context(context="docs", outcome="failure"),
+            active_item_ids=[1],
+        )
+        scores = scorer.load_item_scores()
+        assert scores[1]["ctx_bugfix"]["score"] > 0.5
+        assert scores[1]["ctx_docs"]["score"] < 0.5
+
+    def test_get_item_score_for_context_returns_half_for_unknown_item(
+        self, tmp_path: Path
+    ) -> None:
+        scorer = MemoryScorer(tmp_path / "mem")
+        assert scorer.get_item_score_for_context(999, "bugfix") == pytest.approx(0.5)
+
+    def test_get_item_score_for_context_falls_back_to_global_below_threshold(
+        self, tmp_path: Path
+    ) -> None:
+        scorer = MemoryScorer(tmp_path / "mem")
+        # Only 2 appearances — below the threshold of 3
+        rec = _make_outcome_with_context(context="bugfix", outcome="success")
+        scorer.update_scores(rec, active_item_ids=[1])
+        scorer.update_scores(rec, active_item_ids=[1])
+        global_score = scorer.load_item_scores()[1]["score"]
+        result = scorer.get_item_score_for_context(1, "bugfix")
+        assert result == pytest.approx(global_score, abs=1e-9)
+
+    def test_get_item_score_for_context_uses_ctx_score_at_threshold(
+        self, tmp_path: Path
+    ) -> None:
+        scorer = MemoryScorer(tmp_path / "mem")
+        # 3 appearances — at the threshold
+        rec = _make_outcome_with_context(context="refactor", outcome="success")
+        scorer.update_scores(rec, active_item_ids=[1])
+        scorer.update_scores(rec, active_item_ids=[1])
+        scorer.update_scores(rec, active_item_ids=[1])
+        ctx_score = scorer.load_item_scores()[1]["ctx_refactor"]["score"]
+        result = scorer.get_item_score_for_context(1, "refactor")
+        assert result == pytest.approx(ctx_score, abs=1e-9)
+
+    def test_get_item_score_for_context_falls_back_when_ctx_key_missing(
+        self, tmp_path: Path
+    ) -> None:
+        scorer = MemoryScorer(tmp_path / "mem")
+        # Record with feature context, then ask for bugfix context
+        rec = _make_outcome_with_context(context="feature", outcome="success")
+        scorer.update_scores(rec, active_item_ids=[1])
+        scorer.update_scores(rec, active_item_ids=[1])
+        scorer.update_scores(rec, active_item_ids=[1])
+        global_score = scorer.load_item_scores()[1]["score"]
+        result = scorer.get_item_score_for_context(1, "bugfix")
+        assert result == pytest.approx(global_score, abs=1e-9)
+
+    def test_context_not_written_for_irrelevant_failure(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path / "mem")
+        # ci_failure is not relevant for "code" type items
+        rec = _make_outcome_with_context(
+            outcome="failure",
+            failure_category="ci_failure",
+            context="bugfix",
+        )
+        scorer.update_scores(rec, active_item_ids=[1], item_types={1: "code"})
+        scores = scorer.load_item_scores()
+        assert "ctx_bugfix" not in scores[1]
