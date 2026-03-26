@@ -449,3 +449,100 @@ class TestSummarizeAndPublish:
 
         assert result is None
         prs.create_issue.assert_not_called()
+
+
+# --- TranscriptSummarizer._extract_and_file_memory_items tests ---
+
+
+class TestExtractAndFileMemoryItems:
+    """Tests for parsing summary sections and filing memory issues."""
+
+    def _make_summarizer(
+        self, tmp_path: Path
+    ) -> tuple[TranscriptSummarizer, MagicMock]:
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(repo_root=tmp_path)
+        prs = MagicMock()
+        prs.create_issue = AsyncMock(return_value=99)
+        prs.post_comment = AsyncMock()
+        bus = MagicMock()
+        bus.publish = AsyncMock()
+        state = MagicMock()
+        summarizer = TranscriptSummarizer(config, prs, bus, state)
+        return summarizer, prs
+
+    @pytest.mark.asyncio
+    async def test_files_memory_items_from_patterns_section(
+        self, tmp_path: Path
+    ) -> None:
+        """Items from '### Patterns Discovered' section trigger memory issues."""
+        summarizer, prs = self._make_summarizer(tmp_path)
+        summary = (
+            "### Patterns Discovered\n"
+            "- The codebase uses factory functions for dependency injection\n"
+            "- All async operations are wrapped in try/except blocks\n"
+        )
+        await summarizer._extract_and_file_memory_items(summary, 42, "implement")
+        assert prs.create_issue.await_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_files_memory_items_from_codebase_insights(
+        self, tmp_path: Path
+    ) -> None:
+        """Items from '### Codebase Insights' section trigger memory issues."""
+        summarizer, prs = self._make_summarizer(tmp_path)
+        summary = (
+            "### Codebase Insights\n"
+            "- The orchestrator uses five concurrent async polling loops\n"
+        )
+        await summarizer._extract_and_file_memory_items(summary, 7, "plan")
+        assert prs.create_issue.await_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_max_three_items_filed(self, tmp_path: Path) -> None:
+        """At most 3 memory items are filed per transcript, even with more bullets."""
+        summarizer, prs = self._make_summarizer(tmp_path)
+        summary = (
+            "### Patterns Discovered\n"
+            "- The codebase uses factory functions for dependency injection\n"
+            "- All async operations are wrapped in try/except blocks\n"
+            "- The orchestrator uses five concurrent async polling loops\n"
+            "- Configuration is managed via Pydantic models with env-var overrides\n"
+            "- Git worktrees are used to isolate each issue's implementation branch\n"
+        )
+        await summarizer._extract_and_file_memory_items(summary, 42, "implement")
+        assert prs.create_issue.await_count <= 3
+
+    @pytest.mark.asyncio
+    async def test_trivial_items_under_20_chars_skipped(self, tmp_path: Path) -> None:
+        """Bullets with 20 chars or fewer are not filed as memory items."""
+        summarizer, prs = self._make_summarizer(tmp_path)
+        summary = "### Codebase Insights\n- Short item\n- x\n- ok\n"
+        await summarizer._extract_and_file_memory_items(summary, 42, "plan")
+        prs.create_issue.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_relevant_sections_does_not_file(self, tmp_path: Path) -> None:
+        """Summary with no 'Patterns Discovered' or 'Codebase Insights' files nothing."""
+        summarizer, prs = self._make_summarizer(tmp_path)
+        summary = (
+            "### Key Decisions\n"
+            "- Used the factory pattern for dependency injection\n"
+            "### Errors Encountered\n"
+            "- CI failed on first run due to flaky test\n"
+        )
+        await summarizer._extract_and_file_memory_items(summary, 42, "implement")
+        prs.create_issue.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_create_issue_failure_does_not_raise(self, tmp_path: Path) -> None:
+        """If create_issue raises, _extract_and_file_memory_items swallows the error."""
+        summarizer, prs = self._make_summarizer(tmp_path)
+        prs.create_issue = AsyncMock(side_effect=RuntimeError("network error"))
+        summary = (
+            "### Patterns Discovered\n"
+            "- The codebase uses factory functions for dependency injection\n"
+        )
+        # Should not raise
+        await summarizer._extract_and_file_memory_items(summary, 42, "implement")
