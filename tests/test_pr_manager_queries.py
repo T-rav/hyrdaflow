@@ -41,15 +41,8 @@ class TestListOpenPrs:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_parses_pr_data_correctly(self, event_bus, tmp_path):
-        import json
-
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_parses_pr_data_correctly(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
 
         pr_json = json.dumps(
             [
@@ -76,15 +69,8 @@ class TestListOpenPrs:
         assert result[0].title == "Fix widget"
 
     @pytest.mark.asyncio
-    async def test_deduplicates_by_pr_number(self, event_bus, tmp_path):
-        import json
-
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_deduplicates_by_pr_number(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
 
         pr_json = json.dumps(
             [
@@ -107,15 +93,8 @@ class TestListOpenPrs:
         assert result[0].pr == 42
 
     @pytest.mark.asyncio
-    async def test_extracts_issue_number_from_branch(self, event_bus, tmp_path):
-        import json
-
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_extracts_issue_number_from_branch(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
 
         pr_json = json.dumps(
             [
@@ -136,15 +115,8 @@ class TestListOpenPrs:
         assert result[0].issue == 99
 
     @pytest.mark.asyncio
-    async def test_returns_zero_issue_for_non_agent_branch(self, event_bus, tmp_path):
-        import json
-
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_returns_zero_issue_for_non_agent_branch(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
 
         pr_json = json.dumps(
             [
@@ -166,13 +138,8 @@ class TestListOpenPrs:
         assert result[0].branch == "feature/my-branch"
 
     @pytest.mark.asyncio
-    async def test_returns_empty_on_subprocess_failure(self, event_bus, tmp_path):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_returns_empty_on_subprocess_failure(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
         mock_create = (
             SubprocessMockBuilder().with_returncode(1).with_stderr("error").build()
         )
@@ -203,13 +170,8 @@ class TestListHitlItems:
     """Tests for PRManager.list_hitl_items."""
 
     @pytest.mark.asyncio
-    async def test_returns_empty_when_no_issues(self, event_bus, tmp_path):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_returns_empty_when_no_issues(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
         mock_create = SubprocessMockBuilder().with_stdout("[]").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
@@ -218,15 +180,8 @@ class TestListHitlItems:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_returns_issue_with_pr_info(self, event_bus, tmp_path):
-        import json
-
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_returns_issue_with_pr_info(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
 
         issues_json = json.dumps(
             [
@@ -269,13 +224,8 @@ class TestListHitlItems:
         assert result[0].branch == "agent/issue-42"
 
     @pytest.mark.asyncio
-    async def test_fetch_hitl_raw_issues_uses_get_method(self, event_bus, tmp_path):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_fetch_hitl_raw_issues_uses_get_method(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
         captured: list[tuple[str, ...]] = []
 
         async def mock_run_gh(*cmd, cwd=None):
@@ -291,15 +241,8 @@ class TestListHitlItems:
         assert "GET" in cmd
 
     @pytest.mark.asyncio
-    async def test_returns_zero_pr_when_no_pr_found(self, event_bus, tmp_path):
-        import json
-
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_returns_zero_pr_when_no_pr_found(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
 
         issues_json = json.dumps([{"number": 10, "title": "Broken thing", "url": ""}])
 
@@ -328,15 +271,8 @@ class TestListHitlItems:
         assert result[0].prUrl == ""
 
     @pytest.mark.asyncio
-    async def test_deduplicates_issues(self, event_bus, tmp_path):
-        import json
-
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_deduplicates_issues(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
 
         issues_json = json.dumps([{"number": 42, "title": "Fix widget", "url": ""}])
 
@@ -355,13 +291,8 @@ class TestListHitlItems:
         assert result[0].issue == 42
 
     @pytest.mark.asyncio
-    async def test_returns_empty_on_subprocess_failure(self, event_bus, tmp_path):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_returns_empty_on_subprocess_failure(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
         mock_create = (
             SubprocessMockBuilder().with_returncode(1).with_stderr("error").build()
         )
@@ -383,18 +314,9 @@ class TestListHitlItems:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_concurrency_limits_simultaneous_pr_lookups(
-        self, event_bus, tmp_path
-    ):
+    async def test_concurrency_limits_simultaneous_pr_lookups(self, config, event_bus):
         """concurrency kwarg caps how many _build_hitl_item calls run at once."""
-        import json
-
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
 
         # 5 issues, concurrency=2 — verify all 5 are still returned
         issues = [{"number": i, "title": f"Issue {i}", "url": ""} for i in range(1, 6)]
@@ -494,15 +416,10 @@ class TestRetryWrapperUsage:
         mock_retry.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_ensure_labels_uses_retry(self, event_bus, tmp_path):
+    async def test_ensure_labels_uses_retry(self, config, event_bus):
         """ensure_labels_exist should use run_subprocess_with_retry via prep."""
 
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         with patch(
             "prep.run_subprocess_with_retry", new_callable=AsyncMock
         ) as mock_retry:
@@ -554,13 +471,8 @@ class TestGetLabelCounts:
     """Tests for PRManager.get_label_counts."""
 
     @pytest.mark.asyncio
-    async def test_returns_label_counts(self, event_bus, tmp_path):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_returns_label_counts(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
 
         # Mock _run_gh to return counts for each label query
         call_count = 0
@@ -582,7 +494,7 @@ class TestGetLabelCounts:
 
         mgr._run_gh = mock_run_gh
 
-        result = await mgr.get_label_counts(cfg)
+        result = await mgr.get_label_counts(config)
 
         assert "open_by_label" in result
         assert "total_closed" in result
@@ -590,13 +502,8 @@ class TestGetLabelCounts:
         assert isinstance(result["open_by_label"], dict)
 
     @pytest.mark.asyncio
-    async def test_caches_results_for_30_seconds(self, event_bus, tmp_path):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_caches_results_for_30_seconds(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
 
         call_count = 0
 
@@ -608,23 +515,18 @@ class TestGetLabelCounts:
         mgr._run_gh = mock_run_gh
 
         # First call — should hit the gh CLI
-        result1 = await mgr.get_label_counts(cfg)
+        result1 = await mgr.get_label_counts(config)
         first_call_count = call_count
 
         # Second call — should return cached
-        result2 = await mgr.get_label_counts(cfg)
+        result2 = await mgr.get_label_counts(config)
         assert call_count == first_call_count  # No additional calls
 
         assert result1 == result2
 
     @pytest.mark.asyncio
-    async def test_handles_errors_gracefully(self, event_bus, tmp_path):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_handles_errors_gracefully(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
 
         async def mock_run_gh(*cmd, cwd=None):
             raise RuntimeError("network error")
@@ -634,7 +536,7 @@ class TestGetLabelCounts:
         mgr._label_counts_cache = None
         mgr._label_counts_ts = 0.0
 
-        result = await mgr.get_label_counts(cfg)
+        result = await mgr.get_label_counts(config)
 
         # Should return zeros, not raise
         assert result["open_by_label"]["hydraflow-plan"] == 0
@@ -886,14 +788,9 @@ class TestGetPrHeadSha:
     """Tests for PRManager.get_pr_head_sha."""
 
     @pytest.mark.asyncio
-    async def test_returns_sha_on_success(self, event_bus, tmp_path):
+    async def test_returns_sha_on_success(self, config, event_bus):
         """get_pr_head_sha should parse headRefOid from JSON response."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         response = '{"headRefOid":"abc123def456789"}'
         mock_create = SubprocessMockBuilder().with_stdout(response).build()
 
@@ -903,14 +800,9 @@ class TestGetPrHeadSha:
         assert sha == "abc123def456789"
 
     @pytest.mark.asyncio
-    async def test_returns_empty_on_failure(self, event_bus, tmp_path):
+    async def test_returns_empty_on_failure(self, config, event_bus):
         """get_pr_head_sha should return empty string on subprocess failure."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mock_create = (
             SubprocessMockBuilder().with_returncode(1).with_stderr("not found").build()
         )
@@ -942,14 +834,9 @@ class TestGetPrReviews:
     """Tests for PRManager.get_pr_reviews."""
 
     @pytest.mark.asyncio
-    async def test_returns_reviews_on_success(self, event_bus, tmp_path):
+    async def test_returns_reviews_on_success(self, config, event_bus):
         """get_pr_reviews should parse review data from JSON response."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         response = json.dumps(
             [
                 {
@@ -970,14 +857,9 @@ class TestGetPrReviews:
         assert reviews[0]["state"] == "APPROVED"
 
     @pytest.mark.asyncio
-    async def test_returns_empty_on_failure(self, event_bus, tmp_path):
+    async def test_returns_empty_on_failure(self, config, event_bus):
         """get_pr_reviews should return empty list on subprocess failure."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mock_create = (
             SubprocessMockBuilder().with_returncode(1).with_stderr("not found").build()
         )
@@ -1009,14 +891,9 @@ class TestGetPrMergeable:
     """Tests for PRManager.get_pr_mergeable."""
 
     @pytest.mark.asyncio
-    async def test_returns_true_when_mergeable(self, event_bus, tmp_path):
+    async def test_returns_true_when_mergeable(self, config, event_bus):
         """get_pr_mergeable returns True when GitHub says 'true'."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mock_create = SubprocessMockBuilder().with_stdout("true\n").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
@@ -1025,14 +902,9 @@ class TestGetPrMergeable:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_returns_false_when_not_mergeable(self, event_bus, tmp_path):
+    async def test_returns_false_when_not_mergeable(self, config, event_bus):
         """get_pr_mergeable returns False when GitHub says 'false'."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mock_create = SubprocessMockBuilder().with_stdout("false\n").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
@@ -1041,14 +913,9 @@ class TestGetPrMergeable:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_returns_none_when_null(self, event_bus, tmp_path):
+    async def test_returns_none_when_null(self, config, event_bus):
         """get_pr_mergeable returns None when GitHub says 'null'."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mock_create = SubprocessMockBuilder().with_stdout("null\n").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
@@ -1057,14 +924,9 @@ class TestGetPrMergeable:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_returns_none_on_failure(self, event_bus, tmp_path):
+    async def test_returns_none_on_failure(self, config, event_bus):
         """get_pr_mergeable returns None on API failure."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mock_create = (
             SubprocessMockBuilder().with_returncode(1).with_stderr("not found").build()
         )
@@ -1096,14 +958,9 @@ class TestGetPrComments:
     """Tests for PRManager.get_pr_comments."""
 
     @pytest.mark.asyncio
-    async def test_returns_comments_on_success(self, event_bus, tmp_path):
+    async def test_returns_comments_on_success(self, config, event_bus):
         """get_pr_comments should parse comment data from JSON response."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         response = json.dumps(
             [
                 {
@@ -1122,14 +979,9 @@ class TestGetPrComments:
         assert comments[0]["created_at"] == "2025-01-01T12:00:00Z"
 
     @pytest.mark.asyncio
-    async def test_returns_empty_on_failure(self, event_bus, tmp_path):
+    async def test_returns_empty_on_failure(self, config, event_bus):
         """get_pr_comments should return empty list on subprocess failure."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mock_create = (
             SubprocessMockBuilder().with_returncode(1).with_stderr("not found").build()
         )
@@ -1161,13 +1013,8 @@ class TestCountHelpers:
     """Tests for _count_open_issues_by_label, _count_closed_issues, _count_merged_prs."""
 
     @pytest.mark.asyncio
-    async def test_count_open_issues_by_label(self, event_bus, tmp_path):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_count_open_issues_by_label(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
         mgr._search_github_count = AsyncMock(side_effect=[5, 7])
         result = await mgr._count_open_issues_by_label(
             {
@@ -1179,14 +1026,9 @@ class TestCountHelpers:
 
     @pytest.mark.asyncio
     async def test_count_open_issues_by_label_handles_errors_returns_zero_count(
-        self, event_bus, tmp_path
+        self, config, event_bus
     ):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mgr._search_github_count = AsyncMock(side_effect=RuntimeError("network error"))
         result = await mgr._count_open_issues_by_label(
             {"hydraflow-plan": ["hydraflow-plan"]}
@@ -1195,14 +1037,9 @@ class TestCountHelpers:
 
     @pytest.mark.asyncio
     async def test_count_open_issues_by_label_handles_errors_logs_debug_message(
-        self, event_bus, tmp_path, caplog
+        self, config, event_bus, caplog
     ):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mgr._search_github_count = AsyncMock(side_effect=RuntimeError("network error"))
         with caplog.at_level(logging.DEBUG, logger="hydraflow.pr_manager"):
             await mgr._count_open_issues_by_label(
@@ -1212,14 +1049,9 @@ class TestCountHelpers:
 
     @pytest.mark.asyncio
     async def test_count_open_issues_by_label_handles_value_error_returns_zero_count(
-        self, event_bus, tmp_path
+        self, config, event_bus
     ):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mgr._search_github_count = AsyncMock(side_effect=ValueError("bad parse"))
         result = await mgr._count_open_issues_by_label(
             {"hydraflow-plan": ["hydraflow-plan"]}
@@ -1227,41 +1059,26 @@ class TestCountHelpers:
         assert result == {"hydraflow-plan": 0}
 
     @pytest.mark.asyncio
-    async def test_count_closed_issues(self, event_bus, tmp_path):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_count_closed_issues(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
         mgr._search_github_count = AsyncMock(side_effect=[7, 8])
         result = await mgr._count_closed_issues(["hydraflow-fixed", "hf-fixed-alt"])
         assert result == 15
 
     @pytest.mark.asyncio
     async def test_count_closed_issues_handles_errors_returns_zero_count(
-        self, event_bus, tmp_path
+        self, config, event_bus
     ):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mgr._search_github_count = AsyncMock(side_effect=RuntimeError("network error"))
         result = await mgr._count_closed_issues(["hydraflow-fixed"])
         assert result == 0
 
     @pytest.mark.asyncio
     async def test_count_closed_issues_handles_errors_logs_debug_message(
-        self, event_bus, tmp_path, caplog
+        self, config, event_bus, caplog
     ):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mgr._search_github_count = AsyncMock(side_effect=RuntimeError("network error"))
         with caplog.at_level(logging.DEBUG, logger="hydraflow.pr_manager"):
             await mgr._count_closed_issues(["hydraflow-fixed"])
@@ -1269,54 +1086,34 @@ class TestCountHelpers:
 
     @pytest.mark.asyncio
     async def test_count_closed_issues_handles_value_error_returns_zero_count(
-        self, event_bus, tmp_path
+        self, config, event_bus
     ):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mgr._search_github_count = AsyncMock(side_effect=ValueError("bad parse"))
         result = await mgr._count_closed_issues(["hydraflow-fixed"])
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_count_merged_prs(self, event_bus, tmp_path):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_count_merged_prs(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
         mgr._search_github_count = AsyncMock(return_value=12)
         result = await mgr._count_merged_prs("hydraflow-fixed")
         assert result == 12
 
     @pytest.mark.asyncio
     async def test_count_merged_prs_handles_errors_returns_zero_count(
-        self, event_bus, tmp_path
+        self, config, event_bus
     ):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mgr._search_github_count = AsyncMock(side_effect=RuntimeError("network error"))
         result = await mgr._count_merged_prs("hydraflow-fixed")
         assert result == 0
 
     @pytest.mark.asyncio
     async def test_count_merged_prs_handles_errors_logs_debug_message(
-        self, event_bus, tmp_path, caplog
+        self, config, event_bus, caplog
     ):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mgr._search_github_count = AsyncMock(side_effect=RuntimeError("network error"))
         with caplog.at_level(logging.DEBUG, logger="hydraflow.pr_manager"):
             await mgr._count_merged_prs("hydraflow-fixed")
@@ -1324,28 +1121,16 @@ class TestCountHelpers:
 
     @pytest.mark.asyncio
     async def test_count_merged_prs_handles_value_error_returns_zero_count(
-        self, event_bus, tmp_path
+        self, config, event_bus
     ):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         mgr._search_github_count = AsyncMock(side_effect=ValueError("bad parse"))
         result = await mgr._count_merged_prs("hydraflow-fixed")
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_count_open_issues_by_label_uses_search_api(
-        self, event_bus, tmp_path
-    ):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_count_open_issues_by_label_uses_search_api(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
         captured_queries: list[str] = []
 
         async def mock_search(query: str) -> int:
@@ -1362,13 +1147,8 @@ class TestCountHelpers:
         ]
 
     @pytest.mark.asyncio
-    async def test_count_closed_issues_uses_search_api(self, event_bus, tmp_path):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_count_closed_issues_uses_search_api(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
         captured_queries: list[str] = []
 
         async def mock_search(query: str) -> int:
@@ -1383,13 +1163,8 @@ class TestCountHelpers:
         ]
 
     @pytest.mark.asyncio
-    async def test_count_merged_prs_uses_search_api(self, event_bus, tmp_path):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+    async def test_count_merged_prs_uses_search_api(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
         captured_queries: list[str] = []
 
         async def mock_search(query: str) -> int:
@@ -1413,14 +1188,9 @@ class TestQueryIssuesByLabels:
     """Tests for the shared _query_issues_by_labels helper."""
 
     @pytest.mark.asyncio
-    async def test_deduplicates_across_labels(self, event_bus, tmp_path):
+    async def test_deduplicates_across_labels(self, config, event_bus):
         """Items appearing under multiple labels should only be returned once."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
 
         item = json.dumps([{"number": 7, "title": "Dup", "url": "u"}])
 
@@ -1437,14 +1207,9 @@ class TestQueryIssuesByLabels:
         assert results[0]["number"] == 7
 
     @pytest.mark.asyncio
-    async def test_skips_items_missing_number(self, event_bus, tmp_path):
+    async def test_skips_items_missing_number(self, config, event_bus):
         """Items without a 'number' key should be silently skipped."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
 
         items = json.dumps([{"title": "No num"}, {"number": 5, "title": "OK"}])
 
@@ -1458,14 +1223,9 @@ class TestQueryIssuesByLabels:
         assert results[0]["number"] == 5
 
     @pytest.mark.asyncio
-    async def test_logs_at_specified_error_level(self, event_bus, tmp_path, caplog):
+    async def test_logs_at_specified_error_level(self, config, event_bus, caplog):
         """Failures should be logged at the given error_level."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
 
         async def mock_run_gh(*cmd, cwd=None):
             raise RuntimeError("api down")
@@ -1485,14 +1245,9 @@ class TestQueryIssuesByLabels:
         assert any(r.levelname == "WARNING" for r in caplog.records)
 
     @pytest.mark.asyncio
-    async def test_skips_label_on_json_decode_error(self, event_bus, tmp_path):
+    async def test_skips_label_on_json_decode_error(self, config, event_bus):
         """A JSONDecodeError for one label should be caught and skipped."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
 
         call_idx = 0
 
@@ -1512,14 +1267,9 @@ class TestQueryIssuesByLabels:
         assert results[0]["number"] == 9
 
     @pytest.mark.asyncio
-    async def test_skips_label_on_attribute_error(self, event_bus, tmp_path):
+    async def test_skips_label_on_attribute_error(self, config, event_bus):
         """A non-list jq result (e.g. dict) causes AttributeError and is skipped."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
 
         call_idx = 0
 
@@ -1540,14 +1290,9 @@ class TestQueryIssuesByLabels:
         assert results[0]["number"] == 9
 
     @pytest.mark.asyncio
-    async def test_empty_labels_returns_empty(self, event_bus, tmp_path):
+    async def test_empty_labels_returns_empty(self, config, event_bus):
         """No labels means no API calls and empty results."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
 
         call_count = 0
 
@@ -1563,14 +1308,9 @@ class TestQueryIssuesByLabels:
         assert call_count == 0
 
     @pytest.mark.asyncio
-    async def test_continues_after_one_label_fails(self, event_bus, tmp_path):
+    async def test_continues_after_one_label_fails(self, config, event_bus):
         """A failure for one label should not prevent results from other labels."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
 
         call_idx = 0
 
@@ -1588,14 +1328,9 @@ class TestQueryIssuesByLabels:
         assert results[0]["number"] == 3
 
     @pytest.mark.asyncio
-    async def test_list_open_prs_uses_query_helper(self, event_bus, tmp_path):
+    async def test_list_open_prs_uses_query_helper(self, config, event_bus):
         """list_open_prs should delegate to _query_issues_by_labels."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
 
         helper_called = False
 
@@ -1612,14 +1347,9 @@ class TestQueryIssuesByLabels:
         assert helper_called is True
 
     @pytest.mark.asyncio
-    async def test_fetch_hitl_uses_query_helper(self, event_bus, tmp_path):
+    async def test_fetch_hitl_uses_query_helper(self, config, event_bus):
         """_fetch_hitl_raw_issues should delegate to _query_issues_by_labels."""
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        mgr = make_pr_manager(cfg, event_bus)
+        mgr = make_pr_manager(config, event_bus)
 
         helper_called = False
         captured_level = None
@@ -1646,17 +1376,9 @@ class TestQueryIssuesByLabels:
 class TestGetIssueState:
     """Tests for PRManager.get_issue_state."""
 
-    def _make_manager(self, tmp_path, event_bus):
-        cfg = ConfigFactory.create(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
-            state_file=tmp_path / "state.json",
-        )
-        return make_pr_manager(cfg, event_bus)
-
     @pytest.mark.asyncio
-    async def test_open_issue_returns_open(self, event_bus, tmp_path):
-        mgr = self._make_manager(tmp_path, event_bus)
+    async def test_open_issue_returns_open(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
         payload = json.dumps({"state": "OPEN", "stateReason": None})
         mock_create = SubprocessMockBuilder().with_stdout(payload).build()
 
@@ -1666,8 +1388,8 @@ class TestGetIssueState:
         assert result == "OPEN"
 
     @pytest.mark.asyncio
-    async def test_closed_completed_issue_returns_completed(self, event_bus, tmp_path):
-        mgr = self._make_manager(tmp_path, event_bus)
+    async def test_closed_completed_issue_returns_completed(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
         payload = json.dumps({"state": "CLOSED", "stateReason": "COMPLETED"})
         mock_create = SubprocessMockBuilder().with_stdout(payload).build()
 
@@ -1677,8 +1399,8 @@ class TestGetIssueState:
         assert result == "COMPLETED"
 
     @pytest.mark.asyncio
-    async def test_closed_not_planned_returns_not_planned(self, event_bus, tmp_path):
-        mgr = self._make_manager(tmp_path, event_bus)
+    async def test_closed_not_planned_returns_not_planned(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
         payload = json.dumps({"state": "CLOSED", "stateReason": "NOT_PLANNED"})
         mock_create = SubprocessMockBuilder().with_stdout(payload).build()
 
@@ -1689,12 +1411,12 @@ class TestGetIssueState:
 
     @pytest.mark.asyncio
     async def test_closed_null_statereason_returns_empty_string(
-        self, event_bus, tmp_path
+        self, config, event_bus
     ):
         # When stateReason is null (issues closed before GitHub added stateReason
         # tracking), we return "" rather than assuming "COMPLETED" to avoid
         # incorrectly treating unresolved closures as resolved.
-        mgr = self._make_manager(tmp_path, event_bus)
+        mgr = make_pr_manager(config, event_bus)
         payload = json.dumps({"state": "CLOSED", "stateReason": None})
         mock_create = SubprocessMockBuilder().with_stdout(payload).build()
 
@@ -1704,8 +1426,8 @@ class TestGetIssueState:
         assert result == ""
 
     @pytest.mark.asyncio
-    async def test_returns_unknown_on_error(self, event_bus, tmp_path):
-        mgr = self._make_manager(tmp_path, event_bus)
+    async def test_returns_unknown_on_error(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
         mock_create = SubprocessMockBuilder().with_stdout("not-json").build()
 
         with patch("asyncio.create_subprocess_exec", mock_create):
@@ -1714,8 +1436,8 @@ class TestGetIssueState:
         assert result == "UNKNOWN"
 
     @pytest.mark.asyncio
-    async def test_passes_correct_issue_number_to_gh(self, event_bus, tmp_path):
-        mgr = self._make_manager(tmp_path, event_bus)
+    async def test_passes_correct_issue_number_to_gh(self, config, event_bus):
+        mgr = make_pr_manager(config, event_bus)
         payload = json.dumps({"state": "OPEN", "stateReason": None})
         mock_create = SubprocessMockBuilder().with_stdout(payload).build()
 
