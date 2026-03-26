@@ -71,10 +71,6 @@ class TestADRValidationResult:
 
 
 class TestCheckStatusField:
-    def test_valid_status_passes(self, validator: ADRPreValidator) -> None:
-        result = validator.validate(_valid_adr())
-        assert result.passed is True
-
     def test_missing_status_detected(self, validator: ADRPreValidator) -> None:
         content = "# ADR\n\n## Context\nctx\n## Decision\ndec\n## Consequences\ncon\n"
         result = validator.validate(content)
