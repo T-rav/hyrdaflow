@@ -1535,6 +1535,22 @@ class ReviewPhase:
         self._state.set_hitl_origin(esc.issue_number, esc.origin_label)
         self._state.set_hitl_cause(esc.issue_number, esc.cause)
         self._state.record_hitl_escalation()
+        try:
+            from memory_scoring import MemoryScorer, OutcomeRecord  # noqa: PLC0415
+
+            scorer = MemoryScorer(self._config.memory_dir)
+            scorer.record_outcome(
+                OutcomeRecord(
+                    issue_id=esc.issue_number,
+                    outcome="failure",
+                    score=-1.0,
+                    digest_hash=self._state.get_digest_hash(esc.issue_number) or "",
+                    failure_category=esc.cause or "hitl_escalation",
+                    summary=f"HITL escalation: {esc.cause}",
+                )
+            )
+        except Exception:
+            logger.debug("Failed to record HITL outcome", exc_info=True)
         if esc.visual_evidence is not None:
             self._state.set_hitl_visual_evidence(esc.issue_number, esc.visual_evidence)
 

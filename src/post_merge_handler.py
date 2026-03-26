@@ -261,6 +261,29 @@ class PostMergeHandler:
 
         if success:
             result.merged = True
+            try:
+                from memory_scoring import MemoryScorer, OutcomeRecord  # noqa: PLC0415
+
+                quality_rounds = getattr(result, "quality_fix_attempts", 0) or 0
+                review_rounds = getattr(result, "pre_quality_review_attempts", 0) or 0
+                if quality_rounds == 0 and review_rounds <= 1:
+                    merge_outcome, merge_score = "success", 1.0
+                else:
+                    merge_outcome, merge_score = "partial", 0.5
+                scorer = MemoryScorer(self._config.memory_dir)
+                issue_title = issue.title[:80] if issue else ""
+                scorer.record_outcome(
+                    OutcomeRecord(
+                        issue_id=pr.issue_number,
+                        outcome=merge_outcome,
+                        score=merge_score,
+                        digest_hash=self._state.get_digest_hash(pr.issue_number) or "",
+                        failure_category=None,
+                        summary=f"Merged: {issue_title}" if issue_title else "Merged",
+                    )
+                )
+            except Exception:
+                logger.debug("Failed to record merge outcome", exc_info=True)
             self._state.mark_issue(pr.issue_number, "merged")
             self._state.record_pr_merged()
             if self._store is not None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 from pathlib import Path
@@ -291,6 +292,22 @@ class ImplementPhase:
         )
         await self._escalate_capped_issue(issue, attempts, last_error)
         self._state.mark_issue(issue.id, "failed")
+        try:
+            from memory_scoring import MemoryScorer, OutcomeRecord  # noqa: PLC0415
+
+            scorer = MemoryScorer(self._config.memory_dir)
+            scorer.record_outcome(
+                OutcomeRecord(
+                    issue_id=issue.id,
+                    outcome="failure",
+                    score=-1.0,
+                    digest_hash=self._state.get_digest_hash(issue.id) or "",
+                    failure_category="max_attempts_exceeded",
+                    summary=f"Max attempts exceeded: {issue.title[:80]}",
+                )
+            )
+        except Exception:
+            logger.debug("Failed to record max-attempts outcome", exc_info=True)
         return WorkerResult(
             issue_number=issue.id,
             branch=branch,
@@ -386,6 +403,16 @@ class ImplementPhase:
         wt_path = await self._setup_worktree_and_branch(
             issue, branch, reset_for_retry=reset_for_retry
         )
+
+        # Capture memory digest hash before agent runs
+        import hashlib  # noqa: PLC0415
+
+        digest_path = self._config.memory_dir / "digest.md"
+        digest_hash = ""
+        if digest_path.exists():
+            with contextlib.suppress(OSError):
+                digest_hash = hashlib.sha256(digest_path.read_bytes()).hexdigest()[:16]
+        self._state.set_digest_hash(issue.id, digest_hash)
 
         # Enrich the task with comments so the agent can find the plan
         # comment posted by the planner.  The IssueStore bulk fetch

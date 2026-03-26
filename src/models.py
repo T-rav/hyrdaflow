@@ -1248,6 +1248,7 @@ class StateData(BaseModel):
     active_crate_number: int | None = None
     bead_mappings: dict[str, dict[str, str]] = Field(default_factory=dict)
     completed_timelines: dict[str, CompletedTimeline] = Field(default_factory=dict)
+    digest_hashes: dict[str, str] = Field(default_factory=dict)
     last_updated: str | None = None
 
 
