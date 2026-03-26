@@ -43,7 +43,6 @@ from pr_manager import PRManager
 from prompt_telemetry import PromptTelemetry
 from retrospective import RetrospectiveCollector
 from state import StateTracker
-from verification import format_verification_issue_body
 from verification_judge import VerificationJudge
 
 logger = logging.getLogger("hydraflow.post_merge_handler")
@@ -532,11 +531,27 @@ class PostMergeHandler:
         if judge_result is not None and self._should_create_verification_issue(
             issue, judge_result, diff, visual_decision
         ):
-            await self._safe_hook(
-                "verification issue creation",
-                self._create_verification_issue(issue, pr, judge_result),
-                pr.issue_number,
-            )
+            # Write verification record to JSONL (no GitHub issue — verify loop removed)
+            try:
+                import json as _json  # noqa: PLC0415
+
+                rec = {
+                    "issue_id": issue.id,
+                    "pr_number": pr.number,
+                    "title": f"Verify: {issue.title[:80]}",
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+                path = self._config.data_path("memory", "verification_records.jsonl")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with path.open("a") as f:
+                    f.write(_json.dumps(rec) + "\n")
+                logger.info(
+                    "Verification record written for issue #%d (PR #%d)",
+                    issue.id,
+                    pr.number,
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("Failed to write verification record", exc_info=True)
 
         # Notify EpicManager of child completion (handles auto-close internally)
         if self._epic_manager is not None:
@@ -654,44 +669,4 @@ class PostMergeHandler:
         )
         return False
 
-    async def _create_verification_issue(
-        self,
-        issue: Task,
-        pr: PRInfo,
-        judge_result: JudgeResult,
-    ) -> int:
-        """Create a linked verification issue for human review.
-
-        Returns the created issue number (0 on failure).
-        """
-        title = f"Verify: {issue.title}"
-        if len(title) > 256:
-            title = title[:253] + "..."
-
-        body = format_verification_issue_body(
-            judge_result,
-            issue,
-            pr,
-            max_instructions_chars=self._config.max_verification_instructions_chars,
-        )
-        label = self._config.verify_label[0]
-        issue_number = await self._prs.create_issue(title, body, [label])
-
-        if issue_number > 0:
-            self._state.set_verification_issue(issue.id, issue_number)
-            self._state.record_outcome(
-                issue.id,
-                IssueOutcomeType.VERIFY_PENDING,
-                reason=f"Post-merge verification issue #{issue_number} created",
-                pr_number=pr.number,
-                phase="review",
-                verification_issue_number=issue_number,
-            )
-            logger.info(
-                "Created verification issue #%d for issue #%d (PR #%d)",
-                issue_number,
-                issue.id,
-                pr.number,
-            )
-
-        return issue_number
+    # _create_verification_issue removed — verification records now written to JSONL
