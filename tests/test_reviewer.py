@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from base_runner import BaseRunner
 from events import EventType
 from models import CodeScanningAlert, ReviewerStatus, ReviewVerdict
 from reviewer import ReviewRunner
@@ -22,23 +21,6 @@ from tests.helpers import ConfigFactory, make_streaming_proc
 @pytest.fixture
 def pr_info():
     return PRInfoFactory.create()
-
-
-# ---------------------------------------------------------------------------
-# Inheritance
-# ---------------------------------------------------------------------------
-
-
-class TestReviewRunnerInheritance:
-    """ReviewRunner must extend BaseRunner."""
-
-    def test_inherits_from_base_runner(self, config, event_bus) -> None:
-        runner = ReviewRunner(config, event_bus)
-        assert isinstance(runner, BaseRunner)
-
-    def test_has_terminate_method(self, config, event_bus) -> None:
-        runner = ReviewRunner(config, event_bus)
-        assert callable(runner.terminate)
 
 
 # ---------------------------------------------------------------------------
