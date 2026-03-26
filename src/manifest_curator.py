@@ -122,6 +122,15 @@ class CuratedManifestStore:
             logger.debug("No curated manifest payload at %s", self._path)
         return self._empty_payload()
 
+    def read_for_prompt(self, max_chars: int = 4000) -> str:
+        """Read stored learnings and format as markdown for prompt injection.
+
+        Returns an empty string when no manifest exists or it is empty.
+        This is the file-based fallback when Hindsight is unavailable.
+        """
+        text = self.render_markdown()
+        return text[:max_chars]
+
     def render_markdown(self, payload: CuratedPayload | None = None) -> str:
         """Render curated payload as Markdown sections."""
         payload = payload or self.load()

@@ -69,3 +69,21 @@ async def test_harness_insights_recalled(base_runner):
 
     assert "Known Pipeline Patterns" in memory_section
     assert "CI timeout" in memory_section
+
+
+@pytest.mark.asyncio
+async def test_fallback_to_manifest_when_no_hindsight():
+    """When hindsight is None, fall back to CuratedManifestStore."""
+    config = HydraFlowConfig(repo_root="/tmp/test", gh_token="fake")
+    bus = EventBus()
+    runner = BaseRunner(config, bus, hindsight=None)
+
+    with patch(
+        "manifest_curator.CuratedManifestStore.render_markdown",
+        return_value="## Curated Learnings\n### Project Overview\nHydraFlow automates stuff\n",
+    ):
+        _, memory_section = await runner._inject_manifest_and_memory(
+            query_context="add feature"
+        )
+
+    assert "HydraFlow automates" in memory_section
