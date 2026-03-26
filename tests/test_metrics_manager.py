@@ -13,6 +13,7 @@ from config import HydraFlowConfig
 from events import EventType
 from metrics_manager import MetricsManager
 from models import MetricsSnapshot, QueueStats
+from tests.helpers import ConfigFactory
 
 if TYPE_CHECKING:
     from events import EventBus
@@ -21,18 +22,6 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def make_config(**overrides: Any) -> HydraFlowConfig:
-    """Return a HydraFlowConfig with sensible test defaults."""
-    defaults: dict[str, Any] = {
-        "repo": "test-owner/test-repo",
-        "dry_run": False,
-        "metrics_label": ["hydraflow-metrics"],
-        "metrics_issue_enabled": True,
-    }
-    defaults.update(overrides)
-    return HydraFlowConfig(**defaults)
 
 
 def make_pr_manager() -> MagicMock:
@@ -54,7 +43,12 @@ def make_manager(
     state: StateTracker, event_bus: EventBus, **config_overrides: Any
 ) -> tuple[MetricsManager, StateTracker, MagicMock, EventBus]:
     """Create a fully-wired MetricsManager with test dependencies."""
-    config = make_config(**config_overrides)
+    defaults: dict[str, Any] = {
+        "repo": "test-owner/test-repo",
+        "metrics_issue_enabled": True,
+    }
+    defaults.update(config_overrides)
+    config = ConfigFactory.create(**defaults)
     prs = make_pr_manager()
     mgr = MetricsManager(config, state, prs, event_bus)
     return mgr, state, prs, event_bus
