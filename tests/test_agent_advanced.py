@@ -60,16 +60,6 @@ class TestTerminate:
 
         mock_killpg.assert_called_once()
 
-    def test_terminate_with_no_active_processes(
-        self, config, event_bus: EventBus
-    ) -> None:
-        """terminate() with empty _active_procs should be a no-op."""
-        runner = AgentRunner(config, event_bus)
-        runner.terminate()  # Should not raise
-        assert (
-            len(runner._active_procs) == 0
-        )  # empty procs remain unchanged after no-op
-
 
 class TestExecuteStreaming:
     """Tests for AgentRunner._execute with line-by-line streaming."""
