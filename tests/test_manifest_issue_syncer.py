@@ -12,17 +12,25 @@ from state import StateTracker
 from tests.helpers import ConfigFactory
 
 
+def _make_prs_mock(
+    existing_issue: int | None = None,
+    new_issue_number: int = 42,
+) -> MagicMock:
+    prs = MagicMock()
+    prs.find_issue_number_by_label_and_title = AsyncMock(return_value=existing_issue)
+    prs.create_issue = AsyncMock(return_value=new_issue_number)
+    prs.post_comment = AsyncMock()
+    prs.close_issue = AsyncMock()
+    return prs
+
+
 @pytest.mark.asyncio
 async def test_manifest_issue_syncer_posts_comment(tmp_path: Path) -> None:
     config = ConfigFactory.create(
         repo_root=tmp_path, git_user_name="tester", manifest_issue_enabled=True
     )
     state = StateTracker(config.state_file)
-    prs = MagicMock()
-    prs.find_issue_number_by_label_and_title = AsyncMock(return_value=None)
-    prs.create_issue = AsyncMock(return_value=123)
-    prs.post_comment = AsyncMock()
-    prs.close_issue = AsyncMock()
+    prs = _make_prs_mock(existing_issue=None, new_issue_number=123)
 
     syncer = ManifestIssueSyncer(config, state, prs)
     await syncer.sync("## Manifest Body", "deadbeef", source="unit-test")
@@ -43,11 +51,7 @@ async def test_manifest_issue_syncer_reuses_existing_issue(tmp_path: Path) -> No
         repo_root=tmp_path, git_user_name="tester", manifest_issue_enabled=True
     )
     state = StateTracker(config.state_file)
-    prs = MagicMock()
-    prs.find_issue_number_by_label_and_title = AsyncMock(return_value=77)
-    prs.create_issue = AsyncMock()
-    prs.post_comment = AsyncMock()
-    prs.close_issue = AsyncMock()
+    prs = _make_prs_mock(existing_issue=77)
 
     syncer = ManifestIssueSyncer(config, state, prs)
     await syncer.sync("## Body", "hash456", source="unit-test")
@@ -67,11 +71,7 @@ async def test_manifest_issue_syncer_creates_when_no_existing_issue(
         repo_root=tmp_path, git_user_name="tester", manifest_issue_enabled=True
     )
     state = StateTracker(config.state_file)
-    prs = MagicMock()
-    prs.find_issue_number_by_label_and_title = AsyncMock(return_value=None)
-    prs.create_issue = AsyncMock(return_value=200)
-    prs.post_comment = AsyncMock()
-    prs.close_issue = AsyncMock()
+    prs = _make_prs_mock(existing_issue=None, new_issue_number=200)
 
     syncer = ManifestIssueSyncer(config, state, prs)
     await syncer.sync("## Another Body", "abc999", source="unit-test")
@@ -89,9 +89,7 @@ async def test_manifest_issue_syncer_skips_when_hash_matches(tmp_path: Path) -> 
     state = StateTracker(config.state_file)
     state.set_manifest_issue_number(55)
     state.set_manifest_snapshot_hash("hash123")
-    prs = MagicMock()
-    prs.post_comment = AsyncMock()
-    prs.close_issue = AsyncMock()
+    prs = _make_prs_mock()
 
     syncer = ManifestIssueSyncer(config, state, prs)
     await syncer.sync("## Manifest Body", "hash123", source="unit-test")
@@ -112,10 +110,7 @@ class TestManifestIssueOptIn:
             manifest_issue_enabled=False,
         )
         state = StateTracker(config.state_file)
-        prs = MagicMock()
-        prs.create_issue = AsyncMock()
-        prs.post_comment = AsyncMock()
-        prs.close_issue = AsyncMock()
+        prs = _make_prs_mock()
 
         syncer = ManifestIssueSyncer(config, state, prs)
         await syncer.sync("# Manifest", "abc123")
@@ -132,11 +127,7 @@ class TestManifestIssueOptIn:
             manifest_issue_enabled=True,
         )
         state = StateTracker(config.state_file)
-        prs = MagicMock()
-        prs.find_issue_number_by_label_and_title = AsyncMock(return_value=None)
-        prs.create_issue = AsyncMock(return_value=10)
-        prs.post_comment = AsyncMock()
-        prs.close_issue = AsyncMock()
+        prs = _make_prs_mock(existing_issue=None, new_issue_number=10)
 
         syncer = ManifestIssueSyncer(config, state, prs)
         await syncer.sync("# Manifest", "abc123")
