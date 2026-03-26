@@ -403,39 +403,41 @@ class HealthMonitorLoop(BaseBackgroundLoop):
             logger.debug("Log ingestion failed", exc_info=True)
 
         # Auto-file harness insight suggestions
-        try:
-            from harness_insights import (  # noqa: PLC0415
-                HarnessInsightStore,
-                auto_file_suggestions,
-            )
+        if self._prs is not None:
+            try:
+                from harness_insights import (  # noqa: PLC0415
+                    HarnessInsightStore,
+                    auto_file_suggestions,
+                )
 
-            store = HarnessInsightStore(self._config.memory_dir)
-            await auto_file_suggestions(store, self._prs, self._config)
-        except ImportError:
-            pass
-        except Exception:  # noqa: BLE001
-            logger.debug("Harness auto-file failed", exc_info=True)
+                store = HarnessInsightStore(self._config.memory_dir)
+                await auto_file_suggestions(store, self._prs, self._config)
+            except ImportError:
+                pass
+            except Exception:  # noqa: BLE001
+                logger.debug("Harness auto-file failed", exc_info=True)
 
         # Verify improvement proposal outcomes
-        try:
-            from review_insights import (  # noqa: PLC0415
-                ReviewInsightStore,
-                verify_proposals,
-            )
-
-            insight_store = ReviewInsightStore(self._config.memory_dir)
-            stale = verify_proposals(insight_store)
-            for category in stale:
-                # File HITL for stale proposals
-                await self._prs.create_issue(
-                    f"[Health Monitor] Unresolved review insight: {category}",
-                    f"Review insight '{category}' was proposed but pattern frequency has not decreased after 30 days.",
-                    labels=list(self._config.hitl_label),
+        if self._prs is not None:
+            try:
+                from review_insights import (  # noqa: PLC0415
+                    ReviewInsightStore,
+                    verify_proposals,
                 )
-        except ImportError:
-            pass
-        except Exception:  # noqa: BLE001
-            logger.debug("Proposal verification failed", exc_info=True)
+
+                insight_store = ReviewInsightStore(self._config.memory_dir)
+                records = insight_store.load_recent(50)
+                stale = verify_proposals(insight_store, records)
+                for category in stale:
+                    await self._prs.create_issue(
+                        f"[Health Monitor] Unresolved review insight: {category}",
+                        f"Review insight '{category}' was proposed but pattern frequency has not decreased after 30 days.",
+                        labels=list(self._config.hitl_label),
+                    )
+            except ImportError:
+                pass
+            except Exception:  # noqa: BLE001
+                logger.debug("Proposal verification failed", exc_info=True)
 
         # Cross-project promotion (only in multi-repo mode)
         try:
