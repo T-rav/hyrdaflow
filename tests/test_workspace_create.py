@@ -330,15 +330,11 @@ class TestCreate:
         success_proc = make_proc(returncode=0)
         fail_proc = make_proc(returncode=1, stderr=b"fatal: checkout failed")
 
-        call_count = 0
-
         async def fake_exec(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
             # clone, set-url, fetch succeed; checkout -b fails
-            if call_count <= 3:
-                return success_proc
-            return fail_proc
+            if args[:3] == ("git", "checkout", "-b"):
+                return fail_proc
+            return success_proc
 
         with (
             patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
@@ -414,15 +410,11 @@ class TestCreate:
         success_proc = make_proc(returncode=0)
         fail_proc = make_proc(returncode=1, stderr=b"fatal: checkout failed")
 
-        call_count = 0
-
         async def fake_exec(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
             # clone, set-url, fetch succeed; checkout -b fails
-            if call_count <= 3:
-                return success_proc
-            return fail_proc
+            if args[:3] == ("git", "checkout", "-b"):
+                return fail_proc
+            return success_proc
 
         wt_path = config.worktree_path_for_issue(7)
         # Create the directory so cleanup finds it
