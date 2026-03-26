@@ -207,4 +207,5 @@ export const BACKGROUND_WORKERS = [
   { key: 'adr_reviewer',   label: 'ADR Reviewer',   description: 'Reviews proposed ADRs via a 3-judge council and routes to accept, reject, or escalate.', color: theme.accent },
   { key: 'epic_sweeper',    label: 'Epic Sweeper',    description: 'Periodically sweeps open epics and auto-closes those with all sub-issues resolved.', color: theme.purple, system: true },
   { key: 'verify_monitor', label: 'Verify Monitor', description: 'Watches pending verification issues and resolves them when closed by a human.', color: theme.accent, system: true },
+  { key: 'health_monitor', label: 'Health Monitor', description: 'Analyzes pipeline trends, auto-tunes parameters, detects knowledge gaps, and ingests log patterns.', color: theme.green, system: true },
 ]
