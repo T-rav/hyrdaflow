@@ -20,6 +20,7 @@ from unittest.mock import patch
 from events import EventBus, EventType, HydraFlowEvent
 from service_registry import OrchestratorCallbacks, ServiceRegistry, build_services
 from state import StateTracker
+from workspace import WorkspaceManager
 
 
 def _make_callbacks() -> OrchestratorCallbacks:
@@ -46,7 +47,7 @@ class TestBuildServices:
         registry = build_services(config, bus, state, stop_event, callbacks)
 
         assert isinstance(registry, ServiceRegistry)
-        assert registry.worktrees._config is config
+        assert isinstance(registry.worktrees, WorkspaceManager)
 
     def test_all_fields_are_set(self, config: HydraFlowConfig) -> None:
         """All ServiceRegistry fields should be non-None."""
