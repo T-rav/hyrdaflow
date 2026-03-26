@@ -54,7 +54,7 @@ def _init_sentry() -> None:
             LoggingIntegration(level=logging.WARNING, event_level=logging.ERROR),
         ],
         before_send=lambda event, hint: _scrub(event),
-        before_send_transaction=lambda event, hint: _scrub(event),
+        before_send_transaction=lambda event, hint: _scrub(event),  # type: ignore[arg-type]
     )
 
 
