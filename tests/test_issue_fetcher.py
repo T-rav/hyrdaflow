@@ -15,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from typing import TYPE_CHECKING
 
+from tests.helpers import make_proc
+
 if TYPE_CHECKING:
     from config import HydraFlowConfig
 
@@ -38,6 +40,32 @@ RAW_ISSUE_JSON = json.dumps(
 )
 
 
+def _batch_pr_json(prs: list[dict[str, Any]]) -> str:
+    """Build a batch PR response matching the REST ``/pulls`` shape."""
+    return json.dumps(
+        [
+            {
+                "number": pr.get("number", 0),
+                "html_url": pr.get("url", ""),
+                "draft": pr.get("isDraft", False),
+                "head": {"ref": pr.get("branch", "")},
+            }
+            for pr in prs
+        ]
+    )
+
+
+def make_pr_fake_run(batch_json: str):
+    """Return a fake ``run_subprocess`` coroutine routing issues vs PRs."""
+
+    async def fake_run(*args: str, **kwargs: Any) -> str:
+        if any("issues" in arg for arg in args):
+            return RAW_ISSUE_JSON
+        return batch_json
+
+    return fake_run
+
+
 # ---------------------------------------------------------------------------
 # fetch_ready_issues
 # ---------------------------------------------------------------------------
@@ -51,9 +79,7 @@ class TestFetchReadyIssues:
         self, config: HydraFlowConfig
     ) -> None:
         fetcher = IssueFetcher(config)
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(RAW_ISSUE_JSON.encode(), b""))
+        mock_proc = make_proc(stdout=RAW_ISSUE_JSON.encode())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issues = await fetcher.fetch_ready_issues(set())
@@ -79,9 +105,7 @@ class TestFetchReadyIssues:
             ]
         )
         fetcher = IssueFetcher(config)
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(raw.encode(), b""))
+        mock_proc = make_proc(stdout=raw.encode())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issues = await fetcher.fetch_ready_issues(set())
@@ -106,9 +130,7 @@ class TestFetchReadyIssues:
             ]
         )
         fetcher = IssueFetcher(config)
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(raw.encode(), b""))
+        mock_proc = make_proc(stdout=raw.encode())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issues = await fetcher.fetch_ready_issues(set())
@@ -122,9 +144,7 @@ class TestFetchReadyIssues:
         fetcher = IssueFetcher(config)
         active_issues: set[int] = {42}
 
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(RAW_ISSUE_JSON.encode(), b""))
+        mock_proc = make_proc(stdout=RAW_ISSUE_JSON.encode())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issues = await fetcher.fetch_ready_issues(active_issues)
@@ -139,9 +159,7 @@ class TestFetchReadyIssues:
         fetcher = IssueFetcher(config)
         # NOT in active_issues → should be picked up
 
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(RAW_ISSUE_JSON.encode(), b""))
+        mock_proc = make_proc(stdout=RAW_ISSUE_JSON.encode())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issues = await fetcher.fetch_ready_issues(set())
@@ -154,9 +172,7 @@ class TestFetchReadyIssues:
         self, config: HydraFlowConfig
     ) -> None:
         fetcher = IssueFetcher(config)
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 1
-        mock_proc.communicate = AsyncMock(return_value=(b"", b"error: not found"))
+        mock_proc = make_proc(returncode=1, stderr=b"error: not found")
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issues = await fetcher.fetch_ready_issues(set())
@@ -168,9 +184,7 @@ class TestFetchReadyIssues:
         self, config: HydraFlowConfig
     ) -> None:
         fetcher = IssueFetcher(config)
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(b"not-json", b""))
+        mock_proc = make_proc(stdout=b"not-json")
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issues = await fetcher.fetch_ready_issues(set())
@@ -209,9 +223,7 @@ class TestFetchReadyIssues:
         )
         fetcher = IssueFetcher(config)
         # config has max_workers=2 from conftest → queue_size = 4
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(raw.encode(), b""))
+        mock_proc = make_proc(stdout=raw.encode())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issues = await fetcher.fetch_ready_issues(set())
@@ -237,9 +249,7 @@ class TestFetchReadyIssues:
     ) -> None:
         """_query_label uses REST sort fields to fetch oldest-first."""
         fetcher = IssueFetcher(config)
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(RAW_ISSUE_JSON.encode(), b""))
+        mock_proc = make_proc(stdout=RAW_ISSUE_JSON.encode())
 
         with patch(
             "asyncio.create_subprocess_exec", return_value=mock_proc
@@ -269,32 +279,13 @@ class TestFetchReviewablePrs:
     branch matching, rather than per-issue lookups.
     """
 
-    @staticmethod
-    def _batch_pr_json(
-        prs: list[dict[str, Any]],
-    ) -> str:
-        """Build a batch PR response matching the REST ``/pulls`` shape."""
-        return json.dumps(
-            [
-                {
-                    "number": pr.get("number", 0),
-                    "html_url": pr.get("url", ""),
-                    "draft": pr.get("isDraft", False),
-                    "head": {"ref": pr.get("branch", "")},
-                }
-                for pr in prs
-            ]
-        )
-
     @pytest.mark.asyncio
     async def test_skips_active_issues(self, config: HydraFlowConfig) -> None:
         """Issues already active in this run should be skipped."""
         fetcher = IssueFetcher(config)
         active_issues: set[int] = {42}
 
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(RAW_ISSUE_JSON.encode(), b""))
+        mock_proc = make_proc(stdout=RAW_ISSUE_JSON.encode())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             prs, issues = await fetcher.fetch_reviewable_prs(active_issues)
@@ -309,7 +300,7 @@ class TestFetchReviewablePrs:
         """Issues reviewed in a prior run should be picked up again."""
         fetcher = IssueFetcher(config)
 
-        batch_json = self._batch_pr_json(
+        batch_json = _batch_pr_json(
             [
                 {
                     "number": 200,
@@ -319,12 +310,9 @@ class TestFetchReviewablePrs:
             ]
         )
 
-        async def fake_run(*args: str, **kwargs: Any) -> str:
-            if any("issues" in arg for arg in args):
-                return RAW_ISSUE_JSON
-            return batch_json
-
-        with patch("issue_fetcher.run_subprocess", side_effect=fake_run):
+        with patch(
+            "issue_fetcher.run_subprocess", side_effect=make_pr_fake_run(batch_json)
+        ):
             prs, issues = await fetcher.fetch_reviewable_prs(set())
 
         assert len(issues) == 1
@@ -335,7 +323,7 @@ class TestFetchReviewablePrs:
         """Successfully parses batch PR JSON and maps to PRInfo objects."""
         fetcher = IssueFetcher(config)
 
-        batch_json = self._batch_pr_json(
+        batch_json = _batch_pr_json(
             [
                 {
                     "number": 200,
@@ -345,12 +333,9 @@ class TestFetchReviewablePrs:
             ]
         )
 
-        async def fake_run(*args: str, **kwargs: Any) -> str:
-            if any("issues" in arg for arg in args):
-                return RAW_ISSUE_JSON
-            return batch_json
-
-        with patch("issue_fetcher.run_subprocess", side_effect=fake_run):
+        with patch(
+            "issue_fetcher.run_subprocess", side_effect=make_pr_fake_run(batch_json)
+        ):
             prs, issues = await fetcher.fetch_reviewable_prs(set())
 
         assert len(prs) == 1
@@ -368,7 +353,7 @@ class TestFetchReviewablePrs:
         fetcher = IssueFetcher(config)
         captured: list[tuple[str, ...]] = []
 
-        batch_json = self._batch_pr_json(
+        batch_json = _batch_pr_json(
             [
                 {
                     "number": 200,
@@ -378,13 +363,13 @@ class TestFetchReviewablePrs:
             ]
         )
 
-        async def fake_run(*args: str, **kwargs: Any) -> str:
+        async def capturing_fake_run(*args: str, **kwargs: Any) -> str:
             captured.append(args)
             if any("issues" in arg for arg in args):
                 return RAW_ISSUE_JSON
             return batch_json
 
-        with patch("issue_fetcher.run_subprocess", side_effect=fake_run):
+        with patch("issue_fetcher.run_subprocess", side_effect=capturing_fake_run):
             prs, _issues = await fetcher.fetch_reviewable_prs(set())
 
         assert len(prs) == 1
@@ -439,7 +424,7 @@ class TestFetchReviewablePrs:
         """Draft PRs are filtered out of the returned PR list."""
         fetcher = IssueFetcher(config)
 
-        batch_json = self._batch_pr_json(
+        batch_json = _batch_pr_json(
             [
                 {
                     "number": 200,
@@ -450,12 +435,9 @@ class TestFetchReviewablePrs:
             ]
         )
 
-        async def fake_run(*args: str, **kwargs: Any) -> str:
-            if any("issues" in arg for arg in args):
-                return RAW_ISSUE_JSON
-            return batch_json
-
-        with patch("issue_fetcher.run_subprocess", side_effect=fake_run):
+        with patch(
+            "issue_fetcher.run_subprocess", side_effect=make_pr_fake_run(batch_json)
+        ):
             prs, issues = await fetcher.fetch_reviewable_prs(set())
 
         assert prs == []
@@ -470,7 +452,7 @@ class TestFetchReviewablePrs:
         fetcher = IssueFetcher(config)
 
         # PRs exist but none match agent/issue-42
-        batch_json = self._batch_pr_json(
+        batch_json = _batch_pr_json(
             [
                 {
                     "number": 300,
@@ -480,12 +462,9 @@ class TestFetchReviewablePrs:
             ]
         )
 
-        async def fake_run(*args: str, **kwargs: Any) -> str:
-            if any("issues" in arg for arg in args):
-                return RAW_ISSUE_JSON
-            return batch_json
-
-        with patch("issue_fetcher.run_subprocess", side_effect=fake_run):
+        with patch(
+            "issue_fetcher.run_subprocess", side_effect=make_pr_fake_run(batch_json)
+        ):
             prs, issues = await fetcher.fetch_reviewable_prs(set())
 
         assert prs == []
@@ -513,7 +492,7 @@ class TestFetchReviewablePrs:
         fetcher = IssueFetcher(config)
         call_count = 0
 
-        batch_json = self._batch_pr_json(
+        batch_json = _batch_pr_json(
             [
                 {
                     "number": 200,
@@ -523,7 +502,7 @@ class TestFetchReviewablePrs:
             ]
         )
 
-        async def fake_run(*args: str, **kwargs: Any) -> str:
+        async def counting_fake_run_ttl(*args: str, **kwargs: Any) -> str:
             nonlocal call_count
             if any("/pulls" in arg for arg in args):
                 call_count += 1
@@ -531,7 +510,7 @@ class TestFetchReviewablePrs:
                 return RAW_ISSUE_JSON
             return batch_json
 
-        with patch("issue_fetcher.run_subprocess", side_effect=fake_run):
+        with patch("issue_fetcher.run_subprocess", side_effect=counting_fake_run_ttl):
             await fetcher.fetch_reviewable_prs(set())
             fetcher.invalidate_pr_cache()  # reset for second round
             fetcher._pr_cache_fetched_at = None
@@ -548,7 +527,7 @@ class TestFetchReviewablePrs:
         fetcher = IssueFetcher(config)
         call_count = 0
 
-        batch_json = self._batch_pr_json(
+        batch_json = _batch_pr_json(
             [
                 {
                     "number": 200,
@@ -558,7 +537,7 @@ class TestFetchReviewablePrs:
             ]
         )
 
-        async def fake_run(*args: str, **kwargs: Any) -> str:
+        async def counting_fake_run_invalidate(*args: str, **kwargs: Any) -> str:
             nonlocal call_count
             if any("/pulls" in arg for arg in args):
                 call_count += 1
@@ -566,7 +545,9 @@ class TestFetchReviewablePrs:
                 return RAW_ISSUE_JSON
             return batch_json
 
-        with patch("issue_fetcher.run_subprocess", side_effect=fake_run):
+        with patch(
+            "issue_fetcher.run_subprocess", side_effect=counting_fake_run_invalidate
+        ):
             await fetcher.fetch_reviewable_prs(set())
             assert call_count == 1
             # Without invalidation, cache hit → no new call
@@ -621,11 +602,7 @@ class TestFetchPlanIssues:
         self, config: HydraFlowConfig
     ) -> None:
         fetcher = IssueFetcher(config)
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(
-            return_value=(RAW_PLAN_ISSUE_JSON.encode(), b"")
-        )
+        mock_proc = make_proc(stdout=RAW_PLAN_ISSUE_JSON.encode())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issues = await fetcher.fetch_plan_issues()
@@ -640,9 +617,7 @@ class TestFetchPlanIssues:
         self, config: HydraFlowConfig
     ) -> None:
         fetcher = IssueFetcher(config)
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 1
-        mock_proc.communicate = AsyncMock(return_value=(b"", b"error: not found"))
+        mock_proc = make_proc(returncode=1, stderr=b"error: not found")
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issues = await fetcher.fetch_plan_issues()
@@ -654,9 +629,7 @@ class TestFetchPlanIssues:
         self, config: HydraFlowConfig
     ) -> None:
         fetcher = IssueFetcher(config)
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(b"not-json", b""))
+        mock_proc = make_proc(stdout=b"not-json")
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issues = await fetcher.fetch_plan_issues()
@@ -694,9 +667,7 @@ class TestFetchPlanIssues:
             ]
         )
         fetcher = IssueFetcher(config)
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(raw.encode(), b""))
+        mock_proc = make_proc(stdout=raw.encode())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issues = await fetcher.fetch_plan_issues()
@@ -764,9 +735,7 @@ class TestFetchIssueByNumber:
     @pytest.mark.asyncio
     async def test_returns_none_on_gh_failure(self, config: HydraFlowConfig) -> None:
         fetcher = IssueFetcher(config)
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 1
-        mock_proc.communicate = AsyncMock(return_value=(b"", b"error: not found"))
+        mock_proc = make_proc(returncode=1, stderr=b"error: not found")
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issue = await fetcher.fetch_issue_by_number(999)
@@ -778,9 +747,7 @@ class TestFetchIssueByNumber:
         self, config: HydraFlowConfig
     ) -> None:
         fetcher = IssueFetcher(config)
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(b"not-json", b""))
+        mock_proc = make_proc(stdout=b"not-json")
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issue = await fetcher.fetch_issue_by_number(42)
@@ -810,9 +777,7 @@ class TestFetchIssueComments:
     async def test_returns_comment_bodies(self, config: HydraFlowConfig) -> None:
         fetcher = IssueFetcher(config)
         comments_json = json.dumps(["c1", "c2"])
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(comments_json.encode(), b""))
+        mock_proc = make_proc(stdout=comments_json.encode())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             result = await fetcher.fetch_issue_comments(42)
@@ -823,9 +788,7 @@ class TestFetchIssueComments:
     async def test_handles_string_comments(self, config: HydraFlowConfig) -> None:
         fetcher = IssueFetcher(config)
         comments_json = json.dumps(["dict comment", "plain string"])
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(comments_json.encode(), b""))
+        mock_proc = make_proc(stdout=comments_json.encode())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             result = await fetcher.fetch_issue_comments(42)
@@ -835,9 +798,7 @@ class TestFetchIssueComments:
     @pytest.mark.asyncio
     async def test_returns_empty_list_on_failure(self, config: HydraFlowConfig) -> None:
         fetcher = IssueFetcher(config)
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 1
-        mock_proc.communicate = AsyncMock(return_value=(b"", b"error"))
+        mock_proc = make_proc(returncode=1, stderr=b"error")
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             result = await fetcher.fetch_issue_comments(42)
@@ -883,9 +844,7 @@ class TestFetchIssuesByLabels:
                 }
             ]
         )
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(raw.encode(), b""))
+        mock_proc = make_proc(stdout=raw.encode())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issues = await fetcher.fetch_issues_by_labels(
@@ -914,9 +873,7 @@ class TestFetchIssuesByLabels:
                 }
             ]
         )
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(raw.encode(), b""))
+        mock_proc = make_proc(stdout=raw.encode())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issues = await fetcher.fetch_issues_by_labels(["ready"], limit=10)
@@ -950,9 +907,7 @@ class TestFetchIssuesByLabels:
                 },
             ]
         )
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(raw.encode(), b""))
+        mock_proc = make_proc(stdout=raw.encode())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issues = await fetcher.fetch_issues_by_labels(
@@ -977,9 +932,7 @@ class TestFetchIssuesByLabels:
     @pytest.mark.asyncio
     async def test_gh_failure_returns_empty_list(self, config: HydraFlowConfig) -> None:
         fetcher = IssueFetcher(config)
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 1
-        mock_proc.communicate = AsyncMock(return_value=(b"", b"error"))
+        mock_proc = make_proc(returncode=1, stderr=b"error")
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issues = await fetcher.fetch_issues_by_labels(["some-label"], limit=10)
@@ -1115,9 +1068,7 @@ class TestFetchIssuesByLabels:
                 }
             ]
         )
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(raw.encode(), b""))
+        mock_proc = make_proc(stdout=raw.encode())
 
         with patch(
             "asyncio.create_subprocess_exec", return_value=mock_proc
@@ -1155,9 +1106,7 @@ class TestFetchAllHydraFlowIssues:
                 }
             ]
         )
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(raw.encode(), b""))
+        mock_proc = make_proc(stdout=raw.encode())
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             issues = await fetcher.fetch_all_hydraflow_issues()
