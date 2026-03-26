@@ -813,6 +813,54 @@ class TestDoWork:
 
         deps.status_cb.assert_called()
 
+    @pytest.mark.asyncio
+    async def test_do_work_runs_log_ingestion_when_log_dir_exists(
+        self, tmp_path: Path
+    ) -> None:
+        """_do_work runs log ingestion when a logs directory exists."""
+        loop = _make_loop(tmp_path)
+        # Create the expected logs directory
+        log_dir = loop._config.data_root / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        with patch(
+            "health_monitor_loop.HealthMonitorLoop._emit_sentry_metrics"
+        ) as mock_emit:
+            result = await loop._do_work()
+
+        assert result is not None
+        # _emit_sentry_metrics should have been called with log pattern params
+        mock_emit.assert_called_once()
+        call_kwargs = mock_emit.call_args[1]
+        assert "log_patterns_total" in call_kwargs
+        assert "log_patterns_novel" in call_kwargs
+        assert "log_patterns_escalating" in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_do_work_skips_log_ingestion_when_no_log_dir(
+        self, tmp_path: Path
+    ) -> None:
+        """_do_work silently skips log ingestion when log dir doesn't exist."""
+        loop = _make_loop(tmp_path)
+        # Ensure no logs dir exists
+        log_dir = loop._config.data_root / "logs"
+        assert not log_dir.exists()
+
+        # Should not raise; log_patterns_* default to 0
+        with patch(
+            "health_monitor_loop.HealthMonitorLoop._emit_sentry_metrics"
+        ) as mock_emit:
+            result = await loop._do_work()
+
+        assert result is not None
+        call_kwargs = mock_emit.call_args[1]
+        assert call_kwargs.get("log_patterns_total", 0) == 0
+
+    def test_last_log_scan_initialized_to_none(self, tmp_path: Path) -> None:
+        """_last_log_scan attribute is initialized to None in __init__."""
+        loop = _make_loop(tmp_path)
+        assert loop._last_log_scan is None
+
 
 # ---------------------------------------------------------------------------
 # Config

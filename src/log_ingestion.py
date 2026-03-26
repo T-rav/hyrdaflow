@@ -348,6 +348,7 @@ async def file_log_patterns(
             if prs is not None:
                 title = f"[Memory] Log pattern: {pattern.fingerprint[:60]}"
                 body = _build_log_memory_body(pattern)
+                issue_number = 0
                 try:
                     issue_number = await prs.create_issue(
                         title, body, labels=list(config.improve_label)
@@ -357,18 +358,17 @@ async def file_log_patterns(
                         "Failed to file memory issue for pattern: %s",
                         pattern.fingerprint,
                     )
-                    continue
 
-            if issue_number > 0:
-                known_patterns[key] = KnownLogPattern(
-                    fingerprint=pattern.fingerprint,
-                    source_module=pattern.source_module,
-                    filed_at=datetime.now(UTC).isoformat(),
-                    issue_number=issue_number,
-                    last_count=pattern.count,
-                    filed_count=pattern.count,
-                )
-                filed += 1
+                if issue_number > 0:
+                    known_patterns[key] = KnownLogPattern(
+                        fingerprint=pattern.fingerprint,
+                        source_module=pattern.source_module,
+                        filed_at=datetime.now(UTC).isoformat(),
+                        issue_number=issue_number,
+                        last_count=pattern.count,
+                        filed_count=pattern.count,
+                    )
+                    filed += 1
 
             try:
                 import sentry_sdk  # noqa: PLC0415
@@ -383,7 +383,7 @@ async def file_log_patterns(
         else:
             # Known pattern — check for escalation (3x increase over filed baseline)
             known = known_patterns[key]
-            if pattern.count >= known.filed_count * 3:
+            if prs is not None and pattern.count >= known.filed_count * 3:
                 await _escalate_log_pattern(pattern, known, prs, config)
                 escalated += 1
             known.last_count = pattern.count

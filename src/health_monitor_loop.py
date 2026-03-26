@@ -293,6 +293,7 @@ class HealthMonitorLoop(BaseBackgroundLoop):
         self._verification_window = verification_window
         self._decisions_dir: Path = config.memory_dir
         self._pending: list[PendingAdjustment] = []
+        self._last_log_scan: datetime | None = None
 
     def _get_default_interval(self) -> int:
         return self._config.health_monitor_interval
@@ -346,9 +347,55 @@ class HealthMonitorLoop(BaseBackgroundLoop):
         except Exception:  # noqa: BLE001
             pass
 
+        # Log pattern analysis
+        log_result = None
+        try:
+            from log_ingestion import (  # noqa: PLC0415
+                detect_log_patterns,
+                file_log_patterns,
+                load_known_patterns,
+                parse_log_files,
+                save_known_patterns,
+            )
+
+            # Find log directory from config
+            log_file = getattr(self._config, "log_file", None)
+            if log_file:
+                log_dir = Path(log_file).parent
+            else:
+                log_dir = self._config.data_root / "logs"
+
+            if log_dir.is_dir():
+                since = self._last_log_scan
+                entries = parse_log_files(log_dir, since=since)
+                patterns = detect_log_patterns(entries)
+                known = load_known_patterns(self._config.memory_dir)
+
+                log_result = await file_log_patterns(
+                    patterns, known, self._prs, self._config
+                )
+                save_known_patterns(self._config.memory_dir, known)
+                self._last_log_scan = datetime.now(UTC)
+
+                logger.info(
+                    "Log ingestion: %d patterns, %d novel filed, %d escalated",
+                    log_result.total_patterns,
+                    log_result.filed,
+                    log_result.escalated,
+                )
+        except ImportError:
+            pass
+        except Exception:  # noqa: BLE001
+            logger.debug("Log ingestion failed", exc_info=True)
+
         # Emit Sentry measurements
         self._emit_sentry_metrics(
-            metrics, gap_count=gap_count, adjustment_count=adjustments_made
+            metrics,
+            gap_count=gap_count,
+            adjustment_count=adjustments_made,
+            log_patterns_total=log_result.total_patterns if log_result else 0,
+            log_patterns_novel=log_result.filed if log_result else 0,
+            log_patterns_escalating=log_result.escalated if log_result else 0,
         )
 
         total_outcomes = metrics.total_outcomes
@@ -691,6 +738,9 @@ class HealthMonitorLoop(BaseBackgroundLoop):
         *,
         gap_count: int = 0,
         adjustment_count: int = 0,
+        log_patterns_total: int = 0,
+        log_patterns_novel: int = 0,
+        log_patterns_escalating: int = 0,
     ) -> None:
         try:
             import sentry_sdk  # noqa: PLC0415

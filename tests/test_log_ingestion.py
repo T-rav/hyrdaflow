@@ -599,3 +599,67 @@ class TestFileLogPatterns:
         assert result.filed == 2
         assert result.escalated == 1
         assert result.total_patterns == 10
+
+    @pytest.mark.asyncio
+    async def test_prs_none_does_not_raise(self) -> None:
+        """When prs is None, no issues are filed but the function succeeds."""
+        config = _make_config()
+        known: dict[str, KnownLogPattern] = {}
+        pattern = self._make_pattern()
+
+        result = await file_log_patterns([pattern], known, None, config)
+
+        assert result.filed == 0
+        assert result.escalated == 0
+        assert result.total_patterns == 1
+        # known dict not populated when prs is None
+        assert known == {}
+
+    @pytest.mark.asyncio
+    async def test_prs_none_known_pattern_no_escalation(self) -> None:
+        """With prs=None, even escalating patterns are counted but not filed."""
+        config = _make_config()
+        pattern = self._make_pattern(count=15)
+        key = f"{pattern.source_module}:{pattern.fingerprint}"
+        known = {
+            key: KnownLogPattern(
+                fingerprint=pattern.fingerprint,
+                source_module=pattern.source_module,
+                filed_at="2026-03-26T09:00:00+00:00",
+                issue_number=50,
+                last_count=5,
+                filed_count=5,  # 15 >= 5*3 → would escalate if prs available
+            )
+        }
+
+        result = await file_log_patterns([pattern], known, None, config)
+
+        assert result.escalated == 0
+        assert result.filed == 0
+        # last_count still updated
+        assert known[key].last_count == 15
+
+    @pytest.mark.asyncio
+    async def test_escalation_uses_filed_count_baseline(self) -> None:
+        """Escalation checks pattern.count >= known.filed_count * 3 (not last_count)."""
+        prs = AsyncMock()
+        prs.create_issue = AsyncMock(return_value=99)
+        config = _make_config()
+        pattern = self._make_pattern(count=15)
+        key = f"{pattern.source_module}:{pattern.fingerprint}"
+        # filed_count=5 → threshold=15 → count=15 → escalates
+        # last_count=100 → would NOT escalate under old last_count logic
+        known = {
+            key: KnownLogPattern(
+                fingerprint=pattern.fingerprint,
+                source_module=pattern.source_module,
+                filed_at="2026-03-26T09:00:00+00:00",
+                issue_number=50,
+                last_count=100,
+                filed_count=5,
+            )
+        }
+
+        result = await file_log_patterns([pattern], known, prs, config)
+
+        assert result.escalated == 1
