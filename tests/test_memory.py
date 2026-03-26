@@ -117,129 +117,55 @@ class TestParseMemorySuggestion:
 # --- Memory type parsing tests ---
 
 
-class TestParseMemoryType:
-    """Tests for _parse_memory_type normalisation."""
-
-    def test_parse_memory_type__knowledge(self) -> None:
-        assert _parse_memory_type("knowledge") == MemoryType.KNOWLEDGE
-
-    def test_parse_memory_type__config(self) -> None:
-        assert _parse_memory_type("config") == MemoryType.CONFIG
-
-    def test_parse_memory_type__instruction(self) -> None:
-        assert _parse_memory_type("instruction") == MemoryType.INSTRUCTION
-
-    def test_parse_memory_type__code(self) -> None:
-        assert _parse_memory_type("code") == MemoryType.CODE
-
-    def test_parse_memory_type__case_insensitive(self) -> None:
-        assert _parse_memory_type("CONFIG") == MemoryType.CONFIG
-        assert _parse_memory_type("Knowledge") == MemoryType.KNOWLEDGE
-        assert _parse_memory_type("CODE") == MemoryType.CODE
-
-    def test_parse_memory_type__with_whitespace(self) -> None:
-        assert _parse_memory_type("  config  ") == MemoryType.CONFIG
-
-    def test_parse_memory_type__empty_defaults_to_knowledge(self) -> None:
-        assert _parse_memory_type("") == MemoryType.KNOWLEDGE
-
-    def test_parse_memory_type__unknown_defaults_to_knowledge(self) -> None:
-        assert _parse_memory_type("banana") == MemoryType.KNOWLEDGE
-        assert _parse_memory_type("foobar") == MemoryType.KNOWLEDGE
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("knowledge", MemoryType.KNOWLEDGE),
+        ("config", MemoryType.CONFIG),
+        ("instruction", MemoryType.INSTRUCTION),
+        ("code", MemoryType.CODE),
+        ("CONFIG", MemoryType.CONFIG),
+        ("Knowledge", MemoryType.KNOWLEDGE),
+        ("CODE", MemoryType.CODE),
+        ("  config  ", MemoryType.CONFIG),
+        ("", MemoryType.KNOWLEDGE),
+        ("banana", MemoryType.KNOWLEDGE),
+        ("foobar", MemoryType.KNOWLEDGE),
+    ],
+)
+def test_parse_memory_type(raw: str, expected: MemoryType) -> None:
+    """_parse_memory_type normalises raw strings to the correct MemoryType."""
+    assert _parse_memory_type(raw) == expected
 
 
-class TestParseMemorySuggestionType:
-    """Tests for type field parsing in MEMORY_SUGGESTION blocks."""
+def _make_suggestion_transcript(type_line: str | None) -> str:
+    lines = ["MEMORY_SUGGESTION_START", "title: Test"]
+    if type_line is not None:
+        lines.append(type_line)
+    lines += ["learning: A learning", "context: ctx", "MEMORY_SUGGESTION_END", ""]
+    return "\n".join(lines)
 
-    def test_parse_memory_suggestion__type_knowledge(self) -> None:
-        transcript = (
-            "MEMORY_SUGGESTION_START\n"
-            "title: Test\n"
-            "type: knowledge\n"
-            "learning: A learning\n"
-            "context: ctx\n"
-            "MEMORY_SUGGESTION_END\n"
-        )
-        result = parse_memory_suggestion(transcript)
-        assert result is not None
-        assert result["type"] == "knowledge"
 
-    def test_parse_memory_suggestion__type_config(self) -> None:
-        transcript = (
-            "MEMORY_SUGGESTION_START\n"
-            "title: Test\n"
-            "type: config\n"
-            "learning: A config suggestion\n"
-            "context: ctx\n"
-            "MEMORY_SUGGESTION_END\n"
-        )
-        result = parse_memory_suggestion(transcript)
-        assert result is not None
-        assert result["type"] == "config"
-
-    def test_parse_memory_suggestion__type_instruction(self) -> None:
-        transcript = (
-            "MEMORY_SUGGESTION_START\n"
-            "title: Test\n"
-            "type: instruction\n"
-            "learning: An instruction\n"
-            "context: ctx\n"
-            "MEMORY_SUGGESTION_END\n"
-        )
-        result = parse_memory_suggestion(transcript)
-        assert result is not None
-        assert result["type"] == "instruction"
-
-    def test_parse_memory_suggestion__type_code(self) -> None:
-        transcript = (
-            "MEMORY_SUGGESTION_START\n"
-            "title: Test\n"
-            "type: code\n"
-            "learning: A code suggestion\n"
-            "context: ctx\n"
-            "MEMORY_SUGGESTION_END\n"
-        )
-        result = parse_memory_suggestion(transcript)
-        assert result is not None
-        assert result["type"] == "code"
-
-    def test_parse_memory_suggestion__missing_type_defaults_to_knowledge(self) -> None:
-        transcript = (
-            "MEMORY_SUGGESTION_START\n"
-            "title: Test\n"
-            "learning: A learning\n"
-            "context: ctx\n"
-            "MEMORY_SUGGESTION_END\n"
-        )
-        result = parse_memory_suggestion(transcript)
-        assert result is not None
-        assert result["type"] == "knowledge"
-
-    def test_parse_memory_suggestion__invalid_type_defaults_to_knowledge(self) -> None:
-        transcript = (
-            "MEMORY_SUGGESTION_START\n"
-            "title: Test\n"
-            "type: banana\n"
-            "learning: A learning\n"
-            "context: ctx\n"
-            "MEMORY_SUGGESTION_END\n"
-        )
-        result = parse_memory_suggestion(transcript)
-        assert result is not None
-        assert result["type"] == "knowledge"
-
-    def test_parse_memory_suggestion__empty_type_defaults_to_knowledge(self) -> None:
-        transcript = (
-            "MEMORY_SUGGESTION_START\n"
-            "title: Test\n"
-            "type: \n"
-            "learning: A learning\n"
-            "context: ctx\n"
-            "MEMORY_SUGGESTION_END\n"
-        )
-        result = parse_memory_suggestion(transcript)
-        assert result is not None
-        assert result["type"] == "knowledge"
+@pytest.mark.parametrize(
+    ("type_line", "expected_type"),
+    [
+        ("type: knowledge", "knowledge"),
+        ("type: config", "config"),
+        ("type: instruction", "instruction"),
+        ("type: code", "code"),
+        (None, "knowledge"),
+        ("type: banana", "knowledge"),
+        ("type: ", "knowledge"),
+    ],
+)
+def test_parse_memory_suggestion_type(
+    type_line: str | None, expected_type: str
+) -> None:
+    """parse_memory_suggestion resolves the type field to the expected value."""
+    transcript = _make_suggestion_transcript(type_line)
+    result = parse_memory_suggestion(transcript)
+    assert result is not None
+    assert result["type"] == expected_type
 
 
 class TestMemoryTypeEnum:
