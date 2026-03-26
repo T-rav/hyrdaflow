@@ -125,6 +125,21 @@ class MemoryScorer:
         self._dir.mkdir(parents=True, exist_ok=True)
         with self._outcomes_file.open("a", encoding="utf-8") as fh:
             fh.write(outcome.model_dump_json() + "\n")
+        try:
+            import sentry_sdk  # noqa: PLC0415
+
+            sentry_sdk.add_breadcrumb(
+                category="memory.outcome",
+                message=f"Issue #{outcome.issue_id}: {outcome.outcome} (score={outcome.score})",
+                level="info",
+                data={
+                    "issue_id": outcome.issue_id,
+                    "outcome": outcome.outcome,
+                    "context": outcome.context,
+                },
+            )
+        except ImportError:
+            pass
 
     def update_scores(
         self,

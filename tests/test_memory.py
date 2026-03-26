@@ -2562,3 +2562,120 @@ class TestMemorySyncWorkerDolt:
         # File SHOULD be written
         path = config.data_path("memory", "adr_sources.json")
         assert path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Sentry breadcrumb tests for _compact_digest eviction
+# ---------------------------------------------------------------------------
+
+
+class TestCompactDigestSentryBreadcrumb:
+    """Tests for Sentry breadcrumb emission when memory items are evicted."""
+
+    @pytest.mark.asyncio
+    async def test_eviction_emits_sentry_breadcrumb(self, tmp_path: Path) -> None:
+        """_compact_digest adds a Sentry breadcrumb when items are auto-evicted."""
+        from memory_scoring import MemoryScorer, OutcomeRecord
+
+        config = ConfigFactory.create(repo_root=tmp_path)
+        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
+
+        # Seed low score for item 1 so it qualifies for auto-eviction (score < 0.2)
+        scorer = MemoryScorer(config.memory_dir)
+        for _ in range(6):
+            scorer.update_scores(
+                OutcomeRecord(
+                    issue_id=99,
+                    outcome="failure",
+                    score=0.0,
+                    digest_hash="x",
+                ),
+                active_item_ids=[1],
+            )
+        # Verify item 1 is below auto-evict threshold
+        assert scorer.classify_for_compaction(1) == "auto_evict"
+
+        learnings: list[MemorySyncWorker._TypedLearning] = [
+            (
+                1,
+                "Low-value learning that should be evicted",
+                "2024-01-01",
+                MemoryType.KNOWLEDGE,
+            ),
+            (
+                2,
+                "High-value learning that should be kept",
+                "2024-01-02",
+                MemoryType.KNOWLEDGE,
+            ),
+        ]
+
+        mock_sentry = MagicMock()
+        with patch.dict("sys.modules", {"sentry_sdk": mock_sentry}):
+            await worker._compact_digest(learnings, max_chars=10000)
+
+        mock_sentry.add_breadcrumb.assert_called()
+        breadcrumb_calls = [
+            c
+            for c in mock_sentry.add_breadcrumb.call_args_list
+            if c[1].get("category") == "memory.compaction"
+        ]
+        assert len(breadcrumb_calls) == 1
+        call_kwargs = breadcrumb_calls[0][1]
+        assert call_kwargs["level"] == "info"
+        assert "Evicted" in call_kwargs["message"]
+        assert "1" in call_kwargs["message"]
+
+    @pytest.mark.asyncio
+    async def test_no_breadcrumb_when_no_evictions(self, tmp_path: Path) -> None:
+        """_compact_digest does not emit a compaction breadcrumb when nothing is evicted."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
+
+        learnings: list[MemorySyncWorker._TypedLearning] = [
+            (10, "A perfectly good learning", "2024-01-01", MemoryType.KNOWLEDGE),
+        ]
+
+        mock_sentry = MagicMock()
+        with patch.dict("sys.modules", {"sentry_sdk": mock_sentry}):
+            await worker._compact_digest(learnings, max_chars=10000)
+
+        compaction_calls = [
+            c
+            for c in mock_sentry.add_breadcrumb.call_args_list
+            if c[1].get("category") == "memory.compaction"
+        ]
+        assert len(compaction_calls) == 0
+
+    @pytest.mark.asyncio
+    async def test_eviction_breadcrumb_not_emitted_when_sentry_unavailable(
+        self, tmp_path: Path
+    ) -> None:
+        """_compact_digest does not raise when sentry_sdk is missing during eviction."""
+        import sys
+
+        from memory_scoring import MemoryScorer, OutcomeRecord
+
+        config = ConfigFactory.create(repo_root=tmp_path)
+        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
+
+        # Force item 1 to auto-evict territory
+        scorer = MemoryScorer(config.memory_dir)
+        for _ in range(6):
+            scorer.update_scores(
+                OutcomeRecord(
+                    issue_id=99, outcome="failure", score=0.0, digest_hash="x"
+                ),
+                active_item_ids=[1],
+            )
+
+        learnings: list[MemorySyncWorker._TypedLearning] = [
+            (1, "Evictable learning", "2024-01-01", MemoryType.KNOWLEDGE),
+        ]
+
+        original = sys.modules.pop("sentry_sdk", None)
+        try:
+            await worker._compact_digest(learnings, max_chars=10000)  # should not raise
+        finally:
+            if original is not None:
+                sys.modules["sentry_sdk"] = original

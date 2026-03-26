@@ -766,6 +766,16 @@ class MemorySyncWorker:
                     for r in unique
                     if self._coerce_learning_tuple(r)[0] not in evicted_ids
                 ]
+                try:
+                    import sentry_sdk  # noqa: PLC0415
+
+                    sentry_sdk.add_breadcrumb(
+                        category="memory.compaction",
+                        message=f"Evicted {len(evicted_ids)} memory items: {sorted(evicted_ids)}",
+                        level="info",
+                    )
+                except ImportError:
+                    pass
         except ImportError:
             pass  # memory_scoring not available
         except Exception:

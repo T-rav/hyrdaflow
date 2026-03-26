@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -964,3 +965,77 @@ class TestPerContextScoring:
         scorer.update_scores(rec, active_item_ids=[1], item_types={1: "code"})
         scores = scorer.load_item_scores()
         assert "ctx_bugfix" not in scores[1]
+
+
+# ---------------------------------------------------------------------------
+# Sentry breadcrumb tests for record_outcome
+# ---------------------------------------------------------------------------
+
+
+class TestRecordOutcomeSentryBreadcrumb:
+    """Tests for Sentry breadcrumb emission in record_outcome."""
+
+    def test_record_outcome_emits_breadcrumb(self, tmp_path: Path) -> None:
+        """record_outcome adds a Sentry breadcrumb when sentry_sdk is available."""
+        mock_sentry = MagicMock()
+        scorer = MemoryScorer(tmp_path / "mem")
+        record = OutcomeRecord(
+            issue_id=7,
+            outcome="success",
+            score=1.0,
+            digest_hash="abc123",
+            context="bugfix",
+        )
+
+        with patch.dict("sys.modules", {"sentry_sdk": mock_sentry}):
+            scorer.record_outcome(record)
+
+        mock_sentry.add_breadcrumb.assert_called_once()
+        call_kwargs = mock_sentry.add_breadcrumb.call_args[1]
+        assert call_kwargs["category"] == "memory.outcome"
+        assert call_kwargs["level"] == "info"
+        assert "#7" in call_kwargs["message"]
+        assert "success" in call_kwargs["message"]
+        data = call_kwargs["data"]
+        assert data["issue_id"] == 7
+        assert data["outcome"] == "success"
+        assert data["context"] == "bugfix"
+
+    def test_record_outcome_no_error_when_sentry_unavailable(
+        self, tmp_path: Path
+    ) -> None:
+        """record_outcome does not raise when sentry_sdk is missing."""
+        scorer = MemoryScorer(tmp_path / "mem")
+        record = OutcomeRecord(
+            issue_id=1,
+            outcome="failure",
+            score=0.0,
+            digest_hash="xyz",
+        )
+        original = sys.modules.pop("sentry_sdk", None)
+        try:
+            scorer.record_outcome(record)  # should not raise
+        finally:
+            if original is not None:
+                sys.modules["sentry_sdk"] = original
+
+    def test_record_outcome_still_writes_file_when_sentry_available(
+        self, tmp_path: Path
+    ) -> None:
+        """Sentry breadcrumb does not prevent file write."""
+        mock_sentry = MagicMock()
+        scorer = MemoryScorer(tmp_path / "mem")
+        record = OutcomeRecord(
+            issue_id=5,
+            outcome="partial",
+            score=0.55,
+            digest_hash="hash5",
+        )
+
+        with patch.dict("sys.modules", {"sentry_sdk": mock_sentry}):
+            scorer.record_outcome(record)
+
+        lines = scorer._outcomes_file.read_text().strip().splitlines()
+        assert len(lines) == 1
+        data = json.loads(lines[0])
+        assert data["issue_id"] == 5

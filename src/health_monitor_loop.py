@@ -336,8 +336,20 @@ class HealthMonitorLoop(BaseBackgroundLoop):
         # File HITL recommendations for unsafe problems
         await self._file_hitl_recommendations(metrics)
 
+        # Compute knowledge gap count for Sentry metrics
+        gap_count = 0
+        try:
+            from memory_scoring import detect_knowledge_gaps  # noqa: PLC0415
+
+            gaps = detect_knowledge_gaps(self._failures_path, [])
+            gap_count = len(gaps)
+        except Exception:  # noqa: BLE001
+            pass
+
         # Emit Sentry measurements
-        self._emit_sentry_metrics(metrics)
+        self._emit_sentry_metrics(
+            metrics, gap_count=gap_count, adjustment_count=adjustments_made
+        )
 
         total_outcomes = metrics.total_outcomes
         return {
@@ -403,6 +415,22 @@ class HealthMonitorLoop(BaseBackgroundLoop):
                     new_val,
                     condition_key,
                 )
+                try:
+                    import sentry_sdk  # noqa: PLC0415
+
+                    sentry_sdk.add_breadcrumb(
+                        category="memory.auto_adjust",
+                        message=f"Adjusted {parameter}: {current_val} → {new_val}",
+                        level="warning",
+                        data={
+                            "parameter": parameter,
+                            "before": current_val,
+                            "after": new_val,
+                            "reason": record["reason"],
+                        },
+                    )
+                except ImportError:
+                    pass
 
                 self._pending.append(
                     PendingAdjustment(
@@ -609,6 +637,15 @@ class HealthMonitorLoop(BaseBackgroundLoop):
                             issue_number,
                             metric_name,
                         )
+                        try:
+                            import sentry_sdk  # noqa: PLC0415
+
+                            sentry_sdk.capture_message(
+                                f"Health monitor filed HITL recommendation: {metric_name}",
+                                level="warning",
+                            )
+                        except ImportError:
+                            pass
                 except Exception:  # noqa: BLE001
                     logger.warning(
                         "Failed to file HITL recommendation for %s",
@@ -649,7 +686,12 @@ class HealthMonitorLoop(BaseBackgroundLoop):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _emit_sentry_metrics(metrics: TrendMetrics) -> None:
+    def _emit_sentry_metrics(
+        metrics: TrendMetrics,
+        *,
+        gap_count: int = 0,
+        adjustment_count: int = 0,
+    ) -> None:
         try:
             import sentry_sdk  # noqa: PLC0415
 
@@ -661,6 +703,8 @@ class HealthMonitorLoop(BaseBackgroundLoop):
             sentry_sdk.set_measurement(
                 "memory.stale_items", float(metrics.stale_item_count)
             )
+            sentry_sdk.set_measurement("memory.knowledge_gaps", gap_count)
+            sentry_sdk.set_measurement("memory.auto_adjustments", adjustment_count)
         except ImportError:
             pass
         except Exception:  # noqa: BLE001

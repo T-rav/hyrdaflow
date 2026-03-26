@@ -859,3 +859,153 @@ class TestConstantsSanity:
         """All ADJUSTMENT_RULES reference parameters in TUNABLE_BOUNDS."""
         for _condition, param, _step in ADJUSTMENT_RULES:
             assert param in TUNABLE_BOUNDS, f"Unknown parameter: {param}"
+
+
+# ---------------------------------------------------------------------------
+# Sentry breadcrumbs and expanded metrics
+# ---------------------------------------------------------------------------
+
+
+class TestSentryBreadcrumbs:
+    """Tests for Sentry breadcrumb emission on auto-adjustment and HITL filing."""
+
+    def test_apply_adjustments_emits_breadcrumb(self, tmp_path: Path) -> None:
+        """_apply_adjustments adds a breadcrumb when sentry_sdk is available."""
+        mock_sentry = MagicMock()
+        loop = _make_loop(tmp_path, max_quality_fix_attempts=2)
+        metrics = TrendMetrics(
+            first_pass_rate=0.1,
+            avg_memory_score=0.5,
+            surprise_rate=0.0,
+            hitl_escalation_rate=0.0,
+            stale_item_count=0,
+            total_outcomes=20,
+        )
+
+        with patch.dict("sys.modules", {"sentry_sdk": mock_sentry}):
+            loop._apply_adjustments(metrics)
+
+        mock_sentry.add_breadcrumb.assert_called_once()
+        call_kwargs = mock_sentry.add_breadcrumb.call_args[1]
+        assert call_kwargs["category"] == "memory.auto_adjust"
+        assert call_kwargs["level"] == "warning"
+        data = call_kwargs["data"]
+        assert data["parameter"] == "max_quality_fix_attempts"
+        assert data["before"] == 2
+        assert data["after"] == 3
+
+    def test_apply_adjustments_no_breadcrumb_when_sentry_unavailable(
+        self, tmp_path: Path
+    ) -> None:
+        """_apply_adjustments does not raise when sentry_sdk is missing."""
+        loop = _make_loop(tmp_path, max_quality_fix_attempts=2)
+        metrics = TrendMetrics(
+            first_pass_rate=0.1,
+            avg_memory_score=0.5,
+            surprise_rate=0.0,
+            hitl_escalation_rate=0.0,
+            stale_item_count=0,
+            total_outcomes=20,
+        )
+        original = sys.modules.pop("sentry_sdk", None)
+        try:
+            loop._apply_adjustments(metrics)  # should not raise
+        finally:
+            if original is not None:
+                sys.modules["sentry_sdk"] = original
+
+    @pytest.mark.asyncio
+    async def test_file_hitl_recommendations_emits_capture_message(
+        self, tmp_path: Path
+    ) -> None:
+        """_file_hitl_recommendations calls capture_message for each HITL issue filed."""
+        mock_sentry = MagicMock()
+        mock_prs = MagicMock()
+        mock_prs.create_issue = AsyncMock(return_value=42)
+        loop = _make_loop(tmp_path)
+        loop._prs = mock_prs
+
+        # High surprise_rate triggers a recommendation
+        metrics = TrendMetrics(
+            first_pass_rate=0.5,
+            avg_memory_score=0.6,
+            surprise_rate=0.99,
+            hitl_escalation_rate=0.0,
+            stale_item_count=0,
+            total_outcomes=20,
+        )
+
+        with patch.dict("sys.modules", {"sentry_sdk": mock_sentry}):
+            await loop._file_hitl_recommendations(metrics)
+
+        mock_sentry.capture_message.assert_called()
+        call_args = mock_sentry.capture_message.call_args
+        assert "surprise_rate" in call_args[0][0]
+        assert call_args[1]["level"] == "warning"
+
+    @pytest.mark.asyncio
+    async def test_file_hitl_no_capture_message_when_sentry_unavailable(
+        self, tmp_path: Path
+    ) -> None:
+        """_file_hitl_recommendations does not raise when sentry_sdk is missing."""
+        mock_prs = MagicMock()
+        mock_prs.create_issue = AsyncMock(return_value=1)
+        loop = _make_loop(tmp_path)
+        loop._prs = mock_prs
+
+        metrics = TrendMetrics(
+            first_pass_rate=0.5,
+            avg_memory_score=0.6,
+            surprise_rate=0.99,
+            hitl_escalation_rate=0.0,
+            stale_item_count=0,
+            total_outcomes=20,
+        )
+        original = sys.modules.pop("sentry_sdk", None)
+        try:
+            await loop._file_hitl_recommendations(metrics)  # should not raise
+        finally:
+            if original is not None:
+                sys.modules["sentry_sdk"] = original
+
+    def test_emit_sentry_metrics_includes_knowledge_gaps_and_adjustments(
+        self,
+    ) -> None:
+        """_emit_sentry_metrics emits memory.knowledge_gaps and memory.auto_adjustments."""
+        mock_sentry = MagicMock()
+        metrics = TrendMetrics(
+            first_pass_rate=0.8,
+            avg_memory_score=0.7,
+            surprise_rate=0.05,
+            hitl_escalation_rate=0.0,
+            stale_item_count=1,
+            total_outcomes=30,
+        )
+
+        with patch.dict("sys.modules", {"sentry_sdk": mock_sentry}):
+            HealthMonitorLoop._emit_sentry_metrics(
+                metrics, gap_count=4, adjustment_count=2
+            )
+
+        calls = {c[0][0]: c[0][1] for c in mock_sentry.set_measurement.call_args_list}
+        assert calls.get("memory.knowledge_gaps") == 4
+        assert calls.get("memory.auto_adjustments") == 2
+
+    def test_emit_sentry_metrics_defaults_to_zero_counts(self) -> None:
+        """_emit_sentry_metrics defaults gap_count and adjustment_count to 0."""
+        mock_sentry = MagicMock()
+        metrics = TrendMetrics(
+            first_pass_rate=0.8,
+            avg_memory_score=0.7,
+            surprise_rate=0.05,
+            hitl_escalation_rate=0.0,
+            stale_item_count=1,
+            total_outcomes=30,
+        )
+
+        with patch.dict("sys.modules", {"sentry_sdk": mock_sentry}):
+            HealthMonitorLoop._emit_sentry_metrics(metrics)
+
+        calls = {c[0][0]: c[0][1] for c in mock_sentry.set_measurement.call_args_list}
+        assert calls.get("memory.knowledge_gaps") == 0
+        assert calls.get("memory.auto_adjustments") == 0
