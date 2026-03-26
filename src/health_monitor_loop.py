@@ -414,6 +414,42 @@ class HealthMonitorLoop(BaseBackgroundLoop):
         except Exception:  # noqa: BLE001
             logger.debug("Harness auto-file failed", exc_info=True)
 
+        # Ingest harness suggestions as memory items
+        try:
+            suggestions_path = self._config.data_path(
+                "memory", "harness_suggestions.jsonl"
+            )
+            if suggestions_path.exists():
+                from memory import file_memory_suggestion  # noqa: PLC0415
+
+                raw_suggestions = (
+                    suggestions_path.read_text(encoding="utf-8").strip().splitlines()
+                )
+                for line in raw_suggestions:
+                    try:
+                        rec = json.loads(line)
+                        transcript = (
+                            f"MEMORY_SUGGESTION_START\n"
+                            f"title: Harness insight: {rec.get('title', 'Unknown')}\n"
+                            f"type: instruction\n"
+                            f"learning: {rec.get('suggestion', rec.get('title', ''))}\n"
+                            f"context: Detected from {rec.get('occurrences', 0)} pipeline"
+                            f" failures in category {rec.get('category', 'unknown')}\n"
+                            f"MEMORY_SUGGESTION_END"
+                        )
+                        await file_memory_suggestion(
+                            transcript,
+                            "harness_insight",
+                            "health_monitor",
+                            self._config,
+                        )
+                    except Exception:  # noqa: BLE001
+                        continue
+                # Clear processed suggestions so they are not re-ingested
+                suggestions_path.write_text("", encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            logger.debug("Harness suggestion ingestion failed", exc_info=True)
+
         # Verify improvement proposal outcomes
         try:
             from review_insights import (  # noqa: PLC0415
@@ -509,6 +545,20 @@ class HealthMonitorLoop(BaseBackgroundLoop):
         except Exception:  # noqa: BLE001
             logger.debug("Cross-project log pattern detection failed", exc_info=True)
 
+        # Count unactioned HITL recommendations for Sentry metrics
+        hitl_recommendations_count = 0
+        try:
+            rec_path = self._config.data_path("memory", "hitl_recommendations.jsonl")
+            if rec_path.exists():
+                lines = rec_path.read_text(encoding="utf-8").strip().splitlines()
+                hitl_recommendations_count = sum(
+                    1
+                    for line in lines
+                    if line.strip() and not json.loads(line).get("actioned", False)
+                )
+        except Exception:  # noqa: BLE001
+            pass
+
         # Emit Sentry measurements
         self._emit_sentry_metrics(
             metrics,
@@ -517,6 +567,7 @@ class HealthMonitorLoop(BaseBackgroundLoop):
             log_patterns_total=log_result.total_patterns if log_result else 0,
             log_patterns_novel=log_result.filed if log_result else 0,
             log_patterns_escalating=log_result.escalated if log_result else 0,
+            hitl_recommendations_count=hitl_recommendations_count,
         )
 
         total_outcomes = metrics.total_outcomes
@@ -868,6 +919,7 @@ class HealthMonitorLoop(BaseBackgroundLoop):
         log_patterns_total: int = 0,
         log_patterns_novel: int = 0,
         log_patterns_escalating: int = 0,
+        hitl_recommendations_count: int = 0,
     ) -> None:
         try:
             import sentry_sdk  # noqa: PLC0415
@@ -886,6 +938,10 @@ class HealthMonitorLoop(BaseBackgroundLoop):
             sentry_sdk.set_measurement("memory.log_patterns_novel", log_patterns_novel)
             sentry_sdk.set_measurement(
                 "memory.log_patterns_escalating", log_patterns_escalating
+            )
+            sentry_sdk.set_measurement(
+                "memory.hitl_recommendations_unactioned",
+                hitl_recommendations_count,
             )
         except ImportError:
             pass

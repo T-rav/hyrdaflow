@@ -4138,6 +4138,41 @@ def create_router(
                         exc_info=True,
                     )
 
+    # ---------------------------------------------------------------------------
+    # JSONL data endpoints
+    # ---------------------------------------------------------------------------
+
+    def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+        """Read a JSONL file and return parsed records, skipping malformed lines."""
+        if not path.exists():
+            return []
+        records: list[dict[str, Any]] = []
+        try:
+            for line in path.read_text(encoding="utf-8").strip().splitlines():
+                with contextlib.suppress(json.JSONDecodeError):
+                    records.append(json.loads(line))
+        except OSError:
+            pass
+        return records
+
+    @router.get("/api/hitl-recommendations")
+    async def get_hitl_recommendations() -> JSONResponse:
+        """Return unactioned HITL recommendations filed by the health monitor."""
+        path = config.data_path("memory", "hitl_recommendations.jsonl")
+        return JSONResponse(_read_jsonl(path))
+
+    @router.get("/api/adr-decisions")
+    async def get_adr_decisions() -> JSONResponse:
+        """Return ADR decision records from adr_reviewer and memory pre-validation."""
+        path = config.data_path("memory", "adr_decisions.jsonl")
+        return JSONResponse(_read_jsonl(path))
+
+    @router.get("/api/verification-records")
+    async def get_verification_records() -> JSONResponse:
+        """Return post-merge verification records requiring human review."""
+        path = config.data_path("memory", "verification_records.jsonl")
+        return JSONResponse(_read_jsonl(path))
+
     # SPA catch-all: serve index.html for any path not matched above.
     # This must be registered LAST so it doesn't shadow API/WS routes.
     @router.get("/{path:path}", response_model=None)

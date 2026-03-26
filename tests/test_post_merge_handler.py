@@ -403,7 +403,7 @@ class TestPostMergeHandler:
 
         path = config.data_path("memory", "verification_records.jsonl")
         assert path.exists(), "Verification record should be written to JSONL"
-        records = [json.loads(l) for l in path.read_text().strip().splitlines()]
+        records = [json.loads(ln) for ln in path.read_text().strip().splitlines()]
         assert len(records) >= 1
         assert records[0]["issue_id"] == s.issue.id
 
@@ -433,7 +433,7 @@ class TestPostMergeHandler:
 
         path = config.data_path("memory", "verification_records.jsonl")
         assert path.exists()
-        records = [json.loads(l) for l in path.read_text().strip().splitlines()]
+        records = [json.loads(ln) for ln in path.read_text().strip().splitlines()]
         assert len(records) >= 1
         assert records[0]["pr_number"] == s.pr.number
 
