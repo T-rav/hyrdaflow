@@ -605,19 +605,31 @@ class TestRunSaveTranscriptOSError:
 class TestEventPublishing:
     """Tests verifying that the correct events are published during a run."""
 
-    @pytest.mark.asyncio
-    async def test_run_emits_running_status_at_start(
-        self, config, event_bus: EventBus, agent_task, tmp_path: Path
-    ) -> None:
-        """run should publish WORKER_UPDATE with status=running before executing."""
-        runner = AgentRunner(config, event_bus)
-        received_events = []
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
-        # Subscribe BEFORE the run
+    async def _run_with_mocks(
+        self,
+        runner: AgentRunner,
+        event_bus: EventBus,
+        agent_task: Task,
+        tmp_path: Path,
+        *,
+        execute_side_effect: object = None,
+        worker_id: int = 0,
+    ) -> list:
+        """Patch the four noisy methods, run the agent, and return WORKER_UPDATE events."""
         queue = event_bus.subscribe()
 
+        execute_kwargs: dict = (
+            {"side_effect": execute_side_effect}
+            if execute_side_effect is not None
+            else {"return_value": ""}
+        )
+
         with (
-            patch.object(runner, "_execute", new_callable=AsyncMock, return_value=""),
+            patch.object(runner, "_execute", new_callable=AsyncMock, **execute_kwargs),
             patch.object(
                 runner,
                 "_verify_result",
@@ -629,14 +641,33 @@ class TestEventPublishing:
             ),
             patch.object(runner, "_save_transcript"),
         ):
-            await runner.run(agent_task, tmp_path, "agent/issue-42")
+            await runner.run(
+                agent_task, tmp_path, "agent/issue-42", worker_id=worker_id
+            )
 
+        return self._drain_worker_updates(queue)
+
+    @staticmethod
+    def _drain_worker_updates(queue: asyncio.Queue) -> list:
+        """Drain the event queue and return only WORKER_UPDATE events."""
+        events = []
         while not queue.empty():
-            received_events.append(queue.get_nowait())
+            events.append(queue.get_nowait())
+        return [e for e in events if e.type == EventType.WORKER_UPDATE]
 
-        worker_updates = [
-            e for e in received_events if e.type == EventType.WORKER_UPDATE
-        ]
+    # ------------------------------------------------------------------
+    # Tests
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_run_emits_running_status_at_start(
+        self, config, event_bus: EventBus, agent_task, tmp_path: Path
+    ) -> None:
+        """run should publish WORKER_UPDATE with status=running before executing."""
+        runner = AgentRunner(config, event_bus)
+        worker_updates = await self._run_with_mocks(
+            runner, event_bus, agent_task, tmp_path
+        )
         statuses = [e.data.get("status") for e in worker_updates]
         assert WorkerStatus.RUNNING.value in statuses
 
@@ -646,28 +677,9 @@ class TestEventPublishing:
     ) -> None:
         """run should publish WORKER_UPDATE with status=done on a successful run."""
         runner = AgentRunner(config, event_bus)
-        queue = event_bus.subscribe()
-
-        with (
-            patch.object(runner, "_execute", new_callable=AsyncMock, return_value=""),
-            patch.object(
-                runner,
-                "_verify_result",
-                new_callable=AsyncMock,
-                return_value=LoopResult(passed=True, summary="OK"),
-            ),
-            patch.object(
-                runner, "_count_commits", new_callable=AsyncMock, return_value=1
-            ),
-            patch.object(runner, "_save_transcript"),
-        ):
-            await runner.run(agent_task, tmp_path, "agent/issue-42")
-
-        events = []
-        while not queue.empty():
-            events.append(queue.get_nowait())
-
-        worker_updates = [e for e in events if e.type == EventType.WORKER_UPDATE]
+        worker_updates = await self._run_with_mocks(
+            runner, event_bus, agent_task, tmp_path
+        )
         statuses = [e.data.get("status") for e in worker_updates]
         assert WorkerStatus.DONE.value in statuses
 
@@ -690,11 +702,7 @@ class TestEventPublishing:
         ):
             await runner.run(agent_task, tmp_path, "agent/issue-42")
 
-        events = []
-        while not queue.empty():
-            events.append(queue.get_nowait())
-
-        worker_updates = [e for e in events if e.type == EventType.WORKER_UPDATE]
+        worker_updates = self._drain_worker_updates(queue)
         statuses = [e.data.get("status") for e in worker_updates]
         assert WorkerStatus.FAILED.value in statuses
 
@@ -704,28 +712,9 @@ class TestEventPublishing:
     ) -> None:
         """run should publish WORKER_UPDATE with status=testing before verifying."""
         runner = AgentRunner(config, event_bus)
-        queue = event_bus.subscribe()
-
-        with (
-            patch.object(runner, "_execute", new_callable=AsyncMock, return_value=""),
-            patch.object(
-                runner,
-                "_verify_result",
-                new_callable=AsyncMock,
-                return_value=LoopResult(passed=True, summary="OK"),
-            ),
-            patch.object(
-                runner, "_count_commits", new_callable=AsyncMock, return_value=1
-            ),
-            patch.object(runner, "_save_transcript"),
-        ):
-            await runner.run(agent_task, tmp_path, "agent/issue-42")
-
-        events = []
-        while not queue.empty():
-            events.append(queue.get_nowait())
-
-        worker_updates = [e for e in events if e.type == EventType.WORKER_UPDATE]
+        worker_updates = await self._run_with_mocks(
+            runner, event_bus, agent_task, tmp_path
+        )
         statuses = [e.data.get("status") for e in worker_updates]
         assert WorkerStatus.TESTING.value in statuses
 
@@ -735,28 +724,9 @@ class TestEventPublishing:
     ) -> None:
         """WORKER_UPDATE events should carry the correct issue number."""
         runner = AgentRunner(config, event_bus)
-        queue = event_bus.subscribe()
-
-        with (
-            patch.object(runner, "_execute", new_callable=AsyncMock, return_value=""),
-            patch.object(
-                runner,
-                "_verify_result",
-                new_callable=AsyncMock,
-                return_value=LoopResult(passed=True, summary="OK"),
-            ),
-            patch.object(
-                runner, "_count_commits", new_callable=AsyncMock, return_value=1
-            ),
-            patch.object(runner, "_save_transcript"),
-        ):
-            await runner.run(agent_task, tmp_path, "agent/issue-42", worker_id=3)
-
-        events = []
-        while not queue.empty():
-            events.append(queue.get_nowait())
-
-        worker_updates = [e for e in events if e.type == EventType.WORKER_UPDATE]
+        worker_updates = await self._run_with_mocks(
+            runner, event_bus, agent_task, tmp_path, worker_id=3
+        )
         for event in worker_updates:
             assert event.data.get("issue") == agent_task.id
             assert event.data.get("worker") == 3
@@ -767,28 +737,9 @@ class TestEventPublishing:
     ) -> None:
         """WORKER_UPDATE events should carry role='implementer'."""
         runner = AgentRunner(config, event_bus)
-        queue = event_bus.subscribe()
-
-        with (
-            patch.object(runner, "_execute", new_callable=AsyncMock, return_value=""),
-            patch.object(
-                runner,
-                "_verify_result",
-                new_callable=AsyncMock,
-                return_value=LoopResult(passed=True, summary="OK"),
-            ),
-            patch.object(
-                runner, "_count_commits", new_callable=AsyncMock, return_value=1
-            ),
-            patch.object(runner, "_save_transcript"),
-        ):
-            await runner.run(agent_task, tmp_path, "agent/issue-42")
-
-        events = []
-        while not queue.empty():
-            events.append(queue.get_nowait())
-
-        worker_updates = [e for e in events if e.type == EventType.WORKER_UPDATE]
+        worker_updates = await self._run_with_mocks(
+            runner, event_bus, agent_task, tmp_path
+        )
         assert len(worker_updates) > 0
         for event in worker_updates:
             assert event.data.get("role") == "implementer"
@@ -800,14 +751,8 @@ class TestEventPublishing:
         """In dry-run mode, run should still emit RUNNING and DONE status events."""
         runner = AgentRunner(dry_config, event_bus)
         queue = event_bus.subscribe()
-
         await runner.run(agent_task, tmp_path, "agent/issue-42")
-
-        events = []
-        while not queue.empty():
-            events.append(queue.get_nowait())
-
-        worker_updates = [e for e in events if e.type == EventType.WORKER_UPDATE]
+        worker_updates = self._drain_worker_updates(queue)
         statuses = [e.data.get("status") for e in worker_updates]
         assert WorkerStatus.RUNNING.value in statuses
         assert WorkerStatus.DONE.value in statuses
@@ -819,14 +764,8 @@ class TestEventPublishing:
         """In dry-run mode, WORKER_UPDATE events should still carry role='implementer'."""
         runner = AgentRunner(dry_config, event_bus)
         queue = event_bus.subscribe()
-
         await runner.run(agent_task, tmp_path, "agent/issue-42")
-
-        events = []
-        while not queue.empty():
-            events.append(queue.get_nowait())
-
-        worker_updates = [e for e in events if e.type == EventType.WORKER_UPDATE]
+        worker_updates = self._drain_worker_updates(queue)
         assert len(worker_updates) > 0
         for event in worker_updates:
             assert event.data.get("role") == "implementer"
