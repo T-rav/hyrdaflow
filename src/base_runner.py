@@ -190,6 +190,7 @@ class BaseRunner:
         memory_raw = ""
         troubleshooting_raw = ""
         retrospectives_raw = ""
+        review_insights_raw = ""
 
         if self._hindsight and query_context:
             from hindsight import Bank, format_memories_as_markdown, recall_safe
@@ -224,6 +225,16 @@ class BaseRunner:
             except Exception:  # noqa: BLE001
                 pass  # Enhancement — must not interrupt pipeline
 
+            try:
+                ri_memories = await recall_safe(
+                    self._hindsight, Bank.REVIEW_INSIGHTS, query_context
+                )
+                review_insights_raw = format_memories_as_markdown(ri_memories)
+                if review_insights_raw:
+                    review_insights_raw = review_insights_raw[:max_chars]
+            except Exception:  # noqa: BLE001
+                pass  # Enhancement — must not interrupt pipeline
+
         # Assemble the memory section from all available banks.
         # Cap the combined section at max_memory_prompt_chars.
         combined_parts: list[str] = []
@@ -235,6 +246,8 @@ class BaseRunner:
             )
         if retrospectives_raw:
             combined_parts.append(f"## Past Retrospectives\n\n{retrospectives_raw}")
+        if review_insights_raw:
+            combined_parts.append(f"## Common Review Patterns\n\n{review_insights_raw}")
 
         if combined_parts:
             combined = "\n\n".join(combined_parts)
