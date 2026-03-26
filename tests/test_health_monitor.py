@@ -593,58 +593,60 @@ class TestOutcomeVerification:
 
 
 class TestHITLRecommendations:
-    """Tests for _file_hitl_recommendations."""
+    """Tests for _file_hitl_recommendations — writes to JSONL, not GitHub."""
+
+    def _load_recs(self, tmp_path: Path) -> list[dict]:
+        import json
+
+        # Use the loop config data_path directly
+        path = (
+            tmp_path / "repo" / ".hydraflow" / "memory" / "hitl_recommendations.jsonl"
+        )
+        if not path.exists():
+            return []
+        return [
+            json.loads(l) for l in path.read_text().strip().splitlines() if l.strip()
+        ]
 
     @pytest.mark.asyncio
-    async def test_files_issue_for_high_surprise_rate(self, tmp_path: Path) -> None:
-        """High surprise_rate triggers a HITL GitHub issue."""
-        mock_prs = AsyncMock()
-        mock_prs.create_issue.return_value = 42
-        loop = _make_loop(tmp_path, prs=mock_prs)
-
+    async def test_writes_rec_for_high_surprise_rate(self, tmp_path: Path) -> None:
+        """High surprise_rate writes a recommendation to JSONL."""
+        loop = _make_loop(tmp_path)
         metrics = TrendMetrics(
             first_pass_rate=0.5,
             avg_memory_score=0.7,
-            surprise_rate=0.5,  # above _SURPRISE_HIGH=0.3
+            surprise_rate=0.5,
             hitl_escalation_rate=0.0,
             stale_item_count=0,
             total_outcomes=50,
         )
         await loop._file_hitl_recommendations(metrics)
 
-        mock_prs.create_issue.assert_called_once()
-        title, body, labels = mock_prs.create_issue.call_args[0]
-        assert "surprise_rate" in title
-        assert "recommendation" in title.lower()
-        assert "surprise" in body.lower()
+        recs = self._load_recs(tmp_path)
+        assert len(recs) >= 1
+        assert any("surprise_rate" in r["title"] for r in recs)
 
     @pytest.mark.asyncio
-    async def test_files_issue_for_high_hitl_rate(self, tmp_path: Path) -> None:
-        """High hitl_escalation_rate triggers a HITL GitHub issue."""
-        mock_prs = AsyncMock()
-        mock_prs.create_issue.return_value = 43
-        loop = _make_loop(tmp_path, prs=mock_prs)
-
+    async def test_writes_rec_for_high_hitl_rate(self, tmp_path: Path) -> None:
+        """High hitl_escalation_rate writes a recommendation."""
+        loop = _make_loop(tmp_path)
         metrics = TrendMetrics(
             first_pass_rate=0.5,
             avg_memory_score=0.7,
             surprise_rate=0.0,
-            hitl_escalation_rate=0.5,  # above _HITL_HIGH=0.4
+            hitl_escalation_rate=0.5,
             stale_item_count=0,
             total_outcomes=50,
         )
         await loop._file_hitl_recommendations(metrics)
 
-        mock_prs.create_issue.assert_called_once()
-        title = mock_prs.create_issue.call_args[0][0]
-        assert "hitl_escalation_rate" in title
+        recs = self._load_recs(tmp_path)
+        assert any("hitl_escalation_rate" in r["title"] for r in recs)
 
     @pytest.mark.asyncio
-    async def test_no_issue_for_healthy_metrics(self, tmp_path: Path) -> None:
-        """Healthy metrics produce no GitHub issues."""
-        mock_prs = AsyncMock()
-        loop = _make_loop(tmp_path, prs=mock_prs)
-
+    async def test_no_rec_for_healthy_metrics(self, tmp_path: Path) -> None:
+        """Healthy metrics produce no recommendations."""
+        loop = _make_loop(tmp_path)
         metrics = TrendMetrics(
             first_pass_rate=0.75,
             avg_memory_score=0.7,
@@ -655,33 +657,16 @@ class TestHITLRecommendations:
         )
         await loop._file_hitl_recommendations(metrics)
 
-        mock_prs.create_issue.assert_not_called()
+        recs = self._load_recs(tmp_path)
+        assert len(recs) == 0
 
     @pytest.mark.asyncio
-    async def test_no_prs_no_error(self, tmp_path: Path) -> None:
-        """When prs is None, recommendations silently skip."""
-        loop = _make_loop(tmp_path, prs=None)
-        metrics = TrendMetrics(
-            first_pass_rate=0.1,
-            avg_memory_score=0.2,
-            surprise_rate=0.6,
-            hitl_escalation_rate=0.8,
-            stale_item_count=20,
-            total_outcomes=50,
-        )
-        # Should not raise
-        await loop._file_hitl_recommendations(metrics)
-
-    @pytest.mark.asyncio
-    async def test_files_issue_for_low_avg_score(self, tmp_path: Path) -> None:
-        """Low avg_memory_score triggers a HITL GitHub issue."""
-        mock_prs = AsyncMock()
-        mock_prs.create_issue.return_value = 44
-        loop = _make_loop(tmp_path, prs=mock_prs)
-
+    async def test_writes_rec_for_low_avg_score(self, tmp_path: Path) -> None:
+        """Low avg_memory_score writes a recommendation."""
+        loop = _make_loop(tmp_path)
         metrics = TrendMetrics(
             first_pass_rate=0.5,
-            avg_memory_score=0.2,  # below _AVG_SCORE_LOW=0.4
+            avg_memory_score=0.2,
             surprise_rate=0.0,
             hitl_escalation_rate=0.0,
             stale_item_count=0,
@@ -689,9 +674,8 @@ class TestHITLRecommendations:
         )
         await loop._file_hitl_recommendations(metrics)
 
-        calls = mock_prs.create_issue.call_args_list
-        titles = [c[0][0] for c in calls]
-        assert any("avg_memory_score" in t for t in titles)
+        recs = self._load_recs(tmp_path)
+        assert any("avg_memory_score" in r["title"] for r in recs)
 
 
 # ---------------------------------------------------------------------------
