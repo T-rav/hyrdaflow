@@ -319,7 +319,7 @@ class MemorySyncWorker:
         max_chars = self._config.max_memory_chars
         total_chars = sum(len(str(r.learning)) for r in learnings)
         if total_chars > max_chars:
-            learnings = await self._compact_items(learnings, max_chars)
+            learnings = await self._compact_items(learnings, max_chars)  # type: ignore[assignment]
             # Rewrite items.jsonl with only surviving items
             self._rewrite_items_jsonl(learnings, local_items)
             compacted = True
@@ -702,7 +702,7 @@ class MemorySyncWorker:
 
     def _rewrite_items_jsonl(
         self,
-        surviving: list[_LearningRecord],
+        surviving: Sequence[_LearningRecord],
         original_items: list[dict[str, object]],
     ) -> None:
         """Rewrite items.jsonl keeping only items whose numeric ID is in *surviving*.
