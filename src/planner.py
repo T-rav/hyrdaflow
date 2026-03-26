@@ -69,7 +69,7 @@ class PlannerRunner(BaseRunner):
             logger.info("Issue #%d classified as %s plan", task.id, scale)
 
             cmd = self._build_command()
-            prompt, prompt_stats = self._build_prompt_with_stats(
+            prompt, prompt_stats = await self._build_prompt_with_stats(
                 task, scale=scale, research_context=research_context
             )
 
@@ -287,7 +287,7 @@ class PlannerRunner(BaseRunner):
                 lines.append(f"- `{header}` \u2014 {desc}")
         return "\n".join(lines)
 
-    def _build_prompt_with_stats(
+    async def _build_prompt_with_stats(
         self,
         issue: Task,
         *,
@@ -335,7 +335,9 @@ class PlannerRunner(BaseRunner):
                 "the surrounding text describes what they show."
             )
 
-        manifest_section, memory_section = self._inject_manifest_and_memory()
+        manifest_section, memory_section = await self._inject_manifest_and_memory(
+            query_context=f"{issue.title}\n{(issue.body or '')[:200]}",
+        )
 
         find_label = self._config.find_label[0]
 

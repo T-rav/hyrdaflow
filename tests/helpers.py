@@ -388,6 +388,11 @@ class ConfigFactory:
         max_ci_log_prompt_chars: int = 6_000,
         max_unsticker_cause_chars: int = 3_000,
         max_verification_instructions_chars: int = 50_000,
+        hindsight_enabled: bool = False,
+        hindsight_url: str = "",
+        hindsight_api_key: str = "",
+        hindsight_timeout: int = 30,
+        hindsight_exclusive: bool = False,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -622,6 +627,11 @@ class ConfigFactory:
                 max_ci_log_prompt_chars=max_ci_log_prompt_chars,
                 max_unsticker_cause_chars=max_unsticker_cause_chars,
                 max_verification_instructions_chars=max_verification_instructions_chars,
+                hindsight_enabled=hindsight_enabled,
+                hindsight_url=hindsight_url,
+                hindsight_api_key=hindsight_api_key,
+                hindsight_timeout=hindsight_timeout,
+                hindsight_exclusive=hindsight_exclusive,
             )
 
 

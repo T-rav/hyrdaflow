@@ -570,7 +570,8 @@ class TestPlanPhaseBeadsIntegration:
 
 
 class TestAgentBeadPromptIntegration:
-    def test_injects_claim_and_close(self, config, event_bus) -> None:
+    @pytest.mark.asyncio
+    async def test_injects_claim_and_close(self, config, event_bus) -> None:
         from agent import AgentRunner
         from tests.conftest import TaskFactory
 
@@ -581,7 +582,7 @@ class TestAgentBeadPromptIntegration:
             comments=["## Implementation Plan\n\n" + _TASK_GRAPH_PLAN],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(
+        prompt, _ = await runner._build_prompt_with_stats(
             issue, bead_mapping={"P1": "repo-4yu", "P2": "repo-z2o"}
         )
 
@@ -590,7 +591,8 @@ class TestAgentBeadPromptIntegration:
         assert 'bd close repo-4yu --reason "Phase complete"' in prompt
         assert "bd update repo-z2o --claim" in prompt
 
-    def test_no_commands_without_mapping(self, config, event_bus) -> None:
+    @pytest.mark.asyncio
+    async def test_no_commands_without_mapping(self, config, event_bus) -> None:
         from agent import AgentRunner
         from tests.conftest import TaskFactory
 
@@ -601,12 +603,13 @@ class TestAgentBeadPromptIntegration:
             comments=["## Implementation Plan\n\n" + _TASK_GRAPH_PLAN],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(issue, bead_mapping=None)
+        prompt, _ = await runner._build_prompt_with_stats(issue, bead_mapping=None)
 
         assert "bd update" not in prompt
         assert "bd close" not in prompt
 
-    def test_partial_mapping(self, config, event_bus) -> None:
+    @pytest.mark.asyncio
+    async def test_partial_mapping(self, config, event_bus) -> None:
         from agent import AgentRunner
         from tests.conftest import TaskFactory
 
@@ -617,7 +620,7 @@ class TestAgentBeadPromptIntegration:
             comments=["## Implementation Plan\n\n" + _TASK_GRAPH_PLAN],
         )
         runner = AgentRunner(config, event_bus)
-        prompt, _ = runner._build_prompt_with_stats(
+        prompt, _ = await runner._build_prompt_with_stats(
             issue, bead_mapping={"P1": "repo-4yu"}
         )
 
@@ -711,7 +714,8 @@ class TestImplementPhaseBeadsIntegration:
 
 
 class TestReviewerBeadPromptIntegration:
-    def test_adds_per_bead_section(self, config, event_bus) -> None:
+    @pytest.mark.asyncio
+    async def test_adds_per_bead_section(self, config, event_bus) -> None:
         from reviewer import ReviewRunner
         from tests.conftest import PRInfoFactory, TaskFactory
 
@@ -720,7 +724,7 @@ class TestReviewerBeadPromptIntegration:
         issue = TaskFactory.create(id=42, title="Add widget", body="Need widgets")
         diff = "diff --git a/src/models.py b/src/models.py\n+class Widget:\n"
 
-        prompt, _ = runner._build_review_prompt_with_stats(
+        prompt, _ = await runner._build_review_prompt_with_stats(
             pr,
             issue,
             diff,
@@ -737,12 +741,13 @@ class TestReviewerBeadPromptIntegration:
         assert "## Per-Bead Review" in prompt
         assert "Bead #repo-4yu" in prompt
 
-    def test_no_section_without_tasks(self, config, event_bus) -> None:
+    @pytest.mark.asyncio
+    async def test_no_section_without_tasks(self, config, event_bus) -> None:
         from reviewer import ReviewRunner
         from tests.conftest import PRInfoFactory, TaskFactory
 
         runner = ReviewRunner(config, event_bus)
-        prompt, _ = runner._build_review_prompt_with_stats(
+        prompt, _ = await runner._build_review_prompt_with_stats(
             PRInfoFactory.create(number=101, branch="x", issue_number=42),
             TaskFactory.create(id=42, title="Fix", body="b"),
             "diff --git a/x b/x\n+y\n",

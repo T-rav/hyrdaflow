@@ -103,6 +103,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
         "HYDRAFLOW_MAX_VERIFICATION_INSTRUCTIONS_CHARS",
         50_000,
     ),
+    ("hindsight_timeout", "HYDRAFLOW_HINDSIGHT_TIMEOUT", 30),
     ("state_backup_interval", "HYDRAFLOW_STATE_BACKUP_INTERVAL", 300),
     ("state_backup_count", "HYDRAFLOW_STATE_BACKUP_COUNT", 3),
 ]
@@ -125,6 +126,8 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("release_tag_prefix", "HYDRAFLOW_RELEASE_TAG_PREFIX", "v"),
     ("main_branch", "HYDRAFLOW_MAIN_BRANCH", "main"),
     ("repos_workspace_dir", "HYDRAFLOW_REPOS_WORKSPACE_DIR", "~/.hydra/repos"),
+    ("hindsight_url", "HYDRAFLOW_HINDSIGHT_URL", ""),
+    ("hindsight_api_key", "HYDRAFLOW_HINDSIGHT_API_KEY", ""),
 ]
 
 _ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
@@ -169,6 +172,8 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         True,
     ),
     ("screenshot_gist_public", "HYDRAFLOW_SCREENSHOT_GIST_PUBLIC", False),
+    ("hindsight_enabled", "HYDRAFLOW_HINDSIGHT_ENABLED", False),
+    ("hindsight_exclusive", "HYDRAFLOW_HINDSIGHT_EXCLUSIVE", False),
     ("skip_preflight", "HYDRAFLOW_SKIP_PREFLIGHT", False),
     ("manifest_issue_enabled", "HYDRAFLOW_MANIFEST_ISSUE_ENABLED", False),
     ("metrics_issue_enabled", "HYDRAFLOW_METRICS_ISSUE_ENABLED", False),
@@ -727,6 +732,30 @@ class HydraFlowConfig(BaseModel):
     memory_compaction_model: str = Field(
         default="haiku",
         description="Cheap model for summarising memory digest when over size limit",
+    )
+
+    # Hindsight semantic memory
+    hindsight_enabled: bool = Field(
+        default=False,
+        description="Enable Hindsight semantic memory for recall instead of file-based digest",
+    )
+    hindsight_url: str = Field(
+        default="",
+        description="Base URL for the Hindsight REST API",
+    )
+    hindsight_api_key: str = Field(
+        default="",
+        description="API key for Hindsight authentication",
+    )
+    hindsight_timeout: int = Field(
+        default=30,
+        ge=5,
+        le=120,
+        description="HTTP timeout in seconds for Hindsight API calls",
+    )
+    hindsight_exclusive: bool = Field(
+        default=False,
+        description="When True and Hindsight is enabled, skip file-based memory fallback",
     )
 
     memory_auto_approve: bool = Field(

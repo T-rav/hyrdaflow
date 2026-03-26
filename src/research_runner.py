@@ -45,7 +45,7 @@ class ResearchRunner(BaseRunner):
 
         try:
             cmd = self._build_command()
-            prompt = self._build_prompt(task)
+            prompt = await self._build_prompt(task)
 
             def _check_complete(accumulated: str) -> bool:
                 if "RESEARCH_END" in accumulated:
@@ -106,9 +106,11 @@ class ResearchRunner(BaseRunner):
             disallowed_tools="Write,Edit,NotebookEdit",
         )
 
-    def _build_prompt(self, task: Task) -> str:
+    async def _build_prompt(self, task: Task) -> str:
         """Build the research prompt for *task*."""
-        manifest_section, memory_section = self._inject_manifest_and_memory()
+        manifest_section, memory_section = await self._inject_manifest_and_memory(
+            query_context=f"{task.title}\n{(task.body or '')[:200]}",
+        )
 
         return f"""You are a research agent exploring the codebase for GitHub issue #{task.id}.
 

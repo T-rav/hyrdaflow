@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from acceptance_criteria import AcceptanceCriteriaGenerator
@@ -61,6 +63,8 @@ from workspace import WorkspaceManager
 from workspace_gc_loop import WorkspaceGCLoop
 
 if TYPE_CHECKING:
+    from hindsight import HindsightClient
+    from hindsight_wal import HindsightWAL
     from metrics_manager import MetricsManager
 
 
@@ -119,6 +123,10 @@ class ServiceRegistry:
     runs_gc_loop: RunsGCLoop
     adr_reviewer_loop: ADRReviewerLoop
 
+    # Optional integrations
+    hindsight: HindsightClient | None = None
+    hindsight_wal: HindsightWAL | None = None
+
 
 @dataclass
 class OrchestratorCallbacks:
@@ -142,16 +150,62 @@ def build_services(
 
     This replaces the 170-line orchestrator constructor body.
     """
+    # Hindsight semantic memory (optional)
+    hindsight_client = None
+    hindsight_wal: HindsightWAL | None = None
+    if config.hindsight_enabled and config.hindsight_url:
+        from hindsight import HindsightClient
+        from hindsight_wal import HindsightWAL
+
+        hindsight_client = HindsightClient(
+            config.hindsight_url,
+            api_key=config.hindsight_api_key,
+            timeout=config.hindsight_timeout,
+        )
+        hindsight_wal = HindsightWAL(config.data_path("memory", "hindsight_wal.jsonl"))
+
+    # Dolt embedded state backend (preferred, graceful fallback)
+    from dolt_backend import DoltBackend
+
+    dolt_backend: DoltBackend | None = None
+    try:
+        dolt_dir = Path(str(config.state_file)).parent / "dolt"
+        dolt_backend = DoltBackend(dolt_dir)
+    except FileNotFoundError:
+        logging.getLogger("hydraflow.service_registry").info(
+            "dolt CLI not found — stores will use file-based fallback",
+        )
+    except Exception:
+        logging.getLogger("hydraflow.service_registry").warning(
+            "Dolt init failed",
+            exc_info=True,
+        )
+
     # Core runners
     worktrees = WorkspaceManager(config)
     subprocess_runner = get_docker_runner(config)
-    agents = AgentRunner(config, event_bus, runner=subprocess_runner)
-    planners = PlannerRunner(config, event_bus, runner=subprocess_runner)
-    researcher = ResearchRunner(config, event_bus, runner=subprocess_runner)
+    agents = AgentRunner(
+        config,
+        event_bus,
+        runner=subprocess_runner,
+        hindsight=hindsight_client,
+        dolt=dolt_backend,
+        wal=hindsight_wal,
+    )
+    planners = PlannerRunner(
+        config, event_bus, runner=subprocess_runner, hindsight=hindsight_client
+    )
+    researcher = ResearchRunner(
+        config, event_bus, runner=subprocess_runner, hindsight=hindsight_client
+    )
     prs = PRManager(config, event_bus)
     manifest_syncer = ManifestIssueSyncer(config, state, prs)
-    reviewers = ReviewRunner(config, event_bus, runner=subprocess_runner)
-    hitl_runner = HITLRunner(config, event_bus, runner=subprocess_runner)
+    reviewers = ReviewRunner(
+        config, event_bus, runner=subprocess_runner, hindsight=hindsight_client
+    )
+    hitl_runner = HITLRunner(
+        config, event_bus, runner=subprocess_runner, hindsight=hindsight_client
+    )
     triage = TriageRunner(config, event_bus, runner=subprocess_runner)
     summarizer = TranscriptSummarizer(
         config, prs, event_bus, state, runner=subprocess_runner
@@ -167,10 +221,17 @@ def build_services(
     store.set_crate_manager(crate_manager)
 
     # Harness insight store (shared across phases)
-    harness_insights = HarnessInsightStore(config.data_path("memory"))
+    harness_insights = HarnessInsightStore(
+        config.data_path("memory"),
+        hindsight=hindsight_client,
+        dolt=dolt_backend,
+        wal=hindsight_wal,
+    )
 
     # Troubleshooting pattern store (CI timeout feedback loop)
-    troubleshooting_store = TroubleshootingPatternStore(config.data_path("memory"))
+    troubleshooting_store = TroubleshootingPatternStore(
+        config.data_path("memory"), hindsight=hindsight_client, wal=hindsight_wal
+    )
 
     # Epic management
     epic_checker = EpicCompletionChecker(config, prs, fetcher, state=state)
@@ -263,8 +324,18 @@ def build_services(
         runner=subprocess_runner,
         prs=prs,
         manifest_syncer=manifest_syncer,
+        hindsight=hindsight_client,
+        dolt=dolt_backend,
+        wal=hindsight_wal,
     )
-    retrospective = RetrospectiveCollector(config, state, prs)
+    retrospective = RetrospectiveCollector(
+        config,
+        state,
+        prs,
+        hindsight=hindsight_client,
+        dolt=dolt_backend,
+        wal=hindsight_wal,
+    )
     ac_generator = AcceptanceCriteriaGenerator(
         config, prs, event_bus, runner=subprocess_runner
     )
@@ -301,6 +372,9 @@ def build_services(
         post_merge=post_merge_handler,
         update_bg_worker_status=callbacks.update_bg_worker_status,
         baseline_policy=baseline_policy,
+        hindsight=hindsight_client,
+        dolt=dolt_backend,
+        wal=hindsight_wal,
     )
 
     # Background loops — shared deps bundled into a single LoopDeps object
@@ -399,6 +473,8 @@ def build_services(
         worktree_gc_loop=worktree_gc_loop,
         runs_gc_loop=runs_gc_loop,
         adr_reviewer_loop=adr_reviewer_loop,
+        hindsight=hindsight_client,
+        hindsight_wal=hindsight_wal,
         github_cache=gh_cache,
         github_cache_loop=gh_cache_loop,
     )

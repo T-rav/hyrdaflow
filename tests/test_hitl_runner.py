@@ -109,80 +109,99 @@ class TestClassifyCause:
 class TestBuildPrompt:
     """Tests for HITLRunner._build_prompt_with_stats."""
 
-    def test_prompt_includes_issue_title(self, hitl_runner) -> None:
+    @pytest.mark.asyncio
+    async def test_prompt_includes_issue_title(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=42, title="Fix the widget")
-        prompt, _ = hitl_runner._build_prompt_with_stats(
+        prompt, _ = await hitl_runner._build_prompt_with_stats(
             issue, "Try mocking the DB", "CI failed"
         )
         assert "Fix the widget" in prompt
 
-    def test_prompt_includes_correction_text(self, hitl_runner) -> None:
+    @pytest.mark.asyncio
+    async def test_prompt_includes_correction_text(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=42)
-        prompt, _ = hitl_runner._build_prompt_with_stats(
+        prompt, _ = await hitl_runner._build_prompt_with_stats(
             issue, "Mock the database layer", "CI failed"
         )
         assert "Mock the database layer" in prompt
 
-    def test_prompt_includes_cause(self, hitl_runner) -> None:
+    @pytest.mark.asyncio
+    async def test_prompt_includes_cause(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=42)
-        prompt, _ = hitl_runner._build_prompt_with_stats(
+        prompt, _ = await hitl_runner._build_prompt_with_stats(
             issue, "Fix it", "CI failed after 2 attempts"
         )
         assert "CI failed after 2 attempts" in prompt
 
-    def test_prompt_uses_ci_instructions_for_ci_cause(self, hitl_runner) -> None:
+    @pytest.mark.asyncio
+    async def test_prompt_uses_ci_instructions_for_ci_cause(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=42)
-        prompt, _ = hitl_runner._build_prompt_with_stats(
+        prompt, _ = await hitl_runner._build_prompt_with_stats(
             issue, "Fix", "CI failed after 2 fix attempt(s)"
         )
         assert "make quality" in prompt
         assert "do NOT skip or disable tests" in prompt
 
-    def test_prompt_uses_merge_instructions_for_conflict_cause(
+    @pytest.mark.asyncio
+    async def test_prompt_uses_merge_instructions_for_conflict_cause(
         self, hitl_runner
     ) -> None:
         issue = IssueFactory.create(number=42)
-        prompt, _ = hitl_runner._build_prompt_with_stats(
+        prompt, _ = await hitl_runner._build_prompt_with_stats(
             issue, "Fix", "Merge conflict with main branch"
         )
         assert "git status" in prompt
         assert "conflict" in prompt.lower()
 
-    def test_prompt_uses_needs_info_instructions(self, hitl_runner) -> None:
+    @pytest.mark.asyncio
+    async def test_prompt_uses_needs_info_instructions(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=42)
-        prompt, _ = hitl_runner._build_prompt_with_stats(
+        prompt, _ = await hitl_runner._build_prompt_with_stats(
             issue, "Add logging", "Insufficient issue detail for triage"
         )
         assert "comprehensive tests" in prompt
 
-    def test_prompt_uses_visual_instructions_for_visual_cause(
+    @pytest.mark.asyncio
+    async def test_prompt_uses_visual_instructions_for_visual_cause(
         self, hitl_runner
     ) -> None:
         issue = IssueFactory.create(number=42)
-        prompt, _ = hitl_runner._build_prompt_with_stats(
+        prompt, _ = await hitl_runner._build_prompt_with_stats(
             issue, "Fix the button", "Visual validation failed on login screen"
         )
         assert "visual" in prompt.lower()
         assert "screenshot" in prompt.lower()
         assert "visual regression" in prompt.lower()
 
-    def test_prompt_includes_issue_number_in_commit_message(self, hitl_runner) -> None:
+    @pytest.mark.asyncio
+    async def test_prompt_includes_issue_number_in_commit_message(
+        self, hitl_runner
+    ) -> None:
         issue = IssueFactory.create(number=99)
-        prompt, _ = hitl_runner._build_prompt_with_stats(issue, "Fix it", "Unknown")
+        prompt, _ = await hitl_runner._build_prompt_with_stats(
+            issue, "Fix it", "Unknown"
+        )
         assert "#99" in prompt
 
-    def test_prompt_includes_no_push_rule(self, hitl_runner) -> None:
+    @pytest.mark.asyncio
+    async def test_prompt_includes_no_push_rule(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=42)
-        prompt, _ = hitl_runner._build_prompt_with_stats(issue, "Fix", "CI failed")
+        prompt, _ = await hitl_runner._build_prompt_with_stats(
+            issue, "Fix", "CI failed"
+        )
         assert "Do NOT push to remote" in prompt
 
-    def test_prompt_includes_memory_suggestion_block(self, hitl_runner) -> None:
+    @pytest.mark.asyncio
+    async def test_prompt_includes_memory_suggestion_block(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=42)
-        prompt, _ = hitl_runner._build_prompt_with_stats(issue, "Fix", "CI failed")
+        prompt, _ = await hitl_runner._build_prompt_with_stats(
+            issue, "Fix", "CI failed"
+        )
         assert "MEMORY_SUGGESTION_START" in prompt
         assert "MEMORY_SUGGESTION_END" in prompt
 
-    def test_prompt_includes_project_context_when_manifest_exists(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_project_context_when_manifest_exists(
         self, config, event_bus
     ) -> None:
         """Manifest content appears in prompt as ## Project Context."""
@@ -193,17 +212,23 @@ class TestBuildPrompt:
 
         runner = HITLRunner(config, event_bus)
         issue = IssueFactory.create(number=42)
-        prompt, _ = runner._build_prompt_with_stats(issue, "Fix", "CI failed")
+        prompt, _ = await runner._build_prompt_with_stats(issue, "Fix", "CI failed")
         assert "## Project Context" in prompt
         assert "python, make, pytest" in prompt
 
-    def test_prompt_omits_project_context_when_no_manifest(self, hitl_runner) -> None:
+    @pytest.mark.asyncio
+    async def test_prompt_omits_project_context_when_no_manifest(
+        self, hitl_runner
+    ) -> None:
         """Without a manifest file, ## Project Context is not in the prompt."""
         issue = IssueFactory.create(number=42)
-        prompt, _ = hitl_runner._build_prompt_with_stats(issue, "Fix", "CI failed")
+        prompt, _ = await hitl_runner._build_prompt_with_stats(
+            issue, "Fix", "CI failed"
+        )
         assert "## Project Context" not in prompt
 
-    def test_prompt_includes_accumulated_learnings_when_digest_exists(
+    @pytest.mark.asyncio
+    async def test_prompt_includes_accumulated_learnings_when_digest_exists(
         self, config, event_bus
     ) -> None:
         """Memory digest content appears in prompt as ## Accumulated Learnings."""
@@ -214,22 +239,26 @@ class TestBuildPrompt:
 
         runner = HITLRunner(config, event_bus)
         issue = IssueFactory.create(number=42)
-        prompt, _ = runner._build_prompt_with_stats(issue, "Fix", "CI failed")
+        prompt, _ = await runner._build_prompt_with_stats(issue, "Fix", "CI failed")
         assert "## Accumulated Learnings" in prompt
         assert "Always check edge cases" in prompt
 
-    def test_prompt_omits_accumulated_learnings_when_no_digest(
+    @pytest.mark.asyncio
+    async def test_prompt_omits_accumulated_learnings_when_no_digest(
         self, hitl_runner
     ) -> None:
         """Without a digest file, ## Accumulated Learnings is not in the prompt."""
         issue = IssueFactory.create(number=42)
-        prompt, _ = hitl_runner._build_prompt_with_stats(issue, "Fix", "CI failed")
+        prompt, _ = await hitl_runner._build_prompt_with_stats(
+            issue, "Fix", "CI failed"
+        )
         assert "## Accumulated Learnings" not in prompt
 
-    def test_prompt_forbids_unrelated_refactoring(self, hitl_runner) -> None:
+    @pytest.mark.asyncio
+    async def test_prompt_forbids_unrelated_refactoring(self, hitl_runner) -> None:
         """Prompt must warn agent not to bundle unrelated refactoring."""
         issue = IssueFactory.create(number=42)
-        prompt, _ = hitl_runner._build_prompt_with_stats(
+        prompt, _ = await hitl_runner._build_prompt_with_stats(
             issue, "Fix the test", "CI failed"
         )
         assert "Do NOT bundle unrelated refactoring" in prompt
@@ -347,12 +376,13 @@ class TestRunExecution:
         assert result.error is not None
         assert "make quality" in result.error
 
-    def test_build_prompt_with_stats_prunes_large_guidance(
+    @pytest.mark.asyncio
+    async def test_build_prompt_with_stats_prunes_large_guidance(
         self, config, event_bus
     ) -> None:
         runner = HITLRunner(config, event_bus)
         issue = IssueFactory.create(number=42, body="b" * 200)
-        _prompt, stats = runner._build_prompt_with_stats(
+        _prompt, stats = await runner._build_prompt_with_stats(
             issue,
             correction="x" * 10_000,
             cause="y" * 6000,

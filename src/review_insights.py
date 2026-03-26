@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from dedup_store import DedupStore
 from models import IsoTimestamp, ReviewVerdict
+
+if TYPE_CHECKING:
+    from dolt_backend import DoltBackend
+    from hindsight import HindsightClient
+    from hindsight_wal import HindsightWAL
 
 logger = logging.getLogger("hydraflow.review_insights")
 
@@ -188,22 +194,54 @@ def extract_categories(summary: str) -> list[str]:
 class ReviewInsightStore:
     """File-backed store for review records and proposed-category tracking."""
 
-    def __init__(self, memory_dir: Path) -> None:
+    def __init__(
+        self,
+        memory_dir: Path,
+        *,
+        hindsight: HindsightClient | None = None,
+        dolt: DoltBackend | None = None,
+        wal: HindsightWAL | None = None,
+    ) -> None:
         self._memory_dir = memory_dir
         self._reviews_path = memory_dir / "reviews.jsonl"
-        self._proposed_path = memory_dir / "proposed_categories.json"
+        self._proposed = DedupStore(
+            "proposed_categories",
+            memory_dir / "proposed_categories.json",
+            dolt=dolt,
+        )
+        self._hindsight = hindsight
+        self._dolt = dolt
+        self._wal = wal
 
     def append_review(self, record: ReviewRecord) -> None:
         """Append *record* as a JSON line to ``reviews.jsonl``."""
-        try:
-            from file_util import append_jsonl  # noqa: PLC0415
+        if not self._hindsight:
+            try:
+                from file_util import append_jsonl  # noqa: PLC0415
 
-            append_jsonl(self._reviews_path, record.model_dump_json())
-        except OSError:
-            logger.warning(
-                "Could not append review to %s",
-                self._reviews_path,
-                exc_info=True,
+                append_jsonl(self._reviews_path, record.model_dump_json())
+            except OSError:
+                logger.warning(
+                    "Could not append review to %s",
+                    self._reviews_path,
+                    exc_info=True,
+                )
+
+        if self._hindsight:
+            from hindsight import Bank, schedule_retain  # noqa: PLC0415
+
+            schedule_retain(
+                self._hindsight,
+                Bank.REVIEW_INSIGHTS,
+                record.summary,
+                context=f"PR #{record.pr_number} issue #{record.issue_number} verdict={record.verdict}",
+                metadata={
+                    "pr_number": record.pr_number,
+                    "issue_number": record.issue_number,
+                    "verdict": str(record.verdict),
+                    "categories": record.categories,
+                },
+                wal=self._wal,
             )
 
     def load_recent(self, n: int = 10) -> list[ReviewRecord]:
@@ -222,20 +260,11 @@ class ReviewInsightStore:
 
     def get_proposed_categories(self) -> set[str]:
         """Return the set of categories that already have filed proposals."""
-        if not self._proposed_path.exists():
-            return set()
-        try:
-            data = json.loads(self._proposed_path.read_text())
-            return set(data)
-        except (json.JSONDecodeError, TypeError):
-            return set()
+        return self._proposed.get()
 
     def mark_category_proposed(self, category: str) -> None:
         """Record that an improvement proposal has been filed for *category*."""
-        proposed = self.get_proposed_categories()
-        proposed.add(category)
-        self._memory_dir.mkdir(parents=True, exist_ok=True)
-        self._proposed_path.write_text(json.dumps(sorted(proposed)))
+        self._proposed.add(category)
 
 
 # ---------------------------------------------------------------------------

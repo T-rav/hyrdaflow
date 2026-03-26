@@ -93,21 +93,23 @@ class TestResearchRunner:
 
 
 class TestResearchPrompt:
-    def test_prompt_contains_issue_info(self, config, event_bus):
+    @pytest.mark.asyncio
+    async def test_prompt_contains_issue_info(self, config, event_bus):
         runner = _make_runner(config, event_bus)
         task = TaskFactory.create(
             title="Add widget support", body="Need to add widgets"
         )
-        prompt = runner._build_prompt(task)
+        prompt = await runner._build_prompt(task)
         assert "#42" in prompt
         assert "Add widget support" in prompt
         assert "RESEARCH_START" in prompt
         assert "RESEARCH_END" in prompt
 
-    def test_prompt_is_read_only(self, config, event_bus):
+    @pytest.mark.asyncio
+    async def test_prompt_is_read_only(self, config, event_bus):
         runner = _make_runner(config, event_bus)
         task = TaskFactory.create(id=1, title="Feature")
-        prompt = runner._build_prompt(task)
+        prompt = await runner._build_prompt(task)
         assert "READ-ONLY" in prompt
 
 

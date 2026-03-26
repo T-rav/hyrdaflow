@@ -374,3 +374,84 @@ TROUBLESHOOTING_PATTERN_END
         result = extract_troubleshooting_pattern(transcript, 1, "python")
         assert result is not None
         assert result.pattern_name == "spaced_pattern"
+
+
+# ---------------------------------------------------------------------------
+# Hindsight dual-write tests
+# ---------------------------------------------------------------------------
+
+
+class TestTroubleshootingHindsightDualWrite:
+    """Tests for Hindsight dual-write in TroubleshootingPatternStore.append_pattern()."""
+
+    def test_dual_write_fires_via_create_task(self, tmp_path: Path) -> None:
+        """When hindsight is set, retain_safe is fire-and-forget via create_task."""
+        from unittest.mock import MagicMock, patch
+
+        mock_hindsight = MagicMock()
+        store = TroubleshootingPatternStore(
+            tmp_path / "memory", hindsight=mock_hindsight
+        )
+
+        pattern = TroubleshootingPattern(
+            language="python",
+            pattern_name="truthy_asyncmock",
+            description="AsyncMock without return_value evaluates truthy",
+            fix_strategy="Set return_value to falsy value",
+            source_issues=[42],
+        )
+
+        mock_loop = MagicMock()
+        mock_loop.create_task = MagicMock()
+
+        with (
+            patch("asyncio.get_running_loop", return_value=mock_loop),
+            patch("hindsight.retain_safe") as mock_retain,
+        ):
+            store.append_pattern(pattern)
+            mock_loop.create_task.assert_called_once()
+            call_args = mock_retain.call_args
+            assert call_args is not None
+            assert "truthy_asyncmock" in call_args.args[2]
+            assert "Fix:" in call_args.args[2]
+            assert "language=python" in call_args.kwargs["context"]
+
+    def test_file_write_happens_without_hindsight(self, tmp_path: Path) -> None:
+        """File write still happens when hindsight is None."""
+        store = TroubleshootingPatternStore(tmp_path / "memory", hindsight=None)
+        pattern = TroubleshootingPattern(
+            language="python",
+            pattern_name="test_pattern",
+            description="test",
+            fix_strategy="fix",
+        )
+        store.append_pattern(pattern)
+
+        patterns_path = tmp_path / "memory" / "troubleshooting_patterns.jsonl"
+        assert patterns_path.exists()
+        assert "test_pattern" in patterns_path.read_text()
+
+    def test_no_event_loop_skips_dual_write(self, tmp_path: Path) -> None:
+        """When no event loop is running, dual-write is silently skipped."""
+        from unittest.mock import MagicMock, patch
+
+        mock_hindsight = MagicMock()
+        store = TroubleshootingPatternStore(
+            tmp_path / "memory", hindsight=mock_hindsight
+        )
+        pattern = TroubleshootingPattern(
+            language="python",
+            pattern_name="test_pattern",
+            description="test",
+            fix_strategy="fix",
+        )
+
+        with patch(
+            "asyncio.get_running_loop",
+            side_effect=RuntimeError("no running event loop"),
+        ):
+            store.append_pattern(pattern)  # should not raise
+
+        # File write still happened
+        patterns_path = tmp_path / "memory" / "troubleshooting_patterns.jsonl"
+        assert patterns_path.exists()

@@ -356,13 +356,13 @@ class TestRunCleanTask:
             worktrees.append(inst)
             return inst
 
-        def fake_state_tracker(path) -> FakeState:
-            inst = FakeState(path)
+        def fake_build_state_tracker(_config) -> FakeState:
+            inst = FakeState(_config)
             states.append(inst)
             return inst
 
         monkeypatch.setattr("workspace.WorkspaceManager", fake_worktree_manager)
-        monkeypatch.setattr("state.StateTracker", fake_state_tracker)
+        monkeypatch.setattr("state.build_state_tracker", fake_build_state_tracker)
 
         result = await run_clean(config)
 

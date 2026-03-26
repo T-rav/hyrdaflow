@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import re
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agent_cli import build_lightweight_command
@@ -29,6 +27,9 @@ from state import StateTracker
 from subprocess_util import make_clean_env
 
 if TYPE_CHECKING:
+    from dolt_backend import DoltBackend
+    from hindsight import HindsightClient
+    from hindsight_wal import HindsightWAL
     from ports import PRPort
 
 logger = logging.getLogger("hydraflow.memory")
@@ -205,6 +206,9 @@ class MemorySyncWorker:
         manifest_store: CuratedManifestStore | None = None,
         manifest_manager: ProjectManifestManager | None = None,
         manifest_syncer: ManifestIssueSyncer | None = None,
+        hindsight: HindsightClient | None = None,
+        dolt: DoltBackend | None = None,
+        wal: HindsightWAL | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -216,6 +220,16 @@ class MemorySyncWorker:
             config, curator=self._manifest_store
         )
         self._manifest_syncer = manifest_syncer
+        self._hindsight = hindsight
+        self._dolt = dolt
+        self._wal = wal
+        from dedup_store import DedupStore  # noqa: PLC0415
+
+        self._adr_sources = DedupStore(
+            "adr_sources",
+            config.data_path("memory", "adr_sources.json"),
+            dolt=dolt,
+        )
 
     _TypedLearning = tuple[int, str, str, MemoryType]
     _LearningRecord = CuratedLearning | _TypedLearning
@@ -298,21 +312,42 @@ class MemorySyncWorker:
             digest = await self._compact_digest(learnings, max_chars)
             compacted = True
 
-        # Write individual items
-        items_dir = self._config.data_path("memory", "items")
-        items_dir.mkdir(parents=True, exist_ok=True)
-        for record in learnings:
-            num, learning, _, _ = self._coerce_learning_tuple(record)
-            item_path = items_dir / f"{num}.md"
-            item_path.write_text(learning)
+        # Write individual items and digest to disk (skip when Hindsight is
+        # the exclusive write target).
+        if not self._hindsight:
+            items_dir = self._config.data_path("memory", "items")
+            items_dir.mkdir(parents=True, exist_ok=True)
+            for record in learnings:
+                num, learning, _, _ = self._coerce_learning_tuple(record)
+                item_path = items_dir / f"{num}.md"
+                item_path.write_text(learning)
 
-        # Prune stale item files
+            # Atomic write of digest
+            self._write_digest(digest)
+
+        # Prune stale item files (always — cleans up legacy files)
         pruned = 0
         if self._config.memory_prune_stale_items:
             pruned = self._prune_stale_items(current_ids)
 
-        # Atomic write of digest
-        self._write_digest(digest)
+        # Dual-write learnings to Hindsight
+        if self._hindsight:
+            from hindsight import Bank, retain_safe
+
+            for record in learnings:
+                num, learning, created, mtype = self._coerce_learning_tuple(record)
+                await retain_safe(
+                    self._hindsight,
+                    Bank.LEARNINGS,
+                    learning,
+                    context=f"Issue #{num} ({mtype.value})",
+                    metadata={
+                        "issue_number": num,
+                        "memory_type": mtype.value,
+                        "created_at": created,
+                    },
+                    wal=self._wal,
+                )
 
         # Update state
         digest_hash = hashlib.sha256(digest.encode()).hexdigest()[:16]
@@ -572,25 +607,11 @@ class MemorySyncWorker:
             )
         return reasons
 
-    def _adr_sources_path(self) -> Path:
-        return self._config.data_path("memory", "adr_sources.json")
-
     def _load_adr_source_ids(self) -> set[int]:
-        path = self._adr_sources_path()
-        if not path.exists():
-            return set()
-        try:
-            data = json.loads(path.read_text())
-        except (OSError, json.JSONDecodeError):
-            return set()
-        if not isinstance(data, list):
-            return set()
-        return {int(x) for x in data if isinstance(x, int)}
+        return {int(v) for v in self._adr_sources.get() if v.isdigit()}
 
     def _save_adr_source_ids(self, issue_ids: set[int]) -> None:
-        path = self._adr_sources_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write(path, json.dumps(sorted(issue_ids)) + "\n")
+        self._adr_sources.set_all({str(i) for i in issue_ids})
 
     async def _refresh_manifest(self, source: str) -> None:
         """Regenerate the manifest and optionally sync it upstream."""

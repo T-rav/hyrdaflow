@@ -39,7 +39,7 @@ from phase_utils import (
     release_batch_in_flight,
 )
 from service_registry import OrchestratorCallbacks, ServiceRegistry, build_services
-from state import StateTracker
+from state import StateTracker, build_state_tracker
 from state_restorer import StateRestorer
 from subprocess_util import (
     AuthenticationError,
@@ -79,7 +79,7 @@ class HydraFlowOrchestrator:
     ) -> None:
         self._config = config
         self._bus = event_bus or EventBus()
-        self._state = state or StateTracker(config.state_file)
+        self._state = state or build_state_tracker(config)
         self._dashboard: object | None = None
         # In-memory tracking of active issues (avoids double-processing)
         self._active_impl_issues: set[int] = set()
@@ -314,6 +314,13 @@ class HydraFlowOrchestrator:
             if not task.done():
                 task.cancel()
                 logger.debug("Cancelled loop task %r", name)
+
+        # Close the Hindsight HTTP client if present
+        from hindsight import HindsightClient
+
+        hs = getattr(self._svc, "hindsight", None)
+        if isinstance(hs, HindsightClient):
+            await hs.close()
 
         await self._publish_status()
 
@@ -841,6 +848,19 @@ class HydraFlowOrchestrator:
             ("github_cache", self._svc.github_cache_loop.run),
             ("pipeline_stats", self._pipeline_stats_loop),
         ]
+
+        # Optional: WAL replay loop for Hindsight crash recovery
+        if self._svc.hindsight and self._svc.hindsight_wal:
+            from hindsight_wal import run_wal_replay_loop  # noqa: PLC0415
+
+            wal = self._svc.hindsight_wal
+            client = self._svc.hindsight
+            stop = self._stop_event
+
+            async def _wal_replay() -> None:
+                await run_wal_replay_loop(wal, client, stop)
+
+            loop_factories.append(("wal_replay", _wal_replay))
         self._state_restorer.prune_stale_disabled_workers(
             {n for n, _ in loop_factories}
         )

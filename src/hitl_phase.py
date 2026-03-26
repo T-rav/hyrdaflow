@@ -201,7 +201,9 @@ class HITLPhase:
                         )
                         return
 
-                    cause = self._state.get_hitl_cause(issue_number) or "Unknown escalation"
+                    cause = (
+                        self._state.get_hitl_cause(issue_number) or "Unknown escalation"
+                    )
                     origin = self._state.get_hitl_origin(issue_number)
 
                     # Get or create worktree
@@ -216,7 +218,9 @@ class HITLPhase:
                         issue_number, self._config.hitl_active_label[0]
                     )
 
-                    result = await self._hitl_runner.run(issue, correction, cause, wt_path)
+                    result = await self._hitl_runner.run(
+                        issue, correction, cause, wt_path
+                    )
 
                     # File memory suggestion if present in transcript
                     if result.transcript:
