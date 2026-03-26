@@ -30,52 +30,50 @@ from tests.helpers import make_worker_result, mock_fetcher_noop
 class TestInit:
     """HydraFlowOrchestrator.__init__ creates all required components."""
 
+    # ------------------------------------------------------------------
+    # Service-registry wiring: each entry is (svc_attr, module, type_name)
+    # ------------------------------------------------------------------
+    _SVC_WIRING = [
+        ("worktrees", "workspace", "WorkspaceManager"),
+        ("agents", "agent", "AgentRunner"),
+        ("prs", "pr_manager", "PRManager"),
+        ("planners", "planner", "PlannerRunner"),
+        ("reviewers", "reviewer", "ReviewRunner"),
+        ("fetcher", "issue_fetcher", "IssueFetcher"),
+        ("implementer", "implement_phase", "ImplementPhase"),
+        ("reviewer", "review_phase", "ReviewPhase"),
+    ]
+
+    @pytest.mark.parametrize(
+        "svc_attr,module_name,type_name",
+        [(a, m, t) for a, m, t in _SVC_WIRING],
+        ids=[a for a, _, _ in _SVC_WIRING],
+    )
+    def test_svc_wiring(
+        self,
+        config: HydraFlowConfig,
+        svc_attr: str,
+        module_name: str,
+        type_name: str,
+    ) -> None:
+        import importlib
+
+        mod = importlib.import_module(module_name)
+        expected_type = getattr(mod, type_name)
+        orch = HydraFlowOrchestrator(config)
+        svc_obj = getattr(orch._svc, svc_attr)
+        assert isinstance(svc_obj, expected_type)
+        assert svc_obj._config is config
+
     def test_creates_event_bus(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._bus, EventBus)
         assert orch._bus is orch.event_bus
 
     def test_creates_state_tracker(self, config: HydraFlowConfig) -> None:
-        from state import StateTracker
-
         orch = HydraFlowOrchestrator(config)
         assert isinstance(orch._state, StateTracker)
         assert orch._state._path == config.state_file
-
-    def test_creates_worktree_manager(self, config: HydraFlowConfig) -> None:
-        from workspace import WorkspaceManager
-
-        orch = HydraFlowOrchestrator(config)
-        assert isinstance(orch._svc.worktrees, WorkspaceManager)
-        assert orch._svc.worktrees._config is config
-
-    def test_creates_agent_runner(self, config: HydraFlowConfig) -> None:
-        from agent import AgentRunner
-
-        orch = HydraFlowOrchestrator(config)
-        assert isinstance(orch._svc.agents, AgentRunner)
-        assert orch._svc.agents._config is config
-
-    def test_creates_pr_manager(self, config: HydraFlowConfig) -> None:
-        from pr_manager import PRManager
-
-        orch = HydraFlowOrchestrator(config)
-        assert isinstance(orch._svc.prs, PRManager)
-        assert orch._svc.prs._config is config
-
-    def test_creates_planner_runner(self, config: HydraFlowConfig) -> None:
-        from planner import PlannerRunner
-
-        orch = HydraFlowOrchestrator(config)
-        assert isinstance(orch._svc.planners, PlannerRunner)
-        assert orch._svc.planners._config is config
-
-    def test_creates_review_runner(self, config: HydraFlowConfig) -> None:
-        from reviewer import ReviewRunner
-
-        orch = HydraFlowOrchestrator(config)
-        assert isinstance(orch._svc.reviewers, ReviewRunner)
-        assert orch._svc.reviewers._config is config
 
     def test_human_input_requests_starts_empty(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
@@ -88,27 +86,6 @@ class TestInit:
     def test_dashboard_starts_as_none(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
         assert orch._dashboard is None
-
-    def test_creates_fetcher(self, config: HydraFlowConfig) -> None:
-        from issue_fetcher import IssueFetcher
-
-        orch = HydraFlowOrchestrator(config)
-        assert isinstance(orch._svc.fetcher, IssueFetcher)
-        assert orch._svc.fetcher._config is config
-
-    def test_creates_implementer(self, config: HydraFlowConfig) -> None:
-        from implement_phase import ImplementPhase
-
-        orch = HydraFlowOrchestrator(config)
-        assert isinstance(orch._svc.implementer, ImplementPhase)
-        assert orch._svc.implementer._config is config
-
-    def test_creates_reviewer(self, config: HydraFlowConfig) -> None:
-        from review_phase import ReviewPhase
-
-        orch = HydraFlowOrchestrator(config)
-        assert isinstance(orch._svc.reviewer, ReviewPhase)
-        assert orch._svc.reviewer._config is config
 
 
 # ---------------------------------------------------------------------------
