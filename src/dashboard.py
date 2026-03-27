@@ -160,7 +160,18 @@ class HydraFlowDashboard:
         )
         server = uvicorn.Server(config)
 
-        self._server_task = asyncio.create_task(server.serve())
+        async def _serve_safe() -> None:
+            try:
+                await server.serve()
+            except (SystemExit, OSError) as exc:
+                logger.error(
+                    "Dashboard failed to bind %s:%d — %s",
+                    bind_host,
+                    self._config.dashboard_port,
+                    exc,
+                )
+
+        self._server_task = asyncio.create_task(_serve_safe())
         logger.info(
             "Dashboard running at http://%s:%d",
             bind_host,
