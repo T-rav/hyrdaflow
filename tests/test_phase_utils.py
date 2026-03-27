@@ -342,8 +342,6 @@ class TestSafeFileMemorySuggestion:
     async def test_delegates_to_file_memory_suggestion(self) -> None:
         """Should call file_memory_suggestion with correct args."""
         config = MagicMock()
-        prs = AsyncMock()
-        state = MagicMock()
 
         with patch(
             "phase_utils.file_memory_suggestion", new_callable=AsyncMock
@@ -353,8 +351,6 @@ class TestSafeFileMemorySuggestion:
                 "planner",
                 "issue #42",
                 config,
-                prs,
-                state,
             )
 
             mock_fms.assert_awaited_once_with(
@@ -362,8 +358,6 @@ class TestSafeFileMemorySuggestion:
                 "planner",
                 "issue #42",
                 config,
-                prs,
-                state,
             )
 
     @pytest.mark.asyncio
@@ -726,12 +720,10 @@ class TestMemorySuggester:
 
     @pytest.mark.asyncio
     async def test_delegates_to_safe_file_memory_suggestion(self) -> None:
-        """Should forward (transcript, source, reference) with bound (config, prs, state)."""
+        """Should forward (transcript, source, reference) with bound config."""
         config = MagicMock()
-        prs = AsyncMock()
-        state = MagicMock()
 
-        suggest = MemorySuggester(config, prs, state)
+        suggest = MemorySuggester(config)
 
         with patch(
             "phase_utils.safe_file_memory_suggestion", new_callable=AsyncMock
@@ -739,17 +731,15 @@ class TestMemorySuggester:
             await suggest("transcript text", "planner", "issue #42")
 
             mock_sfms.assert_awaited_once_with(
-                "transcript text", "planner", "issue #42", config, prs, state
+                "transcript text", "planner", "issue #42", config
             )
 
     @pytest.mark.asyncio
     async def test_multiple_calls_reuse_bound_args(self) -> None:
-        """Successive calls should reuse the same config/prs/state."""
+        """Successive calls should reuse the same bound config."""
         config = MagicMock()
-        prs = AsyncMock()
-        state = MagicMock()
 
-        suggest = MemorySuggester(config, prs, state)
+        suggest = MemorySuggester(config)
 
         with patch(
             "phase_utils.safe_file_memory_suggestion", new_callable=AsyncMock
@@ -758,9 +748,9 @@ class TestMemorySuggester:
             await suggest("t2", "src2", "ref2")
 
             assert mock_sfms.await_count == 2
-            # Both calls use the same bound args
-            assert mock_sfms.call_args_list[0].args[3:] == (config, prs, state)
-            assert mock_sfms.call_args_list[1].args[3:] == (config, prs, state)
+            # Both calls use the same bound config
+            assert mock_sfms.call_args_list[0].args[3:] == (config,)
+            assert mock_sfms.call_args_list[1].args[3:] == (config,)
 
 
 # ---------------------------------------------------------------------------
