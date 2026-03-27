@@ -3528,7 +3528,7 @@ def create_router(
 
     @router.delete("/api/repos/{slug}")
     async def remove_repo(slug: str) -> JSONResponse:
-        """Remove a repo via the callback."""
+        """Remove a repo via the callback, or directly from the store."""
         if remove_repo_cb is not None:
             try:
                 removed = await remove_repo_cb(slug)
@@ -3538,6 +3538,11 @@ def create_router(
             if not removed:
                 return JSONResponse({"error": "Repo not found"}, status_code=404)
             return JSONResponse({"status": "ok"})
+        # Fallback: remove directly from the persistent store (no orchestrator needed)
+        if repo_store is not None:
+            if repo_store.remove(slug):
+                return JSONResponse({"status": "ok"})
+            return JSONResponse({"error": "Repo not found"}, status_code=404)
         return JSONResponse({"error": "supervisor unavailable"}, status_code=503)
 
     async def _detect_repo_slug_from_path(repo_path: Path) -> str | None:  # noqa: PLR0911
