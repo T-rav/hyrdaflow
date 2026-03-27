@@ -39,7 +39,7 @@ const mockBgWorkers = [
   { name: 'review', status: 'ok', enabled: true, last_run: null, details: {} },
   { name: 'memory_sync', status: 'ok', enabled: true, last_run: new Date().toISOString(), details: { item_count: 12, digest_chars: 2400 } },
   { name: 'retrospective', status: 'error', enabled: true, last_run: '2026-02-20T10:28:00Z', details: { last_issue: 42 } },
-  { name: 'metrics', status: 'ok', enabled: true, last_run: '2026-02-20T10:25:00Z', details: {} },
+  { name: 'health_monitor', status: 'ok', enabled: true, last_run: '2026-02-20T10:25:00Z', details: {} },
   { name: 'review_insights', status: 'disabled', enabled: false, last_run: null, details: {} },
 ]
 
@@ -199,9 +199,9 @@ describe('SystemPanel', () => {
       expect(okPill).toHaveTextContent('ok')
       expect(okPill.style.color).toBe('var(--green)')
       expect(okPill.style.background).toBe('var(--green-subtle)')
-      const metricsPill = screen.getByTestId('status-pill-metrics')
-      expect(metricsPill).toHaveTextContent('ok')
-      expect(metricsPill.style.color).toBe('var(--green)')
+      const healthPill = screen.getByTestId('status-pill-health_monitor')
+      expect(healthPill).toHaveTextContent('ok')
+      expect(healthPill.style.color).toBe('var(--green)')
     })
 
     it('shows red pill for stopped system workers', () => {
@@ -255,7 +255,7 @@ describe('SystemPanel', () => {
       render(<SystemPanel backgroundWorkers={mockBgWorkers} onToggleBgWorker={() => {}} />)
       expect(screen.getByText('Pipeline Poller')).toBeInTheDocument()
       expect(screen.getByText('Memory Manager')).toBeInTheDocument()
-      expect(screen.getByText('Metrics Munger')).toBeInTheDocument()
+      expect(screen.getByText('Health Monitor')).toBeInTheDocument()
       // Count On/Off buttons — non-system bg workers plus MemoryAutoApproveToggle (+1 for memory_sync)
       const allToggleButtons = [...screen.getAllByText('On'), ...screen.getAllByText('Off')]
       const nonSystemBgCount = BACKGROUND_WORKERS.filter(w => !w.system).length
