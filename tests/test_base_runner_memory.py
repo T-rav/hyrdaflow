@@ -87,3 +87,31 @@ async def test_fallback_to_manifest_when_no_hindsight():
         )
 
     assert "HydraFlow automates" in memory_section
+
+
+@pytest.mark.asyncio
+async def test_fallback_does_not_fire_when_hindsight_configured(base_runner):
+    """When hindsight IS configured, fallback must NOT activate."""
+    memories = {
+        Bank.LEARNINGS: [_make_memory("learning-1")],
+        Bank.TROUBLESHOOTING: [],
+        Bank.RETROSPECTIVES: [],
+        Bank.REVIEW_INSIGHTS: [],
+        Bank.HARNESS_INSIGHTS: [],
+    }
+
+    async def mock_recall(client, bank, query, *, limit=10):
+        return memories.get(bank, [])
+
+    with (
+        patch("hindsight.recall_safe", side_effect=mock_recall),
+        patch(
+            "manifest_curator.CuratedManifestStore.render_markdown",
+        ) as mock_render,
+    ):
+        _, memory_section = await base_runner._inject_manifest_and_memory(
+            query_context="add feature"
+        )
+
+    mock_render.assert_not_called()
+    assert "cached" not in memory_section

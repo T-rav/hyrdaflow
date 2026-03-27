@@ -197,14 +197,21 @@ class BaseRunner:
             from hindsight import Bank, format_memories_as_markdown, recall_safe
 
             max_chars = self._config.max_memory_prompt_chars
+            banks_recalled: list[str] = []
 
-            # Priority order: learnings > troubleshooting > retrospectives.
-            # Each bank gets up to max_chars; the combined section is also
-            # capped at max_chars to prevent prompt bloat.
-            memories = await recall_safe(self._hindsight, Bank.LEARNINGS, query_context)
-            memory_raw = format_memories_as_markdown(memories)
-            if memory_raw:
-                memory_raw = memory_raw[:max_chars]
+            # All banks wrapped in try/except — recall failures must never
+            # interrupt the pipeline.  Priority order determines prompt
+            # assembly; each bank is independently capped at max_chars.
+            try:
+                memories = await recall_safe(
+                    self._hindsight, Bank.LEARNINGS, query_context
+                )
+                memory_raw = format_memories_as_markdown(memories)
+                if memory_raw:
+                    memory_raw = memory_raw[:max_chars]
+                    banks_recalled.append("learnings")
+            except Exception:  # noqa: BLE001
+                pass  # Must not interrupt pipeline
 
             try:
                 ts_memories = await recall_safe(
@@ -213,8 +220,9 @@ class BaseRunner:
                 troubleshooting_raw = format_memories_as_markdown(ts_memories)
                 if troubleshooting_raw:
                     troubleshooting_raw = troubleshooting_raw[:max_chars]
+                    banks_recalled.append("troubleshooting")
             except Exception:  # noqa: BLE001
-                pass  # Enhancement — must not interrupt pipeline
+                pass  # Must not interrupt pipeline
 
             try:
                 retro_memories = await recall_safe(
@@ -223,8 +231,9 @@ class BaseRunner:
                 retrospectives_raw = format_memories_as_markdown(retro_memories)
                 if retrospectives_raw:
                     retrospectives_raw = retrospectives_raw[:max_chars]
+                    banks_recalled.append("retrospectives")
             except Exception:  # noqa: BLE001
-                pass  # Enhancement — must not interrupt pipeline
+                pass  # Must not interrupt pipeline
 
             try:
                 ri_memories = await recall_safe(
@@ -233,8 +242,9 @@ class BaseRunner:
                 review_insights_raw = format_memories_as_markdown(ri_memories)
                 if review_insights_raw:
                     review_insights_raw = review_insights_raw[:max_chars]
+                    banks_recalled.append("review_insights")
             except Exception:  # noqa: BLE001
-                pass  # Enhancement — must not interrupt pipeline
+                pass  # Must not interrupt pipeline
 
             try:
                 hi_memories = await recall_safe(
@@ -243,15 +253,32 @@ class BaseRunner:
                 harness_insights_raw = format_memories_as_markdown(hi_memories)
                 if harness_insights_raw:
                     harness_insights_raw = harness_insights_raw[:max_chars]
+                    banks_recalled.append("harness_insights")
             except Exception:  # noqa: BLE001
-                pass  # Enhancement — must not interrupt pipeline
+                pass  # Must not interrupt pipeline
+
+            # Sentry breadcrumb for memory recall observability
+            try:
+                import sentry_sdk as _sentry  # noqa: PLC0415
+
+                _sentry.add_breadcrumb(
+                    category="memory.recall",
+                    message=f"Recalled {len(banks_recalled)} memory banks",
+                    level="info",
+                    data={
+                        "banks": banks_recalled,
+                        "query_context": query_context[:100],
+                    },
+                )
+            except ImportError:
+                pass
 
         # Assemble the memory section from all available banks.
         # Cap the combined section at max_memory_prompt_chars.
         combined_parts: list[str] = []
 
         # File-based fallback when Hindsight is unavailable
-        if not self._hindsight and query_context:
+        if self._hindsight is None and query_context:
             try:
                 from manifest_curator import CuratedManifestStore  # noqa: PLC0415
 
@@ -263,6 +290,17 @@ class BaseRunner:
                     combined_parts.append(
                         f"## Accumulated Learnings (cached)\n\n{fallback_text}"
                     )
+                    try:
+                        import sentry_sdk as _sentry  # noqa: PLC0415
+
+                        _sentry.add_breadcrumb(
+                            category="memory.fallback",
+                            message="Used file-based memory fallback (Hindsight unavailable)",
+                            level="warning",
+                            data={"fallback_chars": len(fallback_text)},
+                        )
+                    except ImportError:
+                        pass
             except Exception:  # noqa: BLE001
                 pass  # Fallback must not interrupt pipeline
         if memory_raw:
@@ -288,7 +326,13 @@ class BaseRunner:
         self._last_context_stats = {
             "cache_hits": 0,
             "cache_misses": 0,
-            "context_chars_before": len(memory_raw),
+            "context_chars_before": (
+                len(memory_raw)
+                + len(troubleshooting_raw)
+                + len(retrospectives_raw)
+                + len(review_insights_raw)
+                + len(harness_insights_raw)
+            ),
             "context_chars_after": len(manifest_section) + len(memory_section),
         }
 

@@ -99,6 +99,7 @@ class TestEvaluateWithLlmMemoryInjection:
             result = await runner._evaluate_with_llm(issue)
 
         assert captured_prompt is not None
-        # No memory header should appear
-        assert "Memory" not in captured_prompt or "## Memory" not in captured_prompt
+        # No memory section headers should appear without Hindsight
+        assert "## Accumulated Learnings" not in captured_prompt
+        assert "## Known Troubleshooting Patterns" not in captured_prompt
         assert result.ready is True
