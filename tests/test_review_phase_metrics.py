@@ -962,7 +962,8 @@ class TestSelfFixReReview:
 
 
 # ---------------------------------------------------------------------------
-# Verification Issue Creation
+# (TestCreateVerificationIssue removed — _create_verification_issue was
+#  deleted from ReviewPhase in the verification-to-JSONL migration.)
 # ---------------------------------------------------------------------------
 
 
@@ -1491,10 +1492,13 @@ class TestReviewPostMortemMemoryFiling:
         wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
-        await phase.review_prs([pr], [issue])
+        with patch(
+            "phase_utils.file_memory_suggestion", new_callable=AsyncMock
+        ) as mock_file:
+            await phase.review_prs([pr], [issue])
 
-        create_calls = phase._prs.create_issue.call_args_list
-        assert any("[Memory]" in str(c) for c in create_calls)
+        mock_file.assert_awaited_once()
+        assert "ci_fix_failure" in str(mock_file.call_args)
 
     @pytest.mark.asyncio
     async def test_ci_failure_no_memory_when_no_transcript(
@@ -1572,7 +1576,10 @@ class TestReviewPostMortemMemoryFiling:
         # Set review attempts to cap so next review triggers escalation
         phase._state.increment_review_attempts(42)
 
-        await phase.review_prs([pr], [issue])
+        with patch(
+            "phase_utils.file_memory_suggestion", new_callable=AsyncMock
+        ) as mock_file:
+            await phase.review_prs([pr], [issue])
 
-        create_calls = phase._prs.create_issue.call_args_list
-        assert any("[Memory]" in str(c) for c in create_calls)
+        mock_file.assert_awaited_once()
+        assert "review_fix_cap_exceeded" in str(mock_file.call_args)

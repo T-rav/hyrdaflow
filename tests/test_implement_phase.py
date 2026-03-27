@@ -6,7 +6,7 @@ import asyncio
 import sys
 from collections.abc import Generator
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -1309,10 +1309,13 @@ class TestPostMortemMemoryFiling:
             .build()
         )
 
-        await phase.run_batch()
+        with patch(
+            "phase_utils.file_memory_suggestion", new_callable=AsyncMock
+        ) as mock_file:
+            await phase.run_batch()
 
-        create_calls = mock_prs.create_issue.call_args_list
-        assert any("[Memory]" in str(c) for c in create_calls)
+        mock_file.assert_awaited_once()
+        assert "implement_zero_diff" in str(mock_file.call_args)
 
 
 # ---------------------------------------------------------------------------

@@ -75,19 +75,13 @@ class TestBuildConflictPrompt:
         assert "## Project Context" in prompt
         assert "python, make, pytest" in prompt
 
-    def test_includes_accumulated_learnings_when_config_provided(
-        self, tmp_path: Path
-    ) -> None:
-        """When config is provided and digest exists, prompt includes learnings."""
+    def test_no_accumulated_learnings_section(self, tmp_path: Path) -> None:
+        """Digest.md was removed — conflict prompt no longer includes learnings."""
         config = ConfigFactory.create(repo_root=tmp_path / "repo")
         config.repo_root.mkdir(parents=True, exist_ok=True)
-        digest_path = config.repo_root / ".hydraflow" / "memory" / "digest.md"
-        digest_path.parent.mkdir(parents=True, exist_ok=True)
-        digest_path.write_text("## Memory Digest\nAlways check edge cases")
 
         prompt = build_conflict_prompt(ISSUE_URL, PR_URL, None, 1, config=config)
-        assert "## Accumulated Learnings" in prompt
-        assert "Always check edge cases" in prompt
+        assert "## Accumulated Learnings" not in prompt
 
     def test_omits_project_context_when_no_config(self) -> None:
         """Without config parameter, no project context section."""
@@ -215,19 +209,14 @@ class TestBuildRebuildPrompt:
         )
         assert "## Project Context" not in prompt
 
-    def test_includes_accumulated_learnings_when_config_provided(
-        self, tmp_path: Path
-    ) -> None:
+    def test_no_accumulated_learnings_section(self, tmp_path: Path) -> None:
+        """Digest.md was removed — rebuild prompt no longer includes learnings."""
         config = ConfigFactory.create(repo_root=tmp_path / "repo")
         config.repo_root.mkdir(parents=True, exist_ok=True)
-        digest_path = config.repo_root / ".hydraflow" / "memory" / "digest.md"
-        digest_path.parent.mkdir(parents=True, exist_ok=True)
-        digest_path.write_text("## Memory Digest\nAlways check edge cases")
         prompt = build_rebuild_prompt(
             ISSUE_URL, PR_URL, issue_number=42, pr_diff=PR_DIFF, config=config
         )
-        assert "## Accumulated Learnings" in prompt
-        assert "Always check edge cases" in prompt
+        assert "## Accumulated Learnings" not in prompt
 
     def test_includes_memory_suggestion_instructions(self) -> None:
         prompt = build_rebuild_prompt(

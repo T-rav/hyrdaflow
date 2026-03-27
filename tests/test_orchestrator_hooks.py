@@ -920,9 +920,7 @@ class TestPostRunHooks:
                 duration_seconds=3.5,
                 log_file="logs/issue-7.txt",
             )
-            mock_mem.assert_awaited_once_with(
-                "tx", "implementer", "issue #7", ANY, ANY, ANY
-            )
+            mock_mem.assert_awaited_once_with("tx", "implementer", "issue #7", ANY)
 
     @pytest.mark.asyncio
     async def test_passes_correct_args_to_summarize(

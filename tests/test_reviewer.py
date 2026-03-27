@@ -2064,13 +2064,9 @@ async def test_build_review_prompt_includes_runtime_logs_when_enabled(
     pr = PRInfoFactory.create()
     issue = TaskFactory.create()
 
-    with (
-        patch("base_runner.load_project_manifest", return_value=""),
-        patch("base_runner.load_memory_digest", return_value=""),
-    ):
-        prompt, _ = await runner._build_review_prompt_with_stats(
-            pr, issue, "diff --git a/foo.py"
-        )
+    prompt, _ = await runner._build_review_prompt_with_stats(
+        pr, issue, "diff --git a/foo.py"
+    )
 
     assert "## Recent Application Logs" in prompt
     assert "ERROR: failed" in prompt
@@ -2087,13 +2083,9 @@ async def test_build_review_prompt_excludes_runtime_logs_when_disabled(
     pr = PRInfoFactory.create()
     issue = TaskFactory.create()
 
-    with (
-        patch("base_runner.load_project_manifest", return_value=""),
-        patch("base_runner.load_memory_digest", return_value=""),
-    ):
-        prompt, _ = await runner._build_review_prompt_with_stats(
-            pr, issue, "diff --git a/foo.py"
-        )
+    prompt, _ = await runner._build_review_prompt_with_stats(
+        pr, issue, "diff --git a/foo.py"
+    )
 
     assert "## Recent Application Logs" not in prompt
 
@@ -2225,16 +2217,12 @@ async def test_build_review_prompt_includes_code_scanning_alerts(config, event_b
         )
     ]
 
-    with (
-        patch("base_runner.load_project_manifest", return_value=""),
-        patch("base_runner.load_memory_digest", return_value=""),
-    ):
-        prompt, _ = await runner._build_review_prompt_with_stats(
-            pr,
-            issue,
-            "diff --git a/foo.py",
-            code_scanning_alerts=alerts,
-        )
+    prompt, _ = await runner._build_review_prompt_with_stats(
+        pr,
+        issue,
+        "diff --git a/foo.py",
+        code_scanning_alerts=alerts,
+    )
 
     assert "## Code Scanning Alerts" in prompt
     assert "src/db.js:42" in prompt
@@ -2250,13 +2238,9 @@ async def test_build_review_prompt_excludes_code_scanning_when_none(config, even
     pr = PRInfoFactory.create()
     issue = TaskFactory.create()
 
-    with (
-        patch("base_runner.load_project_manifest", return_value=""),
-        patch("base_runner.load_memory_digest", return_value=""),
-    ):
-        prompt, _ = await runner._build_review_prompt_with_stats(
-            pr, issue, "diff --git a/foo.py"
-        )
+    prompt, _ = await runner._build_review_prompt_with_stats(
+        pr, issue, "diff --git a/foo.py"
+    )
 
     assert "## Code Scanning Alerts" not in prompt
 

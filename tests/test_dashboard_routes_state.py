@@ -1201,7 +1201,6 @@ class TestMemoriesEndpoint:
         data = json.loads(response.body)
         assert data["total_items"] == 0
         assert data["items"] == []
-        assert data["digest_chars"] == 0
 
     @pytest.mark.asyncio
     async def test_memories_with_items(
@@ -1212,15 +1211,11 @@ class TestMemoriesEndpoint:
         (items_dir / "42.md").write_text("Always validate inputs")
         (items_dir / "55.md").write_text("Use async for I/O")
 
-        digest_path = config.data_path("memory", "digest.md")
-        digest_path.write_text("# Digest\nSome content here")
-
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
         endpoint = find_endpoint(router, "/api/memories")
         response = await endpoint()
         data = json.loads(response.body)
         assert data["total_items"] == 2
-        assert data["digest_chars"] > 0
         assert len(data["items"]) == 2
         # Items are sorted reverse by filename, so 55 comes first
         numbers = [item["issue_number"] for item in data["items"]]

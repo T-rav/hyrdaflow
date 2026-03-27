@@ -539,11 +539,7 @@ class TestBuildPromptRuntimeLogs:
         runner = AgentRunner(config, event_bus)
         issue = TaskFactory.create()
 
-        with (
-            patch("base_runner.load_project_manifest", return_value=""),
-            patch("base_runner.load_memory_digest", return_value=""),
-        ):
-            prompt, _ = await runner._build_prompt_with_stats(issue)
+        prompt, _ = await runner._build_prompt_with_stats(issue)
 
         assert "## Recent Application Logs" in prompt
         assert "ERROR: timeout" in prompt
@@ -556,11 +552,7 @@ class TestBuildPromptRuntimeLogs:
         runner = AgentRunner(config, event_bus)
         issue = TaskFactory.create()
 
-        with (
-            patch("base_runner.load_project_manifest", return_value=""),
-            patch("base_runner.load_memory_digest", return_value=""),
-        ):
-            prompt, _ = await runner._build_prompt_with_stats(issue)
+        prompt, _ = await runner._build_prompt_with_stats(issue)
 
         assert "## Recent Application Logs" not in prompt
 
@@ -575,11 +567,7 @@ class TestBuildPromptRuntimeLogs:
         runner = AgentRunner(config, event_bus)
         issue = TaskFactory.create()
 
-        with (
-            patch("base_runner.load_project_manifest", return_value=""),
-            patch("base_runner.load_memory_digest", return_value=""),
-        ):
-            prompt, _ = await runner._build_prompt_with_stats(issue)
+        prompt, _ = await runner._build_prompt_with_stats(issue)
 
         assert "## Recent Application Logs" not in prompt
 
@@ -599,14 +587,10 @@ class TestPriorFailureInPrompt:
         runner = AgentRunner(config, event_bus)
         issue = TaskFactory.create()
 
-        with (
-            patch("base_runner.load_project_manifest", return_value=""),
-            patch("base_runner.load_memory_digest", return_value=""),
-        ):
-            prompt, _ = await runner._build_prompt_with_stats(
-                issue,
-                prior_failure="TDD red phase modified non-test files: docs/adr/001.md",
-            )
+        prompt, _ = await runner._build_prompt_with_stats(
+            issue,
+            prior_failure="TDD red phase modified non-test files: docs/adr/001.md",
+        )
 
         assert "## Prior Attempt Failure" in prompt
         assert "TDD red phase modified non-test files: docs/adr/001.md" in prompt
@@ -619,10 +603,6 @@ class TestPriorFailureInPrompt:
         runner = AgentRunner(config, event_bus)
         issue = TaskFactory.create()
 
-        with (
-            patch("base_runner.load_project_manifest", return_value=""),
-            patch("base_runner.load_memory_digest", return_value=""),
-        ):
-            prompt, _ = await runner._build_prompt_with_stats(issue, prior_failure="")
+        prompt, _ = await runner._build_prompt_with_stats(issue, prior_failure="")
 
         assert "## Prior Attempt Failure" not in prompt
