@@ -101,9 +101,9 @@ docker-ensure:
 EXECUTION_MODE ?= $(or $(HYDRAFLOW_EXECUTION_MODE),host)
 
 ifeq ($(EXECUTION_MODE),docker)
-run: check-node-ui docker-ensure
+run: check-node-ui docker-ensure hindsight
 else
-run: check-node-ui
+run: check-node-ui hindsight
 endif
 	@mkdir -p $(LOG_DIR)
 	@echo "$(BLUE)Starting HydraFlow — backend :$(PORT) + frontend :5556$(RESET)"
