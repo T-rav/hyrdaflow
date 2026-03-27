@@ -583,17 +583,9 @@ class TestManifestStateTracking:
 class TestManifestConfig:
     """Tests for manifest-related config fields."""
 
-    def test_config__manifest_refresh_interval_default(self) -> None:
-        config = ConfigFactory.create()
-        assert config.manifest_refresh_interval == 3600
-
     def test_config__max_manifest_prompt_chars_default(self) -> None:
         config = ConfigFactory.create()
         assert config.max_manifest_prompt_chars == 2000
-
-    def test_config__manifest_refresh_interval_custom(self) -> None:
-        config = ConfigFactory.create(manifest_refresh_interval=600)
-        assert config.manifest_refresh_interval == 600
 
     def test_config__max_manifest_prompt_chars_custom(self) -> None:
         config = ConfigFactory.create(max_manifest_prompt_chars=5000)
@@ -609,16 +601,15 @@ class TestManifestInjectionInRunners:
     """Verify that all agent runners inject ## Project Context when manifest exists."""
 
     @pytest.mark.asyncio
-    async def test_agent_runner__injects_manifest(self, tmp_path: Path) -> None:
-        """AgentRunner._build_prompt_with_stats includes ## Project Context from manifest."""
+    async def test_agent_runner__no_manifest_without_hindsight(
+        self, tmp_path: Path
+    ) -> None:
+        """Without Hindsight, AgentRunner prompt has no ## Project Context."""
         from agent import AgentRunner
         from events import EventBus
 
         config = ConfigFactory.create(repo_root=tmp_path)
         config.repo_root.mkdir(parents=True, exist_ok=True)
-        manifest_path = config.repo_root / ".hydraflow" / "manifest" / "manifest.md"
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_text("## Project Manifest\npython, make")
 
         runner = AgentRunner(config, EventBus())
         from tests.conftest import TaskFactory
@@ -631,20 +622,19 @@ class TestManifestInjectionInRunners:
             comments=[],
         )
         prompt, _ = await runner._build_prompt_with_stats(issue)
-        assert "## Project Context" in prompt
-        assert "python, make" in prompt
+        # Manifest injection now goes through Hindsight, not disk files
+        assert "## Project Context" not in prompt
 
     @pytest.mark.asyncio
-    async def test_hitl_runner__injects_manifest(self, tmp_path: Path) -> None:
-        """HITLRunner._build_prompt_with_stats includes ## Project Context from manifest."""
+    async def test_hitl_runner__no_manifest_without_hindsight(
+        self, tmp_path: Path
+    ) -> None:
+        """Without Hindsight, HITLRunner prompt has no ## Project Context."""
         from events import EventBus
         from hitl_runner import HITLRunner
 
         config = ConfigFactory.create(repo_root=tmp_path)
         config.repo_root.mkdir(parents=True, exist_ok=True)
-        manifest_path = config.repo_root / ".hydraflow" / "manifest" / "manifest.md"
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_text("## Project Manifest\nrust, cargo")
 
         runner = HITLRunner(config, EventBus())
         from tests.conftest import IssueFactory
@@ -657,8 +647,8 @@ class TestManifestInjectionInRunners:
             comments=[],
         )
         prompt, _ = await runner._build_prompt_with_stats(issue, "fix it", "CI failed")
-        assert "## Project Context" in prompt
-        assert "rust, cargo" in prompt
+        # Manifest injection now goes through Hindsight, not disk files
+        assert "## Project Context" not in prompt
 
     def test_conflict_prompt__injects_manifest_with_config(
         self, tmp_path: Path

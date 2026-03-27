@@ -837,53 +837,6 @@ class TestHydraFlowConfigImproveLabelAndMemoryLabel:
         )
         assert cfg.transcript_label == ["explicit-transcript"]
 
-    def test_metrics_label_default(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.metrics_label == ["hydraflow-metrics"]
-
-    def test_metrics_label_custom(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            metrics_label=["custom-metrics"],
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.metrics_label == ["custom-metrics"]
-
-    def test_metrics_label_env_var_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_LABEL_METRICS", "env-metrics")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.metrics_label == ["env-metrics"]
-
-    def test_metrics_sync_interval_default(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.metrics_sync_interval == 7200
-
-    def test_metrics_sync_interval_env_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_METRICS_SYNC_INTERVAL", "120")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.metrics_sync_interval == 120
-
     def test_pr_unstick_interval_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -1221,14 +1174,6 @@ class TestUpdatedIntervalDefaults:
         )
         assert cfg.memory_sync_interval == 3600
 
-    def test_metrics_sync_default_is_7200(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.metrics_sync_interval == 7200
-
     def test_memory_sync_max_increased_to_14400(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -1237,15 +1182,6 @@ class TestUpdatedIntervalDefaults:
             memory_sync_interval=14400,
         )
         assert cfg.memory_sync_interval == 14400
-
-    def test_metrics_sync_max_increased_to_14400(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-            metrics_sync_interval=14400,
-        )
-        assert cfg.metrics_sync_interval == 14400
 
     def test_memory_sync_env_override_with_new_default(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1257,17 +1193,6 @@ class TestUpdatedIntervalDefaults:
             state_file=tmp_path / "s.json",
         )
         assert cfg.memory_sync_interval == 900
-
-    def test_metrics_sync_env_override_with_new_default(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_METRICS_SYNC_INTERVAL", "1800")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.metrics_sync_interval == 1800
 
 
 # ---------------------------------------------------------------------------
@@ -1403,7 +1328,6 @@ class TestLabelValidation:
             "improve_label",
             "memory_label",
             "transcript_label",
-            "metrics_label",
             "dup_label",
             "epic_label",
             "epic_child_label",

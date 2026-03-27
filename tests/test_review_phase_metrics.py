@@ -19,13 +19,11 @@ from events import EventType
 from models import (
     CriterionResult,
     CriterionVerdict,
-    JudgeResult,
     JudgeVerdict,
     LoopResult,
     PRInfo,
     ReviewVerdict,
     Task,
-    VerificationCriterion,
 )
 from review_phase import ReviewPhase
 from tests.conftest import (
@@ -964,172 +962,9 @@ class TestSelfFixReReview:
 
 
 # ---------------------------------------------------------------------------
-# Verification Issue Creation
+# (TestCreateVerificationIssue removed — _create_verification_issue was
+#  deleted from ReviewPhase in the verification-to-JSONL migration.)
 # ---------------------------------------------------------------------------
-
-
-def _make_judge_result(
-    issue_number: int = 42,
-    pr_number: int = 101,
-    criteria: list[VerificationCriterion] | None = None,
-    verification_instructions: str = "1. Run the app\n2. Click the button",
-    all_pass: bool = True,
-) -> JudgeResult:
-    """Build a JudgeResult for testing."""
-    if criteria is None:
-        if all_pass:
-            criteria = [
-                VerificationCriterion(
-                    description="Unit tests pass", passed=True, details="All pass"
-                ),
-                VerificationCriterion(
-                    description="Lint passes", passed=True, details="Clean"
-                ),
-            ]
-        else:
-            criteria = [
-                VerificationCriterion(
-                    description="Unit tests pass", passed=True, details="All pass"
-                ),
-                VerificationCriterion(
-                    description="Lint passes", passed=False, details="3 errors found"
-                ),
-            ]
-    return JudgeResult(
-        issue_number=issue_number,
-        pr_number=pr_number,
-        criteria=criteria,
-        verification_instructions=verification_instructions,
-    )
-
-
-class TestCreateVerificationIssue:
-    """Tests for ReviewPhase._create_verification_issue."""
-
-    @pytest.mark.asyncio
-    async def test_creates_issue_all_criteria_passed(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """Judge with all criteria passing creates issue with correct title and label."""
-        phase = make_review_phase(config)
-        issue = TaskFactory.create(title="Fix the frobnicator")
-        pr = PRInfoFactory.create()
-        judge = _make_judge_result()
-
-        phase._prs.create_issue = AsyncMock(return_value=500)
-
-        result = await phase._create_verification_issue(issue, pr, judge)
-
-        assert result == 500
-        phase._prs.create_issue.assert_awaited_once()
-        call_args = phase._prs.create_issue.call_args
-        title = call_args[0][0]
-        body = call_args[0][1]
-        labels = call_args[0][2]
-
-        assert title == "Verify: Fix the frobnicator"
-        assert labels == ["hydraflow-verify"]
-        assert "All criteria passed at code level" in body
-        assert "#42" in body
-        assert "#101" in body
-
-    @pytest.mark.asyncio
-    async def test_creates_issue_with_failed_criteria(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """Judge with mixed results highlights failures in the body."""
-        phase = make_review_phase(config)
-        issue = TaskFactory.create()
-        pr = PRInfoFactory.create()
-        judge = _make_judge_result(all_pass=False)
-
-        phase._prs.create_issue = AsyncMock(return_value=500)
-
-        await phase._create_verification_issue(issue, pr, judge)
-
-        body = phase._prs.create_issue.call_args[0][1]
-        assert "failed at code level" in body
-        assert "pay extra attention" in body
-        assert "\u274c FAIL" in body
-
-    @pytest.mark.asyncio
-    async def test_creates_issue_includes_verification_instructions(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """Body includes the verification instructions from judge result."""
-        phase = make_review_phase(config)
-        issue = TaskFactory.create()
-        pr = PRInfoFactory.create()
-        judge = _make_judge_result(
-            verification_instructions="1. Start server\n2. Check /health"
-        )
-
-        phase._prs.create_issue = AsyncMock(return_value=500)
-
-        await phase._create_verification_issue(issue, pr, judge)
-
-        body = phase._prs.create_issue.call_args[0][1]
-        assert "Verification Instructions" in body
-        assert "Start server" in body
-        assert "Check /health" in body
-
-    @pytest.mark.asyncio
-    async def test_creates_issue_includes_links(self, config: HydraFlowConfig) -> None:
-        """Body contains references to the original issue and PR."""
-        phase = make_review_phase(config)
-        issue = TaskFactory.create(id=99, title="Add auth")
-        pr = PRInfoFactory.create(number=200, issue_number=99)
-        judge = _make_judge_result(issue_number=99, pr_number=200)
-
-        phase._prs.create_issue = AsyncMock(return_value=500)
-
-        await phase._create_verification_issue(issue, pr, judge)
-
-        body = phase._prs.create_issue.call_args[0][1]
-        assert "#99" in body
-        assert "#200" in body
-
-    @pytest.mark.asyncio
-    async def test_returns_zero_on_failure(self, config: HydraFlowConfig) -> None:
-        """When create_issue returns 0, method returns 0."""
-        phase = make_review_phase(config)
-        issue = TaskFactory.create()
-        pr = PRInfoFactory.create()
-        judge = _make_judge_result()
-
-        phase._prs.create_issue = AsyncMock(return_value=0)
-
-        result = await phase._create_verification_issue(issue, pr, judge)
-
-        assert result == 0
-
-    @pytest.mark.asyncio
-    async def test_state_tracked_on_success(self, config: HydraFlowConfig) -> None:
-        """After successful creation, state tracks the verification issue."""
-        phase = make_review_phase(config)
-        issue = TaskFactory.create()
-        pr = PRInfoFactory.create()
-        judge = _make_judge_result()
-
-        phase._prs.create_issue = AsyncMock(return_value=500)
-
-        await phase._create_verification_issue(issue, pr, judge)
-
-        assert phase._state.get_verification_issue(42) == 500
-
-    @pytest.mark.asyncio
-    async def test_state_not_tracked_on_failure(self, config: HydraFlowConfig) -> None:
-        """When create_issue returns 0, state is not updated."""
-        phase = make_review_phase(config)
-        issue = TaskFactory.create()
-        pr = PRInfoFactory.create()
-        judge = _make_judge_result()
-
-        phase._prs.create_issue = AsyncMock(return_value=0)
-
-        await phase._create_verification_issue(issue, pr, judge)
-
-        assert phase._state.get_verification_issue(42) is None
 
 
 # ---------------------------------------------------------------------------
@@ -1657,10 +1492,13 @@ class TestReviewPostMortemMemoryFiling:
         wt = config.worktree_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
-        await phase.review_prs([pr], [issue])
+        with patch(
+            "phase_utils.file_memory_suggestion", new_callable=AsyncMock
+        ) as mock_file:
+            await phase.review_prs([pr], [issue])
 
-        create_calls = phase._prs.create_issue.call_args_list
-        assert any("[Memory]" in str(c) for c in create_calls)
+        mock_file.assert_awaited_once()
+        assert "ci_fix_failure" in str(mock_file.call_args)
 
     @pytest.mark.asyncio
     async def test_ci_failure_no_memory_when_no_transcript(
@@ -1738,7 +1576,10 @@ class TestReviewPostMortemMemoryFiling:
         # Set review attempts to cap so next review triggers escalation
         phase._state.increment_review_attempts(42)
 
-        await phase.review_prs([pr], [issue])
+        with patch(
+            "phase_utils.file_memory_suggestion", new_callable=AsyncMock
+        ) as mock_file:
+            await phase.review_prs([pr], [issue])
 
-        create_calls = phase._prs.create_issue.call_args_list
-        assert any("[Memory]" in str(c) for c in create_calls)
+        mock_file.assert_awaited_once()
+        assert "review_fix_cap_exceeded" in str(mock_file.call_args)

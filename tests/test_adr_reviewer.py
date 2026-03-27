@@ -32,10 +32,24 @@ def _make_reviewer(
 
     bus = EventBus()
     prs = MagicMock()
-    prs.create_issue = AsyncMock(return_value=42)
-    prs.find_issue_number_by_label_and_title = AsyncMock(return_value=None)
     runner = MagicMock()
     return ADRCouncilReviewer(config, bus, prs, runner)
+
+
+def _read_adr_decisions(reviewer: ADRCouncilReviewer) -> list[dict]:
+    """Read all entries from adr_decisions.jsonl for the reviewer's config."""
+    import json
+
+    path = reviewer._config.data_path("memory", "adr_decisions.jsonl")
+    if not path.exists():
+        return []
+    entries = []
+    for line in path.read_text().splitlines():
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return entries
 
 
 def _write_adr(
@@ -1008,10 +1022,11 @@ class TestEscalateToHITL:
 
         await reviewer._escalate_to_hitl(result, reason="rejected")
 
-        reviewer._prs.create_issue.assert_awaited_once()
-        call_args = reviewer._prs.create_issue.await_args
-        title = call_args.args[0]
-        body = call_args.args[1]
+        entries = _read_adr_decisions(reviewer)
+        assert len(entries) == 1
+        title = entries[0]["title"]
+        body = entries[0]["body"]
+        assert entries[0]["type"] == "hitl_escalation"
         assert "ADR-0005" in title
         assert "rejection" in title.lower() or "reject" in title.lower()
         assert "Too broad" in body
@@ -1027,7 +1042,9 @@ class TestEscalateToHITL:
 
         await reviewer._escalate_to_hitl(result, reason="changes_requested")
 
-        body = reviewer._prs.create_issue.await_args.args[1]
+        entries = _read_adr_decisions(reviewer)
+        assert len(entries) == 1
+        body = entries[0]["body"]
         assert "requests changes" in body.lower() or "changes" in body.lower()
 
 
@@ -1050,33 +1067,17 @@ class TestRouteToTriage:
                 ),
             ],
         )
-        reviewer._prs.create_issue = AsyncMock(return_value=123)
 
         routed = await reviewer._route_to_triage(result, reason="changes_requested")
 
         assert routed is True
-        reviewer._prs.create_issue.assert_awaited_once()
-        call_args = reviewer._prs.create_issue.await_args
-        title = call_args.args[0]
-        body = call_args.args[1]
-        labels = call_args.kwargs["labels"]
+        entries = _read_adr_decisions(reviewer)
+        assert len(entries) == 1
+        assert entries[0]["type"] == "follow_up"
+        title = entries[0]["title"]
+        body = entries[0]["body"]
         assert "[ADR Follow-up]" in title
         assert "ADR-0005" in body
-        assert labels == reviewer._config.find_label
-
-    @pytest.mark.asyncio
-    async def test_returns_false_on_invalid_issue_number(self, tmp_path: Path) -> None:
-        reviewer = _make_reviewer(tmp_path)
-        reviewer._prs.create_issue = AsyncMock(return_value=0)
-        result = ADRCouncilResult(
-            adr_number=1,
-            adr_title="Test",
-            final_decision="REJECT",
-        )
-
-        routed = await reviewer._route_to_triage(result, reason="rejected")
-
-        assert routed is False
 
 
 class TestADRTriageIntegration:
@@ -1101,18 +1102,16 @@ class TestADRTriageIntegration:
             ],
         )
 
-        # Step 1: ADR council routes rework into triage queue.
-        reviewer._prs.create_issue = AsyncMock(return_value=321)
+        # Step 1: ADR council routes rework into JSONL queue.
         routed = await reviewer._route_to_triage(result, reason="changes_requested")
         assert routed is True
-        reviewer._prs.create_issue.assert_awaited_once()
 
-        created_title = reviewer._prs.create_issue.await_args.args[0]
-        created_body = reviewer._prs.create_issue.await_args.args[1]
-        created_labels = reviewer._prs.create_issue.await_args.kwargs["labels"]
+        entries = _read_adr_decisions(reviewer)
+        assert len(entries) == 1
+        created_title = entries[0]["title"]
+        created_body = entries[0]["body"]
         assert "ADR-0012" in created_title
         assert "Council Summary" in created_body
-        assert created_labels == reviewer._config.find_label
 
         # Step 2: triage picks the created issue and sends it to planning.
         triage_phase, _state, triage_runner, prs, store, _stop = make_triage_phase(
@@ -1145,7 +1144,6 @@ class TestADRTriageIntegration:
             adr_title="Unclear proposal",
             final_decision="REQUEST_CHANGES",
         )
-        reviewer._prs.create_issue = AsyncMock(return_value=654)
         routed = await reviewer._route_to_triage(result, reason="changes_requested")
         assert routed is True
 
@@ -1372,9 +1370,10 @@ class TestHandleDuplicate:
         stats = {"auto_triaged": 0, "escalated": 0}
         await reviewer._handle_duplicate(result, stats)
 
-        reviewer._prs.create_issue.assert_awaited_once()
-        call_args = reviewer._prs.create_issue.await_args
-        body = call_args.args[1]
+        entries = _read_adr_decisions(reviewer)
+        assert len(entries) == 1
+        assert entries[0]["type"] == "duplicate"
+        body = entries[0]["body"]
         assert "0018" in body or "18" in body
         assert "0013" in body or "13" in body
 
@@ -1392,7 +1391,9 @@ class TestHandleDuplicate:
         stats = {"auto_triaged": 0, "escalated": 0}
         await reviewer._handle_duplicate(result, stats)
 
-        body = reviewer._prs.create_issue.await_args.args[1]
+        entries = _read_adr_decisions(reviewer)
+        assert len(entries) == 1
+        body = entries[0]["body"]
         assert "ADR-0013" in body
 
     @pytest.mark.asyncio
@@ -1410,10 +1411,10 @@ class TestHandleDuplicate:
         stats = {"auto_triaged": 0, "escalated": 0}
         await reviewer._handle_duplicate(result, stats)
 
-        reviewer._prs.create_issue.assert_awaited_once()
-        call_args = reviewer._prs.create_issue.await_args
-        title = call_args.args[0]
-        body = call_args.args[1]
+        entries = _read_adr_decisions(reviewer)
+        assert len(entries) == 1
+        title = entries[0]["title"]
+        body = entries[0]["body"]
         assert "0018" in body
         assert "unknown" in body.lower()
         assert "ADR-0018" in title or "0018" in title
@@ -1697,7 +1698,9 @@ class TestTitleTruncation:
             reason="a_very_long_custom_reason_that_makes_the_title_exceed_seventy_characters",
         )
 
-        title = reviewer._prs.create_issue.await_args.args[0]
+        entries = _read_adr_decisions(reviewer)
+        assert len(entries) == 1
+        title = entries[0]["title"]
         assert len(title) <= 70
         assert title.endswith("...")
 
@@ -1716,7 +1719,9 @@ class TestTitleTruncation:
         stats = {"auto_triaged": 0, "escalated": 0}
         await reviewer._handle_duplicate(result, stats)
 
-        title = reviewer._prs.create_issue.await_args.args[0]
+        entries = _read_adr_decisions(reviewer)
+        assert len(entries) == 1
+        title = entries[0]["title"]
         assert len(title) <= 70
 
 
@@ -2188,7 +2193,7 @@ class TestPreValidationGate:
     async def test_pre_validation_failure_routes_to_triage(
         self, tmp_path: Path
     ) -> None:
-        """Pre-validation failure creates a triage issue."""
+        """Pre-validation failure writes a decision to adr_decisions.jsonl."""
         reviewer = _make_reviewer(tmp_path)
         from adr_pre_validator import ADRValidationIssue, ADRValidationResult
 
@@ -2204,14 +2209,13 @@ class TestPreValidationGate:
         stats = {"auto_triaged": 0, "escalated": 0, "pre_validation_skipped": 0}
         await reviewer._route_pre_validation_failure(1, "Test ADR", validation, stats)
 
-        reviewer._prs.create_issue.assert_awaited_once()
-        call_args = reviewer._prs.create_issue.await_args
-        title = call_args.args[0]
-        body = call_args.args[1]
-        labels_kwarg = call_args.kwargs.get("labels", [])
+        entries = _read_adr_decisions(reviewer)
+        assert len(entries) == 1
+        title = entries[0]["title"]
+        body = entries[0]["body"]
+        assert entries[0]["type"] == "pre_validation"
         assert "Pre-validation" in title
         assert "missing required section" in body
-        assert list(reviewer._config.find_label) == labels_kwarg
         assert stats["auto_triaged"] == 1
         assert stats["escalated"] == 0
 
@@ -2219,11 +2223,8 @@ class TestPreValidationGate:
     async def test_pre_validation_failure_falls_back_to_hitl(
         self, tmp_path: Path
     ) -> None:
-        """If triage issue creation fails, pre-validation falls back to HITL."""
+        """pre_validation now always writes to JSONL — no HITL fallback needed."""
         reviewer = _make_reviewer(tmp_path)
-        # Make first create_issue call fail, second succeed
-        reviewer._prs.create_issue = AsyncMock(side_effect=[Exception("API error"), 99])
-
         from adr_pre_validator import ADRValidationIssue, ADRValidationResult
 
         validation = ADRValidationResult(
@@ -2238,18 +2239,36 @@ class TestPreValidationGate:
         stats = {"auto_triaged": 0, "escalated": 0, "pre_validation_skipped": 0}
         await reviewer._route_pre_validation_failure(1, "Test", validation, stats)
 
-        assert reviewer._prs.create_issue.await_count == 2
-        assert stats["auto_triaged"] == 0
-        assert stats["escalated"] == 1
+        # JSONL write always succeeds — auto_triaged is incremented, not escalated
+        entries = _read_adr_decisions(reviewer)
+        assert len(entries) == 1
+        assert entries[0]["type"] == "pre_validation"
+        assert stats["auto_triaged"] == 1
+        assert stats["escalated"] == 0
 
     @pytest.mark.asyncio
-    async def test_pre_validation_dedup_skips_when_open_issue_exists(
+    async def test_pre_validation_dedup_skips_when_local_entry_exists(
         self, tmp_path: Path
     ) -> None:
-        """Pre-validation should not create a new issue if one already exists."""
+        """Pre-validation should not write a new entry if one already exists in JSONL."""
+        import json
+
         reviewer = _make_reviewer(tmp_path)
-        # Simulate an existing open issue for this ADR
-        reviewer._prs.find_issue_number_by_label_and_title = AsyncMock(return_value=999)
+        # Pre-seed adr_decisions.jsonl with a matching title
+        path = reviewer._config.data_path("memory", "adr_decisions.jsonl")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existing_title = "[ADR Pre-validation] ADR-0001: structural issues"
+        path.write_text(
+            json.dumps(
+                {
+                    "title": existing_title,
+                    "body": "",
+                    "type": "pre_validation",
+                    "timestamp": "2024-01-01T00:00:00+00:00",
+                }
+            )
+            + "\n"
+        )
 
         from adr_pre_validator import ADRValidationIssue, ADRValidationResult
 
@@ -2265,22 +2284,18 @@ class TestPreValidationGate:
         stats = {"auto_triaged": 0, "escalated": 0, "pre_validation_skipped": 0}
         await reviewer._route_pre_validation_failure(1, "Test ADR", validation, stats)
 
-        # Should NOT create a new issue — dedup kicked in
-        reviewer._prs.create_issue.assert_not_awaited()
+        # Should NOT write a new entry — dedup kicked in
+        entries = _read_adr_decisions(reviewer)
+        assert len(entries) == 1  # still only the pre-seeded entry
         assert stats["pre_validation_skipped"] == 1
         assert stats["auto_triaged"] == 0
 
     @pytest.mark.asyncio
-    async def test_pre_validation_creates_issue_when_no_existing(
+    async def test_pre_validation_creates_entry_when_no_existing(
         self, tmp_path: Path
     ) -> None:
-        """Pre-validation creates an issue when no duplicate exists."""
+        """Pre-validation writes a JSONL entry when no duplicate exists."""
         reviewer = _make_reviewer(tmp_path)
-        # No existing issue
-        reviewer._prs.find_issue_number_by_label_and_title = AsyncMock(
-            return_value=None
-        )
-
         from adr_pre_validator import ADRValidationIssue, ADRValidationResult
 
         validation = ADRValidationResult(
@@ -2295,7 +2310,8 @@ class TestPreValidationGate:
         stats = {"auto_triaged": 0, "escalated": 0, "pre_validation_skipped": 0}
         await reviewer._route_pre_validation_failure(1, "Test ADR", validation, stats)
 
-        reviewer._prs.create_issue.assert_awaited_once()
+        entries = _read_adr_decisions(reviewer)
+        assert len(entries) == 1
         assert stats["auto_triaged"] == 1
 
 

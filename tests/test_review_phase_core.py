@@ -1311,10 +1311,10 @@ class TestRunPostMergeHooks:
         phase._prs.create_issue.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_judge_verdict_creates_verification_issue(
+    async def test_judge_verdict_writes_verification_record(
         self, config: HydraFlowConfig
     ) -> None:
-        """When judge returns a verdict, a verification issue should be created."""
+        """When judge returns a verdict, a verification record is written to JSONL."""
         mock_judge = AsyncMock()
         issue = TaskFactory.create()
         verdict = JudgeVerdict(
@@ -1332,7 +1332,6 @@ class TestRunPostMergeHooks:
         mock_judge.judge = AsyncMock(return_value=verdict)
         phase = make_review_phase(config)
         phase._post_merge._verification_judge = mock_judge
-        phase._prs.create_issue = AsyncMock(return_value=500)
         pr = PRInfoFactory.create()
         result = ReviewResultFactory.create()
 
@@ -1344,10 +1343,9 @@ class TestRunPostMergeHooks:
         )
 
         mock_judge.judge.assert_awaited_once()
-        phase._prs.create_issue.assert_awaited_once()
-        body = phase._prs.create_issue.call_args[0][1]
-        assert "Click Save" in body
-        assert phase._state.get_verification_issue(issue.id) == 500
+        # Verification is now written to JSONL, not create_issue
+        jsonl_path = config.data_path("memory", "verification_records.jsonl")
+        assert jsonl_path.exists()
 
     @pytest.mark.asyncio
     async def test_judge_returns_none_no_verification_issue(
@@ -1387,17 +1385,16 @@ class TestRunPostMergeHooks:
         phase._prs.create_issue.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_verification_issue_creation_failure_does_not_block_epic_checker(
+    async def test_verification_jsonl_failure_does_not_block_epic_checker(
         self, config: HydraFlowConfig
     ) -> None:
-        """When _create_verification_issue raises, epic checker still runs."""
+        """When verification JSONL write fails, epic checker still runs."""
         mock_judge = AsyncMock()
         verdict = JudgeVerdict(issue_number=42)
         mock_judge.judge = AsyncMock(return_value=verdict)
         mock_epic = AsyncMock()
         phase = make_review_phase(config)
         phase._post_merge._verification_judge = mock_judge
-        phase._prs.create_issue = AsyncMock(side_effect=RuntimeError("API failure"))
         phase._post_merge._epic_checker = mock_epic
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()

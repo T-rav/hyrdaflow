@@ -130,9 +130,7 @@ def _make_orchestrator(tmp_path: Path) -> HydraFlowOrchestrator:
         svc.epic_checker = MagicMock()
         svc.reviewer = MagicMock()
         svc.memory_sync_bg = MagicMock()
-        svc.metrics_sync_bg = MagicMock()
         svc.pr_unsticker_loop = MagicMock()
-        svc.manifest_refresh_loop = MagicMock()
         svc.fetcher = MagicMock()
         svc.summarizer = MagicMock()
 

@@ -287,7 +287,7 @@ class TestSystemWorkersEndpoint:
 
         response = await endpoint()
         data = json.loads(response.body)
-        assert len(data["workers"]) == 12
+        assert len(data["workers"]) == 11
         names = [w["name"] for w in data["workers"]]
         assert names == [
             "triage",
@@ -296,7 +296,6 @@ class TestSystemWorkersEndpoint:
             "review",
             "memory_sync",
             "retrospective",
-            "metrics",
             "review_insights",
             "pipeline_poller",
             "pr_unsticker",
@@ -538,9 +537,6 @@ class TestSystemWorkersEndpointIntervals:
 
         ms = next(w for w in data["workers"] if w["name"] == "memory_sync")
         assert ms["interval_seconds"] == config.memory_sync_interval
-
-        metrics = next(w for w in data["workers"] if w["name"] == "metrics")
-        assert metrics["interval_seconds"] == config.metrics_sync_interval
 
         # Pipeline workers should have poll_interval
         triage = next(w for w in data["workers"] if w["name"] == "triage")
@@ -1004,7 +1000,6 @@ class TestOrchestratorIntervalManagement:
 
         orch = HydraFlowOrchestrator(config, event_bus=event_bus)
         assert orch.get_bg_worker_interval("memory_sync") == config.memory_sync_interval
-        assert orch.get_bg_worker_interval("metrics") == config.metrics_sync_interval
 
     def test_set_stores_and_returns_override(self, config, event_bus: EventBus) -> None:
         from orchestrator import HydraFlowOrchestrator

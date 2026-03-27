@@ -194,6 +194,17 @@ async def retain_safe(
         await client.retain(bank, content, context=context, metadata=metadata)
     except Exception:
         logger.warning("Hindsight retain failed for bank=%s", bank, exc_info=True)
+        try:
+            import sentry_sdk as _sentry
+
+            _sentry.add_breadcrumb(
+                category="hindsight.retain_failed",
+                message=f"Hindsight retain failed for bank={bank}",
+                level="warning",
+                data={"bank": str(bank)},
+            )
+        except ImportError:
+            pass
         if wal:
             from hindsight_wal import WALEntry
 
@@ -221,6 +232,17 @@ async def recall_safe(
         return await client.recall(bank, query, limit=limit)
     except Exception:
         logger.warning("Hindsight recall failed for bank=%s", bank, exc_info=True)
+        try:
+            import sentry_sdk as _sentry
+
+            _sentry.add_breadcrumb(
+                category="hindsight.recall_failed",
+                message=f"Hindsight recall failed for bank={bank}",
+                level="warning",
+                data={"bank": str(bank)},
+            )
+        except ImportError:
+            pass
         return []
 
 

@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
-import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -92,36 +90,6 @@ class MetricsManager:
                 "timestamp": snapshot.timestamp,
             }
 
-        if not self._config.metrics_issue_enabled:
-            self._state.update_metrics_state(snapshot_hash)
-            return {
-                "status": "cached_locally",
-                "reason": "metrics_issue_disabled",
-                "snapshot_hash": snapshot_hash,
-                "timestamp": snapshot.timestamp,
-            }
-
-        # Ensure the metrics issue exists
-        issue_number = await self._ensure_metrics_issue()
-        if issue_number == 0:
-            logger.warning("Could not find or create metrics issue — skipping post")
-            # Still update state since local cache was written
-            self._state.update_metrics_state(snapshot_hash)
-            return {"status": "cached_locally", "reason": "no_metrics_issue"}
-
-        # Post snapshot as comment
-        comment_body = self._format_snapshot_comment(snapshot)
-        try:
-            await self._prs.post_comment(issue_number, comment_body)
-        except Exception:
-            logger.warning(
-                "Failed to post metrics snapshot to issue #%s",
-                issue_number,
-                exc_info=True,
-            )
-            self._state.update_metrics_state(snapshot_hash)
-            return {"status": "cached_locally", "reason": "post_failed"}
-
         # Update state and publish event
         self._state.update_metrics_state(snapshot_hash)
         await self._bus.publish(
@@ -132,13 +100,11 @@ class MetricsManager:
         )
 
         logger.info(
-            "Metrics snapshot posted to issue #%d (hash=%s)",
-            issue_number,
+            "Metrics snapshot cached locally (hash=%s)",
             snapshot_hash,
         )
         return {
-            "status": "posted",
-            "issue_number": issue_number,
+            "status": "cached_locally",
             "snapshot_hash": snapshot_hash,
             "timestamp": snapshot.timestamp,
         }
@@ -279,47 +245,6 @@ class MetricsManager:
             github_total_merged=github_total_merged,
         )
 
-    async def _ensure_metrics_issue(self) -> int:
-        """Find or create the hydraflow-metrics issue. Returns issue number (0 on failure)."""
-        # Check cached number first
-        cached = self._state.get_metrics_issue_number()
-        if cached is not None:
-            return cached
-
-        # Search by label
-        if self._config.metrics_label:
-            try:
-                from issue_fetcher import IssueFetcher
-
-                fetcher = IssueFetcher(self._config)
-                issues = await fetcher.fetch_issues_by_labels(
-                    self._config.metrics_label, limit=1
-                )
-                if issues:
-                    self._state.set_metrics_issue_number(issues[0].number)
-                    return issues[0].number
-            except Exception:
-                logger.warning(
-                    "Could not search for metrics issue by label", exc_info=True
-                )
-
-        # Create a new one
-        title = "HydraFlow Metrics"
-        body = (
-            "## HydraFlow Metrics Tracking\n\n"
-            "This issue stores timestamped metrics snapshots as comments.\n"
-            "Each comment contains a Markdown summary table and a JSON details block.\n\n"
-            "**Do not close or edit this issue** — HydraFlow uses it for historical "
-            "metrics persistence.\n\n"
-            "---\n*Managed by HydraFlow Metrics Manager*"
-        )
-        issue_number = await self._prs.create_issue(
-            title, body, list(self._config.metrics_label)
-        )
-        if issue_number:
-            self._state.set_metrics_issue_number(issue_number)
-        return issue_number
-
     @staticmethod
     def _format_snapshot_comment(snapshot: MetricsSnapshot) -> str:
         """Format a snapshot as a Markdown table + JSON details block."""
@@ -357,43 +282,9 @@ class MetricsManager:
         return "\n".join(lines)
 
     async def fetch_history_from_issue(self) -> list[MetricsSnapshot]:
-        """Parse JSON blocks from issue comments. Returns oldest-first.
+        """Return metrics history from local cache.
 
-        Falls back to local cache if the GitHub issue is unavailable.
+        Retained for API compatibility — the GitHub issue persistence
+        path has been removed in favour of the learning system.
         """
-        issue_number = self._state.get_metrics_issue_number()
-        if issue_number is None:
-            return self.load_local_history()
-
-        try:
-            from issue_fetcher import IssueFetcher
-
-            fetcher = IssueFetcher(self._config)
-            comments = await fetcher.fetch_issue_comments(issue_number)
-        except Exception:
-            logger.warning(
-                "Could not fetch comments for metrics issue #%s — falling back to local cache",
-                issue_number,
-                exc_info=True,
-            )
-            return self.load_local_history()
-
-        snapshots: list[MetricsSnapshot] = []
-        json_pattern = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
-
-        for comment_body in comments:
-            match = json_pattern.search(comment_body)
-            if not match:
-                continue
-            try:
-                data = json.loads(match.group(1))
-                snapshots.append(MetricsSnapshot.model_validate(data))
-            except Exception:  # JSON parse or Pydantic validation
-                logger.warning(
-                    "Skipping corrupt metrics comment in issue #%s",
-                    issue_number,
-                    exc_info=True,
-                )
-                continue
-
-        return snapshots
+        return self.load_local_history()

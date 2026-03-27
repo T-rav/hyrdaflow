@@ -120,7 +120,7 @@ for service in $SERVICES_TO_TEST; do
 
   if [ -d "$TEST_DIR/$TEST_PATH" ]; then
     echo "Running tests for $service..." >&2
-    if ! (cd "$TEST_DIR" && PYTHONPATH=. VIRTUAL_ENV="$PROJECT_ROOT/.venv" uv run --active pytest -m "not integration and not system_flow and not smoke" -q "$TEST_PATH" 2>&1); then
+    if ! (cd "$TEST_DIR" && PYTHONPATH=src VIRTUAL_ENV="$PROJECT_ROOT/.venv" UV_CACHE_DIR="$PROJECT_ROOT/.uv-cache" uv run --active pytest -m "not integration and not system_flow and not smoke" -q "$TEST_PATH" 2>&1); then
       FAILED_SERVICES="$FAILED_SERVICES $service"
     fi
   fi

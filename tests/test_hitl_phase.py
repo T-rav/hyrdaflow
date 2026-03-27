@@ -567,7 +567,8 @@ class TestHITLMemorySuggestionFiling:
     async def test_hitl_files_memory_suggestion_on_success(
         self, config: HydraFlowConfig
     ) -> None:
-        """On success with transcript, file_memory_suggestion should be called."""
+        """On success with transcript, file_memory_suggestion is called for both
+        the agent transcript and the HITL lesson (2 calls total)."""
         phase, state, fetcher, prs, wt, runner, _bus = make_hitl_phase(config)
         issue = TaskFactory.create(id=42)
 
@@ -585,11 +586,13 @@ class TestHITLMemorySuggestionFiling:
             semaphore = asyncio.Semaphore(1)
             await phase._process_one_hitl(42, "Fix the tests", semaphore)
 
-            mock_mem.assert_awaited_once()
-            args = mock_mem.call_args[0]
-            assert args[0] == MEMORY_TRANSCRIPT
-            assert args[1] == "hitl"
-            assert args[2] == "issue #42"
+            # First call: agent transcript-based suggestion
+            # Second call: HITL lesson auto-filed on success
+            assert mock_mem.await_count == 2
+            first_args = mock_mem.call_args_list[0][0]
+            assert first_args[0] == MEMORY_TRANSCRIPT
+            assert first_args[1] == "hitl"
+            assert first_args[2] == "issue #42"
 
     @pytest.mark.asyncio
     async def test_hitl_files_memory_suggestion_on_failure(
@@ -627,12 +630,14 @@ class TestHITLMemorySuggestionFiling:
     async def test_hitl_skips_memory_suggestion_for_empty_transcript(
         self, config: HydraFlowConfig
     ) -> None:
-        """Empty transcript should not trigger file_memory_suggestion."""
+        """Empty transcript skips transcript-based suggestion but HITL lesson is still
+        filed on success (1 call from the auto-filed lesson)."""
         phase, state, fetcher, prs, wt, runner, _bus = make_hitl_phase(config)
         issue = TaskFactory.create(id=42)
 
         fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
         state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "CI failed")
 
         runner.run = AsyncMock(return_value=HITLResultFactory.create(transcript=""))
 
@@ -642,13 +647,20 @@ class TestHITLMemorySuggestionFiling:
             semaphore = asyncio.Semaphore(1)
             await phase._process_one_hitl(42, "Fix it", semaphore)
 
-            mock_mem.assert_not_awaited()
+            # Only the HITL lesson auto-file is called (no transcript block)
+            mock_mem.assert_awaited_once()
+            lesson_transcript = mock_mem.call_args[0][0]
+            assert "HITL lesson" in lesson_transcript
+            assert "type: instruction" in lesson_transcript
 
     @pytest.mark.asyncio
     async def test_hitl_memory_suggestion_error_does_not_break_processing(
         self, config: HydraFlowConfig
     ) -> None:
-        """file_memory_suggestion errors should be logged but not interrupt processing."""
+        """file_memory_suggestion errors should be logged but not interrupt processing.
+
+        Both transcript-based and HITL-lesson calls are attempted; errors are swallowed.
+        """
         phase, state, fetcher, prs, wt, runner, _bus = make_hitl_phase(config)
         issue = TaskFactory.create(id=42)
 
@@ -668,12 +680,72 @@ class TestHITLMemorySuggestionFiling:
             semaphore = asyncio.Semaphore(1)
             await phase._process_one_hitl(42, "Fix the tests", semaphore)
 
-            # The suggestion call must have been attempted (exception was swallowed)
-            mock_mem.assert_awaited_once()
+            # Both suggestion calls must have been attempted (exceptions were swallowed)
+            assert mock_mem.await_count == 2
             # Processing should complete normally — comment posted, labels swapped
             prs.post_comment.assert_called_once()
             comment = prs.post_comment.call_args.args[1]
             assert "HITL correction applied successfully" in comment
+
+    @pytest.mark.asyncio
+    async def test_hitl_lesson_filed_with_instruction_type_on_success(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """On success, a [Memory] lesson with type:instruction is auto-filed."""
+        phase, state, fetcher, prs, wt, runner, _bus = make_hitl_phase(config)
+        issue = TaskFactory.create(id=42, title="Fix the login page")
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "Tests were failing")
+
+        runner.run = AsyncMock(return_value=HITLResultFactory.create(transcript=""))
+
+        with patch(
+            "phase_utils.file_memory_suggestion", new_callable=AsyncMock
+        ) as mock_mem:
+            semaphore = asyncio.Semaphore(1)
+            await phase._process_one_hitl(42, "Add missing assertions", semaphore)
+
+            mock_mem.assert_awaited_once()
+            lesson_transcript = mock_mem.call_args[0][0]
+            # Lesson contains issue title snippet
+            assert "Fix the login page" in lesson_transcript
+            # Lesson contains correction text
+            assert "Add missing assertions" in lesson_transcript
+            # Lesson contains escalation cause
+            assert "Tests were failing" in lesson_transcript
+            # Lesson is type instruction (highest trust)
+            assert "type: instruction" in lesson_transcript
+
+    @pytest.mark.asyncio
+    async def test_hitl_lesson_not_filed_on_failure(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """HITL lesson should NOT be auto-filed when the correction fails."""
+        phase, state, fetcher, prs, wt, runner, _bus = make_hitl_phase(config)
+        issue = TaskFactory.create(id=42)
+
+        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        state.set_hitl_origin(42, "hydraflow-review")
+        state.set_hitl_cause(42, "CI failed")
+
+        runner.run = AsyncMock(
+            return_value=HITLResultFactory.create(
+                success=False,
+                error="still broken",
+                transcript="",
+            )
+        )
+
+        with patch(
+            "phase_utils.file_memory_suggestion", new_callable=AsyncMock
+        ) as mock_mem:
+            semaphore = asyncio.Semaphore(1)
+            await phase._process_one_hitl(42, "Fix it", semaphore)
+
+            # No memory filing on failure
+            mock_mem.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

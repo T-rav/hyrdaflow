@@ -26,18 +26,15 @@ from events import EventBus
 from execution import SubprocessRunner
 from github_cache import GitHubCacheLoop, GitHubDataCache
 from harness_insights import HarnessInsightStore
+from health_monitor_loop import HealthMonitorLoop
 from hitl_phase import HITLPhase
 from hitl_runner import HITLRunner
 from implement_phase import ImplementPhase
 from issue_fetcher import GitHubTaskFetcher, IssueFetcher
 from issue_store import IssueStore
-from manifest import ProjectManifestManager
-from manifest_issue_syncer import ManifestIssueSyncer
-from manifest_refresh_loop import ManifestRefreshLoop
 from memory import MemorySyncWorker
 from memory_sync_loop import MemorySyncLoop
 from merge_conflict_resolver import MergeConflictResolver
-from metrics_sync_loop import MetricsSyncLoop
 from models import StatusCallback
 from plan_phase import PlanPhase
 from planner import PlannerRunner
@@ -58,7 +55,6 @@ from triage import TriageRunner
 from triage_phase import TriagePhase
 from troubleshooting_store import TroubleshootingPatternStore
 from verification_judge import VerificationJudge
-from verify_monitor_loop import VerifyMonitorLoop
 from workspace import WorkspaceManager
 from workspace_gc_loop import WorkspaceGCLoop
 
@@ -112,16 +108,14 @@ class ServiceRegistry:
 
     # Background loops
     memory_sync_bg: MemorySyncLoop
-    metrics_sync_bg: MetricsSyncLoop
     pr_unsticker_loop: PRUnstickerLoop
-    manifest_refresh_loop: ManifestRefreshLoop
     report_issue_loop: ReportIssueLoop
     epic_monitor_loop: EpicMonitorLoop
     epic_sweeper_loop: EpicSweeperLoop
-    verify_monitor_loop: VerifyMonitorLoop
     worktree_gc_loop: WorkspaceGCLoop
     runs_gc_loop: RunsGCLoop
     adr_reviewer_loop: ADRReviewerLoop
+    health_monitor_loop: HealthMonitorLoop
 
     # Optional integrations
     hindsight: HindsightClient | None = None
@@ -199,14 +193,15 @@ def build_services(
         config, event_bus, runner=subprocess_runner, hindsight=hindsight_client
     )
     prs = PRManager(config, event_bus)
-    manifest_syncer = ManifestIssueSyncer(config, state, prs)
     reviewers = ReviewRunner(
         config, event_bus, runner=subprocess_runner, hindsight=hindsight_client
     )
     hitl_runner = HITLRunner(
         config, event_bus, runner=subprocess_runner, hindsight=hindsight_client
     )
-    triage = TriageRunner(config, event_bus, runner=subprocess_runner)
+    triage = TriageRunner(
+        config, event_bus, runner=subprocess_runner, hindsight=hindsight_client
+    )
     summarizer = TranscriptSummarizer(
         config, prs, event_bus, state, runner=subprocess_runner
     )
@@ -323,7 +318,6 @@ def build_services(
         event_bus,
         runner=subprocess_runner,
         prs=prs,
-        manifest_syncer=manifest_syncer,
         hindsight=hindsight_client,
         dolt=dolt_backend,
         wal=hindsight_wal,
@@ -386,17 +380,8 @@ def build_services(
         sleep_fn=callbacks.sleep_or_stop,
         interval_cb=callbacks.get_bg_worker_interval,
     )
-    memory_sync_bg = MemorySyncLoop(config, fetcher, memory_sync, deps=loop_deps)
-    metrics_sync_bg = MetricsSyncLoop(config, store, metrics_manager, deps=loop_deps)
+    memory_sync_bg = MemorySyncLoop(config, memory_sync, deps=loop_deps)
     pr_unsticker_loop = PRUnstickerLoop(config, pr_unsticker, prs, deps=loop_deps)
-    manifest_manager = ProjectManifestManager(config)
-    manifest_refresh_loop = ManifestRefreshLoop(
-        config,
-        manifest_manager,
-        state,
-        deps=loop_deps,
-        manifest_syncer=manifest_syncer,
-    )
     report_issue_loop = ReportIssueLoop(
         config=config,
         state=state,
@@ -414,12 +399,6 @@ def build_services(
         state=state,
         deps=loop_deps,
     )
-    verify_monitor_loop = VerifyMonitorLoop(
-        config=config,
-        fetcher=fetcher,
-        state=state,
-        deps=loop_deps,
-    )
     worktree_gc_loop = WorkspaceGCLoop(
         config=config,
         worktrees=worktrees,
@@ -432,6 +411,11 @@ def build_services(
     adr_reviewer = ADRCouncilReviewer(config, event_bus, prs, subprocess_runner)
     adr_reviewer_loop = ADRReviewerLoop(
         config=config, adr_reviewer=adr_reviewer, deps=loop_deps
+    )
+    health_monitor_loop = HealthMonitorLoop(  # noqa: F841
+        config=config,
+        deps=loop_deps,
+        prs=prs,
     )
     gh_cache_loop = GitHubCacheLoop(config, gh_cache, deps=loop_deps)  # noqa: F841
 
@@ -463,16 +447,14 @@ def build_services(
         epic_checker=epic_checker,
         epic_manager=epic_manager,
         memory_sync_bg=memory_sync_bg,
-        metrics_sync_bg=metrics_sync_bg,
         pr_unsticker_loop=pr_unsticker_loop,
-        manifest_refresh_loop=manifest_refresh_loop,
         report_issue_loop=report_issue_loop,
         epic_monitor_loop=epic_monitor_loop,
         epic_sweeper_loop=epic_sweeper_loop,
-        verify_monitor_loop=verify_monitor_loop,
         worktree_gc_loop=worktree_gc_loop,
         runs_gc_loop=runs_gc_loop,
         adr_reviewer_loop=adr_reviewer_loop,
+        health_monitor_loop=health_monitor_loop,
         hindsight=hindsight_client,
         hindsight_wal=hindsight_wal,
         github_cache=gh_cache,

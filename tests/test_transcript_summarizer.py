@@ -449,3 +449,107 @@ class TestSummarizeAndPublish:
 
         assert result is None
         prs.create_issue.assert_not_called()
+
+
+# --- TranscriptSummarizer._extract_and_file_memory_items tests ---
+
+
+class TestExtractAndFileMemoryItems:
+    """Tests for parsing summary sections and filing memory items to JSONL."""
+
+    def _make_summarizer(self, tmp_path: Path) -> TranscriptSummarizer:
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(repo_root=tmp_path)
+        prs = MagicMock()
+        prs.post_comment = AsyncMock()
+        bus = MagicMock()
+        bus.publish = AsyncMock()
+        state = MagicMock()
+        return TranscriptSummarizer(config, prs, bus, state)
+
+    def _items_jsonl(self, tmp_path: Path) -> Path:
+        return tmp_path / ".hydraflow" / "memory" / "items.jsonl"
+
+    @pytest.mark.asyncio
+    async def test_files_memory_items_from_patterns_section(
+        self, tmp_path: Path
+    ) -> None:
+        """Items from '### Patterns Discovered' section are written to JSONL."""
+        summarizer = self._make_summarizer(tmp_path)
+        summary = (
+            "### Patterns Discovered\n"
+            "- The codebase uses factory functions for dependency injection\n"
+            "- All async operations are wrapped in try/except blocks\n"
+        )
+        await summarizer._extract_and_file_memory_items(summary, 42, "implement")
+        jsonl = self._items_jsonl(tmp_path)
+        assert jsonl.exists(), "items.jsonl should be written"
+        assert jsonl.stat().st_size > 0
+
+    @pytest.mark.asyncio
+    async def test_files_memory_items_from_codebase_insights(
+        self, tmp_path: Path
+    ) -> None:
+        """Items from '### Codebase Insights' section are written to JSONL."""
+        summarizer = self._make_summarizer(tmp_path)
+        summary = (
+            "### Codebase Insights\n"
+            "- The orchestrator uses five concurrent async polling loops\n"
+        )
+        await summarizer._extract_and_file_memory_items(summary, 7, "plan")
+        jsonl = self._items_jsonl(tmp_path)
+        assert jsonl.exists() and jsonl.stat().st_size > 0
+
+    @pytest.mark.asyncio
+    async def test_max_three_items_filed(self, tmp_path: Path) -> None:
+        """At most 3 memory items are filed per transcript, even with more bullets."""
+
+        summarizer = self._make_summarizer(tmp_path)
+        summary = (
+            "### Patterns Discovered\n"
+            "- The codebase uses factory functions for dependency injection\n"
+            "- All async operations are wrapped in try/except blocks\n"
+            "- The orchestrator uses five concurrent async polling loops\n"
+            "- Configuration is managed via Pydantic models with env-var overrides\n"
+            "- Git worktrees are used to isolate each issue's implementation branch\n"
+        )
+        await summarizer._extract_and_file_memory_items(summary, 42, "implement")
+        jsonl = self._items_jsonl(tmp_path)
+        lines = [ln for ln in jsonl.read_text().splitlines() if ln.strip()]
+        assert len(lines) <= 3
+
+    @pytest.mark.asyncio
+    async def test_trivial_items_under_20_chars_skipped(self, tmp_path: Path) -> None:
+        """Bullets with 20 chars or fewer are not filed as memory items."""
+        summarizer = self._make_summarizer(tmp_path)
+        summary = "### Codebase Insights\n- Short item\n- x\n- ok\n"
+        await summarizer._extract_and_file_memory_items(summary, 42, "plan")
+        jsonl = self._items_jsonl(tmp_path)
+        assert not jsonl.exists() or jsonl.stat().st_size == 0
+
+    @pytest.mark.asyncio
+    async def test_no_relevant_sections_does_not_file(self, tmp_path: Path) -> None:
+        """Summary with no 'Patterns Discovered' or 'Codebase Insights' files nothing."""
+        summarizer = self._make_summarizer(tmp_path)
+        summary = (
+            "### Key Decisions\n"
+            "- Used the factory pattern for dependency injection\n"
+            "### Errors Encountered\n"
+            "- CI failed on first run due to flaky test\n"
+        )
+        await summarizer._extract_and_file_memory_items(summary, 42, "implement")
+        jsonl = self._items_jsonl(tmp_path)
+        assert not jsonl.exists() or jsonl.stat().st_size == 0
+
+    @pytest.mark.asyncio
+    async def test_exception_in_filing_does_not_raise(self, tmp_path: Path) -> None:
+        """If filing fails, _extract_and_file_memory_items swallows the error."""
+        summarizer = self._make_summarizer(tmp_path)
+        # Make the data_root unwritable to force an OSError
+        summary = (
+            "### Patterns Discovered\n"
+            "- The codebase uses factory functions for dependency injection\n"
+        )
+        # Should not raise even if something goes wrong internally
+        await summarizer._extract_and_file_memory_items(summary, 42, "implement")

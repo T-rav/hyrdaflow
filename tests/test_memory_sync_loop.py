@@ -26,9 +26,6 @@ def _make_loop(
     """Build a MemorySyncLoop with test-friendly defaults."""
     deps = make_bg_loop_deps(tmp_path, enabled=enabled, memory_sync_interval=interval)
 
-    fetcher = MagicMock()
-    fetcher.fetch_issues_by_labels = AsyncMock(return_value=[])
-
     memory_sync = MagicMock()
     if sync_error is not None:
         memory_sync.sync = AsyncMock(side_effect=sync_error)
@@ -38,7 +35,6 @@ def _make_loop(
 
     loop = MemorySyncLoop(
         config=deps.config,
-        fetcher=fetcher,
         memory_sync=memory_sync,
         deps=deps.loop_deps,
     )
@@ -145,19 +141,13 @@ class TestMemorySyncLoopRun:
         assert call_count >= 2
 
     @pytest.mark.asyncio
-    async def test_run__fetches_memory_sync_labels_with_high_limit(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_run__publishes_sync_event(self, tmp_path: Path) -> None:
+        """The loop publishes the sync event after sync completes."""
         loop, _ = _make_loop(tmp_path)
 
         await loop.run()
 
-        assert loop._fetcher.fetch_issues_by_labels.await_count >= 1
-        for call in loop._fetcher.fetch_issues_by_labels.await_args_list:
-            args = call.args
-            kwargs = call.kwargs
-            assert args[0] == loop._config.memory_sync_labels
-            assert kwargs["limit"] == 500
+        assert loop._memory_sync.publish_sync_event.await_count >= 1
 
 
 class TestMemorySyncLoopInterval:
@@ -173,3 +163,25 @@ class TestMemorySyncLoopInterval:
         loop, _ = _make_loop(tmp_path, interval=300)
         loop._interval_cb = lambda _name: 99
         assert loop._get_interval() == 99
+
+
+# ---------------------------------------------------------------------------
+# Sentry breadcrumb tests
+# ---------------------------------------------------------------------------
+
+
+class TestMemorySyncSentryBreadcrumbs:
+    """Sentry breadcrumb emitted on sync completion."""
+
+    @pytest.mark.asyncio
+    async def test_do_work_adds_breadcrumb(self, tmp_path: Path) -> None:
+        from unittest.mock import patch
+
+        loop, _ = _make_loop(tmp_path)
+        sentry_mock = MagicMock()
+        with patch.dict("sys.modules", {"sentry_sdk": sentry_mock}):
+            await loop._do_work()
+            assert sentry_mock.add_breadcrumb.called
+            kw = sentry_mock.add_breadcrumb.call_args[1]
+            assert kw["category"] == "memory.sync_completed"
+            assert kw["level"] == "info"

@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from models import IsoTimestamp, PipelineStage
 
 if TYPE_CHECKING:
+    from config import HydraFlowConfig
     from dolt_backend import DoltBackend
     from hindsight import HindsightClient
     from hindsight_wal import HindsightWAL
@@ -187,6 +188,18 @@ class HarnessInsightStore:
                 },
                 wal=self._wal,
             )
+
+        try:
+            import sentry_sdk as _sentry
+
+            _sentry.add_breadcrumb(
+                category="harness_insights.failure_recorded",
+                message=f"Harness failure recorded: {record.category}",
+                level="info",
+                data={"category": str(record.category), "stage": str(record.stage)},
+            )
+        except ImportError:
+            pass
 
     def load_recent(self, n: int = 20) -> list[FailureRecord]:
         """Load the last *n* failure records from disk."""
@@ -385,3 +398,74 @@ def generate_suggestions(
     # Sort by occurrence count (highest first)
     suggestions.sort(key=lambda s: s.occurrence_count, reverse=True)
     return suggestions
+
+
+# ---------------------------------------------------------------------------
+# Auto-filing
+# ---------------------------------------------------------------------------
+
+
+async def auto_file_suggestions(
+    store: HarnessInsightStore,
+    config: HydraFlowConfig,
+    *,
+    threshold: int = 3,
+) -> None:
+    """Generate suggestions from recent failures and write to JSONL.
+
+    For each suggestion not yet in the store's dedup set, this appends
+    to ``harness_suggestions.jsonl``.  Filed keys are persisted via the
+    store so the same pattern is never filed twice.
+
+    All operations are wrapped in try/except — this is an enhancement and must
+    not interrupt the pipeline.
+    """
+    try:
+        records = store.load_recent()
+        if not records:
+            return
+
+        proposed = store.get_proposed_patterns()
+        suggestions = generate_suggestions(
+            records, threshold=threshold, proposed=proposed
+        )
+        if not suggestions:
+            return
+
+        import json as _json  # noqa: PLC0415
+
+        suggestions_path = config.data_path("memory", "harness_suggestions.jsonl")
+        suggestions_path.parent.mkdir(parents=True, exist_ok=True)
+
+        for suggestion in suggestions:
+            key = (
+                f"subcategory:{suggestion.subcategory}"
+                if suggestion.subcategory
+                else f"category:{suggestion.category}"
+            )
+            try:
+                rec = {
+                    "title": suggestion.description,
+                    "category": suggestion.category,
+                    "subcategory": suggestion.subcategory,
+                    "occurrences": suggestion.occurrence_count,
+                    "window_size": suggestion.window_size,
+                    "suggestion": suggestion.suggestion,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+                with suggestions_path.open("a") as f:
+                    f.write(_json.dumps(rec) + "\n")
+                store.mark_pattern_proposed(key)
+                logger.warning(
+                    "Harness insight: %s (%d occurrences)",
+                    suggestion.description,
+                    suggestion.occurrence_count,
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to file harness insight suggestion for key %s",
+                    key,
+                    exc_info=True,
+                )
+    except Exception:  # noqa: BLE001
+        logger.warning("auto_file_suggestions failed", exc_info=True)

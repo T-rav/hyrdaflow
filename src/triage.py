@@ -249,6 +249,13 @@ or for truly insufficient issues:
             max_body=max(1000, min(self._config.max_issue_body_chars, 3000)),
         )
 
+        # Inject memory context if available
+        _, memory_section = await self._inject_manifest_and_memory(
+            query_context=f"{issue.title} {(issue.body or '')[:200]}"
+        )
+        if memory_section:
+            prompt += memory_section
+
         transcript = await self._execute(
             cmd,
             prompt,
@@ -265,10 +272,32 @@ or for truly insufficient issues:
 
         result = self._parse_verdict(transcript, issue.id)
         if result is not None:
+            try:
+                import sentry_sdk as _sentry
+
+                _sentry.add_breadcrumb(
+                    category="triage.evaluated",
+                    message=f"Triage evaluated issue #{issue.id}",
+                    level="info",
+                    data={"issue_id": issue.id, "ready": result.ready},
+                )
+            except ImportError:
+                pass
             return result
 
         # Fallback: could not parse LLM response — include a transcript
         # snippet so the failure reason is visible in HITL comments.
+        try:
+            import sentry_sdk as _sentry
+
+            _sentry.add_breadcrumb(
+                category="triage.parse_failed",
+                message=f"Triage parse failed for issue #{issue.id}",
+                level="warning",
+                data={"issue_id": issue.id},
+            )
+        except ImportError:
+            pass
         snippet = transcript.strip()[:200]
         return TriageResult(
             issue_number=issue.id,

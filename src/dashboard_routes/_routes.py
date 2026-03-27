@@ -2431,11 +2431,6 @@ def create_router(
             "Captures post-merge outcomes and identifies recurring delivery patterns.",
         ),
         (
-            "metrics",
-            "Metrics",
-            "Refreshes operational metrics and dashboards from state and GitHub data.",
-        ),
-        (
             "review_insights",
             "Review Insights",
             "Aggregates recurring review feedback into improvement opportunities.",
@@ -2465,7 +2460,6 @@ def create_router(
     # Workers that have independent configurable intervals
     _INTERVAL_WORKERS = {
         "memory_sync",
-        "metrics",
         "pr_unsticker",
         "pipeline_poller",
         "report_issue",
@@ -2550,8 +2544,6 @@ def create_router(
             elif name in _INTERVAL_WORKERS:
                 if name == "memory_sync":
                     interval = _cfg.memory_sync_interval
-                elif name == "metrics":
-                    interval = _cfg.metrics_sync_interval
                 elif name == "pr_unsticker":
                     interval = _cfg.pr_unstick_interval
                 elif name == "pipeline_poller":
@@ -3160,10 +3152,12 @@ def create_router(
     @router.get("/api/memories")
     async def get_memories() -> JSONResponse:
         """Return memory items and curated manifest data."""
+        import json as _json  # noqa: PLC0415
+
         from manifest_curator import CuratedManifestStore
 
         items_dir = config.data_path("memory", "items")
-        digest_path = config.data_path("memory", "digest.md")
+        items_jsonl = config.data_path("memory", "items.jsonl")
 
         items: list[dict[str, object]] = []
         if items_dir.is_dir():
@@ -3179,10 +3173,16 @@ def create_router(
                 except (ValueError, OSError):
                     pass
 
-        digest_chars = 0
-        if digest_path.exists():
+        # Count items from items.jsonl (the write-ahead queue)
+        jsonl_item_count = 0
+        if items_jsonl.exists():
             with contextlib.suppress(OSError):
-                digest_chars = digest_path.stat().st_size
+                for line in items_jsonl.read_text().splitlines():
+                    try:
+                        _json.loads(line)
+                        jsonl_item_count += 1
+                    except _json.JSONDecodeError:
+                        pass
 
         curated_store = CuratedManifestStore(config)
         curated = curated_store.load()
@@ -3190,7 +3190,7 @@ def create_router(
         return JSONResponse(
             {
                 "total_items": len(items),
-                "digest_chars": digest_chars,
+                "jsonl_item_count": jsonl_item_count,
                 "curated": curated,
                 "items": items[-50:],
             }
@@ -4145,6 +4145,41 @@ def create_router(
                         exc.__class__.__name__,
                         exc_info=True,
                     )
+
+    # ---------------------------------------------------------------------------
+    # JSONL data endpoints
+    # ---------------------------------------------------------------------------
+
+    def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+        """Read a JSONL file and return parsed records, skipping malformed lines."""
+        if not path.exists():
+            return []
+        records: list[dict[str, Any]] = []
+        try:
+            for line in path.read_text(encoding="utf-8").strip().splitlines():
+                with contextlib.suppress(json.JSONDecodeError):
+                    records.append(json.loads(line))
+        except OSError:
+            pass
+        return records
+
+    @router.get("/api/hitl-recommendations")
+    async def get_hitl_recommendations() -> JSONResponse:
+        """Return unactioned HITL recommendations filed by the health monitor."""
+        path = config.data_path("memory", "hitl_recommendations.jsonl")
+        return JSONResponse(_read_jsonl(path))
+
+    @router.get("/api/adr-decisions")
+    async def get_adr_decisions() -> JSONResponse:
+        """Return ADR decision records from adr_reviewer and memory pre-validation."""
+        path = config.data_path("memory", "adr_decisions.jsonl")
+        return JSONResponse(_read_jsonl(path))
+
+    @router.get("/api/verification-records")
+    async def get_verification_records() -> JSONResponse:
+        """Return post-merge verification records requiring human review."""
+        path = config.data_path("memory", "verification_records.jsonl")
+        return JSONResponse(_read_jsonl(path))
 
     # SPA catch-all: serve index.html for any path not matched above.
     # This must be registered LAST so it doesn't shadow API/WS routes.

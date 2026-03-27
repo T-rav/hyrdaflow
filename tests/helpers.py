@@ -236,10 +236,6 @@ class ConfigFactory:
         improve_label: list[str] | None = None,
         memory_label: list[str] | None = None,
         transcript_label: list[str] | None = None,
-        manifest_label: list[str] | None = None,
-        manifest_issue_enabled: bool = False,
-        metrics_label: list[str] | None = None,
-        metrics_issue_enabled: bool = False,
         dup_label: list[str] | None = None,
         epic_label: list[str] | None = None,
         epic_child_label: list[str] | None = None,
@@ -290,8 +286,6 @@ class ConfigFactory:
         max_memory_chars: int = 4000,
         max_memory_prompt_chars: int = 4000,
         memory_sync_interval: int = 120,
-        metrics_sync_interval: int = 7200,
-        manifest_refresh_interval: int = 3600,
         max_manifest_prompt_chars: int = 2000,
         credit_pause_buffer_minutes: int = 1,
         transcript_summarization_enabled: bool = True,
@@ -341,7 +335,6 @@ class ConfigFactory:
         epic_decompose_complexity_threshold: int = 8,
         epic_monitor_interval: int = 1800,
         epic_sweep_interval: int = 3600,
-        verify_monitor_interval: int = 3600,
         worktree_gc_interval: int = 1800,
         epic_stale_days: int = 7,
         epic_merge_strategy: Literal[
@@ -373,6 +366,7 @@ class ConfigFactory:
         adr_review_interval: int = 86400,
         adr_review_approval_threshold: int = 2,
         adr_review_max_rounds: int = 3,
+        health_monitor_interval: int = 7200,
         adr_review_model: str = "sonnet",
         adr_pre_review: bool = True,
         # Prompt budget configuration
@@ -447,14 +441,6 @@ class ConfigFactory:
                 transcript_label=transcript_label
                 if transcript_label is not None
                 else ["hydraflow-transcript"],
-                manifest_label=manifest_label
-                if manifest_label is not None
-                else ["hydraflow-manifest"],
-                manifest_issue_enabled=manifest_issue_enabled,
-                metrics_label=metrics_label
-                if metrics_label is not None
-                else ["hydraflow-metrics"],
-                metrics_issue_enabled=metrics_issue_enabled,
                 dup_label=dup_label if dup_label is not None else ["hydraflow-dup"],
                 epic_label=epic_label if epic_label is not None else ["hydraflow-epic"],
                 epic_child_label=(
@@ -514,8 +500,6 @@ class ConfigFactory:
                 max_memory_chars=max_memory_chars,
                 max_memory_prompt_chars=max_memory_prompt_chars,
                 memory_sync_interval=memory_sync_interval,
-                metrics_sync_interval=metrics_sync_interval,
-                manifest_refresh_interval=manifest_refresh_interval,
                 max_manifest_prompt_chars=max_manifest_prompt_chars,
                 credit_pause_buffer_minutes=credit_pause_buffer_minutes,
                 transcript_summarization_enabled=transcript_summarization_enabled,
@@ -564,7 +548,6 @@ class ConfigFactory:
                 epic_decompose_complexity_threshold=epic_decompose_complexity_threshold,
                 epic_monitor_interval=epic_monitor_interval,
                 epic_sweep_interval=epic_sweep_interval,
-                verify_monitor_interval=verify_monitor_interval,
                 worktree_gc_interval=worktree_gc_interval,
                 epic_stale_days=epic_stale_days,
                 epic_merge_strategy=epic_merge_strategy,
@@ -615,6 +598,7 @@ class ConfigFactory:
                 adr_review_max_rounds=adr_review_max_rounds,
                 adr_review_model=adr_review_model,
                 adr_pre_review=adr_pre_review,
+                health_monitor_interval=health_monitor_interval,
                 max_discussion_comment_chars=max_discussion_comment_chars,
                 max_common_feedback_chars=max_common_feedback_chars,
                 max_impl_plan_chars=max_impl_plan_chars,

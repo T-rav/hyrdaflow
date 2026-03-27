@@ -11,11 +11,8 @@ from typing import TYPE_CHECKING, ClassVar
 
 from agent_cli import build_agent_command
 from config import HydraFlowConfig
-from context_cache import ContextSectionCache
 from events import EventBus
 from execution import get_default_runner
-from manifest import load_project_manifest
-from memory import load_memory_digest
 from models import LoopResult, TranscriptEventData
 from prompt_telemetry import PromptTelemetry, parse_command_tool_model
 from runner_utils import (
@@ -52,7 +49,6 @@ class BaseRunner:
         self._bus = event_bus
         self._active_procs: set[asyncio.subprocess.Process] = set()
         self._runner = runner or get_default_runner()
-        self._context_cache = ContextSectionCache(config)
         self._prompt_telemetry = PromptTelemetry(config)
         self._last_context_stats: dict[str, int] = {"cache_hits": 0, "cache_misses": 0}
         self._hindsight = hindsight
@@ -184,59 +180,159 @@ class BaseRunner:
         Returns ``(manifest_section, memory_section)`` where each is an
         empty string when the corresponding file is missing.
 
-        When a :class:`HindsightClient` is configured, the memory section is
-        populated via semantic recall instead of the file-based digest.  If
-        recall returns nothing, the file-based digest is used as fallback.
+        Memory is populated exclusively via Hindsight semantic recall.  If
+        Hindsight is not configured, the memory section is empty and agents
+        operate without injected context.
         """
-        cache_hits = 0
-        cache_misses = 0
-
         manifest_section = ""
-        manifest_path = self._config.data_path("manifest", "manifest.md")
-        manifest, manifest_hit = self._context_cache.get_or_load(
-            key="manifest",
-            source_path=manifest_path,
-            loader=load_project_manifest,
-        )
-        cache_hits += 1 if manifest_hit else 0
-        cache_misses += 0 if manifest_hit else 1
-        if manifest:
-            manifest_section = f"\n\n## Project Context\n\n{manifest}"
 
         memory_section = ""
         memory_raw = ""
+        troubleshooting_raw = ""
+        retrospectives_raw = ""
+        review_insights_raw = ""
+        harness_insights_raw = ""
 
         if self._hindsight and query_context:
             from hindsight import Bank, format_memories_as_markdown, recall_safe
 
-            memories = await recall_safe(self._hindsight, Bank.LEARNINGS, query_context)
-            memory_raw = format_memories_as_markdown(memories)
-            if memory_raw:
-                memory_raw = memory_raw[: self._config.max_memory_prompt_chars]
+            max_chars = self._config.max_memory_prompt_chars
+            banks_recalled: list[str] = []
 
-        # Fallback to file-based digest when Hindsight is absent or returned nothing.
-        # When hindsight_exclusive is set and a client is configured, skip file-based.
-        skip_file = self._hindsight and getattr(
-            self._config, "hindsight_exclusive", False
-        )
-        if not memory_raw and not skip_file:
-            digest_path = self._config.data_path("memory", "digest.md")
-            digest, digest_hit = self._context_cache.get_or_load(
-                key="memory_digest",
-                source_path=digest_path,
-                loader=load_memory_digest,
-            )
-            cache_hits += 1 if digest_hit else 0
-            cache_misses += 0 if digest_hit else 1
-            memory_raw = digest
+            # All banks wrapped in try/except — recall failures must never
+            # interrupt the pipeline.  Priority order determines prompt
+            # assembly; each bank is independently capped at max_chars.
+            try:
+                memories = await recall_safe(
+                    self._hindsight, Bank.LEARNINGS, query_context
+                )
+                memory_raw = format_memories_as_markdown(memories)
+                if memory_raw:
+                    memory_raw = memory_raw[:max_chars]
+                    banks_recalled.append("learnings")
+            except Exception:  # noqa: BLE001
+                pass  # Must not interrupt pipeline
 
+            try:
+                ts_memories = await recall_safe(
+                    self._hindsight, Bank.TROUBLESHOOTING, query_context
+                )
+                troubleshooting_raw = format_memories_as_markdown(ts_memories)
+                if troubleshooting_raw:
+                    troubleshooting_raw = troubleshooting_raw[:max_chars]
+                    banks_recalled.append("troubleshooting")
+            except Exception:  # noqa: BLE001
+                pass  # Must not interrupt pipeline
+
+            try:
+                retro_memories = await recall_safe(
+                    self._hindsight, Bank.RETROSPECTIVES, query_context
+                )
+                retrospectives_raw = format_memories_as_markdown(retro_memories)
+                if retrospectives_raw:
+                    retrospectives_raw = retrospectives_raw[:max_chars]
+                    banks_recalled.append("retrospectives")
+            except Exception:  # noqa: BLE001
+                pass  # Must not interrupt pipeline
+
+            try:
+                ri_memories = await recall_safe(
+                    self._hindsight, Bank.REVIEW_INSIGHTS, query_context
+                )
+                review_insights_raw = format_memories_as_markdown(ri_memories)
+                if review_insights_raw:
+                    review_insights_raw = review_insights_raw[:max_chars]
+                    banks_recalled.append("review_insights")
+            except Exception:  # noqa: BLE001
+                pass  # Must not interrupt pipeline
+
+            try:
+                hi_memories = await recall_safe(
+                    self._hindsight, Bank.HARNESS_INSIGHTS, query_context
+                )
+                harness_insights_raw = format_memories_as_markdown(hi_memories)
+                if harness_insights_raw:
+                    harness_insights_raw = harness_insights_raw[:max_chars]
+                    banks_recalled.append("harness_insights")
+            except Exception:  # noqa: BLE001
+                pass  # Must not interrupt pipeline
+
+            # Sentry breadcrumb for memory recall observability
+            try:
+                import sentry_sdk as _sentry  # noqa: PLC0415
+
+                _sentry.add_breadcrumb(
+                    category="memory.recall",
+                    message=f"Recalled {len(banks_recalled)} memory banks",
+                    level="info",
+                    data={
+                        "banks": banks_recalled,
+                        "query_context": query_context[:100],
+                    },
+                )
+            except ImportError:
+                pass
+
+        # Assemble the memory section from all available banks.
+        # Cap the combined section at max_memory_prompt_chars.
+        combined_parts: list[str] = []
+
+        # File-based fallback when Hindsight is unavailable
+        if self._hindsight is None and query_context:
+            try:
+                from manifest_curator import CuratedManifestStore  # noqa: PLC0415
+
+                store = CuratedManifestStore(self._config)
+                fallback_text = store.read_for_prompt(
+                    max_chars=self._config.max_memory_prompt_chars
+                )
+                if fallback_text:
+                    combined_parts.append(
+                        f"## Accumulated Learnings (cached)\n\n{fallback_text}"
+                    )
+                    try:
+                        import sentry_sdk as _sentry  # noqa: PLC0415
+
+                        _sentry.add_breadcrumb(
+                            category="memory.fallback",
+                            message="Used file-based memory fallback (Hindsight unavailable)",
+                            level="warning",
+                            data={"fallback_chars": len(fallback_text)},
+                        )
+                    except ImportError:
+                        pass
+            except Exception:  # noqa: BLE001
+                pass  # Fallback must not interrupt pipeline
         if memory_raw:
-            memory_section = f"\n\n## Accumulated Learnings\n\n{memory_raw}"
+            combined_parts.append(f"## Accumulated Learnings\n\n{memory_raw}")
+        if troubleshooting_raw:
+            combined_parts.append(
+                f"## Known Troubleshooting Patterns\n\n{troubleshooting_raw}"
+            )
+        if retrospectives_raw:
+            combined_parts.append(f"## Past Retrospectives\n\n{retrospectives_raw}")
+        if review_insights_raw:
+            combined_parts.append(f"## Common Review Patterns\n\n{review_insights_raw}")
+        if harness_insights_raw:
+            combined_parts.append(
+                f"## Known Pipeline Patterns\n\n{harness_insights_raw}"
+            )
+
+        if combined_parts:
+            combined = "\n\n".join(combined_parts)
+            combined = combined[: self._config.max_memory_prompt_chars]
+            memory_section = f"\n\n{combined}"
 
         self._last_context_stats = {
-            "cache_hits": cache_hits,
-            "cache_misses": cache_misses,
-            "context_chars_before": len(manifest) + len(memory_raw),
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "context_chars_before": (
+                len(memory_raw)
+                + len(troubleshooting_raw)
+                + len(retrospectives_raw)
+                + len(review_insights_raw)
+                + len(harness_insights_raw)
+            ),
             "context_chars_after": len(manifest_section) + len(memory_section),
         }
 

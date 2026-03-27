@@ -13,6 +13,7 @@ from review_insights import (
     CATEGORY_ESCALATIONS,
     CATEGORY_KEYWORDS,
     CATEGORY_REMEDIATION,
+    ProposalMetadata,
     ReviewInsightStore,
     ReviewRecord,
     analyze_patterns,
@@ -20,6 +21,7 @@ from review_insights import (
     extract_categories,
     get_common_feedback_section,
     get_escalation_data,
+    verify_proposals,
 )
 
 # ---------------------------------------------------------------------------
@@ -45,6 +47,48 @@ def _make_record(
         fixes_made=fixes_made,
         categories=categories or [],
     )
+
+
+# ---------------------------------------------------------------------------
+# ReviewRecord.raw_feedback
+# ---------------------------------------------------------------------------
+
+
+class TestReviewRecordRawFeedback:
+    """Tests for the raw_feedback field on ReviewRecord."""
+
+    def test_defaults_to_empty_string(self) -> None:
+        record = _make_record()
+        assert record.raw_feedback == ""
+
+    def test_stores_full_feedback_text(self) -> None:
+        feedback = "The implementation is missing error handling for edge cases.\n" * 10
+        record = ReviewRecord(
+            pr_number=5,
+            issue_number=10,
+            timestamp="2026-03-01T12:00:00Z",
+            verdict=ReviewVerdict.REQUEST_CHANGES,
+            summary="Missing error handling",
+            fixes_made=False,
+            categories=["error_handling"],
+            raw_feedback=feedback,
+        )
+        assert record.raw_feedback == feedback
+
+    def test_raw_feedback_survives_json_roundtrip(self) -> None:
+        feedback = "Detailed reviewer output with lots of context.\n"
+        record = ReviewRecord(
+            pr_number=7,
+            issue_number=20,
+            timestamp="2026-03-01T12:00:00Z",
+            verdict=ReviewVerdict.COMMENT,
+            summary="Some issues noted",
+            fixes_made=False,
+            categories=[],
+            raw_feedback=feedback,
+        )
+        restored = ReviewRecord.model_validate_json(record.model_dump_json())
+        assert restored.raw_feedback == feedback
 
 
 # ---------------------------------------------------------------------------
@@ -786,3 +830,211 @@ class TestReviewInsightStoreDolt:
         assert store.get_proposed_categories() == {"edge_cases"}
         # File SHOULD be written
         assert (tmp_path / "proposed_categories.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# ProposalMetadata and verify_proposals
+# ---------------------------------------------------------------------------
+
+
+def _make_store(tmp_path: Path) -> ReviewInsightStore:
+    return ReviewInsightStore(tmp_path)
+
+
+def _old_timestamp(days_ago: int = 35) -> str:
+    from datetime import UTC, datetime, timedelta
+
+    return (datetime.now(UTC) - timedelta(days=days_ago)).isoformat()
+
+
+def _recent_timestamp() -> str:
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).isoformat()
+
+
+class TestProposalMetadata:
+    """Tests for the ProposalMetadata model."""
+
+    def test_defaults(self) -> None:
+        meta = ProposalMetadata(pre_count=5, proposed_at="2026-01-01T00:00:00+00:00")
+        assert meta.pre_count == 5
+        assert meta.verified is False
+
+    def test_survives_json_roundtrip(self) -> None:
+        import json
+
+        meta = ProposalMetadata(pre_count=3, proposed_at="2026-01-15T12:00:00+00:00")
+        data = json.loads(json.dumps(meta.model_dump()))
+        restored = ProposalMetadata.model_validate(data)
+        assert restored.pre_count == 3
+        assert restored.verified is False
+
+
+class TestReviewInsightStoreProposalMetadata:
+    """Tests for record_proposal, load_proposal_metadata, and update_proposal_verified."""
+
+    def test_record_proposal_creates_metadata_file(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        store.record_proposal("missing_tests", pre_count=4)
+        meta = store.load_proposal_metadata()
+        assert "missing_tests" in meta
+        assert meta["missing_tests"].pre_count == 4
+        assert meta["missing_tests"].verified is False
+
+    def test_load_returns_empty_when_file_absent(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        assert store.load_proposal_metadata() == {}
+
+    def test_update_proposal_verified_true(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        store.record_proposal("error_handling", pre_count=6)
+        store.update_proposal_verified("error_handling", verified=True)
+        meta = store.load_proposal_metadata()
+        assert meta["error_handling"].verified is True
+
+    def test_update_proposal_verified_noop_for_unknown_category(
+        self, tmp_path: Path
+    ) -> None:
+        store = _make_store(tmp_path)
+        # No metadata exists; should not raise
+        store.update_proposal_verified("nonexistent", verified=True)
+
+    def test_multiple_categories_stored_independently(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        store.record_proposal("missing_tests", pre_count=3)
+        store.record_proposal("security", pre_count=5)
+        meta = store.load_proposal_metadata()
+        assert meta["missing_tests"].pre_count == 3
+        assert meta["security"].pre_count == 5
+
+    def test_malformed_entry_skipped_gracefully(self, tmp_path: Path) -> None:
+        import json
+
+        path = tmp_path / "proposal_metadata.json"
+        path.write_text(json.dumps({"bad_category": {"not_a_valid": "entry"}}))
+        store = _make_store(tmp_path)
+        meta = store.load_proposal_metadata()
+        assert "bad_category" not in meta
+
+
+class TestVerifyProposals:
+    """Tests for verify_proposals()."""
+
+    def _records_with_category(self, category: str, count: int) -> list[ReviewRecord]:
+        return [
+            _make_record(
+                verdict=ReviewVerdict.REQUEST_CHANGES,
+                categories=[category],
+            )
+            for _ in range(count)
+        ]
+
+    def test_returns_empty_when_no_metadata(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        stale = verify_proposals(store, [])
+        assert stale == []
+
+    def test_marks_verified_when_count_drops_over_50_percent(
+        self, tmp_path: Path
+    ) -> None:
+        store = _make_store(tmp_path)
+        # pre_count=10, current=4 → 60% reduction → should verify
+        store.record_proposal("missing_tests", pre_count=10)
+        # Manually set an old timestamp so it's been a while
+        meta = store.load_proposal_metadata()
+        meta["missing_tests"].proposed_at = _old_timestamp(40)
+        store.save_proposal_metadata(meta)
+
+        records = self._records_with_category("missing_tests", 4)
+        stale = verify_proposals(store, records)
+        assert stale == []
+        updated = store.load_proposal_metadata()
+        assert updated["missing_tests"].verified is True
+
+    def test_returns_stale_when_unchanged_after_30_days(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        store.record_proposal("error_handling", pre_count=5)
+        meta = store.load_proposal_metadata()
+        meta["error_handling"].proposed_at = _old_timestamp(35)
+        store.save_proposal_metadata(meta)
+
+        # Same count as pre_count → unchanged
+        records = self._records_with_category("error_handling", 5)
+        stale = verify_proposals(store, records)
+        assert "error_handling" in stale
+
+    def test_does_not_flag_stale_when_recently_filed(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        store.record_proposal("naming", pre_count=5)
+        # proposed_at is recent (default from record_proposal)
+        records = self._records_with_category("naming", 5)
+        stale = verify_proposals(store, records)
+        assert stale == []
+
+    def test_already_verified_proposals_skipped(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        store.record_proposal("security", pre_count=8)
+        store.update_proposal_verified("security", verified=True)
+        # Even with a stale timestamp and unchanged count, verified is skipped
+        meta = store.load_proposal_metadata()
+        meta["security"].proposed_at = _old_timestamp(50)
+        store.save_proposal_metadata(meta)
+        records = self._records_with_category("security", 8)
+        stale = verify_proposals(store, records)
+        assert "security" not in stale
+
+    def test_swallows_exceptions_and_returns_empty(self, tmp_path: Path) -> None:
+        """verify_proposals never raises even with a corrupt metadata file."""
+
+        path = tmp_path / "proposal_metadata.json"
+        path.write_text("not valid json {{{")
+        store = _make_store(tmp_path)
+        stale = verify_proposals(store, [])
+        assert stale == []
+
+
+# ---------------------------------------------------------------------------
+# Sentry breadcrumb tests
+# ---------------------------------------------------------------------------
+
+
+class TestReviewInsightsSentryBreadcrumbs:
+    """Sentry breadcrumbs for review insight recording and pattern detection."""
+
+    def test_append_review_adds_breadcrumb(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock, patch
+
+        store = _make_store(tmp_path)
+        record = _make_record(pr_number=42, verdict=ReviewVerdict.APPROVE)
+
+        sentry_mock = MagicMock()
+        with patch.dict("sys.modules", {"sentry_sdk": sentry_mock}):
+            store.append_review(record)
+            assert sentry_mock.add_breadcrumb.called
+            kw = sentry_mock.add_breadcrumb.call_args[1]
+            assert kw["category"] == "review_insights.recorded"
+            assert kw["data"]["pr_number"] == 42
+
+    def test_analyze_patterns_adds_breadcrumb_when_threshold_met(
+        self, tmp_path: Path
+    ) -> None:
+        from unittest.mock import MagicMock, patch
+
+        records = [
+            _make_record(
+                verdict=ReviewVerdict.REQUEST_CHANGES, categories=["missing_tests"]
+            )
+            for _ in range(4)
+        ]
+        sentry_mock = MagicMock()
+        with patch.dict("sys.modules", {"sentry_sdk": sentry_mock}):
+            results = analyze_patterns(records, threshold=3)
+            assert len(results) > 0
+            calls = sentry_mock.add_breadcrumb.call_args_list
+            pattern_calls = [
+                c
+                for c in calls
+                if c[1].get("category") == "review_insights.pattern_detected"
+            ]
+            assert len(pattern_calls) >= 1

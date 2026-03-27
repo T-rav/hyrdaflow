@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from config import HydraFlowConfig
 from manifest import load_project_manifest
-from memory import load_memory_digest
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 
 # Max characters of error output to include in conflict resolution prompts.
@@ -49,14 +48,11 @@ def build_conflict_prompt(
         "Commit when done. Do not push."
     )
 
-    # --- Project manifest & memory digest ---
+    # --- Project manifest ---
     if config is not None:
         manifest = load_project_manifest(config)
         if manifest:
             sections.append(f"## Project Context\n\n{manifest}")
-        digest = load_memory_digest(config)
-        if digest:
-            sections.append(f"## Accumulated Learnings\n\n{digest}")
 
     # --- Previous attempt error ---
     if last_error and attempt > 1:
@@ -115,14 +111,11 @@ def build_rebuild_prompt(
         f"- PR: {pr_url}"
     )
 
-    # --- Project manifest & memory digest ---
+    # --- Project manifest ---
     if config is not None:
         manifest = load_project_manifest(config)
         if manifest:
             sections.append(f"## Project Context\n\n{manifest}")
-        digest = load_memory_digest(config)
-        if digest:
-            sections.append(f"## Accumulated Learnings\n\n{digest}")
 
     # --- Original PR diff ---
     sections.append(

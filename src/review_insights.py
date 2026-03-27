@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -165,6 +166,18 @@ class ReviewRecord(BaseModel):
     summary: str
     fixes_made: bool
     categories: list[str]
+    raw_feedback: str = ""
+
+
+class ProposalMetadata(BaseModel):
+    """Metadata recorded when a [Review Insight] improvement proposal is filed."""
+
+    pre_count: int
+    """Pattern frequency at the time of filing."""
+    proposed_at: IsoTimestamp
+    """ISO 8601 UTC timestamp when the proposal was filed."""
+    verified: bool = False
+    """True if the pattern frequency decreased by >50% after the proposal."""
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +257,18 @@ class ReviewInsightStore:
                 wal=self._wal,
             )
 
+        try:
+            import sentry_sdk as _sentry
+
+            _sentry.add_breadcrumb(
+                category="review_insights.recorded",
+                message=f"Review insight recorded for PR #{record.pr_number}",
+                level="info",
+                data={"pr_number": record.pr_number, "verdict": str(record.verdict)},
+            )
+        except ImportError:
+            pass
+
     def load_recent(self, n: int = 10) -> list[ReviewRecord]:
         """Load the last *n* review records from disk."""
         if not self._reviews_path.exists():
@@ -265,6 +290,68 @@ class ReviewInsightStore:
     def mark_category_proposed(self, category: str) -> None:
         """Record that an improvement proposal has been filed for *category*."""
         self._proposed.add(category)
+
+    # --- Proposal metadata (pre_count + timestamps for verification) ---
+
+    def _proposal_meta_path(self) -> Path:
+        return self._memory_dir / "proposal_metadata.json"
+
+    def load_proposal_metadata(self) -> dict[str, ProposalMetadata]:
+        """Load per-category proposal metadata from ``proposal_metadata.json``.
+
+        Returns an empty dict if the file does not exist or is unreadable.
+        """
+        path = self._proposal_meta_path()
+        if not path.exists():
+            return {}
+        try:
+            raw = json.loads(path.read_text())
+            result: dict[str, ProposalMetadata] = {}
+            for cat, entry in raw.items():
+                try:
+                    result[cat] = ProposalMetadata.model_validate(entry)
+                except Exception:  # noqa: BLE001
+                    logger.warning("Skipping malformed proposal metadata for %s", cat)
+            return result
+        except (json.JSONDecodeError, OSError):
+            logger.warning(
+                "Could not read proposal metadata from %s", path, exc_info=True
+            )
+            return {}
+
+    def save_proposal_metadata(self, metadata: dict[str, ProposalMetadata]) -> None:
+        """Persist proposal metadata to ``proposal_metadata.json``."""
+        path = self._proposal_meta_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            raw = {cat: entry.model_dump() for cat, entry in metadata.items()}
+            path.write_text(json.dumps(raw, indent=2))
+        except OSError:
+            logger.warning(
+                "Could not write proposal metadata to %s", path, exc_info=True
+            )
+
+    def record_proposal(self, category: str, pre_count: int) -> None:
+        """Record a new improvement proposal with its baseline pattern count.
+
+        Stores ``pre_count`` and the current UTC timestamp in
+        ``proposal_metadata.json``.
+        """
+        from datetime import UTC, datetime  # noqa: PLC0415
+
+        meta = self.load_proposal_metadata()
+        meta[category] = ProposalMetadata(
+            pre_count=pre_count,
+            proposed_at=datetime.now(UTC).isoformat(),
+        )
+        self.save_proposal_metadata(meta)
+
+    def update_proposal_verified(self, category: str, *, verified: bool) -> None:
+        """Mark a proposal as verified (or stale) in proposal_metadata.json."""
+        meta = self.load_proposal_metadata()
+        if category in meta:
+            meta[category].verified = verified
+            self.save_proposal_metadata(meta)
 
 
 # ---------------------------------------------------------------------------
@@ -295,11 +382,26 @@ def analyze_patterns(
             cat_counts[cat] += 1
             cat_records.setdefault(cat, []).append(record)
 
-    return [
+    results = [
         (cat, count, cat_records[cat])
         for cat, count in cat_counts.most_common()
         if count >= threshold
     ]
+
+    for cat, count, _recs in results:
+        try:
+            import sentry_sdk as _sentry
+
+            _sentry.add_breadcrumb(
+                category="review_insights.pattern_detected",
+                message=f"Review pattern detected: {cat} ({count} occurrences)",
+                level="warning",
+                data={"category": cat, "count": count},
+            )
+        except ImportError:
+            pass
+
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -438,3 +540,101 @@ def get_escalation_data(
         )
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Proposal verification
+# ---------------------------------------------------------------------------
+
+_PROPOSAL_STALE_DAYS = 30
+_PROPOSAL_IMPROVEMENT_THRESHOLD = 0.5  # >50% reduction marks as verified
+
+
+def verify_proposals(
+    store: ReviewInsightStore,
+    records: list[ReviewRecord],
+) -> list[str]:
+    """Check filed improvement proposals and classify outcomes.
+
+    For each category that has metadata stored in ``proposal_metadata.json``:
+
+    - If the current pattern count decreased by >50% vs ``pre_count``,
+      mark the proposal as ``verified: true``.
+    - If the pattern count is unchanged (same or higher) and the proposal
+      is older than 30 days, return the category in the stale list so the
+      caller can re-file a HITL issue for human escalation.
+
+    Returns a list of category names that are stale and need HITL escalation.
+    Never raises — all errors are logged and swallowed.
+    """
+    from datetime import UTC, datetime, timedelta  # noqa: PLC0415
+
+    stale_categories: list[str] = []
+    try:
+        meta = store.load_proposal_metadata()
+        if not meta:
+            return []
+
+        # Count current pattern frequencies across all records
+        from collections import Counter  # noqa: PLC0415
+
+        non_approve = [r for r in records if r.verdict != ReviewVerdict.APPROVE]
+        cat_counts: Counter[str] = Counter()
+        for record in non_approve:
+            for cat in record.categories:
+                cat_counts[cat] += 1
+
+        now = datetime.now(UTC)
+
+        for category, proposal in meta.items():
+            if proposal.verified:
+                continue  # Already resolved
+
+            try:
+                proposed_at = datetime.fromisoformat(proposal.proposed_at)
+                # Ensure timezone-aware comparison
+                if proposed_at.tzinfo is None:
+                    proposed_at = proposed_at.replace(tzinfo=UTC)
+            except ValueError:
+                logger.warning(
+                    "Could not parse proposed_at for category %s: %s",
+                    category,
+                    proposal.proposed_at,
+                )
+                continue
+
+            current_count = cat_counts.get(category, 0)
+
+            # Check improvement: >50% reduction in frequency
+            if (
+                proposal.pre_count > 0
+                and current_count < proposal.pre_count * _PROPOSAL_IMPROVEMENT_THRESHOLD
+            ):
+                store.update_proposal_verified(category, verified=True)
+                logger.info(
+                    "Proposal for category '%s' verified: count dropped from %d to %d",
+                    category,
+                    proposal.pre_count,
+                    current_count,
+                )
+                continue
+
+            # Check staleness: unchanged after 30 days
+            age = now - proposed_at
+            if (
+                age >= timedelta(days=_PROPOSAL_STALE_DAYS)
+                and current_count >= proposal.pre_count
+            ):
+                stale_categories.append(category)
+                logger.warning(
+                    "Proposal for category '%s' is stale after %d days (count: %d -> %d)",
+                    category,
+                    age.days,
+                    proposal.pre_count,
+                    current_count,
+                )
+
+    except Exception:
+        logger.exception("Error during proposal verification")
+
+    return stale_categories

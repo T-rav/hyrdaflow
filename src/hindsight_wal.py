@@ -63,6 +63,17 @@ class HindsightWAL:
                 f.write(entry.model_dump_json() + "\n")
                 f.flush()
             self._trim()
+            try:
+                import sentry_sdk as _sentry
+
+                _sentry.add_breadcrumb(
+                    category="hindsight_wal.buffered",
+                    message=f"WAL entry buffered for bank={entry.bank}",
+                    level="info",
+                    data={"bank": entry.bank, "entry_count": self.count},
+                )
+            except ImportError:
+                pass
         except OSError:
             logger.warning("Could not write to WAL at %s", self._path, exc_info=True)
 
@@ -150,6 +161,19 @@ class HindsightWAL:
 
         self.write_all(remaining)
         failed = len(remaining)
+
+        if failed > 0:
+            try:
+                import sentry_sdk as _sentry
+
+                _sentry.add_breadcrumb(
+                    category="hindsight_wal.replay_failed",
+                    message=f"WAL replay had {failed} remaining failures",
+                    level="warning",
+                    data={"failed": failed, "replayed": replayed, "dropped": dropped},
+                )
+            except ImportError:
+                pass
 
         if replayed or dropped:
             logger.info(

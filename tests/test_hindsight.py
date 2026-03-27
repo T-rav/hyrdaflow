@@ -52,3 +52,42 @@ class TestScheduleRetain:
         client = MagicMock(spec=HindsightClient)
         # Should not raise even without a running loop
         schedule_retain(client, "test-bank", "content")
+
+
+# ---------------------------------------------------------------------------
+# Sentry breadcrumb tests
+# ---------------------------------------------------------------------------
+
+
+class TestSentryBreadcrumbs:
+    """Sentry breadcrumbs are emitted on retain/recall failures."""
+
+    @pytest.mark.asyncio()
+    async def test_retain_safe_adds_breadcrumb_on_failure(self) -> None:
+        from hindsight import retain_safe
+
+        client = MagicMock(spec=HindsightClient)
+        client.retain = AsyncMock(side_effect=RuntimeError("boom"))
+
+        with patch.dict("sys.modules", {"sentry_sdk": MagicMock()}) as modules:
+            sentry_mock = modules["sentry_sdk"]
+            await retain_safe(client, "test-bank", "content")
+            sentry_mock.add_breadcrumb.assert_called_once()
+            call_kwargs = sentry_mock.add_breadcrumb.call_args[1]
+            assert call_kwargs["category"] == "hindsight.retain_failed"
+            assert call_kwargs["level"] == "warning"
+
+    @pytest.mark.asyncio()
+    async def test_recall_safe_adds_breadcrumb_on_failure(self) -> None:
+        from hindsight import recall_safe
+
+        client = MagicMock(spec=HindsightClient)
+        client.recall = AsyncMock(side_effect=RuntimeError("boom"))
+
+        with patch.dict("sys.modules", {"sentry_sdk": MagicMock()}) as modules:
+            sentry_mock = modules["sentry_sdk"]
+            result = await recall_safe(client, "test-bank", "query")
+            assert result == []
+            sentry_mock.add_breadcrumb.assert_called_once()
+            call_kwargs = sentry_mock.add_breadcrumb.call_args[1]
+            assert call_kwargs["category"] == "hindsight.recall_failed"

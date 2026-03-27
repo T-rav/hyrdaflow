@@ -255,6 +255,40 @@ class HITLPhase:
                         self._state.remove_hitl_visual_evidence(issue_number)
                         self._state.reset_issue_attempts(issue_number)
 
+                        # Auto-file a [Memory] lesson so the pipeline learns
+                        # from this human correction (type: instruction — highest trust).
+                        try:
+                            lesson_title = f"HITL lesson: {issue.title[:60]}"
+                            lesson_learning = (
+                                f"Human correction applied for issue #{issue_number}. "
+                                f"Correction: {correction[:300]}"
+                            )
+                            lesson_context = f"Escalation cause: {cause}"
+                            lesson_transcript = (
+                                "MEMORY_SUGGESTION_START\n"
+                                f"title: {lesson_title}\n"
+                                f"learning: {lesson_learning}\n"
+                                f"context: {lesson_context}\n"
+                                "type: instruction\n"
+                                "MEMORY_SUGGESTION_END"
+                            )
+                            from phase_utils import (  # noqa: PLC0415
+                                safe_file_memory_suggestion,
+                            )
+
+                            await safe_file_memory_suggestion(
+                                lesson_transcript,
+                                "hitl",
+                                f"issue #{issue_number}",
+                                self._config,
+                            )
+                        except Exception:  # noqa: BLE001
+                            logger.warning(
+                                "Failed to file HITL lesson memory for issue #%d",
+                                issue_number,
+                                exc_info=True,
+                            )
+
                         await self._prs.post_comment(
                             issue_number,
                             f"**HITL correction applied successfully.**\n\n"

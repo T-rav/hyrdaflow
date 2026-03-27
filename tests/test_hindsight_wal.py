@@ -292,3 +292,46 @@ class TestWALReplayLoop:
             run_wal_replay_loop(wal, client, stop, interval=1),
             run_and_stop(),
         )
+
+
+# ---------------------------------------------------------------------------
+# Sentry breadcrumb tests
+# ---------------------------------------------------------------------------
+
+
+class TestWALSentryBreadcrumbs:
+    """Sentry breadcrumbs are emitted on WAL append and replay failure."""
+
+    def test_append_adds_breadcrumb(self, tmp_path: Path) -> None:
+        from unittest.mock import patch
+
+        wal = HindsightWAL(tmp_path / "wal.jsonl")
+        sentry_mock = MagicMock()
+        with patch.dict("sys.modules", {"sentry_sdk": sentry_mock}):
+            wal.append(WALEntry(bank="test-bank", content="hello"))
+            sentry_mock.add_breadcrumb.assert_called_once()
+            kw = sentry_mock.add_breadcrumb.call_args[1]
+            assert kw["category"] == "hindsight_wal.buffered"
+            assert kw["data"]["bank"] == "test-bank"
+
+    @pytest.mark.asyncio
+    async def test_replay_failure_adds_breadcrumb(self, tmp_path: Path) -> None:
+        from unittest.mock import patch
+
+        wal = HindsightWAL(tmp_path / "wal.jsonl")
+        wal.append(WALEntry(bank="test", content="retry"))
+
+        client = MagicMock()
+        client.retain = AsyncMock(side_effect=RuntimeError("fail"))
+
+        sentry_mock = MagicMock()
+        with patch.dict("sys.modules", {"sentry_sdk": sentry_mock}):
+            await wal.replay(client)
+            sentry_mock.add_breadcrumb.assert_called()
+            calls = sentry_mock.add_breadcrumb.call_args_list
+            replay_call = [
+                c
+                for c in calls
+                if c[1].get("category") == "hindsight_wal.replay_failed"
+            ]
+            assert len(replay_call) == 1

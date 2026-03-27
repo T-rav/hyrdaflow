@@ -396,7 +396,6 @@ class TestMetricsManagerExcInfo:
         config = MagicMock()
         config.repo = "test/repo"
         config.dry_run = False
-        config.metrics_label = ["hydraflow-metrics"]
         config.data_path = MagicMock(return_value="/tmp/test")
 
         prs = MagicMock()
@@ -420,117 +419,6 @@ class TestMetricsManagerExcInfo:
         assert "Could not fetch GitHub label counts" in caplog.text
         # exc_info=True means the traceback is included
         assert "RuntimeError" in caplog.text
-
-    @pytest.mark.asyncio
-    async def test_metrics_issue_search_failure_logs_with_exc_info(
-        self, state, event_bus, caplog
-    ) -> None:
-        """Issue search failure should log with exc_info=True."""
-        from metrics_manager import MetricsManager
-
-        config = MagicMock()
-        config.repo = "test/repo"
-        config.dry_run = False
-        config.metrics_label = ["hydraflow-metrics"]
-        config.data_path = MagicMock(return_value="/tmp/test")
-
-        prs = MagicMock()
-        prs.get_label_counts = AsyncMock(
-            return_value={"open_by_label": {}, "total_closed": 0, "total_merged": 0}
-        )
-        prs.create_issue = AsyncMock(return_value=99)
-
-        mgr = MetricsManager(config, state, prs, event_bus)
-
-        # Ensure state returns None so the label search path is triggered
-        with (
-            patch.object(state, "get_metrics_issue_number", return_value=None),
-            patch("issue_fetcher.IssueFetcher") as mock_fetcher_cls,
-            caplog.at_level(logging.WARNING, logger="hydraflow.metrics_manager"),
-        ):
-            mock_fetcher = MagicMock()
-            mock_fetcher.fetch_issues_by_labels = AsyncMock(
-                side_effect=RuntimeError("search failed")
-            )
-            mock_fetcher_cls.return_value = mock_fetcher
-
-            await mgr._ensure_metrics_issue()
-
-        assert "Could not search for metrics issue by label" in caplog.text
-        assert "RuntimeError" in caplog.text
-
-    @pytest.mark.asyncio
-    async def test_snapshot_post_failure_logs_warning(
-        self, state, event_bus, caplog
-    ) -> None:
-        """post_comment failure should log WARNING with exc_info."""
-        from metrics_manager import MetricsManager
-
-        config = MagicMock()
-        config.repo = "test/repo"
-        config.dry_run = False
-        config.metrics_label = ["hydraflow-metrics"]
-        config.data_path = MagicMock(return_value="/tmp/test")
-
-        prs = MagicMock()
-        prs.get_label_counts = AsyncMock(
-            return_value={"open_by_label": {}, "total_closed": 0, "total_merged": 0}
-        )
-        prs.post_comment = AsyncMock(side_effect=RuntimeError("post failed"))
-        prs.create_issue = AsyncMock(return_value=42)
-
-        mgr = MetricsManager(config, state, prs, event_bus)
-        state.record_issue_completed()
-
-        with (
-            patch.object(
-                mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=42
-            ),
-            patch.object(mgr, "_save_to_local_cache"),
-            caplog.at_level(logging.WARNING, logger="hydraflow.metrics_manager"),
-        ):
-            result = await mgr.sync()
-
-        assert result["status"] == "cached_locally"
-        assert result["reason"] == "post_failed"
-        assert "Failed to post metrics snapshot" in caplog.text
-        assert "RuntimeError" in caplog.text
-
-    @pytest.mark.asyncio
-    async def test_corrupt_json_comment_logs_warning(
-        self, state, event_bus, caplog
-    ) -> None:
-        """Corrupt JSON in metrics comments should log WARNING with exc_info."""
-        from metrics_manager import MetricsManager
-
-        config = MagicMock()
-        config.repo = "test/repo"
-        config.dry_run = False
-        config.metrics_label = ["hydraflow-metrics"]
-        config.data_path = MagicMock(return_value="/tmp/test")
-
-        prs = MagicMock()
-        mgr = MetricsManager(config, state, prs, event_bus)
-
-        comments = [
-            "```json\n{invalid json}\n```",
-            "no json here",
-        ]
-
-        with (
-            patch("issue_fetcher.IssueFetcher") as mock_fetcher_cls,
-            caplog.at_level(logging.WARNING, logger="hydraflow.metrics_manager"),
-        ):
-            mock_fetcher = MagicMock()
-            mock_fetcher.fetch_issue_comments = AsyncMock(return_value=comments)
-            mock_fetcher_cls.return_value = mock_fetcher
-
-            # Set state to return issue number so it doesn't short-circuit
-            with patch.object(state, "get_metrics_issue_number", return_value=42):
-                result = await mgr.fetch_history_from_issue()
-
-        assert "Skipping corrupt metrics comment" in caplog.text
-        assert len(result) == 0
 
 
 # ---------------------------------------------------------------------------

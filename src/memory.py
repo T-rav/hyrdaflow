@@ -9,22 +9,17 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from agent_cli import build_lightweight_command
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from execution import SubprocessRunner, get_default_runner
 from file_util import atomic_write
-from manifest import ProjectManifestManager
 from manifest_curator import CuratedLearning, CuratedManifestStore
-from manifest_issue_syncer import ManifestIssueSyncer
 from models import (
-    MEMORY_TYPE_DISPLAY_ORDER,
     MemoryIssueData,
     MemorySyncResult,
     MemoryType,
 )
 from state import StateTracker
-from subprocess_util import make_clean_env
 
 if TYPE_CHECKING:
     from dolt_backend import DoltBackend
@@ -119,25 +114,11 @@ def build_memory_issue_body(
     )
 
 
-def load_memory_digest(config: HydraFlowConfig) -> str:
-    """Read the memory digest from disk if it exists.
+def _next_item_id() -> str:
+    """Generate a unique memory item ID."""
+    import uuid as _uuid  # noqa: PLC0415
 
-    Returns an empty string if the file is missing or empty.
-    Content is capped at ``config.max_memory_prompt_chars``.
-    """
-    digest_path = config.data_path("memory", "digest.md")
-    if not digest_path.is_file():
-        return ""
-    try:
-        content = digest_path.read_text()
-    except OSError:
-        return ""
-    if not content.strip():
-        return ""
-    max_chars = config.max_memory_prompt_chars
-    if len(content) > max_chars:
-        content = content[:max_chars] + "\n\n…(truncated)"
-    return content
+    return f"mem-{_uuid.uuid4().hex[:8]}"
 
 
 async def file_memory_suggestion(
@@ -145,55 +126,71 @@ async def file_memory_suggestion(
     source: str,
     reference: str,
     config: HydraFlowConfig,
-    prs: PRPort,
-    state: StateTracker,
+    prs: PRPort | None = None,  # no longer needed — kept for signature compat
+    state: StateTracker | None = None,  # no longer needed — kept for signature compat
 ) -> None:
-    """Parse and file a memory suggestion from an agent transcript.
+    """Parse and store a memory suggestion from an agent transcript.
 
-    Actionable types (``config``, ``instruction``, ``code``) are routed
-    through HITL for human approval.  Knowledge-type suggestions follow
-    the normal improve-label flow.
+    Writes directly to local JSONL storage and Hindsight vector store.
+    No GitHub issues are created.
     """
+    import json as _json  # noqa: PLC0415
+
     suggestion = parse_memory_suggestion(transcript)
     if not suggestion:
         return
 
     memory_type = MemoryType(suggestion.get("type", "knowledge"))
-    body = build_memory_issue_body(
-        learning=suggestion["learning"],
-        context=suggestion["context"],
-        source=source,
-        reference=reference,
-        memory_type=memory_type.value,
-    )
-    title = f"[Memory] {suggestion['title']}"
+    item = {
+        "id": _next_item_id(),
+        "title": suggestion["title"],
+        "learning": suggestion["learning"],
+        "context": suggestion.get("context", ""),
+        "memory_type": memory_type.value,
+        "source": source,
+        "reference": reference,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
 
-    # Routing: when auto-approve is on, actionable types skip HITL and go directly to improve pipeline
-    if config.memory_auto_approve:
-        labels = list(config.improve_label)
-        hitl_cause = None
-    elif MemoryType.is_actionable(memory_type):
-        labels = list(config.improve_label) + list(config.hitl_label)
-        hitl_cause = f"Actionable memory suggestion ({memory_type.value})"
-    else:
-        labels = list(config.improve_label)
-        hitl_cause = None
+    # Write to JSONL
+    try:
+        items_path = config.data_path("memory", "items.jsonl")
+        items_path.parent.mkdir(parents=True, exist_ok=True)
+        with items_path.open("a") as f:
+            f.write(_json.dumps(item) + "\n")
+    except OSError:
+        logger.exception("Failed to write memory item to JSONL")
+        return
 
-    issue_number = await prs.create_issue(title, body, labels)
-    if issue_number:
-        if hitl_cause is not None:
-            state.set_hitl_origin(issue_number, config.improve_label[0])
-            state.set_hitl_cause(issue_number, hitl_cause)
-        logger.info(
-            "Filed %s memory suggestion as issue #%d: %s",
-            memory_type.value,
-            issue_number,
-            suggestion["title"],
+    # Write to Hindsight if available
+    try:
+        from hindsight import Bank, schedule_retain  # noqa: PLC0415
+
+        schedule_retain(
+            None,  # client — resolved by schedule_retain from global state
+            Bank.LEARNINGS,
+            item["learning"],
+            metadata={
+                "source": source,
+                "type": memory_type.value,
+                "title": item["title"],
+            },
         )
+    except ImportError:
+        pass
+    except Exception:  # noqa: BLE001
+        logger.debug("Hindsight retain failed for memory item %s", item["id"])
+
+    logger.info(
+        "Stored memory item %s: %s (%s)",
+        item["id"],
+        item["title"],
+        memory_type.value,
+    )
 
 
 class MemorySyncWorker:
-    """Polls ``hydraflow-memory`` issues and compiles them into a local digest."""
+    """Reads local JSONL memory items, scores/evicts them, and writes to Hindsight."""
 
     def __init__(
         self,
@@ -204,8 +201,6 @@ class MemorySyncWorker:
         prs: PRPort | None = None,
         *,
         manifest_store: CuratedManifestStore | None = None,
-        manifest_manager: ProjectManifestManager | None = None,
-        manifest_syncer: ManifestIssueSyncer | None = None,
         hindsight: HindsightClient | None = None,
         dolt: DoltBackend | None = None,
         wal: HindsightWAL | None = None,
@@ -216,10 +211,6 @@ class MemorySyncWorker:
         self._runner = runner or get_default_runner()
         self._prs = prs
         self._manifest_store = manifest_store or CuratedManifestStore(config)
-        self._manifest_manager = manifest_manager or ProjectManifestManager(
-            config, curator=self._manifest_store
-        )
-        self._manifest_syncer = manifest_syncer
         self._hindsight = hindsight
         self._dolt = dolt
         self._wal = wal
@@ -249,90 +240,93 @@ class MemorySyncWorker:
             record.memory_type,
         )
 
-    async def sync(self, issues: list[MemoryIssueData]) -> MemorySyncResult:
-        """Main sync entry point.
+    def _load_local_items(self) -> list[dict[str, object]]:
+        """Load memory items from items.jsonl."""
+        import json as _json  # noqa: PLC0415
 
-        *issues* is a list of dicts with ``number``, ``title``, ``body``,
-        and ``createdAt`` keys (from ``gh issue list --json``).
+        path = self._config.data_path("memory", "items.jsonl")
+        if not path.exists():
+            return []
+        items: list[dict[str, object]] = []
+        try:
+            for line in path.read_text().strip().splitlines():
+                try:
+                    items.append(_json.loads(line))
+                except _json.JSONDecodeError:
+                    continue
+        except OSError:
+            logger.warning("Failed to read memory items from %s", path)
+        return items
+
+    async def sync(
+        self, issues: list[MemoryIssueData] | None = None
+    ) -> MemorySyncResult:
+        """Process local memory items: score, evict low-quality items, write to Hindsight.
+
+        The *issues* parameter is DEPRECATED and ignored.  Items are read
+        from ``items.jsonl`` instead of GitHub.
 
         Returns stats dict for event publishing.
         """
-        current_ids = sorted(i["number"] for i in issues)
+        local_items = self._load_local_items()
         prev_ids, prev_hash, _ = self._state.get_memory_state()
 
-        if not issues:
-            pruned = 0
-            if self._config.memory_prune_stale_items:
-                pruned = self._prune_stale_items([])
+        if not local_items:
             self._state.update_memory_state([], prev_hash)
             self._manifest_store.update_from_learnings([])
-            await self._refresh_manifest("memory-sync-empty")
             return {
                 "action": "synced",
                 "item_count": 0,
                 "compacted": False,
                 "digest_chars": 0,
-                "pruned": pruned,
-                "issues_closed": 0,
             }
 
-        # Extract learnings (now typed) and build digest
+        # Build CuratedLearning records from local items
         learnings: list[CuratedLearning] = []
-        for issue in issues:
+        for item in local_items:
             try:
-                body = issue.get("body", "")
-                learning = self._extract_learning(body)
-                created = issue.get("createdAt", "")
-                memory_type = self._extract_memory_type(body)
-                if learning:
-                    learnings.append(
-                        CuratedLearning(
-                            number=issue["number"],
-                            title=issue.get("title", ""),
-                            learning=learning,
-                            created_at=created,
-                            memory_type=memory_type,
-                            body=body,
-                        )
+                learning_text = str(item.get("learning", ""))
+                if not learning_text:
+                    continue
+                # Use hash of item id as a stable numeric identifier
+                item_id = str(item.get("id", ""))
+                # Generate a stable int from the item id for compatibility
+                num = abs(hash(item_id)) % (10**9) if item_id else 0
+                memory_type = _parse_memory_type(
+                    str(item.get("memory_type", "knowledge"))
+                )
+                learnings.append(
+                    CuratedLearning(
+                        number=num,
+                        title=str(item.get("title", "")),
+                        learning=learning_text,
+                        created_at=str(item.get("created_at", "")),
+                        memory_type=memory_type,
+                        body=learning_text,
                     )
+                )
             except Exception:
                 logger.exception(
-                    "Error extracting learning from memory issue #%s — skipping",
-                    issue.get("number", "?"),
+                    "Error processing local memory item %s — skipping",
+                    item.get("id", "?"),
                 )
 
         # Sort newest first
-        learnings.sort(key=lambda item: item.created_at, reverse=True)
+        learnings.sort(key=lambda rec: rec.created_at, reverse=True)
 
-        # Build digest
+        # Score/evict: compact items.jsonl by removing low-scoring duplicates
         compacted = False
-        digest = self._build_digest(learnings)
         max_chars = self._config.max_memory_chars
-        if len(digest) > max_chars:
-            digest = await self._compact_digest(learnings, max_chars)
+        total_chars = sum(len(str(r.learning)) for r in learnings)
+        if total_chars > max_chars:
+            learnings = await self._compact_items(learnings, max_chars)  # type: ignore[assignment]
+            # Rewrite items.jsonl with only surviving items
+            self._rewrite_items_jsonl(learnings, local_items)
             compacted = True
 
-        # Write individual items and digest to disk (skip when Hindsight is
-        # the exclusive write target).
-        if not self._hindsight:
-            items_dir = self._config.data_path("memory", "items")
-            items_dir.mkdir(parents=True, exist_ok=True)
-            for record in learnings:
-                num, learning, _, _ = self._coerce_learning_tuple(record)
-                item_path = items_dir / f"{num}.md"
-                item_path.write_text(learning)
-
-            # Atomic write of digest
-            self._write_digest(digest)
-
-        # Prune stale item files (always — cleans up legacy files)
-        pruned = 0
-        if self._config.memory_prune_stale_items:
-            pruned = self._prune_stale_items(current_ids)
-
-        # Dual-write learnings to Hindsight
+        # Write surviving learnings to Hindsight
         if self._hindsight:
-            from hindsight import Bank, retain_safe
+            from hindsight import Bank, retain_safe  # noqa: PLC0415
 
             for record in learnings:
                 num, learning, created, mtype = self._coerce_learning_tuple(record)
@@ -340,9 +334,9 @@ class MemorySyncWorker:
                     self._hindsight,
                     Bank.LEARNINGS,
                     learning,
-                    context=f"Issue #{num} ({mtype.value})",
+                    context=f"Item #{num} ({mtype.value})",
                     metadata={
-                        "issue_number": num,
+                        "item_id": num,
                         "memory_type": mtype.value,
                         "created_at": created,
                     },
@@ -350,100 +344,66 @@ class MemorySyncWorker:
                 )
 
         # Update state
-        digest_hash = hashlib.sha256(digest.encode()).hexdigest()[:16]
-        self._state.update_memory_state(current_ids, digest_hash)
+        item_ids = sorted(
+            abs(hash(str(item.get("id", "")))) % (10**9) for item in local_items
+        )
+        items_hash = hashlib.sha256(
+            "".join(str(r.learning) for r in learnings).encode()
+        ).hexdigest()[:16]
+        self._state.update_memory_state(item_ids, items_hash)
         self._manifest_store.update_from_learnings(learnings)
-        await self._refresh_manifest("memory-sync")
-        await self._route_adr_candidates(issues)
-        closed, _close_failed = await self._close_synced_issues(issues)
+
+        # Route ADR candidates from local items (convert to issue-like dicts)
+        adr_issues = self._local_items_to_issue_dicts(local_items)
+        await self._route_adr_candidates(adr_issues)
 
         return {
             "action": "synced",
             "item_count": len(learnings),
             "compacted": compacted,
-            "digest_chars": len(digest),
-            "pruned": pruned,
-            "issues_closed": closed,
+            "digest_chars": 0,
         }
 
-    def _should_auto_close_issue(self, issue: MemoryIssueData) -> bool:
-        """Return True only for canonical memory/transcript sync issues."""
-        title = str(issue.get("title", "")).strip()
-        labels = issue.get("labels", [])
-        if not isinstance(labels, list):
-            return False
-        has_memory_label = any(lbl in self._config.memory_label for lbl in labels)
-        has_transcript_label = any(
-            lbl in self._config.transcript_label for lbl in labels
-        )
-        is_memory = title.startswith("[Memory]") and has_memory_label
-        is_transcript = (
-            title.startswith("[Transcript Summary]") and has_transcript_label
-        )
-        return is_memory or is_transcript
-
-    def _prune_stale_items(self, current_ids: list[int]) -> int:
-        """Remove item files whose source issue is no longer active.
-
-        Returns the number of pruned files.
-        """
-        items_dir = self._config.data_path("memory", "items")
-        if not items_dir.is_dir():
-            return 0
-        active = set(current_ids)
-        pruned = 0
-        for path in items_dir.glob("*.md"):
-            try:
-                file_id = int(path.stem)
-            except ValueError:
-                continue
-            if file_id not in active:
-                path.unlink()
-                pruned += 1
-        if pruned:
-            logger.info("Pruned %d stale memory item files", pruned)
-        return pruned
-
-    async def _close_synced_issues(
-        self, issues: list[MemoryIssueData]
-    ) -> tuple[int, int]:
-        """Close synced memory issues when a PR port is available.
-
-        Returns ``(closed, failed)`` counts.
-        """
-        if self._prs is None:
-            return 0, 0
-        closed = 0
-        failed = 0
-        for issue in issues:
-            if not self._should_auto_close_issue(issue):
-                continue
-            issue_number = int(issue.get("number", 0))
-            if issue_number <= 0:
-                continue
-            try:
-                await self._prs.close_issue(issue_number)
-                closed += 1
-            except Exception as exc:  # noqa: BLE001
-                failed += 1
-                logger.warning(
-                    "Could not close synced memory issue #%d: %s",
-                    issue_number,
-                    exc,
+    @staticmethod
+    def _local_items_to_issue_dicts(
+        items: list[dict[str, object]],
+    ) -> list[MemoryIssueData]:
+        """Convert local JSONL items to MemoryIssueData dicts for ADR routing."""
+        result: list[MemoryIssueData] = []
+        for item in items:
+            item_id = str(item.get("id", ""))
+            num = abs(hash(item_id)) % (10**9) if item_id else 0
+            learning = str(item.get("learning", ""))
+            context = str(item.get("context", ""))
+            memory_type = str(item.get("memory_type", "knowledge"))
+            source = str(item.get("source", ""))
+            body = (
+                f"## Memory Suggestion\n\n"
+                f"**Type:** {memory_type}\n\n"
+                f"**Learning:** {learning}\n\n"
+                f"**Context:** {context}\n\n"
+                f"**Source:** {source}\n"
+            )
+            result.append(
+                MemoryIssueData(
+                    number=num,
+                    title=f"[Memory] {item.get('title', '')}",
+                    body=body,
+                    createdAt=str(item.get("created_at", "")),
+                    labels=["hydraflow-memory"],
                 )
-        logger.info(
-            "Memory sync auto-close summary: closed=%d failed=%d",
-            closed,
-            failed,
-        )
-        return closed, failed
+            )
+        return result
 
     async def _route_adr_candidates(self, issues: list[MemoryIssueData]) -> None:
-        """Create ADR draft tasks from architecture-shift memory issues."""
-        from phase_utils import load_existing_adr_topics, normalize_adr_topic
+        """Write ADR draft decisions from architecture-shift memory issues to JSONL."""
+        import json as _json  # noqa: PLC0415
+        from datetime import UTC, datetime  # noqa: PLC0415
 
-        if self._prs is None:
-            return
+        from phase_utils import (  # noqa: PLC0415
+            load_existing_adr_topics,
+            normalize_adr_topic,
+        )
 
         seen = self._load_adr_source_ids()
         existing_topics = load_existing_adr_topics(self._config.repo_root)
@@ -495,15 +455,23 @@ class MemorySyncWorker:
                     )
                     continue
 
-                issue_number = await self._prs.create_issue(
-                    adr_title,
-                    adr_body,
-                    list(self._config.find_label[:1]),
-                )
-                if issue_number:
+                try:
+                    path = self._config.data_path("memory", "adr_decisions.jsonl")
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    rec = {
+                        "title": adr_title,
+                        "body": adr_body,
+                        "type": "follow_up",
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+                    with path.open("a") as f:
+                        f.write(_json.dumps(rec) + "\n")
+                    logger.info("ADR decision recorded: %s", adr_title)
                     seen.add(source_id)
                     batch_topics.add(topic_key)
                     created += 1
+                except OSError:
+                    logger.debug("Failed to write ADR decision", exc_info=True)
             except Exception:
                 logger.exception(
                     "Error routing ADR candidate from memory issue #%s — skipping",
@@ -613,25 +581,6 @@ class MemorySyncWorker:
     def _save_adr_source_ids(self, issue_ids: set[int]) -> None:
         self._adr_sources.set_all({str(i) for i in issue_ids})
 
-    async def _refresh_manifest(self, source: str) -> None:
-        """Regenerate the manifest and optionally sync it upstream."""
-        if self._manifest_manager is None:
-            return
-        result = self._manifest_manager.refresh()
-        self._state.update_manifest_state(result.digest_hash)
-        logger.info(
-            "Manifest refreshed via %s (hash=%s, chars=%d)",
-            source,
-            result.digest_hash,
-            len(result.content),
-        )
-        if self._manifest_syncer is not None:
-            await self._manifest_syncer.sync(
-                result.content,
-                result.digest_hash,
-                source=source,
-            )
-
     @staticmethod
     def _extract_learning(body: str) -> str:
         """Extract the learning content from an issue body.
@@ -673,48 +622,17 @@ class MemorySyncWorker:
 
         return MemoryType.KNOWLEDGE
 
-    @staticmethod
-    def _build_digest(learnings: Sequence[_LearningRecord]) -> str:
-        """Build the digest markdown grouped by memory type.
-
-        Learnings are organised into sections by type (actionable types
-        first, then knowledge) for easy scanning by agents.
-        """
-        now = datetime.now(UTC).isoformat()
-        header = (
-            f"## Accumulated Learnings\n"
-            f"*{len(learnings)} learnings — last synced {now}*\n"
-        )
-
-        # Group learnings by type
-        by_type: dict[MemoryType, list[tuple[int, str]]] = {}
-        for record in learnings:
-            num, learning, _, memory_type = MemorySyncWorker._coerce_learning_tuple(
-                record
-            )
-            by_type.setdefault(memory_type, []).append((num, learning))
-
-        sections: list[str] = []
-        for mtype in MEMORY_TYPE_DISPLAY_ORDER:
-            items = by_type.get(mtype, [])
-            if not items:
-                continue
-            type_header = f"### {mtype.value.title()}"
-            type_items = [f"- **#{num}:** {learning}" for num, learning in items]
-            sections.append(type_header + "\n" + "\n".join(type_items))
-
-        return header + "\n" + "\n---\n".join(sections) + "\n"
-
-    async def _compact_digest(
+    async def _compact_items(
         self, learnings: Sequence[_LearningRecord], max_chars: int
-    ) -> str:
-        """Deduplicate and optionally summarise learnings to fit within *max_chars*.
+    ) -> list[_LearningRecord]:
+        """Deduplicate and evict low-scoring items from the in-memory list.
 
         Pipeline:
         1. Keyword-overlap deduplication (>70% overlap → drop duplicate).
-        2. Rebuild digest from unique items (grouped by type).
-        3. If still over *max_chars*: call a cheap model to summarise.
-        4. Final truncation safety-net in case the model returns too much.
+        2. Score-based curation: apply temporal decay, evict low-score items.
+
+        Returns the surviving list of learning records (does NOT write to disk;
+        caller is responsible for rewriting items.jsonl).
         """
         # --- Step 1: Deduplicate by keyword overlap ---
         seen_keywords: list[set[str]] = []
@@ -737,97 +655,86 @@ class MemorySyncWorker:
                 unique.append((num, learning, created, mtype))
                 seen_keywords.append(words)
 
-        # --- Step 2: Build digest from unique items (grouped by type) ---
-        now = datetime.now(UTC).isoformat()
-        header = (
-            f"## Accumulated Learnings\n"
-            f"*{len(unique)} learnings (compacted) — last synced {now}*\n"
-        )
+        # --- Step 2: Score-based curation (temporal decay + eviction) ---
+        try:
+            from memory_scoring import MemoryScorer  # noqa: PLC0415
 
-        by_type: dict[MemoryType, list[tuple[int, str]]] = {}
-        for record in unique:
-            num, learning, _, memory_type = self._coerce_learning_tuple(record)
-            by_type.setdefault(memory_type, []).append((num, learning))
+            scorer = MemoryScorer(self._config.memory_dir)
 
-        sections: list[str] = []
-        for mtype in MEMORY_TYPE_DISPLAY_ORDER:
-            items = by_type.get(mtype, [])
-            if not items:
-                continue
-            type_header = f"### {mtype.value.title()}"
-            type_items = [f"- **#{num}:** {learning}" for num, learning in items]
-            sections.append(type_header + "\n" + "\n".join(type_items))
+            # Apply temporal decay on each compaction
+            scorer.apply_temporal_decay()
 
-        digest = header + "\n" + "\n---\n".join(sections) + "\n"
+            # Check each item for eviction/curation
+            evicted_ids: set[int] = set()
+            for record in unique:
+                item_id, _, _, _ = self._coerce_learning_tuple(record)
+                classification = scorer.classify_for_compaction(item_id)
+                if classification == "auto_evict":
+                    evicted_ids.add(item_id)
+                    logger.info("Memory item %d auto-evicted (score too low)", item_id)
+                elif classification == "needs_curation":
+                    logger.info("Memory item %d flagged for curation", item_id)
+                    # For now, log only. Full curation with model call is future work.
 
-        # --- Step 3: Model-based summarisation if still over limit ---
-        if len(digest) > max_chars:
-            summarised = await self._summarise_with_model(digest, max_chars)
-            if summarised:
-                digest = summarised
+            # Remove evicted items from the unique list
+            if evicted_ids:
+                unique = [
+                    r
+                    for r in unique
+                    if self._coerce_learning_tuple(r)[0] not in evicted_ids
+                ]
+                try:
+                    import sentry_sdk  # noqa: PLC0415
 
-        # --- Step 4: Final truncation safety-net ---
-        if len(digest) > max_chars:
-            digest = digest[:max_chars] + "\n\n…(truncated)"
+                    sentry_sdk.add_breadcrumb(
+                        category="memory.compaction",
+                        message=f"Evicted {len(evicted_ids)} memory items: {sorted(evicted_ids)}",
+                        level="info",
+                    )
+                except ImportError:
+                    pass
+        except ImportError:
+            pass  # memory_scoring not available
+        except Exception:
+            logger.debug("Score-based curation failed", exc_info=True)
 
-        return digest
+        return unique
 
-    async def _summarise_with_model(self, content: str, max_chars: int) -> str | None:
-        """Use a cheap model to condense the digest.
+    def _rewrite_items_jsonl(
+        self,
+        surviving: Sequence[_LearningRecord],
+        original_items: list[dict[str, object]],
+    ) -> None:
+        """Rewrite items.jsonl keeping only items whose numeric ID is in *surviving*.
 
-        Returns the summarised text or ``None`` on failure (caller
-        falls back to truncation).
+        This evicts low-scoring and duplicate items directly from the write-ahead queue.
         """
-        tool = self._config.memory_compaction_tool
-        model = self._config.memory_compaction_model
-        prompt = (
-            f"Condense the following agent learnings into at most {max_chars} characters. "
-            "Preserve every distinct insight but merge overlapping ones. "
-            "Output ONLY the condensed markdown list — no preamble.\n\n"
-            f"{content}"
-        )
-        cmd, cmd_input = build_lightweight_command(
-            tool=tool, model=model, prompt=prompt
-        )
-        env = make_clean_env(self._config.gh_token)
+        import json as _json  # noqa: PLC0415
+
+        surviving_ids = {self._coerce_learning_tuple(r)[0] for r in surviving}
+
+        kept: list[dict[str, object]] = []
+        for item in original_items:
+            item_id_str = str(item.get("id", ""))
+            num = abs(hash(item_id_str)) % (10**9) if item_id_str else 0
+            if num in surviving_ids:
+                kept.append(item)
 
         try:
-            result = await self._runner.run_simple(
-                cmd,
-                env=env,
-                input=cmd_input,
-                timeout=self._config.memory_compaction_timeout,
-            )
-            if result.returncode != 0:
-                stderr_excerpt = result.stderr[:200]
-                stdout_excerpt = result.stdout[:200]
-                logger.warning(
-                    "Memory compaction model failed (rc=%d, model=%s): stderr=%r stdout=%r",
-                    result.returncode,
-                    model,
-                    stderr_excerpt,
-                    stdout_excerpt,
+            path = self._config.data_path("memory", "items.jsonl")
+            lines = [_json.dumps(item) + "\n" for item in kept]
+            atomic_write(path, "".join(lines))
+            evicted_count = len(original_items) - len(kept)
+            if evicted_count:
+                logger.info(
+                    "items.jsonl compacted: evicted %d items, kept %d",
+                    evicted_count,
+                    len(kept),
                 )
-                return None
-            if not result.stdout:
-                return None
-            now = datetime.now(UTC).isoformat()
-            return (
-                f"## Accumulated Learnings\n"
-                f"*Summarised — last synced {now}*\n\n"
-                f"{result.stdout}\n"
+        except OSError:
+            logger.warning(
+                "Failed to rewrite items.jsonl after compaction", exc_info=True
             )
-        except TimeoutError:
-            logger.warning("Memory compaction model timed out")
-            return None
-        except (OSError, FileNotFoundError, NotImplementedError, RuntimeError) as exc:
-            logger.warning("Memory compaction model unavailable: %s", exc)
-            return None
-
-    def _write_digest(self, content: str) -> None:
-        """Write digest to disk atomically."""
-        digest_path = self._config.data_path("memory", "digest.md")
-        atomic_write(digest_path, content)
 
     async def publish_sync_event(self, stats: MemorySyncResult) -> None:
         """Publish a MEMORY_SYNC event with *stats*."""

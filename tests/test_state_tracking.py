@@ -78,6 +78,7 @@ class TestInitialization:
             "review_attempts",
             "review_feedback",
             "completed_timelines",
+            "digest_hashes",
             "reviewed_prs",
             "schema_version",
             "session_counters",

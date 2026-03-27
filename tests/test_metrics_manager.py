@@ -45,7 +45,6 @@ def make_manager(
     """Create a fully-wired MetricsManager with test dependencies."""
     defaults: dict[str, Any] = {
         "repo": "test-owner/test-repo",
-        "metrics_issue_enabled": True,
     }
     defaults.update(config_overrides)
     config = ConfigFactory.create(**defaults)
@@ -146,74 +145,54 @@ class TestBuildSnapshot:
 
 class TestSync:
     @pytest.mark.asyncio
-    async def test_first_run_creates_issue_and_posts(self, state, event_bus) -> None:
-        """First sync creates the metrics issue and posts a snapshot comment."""
+    async def test_first_run_caches_locally(self, state, event_bus) -> None:
+        """First sync caches metrics locally and publishes an event."""
         mgr, state, prs, bus = make_manager(state, event_bus)
         state.record_issue_completed()
 
-        with patch.object(
-            mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=42
-        ):
-            result = await mgr.sync()
+        result = await mgr.sync()
 
-        assert result["status"] == "posted"
-        assert result["issue_number"] == 42
+        assert result["status"] == "cached_locally"
         assert result["snapshot_hash"]
-        prs.post_comment.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_unchanged_skips_post(self, state, event_bus) -> None:
-        """When snapshot hash matches, no comment is posted."""
+    async def test_unchanged_skips_sync(self, state, event_bus) -> None:
+        """When snapshot hash matches, sync returns unchanged."""
         mgr, state, prs, _ = make_manager(state, event_bus)
 
         # Fix the timestamp so the hash is stable between calls
         fixed_snapshot = MetricsSnapshot(timestamp="2025-01-01T00:00:00")
-        with (
-            patch.object(
-                mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=42
-            ),
-            patch.object(
-                mgr,
-                "_build_snapshot",
-                new_callable=AsyncMock,
-                return_value=fixed_snapshot,
-            ),
+        with patch.object(
+            mgr,
+            "_build_snapshot",
+            new_callable=AsyncMock,
+            return_value=fixed_snapshot,
         ):
             result1 = await mgr.sync()
-            assert result1["status"] == "posted"
+            assert result1["status"] == "cached_locally"
 
             result2 = await mgr.sync()
             assert result2["status"] == "unchanged"
 
-        # Only one comment posted (first call)
-        prs.post_comment.assert_called_once()
-
     @pytest.mark.asyncio
-    async def test_detects_change_and_posts(self, state, event_bus) -> None:
-        """When data changes between syncs, a new comment is posted."""
+    async def test_detects_change_and_caches(self, state, event_bus) -> None:
+        """When data changes between syncs, a new snapshot is cached."""
         mgr, state, prs, _ = make_manager(state, event_bus)
 
-        with patch.object(
-            mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=42
-        ):
-            await mgr.sync()
-            state.record_issue_completed()
-            result = await mgr.sync()
+        await mgr.sync()
+        state.record_issue_completed()
+        result = await mgr.sync()
 
-        assert result["status"] == "posted"
-        assert prs.post_comment.call_count == 2
+        assert result["status"] == "cached_locally"
 
     @pytest.mark.asyncio
     async def test_publishes_metrics_update_event(self, state, event_bus) -> None:
-        """A METRICS_UPDATE event is published on successful post."""
+        """A METRICS_UPDATE event is published on successful sync."""
         mgr, state, _, bus = make_manager(state, event_bus)
         published_events: list = []
         bus.publish = AsyncMock(side_effect=published_events.append)
 
-        with patch.object(
-            mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=42
-        ):
-            await mgr.sync()
+        await mgr.sync()
 
         metrics_events = [
             e for e in published_events if e.type == EventType.METRICS_UPDATE
@@ -222,27 +201,10 @@ class TestSync:
 
     @pytest.mark.asyncio
     async def test_dry_run_skips_post(self, state, event_bus) -> None:
-        """In dry-run mode, no comment is posted."""
+        """In dry-run mode, sync returns dry_run status."""
         mgr, state, prs, _ = make_manager(state, event_bus, dry_run=True)
         result = await mgr.sync()
         assert result["status"] == "dry_run"
-        prs.post_comment.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_no_metrics_issue_returns_cached_locally(
-        self, state, event_bus
-    ) -> None:
-        """When metrics issue cannot be created, returns cached_locally status."""
-        mgr, state, _, _ = make_manager(state, event_bus)
-        state.record_issue_completed()
-
-        with patch.object(
-            mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=0
-        ):
-            result = await mgr.sync()
-
-        assert result["status"] == "cached_locally"
-        assert result["reason"] == "no_metrics_issue"
 
     @pytest.mark.asyncio
     async def test_stores_latest_snapshot(self, state, event_bus) -> None:
@@ -250,61 +212,10 @@ class TestSync:
         mgr, _, _, _ = make_manager(state, event_bus)
         assert mgr.latest_snapshot is None
 
-        with patch.object(
-            mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=42
-        ):
-            await mgr.sync()
+        await mgr.sync()
 
         assert mgr.latest_snapshot is not None
         assert isinstance(mgr.latest_snapshot, MetricsSnapshot)
-
-
-# ---------------------------------------------------------------------------
-# TestEnsureMetricsIssue
-# ---------------------------------------------------------------------------
-
-
-class TestEnsureMetricsIssue:
-    @pytest.mark.asyncio
-    async def test_uses_cached_number(self, state, event_bus) -> None:
-        """If issue number is already cached, returns it immediately."""
-        mgr, state, prs, _ = make_manager(state, event_bus)
-        state.set_metrics_issue_number(99)
-
-        result = await mgr._ensure_metrics_issue()
-        assert result == 99
-        prs.create_issue.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_finds_by_label(self, state, event_bus) -> None:
-        """Searches by label and caches the found issue number."""
-        mgr, state, _, _ = make_manager(state, event_bus)
-
-        mock_issue = MagicMock()
-        mock_issue.number = 77
-
-        with patch("issue_fetcher.IssueFetcher") as MockFetcher:
-            mock_fetcher = MockFetcher.return_value
-            mock_fetcher.fetch_issues_by_labels = AsyncMock(return_value=[mock_issue])
-            result = await mgr._ensure_metrics_issue()
-
-        assert result == 77
-        assert state.get_metrics_issue_number() == 77
-
-    @pytest.mark.asyncio
-    async def test_creates_when_none_exists(self, state, event_bus) -> None:
-        """When no issue exists, creates one and caches the number."""
-        mgr, state, prs, _ = make_manager(state, event_bus)
-        prs.create_issue = AsyncMock(return_value=55)
-
-        with patch("issue_fetcher.IssueFetcher") as MockFetcher:
-            mock_fetcher = MockFetcher.return_value
-            mock_fetcher.fetch_issues_by_labels = AsyncMock(return_value=[])
-            result = await mgr._ensure_metrics_issue()
-
-        assert result == 55
-        assert state.get_metrics_issue_number() == 55
-        prs.create_issue.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -355,30 +266,10 @@ class TestFormatComment:
 
 class TestFetchHistory:
     @pytest.mark.asyncio
-    async def test_parses_json_from_comments(self, state, event_bus) -> None:
-        """Parses MetricsSnapshot JSON from issue comments."""
-        mgr, state, _, _ = make_manager(state, event_bus)
-        state.set_metrics_issue_number(42)
-
-        snap_json = MetricsSnapshot(
-            timestamp="2025-01-01T00:00:00",
-            issues_completed=5,
-        ).model_dump_json(indent=2)
-        comment = f"## Metrics\n\n```json\n{snap_json}\n```\n\n---"
-
-        with patch("issue_fetcher.IssueFetcher") as MockFetcher:
-            mock_fetcher = MockFetcher.return_value
-            mock_fetcher.fetch_issue_comments = AsyncMock(return_value=[comment])
-            result = await mgr.fetch_history_from_issue()
-
-        assert len(result) == 1
-        assert result[0].issues_completed == 5
-
-    @pytest.mark.asyncio
-    async def test_returns_empty_when_no_issue_and_no_cache(
+    async def test_returns_empty_when_no_cache(
         self, state, event_bus, tmp_path
     ) -> None:
-        """Returns empty list when no metrics issue and no local cache exist."""
+        """Returns empty list when no local cache exists."""
         mgr, _, _, _ = make_manager(
             state, event_bus, state_file=tmp_path / "state.json"
         )
@@ -386,96 +277,11 @@ class TestFetchHistory:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_skips_invalid_json(self, state, event_bus) -> None:
-        """Skips comments with invalid JSON gracefully."""
-        mgr, state, _, _ = make_manager(state, event_bus)
-        state.set_metrics_issue_number(42)
-
-        comments = [
-            "```json\n{invalid json}\n```",
-            "No JSON here at all",
-        ]
-
-        with patch("issue_fetcher.IssueFetcher") as MockFetcher:
-            mock_fetcher = MockFetcher.return_value
-            mock_fetcher.fetch_issue_comments = AsyncMock(return_value=comments)
-            result = await mgr.fetch_history_from_issue()
-
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_returns_oldest_first(self, state, event_bus) -> None:
-        """Snapshots are returned in oldest-first order."""
-        mgr, state, _, _ = make_manager(state, event_bus)
-        state.set_metrics_issue_number(42)
-
-        snap1 = MetricsSnapshot(timestamp="2025-01-01T00:00:00").model_dump_json()
-        snap2 = MetricsSnapshot(timestamp="2025-01-02T00:00:00").model_dump_json()
-        comments = [
-            f"```json\n{snap1}\n```",
-            f"```json\n{snap2}\n```",
-        ]
-
-        with patch("issue_fetcher.IssueFetcher") as MockFetcher:
-            mock_fetcher = MockFetcher.return_value
-            mock_fetcher.fetch_issue_comments = AsyncMock(return_value=comments)
-            result = await mgr.fetch_history_from_issue()
-
-        assert len(result) == 2
-        assert result[0].timestamp == "2025-01-01T00:00:00"
-        assert result[1].timestamp == "2025-01-02T00:00:00"
-
-    @pytest.mark.asyncio
-    async def test_falls_back_to_local_cache_on_api_failure(
-        self, state, event_bus, tmp_path
-    ) -> None:
-        """Falls back to local cache when GitHub API fails."""
-        mgr, state, _, _ = make_manager(
-            state, event_bus, state_file=tmp_path / "state.json"
-        )
-        state.set_metrics_issue_number(42)
-
-        # Write a snapshot to local cache
-        snap = MetricsSnapshot(timestamp="2025-01-01T00:00:00", issues_completed=7)
-        mgr._save_to_local_cache(snap)
-
-        with patch("issue_fetcher.IssueFetcher") as MockFetcher:
-            mock_fetcher = MockFetcher.return_value
-            mock_fetcher.fetch_issue_comments = AsyncMock(
-                side_effect=RuntimeError("API down")
-            )
-            result = await mgr.fetch_history_from_issue()
-
-        assert len(result) == 1
-        assert result[0].issues_completed == 7
-
-    @pytest.mark.asyncio
-    async def test_skips_comment_with_valid_json_but_invalid_schema(
-        self, state, event_bus
-    ) -> None:
-        """Skips comments with valid JSON that fails Pydantic validation."""
-        mgr, state, _, _ = make_manager(state, event_bus)
-        state.set_metrics_issue_number(42)
-
-        # Valid JSON but missing required MetricsSnapshot fields
-        comments = ['```json\n{"unexpected_field": true}\n```']
-
-        with patch("issue_fetcher.IssueFetcher") as MockFetcher:
-            mock_fetcher = MockFetcher.return_value
-            mock_fetcher.fetch_issue_comments = AsyncMock(return_value=comments)
-            result = await mgr.fetch_history_from_issue()
-
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_falls_back_to_local_cache_when_no_issue(
-        self, state, event_bus, tmp_path
-    ) -> None:
-        """Falls back to local cache when no metrics issue number is configured."""
+    async def test_returns_local_cache(self, state, event_bus, tmp_path) -> None:
+        """Returns snapshots from local cache."""
         mgr, _, _, _ = make_manager(
             state, event_bus, state_file=tmp_path / "state.json"
         )
-        # No issue number set — should return local cache
         snap = MetricsSnapshot(timestamp="2025-03-01T00:00:00", prs_merged=3)
         mgr._save_to_local_cache(snap)
 
@@ -600,10 +406,7 @@ class TestLocalCache:
         )
         state.record_issue_completed()
 
-        with patch.object(
-            mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=42
-        ):
-            await mgr.sync()
+        await mgr.sync()
 
         cache_file = tmp_path / "metrics" / "test-owner-test-repo" / "snapshots.jsonl"
         assert cache_file.exists()
@@ -706,49 +509,3 @@ class TestLoadLocalHistoryOSError:
 # ---------------------------------------------------------------------------
 # TestMetricsIssueOptIn
 # ---------------------------------------------------------------------------
-
-
-class TestMetricsIssueOptIn:
-    """Metrics issue creation should be opt-in."""
-
-    @pytest.mark.asyncio
-    async def test_sync_skips_issue_when_disabled(
-        self, state, event_bus, tmp_path: Path
-    ) -> None:
-        """sync() should cache locally but skip issue when metrics_issue_enabled is False."""
-        mgr, state, prs, _ = make_manager(
-            state,
-            event_bus,
-            metrics_issue_enabled=False,
-            state_file=tmp_path / "state.json",
-        )
-        state.record_issue_completed()
-
-        with patch.object(
-            mgr, "_ensure_metrics_issue", new_callable=AsyncMock
-        ) as mock_ensure:
-            result = await mgr.sync()
-
-        mock_ensure.assert_not_called()
-        assert result["status"] == "cached_locally"
-        assert result.get("reason") == "metrics_issue_disabled"
-
-    @pytest.mark.asyncio
-    async def test_sync_proceeds_when_enabled(
-        self, state, event_bus, tmp_path: Path
-    ) -> None:
-        """sync() should post to GitHub when metrics_issue_enabled is True."""
-        mgr, state, prs, _ = make_manager(
-            state,
-            event_bus,
-            metrics_issue_enabled=True,
-            state_file=tmp_path / "state.json",
-        )
-        state.record_issue_completed()
-
-        with patch.object(
-            mgr, "_ensure_metrics_issue", new_callable=AsyncMock, return_value=42
-        ):
-            result = await mgr.sync()
-
-        assert result["status"] == "posted"

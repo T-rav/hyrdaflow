@@ -188,8 +188,8 @@ async def safe_file_memory_suggestion(
     source: str,
     reference: str,
     config: HydraFlowConfig,
-    prs: PRPort,
-    state: StateTracker,
+    prs: PRPort | None = None,  # deprecated, ignored
+    state: StateTracker | None = None,  # deprecated, ignored
 ) -> None:
     """File a memory suggestion, swallowing and logging exceptions."""
     try:
@@ -198,8 +198,6 @@ async def safe_file_memory_suggestion(
             source,
             reference,
             config,
-            prs,
-            state,
         )
     except Exception:
         logger.exception(
@@ -460,8 +458,9 @@ async def run_with_fatal_guard(
 class MemorySuggester:
     """Pre-bound callable for :func:`safe_file_memory_suggestion`.
 
-    Stores the ``(config, prs, state)`` triple so call sites only need to
-    pass ``(transcript, source, reference)``.
+    Stores the config so call sites only need to pass
+    ``(transcript, source, reference)``.  The ``prs`` and ``state``
+    parameters are accepted for backward compatibility but ignored.
 
     Usage::
 
@@ -472,16 +471,17 @@ class MemorySuggester:
     __slots__ = ("_config", "_prs", "_state")
 
     def __init__(
-        self, config: HydraFlowConfig, prs: PRPort, state: StateTracker
+        self,
+        config: HydraFlowConfig,
+        prs: PRPort | None = None,
+        state: StateTracker | None = None,
     ) -> None:
         self._config = config
         self._prs = prs
         self._state = state
 
     async def __call__(self, transcript: str, source: str, reference: str) -> None:
-        await safe_file_memory_suggestion(
-            transcript, source, reference, self._config, self._prs, self._state
-        )
+        await safe_file_memory_suggestion(transcript, source, reference, self._config)
 
 
 class PipelineEscalator:

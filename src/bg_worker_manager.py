@@ -129,10 +129,8 @@ class BGWorkerManager:
             return self._bg_worker_intervals[name]
         defaults: dict[str, int] = {
             "memory_sync": self._config.memory_sync_interval,
-            "metrics": self._config.metrics_sync_interval,
             "pipeline_poller": 5,
             "pr_unsticker": self._config.pr_unstick_interval,
-            "manifest_refresh": self._config.manifest_refresh_interval,
             "report_issue": self._config.report_issue_interval,
             "epic_monitor": self._config.epic_monitor_interval,
             "worktree_gc": self._config.worktree_gc_interval,

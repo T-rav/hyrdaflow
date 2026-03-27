@@ -455,3 +455,34 @@ class TestTroubleshootingHindsightDualWrite:
         # File write still happened
         patterns_path = tmp_path / "memory" / "troubleshooting_patterns.jsonl"
         assert patterns_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Sentry breadcrumb tests
+# ---------------------------------------------------------------------------
+
+
+class TestTroubleshootingSentryBreadcrumbs:
+    """Sentry breadcrumb emitted when a pattern is stored."""
+
+    def test_append_pattern_adds_breadcrumb(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock, patch
+
+        memory_dir = tmp_path / "memory"
+        memory_dir.mkdir()
+        store = TroubleshootingPatternStore(memory_dir)
+        pattern = TroubleshootingPattern(
+            language="python",
+            pattern_name="test_pattern",
+            description="test",
+            fix_strategy="fix",
+        )
+
+        sentry_mock = MagicMock()
+        with patch.dict("sys.modules", {"sentry_sdk": sentry_mock}):
+            store.append_pattern(pattern)
+            assert sentry_mock.add_breadcrumb.called
+            kw = sentry_mock.add_breadcrumb.call_args[1]
+            assert kw["category"] == "troubleshooting.pattern_stored"
+            assert kw["data"]["language"] == "python"
+            assert kw["data"]["pattern_name"] == "test_pattern"

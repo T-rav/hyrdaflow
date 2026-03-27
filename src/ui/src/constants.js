@@ -159,7 +159,7 @@ export const WORKER_PRESETS = {
 /**
  * Workers whose interval can be edited from the UI.
  */
-export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'metrics', 'pr_unsticker', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer', 'epic_sweeper'])
+export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'pr_unsticker', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer', 'epic_sweeper'])
 
 /**
  * Default intervals (in seconds) for system workers.
@@ -170,12 +170,10 @@ export const SYSTEM_WORKER_INTERVALS = {
   pipeline_poller: 5,
   pr_unsticker: 3600,
   memory_sync: 3600,
-  metrics: 7200,
   report_issue: 30,
   worktree_gc: 1800,
   adr_reviewer: 86400,
   epic_sweeper: 3600,
-  verify_monitor: 3600,
 }
 
 /**
@@ -200,11 +198,10 @@ export const BACKGROUND_WORKERS = [
   { key: 'review_insights', label: 'Review Insights', description: 'Aggregates recurring review feedback into improvement opportunities.', color: theme.orange },
   { key: 'pipeline_poller', label: 'Pipeline Poller', description: 'Refreshes live pipeline snapshots for queue and status visibility.', color: theme.textMuted, system: true },
   { key: 'memory_sync',     label: 'Memory Manager', description: 'Ingests memory and transcript issues into durable learnings.', color: theme.accent, system: true },
-  { key: 'metrics',         label: 'Metrics Munger', description: 'Updates operational and GitHub metrics used by the dashboard.', color: theme.yellow, system: true },
   { key: 'pr_unsticker',    label: 'PR Unsticker',   description: 'Requeues stalled HITL PRs once requirements are actionable.', color: theme.orange, system: true },
   { key: 'report_issue',   label: 'Report Issue',   description: 'Processes queued bug reports into GitHub issues.', color: theme.red },
   { key: 'worktree_gc',    label: 'Worktree GC',    description: 'Garbage-collects stale worktrees and orphaned branches.', color: theme.textMuted, system: true },
   { key: 'adr_reviewer',   label: 'ADR Reviewer',   description: 'Reviews proposed ADRs via a 3-judge council and routes to accept, reject, or escalate.', color: theme.accent },
   { key: 'epic_sweeper',    label: 'Epic Sweeper',    description: 'Periodically sweeps open epics and auto-closes those with all sub-issues resolved.', color: theme.purple, system: true },
-  { key: 'verify_monitor', label: 'Verify Monitor', description: 'Watches pending verification issues and resolves them when closed by a human.', color: theme.accent, system: true },
+  { key: 'health_monitor', label: 'Health Monitor', description: 'Analyzes pipeline trends, auto-tunes parameters, detects knowledge gaps, and ingests log patterns.', color: theme.green, system: true },
 ]

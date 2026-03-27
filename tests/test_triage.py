@@ -810,3 +810,66 @@ class TestTriageSaveTranscript:
             call_args = mock_save.call_args[0]
             assert call_args[0] == "triage-issue"
             assert call_args[1] == 77
+
+
+# ---------------------------------------------------------------------------
+# Sentry breadcrumb tests
+# ---------------------------------------------------------------------------
+
+
+class TestTriageSentryBreadcrumbs:
+    """Sentry breadcrumbs for triage evaluation and parse failure."""
+
+    @pytest.mark.asyncio
+    async def test_evaluate_adds_breadcrumb_on_success(
+        self, runner: TriageRunner, mock_runner: AsyncMock
+    ) -> None:
+        issue = TaskFactory.create(
+            id=10,
+            title="Implement feature X for module Y",
+            body="Detailed description of what needs to happen. " * 3,
+        )
+        stdout = _make_llm_verdict(ready=True)
+        mock_runner.create_streaming_process = make_streaming_proc(stdout=stdout)
+
+        sentry_mock = MagicMock()
+        with unittest.mock.patch.dict("sys.modules", {"sentry_sdk": sentry_mock}):
+            result = await runner.evaluate(issue)
+            assert result.ready is True
+            assert sentry_mock.add_breadcrumb.called
+            kw = sentry_mock.add_breadcrumb.call_args[1]
+            assert kw["category"] == "triage.evaluated"
+            assert kw["data"]["issue_id"] == 10
+
+    @pytest.mark.asyncio
+    async def test_parse_failure_adds_breadcrumb(
+        self, runner: TriageRunner, mock_runner: AsyncMock
+    ) -> None:
+        issue = TaskFactory.create(
+            id=11,
+            title="Implement feature X for module Y",
+            body="Detailed description of what needs to happen. " * 3,
+        )
+        # Return non-JSON garbage to trigger parse failure
+        bad_event = json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "id": "msg_1",
+                    "content": [{"type": "text", "text": "not valid json at all"}],
+                },
+            }
+        )
+        bad_result = json.dumps({"type": "result", "result": "not valid json at all"})
+        bad_stdout = f"{bad_event}\n{bad_result}"
+        mock_runner.create_streaming_process = make_streaming_proc(stdout=bad_stdout)
+
+        sentry_mock = MagicMock()
+        with unittest.mock.patch.dict("sys.modules", {"sentry_sdk": sentry_mock}):
+            result = await runner.evaluate(issue)
+            assert result.ready is False
+            calls = sentry_mock.add_breadcrumb.call_args_list
+            parse_calls = [
+                c for c in calls if c[1].get("category") == "triage.parse_failed"
+            ]
+            assert len(parse_calls) == 1

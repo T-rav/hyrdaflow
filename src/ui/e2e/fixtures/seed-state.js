@@ -117,9 +117,7 @@ export const seedEvents = [
 ]
 
 export const seedBackgroundWorkers = [
-  { name: 'manifest_refresh', status: 'ok', enabled: true, last_run: FIXED_TS, details: {}, interval_seconds: 3600 },
   { name: 'memory_sync', status: 'ok', enabled: true, last_run: FIXED_TS, details: {}, interval_seconds: 1800 },
-  { name: 'metrics_sync', status: 'ok', enabled: true, last_run: FIXED_TS_2, details: {}, interval_seconds: 900 },
   { name: 'pr_unsticker', status: 'ok', enabled: true, last_run: FIXED_TS, details: {}, interval_seconds: 600 },
   { name: 'pipeline_poller', status: 'ok', enabled: true, last_run: FIXED_TS_2, details: {}, interval_seconds: 5 },
   { name: 'repo_scanner', status: 'ok', enabled: false, last_run: null, details: {}, interval_seconds: 7200 },

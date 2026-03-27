@@ -398,21 +398,22 @@ class TestPostMergeHandler:
         s.handler._prs.create_issue = AsyncMock(return_value=42)
         await s.call(diff="+++ b/src/ui/App.tsx\n@@\n+<button>Save</button>")
 
-        s.handler._prs.create_issue.assert_awaited_once()
-        # Verification issue should use verify_label, not hitl_label.
-        call_args = s.handler._prs.create_issue.call_args
-        assert config.verify_label[0] in call_args[0][2]
-        # Should record VERIFY_PENDING outcome with verification_issue_number.
-        outcome = s.handler._state.get_outcome(s.issue.id)
-        assert outcome is not None
-        assert outcome.outcome.value == "verify_pending"
-        assert outcome.verification_issue_number == 42
+        # Verification should be written to JSONL, not GitHub
+        import json
+
+        path = config.data_path("memory", "verification_records.jsonl")
+        assert path.exists(), "Verification record should be written to JSONL"
+        records = [json.loads(ln) for ln in path.read_text().strip().splitlines()]
+        assert len(records) >= 1
+        assert records[0]["issue_id"] == s.issue.id
 
     @pytest.mark.asyncio
-    async def test_verification_issue_uses_verify_label_not_hitl(
+    async def test_verification_record_written_to_jsonl(
         self, config: HydraFlowConfig
     ) -> None:
-        """Verification issues must use verify_label, not hitl_label."""
+        """Verification should write to JSONL, not create GitHub issues."""
+        import json
+
         verdict = JudgeVerdict(
             issue_number=1,
             criteria_results=[
@@ -428,15 +429,13 @@ class TestPostMergeHandler:
         mock_judge = AsyncMock()
         mock_judge.judge = AsyncMock(return_value=verdict)
         s = _setup_approved(config, verification_judge=mock_judge)
-        s.handler._prs.create_issue = AsyncMock(return_value=99)
         await s.call(diff="+++ b/src/ui/App.tsx\n@@\n+<button>Save</button>")
 
-        # Label used should be verify_label, not hitl_label
-        call_args = s.handler._prs.create_issue.call_args
-        assert config.verify_label[0] in call_args[0][2]
-        assert config.hitl_label[0] not in call_args[0][2]
-        # Should NOT set hitl_origin (verify issues aren't HITL items)
-        assert s.handler._state.get_hitl_origin(99) is None
+        path = config.data_path("memory", "verification_records.jsonl")
+        assert path.exists()
+        records = [json.loads(ln) for ln in path.read_text().strip().splitlines()]
+        assert len(records) >= 1
+        assert records[0]["pr_number"] == s.pr.number
 
     @pytest.mark.asyncio
     async def test_verification_issue_skipped_for_refactor_and_test_only_work(

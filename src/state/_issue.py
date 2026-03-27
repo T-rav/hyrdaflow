@@ -243,6 +243,17 @@ class IssueStateMixin:
         self._data.active_crate_number = number
         self.save()
 
+    # --- digest hash tracking ---
+
+    def set_digest_hash(self, issue_number: int, digest_hash: str) -> None:
+        """Store the memory digest hash active when this issue started implementation."""
+        self._data.digest_hashes[self._key(issue_number)] = digest_hash
+        self.save()
+
+    def get_digest_hash(self, issue_number: int) -> str:
+        """Retrieve the memory digest hash for this issue. Returns empty string if not set."""
+        return self._data.digest_hashes.get(self._key(issue_number), "")
+
     # --- bead mappings ---
 
     def set_bead_mapping(self, issue_id: int, mapping: dict[str, str]) -> None:

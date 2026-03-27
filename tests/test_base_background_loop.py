@@ -460,3 +460,60 @@ class TestLoopDeps:
 
         with pytest.raises(AttributeError):
             deps.event_bus = EventBus()  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Missed-cycle catch-up
+# ---------------------------------------------------------------------------
+
+
+class TestMissedCycleCatchUp:
+    """Tests for _should_run_catchup and _record_last_run."""
+
+    @pytest.mark.asyncio
+    async def test_runs_catchup_when_last_run_exceeds_interval(
+        self, tmp_path: Path
+    ) -> None:
+        """If the persisted last_run is older than the interval, run immediately."""
+        from datetime import UTC, datetime, timedelta
+
+        loop, _stop = _make_stub(tmp_path, default_interval=3600)
+
+        # Write a last_run timestamp older than the interval
+        ts_path = loop._config.data_root / "memory" / ".test_worker_last_run"
+        ts_path.parent.mkdir(parents=True, exist_ok=True)
+        old_time = datetime.now(UTC) - timedelta(seconds=7200)
+        ts_path.write_text(old_time.isoformat())
+
+        assert loop._should_run_catchup() is True
+
+    @pytest.mark.asyncio
+    async def test_no_catchup_when_last_run_is_recent(self, tmp_path: Path) -> None:
+        """If the persisted last_run is within the interval, don't catch up."""
+        from datetime import UTC, datetime, timedelta
+
+        loop, _stop = _make_stub(tmp_path, default_interval=3600)
+
+        ts_path = loop._config.data_root / "memory" / ".test_worker_last_run"
+        ts_path.parent.mkdir(parents=True, exist_ok=True)
+        recent_time = datetime.now(UTC) - timedelta(seconds=60)
+        ts_path.write_text(recent_time.isoformat())
+
+        assert loop._should_run_catchup() is False
+
+    @pytest.mark.asyncio
+    async def test_no_catchup_when_no_timestamp_file(self, tmp_path: Path) -> None:
+        """If no last_run file exists (first run), don't catch up."""
+        loop, _stop = _make_stub(tmp_path, default_interval=3600)
+        assert loop._should_run_catchup() is False
+
+    @pytest.mark.asyncio
+    async def test_record_last_run_creates_file(self, tmp_path: Path) -> None:
+        """_record_last_run should persist a timestamp file."""
+        loop, _stop = _make_stub(tmp_path, default_interval=3600)
+        loop._record_last_run()
+
+        ts_path = loop._config.data_root / "memory" / ".test_worker_last_run"
+        assert ts_path.exists()
+        content = ts_path.read_text().strip()
+        assert "T" in content  # ISO format

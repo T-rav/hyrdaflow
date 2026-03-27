@@ -818,3 +818,26 @@ class TestHarnessInsightStoreDolt:
         assert store.get_proposed_patterns() == {"subcategory:lint_error"}
         # File SHOULD be written
         assert (tmp_path / "harness_proposed.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# Sentry breadcrumb tests
+# ---------------------------------------------------------------------------
+
+
+class TestHarnessInsightsSentryBreadcrumbs:
+    """Sentry breadcrumb emitted when a failure is recorded."""
+
+    def test_append_failure_adds_breadcrumb(self, tmp_path: Path) -> None:
+        from unittest.mock import MagicMock
+
+        store = HarnessInsightStore(tmp_path)
+        record = _make_record(category=FailureCategory.CI_FAILURE, stage="review")
+
+        sentry_mock = MagicMock()
+        with patch.dict("sys.modules", {"sentry_sdk": sentry_mock}):
+            store.append_failure(record)
+            assert sentry_mock.add_breadcrumb.called
+            kw = sentry_mock.add_breadcrumb.call_args[1]
+            assert kw["category"] == "harness_insights.failure_recorded"
+            assert kw["data"]["category"] == "ci_failure"

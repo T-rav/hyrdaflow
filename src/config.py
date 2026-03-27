@@ -37,12 +37,10 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("gh_api_concurrency", "HYDRAFLOW_GH_API_CONCURRENCY", 5),
     ("max_issue_attempts", "HYDRAFLOW_MAX_ISSUE_ATTEMPTS", 3),
     ("memory_sync_interval", "HYDRAFLOW_MEMORY_SYNC_INTERVAL", 3600),
-    ("metrics_sync_interval", "HYDRAFLOW_METRICS_SYNC_INTERVAL", 7200),
     ("max_merge_conflict_fix_attempts", "HYDRAFLOW_MAX_MERGE_CONFLICT_FIX_ATTEMPTS", 3),
     ("max_ci_timeout_fix_attempts", "HYDRAFLOW_MAX_CI_TIMEOUT_FIX_ATTEMPTS", 2),
     ("data_poll_interval", "HYDRAFLOW_DATA_POLL_INTERVAL", 300),
     ("max_sessions_per_repo", "HYDRAFLOW_MAX_SESSIONS_PER_REPO", 10),
-    ("manifest_refresh_interval", "HYDRAFLOW_MANIFEST_REFRESH_INTERVAL", 3600),
     ("max_manifest_prompt_chars", "HYDRAFLOW_MAX_MANIFEST_PROMPT_CHARS", 2000),
     ("max_transcript_summary_chars", "HYDRAFLOW_MAX_TRANSCRIPT_SUMMARY_CHARS", 50_000),
     ("pr_unstick_interval", "HYDRAFLOW_PR_UNSTICK_INTERVAL", 3600),
@@ -50,7 +48,6 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("stale_report_threshold_hours", "HYDRAFLOW_STALE_REPORT_THRESHOLD_HOURS", 6),
     ("epic_monitor_interval", "HYDRAFLOW_EPIC_MONITOR_INTERVAL", 1800),
     ("epic_sweep_interval", "HYDRAFLOW_EPIC_SWEEP_INTERVAL", 3600),
-    ("verify_monitor_interval", "HYDRAFLOW_VERIFY_MONITOR_INTERVAL", 3600),
     ("worktree_gc_interval", "HYDRAFLOW_WORKTREE_GC_INTERVAL", 1800),
     ("collaborator_cache_ttl", "HYDRAFLOW_COLLABORATOR_CACHE_TTL", 600),
     ("artifact_retention_days", "HYDRAFLOW_ARTIFACT_RETENTION_DAYS", 30),
@@ -106,6 +103,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("hindsight_timeout", "HYDRAFLOW_HINDSIGHT_TIMEOUT", 30),
     ("state_backup_interval", "HYDRAFLOW_STATE_BACKUP_INTERVAL", 300),
     ("state_backup_count", "HYDRAFLOW_STATE_BACKUP_COUNT", 3),
+    ("health_monitor_interval", "HYDRAFLOW_HEALTH_MONITOR_INTERVAL", 7200),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -175,8 +173,6 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("hindsight_enabled", "HYDRAFLOW_HINDSIGHT_ENABLED", False),
     ("hindsight_exclusive", "HYDRAFLOW_HINDSIGHT_EXCLUSIVE", False),
     ("skip_preflight", "HYDRAFLOW_SKIP_PREFLIGHT", False),
-    ("manifest_issue_enabled", "HYDRAFLOW_MANIFEST_ISSUE_ENABLED", False),
-    ("metrics_issue_enabled", "HYDRAFLOW_METRICS_ISSUE_ENABLED", False),
 ]
 
 # Literal-typed env-var overrides.
@@ -228,8 +224,6 @@ _ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
     "HYDRAFLOW_LABEL_IMPROVE": ("improve_label", ["hydraflow-improve"]),
     "HYDRAFLOW_LABEL_MEMORY": ("memory_label", ["hydraflow-memory"]),
     "HYDRAFLOW_LABEL_TRANSCRIPT": ("transcript_label", ["hydraflow-transcript"]),
-    "HYDRAFLOW_LABEL_MANIFEST": ("manifest_label", ["hydraflow-manifest"]),
-    "HYDRAFLOW_LABEL_METRICS": ("metrics_label", ["hydraflow-metrics"]),
     "HYDRAFLOW_LABEL_DUP": ("dup_label", ["hydraflow-dup"]),
     "HYDRAFLOW_LABEL_EPIC": ("epic_label", ["hydraflow-epic"]),
     "HYDRAFLOW_LABEL_EPIC_CHILD": ("epic_child_label", ["hydraflow-epic-child"]),
@@ -418,22 +412,6 @@ class HydraFlowConfig(BaseModel):
         default=["hydraflow-transcript"],
         description="Labels for transcript-summary issues queued for memory sync (OR logic)",
     )
-    manifest_label: list[str] = Field(
-        default=["hydraflow-manifest"],
-        description="Labels for manifest snapshot persistence issues (OR logic)",
-    )
-    manifest_issue_enabled: bool = Field(
-        default=False,
-        description="Create a GitHub issue to persist manifest snapshots",
-    )
-    metrics_label: list[str] = Field(
-        default=["hydraflow-metrics"],
-        description="Labels for the metrics persistence issue (OR logic)",
-    )
-    metrics_issue_enabled: bool = Field(
-        default=False,
-        description="Create a GitHub issue to persist metrics snapshots",
-    )
     dup_label: list[str] = Field(
         default=["hydraflow-dup"],
         description="Labels applied when issue is already satisfied (no changes needed)",
@@ -471,12 +449,6 @@ class HydraFlowConfig(BaseModel):
         ge=600,
         le=86400,
         description="Epic sweeper loop interval in seconds (default 1 hour)",
-    )
-    verify_monitor_interval: int = Field(
-        default=3600,
-        ge=60,
-        le=86400,
-        description="Verify monitor loop interval in seconds (default 1 hour)",
     )
     worktree_gc_interval: int = Field(
         default=1800,
@@ -957,12 +929,6 @@ class HydraFlowConfig(BaseModel):
     )
 
     # Manifest detection
-    manifest_refresh_interval: int = Field(
-        default=3600,
-        ge=60,
-        le=86400,
-        description="Seconds between project manifest refresh scans (default: 1 hour)",
-    )
     max_manifest_prompt_chars: int = Field(
         default=2000,
         ge=200,
@@ -1069,6 +1035,14 @@ class HydraFlowConfig(BaseModel):
         description="Number of rotated state.json backup generations to keep",
     )
 
+    # Health monitor
+    health_monitor_interval: int = Field(
+        default=7200,
+        ge=60,
+        le=86400,
+        description="Health monitor cycle interval in seconds",
+    )
+
     # Config file persistence
     config_file: Path | None = Field(
         default=None,
@@ -1114,12 +1088,6 @@ class HydraFlowConfig(BaseModel):
         ge=10,
         le=14400,
         description="Seconds between memory sync polls (default: 1 hour)",
-    )
-    metrics_sync_interval: int = Field(
-        default=7200,
-        ge=30,
-        le=14400,
-        description="Seconds between metrics snapshot syncs (default: 2 hours)",
     )
     data_poll_interval: int = Field(
         default=300,
@@ -1342,8 +1310,6 @@ class HydraFlowConfig(BaseModel):
         "improve_label",
         "memory_label",
         "transcript_label",
-        "manifest_label",
-        "metrics_label",
         "dup_label",
         "epic_label",
         "epic_child_label",
@@ -1404,7 +1370,13 @@ class HydraFlowConfig(BaseModel):
 
     @property
     def memory_sync_labels(self) -> list[str]:
-        """Return labels fetched by memory sync (memory + improve + transcript)."""
+        """Return labels fetched by memory sync (memory + improve + transcript).
+
+        .. deprecated::
+            Memory sync now reads from local JSONL instead of GitHub issues.
+            This property is retained for backward compatibility but is no
+            longer used by the memory sync loop.
+        """
         result: list[str] = []
         for label in [*self.memory_label, *self.improve_label, *self.transcript_label]:
             if label not in result:

@@ -100,6 +100,21 @@ class TroubleshootingPatternStore:
         # dedup, Hindsight for semantic recall.
         self._write_all(all_patterns)
 
+        try:
+            import sentry_sdk as _sentry
+
+            _sentry.add_breadcrumb(
+                category="troubleshooting.pattern_stored",
+                message=f"Troubleshooting pattern stored: {pattern.pattern_name}",
+                level="info",
+                data={
+                    "language": pattern.language,
+                    "pattern_name": pattern.pattern_name,
+                },
+            )
+        except ImportError:
+            pass
+
         if self._hindsight:
             from hindsight import Bank, schedule_retain  # noqa: PLC0415
 

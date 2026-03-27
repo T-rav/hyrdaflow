@@ -59,12 +59,14 @@ from phase_utils import (
 from post_merge_handler import PostMergeHandler
 from pr_manager import PRManager, SelfReviewError
 from review_insights import (
+    _PROPOSAL_STALE_DAYS,
     CATEGORY_DESCRIPTIONS,
     ReviewInsightStore,
     ReviewRecord,
     analyze_patterns,
     build_insight_issue_body,
     extract_categories,
+    verify_proposals,
 )
 from reviewer import ReviewRunner
 from state import StateTracker
@@ -1468,6 +1470,7 @@ class ReviewPhase:
                 summary=result.summary,
                 fixes_made=result.fixes_made,
                 categories=extract_categories(result.summary),
+                raw_feedback=result.transcript,
             )
             self._insights.append_review(record)
 
@@ -1505,6 +1508,25 @@ class ReviewPhase:
                 labels = self._config.improve_label[:1]
                 await self._transitioner.create_task(title, body, labels)
                 self._insights.mark_category_proposed(category)
+                self._insights.record_proposal(category, pre_count=count)
+
+            # Verify existing proposals — re-file stale ones as HITL issues
+            stale = verify_proposals(self._insights, recent)
+            for category in stale:
+                desc = CATEGORY_DESCRIPTIONS.get(category, category)
+                title = f"[HITL] Stale review insight: {desc}"
+                body = (
+                    f"## Stale Improvement Proposal\n\n"
+                    f"The improvement proposal for **{category}** ({desc}) "
+                    f"was filed over {_PROPOSAL_STALE_DAYS} days ago but the "
+                    f"pattern frequency has not decreased. Human intervention is "
+                    f"required to resolve this recurring feedback loop.\n\n"
+                    f"---\n*Auto-escalated by HydraFlow review insight verification.*"
+                )
+                hitl_labels = list(self._config.improve_label[:1]) + list(
+                    self._config.hitl_label
+                )
+                await self._transitioner.create_task(title, body, hitl_labels)
         except (RuntimeError, OSError):
             status = "error"
             details["error"] = "review insight recording failed"
@@ -1535,6 +1557,32 @@ class ReviewPhase:
         self._state.set_hitl_origin(esc.issue_number, esc.origin_label)
         self._state.set_hitl_cause(esc.issue_number, esc.cause)
         self._state.record_hitl_escalation()
+        try:
+            from memory_scoring import (  # noqa: PLC0415
+                MemoryScorer,
+                OutcomeRecord,
+                _classify_context,
+            )
+
+            scorer = MemoryScorer(self._config.memory_dir)
+            context = (
+                _classify_context(list(esc.task.tags))
+                if esc.task is not None
+                else "feature"
+            )
+            scorer.record_outcome(
+                OutcomeRecord(
+                    issue_id=esc.issue_number,
+                    outcome="failure",
+                    score=-1.0,
+                    digest_hash=self._state.get_digest_hash(esc.issue_number) or "",
+                    failure_category=esc.cause or "hitl_escalation",
+                    summary=f"HITL escalation: {esc.cause}",
+                    context=context,
+                )
+            )
+        except Exception:
+            logger.debug("Failed to record HITL outcome", exc_info=True)
         if esc.visual_evidence is not None:
             self._state.set_hitl_visual_evidence(esc.issue_number, esc.visual_evidence)
 
@@ -1805,11 +1853,6 @@ class ReviewPhase:
     def _get_judge_result(self) -> Callable[..., JudgeResult | None]:
         """Backward-compatible access to judge result helper."""
         return self._post_merge._get_judge_result
-
-    @property
-    def _create_verification_issue(self) -> Callable[..., Coroutine[Any, Any, int]]:
-        """Backward-compatible access to verification issue creation."""
-        return self._post_merge._create_verification_issue
 
     @property
     def _run_post_merge_hooks(self) -> Callable[..., Coroutine[Any, Any, None]]:
