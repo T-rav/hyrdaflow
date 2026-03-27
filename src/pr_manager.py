@@ -1620,7 +1620,7 @@ class PRManager:
         for p in raw_items:
             try:
                 pr_num = p["number"]
-                branch, draft = await self._get_pr_branch_and_draft(pr_num)
+                branch, draft, author = await self._get_pr_metadata(pr_num)
                 issue_number = self._issue_number_from_branch(branch)
                 prs.append(
                     PRListItem(
@@ -1630,6 +1630,7 @@ class PRManager:
                         url=p.get("url", ""),
                         draft=draft,
                         title=p.get("title", ""),
+                        author=author,
                     )
                 )
             except (RuntimeError, json.JSONDecodeError, KeyError, TypeError):
@@ -1723,21 +1724,25 @@ class PRManager:
             logger.debug("Could not find PR for issue #%d", issue_number, exc_info=True)
             return 0
 
-    async def _get_pr_branch_and_draft(self, pr_number: int) -> tuple[str, bool]:
-        """Resolve branch + draft status for a PR via REST API."""
+    async def _get_pr_metadata(self, pr_number: int) -> tuple[str, bool, str]:
+        """Resolve branch, draft status, and author for a PR via REST API."""
         raw = await self._run_gh(
             "gh",
             "api",
             f"repos/{self._repo}/pulls/{pr_number}",
             "--jq",
-            "{headRefName: .head.ref, isDraft: .draft}",
+            "{headRefName: .head.ref, isDraft: .draft, author: .user.login}",
         )
         data = json.loads(raw)
         if isinstance(data, list):
             data = data[0] if data else {}
         if not isinstance(data, dict):
-            return "", False
-        return str(data.get("headRefName", "")), bool(data.get("isDraft", False))
+            return "", False, ""
+        return (
+            str(data.get("headRefName", "")),
+            bool(data.get("isDraft", False)),
+            str(data.get("author", "")),
+        )
 
     async def list_hitl_items(
         self,

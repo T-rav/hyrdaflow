@@ -1341,7 +1341,9 @@ class TestQueryIssuesByLabels:
 
         mgr._query_issues_by_labels = mock_query
         # Mock the per-PR branch lookup
-        mgr._get_pr_branch_and_draft = AsyncMock(return_value=("agent/issue-1", False))
+        mgr._get_pr_metadata = AsyncMock(
+            return_value=("agent/issue-1", False, "test-user")
+        )
 
         await mgr.list_open_prs(["label"])
         assert helper_called is True

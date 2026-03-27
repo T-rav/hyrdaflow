@@ -1520,6 +1520,7 @@ class PRListItem(BaseModel):
     draft: bool = False
     title: str = ""
     merged: bool = False
+    author: str = ""
 
 
 class HITLItem(BaseModel):
