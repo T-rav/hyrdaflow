@@ -98,6 +98,9 @@ Run through this checklist before your final commit:
         self._insights = ReviewInsightStore(
             config.memory_dir, hindsight=hindsight, dolt=dolt, wal=wal
         )
+        from context_cache import ContextSectionCache
+
+        self._context_cache = ContextSectionCache(config)
 
     async def run(
         self,

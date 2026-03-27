@@ -1855,11 +1855,6 @@ class ReviewPhase:
         return self._post_merge._get_judge_result
 
     @property
-    def _create_verification_issue(self) -> Callable[..., Coroutine[Any, Any, int]]:
-        """Backward-compatible access to verification issue creation."""
-        return self._post_merge._create_verification_issue
-
-    @property
     def _run_post_merge_hooks(self) -> Callable[..., Coroutine[Any, Any, None]]:
         """Backward-compatible access to post-merge hooks."""
         return self._post_merge._run_post_merge_hooks
