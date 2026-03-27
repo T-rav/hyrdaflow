@@ -199,7 +199,9 @@ def build_services(
     hitl_runner = HITLRunner(
         config, event_bus, runner=subprocess_runner, hindsight=hindsight_client
     )
-    triage = TriageRunner(config, event_bus, runner=subprocess_runner)
+    triage = TriageRunner(
+        config, event_bus, runner=subprocess_runner, hindsight=hindsight_client
+    )
     summarizer = TranscriptSummarizer(
         config, prs, event_bus, state, runner=subprocess_runner
     )

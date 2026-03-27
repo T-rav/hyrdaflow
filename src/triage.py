@@ -249,6 +249,13 @@ or for truly insufficient issues:
             max_body=max(1000, min(self._config.max_issue_body_chars, 3000)),
         )
 
+        # Inject memory context if available
+        _, memory_section = await self._inject_manifest_and_memory(
+            query_context=f"{issue.title} {(issue.body or '')[:200]}"
+        )
+        if memory_section:
+            prompt += memory_section
+
         transcript = await self._execute(
             cmd,
             prompt,
