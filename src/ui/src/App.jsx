@@ -7,13 +7,15 @@ import { SystemPanel } from './components/SystemPanel'
 import { OutcomesPanel } from './components/IssueHistoryPanel'
 import { StreamView } from './components/StreamView'
 import { SessionSidebar } from './components/SessionSidebar'
+import { BugReportPanel } from './components/BugReportPanel'
 import { theme } from './theme'
 
-const TABS = ['issues', 'hitl', 'outcomes', 'system']
+const TABS = ['issues', 'hitl', 'outcomes', 'reports', 'system']
 
 const TAB_LABELS = {
   issues: 'Work Stream',
   outcomes: 'Outcomes',
+  reports: 'Reports',
   hitl: 'HITL',
   system: 'System',
 }
@@ -172,6 +174,7 @@ function AppContent() {
     stageStatus,
     requestChanges,
     config,
+    reporterId,
   } = useHydraFlow()
   const [activeTab, setActiveTab] = useState('issues')
   const [expandedStages, setExpandedStages] = useState({})
@@ -254,6 +257,12 @@ function AppContent() {
             orchestratorStatus === 'running'
               ? <HITLTable items={hitlItems} onRefresh={refreshHitl} />
               : <div style={idleMessage}>Pipeline is not running — HITL actions are unavailable.</div>
+          )}
+          {activeTab === 'reports' && (
+            <BugReportPanel
+              apiBaseUrl=""
+              reporterId={reporterId}
+            />
           )}
           {activeTab === 'system' && (
             <SystemPanel

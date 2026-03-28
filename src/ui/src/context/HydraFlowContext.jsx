@@ -1624,6 +1624,7 @@ export function HydraFlowProvider({ children }) {
     resetSession,
     submitIntent,
     submitReport,
+    reporterId: reporterIdRef.current,
     trackedReports: state.trackedReports,
     updateTrackedReport,
     refreshReportStatuses,

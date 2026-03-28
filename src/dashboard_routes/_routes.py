@@ -3873,11 +3873,13 @@ def create_router(
         return JSONResponse(response.model_dump())
 
     @router.get("/api/reports")
-    async def list_tracked_reports(reporter_id: str = "") -> JSONResponse:
-        """List tracked reports for a given reporter."""
+    async def list_tracked_reports(
+        reporter_id: str = "", status: str | None = None
+    ) -> JSONResponse:
+        """List tracked reports for a given reporter, optionally filtered by status."""
         if not reporter_id:
             return JSONResponse([])
-        reports = state.get_tracked_reports(reporter_id)
+        reports = state.get_tracked_reports(reporter_id, status=status)
         return JSONResponse([r.model_dump() for r in reports])
 
     @router.patch("/api/reports/{report_id}")

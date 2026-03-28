@@ -75,9 +75,16 @@ class ReportStateMixin:
         self._data.tracked_reports.append(report)
         self.save()
 
-    def get_tracked_reports(self, reporter_id: str) -> list[TrackedReport]:
-        """Return tracked reports for a given reporter."""
-        return [r for r in self._data.tracked_reports if r.reporter_id == reporter_id]
+    def get_tracked_reports(
+        self, reporter_id: str, *, status: str | None = None
+    ) -> list[TrackedReport]:
+        """Return tracked reports for a given reporter, optionally filtered by status."""
+        reports = [
+            r for r in self._data.tracked_reports if r.reporter_id == reporter_id
+        ]
+        if status:
+            reports = [r for r in reports if r.status == status]
+        return reports
 
     def get_tracked_report(self, report_id: str) -> TrackedReport | None:
         """Return a single tracked report by ID, or None."""

@@ -59,6 +59,19 @@ class ReportIssueLoop(BaseBackgroundLoop):
         self._runner = runner
         self._active_procs: set[asyncio.subprocess.Process] = set()
 
+    async def _emit_report_event(
+        self, report_id: str, status: str, **extra: object
+    ) -> None:
+        """Publish a REPORT_UPDATE event so listeners (WebSocket, metrics) react."""
+        from events import EventType, HydraFlowEvent
+
+        await self._bus.publish(
+            HydraFlowEvent(
+                type=EventType.REPORT_UPDATE,
+                data={"report_id": report_id, "status": status, **extra},
+            )
+        )
+
     async def run(self) -> None:
         """Drain all queued reports on startup, then enter the normal loop.
 
@@ -81,7 +94,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
     def _get_default_interval(self) -> int:
         return self._config.report_issue_interval
 
-    def _sweep_stale_reports(self) -> int:
+    async def _sweep_stale_reports(self) -> int:
         """Auto-close reports stuck at 'queued' longer than the configured threshold.
 
         Returns the number of reports closed.
@@ -107,6 +120,11 @@ class ReportIssueLoop(BaseBackgroundLoop):
                     status="closed",
                     action_label="stale",
                     detail=f"Auto-closed after {age_hours:.1f}h (threshold: {threshold_hours}h)",
+                )
+                await self._emit_report_event(
+                    report.id,
+                    "closed",
+                    detail="stale",
                 )
                 if updated is None:
                     logger.warning(
@@ -150,6 +168,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
                     action_label="fixed",
                     detail=f"Issue #{issue_number} resolved",
                 )
+                await self._emit_report_event(report.id, "fixed")
                 transitioned += 1
                 logger.info(
                     "Report %s auto-transitioned to fixed (issue #%d resolved)",
@@ -163,6 +182,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
                     action_label="closed",
                     detail=f"Issue #{issue_number} closed as won't fix",
                 )
+                await self._emit_report_event(report.id, "closed", detail="won't fix")
                 transitioned += 1
                 logger.info(
                     "Report %s auto-transitioned to closed (issue #%d won't fix)",
@@ -181,7 +201,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
         if self._config.dry_run:
             return None
 
-        self._sweep_stale_reports()
+        await self._sweep_stale_reports()
         await self._sync_filed_reports()
 
         report = self._state.peek_report()
@@ -196,6 +216,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
             action_label="processing",
             detail="Agent started processing bug report",
         )
+        await self._emit_report_event(report.id, "in-progress", detail="processing")
 
         # Save screenshot to a temp PNG so the agent can *see* it via Read
         # and reference it as a markdown image in the issue body.  The `gh
@@ -329,6 +350,12 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 action_label="filed",
                 detail=f"Created issue #{issue_number}",
             )
+            await self._emit_report_event(
+                report.id,
+                "filed",
+                issue_number=issue_number,
+                issue_url=issue_url,
+            )
             self._state.remove_report(report.id)
             logger.info(
                 "Processed report %s as issue #%d: %s",
@@ -353,6 +380,11 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 action_label="escalated",
                 detail=f"Failed after {attempt_count} attempts — escalated to HITL",
             )
+            await self._emit_report_event(
+                report.id,
+                "closed",
+                detail=f"Escalated after {attempt_count} failed attempts",
+            )
 
             logger.error(
                 "Report %s failed %d times — escalated to HITL",
@@ -372,6 +404,11 @@ class ReportIssueLoop(BaseBackgroundLoop):
             status="queued",
             action_label="retry",
             detail=f"Attempt {attempt_count}/{_MAX_REPORT_ATTEMPTS} failed — will retry",
+        )
+        await self._emit_report_event(
+            report.id,
+            "queued",
+            detail=f"Retry attempt {attempt_count}/{_MAX_REPORT_ATTEMPTS}",
         )
 
         logger.warning(
