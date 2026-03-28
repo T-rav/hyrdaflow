@@ -401,7 +401,8 @@ export function OutcomesPanel() {
   const summaryCounts = useMemo(() => {
     const counts = {}
     for (const item of filtered) {
-      const t = item.outcome?.outcome || 'unknown'
+      const rawOutcome = item.outcome?.outcome
+      const t = (!rawOutcome || rawOutcome === 'null') ? 'unknown' : rawOutcome
       counts[t] = (counts[t] || 0) + 1
     }
     return counts
@@ -431,7 +432,7 @@ export function OutcomesPanel() {
     title: (item) => {
       const title = item.title || ''
       const outcomeReason = item.outcome?.reason || ''
-      const hasCrate = item.crate_title != null || item.crate_number != null
+      const hasCrate = (item.crate_title != null && item.crate_title !== 'null') || (item.crate_number != null && String(item.crate_number) !== 'null')
       return (
         <div style={styles.titleCell} title={title || `Issue #${item.issue_number}`}>
           <div style={styles.titleMain}>
@@ -467,7 +468,8 @@ export function OutcomesPanel() {
       <span style={statusStyle(item.status || 'unknown')}>{item.status || 'unknown'}</span>
     ),
     outcome: (item) => {
-      const outcomeType = item.outcome?.outcome || 'pending'
+      const rawOc = item.outcome?.outcome
+      const outcomeType = (!rawOc || rawOc === 'null') ? 'pending' : rawOc
       return (
         <span style={styles.outcomeCell}>
           <span style={outcomeBadgeStyles[outcomeType] || outcomeBadgeStyles.pending}>{(outcomeType || 'pending').replace(/_/g, ' ')}</span>
