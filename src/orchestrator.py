@@ -834,6 +834,8 @@ class HydraFlowOrchestrator:
         loop_factories: list[tuple[str, Callable[[], Coroutine[Any, Any, None]]]] = [
             ("store", _store_loop),
             ("triage", self._triage_loop),
+            ("discover", self._discover_loop),
+            ("shape", self._shape_loop),
             ("plan", self._plan_loop),
             ("implement", self._implement_loop),
             ("review", self._review_loop),
@@ -1023,6 +1025,26 @@ class HydraFlowOrchestrator:
             self._svc.triager.triage_issues,
             self._config.poll_interval,
             enabled_name="triage",
+            is_pipeline=True,
+        )
+
+    async def _discover_loop(self) -> None:
+        """Continuously poll for discover-labeled issues."""
+        await self._polling_loop(
+            "discover",
+            self._svc.discover_phase.discover_issues,
+            self._config.poll_interval,
+            enabled_name="discover",
+            is_pipeline=True,
+        )
+
+    async def _shape_loop(self) -> None:
+        """Continuously poll for shape-labeled issues awaiting direction selection."""
+        await self._polling_loop(
+            "shape",
+            self._svc.shape_phase.shape_issues,
+            self._config.poll_interval,
+            enabled_name="shape",
             is_pipeline=True,
         )
 

@@ -346,6 +346,16 @@ class TriageResult(BaseModel):
     enrichment: str = Field(
         default="", description="Additional context gathered during triage"
     )
+    clarity_score: int = Field(
+        default=10,
+        ge=0,
+        le=10,
+        description="Clarity/specificity score 0-10; low values route to discovery",
+    )
+    needs_discovery: bool = Field(
+        default=False,
+        description="Whether the issue needs product discovery before planning",
+    )
 
     @field_validator("issue_type", mode="before")
     @classmethod
@@ -369,6 +379,50 @@ class EpicDecompResult(BaseModel):
     epic_body: str = ""
     children: list[NewIssueSpec] = Field(default_factory=list)
     reasoning: str = ""
+
+
+# --- Product Discovery & Shaping ---
+
+
+class ProductDirection(BaseModel):
+    """A single product direction option proposed during shaping."""
+
+    name: str = Field(description="Short name for this direction")
+    approach: str = Field(description="What this direction entails")
+    tradeoffs: str = Field(description="Key tradeoffs and considerations")
+    effort: str = Field(description="Estimated effort level (low/medium/high)")
+    risk: str = Field(description="Risk level (low/medium/high)")
+    differentiator: str = Field(
+        default="", description="Market differentiation strength"
+    )
+
+
+class DiscoverResult(BaseModel):
+    """Outcome of product discovery research for a vague issue."""
+
+    issue_number: int = Field(description="GitHub issue number")
+    research_brief: str = Field(description="Synthesized research findings")
+    opportunities: list[str] = Field(
+        default_factory=list, description="Identified opportunity areas"
+    )
+    competitors: list[str] = Field(
+        default_factory=list, description="Key competitors analyzed"
+    )
+    user_needs: list[str] = Field(
+        default_factory=list, description="Identified user needs/pain points"
+    )
+
+
+class ShapeResult(BaseModel):
+    """Outcome of product shaping — proposed directions for human selection."""
+
+    issue_number: int = Field(description="GitHub issue number")
+    directions: list[ProductDirection] = Field(
+        default_factory=list, description="Proposed product directions"
+    )
+    recommendation: str = Field(
+        default="", description="Agent's recommended direction with reasoning"
+    )
 
 
 # --- Planner ---
@@ -1431,6 +1485,7 @@ class PipelineIssue(BaseModel):
     status: PipelineIssueStatus = PipelineIssueStatus.QUEUED
     epic_number: int = 0
     is_epic_child: bool = False
+    track: str = ""
 
 
 class PipelineSnapshot(BaseModel):
@@ -2229,6 +2284,8 @@ class PipelineStage(StrEnum):
     """Display pipeline stages for issue lifecycle."""
 
     TRIAGE = "triage"
+    DISCOVER = "discover"
+    SHAPE = "shape"
     PLAN = "plan"
     IMPLEMENT = "implement"
     REVIEW = "review"

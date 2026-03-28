@@ -158,7 +158,20 @@ class TriagePhase:
         if self._config.dry_run:
             return 1
 
-        if result.ready:
+        if result.needs_discovery or (
+            result.ready and result.clarity_score < self._config.clarity_threshold
+        ):
+            # Vague or broad issue — route to product discovery track
+            self._store.enqueue_transition(issue, "discover")
+            await self._transitioner.transition(issue.id, "discover")
+            self._state.increment_session_counter("triaged")
+            logger.info(
+                "Issue #%d triaged → %s (needs product discovery, clarity=%d)",
+                issue.id,
+                self._config.discover_label[0],
+                result.clarity_score,
+            )
+        elif result.ready:
             if not await self._maybe_decompose(issue, result):
                 if result.enrichment:
                     await self._transitioner.post_comment(issue.id, result.enrichment)

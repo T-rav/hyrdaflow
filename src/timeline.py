@@ -16,6 +16,8 @@ from models import (
 
 STAGE_ORDER: list[PipelineStage] = [
     PipelineStage.TRIAGE,
+    PipelineStage.DISCOVER,
+    PipelineStage.SHAPE,
     PipelineStage.PLAN,
     PipelineStage.IMPLEMENT,
     PipelineStage.REVIEW,
@@ -25,6 +27,8 @@ STAGE_ORDER: list[PipelineStage] = [
 # Map EventType to pipeline stage
 EVENT_TYPE_TO_STAGE: dict[EventType, PipelineStage] = {
     EventType.TRIAGE_UPDATE: PipelineStage.TRIAGE,
+    EventType.DISCOVER_UPDATE: PipelineStage.DISCOVER,
+    EventType.SHAPE_UPDATE: PipelineStage.SHAPE,
     EventType.PLANNER_UPDATE: PipelineStage.PLAN,
     EventType.WORKER_UPDATE: PipelineStage.IMPLEMENT,
     EventType.PR_CREATED: PipelineStage.IMPLEMENT,
@@ -38,6 +42,8 @@ EVENT_TYPE_TO_STAGE: dict[EventType, PipelineStage] = {
 # Map TRANSCRIPT_LINE source field to stage
 SOURCE_TO_STAGE: dict[str, PipelineStage] = {
     "triage": PipelineStage.TRIAGE,
+    "discover": PipelineStage.DISCOVER,
+    "shape": PipelineStage.SHAPE,
     "planner": PipelineStage.PLAN,
     "reviewer": PipelineStage.REVIEW,
     "hitl": PipelineStage.IMPLEMENT,

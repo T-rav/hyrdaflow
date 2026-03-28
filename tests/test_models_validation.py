@@ -376,6 +376,8 @@ class TestPipelineStageEnum:
         "member, expected",
         [
             (PipelineStage.TRIAGE, "triage"),
+            (PipelineStage.DISCOVER, "discover"),
+            (PipelineStage.SHAPE, "shape"),
             (PipelineStage.PLAN, "plan"),
             (PipelineStage.IMPLEMENT, "implement"),
             (PipelineStage.REVIEW, "review"),
@@ -387,7 +389,7 @@ class TestPipelineStageEnum:
         assert member == expected
 
     def test_member_count(self) -> None:
-        assert len(PipelineStage) == 5
+        assert len(PipelineStage) == 7
 
 
 class TestStageStatusEnum:

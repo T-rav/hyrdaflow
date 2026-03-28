@@ -842,6 +842,8 @@ class TriageResultFactory:
         complexity_score: int = 0,
         issue_type: str = "feature",
         enrichment: str = "",
+        clarity_score: int = 10,
+        needs_discovery: bool = False,
     ) -> TriageResult:
         from models import IssueType
         from models import TriageResult as TR
@@ -855,6 +857,8 @@ class TriageResultFactory:
             if isinstance(issue_type, str)
             else issue_type,
             enrichment=enrichment,
+            clarity_score=clarity_score,
+            needs_discovery=needs_discovery,
         )
 
 

@@ -1981,6 +1981,8 @@ class PRManager:
         """Implement :class:`task_source.TaskTransitioner` — swap pipeline labels."""
         _STAGE_LABEL = {
             "find": (self._config.find_label or ["hydraflow-find"])[0],
+            "discover": (self._config.discover_label or ["hydraflow-discover"])[0],
+            "shape": (self._config.shape_label or ["hydraflow-shape"])[0],
             "plan": (self._config.planner_label or ["hydraflow-plan"])[0],
             "ready": (self._config.ready_label or ["hydraflow-ready"])[0],
             "review": (self._config.review_label or ["hydraflow-review"])[0],

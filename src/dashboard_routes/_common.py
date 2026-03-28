@@ -50,6 +50,8 @@ _EPIC_INTERNAL_LABELS: frozenset[str] = frozenset(
 # Backend stage keys → frontend stage names
 _STAGE_NAME_MAP: dict[str, str] = {
     IssueStoreStage.FIND: "triage",
+    IssueStoreStage.DISCOVER: "discover",
+    IssueStoreStage.SHAPE: "shape",
     IssueStoreStage.PLAN: "plan",
     IssueStoreStage.READY: "implement",
     IssueStoreStage.REVIEW: "review",
@@ -60,6 +62,8 @@ _STAGE_NAME_MAP: dict[str, str] = {
 # Frontend stage key → config label field name (for request-changes)
 _FRONTEND_STAGE_TO_LABEL_FIELD: dict[str, str] = {
     "triage": "find_label",
+    "discover": "discover_label",
+    "shape": "shape_label",
     "plan": "planner_label",
     "implement": "ready_label",
     "review": "review_label",

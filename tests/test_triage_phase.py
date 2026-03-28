@@ -312,6 +312,76 @@ class TestTriagePhase:
         prs.swap_pipeline_labels.assert_not_called()
         prs.post_comment.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_triage_routes_vague_issue_to_discover(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Vague issues with needs_discovery=True route to discover."""
+        phase, _state, triage, prs, store, _stop = make_triage_phase(config)
+        issue = TaskFactory.create(
+            id=10, title="Build a better Calendly", body="A" * 100
+        )
+
+        triage.evaluate = AsyncMock(
+            return_value=TriageResultFactory.create(
+                issue_number=10,
+                ready=True,
+                needs_discovery=True,
+                clarity_score=3,
+            )
+        )
+        store.get_triageable = supply_once([issue])
+
+        await phase.triage_issues()
+
+        prs.transition.assert_called_once_with(10, "discover")
+
+    @pytest.mark.asyncio
+    async def test_triage_routes_low_clarity_to_discover(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Issues with low clarity_score route to discover even if ready=True."""
+        phase, _state, triage, prs, store, _stop = make_triage_phase(config)
+        issue = TaskFactory.create(
+            id=11, title="Improve onboarding experience", body="A" * 100
+        )
+
+        triage.evaluate = AsyncMock(
+            return_value=TriageResultFactory.create(
+                issue_number=11,
+                ready=True,
+                clarity_score=4,  # Below default threshold of 7
+            )
+        )
+        store.get_triageable = supply_once([issue])
+
+        await phase.triage_issues()
+
+        prs.transition.assert_called_once_with(11, "discover")
+
+    @pytest.mark.asyncio
+    async def test_triage_clear_issue_still_routes_to_plan(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Clear issues with high clarity score route to plan as before."""
+        phase, _state, triage, prs, store, _stop = make_triage_phase(config)
+        issue = TaskFactory.create(
+            id=12, title="Add pagination to users endpoint", body="A" * 100
+        )
+
+        triage.evaluate = AsyncMock(
+            return_value=TriageResultFactory.create(
+                issue_number=12,
+                ready=True,
+                clarity_score=9,
+            )
+        )
+        store.get_triageable = supply_once([issue])
+
+        await phase.triage_issues()
+
+        prs.transition.assert_called_once_with(12, "plan")
+
 
 class TestTriagePhaseBatchScaling:
     """Pool respects max_triagers for concurrency control."""

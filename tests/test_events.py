@@ -87,6 +87,8 @@ class TestEventTypeEnum:
             "PIPELINE_STATS",
             "VISUAL_GATE",
             "BASELINE_UPDATE",
+            "DISCOVER_UPDATE",
+            "SHAPE_UPDATE",
             "CRATE_ACTIVATED",
             "CRATE_COMPLETED",
         }
