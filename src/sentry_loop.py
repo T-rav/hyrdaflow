@@ -1,13 +1,16 @@
 """Background worker loop — Sentry issue ingestion.
 
 Polls the Sentry API for unresolved issues across configured projects,
-deduplicates against already-filed GitHub issues, and creates new GitHub
-issues labeled for the HydraFlow pipeline.
+deduplicates against already-filed GitHub issues, and invokes a Claude
+agent via ``/hf.issue`` to research the codebase and file a properly
+triaged GitHub issue — the same flow as dashboard bug reports.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
@@ -17,16 +20,18 @@ from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
 
 if TYPE_CHECKING:
+    from execution import SubprocessRunner
     from issue_store import IssueStore  # noqa: TCH004 — used in __init__ signature
     from pr_manager import PRManager
 
 logger = logging.getLogger("hydraflow.sentry_loop")
 
 _SENTRY_API = "https://sentry.io/api/0"
+_ISSUE_URL_RE = re.compile(r"https://github\.com/[^/\s]+/[^/\s]+/issues/(\d+)")
 
 
 class SentryLoop(BaseBackgroundLoop):
-    """Polls Sentry for unresolved issues and files them as GitHub issues."""
+    """Polls Sentry for unresolved issues and files them via Claude agent."""
 
     def __init__(
         self,
@@ -34,6 +39,7 @@ class SentryLoop(BaseBackgroundLoop):
         prs: PRManager,
         deps: LoopDeps,
         store: IssueStore | None = None,
+        runner: SubprocessRunner | None = None,
     ) -> None:
         super().__init__(
             worker_name="sentry_ingest",
@@ -43,6 +49,8 @@ class SentryLoop(BaseBackgroundLoop):
         )
         self._prs = prs
         self._store = store
+        self._runner = runner
+        self._active_procs: set[asyncio.subprocess.Process] = set()
         self._filed: set[str] = set()  # Sentry issue IDs already filed
 
     def _get_default_interval(self) -> int:
@@ -203,10 +211,10 @@ class SentryLoop(BaseBackgroundLoop):
                     frames.append(f"\n{exc_type}: {exc_value}")
         return "\n".join(frames) if frames else ""
 
-    async def _create_github_issue(
-        self, sentry_issue: dict[str, Any], project_slug: str
-    ) -> bool:
-        """Create a GitHub issue from a Sentry issue."""
+    def _build_issue_description(
+        self, sentry_issue: dict[str, Any], project_slug: str, stacktrace: str
+    ) -> str:
+        """Build the description passed to /hf.issue for agent-driven triage."""
         sentry_id = sentry_issue["id"]
         title = sentry_issue.get("title", "Unknown error")
         culprit = sentry_issue.get("culprit", "")
@@ -217,49 +225,90 @@ class SentryLoop(BaseBackgroundLoop):
         permalink = sentry_issue.get("permalink", "")
         short_id = sentry_issue.get("shortId", sentry_id)
 
+        ready_label = (
+            self._config.ready_label[0]
+            if self._config.ready_label
+            else "hydraflow-ready"
+        )
+
+        parts = [
+            f"Sentry error from project {project_slug}: {title}",
+            f"Sentry ID: {short_id} | Level: {level} | Events: {count}",
+            f"First seen: {first_seen} | Last seen: {last_seen}",
+            f"Culprit: {culprit}",
+            f"Link: {permalink}",
+        ]
+
+        if stacktrace:
+            parts.append(f"\nStack trace:\n```\n{stacktrace}\n```")
+
+        parts.append(
+            f"\nIMPORTANT: Use the label `{ready_label}` instead of "
+            f"`hydraflow-find` for this issue."
+        )
+        parts.append(
+            f"\nIMPORTANT: Include this HTML comment in the issue body "
+            f"for dedup tracking: <!-- [sentry:{sentry_id}] -->"
+        )
+
+        return "\n".join(parts)
+
+    async def _create_github_issue(
+        self, sentry_issue: dict[str, Any], project_slug: str
+    ) -> bool:
+        """Invoke a Claude agent via /hf.issue to research and file the issue."""
+        sentry_id = sentry_issue["id"]
+        short_id = sentry_issue.get("shortId", sentry_id)
+        title = sentry_issue.get("title", "Unknown error")
+
         # Fetch latest event for full stack trace
         event = await self._fetch_latest_event(sentry_id)
         stacktrace = self._extract_stacktrace(event) if event else ""
 
-        body = f"""## Sentry Error: {title}
+        description = self._build_issue_description(
+            sentry_issue, project_slug, stacktrace
+        )
+        prompt = f"/hf.issue {description}"
 
-| Field | Value |
-|-------|-------|
-| **Sentry ID** | {short_id} |
-| **Project** | {project_slug} |
-| **Level** | {level} |
-| **Events** | {count} |
-| **First seen** | {first_seen} |
-| **Last seen** | {last_seen} |
-| **Culprit** | `{culprit}` |
-| **Link** | {permalink} |
-"""
+        from agent_cli import build_agent_command  # noqa: PLC0415
+        from models import TranscriptEventData  # noqa: PLC0415
+        from runner_utils import stream_claude_process  # noqa: PLC0415
 
-        if stacktrace:
-            body += f"""
-### Stack trace
-```
-{stacktrace}
-```
-"""
+        cmd = build_agent_command(
+            tool=self._config.report_issue_tool,
+            model=self._config.report_issue_model,
+            max_turns=10,
+        )
 
-        body += f"""
-### Instructions
-Investigate the root cause of this error. The culprit points to `{culprit}`.
-Search the codebase for the failing function, understand the error context,
-fix the bug, and add a regression test that reproduces the failure.
-
-<!-- [sentry:{sentry_id}] -->
-"""
-        gh_title = f"[Sentry] {title}"
-        if len(gh_title) > 200:
-            gh_title = gh_title[:197] + "..."
+        event_data: TranscriptEventData = {"source": "sentry_ingest"}
 
         try:
-            labels = self._config.planner_label or ["hydraflow-plan"]
-            await self._prs.create_issue(gh_title, body, labels=labels[:1])
-            logger.info("Created GitHub issue for Sentry %s: %s", short_id, title)
-            return True
+            transcript = await stream_claude_process(
+                cmd=cmd,
+                prompt=prompt,
+                cwd=self._config.repo_root,
+                active_procs=self._active_procs,
+                event_bus=self._bus,
+                event_data=event_data,
+                logger=logger,
+                runner=self._runner,
+                gh_token=self._config.gh_token,
+            )
+            match = _ISSUE_URL_RE.search(transcript)
+            if match:
+                issue_number = int(match.group(1))
+                logger.info(
+                    "Agent filed Sentry %s as issue #%d: %s",
+                    short_id,
+                    issue_number,
+                    title,
+                )
+                return True
+            logger.warning(
+                "Agent ran for Sentry %s but no issue URL found in transcript",
+                short_id,
+            )
+            return False
         except Exception:  # noqa: BLE001
-            logger.exception("Failed to create GitHub issue for Sentry %s", sentry_id)
+            logger.exception("Agent failed for Sentry %s", sentry_id)
             return False
