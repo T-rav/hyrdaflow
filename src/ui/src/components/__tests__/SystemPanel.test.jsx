@@ -262,19 +262,16 @@ describe('SystemPanel', () => {
       expect(screen.getByText('Pipeline Poller')).toBeInTheDocument()
       expect(screen.getByText('Memory Manager')).toBeInTheDocument()
       expect(screen.getByText('Health Monitor')).toBeInTheDocument()
-      // Count On/Off buttons — non-system bg workers plus MemoryAutoApproveToggle (+1 for memory_sync)
+      // Count On/Off buttons — non-system bg workers
       const allToggleButtons = [...screen.getAllByText('On'), ...screen.getAllByText('Off')]
       const nonSystemBgCount = BACKGROUND_WORKERS.filter(w => !w.system).length
-      expect(allToggleButtons.length).toBe(nonSystemBgCount + 1)
+      expect(allToggleButtons.length).toBe(nonSystemBgCount)
     })
 
     it('does not show toggle buttons when onToggleBgWorker is not provided', () => {
       render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
       expect(screen.queryByText('On')).not.toBeInTheDocument()
-      // MemoryAutoApproveToggle renders unconditionally on the memory_sync card (Off by default)
-      const offButtons = screen.getAllByText('Off')
-      expect(offButtons).toHaveLength(1)
-      expect(offButtons[0]).toHaveAttribute('data-testid', 'memory-auto-approve-btn')
+      expect(screen.queryByText('Off')).not.toBeInTheDocument()
     })
 
     it('shows Off button for disabled workers when orchestrator running', () => {
@@ -322,8 +319,8 @@ describe('SystemPanel', () => {
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ backgroundWorkers: disabledWorkers }))
       render(<SystemPanel backgroundWorkers={disabledWorkers} onToggleBgWorker={onToggle} />)
       const offButtons = screen.getAllByText('Off')
-      // 2 explicitly disabled workers + 1 memory auto-approve toggle (defaults to Off)
-      expect(offButtons.length).toBe(3)
+      // 2 explicitly disabled workers
+      expect(offButtons.length).toBe(2)
     })
   })
 
@@ -793,103 +790,4 @@ describe('BackgroundWorkerCard schedule display', () => {
   })
 })
 
-describe('MemoryAutoApproveToggle', () => {
-  it('renders the auto-approve toggle inside the memory_sync worker card', () => {
-    mockUseHydraFlow.mockReturnValue(defaultMockContext({ orchestratorStatus: 'running' }))
-    render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
-    const toggle = screen.getByTestId('memory-auto-approve-toggle')
-    expect(toggle).toBeInTheDocument()
-    expect(screen.getByText('Auto-approve')).toBeInTheDocument()
-    expect(screen.getByText('Skip HITL for memory suggestions')).toBeInTheDocument()
-  })
-
-  it('shows Off button when memory_auto_approve is false', () => {
-    mockUseHydraFlow.mockReturnValue(defaultMockContext({
-      orchestratorStatus: 'running',
-      config: { memory_auto_approve: false },
-    }))
-    render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
-    const btn = screen.getByTestId('memory-auto-approve-btn')
-    expect(btn).toHaveTextContent('Off')
-  })
-
-  it('shows On button when memory_auto_approve is true', () => {
-    mockUseHydraFlow.mockReturnValue(defaultMockContext({
-      orchestratorStatus: 'running',
-      config: { memory_auto_approve: true },
-    }))
-    render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
-    const btn = screen.getByTestId('memory-auto-approve-btn')
-    expect(btn).toHaveTextContent('On')
-  })
-
-  it('sends PATCH request when toggle is clicked', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true })
-    mockUseHydraFlow.mockReturnValue(defaultMockContext({
-      orchestratorStatus: 'running',
-      config: { memory_auto_approve: false },
-    }))
-    render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
-    const btn = screen.getByTestId('memory-auto-approve-btn')
-    fireEvent.click(btn)
-    await waitFor(() => {
-      expect(fetchSpy).toHaveBeenCalledWith('/api/control/config', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memory_auto_approve: true, persist: true }),
-      })
-    })
-    fetchSpy.mockRestore()
-  })
-
-  it('sends PATCH request with repo param when selectedRepoSlug is set', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true })
-    mockUseHydraFlow.mockReturnValue(defaultMockContext({
-      orchestratorStatus: 'running',
-      config: { memory_auto_approve: false },
-      selectedRepoSlug: 'my-repo',
-    }))
-    render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
-    const btn = screen.getByTestId('memory-auto-approve-btn')
-    fireEvent.click(btn)
-    await waitFor(() => {
-      expect(fetchSpy).toHaveBeenCalledWith('/api/control/config?repo=my-repo', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memory_auto_approve: true, persist: true }),
-      })
-    })
-    fetchSpy.mockRestore()
-  })
-
-  it('reverts toggle state when PATCH request fails', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false })
-    mockUseHydraFlow.mockReturnValue(defaultMockContext({
-      orchestratorStatus: 'running',
-      config: { memory_auto_approve: false },
-    }))
-    render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
-    const btn = screen.getByTestId('memory-auto-approve-btn')
-    fireEvent.click(btn)
-    await waitFor(() => {
-      expect(btn).toHaveTextContent('Off')
-    })
-    fetchSpy.mockRestore()
-  })
-
-  it('reverts toggle state when fetch throws a network error', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network error'))
-    mockUseHydraFlow.mockReturnValue(defaultMockContext({
-      orchestratorStatus: 'running',
-      config: { memory_auto_approve: false },
-    }))
-    render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
-    const btn = screen.getByTestId('memory-auto-approve-btn')
-    fireEvent.click(btn)
-    await waitFor(() => {
-      expect(btn).toHaveTextContent('Off')
-    })
-    fetchSpy.mockRestore()
-  })
-})
 
