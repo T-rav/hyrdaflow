@@ -50,6 +50,7 @@ from review_phase import ReviewPhase
 from reviewer import ReviewRunner
 from run_recorder import RunRecorder
 from runs_gc_loop import RunsGCLoop
+from sentry_loop import SentryLoop  # noqa: TCH001 — used in dataclass field
 from state import StateTracker
 from transcript_summarizer import TranscriptSummarizer
 from triage import TriageRunner
@@ -118,6 +119,7 @@ class ServiceRegistry:
     adr_reviewer_loop: ADRReviewerLoop
     health_monitor_loop: HealthMonitorLoop
     bot_pr_loop: BotPRLoop
+    sentry_loop: SentryLoop
 
     # Optional integrations
     hindsight: HindsightClient | None = None
@@ -427,6 +429,7 @@ def build_services(
         deps=loop_deps,
     )
     gh_cache_loop = GitHubCacheLoop(config, gh_cache, deps=loop_deps)  # noqa: F841
+    sentry_loop = SentryLoop(config=config, prs=prs, deps=loop_deps, store=store)
 
     return ServiceRegistry(
         worktrees=worktrees,
@@ -469,4 +472,5 @@ def build_services(
         hindsight_wal=hindsight_wal,
         github_cache=gh_cache,
         github_cache_loop=gh_cache_loop,
+        sentry_loop=sentry_loop,
     )

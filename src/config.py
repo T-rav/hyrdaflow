@@ -105,6 +105,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("state_backup_interval", "HYDRAFLOW_STATE_BACKUP_INTERVAL", 300),
     ("state_backup_count", "HYDRAFLOW_STATE_BACKUP_COUNT", 3),
     ("health_monitor_interval", "HYDRAFLOW_HEALTH_MONITOR_INTERVAL", 7200),
+    ("sentry_poll_interval", "SENTRY_POLL_INTERVAL", 600),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -127,6 +128,9 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("repos_workspace_dir", "HYDRAFLOW_REPOS_WORKSPACE_DIR", "~/.hydra/repos"),
     ("hindsight_url", "HYDRAFLOW_HINDSIGHT_URL", ""),
     ("hindsight_api_key", "HYDRAFLOW_HINDSIGHT_API_KEY", ""),
+    ("sentry_auth_token", "SENTRY_AUTH_TOKEN", ""),
+    ("sentry_org", "SENTRY_ORG", ""),
+    ("sentry_project_filter", "SENTRY_PROJECT_FILTER", ""),
 ]
 
 _ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
@@ -688,6 +692,26 @@ class HydraFlowConfig(BaseModel):
     memory_compaction_model: str = Field(
         default="haiku",
         description="Cheap model for summarising memory digest when over size limit",
+    )
+
+    # Sentry error ingestion
+    sentry_auth_token: str = Field(
+        default="",
+        description="Sentry API auth token for reading issues (PAT or internal integration)",
+    )
+    sentry_org: str = Field(
+        default="",
+        description="Sentry organization slug",
+    )
+    sentry_project_filter: str = Field(
+        default="",
+        description="Comma-separated Sentry project slugs to poll (empty = all projects)",
+    )
+    sentry_poll_interval: int = Field(
+        default=600,
+        ge=60,
+        le=86400,
+        description="Seconds between Sentry issue polls",
     )
 
     # Hindsight semantic memory

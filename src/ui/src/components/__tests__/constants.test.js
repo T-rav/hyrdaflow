@@ -223,7 +223,7 @@ describe('EDITABLE_INTERVAL_WORKERS includes bot_pr', () => {
 
 describe('WORKER_PRESETS', () => {
   it('has exactly the expected worker keys', () => {
-    expect(Object.keys(WORKER_PRESETS).sort()).toEqual(['adr_reviewer', 'bot_pr', 'pipeline_poller', 'report_issue'])
+    expect(Object.keys(WORKER_PRESETS).sort()).toEqual(['adr_reviewer', 'bot_pr', 'pipeline_poller', 'report_issue', 'sentry_ingest'])
   })
 
   it('maps pipeline_poller to PIPELINE_POLLER_PRESETS', () => {

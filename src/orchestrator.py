@@ -139,6 +139,7 @@ class HydraFlowOrchestrator:
             "adr_reviewer": svc.adr_reviewer_loop,
             "health_monitor": svc.health_monitor_loop,
             "bot_pr": svc.bot_pr_loop,
+            "sentry_ingest": svc.sentry_loop,
         }
         self._bg_workers = BGWorkerManager(config, self._state, bg_loop_registry)
         self._hitl_ctrl = HITLController(svc.hitl_phase, svc.fetcher, config.hitl_label)
