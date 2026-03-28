@@ -47,6 +47,7 @@ class CIMonitorLoop(BaseBackgroundLoop):
             logger.warning("CI monitor: could not fetch CI status", exc_info=True)
             return {"error": True}
 
+        # Empty conclusion = no runs or in-progress; treat same as green (no action)
         is_green = conclusion in ("success", "")
 
         if is_green:

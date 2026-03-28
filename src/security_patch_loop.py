@@ -56,10 +56,14 @@ class SecurityPatchLoop(BaseBackgroundLoop):
 
     @staticmethod
     def _is_fixable(alert: dict) -> bool:
-        """Return True if the alert has a patched version available."""
+        """Return True if the alert has a patched version with a known identifier."""
         vuln = alert.get("security_vulnerability") or {}
         patched = vuln.get("first_patched_version")
-        return patched is not None
+        if patched is None:
+            return False
+        if isinstance(patched, dict):
+            return bool(patched.get("identifier"))
+        return bool(patched)
 
     @staticmethod
     def _extract_info(alert: dict) -> tuple[str, str, str]:

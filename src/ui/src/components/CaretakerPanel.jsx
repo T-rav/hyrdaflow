@@ -13,6 +13,8 @@ const CARETAKER_WORKERS = [
   { key: 'worktree_gc', label: 'Worktree GC', description: 'Garbage-collects stale worktrees and orphaned branches.' },
   { key: 'health_monitor', label: 'Health Monitor', description: 'Analyzes pipeline trends, auto-tunes parameters, detects knowledge gaps.' },
   { key: 'epic_sweeper', label: 'Epic Sweeper', description: 'Auto-closes epics with all sub-issues resolved.' },
+  { key: 'security_patch', label: 'Security Patch', description: 'Polls Dependabot alerts and files issues for fixable vulnerabilities.' },
+  { key: 'code_grooming', label: 'Code Grooming', description: 'Runs periodic audit scans and files issues for critical findings.' },
 ]
 
 function relativeTime(isoString) {

@@ -20,7 +20,10 @@ export function useReportPoller(apiBaseUrl, reporterId, { interval = 10_000 } = 
   const intervalRef = useRef(null)
 
   const fetchReports = useCallback(async () => {
-    if (!reporterId) return
+    if (!reporterId) {
+      setLoading(false)
+      return
+    }
     try {
       const res = await fetch(
         `${apiBaseUrl}/api/reports?reporter_id=${encodeURIComponent(reporterId)}`
