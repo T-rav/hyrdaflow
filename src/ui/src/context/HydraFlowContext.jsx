@@ -553,6 +553,19 @@ export function reducer(state, action) {
       return { ...state, pipelineStats: action.data }
     }
 
+    case 'report_update':
+    case 'REPORT_UPDATE': {
+      // A tracked report changed status — update inline if we have a matching report,
+      // otherwise the next poll cycle will pick it up.
+      const reportId = action.data?.report_id
+      const newStatus = action.data?.status
+      if (!reportId || !newStatus) return state
+      const updated = state.trackedReports.map(r =>
+        r.id === reportId ? { ...r, status: newStatus } : r
+      )
+      return { ...state, trackedReports: updated }
+    }
+
     case 'WS_PIPELINE_UPDATE': {
       const { issueNumber, fromStage, toStage, status: pipeStatus } = action.data
       const next = { ...state.pipelineIssues }

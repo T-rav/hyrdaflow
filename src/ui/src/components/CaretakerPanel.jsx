@@ -1,21 +1,18 @@
 import React from 'react'
 import { theme } from '../theme'
+import { BACKGROUND_WORKERS } from '../constants'
 import { useHydraFlow } from '../context/HydraFlowContext'
 
 /**
- * Caretaker workers — maintenance and operational background loops.
- * These are the workers shown in the dedicated Caretaker tab.
+ * Keys of caretaker workers — maintenance and operational background loops.
+ * Descriptions and labels come from BACKGROUND_WORKERS in constants.js (DRY).
  */
-const CARETAKER_WORKERS = [
-  { key: 'stale_issue_gc', label: 'Stale Issue GC', description: 'Auto-closes HITL issues with no activity beyond threshold.' },
-  { key: 'ci_monitor', label: 'CI Monitor', description: 'Detects failing CI on main and files/closes issues.' },
-  { key: 'bot_pr', label: 'Bot PR Manager', description: 'Auto-merges dependency update PRs from configured bots after CI passes.' },
-  { key: 'worktree_gc', label: 'Worktree GC', description: 'Garbage-collects stale worktrees and orphaned branches.' },
-  { key: 'health_monitor', label: 'Health Monitor', description: 'Analyzes pipeline trends, auto-tunes parameters, detects knowledge gaps.' },
-  { key: 'epic_sweeper', label: 'Epic Sweeper', description: 'Auto-closes epics with all sub-issues resolved.' },
-  { key: 'security_patch', label: 'Security Patch', description: 'Polls Dependabot alerts and files issues for fixable vulnerabilities.' },
-  { key: 'code_grooming', label: 'Code Grooming', description: 'Runs periodic audit scans and files issues for critical findings.' },
-]
+const CARETAKER_KEYS = new Set([
+  'stale_issue_gc', 'ci_monitor', 'bot_pr', 'worktree_gc',
+  'health_monitor', 'epic_sweeper', 'security_patch', 'code_grooming',
+])
+
+const CARETAKER_WORKERS = BACKGROUND_WORKERS.filter(w => CARETAKER_KEYS.has(w.key))
 
 function relativeTime(isoString) {
   if (!isoString) return 'never'

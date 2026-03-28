@@ -31,15 +31,34 @@ class CIMonitorLoop(BaseBackgroundLoop):
             deps=deps,
         )
         self._prs = pr_manager
-        self._open_issue: int | None = None  # Track open CI-failure issue
+        self._open_issue: int | None = None
+        self._startup_check_done = False
 
     def _get_default_interval(self) -> int:
         return self._config.ci_monitor_interval
+
+    async def _rehydrate_open_issue(self) -> None:
+        """On first cycle, check if an open CI failure issue already exists."""
+        if self._startup_check_done:
+            return
+        self._startup_check_done = True
+        try:
+            issues = await self._prs.list_issues_by_label("hydraflow-ci-failure")
+            if issues:
+                self._open_issue = issues[0].get("number")
+                logger.info(
+                    "CI monitor: rehydrated open issue #%s from previous run",
+                    self._open_issue,
+                )
+        except Exception:
+            logger.debug("CI monitor: could not rehydrate open issue", exc_info=True)
 
     async def _do_work(self) -> dict[str, Any] | None:
         """Check CI status and create/close issues as needed."""
         if self._config.dry_run:
             return None
+
+        await self._rehydrate_open_issue()
 
         try:
             conclusion, run_url = await self._prs.get_latest_ci_status()
@@ -91,7 +110,9 @@ class CIMonitorLoop(BaseBackgroundLoop):
                 "This issue was auto-created by the CI health monitor. "
                 "It will be auto-closed when CI recovers."
             )
-            issue_number = await self._prs.create_issue(title, body)
+            issue_number = await self._prs.create_issue(
+                title, body, labels=["hydraflow-ci-failure"]
+            )
             self._open_issue = issue_number
             logger.info(
                 "CI monitor: filed issue #%d for CI failure (%s)",
