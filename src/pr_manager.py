@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Literal, TypeVar
 from urllib.parse import quote
 
+from comment_formatter import CommentFormatter, SelfReviewError
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from models import (
@@ -48,8 +49,6 @@ def _is_missing_label_404(exc: RuntimeError) -> bool:
     msg = str(exc).lower()
     return "label does not exist" in msg and "http 404" in msg
 
-
-from comment_formatter import CommentFormatter, SelfReviewError
 
 # Re-export for backward compatibility
 __all__ = ["CommentFormatter", "SelfReviewError", "PRManager"]
