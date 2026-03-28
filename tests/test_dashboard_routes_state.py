@@ -1206,10 +1206,14 @@ class TestMemoriesEndpoint:
     async def test_memories_with_items(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        items_dir = config.data_path("memory", "items")
-        items_dir.mkdir(parents=True, exist_ok=True)
-        (items_dir / "42.md").write_text("Always validate inputs")
-        (items_dir / "55.md").write_text("Use async for I/O")
+        items_jsonl = config.data_path("memory", "items.jsonl")
+        items_jsonl.parent.mkdir(parents=True, exist_ok=True)
+        items_jsonl.write_text(
+            json.dumps({"id": "mem-1", "learning": "Always validate inputs"})
+            + "\n"
+            + json.dumps({"id": "mem-2", "learning": "Use async for I/O"})
+            + "\n"
+        )
 
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
         endpoint = find_endpoint(router, "/api/memories")
@@ -1217,38 +1221,38 @@ class TestMemoriesEndpoint:
         data = json.loads(response.body)
         assert data["total_items"] == 2
         assert len(data["items"]) == 2
-        # Items are sorted reverse by filename, so 55 comes first
-        numbers = [item["issue_number"] for item in data["items"]]
-        assert 42 in numbers
-        assert 55 in numbers
 
     @pytest.mark.asyncio
-    async def test_memories_skips_non_numeric_filenames(
+    async def test_memories_skips_invalid_json(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """Non-numeric .md filenames (e.g. README.md) should be silently skipped."""
-        items_dir = config.data_path("memory", "items")
-        items_dir.mkdir(parents=True, exist_ok=True)
-        (items_dir / "42.md").write_text("Valid item")
-        (items_dir / "README.md").write_text("Not a learning item")
-        (items_dir / "notes.md").write_text("Also not valid")
+        """Invalid JSON lines should be silently skipped."""
+        items_jsonl = config.data_path("memory", "items.jsonl")
+        items_jsonl.parent.mkdir(parents=True, exist_ok=True)
+        items_jsonl.write_text(
+            json.dumps({"id": "mem-1", "learning": "Valid item"})
+            + "\n"
+            + "not valid json\n"
+        )
 
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
         endpoint = find_endpoint(router, "/api/memories")
         response = await endpoint()
         data = json.loads(response.body)
         assert data["total_items"] == 1
-        assert data["items"][0]["issue_number"] == 42
 
     @pytest.mark.asyncio
     async def test_memories_caps_at_50_items(
         self, config, event_bus, state, tmp_path
     ) -> None:
         """The endpoint should return at most 50 items."""
-        items_dir = config.data_path("memory", "items")
-        items_dir.mkdir(parents=True, exist_ok=True)
-        for i in range(60):
-            (items_dir / f"{i + 1}.md").write_text(f"Learning #{i + 1}")
+        items_jsonl = config.data_path("memory", "items.jsonl")
+        items_jsonl.parent.mkdir(parents=True, exist_ok=True)
+        lines = [
+            json.dumps({"id": f"mem-{i}", "learning": f"Learning #{i}"})
+            for i in range(60)
+        ]
+        items_jsonl.write_text("\n".join(lines) + "\n")
 
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
         endpoint = find_endpoint(router, "/api/memories")
