@@ -52,7 +52,7 @@ def _init_sentry() -> None:
         NotImplementedError,
     )
 
-    def _before_send(event, hint):
+    def _before_send(event, hint):  # type: ignore[no-untyped-def]
         """Drop transient errors, fingerprint bugs, scrub credentials."""
         # Check if this event has an exception attached
         exc_info = hint.get("exc_info")
@@ -69,9 +69,12 @@ def _init_sentry() -> None:
         log_record = hint.get("log_record")
         if log_record and not exc_info:
             record_exc = getattr(log_record, "exc_info", None)
-            if record_exc and record_exc[0]:
-                if not issubclass(record_exc[0], _BUG_TYPES):
-                    return None  # Drop transient errors logged via logger.exception()
+            if (
+                record_exc
+                and record_exc[0]
+                and not issubclass(record_exc[0], _BUG_TYPES)
+            ):
+                return None  # Drop transient errors logged via logger.exception()
 
         return _scrub(event)
 
