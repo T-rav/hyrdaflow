@@ -1601,3 +1601,68 @@ class TestReportEventPublishing:
         assert len(closed) == 1
         assert closed[0]["report_id"] == report.id
         assert "escalat" in closed[0].get("detail", "").lower()
+
+    @pytest.mark.asyncio
+    async def test_publishes_fixed_event_on_issue_resolved(
+        self, tmp_path: Path
+    ) -> None:
+        """_sync_filed_reports publishes a REPORT_UPDATE with status=fixed when the issue is resolved."""
+        from events import EventType
+
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        tracked = TrackedReport(
+            id="r-fixed",
+            reporter_id="u1",
+            description="Fix me",
+            status="filed",
+            linked_issue_url="https://github.com/acme/repo/issues/99",
+        )
+        state.add_tracked_report(tracked)
+        pr_mgr.get_issue_state = AsyncMock(return_value="COMPLETED")
+
+        published = []
+        original_publish = loop._bus.publish
+
+        async def capture_publish(event):
+            if event.type == EventType.REPORT_UPDATE:
+                published.append(event.data)
+            await original_publish(event)
+
+        with patch.object(loop._bus, "publish", side_effect=capture_publish):
+            await loop._sync_filed_reports()
+
+        fixed = [e for e in published if e.get("status") == "fixed"]
+        assert len(fixed) == 1
+        assert fixed[0]["report_id"] == "r-fixed"
+
+    @pytest.mark.asyncio
+    async def test_publishes_stale_closed_event(self, tmp_path: Path) -> None:
+        """_sweep_stale_reports publishes a REPORT_UPDATE with status=closed for stale reports."""
+        from events import EventType
+
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        old_time = (datetime.now(UTC) - timedelta(hours=10)).isoformat()
+        report = PendingReport(description="Stale event test", reporter_id="u1")
+        report.created_at = old_time
+        state.enqueue_report(report)
+        state.add_tracked_report(
+            TrackedReport(
+                id=report.id, reporter_id="u1", description=report.description
+            )
+        )
+
+        published = []
+        original_publish = loop._bus.publish
+
+        async def capture_publish(event):
+            if event.type == EventType.REPORT_UPDATE:
+                published.append(event.data)
+            await original_publish(event)
+
+        with patch.object(loop._bus, "publish", side_effect=capture_publish):
+            await loop._sweep_stale_reports()
+
+        closed = [e for e in published if e.get("status") == "closed"]
+        assert len(closed) == 1
+        assert closed[0]["report_id"] == report.id
+        assert closed[0]["detail"] == "stale"

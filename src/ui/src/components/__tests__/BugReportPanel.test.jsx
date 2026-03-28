@@ -156,6 +156,31 @@ describe('BugReportPanel', () => {
     expect(screen.getByText('#42')).toBeTruthy()
   })
 
+  it('queued status hides Reopen input but shows Cancel', () => {
+    mockPoller.reports = [makeReport({ id: 'r1', status: 'queued' })]
+    render(<BugReportPanel apiBaseUrl="" reporterId="u1" onOpenReportModal={onOpenReportModal} />)
+    fireEvent.click(screen.getByTestId('expand-r1'))
+    expect(screen.getByTestId('action-cancel-r1')).toBeTruthy()
+    expect(screen.queryByTestId('action-reopen-r1')).toBeNull()
+    expect(screen.queryByTestId('action-confirm-r1')).toBeNull()
+  })
+
+  it('closed status hides all action buttons', () => {
+    mockPoller.reports = [makeReport({ id: 'r1', status: 'closed' })]
+    render(<BugReportPanel apiBaseUrl="" reporterId="u1" onOpenReportModal={onOpenReportModal} />)
+    fireEvent.click(screen.getByTestId('expand-r1'))
+    expect(screen.queryByTestId('action-cancel-r1')).toBeNull()
+    expect(screen.queryByTestId('action-reopen-r1')).toBeNull()
+    expect(screen.queryByTestId('action-confirm-r1')).toBeNull()
+  })
+
+  it('shows error bar when error is set', () => {
+    mockPoller.error = 'Network error'
+    mockPoller.reports = [makeReport()]
+    render(<BugReportPanel apiBaseUrl="" reporterId="u1" onOpenReportModal={onOpenReportModal} />)
+    expect(screen.getByText(/Network error/)).toBeTruthy()
+  })
+
   it('shows loading state', () => {
     mockPoller.loading = true
     render(<BugReportPanel apiBaseUrl="" reporterId="u1" onOpenReportModal={onOpenReportModal} />)
