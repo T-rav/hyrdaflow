@@ -12,7 +12,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from ci_monitor_loop import CIMonitorLoop
-
 from tests.helpers import make_bg_loop_deps
 
 
@@ -114,6 +113,33 @@ class TestCIMonitorLoop:
         result = await loop._do_work()
         assert result is not None
         assert result.get("error") is True
+
+    @pytest.mark.asyncio
+    async def test_dry_run_returns_none(self, tmp_path: Path) -> None:
+        """In dry-run mode, _do_work returns None without API calls."""
+        deps = make_bg_loop_deps(tmp_path, dry_run=True)
+        pr = MagicMock()
+        loop = CIMonitorLoop(config=deps.config, pr_manager=pr, deps=deps.loop_deps)
+        result = await loop._do_work()
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_close_failure_retains_open_issue_for_retry(
+        self, tmp_path: Path
+    ) -> None:
+        """If close_issue fails, _open_issue is retained so next cycle retries."""
+        loop, _stop, pr = _make_loop(tmp_path)
+        pr.get_latest_ci_status.return_value = ("failure", "https://github.com/runs/1")
+        await loop._do_work()
+        assert loop._open_issue == 999
+
+        # CI recovers but close fails
+        pr.get_latest_ci_status.return_value = ("success", "")
+        pr.close_issue.side_effect = RuntimeError("close failed")
+        await loop._do_work()
+
+        # _open_issue should still be set for retry
+        assert loop._open_issue == 999
 
     @pytest.mark.asyncio
     async def test_default_interval_from_config(self, tmp_path: Path) -> None:

@@ -62,13 +62,13 @@ class CIMonitorLoop(BaseBackgroundLoop):
                         "CI monitor: CI recovered, closed issue #%d",
                         self._open_issue,
                     )
+                    self._open_issue = None
                 except Exception:
                     logger.warning(
-                        "CI monitor: failed to close recovery issue #%d",
+                        "CI monitor: failed to close recovery issue #%d — will retry",
                         self._open_issue,
                         exc_info=True,
                     )
-                self._open_issue = None
             return {"status": "green"}
 
         # CI is red
