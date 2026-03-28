@@ -20,8 +20,6 @@ from manifest import (
     detect_test_frameworks,
     load_project_manifest,
 )
-from manifest_curator import CuratedLearning, CuratedManifestStore
-from models import MemoryType
 from state import StateTracker
 from tests.helpers import ConfigFactory
 
@@ -475,29 +473,6 @@ class TestProjectManifestManager:
         assert len(digest_hash) == 16
         assert manager.manifest_path.read_text() == content
 
-    def test_manifest_manager__includes_curated_sections(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
-        curator = CuratedManifestStore(config)
-        curator.update_from_learnings(
-            [
-                CuratedLearning(
-                    number=99,
-                    title="Architecture overview",
-                    learning="HydraFlow orchestrates agents via a supervisor service.",
-                    created_at="2024-01-01T00:00:00Z",
-                    memory_type=MemoryType.KNOWLEDGE,
-                    body="**Learning:** HydraFlow orchestrates agents.",
-                )
-            ]
-        )
-        manager = ProjectManifestManager(config, curator=curator)
-        monkeypatch.setattr(manager, "scan", lambda: "## Base\nStack info")
-        content, _ = manager.refresh()
-        assert content.startswith("## Curated Learnings")
-        assert "HydraFlow orchestrates agents" in content
-
     def test_manifest_manager__manifest_path(self, tmp_path: Path) -> None:
         config = ConfigFactory.create(repo_root=tmp_path)
         manager = ProjectManifestManager(config)
@@ -531,15 +506,6 @@ class TestLoadProjectManifest:
         manifest_path.write_text("## Project Manifest\npython, make")
         result = load_project_manifest(config)
         assert "python" in result
-
-    def test_load_project_manifest__truncation(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path, max_manifest_prompt_chars=200)
-        manifest_path = tmp_path / ".hydraflow" / "manifest" / "manifest.md"
-        manifest_path.parent.mkdir(parents=True)
-        manifest_path.write_text("x" * 500)
-        result = load_project_manifest(config)
-        assert len(result) < 500
-        assert "...(truncated)" in result
 
 
 # ---------------------------------------------------------------------------
@@ -578,18 +544,6 @@ class TestManifestStateTracking:
 # ---------------------------------------------------------------------------
 # Config fields
 # ---------------------------------------------------------------------------
-
-
-class TestManifestConfig:
-    """Tests for manifest-related config fields."""
-
-    def test_config__max_manifest_prompt_chars_default(self) -> None:
-        config = ConfigFactory.create()
-        assert config.max_manifest_prompt_chars == 2000
-
-    def test_config__max_manifest_prompt_chars_custom(self) -> None:
-        config = ConfigFactory.create(max_manifest_prompt_chars=5000)
-        assert config.max_manifest_prompt_chars == 5000
 
 
 # ---------------------------------------------------------------------------

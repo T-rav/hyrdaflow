@@ -409,12 +409,10 @@ class TestProjectManifestManager:
 
     def _make_manager(self, tmp_path: Path):
         from manifest import ProjectManifestManager
-        from manifest_curator import CuratedManifestStore
         from tests.helpers import ConfigFactory
 
         config = ConfigFactory.create(repo_root=tmp_path)
-        curator = CuratedManifestStore(config)
-        return ProjectManifestManager(config, curator)
+        return ProjectManifestManager(config)
 
     def test_scan_write_read_roundtrip(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text("[project]\n")
