@@ -11,6 +11,7 @@ from events import EventBus, EventType, HydraFlowEvent
 from issue_store import IssueStore
 from models import ProductDirection, ShapeResult, Task
 from phase_utils import (
+    MemorySuggester,  # noqa: TCH001
     _sentry_transaction,
     run_refilling_pool,
     store_lifecycle,
@@ -56,6 +57,7 @@ class ShapePhase:
         self._bus = event_bus
         self._stop_event = stop_event
         self._runner = shape_runner
+        self._suggest_memory = MemorySuggester(config, prs, state)
         # Track issues that have had options posted (awaiting selection)
         self._awaiting_selection: set[int] = set()
 
@@ -133,6 +135,8 @@ class ShapePhase:
         if not self._config.dry_run:
             await self._transitioner.post_comment(issue.id, comment)
             self._awaiting_selection.add(issue.id)
+            # Save HTML artifact for dashboard/canvas serving
+            self._save_html_artifact(issue.id, html)
 
         await self._bus.publish(
             HydraFlowEvent(
@@ -190,11 +194,18 @@ class ShapePhase:
         if direction_detail:
             enrichment_parts.append(f"\n### Direction Detail\n\n{direction_detail}\n")
         enrichment_parts.append(
-            "\n### Planning Guidance\n\n"
-            "This issue has been through the product discovery and shaping track. "
-            "The planner should decompose this into concrete, independently "
-            "implementable sub-issues based on the selected direction above. "
-            "Each sub-issue should be testable and scoped to a single concern."
+            "\n### Planning Guidance — DECOMPOSITION REQUIRED\n\n"
+            "This issue came through the product discovery and shaping track. "
+            "It is a BROAD product direction, NOT a single implementable task.\n\n"
+            "**You MUST decompose this into 3-8 concrete sub-issues** using the "
+            "NEW_ISSUES_START/NEW_ISSUES_END format. Each sub-issue should:\n"
+            "- Be independently implementable and testable\n"
+            "- Be scoped to a single concern (one component, one API, one UI piece)\n"
+            "- Have a clear acceptance criteria in its body\n"
+            "- Reference the selected direction above for context\n\n"
+            "Do NOT plan this as a single large implementation. "
+            "The value of the product track is that it breaks vague work "
+            "into well-scoped engineering tasks."
         )
         enrichment = "\n".join(enrichment_parts)
 
@@ -204,7 +215,20 @@ class ShapePhase:
             await self._transitioner.transition(issue.id, "plan")
             self._state.increment_session_counter("shaped")
 
-        # Emit learning signal — structured decision record for memory/taste profile
+        # Write learning signal to memory — structured decision for taste profile
+        learning_transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            f"title: Product direction selected for #{issue.id}\n"
+            f"learning: Direction {selection} chosen for '{issue.title}'. "
+            f"{f'Refinement: {refinement}. ' if refinement else ''}"
+            "This decision reflects product taste and scoping preferences.\n"
+            f"context: Product shaping for issue #{issue.id}\n"
+            "type: knowledge\n"
+            "MEMORY_SUGGESTION_END"
+        )
+        await self._suggest_memory(learning_transcript, "shape", f"issue #{issue.id}")
+
+        # Emit learning signal event for real-time consumers
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.SHAPE_UPDATE,
@@ -286,6 +310,14 @@ class ShapePhase:
             ]
         )
         return "\n".join(lines)
+
+    def _save_html_artifact(self, issue_number: int, html: str) -> None:
+        """Save HTML artifact for dashboard/canvas serving."""
+        artifacts_dir = self._config.data_root / "artifacts" / "shape"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        path = artifacts_dir / f"issue-{issue_number}.html"
+        path.write_text(html, encoding="utf-8")
+        logger.debug("Saved shape HTML artifact for issue #%d → %s", issue_number, path)
 
     @staticmethod
     def _get_selected_direction_detail(comments: list[str], selection: str) -> str:

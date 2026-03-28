@@ -172,9 +172,14 @@ Output your findings between these exact markers in a JSON code block:
 
 {_DISCOVER_END}
 
-IMPORTANT:
-- Use WebSearch and WebFetch tools to gather REAL data. Do not fabricate.
-- Cite sources where possible.
+## IMPORTANT — Research Quality
+
+- FIRST, check if you have WebSearch and WebFetch tools available.
+  - If YES: Use them to gather REAL data. Cite sources.
+  - If NO: Explicitly state "NOTE: Web search tools unavailable. Analysis
+    below is based on general knowledge, not live research. Verify findings
+    before making product decisions." Then provide your best analysis from
+    training data, clearly marking it as unverified.
 - Focus on actionable insights, not exhaustive lists.
 - If the issue domain is too niche for web research, note that and focus on
   what you CAN determine from the issue description and general knowledge.

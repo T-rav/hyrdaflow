@@ -2016,4 +2016,24 @@ def create_router(
 
         return _serve_spa_index()
 
+    # ------------------------------------------------------------------
+    # Product track — Shape HTML artifacts
+    # ------------------------------------------------------------------
+
+    @router.get("/api/shape/artifact/{issue_number}")
+    def get_shape_artifact(issue_number: int, slug: str | None = None) -> Response:
+        """Serve the Shape phase HTML artifact for an issue.
+
+        Returns the self-contained HTML direction cards for rendering
+        in OpenClaw's canvas or the dashboard.
+        """
+        cfg, _st, _bus, _get_orch = _resolve_runtime(slug)
+        path = cfg.data_root / "artifacts" / "shape" / f"issue-{issue_number}.html"
+        if not path.is_file():
+            return JSONResponse(
+                {"error": f"No shape artifact for issue #{issue_number}"},
+                status_code=404,
+            )
+        return HTMLResponse(path.read_text(encoding="utf-8"))
+
     return router

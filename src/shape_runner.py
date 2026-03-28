@@ -50,7 +50,9 @@ class ShapeRunner(BaseRunner):
 
         try:
             cmd = self._build_command()
-            prompt = self._build_prompt(task, research_brief)
+
+            # --- Pass 1: Advocate — generate initial directions ---
+            advocate_prompt = self._build_advocate_prompt(task, research_brief)
 
             def _check_complete(accumulated: str) -> bool:
                 if _SHAPE_END in accumulated:
@@ -61,22 +63,41 @@ class ShapeRunner(BaseRunner):
                     return True
                 return False
 
-            transcript = await self._execute(
+            advocate_transcript = await self._execute(
                 cmd,
-                prompt,
+                advocate_prompt,
                 self._config.repo_root,
-                {"issue": task.id, "source": "shape"},
+                {"issue": task.id, "source": "shape-advocate"},
                 on_output=_check_complete,
             )
 
-            parsed = self._extract_result(transcript, task.id)
-            if parsed:
-                result = parsed
-            else:
+            advocate_result = self._extract_result(advocate_transcript, task.id)
+
+            if not advocate_result or not advocate_result.directions:
+                transcript = advocate_transcript
                 result.recommendation = (
-                    "Shape agent ran but produced no structured output. "
+                    "Shape advocate agent produced no structured output. "
                     "Manual direction selection required."
                 )
+            else:
+                # --- Pass 2: Critic — challenge and refine directions ---
+                critic_prompt = self._build_critic_prompt(
+                    task, advocate_result, research_brief
+                )
+                critic_transcript = await self._execute(
+                    cmd,
+                    critic_prompt,
+                    self._config.repo_root,
+                    {"issue": task.id, "source": "shape-critic"},
+                    on_output=_check_complete,
+                )
+                transcript = (
+                    advocate_transcript + "\n\n---CRITIC---\n\n" + critic_transcript
+                )
+
+                critic_result = self._extract_result(critic_transcript, task.id)
+                # Use critic's refined output if available, otherwise advocate's
+                result = critic_result if critic_result else advocate_result
 
         except Exception as exc:
             reraise_on_credit_or_bug(exc)
@@ -107,7 +128,7 @@ class ShapeRunner(BaseRunner):
             disallowed_tools="Write,Edit,NotebookEdit",
         )
 
-    def _build_prompt(self, task: Task, research_brief: str = "") -> str:
+    def _build_advocate_prompt(self, task: Task, research_brief: str = "") -> str:
         """Build the multi-perspective shaping prompt."""
         research_section = ""
         if research_brief:
@@ -182,6 +203,85 @@ Output your directions between these exact markers in a JSON code block:
 - The recommendation should explain the reasoning, not just pick one
 - If the research brief identified specific user needs or market gaps,
   at least one direction should directly address those
+
+{MEMORY_SUGGESTION_PROMPT}
+"""
+
+    def _build_critic_prompt(
+        self, task: Task, advocate_result: ShapeResult, research_brief: str = ""
+    ) -> str:
+        """Build the critic prompt that challenges and refines advocate directions."""
+        directions_text = ""
+        for i, d in enumerate(advocate_result.directions):
+            letter = chr(65 + i)
+            directions_text += (
+                f"\n### Direction {letter}: {d.name}\n"
+                f"**Approach:** {d.approach}\n"
+                f"**Tradeoffs:** {d.tradeoffs}\n"
+                f"**Effort:** {d.effort} | **Risk:** {d.risk}\n"
+                f"**Differentiator:** {d.differentiator}\n"
+            )
+
+        research_section = ""
+        if research_brief:
+            research_section = f"\n## Original Research Brief\n\n{research_brief}\n"
+
+        return f"""You are a product strategy CRITIC reviewing proposed directions for a product initiative.
+
+## Issue #{task.id}: {task.title}
+
+{task.body or "(No description provided)"}
+{research_section}
+## Proposed Directions (from Advocate Agent)
+
+{directions_text}
+
+Advocate's recommendation: {advocate_result.recommendation}
+
+## Your Mission
+
+You are the SECOND pass in a two-agent debate. The Advocate above proposed directions.
+Your job is to CHALLENGE, REFINE, and IMPROVE them:
+
+1. **Kill weak directions** — If a direction is poorly differentiated, unrealistic,
+   or a variation of another, remove it and replace with something genuinely different.
+
+2. **Strengthen survivors** — For directions worth keeping, make the tradeoffs more
+   honest, the effort/risk assessments more realistic, and the approach more specific.
+
+3. **Challenge the recommendation** — Is the advocate's recommendation actually the
+   best choice? Argue for a different one if warranted.
+
+4. **Add what's missing** — If the advocate missed an obvious direction (especially
+   one suggested by the research), add it.
+
+5. **Be adversarial but constructive** — Your goal is better directions, not fewer.
+
+## Required Output
+
+Output your REFINED directions (keep, modify, replace, or add) using the same
+format between these markers:
+
+{_SHAPE_START}
+
+```json
+{{
+  "issue_number": {task.id},
+  "directions": [
+    {{
+      "name": "Short descriptive name",
+      "approach": "2-3 sentence description",
+      "tradeoffs": "Honest tradeoffs",
+      "effort": "low|medium|high",
+      "risk": "low|medium|high",
+      "differentiator": "What makes this stand out"
+    }}
+  ],
+  "recommendation": "Your recommendation after critique (may differ from advocate)"
+}}
+```
+
+{_SHAPE_END}
 
 {MEMORY_SUGGESTION_PROMPT}
 """

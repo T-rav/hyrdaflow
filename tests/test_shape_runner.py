@@ -72,7 +72,7 @@ class TestBuildPrompt:
         task.title = "Build a better Calendly"
         task.body = "Scheduling tool"
 
-        prompt = runner._build_prompt(task)
+        prompt = runner._build_advocate_prompt(task)
 
         assert "Build a better Calendly" in prompt
         assert "User Advocate" in prompt
@@ -89,7 +89,9 @@ class TestBuildPrompt:
         task.title = "Test"
         task.body = "Test body"
 
-        prompt = runner._build_prompt(task, research_brief="Calendly has 10M users")
+        prompt = runner._build_advocate_prompt(
+            task, research_brief="Calendly has 10M users"
+        )
 
         assert "Calendly has 10M users" in prompt
         assert "Discovery Research Brief" in prompt
@@ -103,9 +105,47 @@ class TestBuildPrompt:
         task.title = "Test"
         task.body = "Test body"
 
-        prompt = runner._build_prompt(task, research_brief="")
+        prompt = runner._build_advocate_prompt(task, research_brief="")
 
         assert "Discovery Research Brief" not in prompt
+
+
+class TestCriticPrompt:
+    """Tests for ShapeRunner._build_critic_prompt."""
+
+    def test_critic_prompt_includes_advocate_directions(self) -> None:
+        from unittest.mock import MagicMock
+
+        from models import ProductDirection, ShapeResult
+
+        runner = ShapeRunner.__new__(ShapeRunner)
+        task = MagicMock()
+        task.id = 42
+        task.title = "Build a better Calendly"
+        task.body = "Scheduling tool"
+
+        advocate_result = ShapeResult(
+            issue_number=42,
+            directions=[
+                ProductDirection(
+                    name="Privacy-First",
+                    approach="Self-hosted",
+                    tradeoffs="More setup",
+                    effort="high",
+                    risk="medium",
+                    differentiator="No data leaves server",
+                ),
+            ],
+            recommendation="Go with Privacy-First",
+        )
+
+        prompt = runner._build_critic_prompt(task, advocate_result)
+
+        assert "CRITIC" in prompt
+        assert "Privacy-First" in prompt
+        assert "Go with Privacy-First" in prompt
+        assert "CHALLENGE" in prompt
+        assert "Kill weak directions" in prompt
 
 
 class TestFormatOptionsHtml:
