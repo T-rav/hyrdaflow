@@ -21,6 +21,7 @@ def _make_sentry_issue(
     culprit: str = "src/server.py in handle_request",
     count: str = "42",
     level: str = "error",
+    is_unhandled: bool = True,
 ) -> dict:
     return {
         "id": issue_id,
@@ -32,6 +33,7 @@ def _make_sentry_issue(
         "level": level,
         "permalink": f"https://sentry.io/issues/{issue_id}/",
         "shortId": f"HYDRA-{issue_id}",
+        "isUnhandled": is_unhandled,
     }
 
 
@@ -195,6 +197,131 @@ class TestSentryLoopDoWork:
         assert result is not None
         assert result["issues_created"] == 0
         assert result["issues_skipped"] == 1
+
+
+class TestSentryLoopFiltering:
+    """Tests for noise filtering (handled errors, low event count)."""
+
+    @pytest.mark.asyncio
+    async def test_skips_handled_exceptions(self, tmp_path: Path) -> None:
+        """Handled exceptions (isUnhandled=False) should be skipped."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        deps = _make_deps()
+        prs = MagicMock()
+        prs._run_gh = AsyncMock(return_value="0")
+
+        loop = _make_loop(config, prs, deps)
+
+        handled_issue = _make_sentry_issue(is_unhandled=False)
+        with (
+            patch.object(loop, "_list_projects", return_value=[{"slug": "p"}]),
+            patch.object(loop, "_fetch_unresolved", return_value=[handled_issue]),
+            patch.object(
+                loop, "_create_github_issue", return_value=True
+            ) as mock_create,
+        ):
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["issues_created"] == 0
+        assert result["issues_skipped"] == 1
+        mock_create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_passes_unhandled_exceptions(self, tmp_path: Path) -> None:
+        """Unhandled exceptions (isUnhandled=True) should be filed."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        deps = _make_deps()
+        prs = MagicMock()
+        prs._run_gh = AsyncMock(return_value="0")
+
+        loop = _make_loop(config, prs, deps)
+
+        unhandled_issue = _make_sentry_issue(is_unhandled=True)
+        with (
+            patch.object(loop, "_list_projects", return_value=[{"slug": "p"}]),
+            patch.object(loop, "_fetch_unresolved", return_value=[unhandled_issue]),
+            patch.object(loop, "_create_github_issue", return_value=True),
+            patch.object(loop, "_resolve_sentry_issue", new_callable=AsyncMock),
+        ):
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["issues_created"] == 1
+
+    @pytest.mark.asyncio
+    async def test_skips_low_event_count(self, tmp_path: Path) -> None:
+        """Issues with fewer events than sentry_min_events should be skipped."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        deps = _make_deps()
+        prs = MagicMock()
+
+        loop = _make_loop(config, prs, deps)
+        object.__setattr__(config, "sentry_min_events", 5)
+
+        low_count_issue = _make_sentry_issue(count="2")
+        with (
+            patch.object(loop, "_list_projects", return_value=[{"slug": "p"}]),
+            patch.object(loop, "_fetch_unresolved", return_value=[low_count_issue]),
+            patch.object(
+                loop, "_create_github_issue", return_value=True
+            ) as mock_create,
+        ):
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["issues_created"] == 0
+        assert result["issues_skipped"] == 1
+        mock_create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_passes_high_event_count(self, tmp_path: Path) -> None:
+        """Issues meeting the min event threshold should be filed."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        deps = _make_deps()
+        prs = MagicMock()
+        prs._run_gh = AsyncMock(return_value="0")
+
+        loop = _make_loop(config, prs, deps)
+        object.__setattr__(config, "sentry_min_events", 5)
+
+        high_count_issue = _make_sentry_issue(count="10")
+        with (
+            patch.object(loop, "_list_projects", return_value=[{"slug": "p"}]),
+            patch.object(loop, "_fetch_unresolved", return_value=[high_count_issue]),
+            patch.object(loop, "_create_github_issue", return_value=True),
+            patch.object(loop, "_resolve_sentry_issue", new_callable=AsyncMock),
+        ):
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["issues_created"] == 1
+
+    @pytest.mark.asyncio
+    async def test_defaults_to_unhandled_when_field_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """If isUnhandled is missing from the API response, treat as unhandled (file it)."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        deps = _make_deps()
+        prs = MagicMock()
+        prs._run_gh = AsyncMock(return_value="0")
+
+        loop = _make_loop(config, prs, deps)
+
+        # Issue without isUnhandled field
+        issue = _make_sentry_issue()
+        del issue["isUnhandled"]
+        with (
+            patch.object(loop, "_list_projects", return_value=[{"slug": "p"}]),
+            patch.object(loop, "_fetch_unresolved", return_value=[issue]),
+            patch.object(loop, "_create_github_issue", return_value=True),
+            patch.object(loop, "_resolve_sentry_issue", new_callable=AsyncMock),
+        ):
+            result = await loop._do_work()
+
+        assert result is not None
+        assert result["issues_created"] == 1
 
 
 class TestSentryLoopProjectFilter:

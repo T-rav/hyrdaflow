@@ -29,18 +29,6 @@ logger = logging.getLogger("hydraflow.sentry_loop")
 _SENTRY_API = "https://sentry.io/api/0"
 _ISSUE_URL_RE = re.compile(r"https://github\.com/[^/\s]+/[^/\s]+/issues/(\d+)")
 
-# Sentry issue titles matching these patterns are transient infra errors, not code bugs
-_TRANSIENT_TITLE_RE = re.compile(
-    r"(?i)"
-    r"ConnectionError|TimeoutError|ReadTimeout|WriteTimeout"
-    r"|rate.?limit|Docker.?(unavailable|daemon|not available)"
-    r"|auth(entication)?.?fail|oauth.?token"
-    r"|SIGTERM|SIGKILL|Process exited"
-    r"|RemoteDisconnected|BrokenPipeError|ConnectionResetError"
-    r"|APIError\(HTTPError"
-    r"|Server Error for http\+docker"
-)
-
 
 class SentryLoop(BaseBackgroundLoop):
     """Polls Sentry for unresolved issues and files them via Claude agent."""
@@ -102,11 +90,13 @@ class SentryLoop(BaseBackgroundLoop):
                     total_skipped += 1
                     continue
 
-                # Skip issues with transient/infra error titles
-                title = issue.get("title", "")
-                if _TRANSIENT_TITLE_RE.search(title):
+                # Skip handled exceptions — only unhandled errors are real bugs.
+                # Works for any language (Python, JS, Go, etc.)
+                if not issue.get("isUnhandled", True):
                     logger.debug(
-                        "Skipping transient Sentry issue %s: %s", sentry_id, title[:60]
+                        "Skipping handled Sentry issue %s: %s",
+                        sentry_id,
+                        issue.get("title", "")[:60],
                     )
                     self._filed.add(sentry_id)
                     total_skipped += 1
