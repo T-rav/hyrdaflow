@@ -715,6 +715,55 @@ class PRManager:
             )
             return "UNKNOWN"
 
+    async def list_issues_by_label(self, label: str) -> list[dict[str, Any]]:
+        """Return open issues with the given label as a list of dicts."""
+        self._assert_repo()
+        try:
+            output = await self._run_gh(
+                "gh",
+                "issue",
+                "list",
+                "--repo",
+                self._repo,
+                "--label",
+                label,
+                "--state",
+                "open",
+                "--json",
+                "number,title,updatedAt",
+                "--limit",
+                "100",
+            )
+            items = json.loads(output)
+            return [
+                {
+                    "number": item.get("number", 0),
+                    "title": item.get("title", ""),
+                    "updated_at": item.get("updatedAt", ""),
+                }
+                for item in items
+            ]
+        except Exception:
+            logger.warning("Failed to list issues for label %s", label, exc_info=True)
+            return []
+
+    async def get_issue_updated_at(self, issue_number: int) -> str:
+        """Return the updated_at timestamp for an issue as ISO string."""
+        self._assert_repo()
+        output = await self._run_gh(
+            "gh",
+            "issue",
+            "view",
+            str(issue_number),
+            "--repo",
+            self._repo,
+            "--json",
+            "updatedAt",
+            "--jq",
+            ".updatedAt",
+        )
+        return output.strip()
+
     async def close_issue(self, issue_number: int) -> None:
         """Close a GitHub issue."""
         self._assert_repo()
