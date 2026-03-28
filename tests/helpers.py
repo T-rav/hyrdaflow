@@ -384,6 +384,7 @@ class ConfigFactory:
         hindsight_timeout: int = 30,
         security_patch_interval: int = 3600,
         security_patch_severity_threshold: str = "high",
+        code_grooming_interval: int = 86400,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -604,6 +605,7 @@ class ConfigFactory:
                 hindsight_timeout=hindsight_timeout,
                 security_patch_interval=security_patch_interval,
                 security_patch_severity_threshold=security_patch_severity_threshold,
+                code_grooming_interval=code_grooming_interval,
             )
 
 

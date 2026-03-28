@@ -110,6 +110,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("sentry_poll_interval", "SENTRY_POLL_INTERVAL", 600),
     ("sentry_min_events", "SENTRY_MIN_EVENTS", 2),
     ("security_patch_interval", "HYDRAFLOW_SECURITY_PATCH_INTERVAL", 3600),
+    ("code_grooming_interval", "HYDRAFLOW_CODE_GROOMING_INTERVAL", 86400),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -752,6 +753,13 @@ class HydraFlowConfig(BaseModel):
     security_patch_severity_threshold: str = Field(
         default="high",
         description="Minimum severity to file issues for (critical, high, medium, low)",
+    )
+    # Code grooming
+    code_grooming_interval: int = Field(
+        default=86400,
+        ge=3600,
+        le=604800,
+        description="Seconds between code grooming audit cycles",
     )
 
     # Hindsight semantic memory
