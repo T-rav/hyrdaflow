@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from visual_validator import VisualValidator
 
 from baseline_policy import BaselinePolicy
+from comment_formatter import SelfReviewError
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from harness_insights import FailureCategory, HarnessInsightStore
@@ -57,7 +58,7 @@ from phase_utils import (
     store_lifecycle,
 )
 from post_merge_handler import PostMergeHandler
-from pr_manager import PRManager, SelfReviewError
+from pr_manager import PRManager
 from review_insights import (
     _PROPOSAL_STALE_DAYS,
     CATEGORY_DESCRIPTIONS,
