@@ -725,6 +725,33 @@ class PRManager:
         )
         return output.strip()
 
+    async def get_latest_ci_status(self) -> tuple[str, str]:
+        """Return (conclusion, url) for the latest CI run on the main branch."""
+        self._assert_repo()
+        try:
+            output = await self._run_gh(
+                "gh",
+                "run",
+                "list",
+                "--repo",
+                self._repo,
+                "--branch",
+                self._config.main_branch,
+                "--limit",
+                "1",
+                "--json",
+                "conclusion,url",
+                "--jq",
+                ".[0] | [.conclusion, .url] | @tsv",
+            )
+            parts = output.strip().split("\t")
+            conclusion = parts[0] if parts else ""
+            url = parts[1] if len(parts) > 1 else ""
+            return (conclusion, url)
+        except Exception:
+            logger.warning("Could not fetch CI status", exc_info=True)
+            raise
+
     async def close_issue(self, issue_number: int) -> None:
         """Close a GitHub issue."""
         self._assert_repo()

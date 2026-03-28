@@ -51,6 +51,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("worktree_gc_interval", "HYDRAFLOW_WORKTREE_GC_INTERVAL", 1800),
     ("stale_issue_gc_interval", "HYDRAFLOW_STALE_ISSUE_GC_INTERVAL", 3600),
     ("stale_issue_threshold_days", "HYDRAFLOW_STALE_ISSUE_THRESHOLD_DAYS", 14),
+    ("ci_monitor_interval", "HYDRAFLOW_CI_MONITOR_INTERVAL", 300),
     ("collaborator_cache_ttl", "HYDRAFLOW_COLLABORATOR_CACHE_TTL", 600),
     ("artifact_retention_days", "HYDRAFLOW_ARTIFACT_RETENTION_DAYS", 30),
     ("artifact_max_size_mb", "HYDRAFLOW_ARTIFACT_MAX_SIZE_MB", 500),
@@ -457,6 +458,12 @@ class HydraFlowConfig(BaseModel):
         ge=1,
         le=365,
         description="Days of inactivity before auto-closing an issue (default 14)",
+    )
+    ci_monitor_interval: int = Field(
+        default=300,
+        ge=60,
+        le=86400,
+        description="CI health monitor loop interval in seconds (default 5 min)",
     )
     collaborator_check_enabled: bool = Field(
         default=True,
