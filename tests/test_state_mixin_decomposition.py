@@ -562,11 +562,8 @@ class TestReportStateMixin:
 
     def test_metrics_state(self, tmp_path: Path) -> None:
         t = make_tracker(tmp_path)
-        t.set_metrics_issue_number(42)
-        assert t.get_metrics_issue_number() == 42
         t.update_metrics_state("hash123")
-        num, snap_hash, synced = t.get_metrics_state()
-        assert num == 42
+        snap_hash, synced = t.get_metrics_state()
         assert snap_hash == "hash123"
         assert synced is not None
 
@@ -576,10 +573,6 @@ class TestReportStateMixin:
         mhash, updated = t.get_manifest_state()
         assert mhash == "mhash"
         assert updated is not None
-        t.set_manifest_issue_number(10)
-        assert t.get_manifest_issue_number() == 10
-        t.set_manifest_snapshot_hash("snap1")
-        assert t.get_manifest_snapshot_hash() == "snap1"
 
     def test_memory_state(self, tmp_path: Path) -> None:
         t = make_tracker(tmp_path)

@@ -890,16 +890,6 @@ class TestMemoryState:
 class TestMemoryConfig:
     """Tests for memory-related config fields."""
 
-    def test_memory_label_default(self) -> None:
-        from config import HydraFlowConfig
-
-        config = HydraFlowConfig(repo="test/repo")
-        assert config.memory_label == ["hydraflow-memory"]
-
-    def test_memory_label_custom(self) -> None:
-        config = ConfigFactory.create(memory_label=["custom-memory"])
-        assert config.memory_label == ["custom-memory"]
-
     def test_memory_sync_interval_default(self) -> None:
         from config import HydraFlowConfig
 
@@ -917,13 +907,6 @@ class TestMemoryConfig:
 
         config = HydraFlowConfig(repo="test/repo")
         assert config.max_memory_prompt_chars == 4000
-
-    def test_memory_label_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from config import HydraFlowConfig
-
-        monkeypatch.setenv("HYDRAFLOW_LABEL_MEMORY", "my-memory-label")
-        config = HydraFlowConfig(repo="test/repo")
-        assert config.memory_label == ["my-memory-label"]
 
     def test_memory_sync_interval_env_override(
         self, monkeypatch: pytest.MonkeyPatch
@@ -948,12 +931,6 @@ class TestMemoryModels:
         assert data.memory_issue_ids == []
         assert data.memory_digest_hash == ""
         assert data.memory_last_synced is None
-
-    def test_control_status_config_memory_label(self) -> None:
-        from models import ControlStatusConfig
-
-        cfg = ControlStatusConfig(memory_label=["hydraflow-memory"])
-        assert cfg.memory_label == ["hydraflow-memory"]
 
     def test_github_issue_created_at_from_camel_case(self) -> None:
         from models import GitHubIssue
@@ -998,25 +975,6 @@ class TestMemoryCompactionModelConfig:
 
 
 # --- PR Manager tests ---
-
-
-class TestMemoryPRManager:
-    """Tests for memory label in PR manager."""
-
-    def test_hydraflow_labels_includes_memory(self) -> None:
-        from pr_manager import PRManager
-
-        label_fields = [entry[0] for entry in PRManager._HYDRAFLOW_LABELS]
-        assert "memory_label" in label_fields
-
-    def test_memory_label_color(self) -> None:
-        from pr_manager import PRManager
-
-        for field, color, _ in PRManager._HYDRAFLOW_LABELS:
-            if field == "memory_label":
-                assert color == "1d76db"
-                return
-        pytest.fail("memory_label not found in _HYDRAFLOW_LABELS")
 
 
 # --- Orchestrator tests ---
@@ -1311,14 +1269,14 @@ class TestRouteAdrCandidatesPerItemIsolation:
                 "number": 10,
                 "title": "[Memory] Architecture shift alpha",
                 "body": "**Type:** knowledge\n\n**Learning:** Major architecture change alpha",
-                "labels": list(config.memory_label),
+                "labels": ["hydraflow-find"],
                 "createdAt": "2024-06-01",
             },
             {
                 "number": 20,
                 "title": "[Memory] Architecture shift beta",
                 "body": "**Type:** knowledge\n\n**Learning:** Major architecture change beta",
-                "labels": list(config.memory_label),
+                "labels": ["hydraflow-find"],
                 "createdAt": "2024-06-02",
             },
         ]
@@ -1465,7 +1423,9 @@ class TestMemorySyncHindsightDualWrite:
             assert call_kw.kwargs["metadata"]["memory_type"] == "config"
 
     @pytest.mark.asyncio
-    async def test_no_digest_file_when_hindsight_enabled(self, tmp_path: Path) -> None:
+    async def test_no_digest_file_when_hindsight_configured(
+        self, tmp_path: Path
+    ) -> None:
         """digest.md is never written regardless of whether hindsight is configured."""
         import json
 

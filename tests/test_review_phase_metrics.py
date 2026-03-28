@@ -397,7 +397,7 @@ class TestReviewInsightIntegration:
         phase._prs.create_task.assert_awaited_once()
         call_args = phase._prs.create_task.call_args
         assert "[Review Insight]" in call_args.args[0]
-        assert "hydraflow-improve" in call_args.args[2]
+        assert "hydraflow-find" in call_args.args[2]
         assert "hydraflow-hitl" not in call_args.args[2]
 
     @pytest.mark.asyncio
@@ -1336,7 +1336,7 @@ class TestRecordReviewInsight:
         assert (
             "test_coverage" in call_title.lower() or "Recurring feedback" in call_title
         )
-        assert config.improve_label[0] in call_labels
+        assert config.find_label[0] in call_labels
         mock_insights.mark_category_proposed.assert_called_once_with("test_coverage")
 
     @pytest.mark.asyncio

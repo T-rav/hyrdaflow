@@ -99,8 +99,6 @@ class HITLPhase:
             return "processing"
         origin = self._state.get_hitl_origin(issue_number)
         if origin:
-            if origin in self._config.improve_label:
-                return "approval"
             return _HITL_ORIGIN_DISPLAY.get(origin, "pending")
         return "pending"
 
@@ -231,15 +229,7 @@ class HITLPhase:
                     if result.success:
                         await self._prs.push_branch(wt_path, branch)
 
-                        if origin and origin in self._config.improve_label:
-                            # Improve issues go to triage for implementation
-                            target_label = (
-                                self._config.find_label[0]
-                                if self._config.find_label
-                                else self._config.hitl_label[0]
-                            )
-                            target_stage = target_label
-                        elif origin:
+                        if origin:
                             target_label = origin
                             target_stage = origin
                         else:

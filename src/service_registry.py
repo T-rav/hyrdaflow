@@ -151,7 +151,7 @@ def build_services(
     # Hindsight semantic memory (optional)
     hindsight_client = None
     hindsight_wal: HindsightWAL | None = None
-    if config.hindsight_enabled and config.hindsight_url:
+    if config.hindsight_url:
         from hindsight import HindsightClient
         from hindsight_wal import HindsightWAL
 

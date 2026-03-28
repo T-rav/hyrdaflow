@@ -23,9 +23,6 @@ HYDRAFLOW_LABELS: tuple[tuple[str, str, str], ...] = (
     ("hitl_label", "d93f0b", "Escalated to human-in-the-loop"),
     ("hitl_active_label", "e99695", "Being processed by HITL correction agent"),
     ("fixed_label", "0075ca", "PR merged — issue completed"),
-    ("improve_label", "7057ff", "Review insight improvement proposal"),
-    ("memory_label", "1d76db", "Approved memory suggestion for sync"),
-    ("transcript_label", "bfd4f2", "Transcript summary issue for memory ingestion"),
     ("dup_label", "cfd3d7", "Issue already satisfied — no changes needed"),
     ("epic_label", "5319e7", "Epic tracking issue with linked sub-issues"),
     ("epic_child_label", "9b59b6", "Child issue linked to a HydraFlow epic"),
@@ -163,9 +160,6 @@ _LABEL_FIELDS: tuple[str, ...] = (
     "hitl_label",
     "hitl_active_label",
     "fixed_label",
-    "improve_label",
-    "memory_label",
-    "transcript_label",
     "dup_label",
     "epic_label",
     "epic_child_label",
@@ -560,7 +554,7 @@ class RepoAuditor:
                     .get("report", {})
                     .get("fail_under")
                 )
-                if isinstance(fail_under, (int, float)):
+                if isinstance(fail_under, int | float):
                     thresholds.append(
                         ("pyproject:coverage.fail_under", float(fail_under))
                     )
@@ -620,7 +614,7 @@ class RepoAuditor:
                     .get("global", {})
                     .get("lines")
                 )
-                if isinstance(threshold, (int, float)):
+                if isinstance(threshold, int | float):
                     thresholds.append(
                         ("package.json:jest.global.lines", float(threshold))
                     )

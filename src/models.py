@@ -1235,11 +1235,8 @@ class StateData(BaseModel):
     memory_issue_ids: list[int] = Field(default_factory=list)
     memory_digest_hash: str = ""
     memory_last_synced: str | None = None
-    manifest_issue_number: int | None = None
-    manifest_snapshot_hash: str = ""
     manifest_hash: str = ""
     manifest_last_updated: str | None = None
-    metrics_issue_number: int | None = None
     metrics_last_snapshot_hash: str = ""
     metrics_last_synced: str | None = None
     worker_intervals: dict[str, int] = Field(default_factory=dict)
@@ -1564,9 +1561,6 @@ class ControlStatusConfig(BaseModel):
     hitl_label: list[str] = Field(default_factory=list)
     hitl_active_label: list[str] = Field(default_factory=list)
     fixed_label: list[str] = Field(default_factory=list)
-    improve_label: list[str] = Field(default_factory=list)
-    memory_label: list[str] = Field(default_factory=list)
-    transcript_label: list[str] = Field(default_factory=list)
     max_triagers: int = 0
     max_workers: int = 0
     max_planners: int = 0

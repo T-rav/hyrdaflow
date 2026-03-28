@@ -85,9 +85,6 @@ class TestCreateRouter:
 
         assert expected_paths.issubset(paths)
 
-        # Verify approve-memory route is registered
-        assert "/api/hitl/{issue_number}/approve-memory" in paths
-
 
 class TestStartOrchestratorBroadcast:
     """Tests that /api/control/start broadcasts orchestrator_status running event."""

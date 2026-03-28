@@ -29,12 +29,11 @@ def get_metrics_cache_dir(config: HydraFlowConfig) -> Path:
 
 
 class MetricsManager:
-    """Aggregates metrics into timestamped snapshots and persists to GitHub.
+    """Aggregates metrics into timestamped snapshots and persists them to a local disk cache.
 
-    Each snapshot is posted as a comment on a ``hydraflow-metrics`` issue.
-    Snapshots are also written to a local disk cache at
+    Snapshots are written to a local disk cache at
     ``.hydraflow/metrics/{repo_slug}/snapshots.jsonl`` for fast dashboard access.
-    Hash-based change detection avoids posting duplicate comments.
+    Hash-based change detection avoids persisting duplicate snapshots.
     """
 
     def __init__(
@@ -69,7 +68,7 @@ class MetricsManager:
         snapshot_json = snapshot.model_dump_json()
         snapshot_hash = hashlib.sha256(snapshot_json.encode()).hexdigest()[:16]
 
-        _, last_hash, _ = self._state.get_metrics_state()
+        last_hash, _ = self._state.get_metrics_state()
         if snapshot_hash == last_hash:
             logger.debug("Metrics snapshot unchanged — skipping post")
             return {

@@ -1061,7 +1061,7 @@ class HydraFlowOrchestrator:
         )
 
     async def _memory_sync_loop(self) -> None:
-        """Continuously sync memory items from local JSONL."""
+        """Continuously sync memory items from local JSONL and rebuild the digest."""
         await self._svc.memory_sync_bg.run()
 
     async def _post_run_hooks(

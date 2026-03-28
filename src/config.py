@@ -175,8 +175,6 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         True,
     ),
     ("screenshot_gist_public", "HYDRAFLOW_SCREENSHOT_GIST_PUBLIC", False),
-    ("hindsight_enabled", "HYDRAFLOW_HINDSIGHT_ENABLED", False),
-    ("hindsight_exclusive", "HYDRAFLOW_HINDSIGHT_EXCLUSIVE", False),
     ("skip_preflight", "HYDRAFLOW_SKIP_PREFLIGHT", False),
 ]
 
@@ -226,9 +224,6 @@ _ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
     "HYDRAFLOW_LABEL_HITL_ACTIVE": ("hitl_active_label", ["hydraflow-hitl-active"]),
     "HYDRAFLOW_LABEL_HITL_AUTOFIX": ("hitl_autofix_label", ["hydraflow-hitl-autofix"]),
     "HYDRAFLOW_LABEL_FIXED": ("fixed_label", ["hydraflow-fixed"]),
-    "HYDRAFLOW_LABEL_IMPROVE": ("improve_label", ["hydraflow-improve"]),
-    "HYDRAFLOW_LABEL_MEMORY": ("memory_label", ["hydraflow-memory"]),
-    "HYDRAFLOW_LABEL_TRANSCRIPT": ("transcript_label", ["hydraflow-transcript"]),
     "HYDRAFLOW_LABEL_DUP": ("dup_label", ["hydraflow-dup"]),
     "HYDRAFLOW_LABEL_EPIC": ("epic_label", ["hydraflow-epic"]),
     "HYDRAFLOW_LABEL_EPIC_CHILD": ("epic_child_label", ["hydraflow-epic-child"]),
@@ -404,18 +399,6 @@ class HydraFlowConfig(BaseModel):
     verify_label: list[str] = Field(
         default=["hydraflow-verify"],
         description="Labels for post-merge verification issues (OR logic)",
-    )
-    improve_label: list[str] = Field(
-        default=["hydraflow-improve"],
-        description="Labels for improvement/memory suggestion issues (OR logic)",
-    )
-    memory_label: list[str] = Field(
-        default=["hydraflow-memory"],
-        description="Labels for accepted agent learnings (OR logic)",
-    )
-    transcript_label: list[str] = Field(
-        default=["hydraflow-transcript"],
-        description="Labels for transcript-summary issues queued for memory sync (OR logic)",
     )
     dup_label: list[str] = Field(
         default=["hydraflow-dup"],
@@ -732,10 +715,6 @@ class HydraFlowConfig(BaseModel):
     )
 
     # Hindsight semantic memory
-    hindsight_enabled: bool = Field(
-        default=False,
-        description="Enable Hindsight semantic memory for recall instead of file-based digest",
-    )
     hindsight_url: str = Field(
         default="",
         description="Base URL for the Hindsight REST API",
@@ -749,10 +728,6 @@ class HydraFlowConfig(BaseModel):
         ge=5,
         le=120,
         description="HTTP timeout in seconds for Hindsight API calls",
-    )
-    hindsight_exclusive: bool = Field(
-        default=False,
-        description="When True and Hindsight is enabled, skip file-based memory fallback",
     )
 
     memory_auto_approve: bool = Field(
@@ -1338,9 +1313,6 @@ class HydraFlowConfig(BaseModel):
         "hitl_active_label",
         "hitl_autofix_label",
         "fixed_label",
-        "improve_label",
-        "memory_label",
-        "transcript_label",
         "dup_label",
         "epic_label",
         "epic_child_label",
@@ -1393,25 +1365,8 @@ class HydraFlowConfig(BaseModel):
             self.hitl_autofix_label,
             self.fixed_label,
             self.verify_label,
-            self.improve_label,
-            self.transcript_label,
         ):
             result.extend(labels)
-        return result
-
-    @property
-    def memory_sync_labels(self) -> list[str]:
-        """Return labels fetched by memory sync (memory + improve + transcript).
-
-        .. deprecated::
-            Memory sync now reads from local JSONL instead of GitHub issues.
-            This property is retained for backward compatibility but is no
-            longer used by the memory sync loop.
-        """
-        result: list[str] = []
-        for label in [*self.memory_label, *self.improve_label, *self.transcript_label]:
-            if label not in result:
-                result.append(label)
         return result
 
     @property
@@ -1495,8 +1450,6 @@ class HydraFlowConfig(BaseModel):
             HYDRAFLOW_LABEL_HITL_AUTOFIX → hitl_autofix_label
             HYDRAFLOW_LABEL_FIXED       → fixed_label
             HYDRAFLOW_LABEL_VERIFY      → verify_label
-            HYDRAFLOW_LABEL_IMPROVE     → improve_label
-            HYDRAFLOW_LABEL_MEMORY      → memory_label
             HYDRAFLOW_LABEL_DUP         → dup_label
             HYDRAFLOW_LABEL_EPIC        → epic_label
             HYDRAFLOW_LABEL_EPIC_CHILD  → epic_child_label

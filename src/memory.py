@@ -390,7 +390,7 @@ class MemorySyncWorker:
                     title=f"[Memory] {item.get('title', '')}",
                     body=body,
                     createdAt=str(item.get("created_at", "")),
-                    labels=["hydraflow-memory"],
+                    labels=[],
                 )
             )
         return result
@@ -488,13 +488,10 @@ class MemorySyncWorker:
             len(seen),
         )
 
-    def _is_memory_issue(self, issue: MemoryIssueData) -> bool:
+    @staticmethod
+    def _is_memory_issue(issue: MemoryIssueData) -> bool:
         title = str(issue.get("title", "")).strip()
-        labels = issue.get("labels", [])
-        if not isinstance(labels, list):
-            return False
-        has_memory_label = any(lbl in self._config.memory_label for lbl in labels)
-        return title.startswith("[Memory]") and has_memory_label
+        return title.startswith("[Memory]")
 
     @staticmethod
     def _is_architecture_candidate(title: str, learning: str, body: str) -> bool:

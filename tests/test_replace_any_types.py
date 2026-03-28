@@ -310,10 +310,10 @@ class TestDashboardRouteAnnotations:
         data = json.loads(response.body)
         assert "good_worker" not in data.get("worker_errors", [])
 
-    def test_healthz_includes_hindsight_check_disabled(
+    def test_healthz_includes_hindsight_check_disabled_when_no_url(
         self, config, event_bus, state, tmp_path: Path
     ) -> None:
-        """Hindsight check reports disabled when feature flag is off."""
+        """Hindsight check reports disabled when no URL configured."""
         import json
 
         router = _make_router(config, event_bus, state, tmp_path)
@@ -323,7 +323,6 @@ class TestDashboardRouteAnnotations:
         data = json.loads(response.body)
         assert "hindsight" in data["checks"]
         assert data["checks"]["hindsight"]["status"] == "disabled"
-        assert data["checks"]["hindsight"]["enabled"] is False
 
     def test_healthz_includes_hindsight_check_enabled(
         self, event_bus, state, tmp_path: Path
@@ -332,7 +331,6 @@ class TestDashboardRouteAnnotations:
         import json
 
         cfg = ConfigFactory.create(
-            hindsight_enabled=True,
             hindsight_url="http://localhost:8080",
         )
         router = _make_router(cfg, event_bus, state, tmp_path)
@@ -341,7 +339,6 @@ class TestDashboardRouteAnnotations:
         response = get_health()
         data = json.loads(response.body)
         assert data["checks"]["hindsight"]["status"] == "ok"
-        assert data["checks"]["hindsight"]["enabled"] is True
         assert data["checks"]["hindsight"]["configured"] is True
 
     def test_normalise_state_return_type(self) -> None:
