@@ -417,6 +417,9 @@ scaffold: deps
 		&& echo "$(GREEN)Scaffold complete (via API)$(RESET)" \
 		|| (cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py scaffold && echo "$(GREEN)Scaffold complete$(RESET)")
 
+scaffold-loop:
+	@python scripts/scaffold_loop.py $(NAME) $(LABEL) $(DESC) --interval $(or $(INTERVAL),3600)
+
 ensure-labels: deps
 	@echo "$(BLUE)Creating HydraFlow lifecycle labels...$(RESET)"
 	@curl -sf -X POST "http://localhost:$(PORT)/api/admin/ensure-labels" 2>/dev/null \
