@@ -109,6 +109,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("health_monitor_interval", "HYDRAFLOW_HEALTH_MONITOR_INTERVAL", 7200),
     ("sentry_poll_interval", "SENTRY_POLL_INTERVAL", 600),
     ("sentry_min_events", "SENTRY_MIN_EVENTS", 2),
+    ("security_patch_interval", "HYDRAFLOW_SECURITY_PATCH_INTERVAL", 3600),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -739,6 +740,18 @@ class HydraFlowConfig(BaseModel):
         ge=1,
         le=1000,
         description="Minimum Sentry event count before filing a GitHub issue",
+    )
+
+    # Security patch monitoring
+    security_patch_interval: int = Field(
+        default=3600,
+        ge=300,
+        le=86400,
+        description="Seconds between Dependabot alert polls",
+    )
+    security_patch_severity_threshold: str = Field(
+        default="high",
+        description="Minimum severity to file issues for (critical, high, medium, low)",
     )
 
     # Hindsight semantic memory

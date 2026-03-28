@@ -382,6 +382,8 @@ class ConfigFactory:
         hindsight_url: str = "",
         hindsight_api_key: str = "",
         hindsight_timeout: int = 30,
+        security_patch_interval: int = 3600,
+        security_patch_severity_threshold: str = "high",
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -600,6 +602,8 @@ class ConfigFactory:
                 hindsight_url=hindsight_url,
                 hindsight_api_key=hindsight_api_key,
                 hindsight_timeout=hindsight_timeout,
+                security_patch_interval=security_patch_interval,
+                security_patch_severity_threshold=security_patch_severity_threshold,
             )
 
 

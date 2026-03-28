@@ -881,6 +881,26 @@ class PRManager:
                 if pr_number is not None:
                     await self._remove_label("pr", pr_number, lbl)
 
+    async def get_dependabot_alerts(self, state: str = "open") -> list[dict]:
+        """Fetch Dependabot alerts for the repository.
+
+        Returns a list of alert dicts from the GitHub API, or an empty list
+        on error or in dry-run mode.
+        """
+        return await self._gh_json_query(
+            "gh",
+            "api",
+            f"repos/{self._repo}/dependabot/alerts",
+            "--paginate",
+            "--field",
+            f"state={state}",
+            "--field",
+            "per_page=100",
+            dry_run_return=[],
+            dry_run_log="[dry-run] Would fetch Dependabot alerts",
+            error_log="Failed to fetch Dependabot alerts",
+        )
+
     async def create_issue(
         self,
         title: str,
