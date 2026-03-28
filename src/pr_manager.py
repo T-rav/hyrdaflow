@@ -745,7 +745,7 @@ class PRManager:
             ]
         except Exception:
             logger.warning("Failed to list issues for label %s", label, exc_info=True)
-            return []
+            raise
 
     async def get_issue_updated_at(self, issue_number: int) -> str:
         """Return the updated_at timestamp for an issue as ISO string."""

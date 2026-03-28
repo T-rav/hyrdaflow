@@ -132,6 +132,29 @@ class TestStaleIssueGCLoop:
         assert result["errors"] == 1
 
     @pytest.mark.asyncio
+    async def test_dry_run_returns_none(self, tmp_path: Path) -> None:
+        """In dry-run mode, _do_work returns None without closing anything."""
+        deps = make_bg_loop_deps(tmp_path, dry_run=True)
+        pr = MagicMock()
+        loop = StaleIssueGCLoop(config=deps.config, pr_manager=pr, deps=deps.loop_deps)
+        result = await loop._do_work()
+        assert result is None
+        pr.close_issue.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_empty_updated_at_skips_issue(self, tmp_path: Path) -> None:
+        """An issue with empty updated_at is skipped, not crashed."""
+        loop, _stop, pr = _make_loop(tmp_path)
+        pr.list_issues_by_label.return_value = [
+            {"number": 600, "title": "No timestamp", "updated_at": ""},
+        ]
+        pr.get_issue_updated_at.return_value = ""
+        result = await loop._do_work()
+        assert result["closed"] == 0
+        assert result["skipped"] == 1
+        pr.close_issue.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_default_interval_from_config(self, tmp_path: Path) -> None:
         """_get_default_interval reads from config."""
         loop, _stop, _pr = _make_loop(tmp_path)

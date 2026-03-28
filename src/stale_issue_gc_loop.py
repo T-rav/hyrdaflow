@@ -77,6 +77,9 @@ class StaleIssueGCLoop(BaseBackgroundLoop):
 
                 try:
                     updated_at_str = await self._prs.get_issue_updated_at(issue_number)
+                    if not updated_at_str:
+                        skipped += 1
+                        continue
                     updated_at = datetime.fromisoformat(updated_at_str)
                     if updated_at.tzinfo is None:
                         updated_at = updated_at.replace(tzinfo=UTC)
