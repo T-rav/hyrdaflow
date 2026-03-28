@@ -217,11 +217,15 @@ class GitHubDataCache:
             fetched_str = raw.get("fetched_at")
             fetched_at = datetime.fromisoformat(fetched_str) if fetched_str else None
 
-            # Load as raw dicts — they'll be replaced by proper models on
-            # the first poll().  Good enough for dashboard display.
             if "open_prs" in raw:
+                from models import PRListItem  # noqa: PLC0415
+
                 self._open_prs = CacheSnapshot(
-                    data=raw["open_prs"], fetched_at=fetched_at
+                    data=[
+                        PRListItem.model_validate(p) if isinstance(p, dict) else p
+                        for p in raw["open_prs"]
+                    ],
+                    fetched_at=fetched_at,
                 )
             if "hitl_items" in raw:
                 self._hitl_items = CacheSnapshot(
