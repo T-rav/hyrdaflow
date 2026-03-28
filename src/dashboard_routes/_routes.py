@@ -3142,47 +3142,21 @@ def create_router(
 
     @router.get("/api/memories")
     async def get_memories() -> JSONResponse:
-        """Return memory items and curated manifest data."""
+        """Return memory items from local JSONL event log."""
         import json as _json  # noqa: PLC0415
 
-        from manifest_curator import CuratedManifestStore
-
-        items_dir = config.data_path("memory", "items")
         items_jsonl = config.data_path("memory", "items.jsonl")
 
         items: list[dict[str, object]] = []
-        if items_dir.is_dir():
-            for path in sorted(items_dir.glob("*.md"), reverse=True):
-                try:
-                    issue_number = int(path.stem)
-                    items.append(
-                        {
-                            "issue_number": issue_number,
-                            "learning": path.read_text().strip(),
-                        }
-                    )
-                except (ValueError, OSError):
-                    pass
-
-        # Count items from items.jsonl (the write-ahead queue)
-        jsonl_item_count = 0
         if items_jsonl.exists():
             with contextlib.suppress(OSError):
                 for line in items_jsonl.read_text().splitlines():
-                    try:
-                        _json.loads(line)
-                        jsonl_item_count += 1
-                    except _json.JSONDecodeError:
-                        pass
-
-        curated_store = CuratedManifestStore(config)
-        curated = curated_store.load()
+                    with contextlib.suppress(_json.JSONDecodeError):
+                        items.append(_json.loads(line))
 
         return JSONResponse(
             {
                 "total_items": len(items),
-                "jsonl_item_count": jsonl_item_count,
-                "curated": curated,
                 "items": items[-50:],
             }
         )

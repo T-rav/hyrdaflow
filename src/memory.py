@@ -5,15 +5,12 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from execution import SubprocessRunner, get_default_runner
-from file_util import atomic_write
-from manifest_curator import CuratedLearning, CuratedManifestStore
 from models import (
     MemoryIssueData,
     MemorySyncResult,
@@ -200,7 +197,6 @@ class MemorySyncWorker:
         runner: SubprocessRunner | None = None,
         prs: PRPort | None = None,
         *,
-        manifest_store: CuratedManifestStore | None = None,
         hindsight: HindsightClient | None = None,
         dolt: DoltBackend | None = None,
         wal: HindsightWAL | None = None,
@@ -210,7 +206,6 @@ class MemorySyncWorker:
         self._bus = event_bus
         self._runner = runner or get_default_runner()
         self._prs = prs
-        self._manifest_store = manifest_store or CuratedManifestStore(config)
         self._hindsight = hindsight
         self._dolt = dolt
         self._wal = wal
@@ -220,24 +215,6 @@ class MemorySyncWorker:
             "adr_sources",
             config.data_path("memory", "adr_sources.json"),
             dolt=dolt,
-        )
-
-    _TypedLearning = tuple[int, str, str, MemoryType]
-    _LearningRecord = CuratedLearning | _TypedLearning
-
-    @staticmethod
-    def _coerce_learning_tuple(
-        record: _LearningRecord,
-    ) -> tuple[int, str, str, MemoryType]:
-        """Normalize curated objects and legacy tuple records to a single shape."""
-        if isinstance(record, tuple):
-            num, learning, created, memory_type = record
-            return num, learning, created, memory_type
-        return (
-            record.number,
-            record.learning,
-            record.created_at,
-            record.memory_type,
         )
 
     def _load_local_items(self) -> list[dict[str, object]]:
@@ -261,19 +238,15 @@ class MemorySyncWorker:
     async def sync(
         self, issues: list[MemoryIssueData] | None = None
     ) -> MemorySyncResult:
-        """Process local memory items: score, evict low-quality items, write to Hindsight.
-
-        The *issues* parameter is DEPRECATED and ignored.  Items are read
-        from ``items.jsonl`` instead of GitHub.
+        """Process local memory items and write to Hindsight.
 
         Returns stats dict for event publishing.
         """
         local_items = self._load_local_items()
-        prev_ids, prev_hash, _ = self._state.get_memory_state()
+        _, prev_hash, _ = self._state.get_memory_state()
 
         if not local_items:
             self._state.update_memory_state([], prev_hash)
-            self._manifest_store.update_from_learnings([])
             return {
                 "action": "synced",
                 "item_count": 0,
@@ -281,64 +254,27 @@ class MemorySyncWorker:
                 "digest_chars": 0,
             }
 
-        # Build CuratedLearning records from local items
-        learnings: list[CuratedLearning] = []
-        for item in local_items:
-            try:
-                learning_text = str(item.get("learning", ""))
-                if not learning_text:
-                    continue
-                # Use hash of item id as a stable numeric identifier
-                item_id = str(item.get("id", ""))
-                # Generate a stable int from the item id for compatibility
-                num = abs(hash(item_id)) % (10**9) if item_id else 0
-                memory_type = _parse_memory_type(
-                    str(item.get("memory_type", "knowledge"))
-                )
-                learnings.append(
-                    CuratedLearning(
-                        number=num,
-                        title=str(item.get("title", "")),
-                        learning=learning_text,
-                        created_at=str(item.get("created_at", "")),
-                        memory_type=memory_type,
-                        body=learning_text,
-                    )
-                )
-            except Exception:
-                logger.exception(
-                    "Error processing local memory item %s — skipping",
-                    item.get("id", "?"),
-                )
-
-        # Sort newest first
-        learnings.sort(key=lambda rec: rec.created_at, reverse=True)
-
-        # Score/evict: compact items.jsonl by removing low-scoring duplicates
-        compacted = False
-        max_chars = self._config.max_memory_chars
-        total_chars = sum(len(str(r.learning)) for r in learnings)
-        if total_chars > max_chars:
-            learnings = await self._compact_items(learnings, max_chars)  # type: ignore[assignment]
-            # Rewrite items.jsonl with only surviving items
-            self._rewrite_items_jsonl(learnings, local_items)
-            compacted = True
-
-        # Write surviving learnings to Hindsight
+        # Write items to Hindsight
         if self._hindsight:
             from hindsight import Bank, retain_safe  # noqa: PLC0415
 
-            for record in learnings:
-                num, learning, created, mtype = self._coerce_learning_tuple(record)
+            for item in local_items:
+                learning_text = str(item.get("learning", ""))
+                if not learning_text:
+                    continue
+                item_id = str(item.get("id", ""))
+                memory_type = _parse_memory_type(
+                    str(item.get("memory_type", "knowledge"))
+                )
                 await retain_safe(
                     self._hindsight,
                     Bank.LEARNINGS,
-                    learning,
-                    context=f"Item #{num} ({mtype.value})",
+                    learning_text,
+                    context=f"Item {item_id} ({memory_type.value})",
                     metadata={
-                        "item_id": num,
-                        "memory_type": mtype.value,
-                        "created_at": created,
+                        "item_id": item_id,
+                        "memory_type": memory_type.value,
+                        "created_at": str(item.get("created_at", "")),
                     },
                     wal=self._wal,
                 )
@@ -348,10 +284,9 @@ class MemorySyncWorker:
             abs(hash(str(item.get("id", "")))) % (10**9) for item in local_items
         )
         items_hash = hashlib.sha256(
-            "".join(str(r.learning) for r in learnings).encode()
+            "".join(str(item.get("learning", "")) for item in local_items).encode()
         ).hexdigest()[:16]
         self._state.update_memory_state(item_ids, items_hash)
-        self._manifest_store.update_from_learnings(learnings)
 
         # Route ADR candidates from local items (convert to issue-like dicts)
         adr_issues = self._local_items_to_issue_dicts(local_items)
@@ -359,8 +294,8 @@ class MemorySyncWorker:
 
         return {
             "action": "synced",
-            "item_count": len(learnings),
-            "compacted": compacted,
+            "item_count": len(local_items),
+            "compacted": False,
             "digest_chars": 0,
         }
 
@@ -618,120 +553,6 @@ class MemorySyncWorker:
             return _parse_memory_type(type_match.group(1))
 
         return MemoryType.KNOWLEDGE
-
-    async def _compact_items(
-        self, learnings: Sequence[_LearningRecord], max_chars: int
-    ) -> list[_LearningRecord]:
-        """Deduplicate and evict low-scoring items from the in-memory list.
-
-        Pipeline:
-        1. Keyword-overlap deduplication (>70% overlap → drop duplicate).
-        2. Score-based curation: apply temporal decay, evict low-score items.
-
-        Returns the surviving list of learning records (does NOT write to disk;
-        caller is responsible for rewriting items.jsonl).
-        """
-        # --- Step 1: Deduplicate by keyword overlap ---
-        seen_keywords: list[set[str]] = []
-        unique: list[MemorySyncWorker._LearningRecord] = []
-
-        for record in learnings:
-            num, learning, created, mtype = self._coerce_learning_tuple(record)
-            words = {
-                w.lower() for w in re.findall(r"[a-zA-Z]+", learning) if len(w) >= 4
-            }
-            is_dup = False
-            for existing in seen_keywords:
-                if not words or not existing:
-                    continue
-                overlap = len(words & existing) / max(len(words), 1)
-                if overlap > 0.7:
-                    is_dup = True
-                    break
-            if not is_dup:
-                unique.append((num, learning, created, mtype))
-                seen_keywords.append(words)
-
-        # --- Step 2: Score-based curation (temporal decay + eviction) ---
-        try:
-            from memory_scoring import MemoryScorer  # noqa: PLC0415
-
-            scorer = MemoryScorer(self._config.memory_dir)
-
-            # Apply temporal decay on each compaction
-            scorer.apply_temporal_decay()
-
-            # Check each item for eviction/curation
-            evicted_ids: set[int] = set()
-            for record in unique:
-                item_id, _, _, _ = self._coerce_learning_tuple(record)
-                classification = scorer.classify_for_compaction(item_id)
-                if classification == "auto_evict":
-                    evicted_ids.add(item_id)
-                    logger.info("Memory item %d auto-evicted (score too low)", item_id)
-                elif classification == "needs_curation":
-                    logger.info("Memory item %d flagged for curation", item_id)
-                    # For now, log only. Full curation with model call is future work.
-
-            # Remove evicted items from the unique list
-            if evicted_ids:
-                unique = [
-                    r
-                    for r in unique
-                    if self._coerce_learning_tuple(r)[0] not in evicted_ids
-                ]
-                try:
-                    import sentry_sdk  # noqa: PLC0415
-
-                    sentry_sdk.add_breadcrumb(
-                        category="memory.compaction",
-                        message=f"Evicted {len(evicted_ids)} memory items: {sorted(evicted_ids)}",
-                        level="info",
-                    )
-                except ImportError:
-                    pass
-        except ImportError:
-            pass  # memory_scoring not available
-        except Exception:
-            logger.debug("Score-based curation failed", exc_info=True)
-
-        return unique
-
-    def _rewrite_items_jsonl(
-        self,
-        surviving: Sequence[_LearningRecord],
-        original_items: list[dict[str, object]],
-    ) -> None:
-        """Rewrite items.jsonl keeping only items whose numeric ID is in *surviving*.
-
-        This evicts low-scoring and duplicate items directly from the write-ahead queue.
-        """
-        import json as _json  # noqa: PLC0415
-
-        surviving_ids = {self._coerce_learning_tuple(r)[0] for r in surviving}
-
-        kept: list[dict[str, object]] = []
-        for item in original_items:
-            item_id_str = str(item.get("id", ""))
-            num = abs(hash(item_id_str)) % (10**9) if item_id_str else 0
-            if num in surviving_ids:
-                kept.append(item)
-
-        try:
-            path = self._config.data_path("memory", "items.jsonl")
-            lines = [_json.dumps(item) + "\n" for item in kept]
-            atomic_write(path, "".join(lines))
-            evicted_count = len(original_items) - len(kept)
-            if evicted_count:
-                logger.info(
-                    "items.jsonl compacted: evicted %d items, kept %d",
-                    evicted_count,
-                    len(kept),
-                )
-        except OSError:
-            logger.warning(
-                "Failed to rewrite items.jsonl after compaction", exc_info=True
-            )
 
     async def publish_sync_event(self, stats: MemorySyncResult) -> None:
         """Publish a MEMORY_SYNC event with *stats*."""

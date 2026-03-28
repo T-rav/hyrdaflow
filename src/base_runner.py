@@ -277,32 +277,6 @@ class BaseRunner:
         # Cap the combined section at max_memory_prompt_chars.
         combined_parts: list[str] = []
 
-        # File-based fallback when Hindsight is unavailable
-        if self._hindsight is None and query_context:
-            try:
-                from manifest_curator import CuratedManifestStore  # noqa: PLC0415
-
-                store = CuratedManifestStore(self._config)
-                fallback_text = store.read_for_prompt(
-                    max_chars=self._config.max_memory_prompt_chars
-                )
-                if fallback_text:
-                    combined_parts.append(
-                        f"## Accumulated Learnings (cached)\n\n{fallback_text}"
-                    )
-                    try:
-                        import sentry_sdk as _sentry  # noqa: PLC0415
-
-                        _sentry.add_breadcrumb(
-                            category="memory.fallback",
-                            message="Used file-based memory fallback (Hindsight unavailable)",
-                            level="warning",
-                            data={"fallback_chars": len(fallback_text)},
-                        )
-                    except ImportError:
-                        pass
-            except Exception:  # noqa: BLE001
-                pass  # Fallback must not interrupt pipeline
         if memory_raw:
             combined_parts.append(f"## Accumulated Learnings\n\n{memory_raw}")
         if troubleshooting_raw:

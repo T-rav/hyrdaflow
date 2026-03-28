@@ -41,7 +41,6 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("max_ci_timeout_fix_attempts", "HYDRAFLOW_MAX_CI_TIMEOUT_FIX_ATTEMPTS", 2),
     ("data_poll_interval", "HYDRAFLOW_DATA_POLL_INTERVAL", 300),
     ("max_sessions_per_repo", "HYDRAFLOW_MAX_SESSIONS_PER_REPO", 10),
-    ("max_manifest_prompt_chars", "HYDRAFLOW_MAX_MANIFEST_PROMPT_CHARS", 2000),
     ("max_transcript_summary_chars", "HYDRAFLOW_MAX_TRANSCRIPT_SUMMARY_CHARS", 50_000),
     ("pr_unstick_interval", "HYDRAFLOW_PR_UNSTICK_INTERVAL", 3600),
     ("bot_pr_interval", "HYDRAFLOW_BOT_PR_INTERVAL", 3600),
@@ -926,14 +925,6 @@ class HydraFlowConfig(BaseModel):
     screenshot_gist_public: bool = Field(
         default=False,
         description="Upload screenshot gists as public (True) or secret/unlisted (False)",
-    )
-
-    # Manifest detection
-    max_manifest_prompt_chars: int = Field(
-        default=2000,
-        ge=200,
-        le=10_000,
-        description="Max characters for project manifest injected into agent prompts",
     )
 
     # Transcript summarization
