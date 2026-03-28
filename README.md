@@ -157,8 +157,6 @@ See [docs/self-improving-harness.md](docs/self-improving-harness.md) for importe
 **Auxiliary labels:**
 - `hydraflow-epic` / `hydraflow-epic-child` — epic lifecycle management
 - `hydraflow-verify` — post-merge verification tracking
-- `hydraflow-improve` / `hydraflow-memory` / `hydraflow-manifest` / `hydraflow-metrics` — internal housekeeping
-- `hydraflow-transcript` — session transcript artifacts
 - `hydraflow-visual-required` / `hydraflow-visual-skip` — visual validation controls
 - `hydraflow-dup` — duplicate detection
 

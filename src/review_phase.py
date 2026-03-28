@@ -1505,7 +1505,7 @@ class ReviewPhase:
                 body = build_insight_issue_body(category, count, len(recent), evidence)
                 desc = CATEGORY_DESCRIPTIONS.get(category, category)
                 title = f"[Review Insight] Recurring feedback: {desc}"
-                labels = self._config.improve_label[:1]
+                labels = self._config.find_label[:1]
                 await self._transitioner.create_task(title, body, labels)
                 self._insights.mark_category_proposed(category)
                 self._insights.record_proposal(category, pre_count=count)
@@ -1523,9 +1523,7 @@ class ReviewPhase:
                     f"required to resolve this recurring feedback loop.\n\n"
                     f"---\n*Auto-escalated by HydraFlow review insight verification.*"
                 )
-                hitl_labels = list(self._config.improve_label[:1]) + list(
-                    self._config.hitl_label
-                )
+                hitl_labels = list(self._config.hitl_label)
                 await self._transitioner.create_task(title, body, hitl_labels)
         except (RuntimeError, OSError):
             status = "error"

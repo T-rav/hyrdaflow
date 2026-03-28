@@ -15,27 +15,6 @@ from events import EventBus
 from tests.helpers import find_endpoint, make_dashboard_router
 
 
-class TestControlStatusImproveLabel:
-    """Tests that /api/control/status includes improve_label."""
-
-    @pytest.mark.asyncio
-    async def test_control_status_includes_improve_label(
-        self, config, event_bus: EventBus, state, tmp_path: Path
-    ) -> None:
-        """GET /api/control/status should include improve_label from config."""
-        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
-
-        get_control_status = find_endpoint(router, "/api/control/status")
-
-        assert get_control_status is not None
-        response = await get_control_status()
-
-        data = json.loads(response.body)
-        assert "config" in data
-        assert "improve_label" in data["config"]
-        assert data["config"]["improve_label"] == config.improve_label
-
-
 class TestControlStatusMaxTriagers:
     """Tests that /api/control/status includes max_triagers."""
 

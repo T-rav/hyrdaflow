@@ -987,39 +987,3 @@ class TestADR0021PersistenceLayout:
         HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
 
         assert call_order == step_names
-
-
-# ---------------------------------------------------------------------------
-# memory_sync_labels property
-# ---------------------------------------------------------------------------
-
-
-class TestMemorySyncLabels:
-    """Tests for the memory_sync_labels property."""
-
-    def test_includes_improve_label(self, tmp_path: Path) -> None:
-        """memory_sync_labels must include improve_label so [Memory] issues are consumed."""
-        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
-        labels = cfg.memory_sync_labels
-        for lbl in cfg.improve_label:
-            assert lbl in labels, (
-                f"improve_label '{lbl}' missing from memory_sync_labels"
-            )
-
-    def test_includes_memory_and_transcript_labels(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
-        labels = cfg.memory_sync_labels
-        for lbl in cfg.memory_label:
-            assert lbl in labels
-        for lbl in cfg.transcript_label:
-            assert lbl in labels
-
-    def test_no_duplicates(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            repo="acme/widgets",
-            memory_label=["shared"],
-            improve_label=["shared"],
-            transcript_label=["shared"],
-        )
-        assert cfg.memory_sync_labels == ["shared"]

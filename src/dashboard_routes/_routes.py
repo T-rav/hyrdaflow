@@ -1307,10 +1307,7 @@ def create_router(
                 "public": dashboard_public,
             },
             "hindsight": {
-                "status": "ok"
-                if config.hindsight_enabled and config.hindsight_url
-                else "disabled",
-                "enabled": config.hindsight_enabled,
+                "status": "ok" if config.hindsight_url else "disabled",
                 "configured": bool(config.hindsight_url),
             },
             "github_cache": github_cache_health,
@@ -1339,7 +1336,7 @@ def create_router(
     @router.get("/api/hindsight/health")
     async def hindsight_health() -> JSONResponse:
         """Check Hindsight server connectivity."""
-        if not config.hindsight_enabled or not config.hindsight_url:
+        if not config.hindsight_url:
             return JSONResponse(
                 {"status": "disabled", "reachable": False, "url": ""},
             )
@@ -1365,7 +1362,7 @@ def create_router(
     @router.post("/api/hindsight/audit")
     async def hindsight_audit() -> JSONResponse:
         """Run a memory quality audit across all Hindsight banks."""
-        if not config.hindsight_enabled or not config.hindsight_url:
+        if not config.hindsight_url:
             return JSONResponse({"status": "disabled", "results": []})
         from hindsight import HindsightClient  # noqa: PLC0415
         from memory_audit import MemoryAuditor  # noqa: PLC0415
@@ -1385,7 +1382,7 @@ def create_router(
     @router.get("/api/hindsight/banks")
     async def hindsight_banks() -> JSONResponse:
         """List Hindsight memory banks with stats."""
-        if not config.hindsight_enabled or not config.hindsight_url:
+        if not config.hindsight_url:
             return JSONResponse({"status": "disabled", "banks": []})
         from hindsight import Bank  # noqa: PLC0415
 
@@ -1548,7 +1545,6 @@ def create_router(
                     *_cfg.hitl_label,
                     *_cfg.hitl_active_label,
                     *_cfg.planner_label,
-                    *_cfg.improve_label,
                 }
             )
             items = await manager.list_open_prs(all_labels)
@@ -1849,9 +1845,7 @@ def create_router(
             cause = _state.get_hitl_cause(issue_num)
             origin = _state.get_hitl_origin(issue_num)
             if not cause and origin:
-                if origin in _cfg.improve_label:
-                    cause = "Self-improvement proposal"
-                elif origin in _cfg.review_label:
+                if origin in _cfg.review_label:
                     cause = "Review escalation"
                 elif origin in _cfg.find_label:
                     cause = "Triage escalation"
@@ -1859,12 +1853,6 @@ def create_router(
                     cause = "Escalation (reason not recorded)"
             if cause:
                 data["cause"] = cause
-            is_memory_suggestion = bool(origin and origin in _cfg.improve_label)
-            # When memory auto-approve is on, filter out memory suggestions
-            if _cfg.memory_auto_approve and is_memory_suggestion:
-                continue
-            if is_memory_suggestion:
-                data["isMemorySuggestion"] = True
             # Flag items held for issue type review
             if cause and (
                 "epic detected" in cause.lower()
@@ -2040,14 +2028,9 @@ def create_router(
             return JSONResponse({"status": "no orchestrator"}, status_code=400)
 
         # Read origin before clearing state
-        origin = state.get_hitl_origin(issue_number)
+        state.get_hitl_origin(issue_number)
 
-        # If this was an improve issue, transition to triage for implementation.
-        # Otherwise close the issue so it doesn't become an orphan with no labels.
-        if origin and origin in config.improve_label and config.find_label:
-            await pr_manager.swap_pipeline_labels(issue_number, config.find_label[0])
-        else:
-            await pr_manager.close_issue(issue_number)
+        await pr_manager.close_issue(issue_number)
 
         return await _resolve_hitl_item(
             issue_number,
@@ -2076,27 +2059,6 @@ def create_router(
             outcome_type=IssueOutcomeType.HITL_CLOSED,
             reason=body.reason,
         )
-
-    @router.post("/api/hitl/{issue_number}/approve-memory")
-    async def hitl_approve_memory(issue_number: int) -> JSONResponse:
-        """Approve a HITL item as a memory suggestion, relabeling for sync."""
-        # Add memory label first, then remove pipeline labels (add-first
-        # prevents orphaning if the add succeeds but a remove fails).
-        await pr_manager.add_labels(issue_number, config.memory_label)
-        for lbl in config.all_pipeline_labels:
-            await pr_manager.remove_label(issue_number, lbl)
-        _clear_hitl_state(get_orchestrator(), issue_number)
-        await event_bus.publish(
-            HydraFlowEvent(
-                type=EventType.HITL_UPDATE,
-                data=HITLUpdatePayload(
-                    issue=issue_number,
-                    status="resolved",
-                    action="approved_as_memory",
-                ),
-            )
-        )
-        return JSONResponse({"status": "ok"})
 
     @router.post("/api/hitl/{issue_number}/approve-process")
     async def hitl_approve_process(issue_number: int) -> JSONResponse:
@@ -2247,9 +2209,6 @@ def create_router(
                 hitl_label=_cfg.hitl_label,
                 hitl_active_label=_cfg.hitl_active_label,
                 fixed_label=_cfg.fixed_label,
-                improve_label=_cfg.improve_label,
-                memory_label=_cfg.memory_label,
-                transcript_label=_cfg.transcript_label,
                 max_triagers=_cfg.max_triagers,
                 max_workers=_cfg.max_workers,
                 max_planners=_cfg.max_planners,

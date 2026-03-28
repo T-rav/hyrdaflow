@@ -155,39 +155,25 @@ class TestRecordingMethods:
 class TestMetricsState:
     """Tests for metrics state tracking methods."""
 
-    def test_get_metrics_issue_number_default(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        assert tracker.get_metrics_issue_number() is None
-
-    def test_set_and_get_metrics_issue_number(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        tracker.set_metrics_issue_number(42)
-        assert tracker.get_metrics_issue_number() == 42
-
     def test_get_metrics_state_default(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
-        issue_number, hash_val, synced = tracker.get_metrics_state()
-        assert issue_number is None
+        hash_val, synced = tracker.get_metrics_state()
         assert hash_val == ""
         assert synced is None
 
     def test_update_metrics_state(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
-        tracker.set_metrics_issue_number(99)
         tracker.update_metrics_state("abc123")
-        issue_number, hash_val, synced = tracker.get_metrics_state()
-        assert issue_number == 99
+        hash_val, synced = tracker.get_metrics_state()
         assert hash_val == "abc123"
         assert synced is not None
 
     def test_metrics_state_persists_across_reloads(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
-        tracker.set_metrics_issue_number(77)
         tracker.update_metrics_state("def456")
 
         tracker2 = make_tracker(tmp_path)
-        issue_number, hash_val, synced = tracker2.get_metrics_state()
-        assert issue_number == 77
+        hash_val, synced = tracker2.get_metrics_state()
         assert hash_val == "def456"
         assert synced is not None
 

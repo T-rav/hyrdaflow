@@ -359,14 +359,6 @@ class TestHITLPhaseProcessing:
 class TestHITLGetStatus:
     """Tests for HITLPhase.get_status() display mapping."""
 
-    def test_get_status_returns_approval_for_improve_origin(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """Memory suggestions with improve origin should show 'approval'."""
-        phase, state, *_ = make_hitl_phase(config)
-        state.set_hitl_origin(42, config.improve_label[0])
-        assert phase.get_status(42) == "approval"
-
     def test_get_status_returns_from_review_for_review_origin(
         self, config: HydraFlowConfig
     ) -> None:
@@ -442,108 +434,6 @@ class TestHITLResetsAttempts:
 
         # Issue attempts should be reset
         assert state.get_issue_attempts(42) == 0
-
-
-# ---------------------------------------------------------------------------
-# HITL improve→triage transition on correction success
-# ---------------------------------------------------------------------------
-
-
-class TestHITLImproveTransition:
-    """Tests that improve-origin HITL corrections transition to triage."""
-
-    @pytest.mark.asyncio
-    async def test_success_improve_origin_transitions_to_triage(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """On success with improve origin, should remove improve and add find label."""
-        phase, state, fetcher, prs, wt, runner, _bus = make_hitl_phase(config)
-        issue = TaskFactory.create(id=42, title="Improve: test", body="Details")
-
-        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
-        state.set_hitl_origin(42, "hydraflow-improve")
-        state.set_hitl_cause(42, "Memory suggestion")
-
-        runner.run = AsyncMock(return_value=HITLResultFactory.create())
-
-        semaphore = asyncio.Semaphore(1)
-        await phase._process_one_hitl(42, "Improve the prompt", semaphore)
-
-        # Verify find/triage label was set via swap (not the improve label)
-        prs.swap_pipeline_labels.assert_any_call(42, config.find_label[0])
-
-        # Verify HITL state was cleaned up
-        assert state.get_hitl_origin(42) is None
-        assert state.get_hitl_cause(42) is None
-
-    @pytest.mark.asyncio
-    async def test_success_non_improve_origin_restores_label(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """Non-improve origins should still restore the original label."""
-        phase, state, fetcher, prs, wt, runner, _bus = make_hitl_phase(config)
-        issue = TaskFactory.create(id=42, title="Test", body="Details")
-
-        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
-        state.set_hitl_origin(42, "hydraflow-review")
-        state.set_hitl_cause(42, "CI failed")
-
-        runner.run = AsyncMock(return_value=HITLResultFactory.create())
-
-        semaphore = asyncio.Semaphore(1)
-        await phase._process_one_hitl(42, "Fix the tests", semaphore)
-
-        # Verify review label was restored via swap
-        prs.swap_pipeline_labels.assert_any_call(42, "hydraflow-review")
-
-        # Verify find label was NOT set
-        swap_calls = [c.args for c in prs.swap_pipeline_labels.call_args_list]
-        assert (42, config.find_label[0]) not in swap_calls
-
-    @pytest.mark.asyncio
-    async def test_failure_improve_origin_preserves_state(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """On failure, improve origin state should be preserved for retry."""
-        phase, state, fetcher, prs, wt, runner, _bus = make_hitl_phase(config)
-        issue = TaskFactory.create(id=42, title="Improve: test", body="Details")
-
-        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
-        state.set_hitl_origin(42, "hydraflow-improve")
-        state.set_hitl_cause(42, "Memory suggestion")
-
-        runner.run = AsyncMock(
-            return_value=HITLResultFactory.create(success=False, error="quality failed")
-        )
-
-        semaphore = asyncio.Semaphore(1)
-        await phase._process_one_hitl(42, "Improve the prompt", semaphore)
-
-        # Verify HITL label was re-applied via swap
-        prs.swap_pipeline_labels.assert_any_call(42, config.hitl_label[0])
-
-        # Verify improve origin state is preserved for retry
-        assert state.get_hitl_origin(42) == "hydraflow-improve"
-        assert state.get_hitl_cause(42) == "Memory suggestion"
-
-    @pytest.mark.asyncio
-    async def test_improve_success_comment_mentions_find_label(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """Success comment for improve origin should mention the find/triage stage."""
-        phase, state, fetcher, prs, wt, runner, _bus = make_hitl_phase(config)
-        issue = TaskFactory.create(id=42, title="Improve: test", body="Details")
-
-        fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
-        state.set_hitl_origin(42, "hydraflow-improve")
-
-        runner.run = AsyncMock(return_value=HITLResultFactory.create())
-
-        semaphore = asyncio.Semaphore(1)
-        await phase._process_one_hitl(42, "Improve it", semaphore)
-
-        comment = prs.post_comment.call_args.args[1]
-        assert config.find_label[0] in comment
 
 
 # ---------------------------------------------------------------------------
