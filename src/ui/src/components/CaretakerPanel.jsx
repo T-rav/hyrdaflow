@@ -72,7 +72,7 @@ export function CaretakerPanel() {
         <tbody>
           {caretakerWorkers.map(({ key, label, description, worker }) => {
             const status = worker?.status || 'disabled'
-            const enabled = worker?.enabled !== false
+            const enabled = worker?.enabled === true
             const lastRun = worker?.last_run
 
             return (
