@@ -242,6 +242,18 @@ class PostMergeHandler:
                 if not visual_ok:
                     return
 
+        # Normalize PR title to canonical "Fixes #N: title" before merge
+        # so the merge commit and event history show a consistent format.
+        try:
+            expected_title = self._prs.expected_pr_title(issue.id, issue.title)
+            await self._prs.update_pr_title(pr.number, expected_title)
+        except Exception:
+            logger.debug(
+                "Could not normalize PR #%d title before merge",
+                pr.number,
+                exc_info=True,
+            )
+
         await publish_fn(pr, worker_id, "merging")
         success = await self._prs.merge_pr(pr.number)
         mergeable: bool | None = None
