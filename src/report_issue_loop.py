@@ -26,7 +26,7 @@ from config import HydraFlowConfig
 from execution import SubprocessRunner
 from models import PendingReport, TranscriptEventData
 from pr_manager import PRManager
-from runner_utils import stream_claude_process
+from runner_utils import AuthenticationRetryError, stream_claude_process
 from screenshot_scanner import scan_base64_for_secrets
 from state import StateTracker
 
@@ -68,7 +68,13 @@ class ReportIssueLoop(BaseBackgroundLoop):
         before entering steady-state polling.
         """
         while not self._stop_event.is_set() and self._state.peek_report() is not None:
-            await self._execute_cycle()
+            try:
+                await self._execute_cycle()
+            except AuthenticationRetryError:
+                logger.warning(
+                    "Auth error during report drain — deferring to polling loop"
+                )
+                break
 
         await super().run()
 
@@ -290,6 +296,12 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 gh_token=self._config.gh_token,
             )
             issue_number = self._extract_issue_number_from_transcript(transcript)
+        except AuthenticationRetryError:
+            logger.warning(
+                "Report %s hit authentication error — deferring to next cycle",
+                report.id,
+            )
+            raise
         except Exception:
             logger.exception("Report issue agent failed for report %s", report.id)
         finally:

@@ -18,6 +18,7 @@ from typing import Any
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from models import BackgroundWorkerStatusPayload, ErrorPayload, StatusCallback
+from runner_utils import AuthenticationRetryError
 from subprocess_util import AuthenticationError, CreditExhaustedError
 
 logger = logging.getLogger("hydraflow.base_background_loop")
@@ -121,6 +122,8 @@ class BaseBackgroundLoop(abc.ABC):
                 )
             )
         except (AuthenticationError, CreditExhaustedError):
+            raise
+        except AuthenticationRetryError:
             raise
         except Exception:
             logger.exception(
@@ -228,7 +231,13 @@ class BaseBackgroundLoop(abc.ABC):
         """Run the background worker loop until the stop event is set."""
         # Run immediately if configured, or if cycles were missed during downtime
         if self._run_on_startup or self._should_run_catchup():
-            await self._execute_cycle()
+            try:
+                await self._execute_cycle()
+            except AuthenticationRetryError:
+                logger.warning(
+                    "%s startup cycle hit transient auth error — will retry next cycle",
+                    self._worker_name.replace("_", " ").capitalize(),
+                )
             self._record_last_run()
 
         while not self._stop_event.is_set():
@@ -243,7 +252,13 @@ class BaseBackgroundLoop(abc.ABC):
                 triggered = await self._sleep_or_trigger(interval)
                 if not triggered:
                     continue
-            await self._execute_cycle()
+            try:
+                await self._execute_cycle()
+            except AuthenticationRetryError:
+                logger.warning(
+                    "%s hit transient auth error — will retry next cycle",
+                    self._worker_name.replace("_", " ").capitalize(),
+                )
             self._record_last_run()
             if not self._run_on_startup:
                 await self._sleep_or_trigger(interval)
