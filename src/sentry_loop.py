@@ -71,6 +71,7 @@ class SentryLoop(BaseBackgroundLoop):
 
                 created = await self._create_github_issue(issue, project["slug"])
                 if created:
+                    await self._resolve_sentry_issue(sentry_id)
                     self._filed.add(sentry_id)
                     total_created += 1
                 else:
@@ -110,6 +111,25 @@ class SentryLoop(BaseBackgroundLoop):
             resp.raise_for_status()
             result: list[dict[str, Any]] = resp.json()
             return result
+
+    async def _resolve_sentry_issue(self, issue_id: str) -> None:
+        """Mark a Sentry issue as resolved so it won't be re-polled.
+
+        If the bug recurs, Sentry auto-reopens it as a new unresolved issue
+        and the next poll cycle will pick it up again.
+        """
+        url = f"{_SENTRY_API}/issues/{issue_id}/"
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.put(
+                    url,
+                    headers=self._headers(),
+                    json={"status": "resolved"},
+                )
+                resp.raise_for_status()
+                logger.debug("Resolved Sentry issue %s", issue_id)
+        except Exception:  # noqa: BLE001
+            logger.warning("Failed to resolve Sentry issue %s", issue_id, exc_info=True)
 
     async def _already_filed_on_github(self, sentry_id: str) -> bool:
         """Check if a GitHub issue already references this Sentry issue ID."""
