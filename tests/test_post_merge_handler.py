@@ -21,6 +21,7 @@ from models import (
     CriterionResult,
     CriterionVerdict,
     JudgeVerdict,
+    MergeApprovalContext,
     ReviewResult,
 )
 from post_merge_handler import PostMergeHandler
@@ -43,17 +44,18 @@ class _ApprovedSetup:
 
     async def call(self, diff: str = "diff", attempt: int = 0, **kwargs) -> None:
         """Invoke handle_approved with the baseline args, allowing overrides."""
-        await self.handler.handle_approved(
-            self.pr,
-            self.issue,
-            self.result,
-            diff,
-            attempt,
+        ctx = MergeApprovalContext(
+            pr=self.pr,
+            issue=self.issue,
+            result=self.result,
+            diff=diff,
+            worker_id=attempt,
             ci_gate_fn=kwargs.pop("ci_gate_fn", self.ci_gate_fn),
             escalate_fn=kwargs.pop("escalate_fn", self.escalate_fn),
             publish_fn=kwargs.pop("publish_fn", self.publish_fn),
             **kwargs,
         )
+        await self.handler.handle_approved(ctx)
 
 
 def _make_handler(
@@ -727,16 +729,17 @@ class TestMergeOutcomeRecording:
         escalate_fn = AsyncMock()
         ci_gate_fn = AsyncMock(return_value=True)
 
-        await handler.handle_approved(
-            pr,
-            issue,
-            result,
-            "diff",
-            0,
+        ctx = MergeApprovalContext(
+            pr=pr,
+            issue=issue,
+            result=result,
+            diff="diff",
+            worker_id=0,
             ci_gate_fn=ci_gate_fn,
             escalate_fn=escalate_fn,
             publish_fn=publish_fn,
         )
+        await handler.handle_approved(ctx)
 
         outcome = state.get_outcome(42)
         assert outcome is not None
@@ -843,17 +846,18 @@ class TestVisualGateInHandleApproved:
         ci_gate_fn = AsyncMock(return_value=True)
         visual_gate_fn = AsyncMock(return_value=True)
 
-        await handler.handle_approved(
-            PRInfoFactory.create(),
-            TaskFactory.create(),
-            ReviewResultFactory.create(),
-            "diff",
-            0,
+        ctx = MergeApprovalContext(
+            pr=PRInfoFactory.create(),
+            issue=TaskFactory.create(),
+            result=ReviewResultFactory.create(),
+            diff="diff",
+            worker_id=0,
             ci_gate_fn=ci_gate_fn,
             escalate_fn=AsyncMock(),
             publish_fn=AsyncMock(),
             visual_gate_fn=visual_gate_fn,
         )
+        await handler.handle_approved(ctx)
 
         # Gate disabled by default — visual_gate_fn should not be called
         visual_gate_fn.assert_not_awaited()
@@ -874,17 +878,18 @@ class TestVisualGateInHandleApproved:
         result = ReviewResultFactory.create()
         visual_gate_fn = AsyncMock(return_value=True)
 
-        await handler.handle_approved(
-            PRInfoFactory.create(),
-            TaskFactory.create(),
-            result,
-            "diff",
-            0,
+        ctx = MergeApprovalContext(
+            pr=PRInfoFactory.create(),
+            issue=TaskFactory.create(),
+            result=result,
+            diff="diff",
+            worker_id=0,
             ci_gate_fn=AsyncMock(return_value=True),
             escalate_fn=AsyncMock(),
             publish_fn=AsyncMock(),
             visual_gate_fn=visual_gate_fn,
         )
+        await handler.handle_approved(ctx)
 
         visual_gate_fn.assert_awaited_once()
         assert result.merged is True
@@ -905,17 +910,18 @@ class TestVisualGateInHandleApproved:
         result = ReviewResultFactory.create()
         visual_gate_fn = AsyncMock(return_value=False)
 
-        await handler.handle_approved(
-            PRInfoFactory.create(),
-            TaskFactory.create(),
-            result,
-            "diff",
-            0,
+        ctx = MergeApprovalContext(
+            pr=PRInfoFactory.create(),
+            issue=TaskFactory.create(),
+            result=result,
+            diff="diff",
+            worker_id=0,
             ci_gate_fn=AsyncMock(return_value=True),
             escalate_fn=AsyncMock(),
             publish_fn=AsyncMock(),
             visual_gate_fn=visual_gate_fn,
         )
+        await handler.handle_approved(ctx)
 
         visual_gate_fn.assert_awaited_once()
         assert result.merged is False
@@ -936,17 +942,18 @@ class TestVisualGateInHandleApproved:
         handler._prs.merge_pr = AsyncMock(return_value=True)
         result = ReviewResultFactory.create()
 
-        await handler.handle_approved(
-            PRInfoFactory.create(),
-            TaskFactory.create(),
-            result,
-            "diff",
-            0,
+        ctx = MergeApprovalContext(
+            pr=PRInfoFactory.create(),
+            issue=TaskFactory.create(),
+            result=result,
+            diff="diff",
+            worker_id=0,
             ci_gate_fn=AsyncMock(return_value=True),
             escalate_fn=AsyncMock(),
             publish_fn=AsyncMock(),
             # No visual_gate_fn provided
         )
+        await handler.handle_approved(ctx)
 
         assert result.merged is False
         handler._prs.merge_pr.assert_not_awaited()
@@ -969,17 +976,18 @@ class TestVisualGateInHandleApproved:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        await handler.handle_approved(
-            pr,
-            issue,
-            result,
-            "diff",
-            0,
+        ctx = MergeApprovalContext(
+            pr=pr,
+            issue=issue,
+            result=result,
+            diff="diff",
+            worker_id=0,
             ci_gate_fn=AsyncMock(return_value=True),
             escalate_fn=AsyncMock(),
             publish_fn=AsyncMock(),
             # No visual_gate_fn provided
         )
+        await handler.handle_approved(ctx)
 
         # Merge is blocked when no visual_gate_fn is provided
         assert result.merged is False
@@ -1217,17 +1225,18 @@ class TestNarrowedExceptionHandling:
 
         handler._prs.merge_pr = AsyncMock(return_value=True)
 
+        ctx = MergeApprovalContext(
+            pr=pr,
+            issue=issue,
+            result=result,
+            diff="diff",
+            worker_id=0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+        )
         with pytest.raises(TypeError, match="missing required arg"):
-            await handler.handle_approved(
-                pr,
-                issue,
-                result,
-                "diff",
-                0,
-                ci_gate_fn=AsyncMock(return_value=True),
-                escalate_fn=AsyncMock(),
-                publish_fn=AsyncMock(),
-            )
+            await handler.handle_approved(ctx)
 
     @pytest.mark.asyncio
     async def test_status_callback_propagates_attribute_error(
@@ -1247,17 +1256,18 @@ class TestNarrowedExceptionHandling:
 
         handler._prs.merge_pr = AsyncMock(return_value=True)
 
+        ctx = MergeApprovalContext(
+            pr=pr,
+            issue=issue,
+            result=result,
+            diff="diff",
+            worker_id=0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+        )
         with pytest.raises(AttributeError, match="no attr"):
-            await handler.handle_approved(
-                pr,
-                issue,
-                result,
-                "diff",
-                0,
-                ci_gate_fn=AsyncMock(return_value=True),
-                escalate_fn=AsyncMock(),
-                publish_fn=AsyncMock(),
-            )
+            await handler.handle_approved(ctx)
 
     @pytest.mark.asyncio
     async def test_safe_hook_inner_post_comment_catches_os_error(
@@ -1364,16 +1374,17 @@ class TestNarrowedExceptionHandling:
         handler._prs.merge_pr = AsyncMock(return_value=True)
 
         # Should not raise — RuntimeError from retrospective is caught
-        await handler.handle_approved(
-            pr,
-            issue,
-            result,
-            "diff",
-            0,
+        ctx = MergeApprovalContext(
+            pr=pr,
+            issue=issue,
+            result=result,
+            diff="diff",
+            worker_id=0,
             ci_gate_fn=AsyncMock(return_value=True),
             escalate_fn=AsyncMock(),
             publish_fn=AsyncMock(),
         )
+        await handler.handle_approved(ctx)
         mock_retro.record.assert_awaited_once()
 
     @pytest.mark.asyncio

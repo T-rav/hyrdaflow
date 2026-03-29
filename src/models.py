@@ -2501,6 +2501,28 @@ class MergeConflictFixFn(Protocol):
     ) -> bool: ...
 
 
+@dataclass(slots=True)
+class MergeApprovalContext:
+    """Groups the 12 parameters of ``PostMergeHandler.handle_approved``.
+
+    Replacing a flat parameter list with a typed context object makes call
+    sites self-documenting and eliminates positional-argument ordering bugs.
+    """
+
+    pr: PRInfo
+    issue: Task
+    result: ReviewResult
+    diff: str
+    worker_id: int
+    ci_gate_fn: CiGateFn
+    escalate_fn: EscalateFn
+    publish_fn: PublishFn
+    code_scanning_alerts: list[CodeScanningAlert] | None = None
+    visual_gate_fn: VisualGateFn | None = None
+    visual_decision: VisualValidationDecision | None = None
+    merge_conflict_fix_fn: MergeConflictFixFn | None = None
+
+
 class StatusCallback(Protocol):
     """Sync callback for background worker status updates.
 

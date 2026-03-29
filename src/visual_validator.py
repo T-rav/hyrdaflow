@@ -42,7 +42,7 @@ def classify_failure(error: Exception) -> VisualFailureClass:
     """Classify an exception into a visual failure class."""
     if isinstance(error, TimeoutError):
         return VisualFailureClass.TIMEOUT
-    if isinstance(error, (ConnectionError, OSError)):
+    if isinstance(error, ConnectionError | OSError):
         return VisualFailureClass.INFRA_FAILURE
     return VisualFailureClass.CAPTURE_ERROR
 

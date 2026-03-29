@@ -1155,6 +1155,29 @@ class TestReviewPhaseWiring:
         wt_path = config.worktree_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
 
+        from merge_conflict_resolver import MergeConflictResolver
+        from post_merge_handler import PostMergeHandler
+
+        conflict_resolver = MergeConflictResolver(
+            config=config,
+            worktrees=mock_wt,
+            agents=None,
+            prs=mock_prs,
+            event_bus=event_bus,
+            state=state,
+            summarizer=None,
+        )
+        post_merge = PostMergeHandler(
+            config=config,
+            state=state,
+            prs=mock_prs,
+            event_bus=event_bus,
+            ac_generator=None,
+            retrospective=None,
+            verification_judge=mock_judge,
+            epic_checker=None,
+        )
+
         phase = ReviewPhase(
             config=config,
             state=state,
@@ -1163,9 +1186,10 @@ class TestReviewPhaseWiring:
             prs=mock_prs,
             stop_event=stop_event,
             store=MagicMock(),
+            conflict_resolver=conflict_resolver,
+            post_merge=post_merge,
             event_bus=event_bus,
         )
-        phase._post_merge._verification_judge = mock_judge
 
         pr = PRInfoFactory.create()
         issue = TaskFactory.create(
@@ -1215,6 +1239,29 @@ class TestReviewPhaseWiring:
         wt_path = config.worktree_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
 
+        from merge_conflict_resolver import MergeConflictResolver
+        from post_merge_handler import PostMergeHandler
+
+        conflict_resolver = MergeConflictResolver(
+            config=config,
+            worktrees=mock_wt,
+            agents=None,
+            prs=mock_prs,
+            event_bus=event_bus,
+            state=state,
+            summarizer=None,
+        )
+        post_merge = PostMergeHandler(
+            config=config,
+            state=state,
+            prs=mock_prs,
+            event_bus=event_bus,
+            ac_generator=None,
+            retrospective=None,
+            verification_judge=None,  # No verification_judge
+            epic_checker=None,
+        )
+
         phase = ReviewPhase(
             config=config,
             state=state,
@@ -1223,8 +1270,9 @@ class TestReviewPhaseWiring:
             prs=mock_prs,
             stop_event=stop_event,
             store=MagicMock(),
+            conflict_resolver=conflict_resolver,
+            post_merge=post_merge,
             event_bus=event_bus,
-            # No verification_judge
         )
 
         pr = PRInfoFactory.create()

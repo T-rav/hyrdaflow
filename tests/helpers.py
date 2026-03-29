@@ -710,9 +710,9 @@ class PipelineHarness:
             prs=self.prs,
             stop_event=self.stop_event,
             store=self.store,
-            event_bus=self.bus,
             conflict_resolver=self._conflict_resolver,
             post_merge=self.post_merge,
+            event_bus=self.bus,
         )
         self.hitl_phase = HITLPhase(
             config=self.config,
@@ -1460,30 +1460,27 @@ def make_review_phase(
 
     bus = event_bus or EventBus()
 
-    conflict_resolver = None
-    if agents is not None:
-        conflict_resolver = MergeConflictResolver(
-            config=config,
-            worktrees=mock_wt,
-            agents=agents,
-            prs=mock_prs,
-            event_bus=bus,
-            state=state,
-            summarizer=None,
-        )
+    conflict_resolver = MergeConflictResolver(
+        config=config,
+        worktrees=mock_wt,
+        agents=agents,
+        prs=mock_prs,
+        event_bus=bus,
+        state=state,
+        summarizer=None,
+    )
 
-    post_merge = None
-    if ac_generator is not None:
-        post_merge = PostMergeHandler(
-            config=config,
-            state=state,
-            prs=mock_prs,
-            event_bus=bus,
-            ac_generator=ac_generator,
-            retrospective=None,
-            verification_judge=None,
-            epic_checker=None,
-        )
+    post_merge = PostMergeHandler(
+        config=config,
+        state=state,
+        prs=mock_prs,
+        event_bus=bus,
+        ac_generator=ac_generator,
+        retrospective=None,
+        verification_judge=None,
+        epic_checker=None,
+        store=mock_store,
+    )
 
     phase = ReviewPhase(
         config=config,
@@ -1493,9 +1490,9 @@ def make_review_phase(
         prs=mock_prs,
         stop_event=stop_event,
         store=mock_store,
-        event_bus=bus,
         conflict_resolver=conflict_resolver,
         post_merge=post_merge,
+        event_bus=bus,
         baseline_policy=baseline_policy,
     )
 

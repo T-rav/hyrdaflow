@@ -37,6 +37,7 @@ from models import (
     ConflictResolutionResult,
     HitlEscalation,
     JudgeResult,
+    MergeApprovalContext,
     PipelineStage,
     PRInfo,
     ReviewResult,
@@ -106,10 +107,11 @@ class ReviewPhase:
         prs: PRPort,
         stop_event: asyncio.Event,
         store: IssueStorePort,
+        conflict_resolver: MergeConflictResolver,
+        post_merge: PostMergeHandler,
         event_bus: EventBus | None = None,
         harness_insights: HarnessInsightStore | None = None,
-        conflict_resolver: MergeConflictResolver | None = None,
-        post_merge: PostMergeHandler | None = None,
+        review_insights: ReviewInsightStore | None = None,
         update_bg_worker_status: StatusCallback | None = None,
         baseline_policy: BaselinePolicy | None = None,
         hindsight: HindsightClient | None = None,
@@ -128,30 +130,14 @@ class ReviewPhase:
         self._suggest_memory = MemorySuggester(config, prs, state)
         self._update_bg_worker_status = update_bg_worker_status
         self._harness_insights = harness_insights
-        self._insights = ReviewInsightStore(config.memory_dir, dolt=dolt, wal=wal)
+        self._insights = review_insights or ReviewInsightStore(
+            config.memory_dir, dolt=dolt, wal=wal
+        )
         self._wal = wal
         self._active_issues: set[int] = set()
         self._active_issues_lock = asyncio.Lock()
-        self._conflict_resolver = conflict_resolver or MergeConflictResolver(
-            config=config,
-            worktrees=worktrees,
-            agents=None,
-            prs=prs,
-            event_bus=self._bus,
-            state=state,
-            summarizer=None,
-        )
-        self._post_merge = post_merge or PostMergeHandler(
-            config=config,
-            state=state,
-            prs=prs,
-            event_bus=self._bus,
-            ac_generator=None,
-            retrospective=None,
-            verification_judge=None,
-            epic_checker=None,
-            store=store,
-        )
+        self._conflict_resolver = conflict_resolver
+        self._post_merge = post_merge
         self._baseline_policy = baseline_policy
         self._hindsight = hindsight
         self._visual_validator: VisualValidator | None = None
@@ -1070,12 +1056,12 @@ class ReviewPhase:
         visual_decision: VisualValidationDecision | None = None,
     ) -> None:
         """Attempt merge for an approved PR (with optional CI gate)."""
-        await self._post_merge.handle_approved(
-            pr,
-            issue,
-            result,
-            diff,
-            worker_id,
+        ctx = MergeApprovalContext(
+            pr=pr,
+            issue=issue,
+            result=result,
+            diff=diff,
+            worker_id=worker_id,
             ci_gate_fn=self.wait_and_fix_ci,
             escalate_fn=self._escalate_to_hitl,
             publish_fn=self._publish_review_status,
@@ -1084,6 +1070,7 @@ class ReviewPhase:
             visual_decision=visual_decision,
             merge_conflict_fix_fn=self._attempt_post_merge_conflict_fix,
         )
+        await self._post_merge.handle_approved(ctx)
 
     async def _attempt_post_merge_conflict_fix(
         self,

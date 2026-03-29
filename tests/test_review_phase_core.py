@@ -2267,30 +2267,24 @@ class TestCleanupWorktree:
         phase._worktrees.post_work_cleanup.assert_awaited_once_with(pr.issue_number)
 
 
-class TestConstructorDefaultHelpers:
-    """Tests that ReviewPhase builds default helpers when not provided."""
+class TestRequiredDIParameters:
+    """Tests that ReviewPhase requires DI parameters (no fallback constructors)."""
 
-    def test_builds_default_conflict_resolver(self, config: HydraFlowConfig) -> None:
-        """ReviewPhase should build a MergeConflictResolver when not provided."""
+    def test_conflict_resolver_injected(self, config: HydraFlowConfig) -> None:
+        """ReviewPhase should receive a MergeConflictResolver via DI."""
         from merge_conflict_resolver import MergeConflictResolver
 
         phase = make_review_phase(config)
 
         assert isinstance(phase._conflict_resolver, MergeConflictResolver)
 
-    def test_builds_default_post_merge_handler(self, config: HydraFlowConfig) -> None:
-        """ReviewPhase should build a PostMergeHandler with all optional deps None."""
+    def test_post_merge_handler_injected(self, config: HydraFlowConfig) -> None:
+        """ReviewPhase should receive a PostMergeHandler via DI."""
         from post_merge_handler import PostMergeHandler
 
         phase = make_review_phase(config)
 
         assert isinstance(phase._post_merge, PostMergeHandler)
-        # Verify all optional post-merge dependencies default to None, not to
-        # values carried over from removed ReviewPhase constructor parameters.
-        assert phase._post_merge._ac_generator is None
-        assert phase._post_merge._retrospective is None
-        assert phase._post_merge._verification_judge is None
-        assert phase._post_merge._epic_checker is None
 
 
 class TestADRReviewPath:

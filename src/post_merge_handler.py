@@ -18,23 +18,18 @@ if TYPE_CHECKING:
     from ports import IssueStorePort, PRPort
 
 from models import (
-    CiGateFn,
-    CodeScanningAlert,
     CriterionVerdict,
-    EscalateFn,
     GitHubIssue,
     HitlEscalation,
     JudgeResult,
     JudgeVerdict,
-    MergeConflictFixFn,
+    MergeApprovalContext,
     PRInfo,
-    PublishFn,
     ReviewResult,
     StatusCallback,
     SystemAlertPayload,
     Task,
     VerificationCriterion,
-    VisualGateFn,
     VisualGatePayload,
     VisualValidationDecision,
     VisualValidationPolicy,
@@ -171,24 +166,26 @@ class PostMergeHandler:
 
     async def handle_approved(
         self,
-        pr: PRInfo,
-        issue: Task,
-        result: ReviewResult,
-        diff: str,
-        worker_id: int,
-        ci_gate_fn: CiGateFn,
-        escalate_fn: EscalateFn,
-        publish_fn: PublishFn,
-        code_scanning_alerts: list[CodeScanningAlert] | None = None,
-        visual_gate_fn: VisualGateFn | None = None,
-        visual_decision: VisualValidationDecision | None = None,
-        merge_conflict_fix_fn: MergeConflictFixFn | None = None,
+        ctx: MergeApprovalContext,
     ) -> None:
         """Attempt merge for an approved PR (with optional CI gate).
 
         For epic children with bundled merge strategies, the PR is approved
         but merge is deferred until all siblings are ready.
         """
+        pr = ctx.pr
+        issue = ctx.issue
+        result = ctx.result
+        diff = ctx.diff
+        worker_id = ctx.worker_id
+        ci_gate_fn = ctx.ci_gate_fn
+        escalate_fn = ctx.escalate_fn
+        publish_fn = ctx.publish_fn
+        code_scanning_alerts = ctx.code_scanning_alerts
+        visual_gate_fn = ctx.visual_gate_fn
+        visual_decision = ctx.visual_decision
+        merge_conflict_fix_fn = ctx.merge_conflict_fix_fn
+
         # Notify EpicManager of approval (for bundled merge coordination)
         if self._epic_manager is not None:
             await self._notify_epic_approval(pr.issue_number)

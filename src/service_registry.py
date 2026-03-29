@@ -48,6 +48,7 @@ from pr_unsticker_loop import PRUnstickerLoop
 from report_issue_loop import ReportIssueLoop
 from research_runner import ResearchRunner
 from retrospective import RetrospectiveCollector
+from review_insights import ReviewInsightStore
 from review_phase import ReviewPhase
 from reviewer import ReviewRunner
 from run_recorder import RunRecorder
@@ -373,6 +374,16 @@ def build_services(
         epic_manager=epic_manager,
         store=store,
     )
+    # ReviewInsightStore shared between AgentRunner and ReviewPhase
+    review_insights = ReviewInsightStore(
+        config.memory_dir,
+        hindsight=hindsight_client,
+        dolt=dolt_backend,
+        wal=hindsight_wal,
+    )
+    # Inject shared store into AgentRunner (replacing its self-constructed copy)
+    agents._insights = review_insights
+
     reviewer = ReviewPhase(
         config,
         state,
@@ -381,10 +392,11 @@ def build_services(
         prs,
         stop_event,
         store,
+        conflict_resolver,
+        post_merge_handler,
         event_bus=event_bus,
         harness_insights=harness_insights,
-        conflict_resolver=conflict_resolver,
-        post_merge=post_merge_handler,
+        review_insights=review_insights,
         update_bg_worker_status=callbacks.update_bg_worker_status,
         baseline_policy=baseline_policy,
         hindsight=hindsight_client,
