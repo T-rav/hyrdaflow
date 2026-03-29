@@ -700,7 +700,7 @@ SINGLE_ISSUE_JSON = json.dumps(
         "labels": [{"name": "ready"}],
         "comments": [],
         "url": "https://github.com/test-org/test-repo/issues/42",
-        "createdAt": "2026-01-01T00:00:00Z",
+        "created_at": "2026-01-01T00:00:00Z",
     }
 )
 
@@ -1328,7 +1328,7 @@ class TestCollaboratorCheck:
                 "body": "",
                 "labels": [],
                 "url": "https://github.com/test-org/test-repo/issues/42",
-                "createdAt": "2026-01-01T00:00:00Z",
+                "created_at": "2026-01-01T00:00:00Z",
                 "author": "alice",
             }
         )
@@ -1413,10 +1413,10 @@ class TestNormalizeGraphQLIssue:
         assert result["body"] == "Details"
         assert result["url"] == "https://github.com/o/r/issues/42"
         assert result["state"] == "open"
-        assert result["createdAt"] == "2026-01-01T00:00:00Z"
+        assert result["created_at"] == "2026-01-01T00:00:00Z"
         assert result["author"] == "alice"
         assert result["milestone_number"] == 5
-        assert result["labels"] == [{"name": "hydraflow-plan"}]
+        assert result["labels"] == ["hydraflow-plan"]
         assert result["comments"] == []
 
     def test_handles_null_author(self) -> None:

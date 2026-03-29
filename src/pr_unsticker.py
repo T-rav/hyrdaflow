@@ -289,7 +289,7 @@ class PRUnsticker:
                 issue,
                 wt_path,
                 branch,
-                item.prUrl,
+                item.pr_url,
                 pr_number=item.pr,
             )
 

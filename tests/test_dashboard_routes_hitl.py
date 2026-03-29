@@ -1014,9 +1014,9 @@ class TestHITLRoute:
             HITLItem(
                 issue=42,
                 title="Fix widget",
-                issueUrl="https://github.com/org/repo/issues/42",
+                issue_url="https://github.com/org/repo/issues/42",
                 pr=99,
-                prUrl="https://github.com/org/repo/pull/99",
+                pr_url="https://github.com/org/repo/pull/99",
                 branch="agent/issue-42",
             ),
         ]
@@ -1063,9 +1063,9 @@ class TestHITLRoute:
             HITLItem(
                 issue=10,
                 title="Broken thing",
-                issueUrl="",
+                issue_url="",
                 pr=0,
-                prUrl="",
+                pr_url="",
                 branch="agent/issue-10",
             ),
         ]

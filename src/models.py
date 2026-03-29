@@ -19,11 +19,13 @@ from uuid import uuid4
 
 from pydantic import (
     AfterValidator,
-    AliasChoices,
     BaseModel,
     ConfigDict,
     Field,
     field_validator,
+)
+from pydantic.alias_generators import (
+    to_camel,  # used at runtime in HITLItem.model_config
 )
 from typing_extensions import TypedDict
 
@@ -253,25 +255,22 @@ class GitHubIssue(BaseModel):
     author: str = ""
     state: GitHubIssueState = GitHubIssueState.OPEN
     milestone_number: int | None = None
-    created_at: str = Field(
-        default="",
-        validation_alias=AliasChoices("createdAt", "created_at"),
-    )
+    created_at: str = ""
 
     @field_validator("labels", mode="before")
     @classmethod
     def _normalise_labels(cls, v: Any) -> list[str]:
-        """Normalise ``gh`` CLI label objects (``{"name": "..."}`` dicts) to plain strings."""
+        """Validate that labels are plain strings (infrastructure dicts are normalized upstream)."""
         if isinstance(v, list):
-            return [lbl["name"] if isinstance(lbl, dict) else str(lbl) for lbl in v]
+            return [str(lbl) for lbl in v]
         return v  # type: ignore[return-value]
 
     @field_validator("comments", mode="before")
     @classmethod
     def _normalise_comments(cls, v: Any) -> list[str]:
-        """Normalise ``gh`` CLI comment objects (``{"body": "..."}`` dicts) to plain strings."""
+        """Validate that comments are plain strings (infrastructure dicts are normalized upstream)."""
         if isinstance(v, list):
-            return [c.get("body", "") if isinstance(c, dict) else str(c) for c in v]
+            return [str(c) for c in v]
         return v  # type: ignore[return-value]
 
     @field_validator("state", mode="before")
@@ -1533,22 +1532,28 @@ class PRListItem(BaseModel):
 class HITLItem(BaseModel):
     """A HITL issue entry returned by GET /api/hitl."""
 
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
     issue: int
     title: str = ""
-    issueUrl: HttpUrl = ""  # camelCase to match existing frontend contract
+    issue_url: HttpUrl = ""
     pr: int = 0
-    prUrl: HttpUrl = ""  # camelCase to match existing frontend contract
+    pr_url: HttpUrl = ""
     branch: str = ""
     cause: str = ""  # escalation reason (populated by #113)
     status: HITLItemStatus = HITLItemStatus.PENDING
-    isMemorySuggestion: bool = False  # camelCase to match frontend contract
-    llmSummary: str = ""  # cached, operator-focused context summary
-    llmSummaryUpdatedAt: str | None = None
-    visualEvidence: VisualEvidence | None = None  # camelCase to match frontend
+    is_memory_suggestion: bool = False
+    llm_summary: str = ""  # cached, operator-focused context summary
+    llm_summary_updated_at: str | None = None
+    visual_evidence: VisualEvidence | None = None
 
 
 class ControlStatusConfig(BaseModel):
-    """Config subset returned by GET /api/control/status."""
+    """Config subset returned by GET /api/control/status.
+
+    This is an API DTO, not a domain model.  Also re-exported from
+    ``route_types`` for convenience.
+    """
 
     app_version: str = ""
     latest_version: str = ""
@@ -1573,7 +1578,11 @@ class ControlStatusConfig(BaseModel):
 
 
 class ControlStatusResponse(BaseModel):
-    """Response for GET /api/control/status."""
+    """Response for GET /api/control/status.
+
+    This is an API DTO, not a domain model.  Also re-exported from
+    ``route_types`` for convenience.
+    """
 
     status: ControlStatus = ControlStatus.IDLE
     credits_paused_until: str | None = None

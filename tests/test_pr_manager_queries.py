@@ -220,7 +220,7 @@ class TestListHitlItems:
         assert result[0].issue == 42
         assert result[0].title == "Fix widget"
         assert result[0].pr == 99
-        assert result[0].prUrl == "https://github.com/org/repo/pull/99"
+        assert result[0].pr_url == "https://github.com/org/repo/pull/99"
         assert result[0].branch == "agent/issue-42"
 
     @pytest.mark.asyncio
@@ -268,7 +268,7 @@ class TestListHitlItems:
 
         assert len(result) == 1
         assert result[0].pr == 0
-        assert result[0].prUrl == ""
+        assert result[0].pr_url == ""
 
     @pytest.mark.asyncio
     async def test_deduplicates_issues(self, config, event_bus):

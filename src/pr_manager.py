@@ -1704,9 +1704,9 @@ class PRManager:
         return HITLItem(
             issue=raw_issue["number"],
             title=raw_issue.get("title", ""),
-            issueUrl=raw_issue.get("url", ""),
+            issue_url=raw_issue.get("url", ""),
             pr=pr_number,
-            prUrl=pr_url,
+            pr_url=pr_url,
             branch=branch,
         )
 

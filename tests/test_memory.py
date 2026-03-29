@@ -879,7 +879,7 @@ class TestMemoryModels:
             {
                 "number": 42,
                 "title": "Test",
-                "createdAt": "2024-06-15T12:00:00Z",
+                "created_at": "2024-06-15T12:00:00Z",
             }
         )
         assert issue.created_at == "2024-06-15T12:00:00Z"

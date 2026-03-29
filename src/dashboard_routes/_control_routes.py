@@ -23,12 +23,10 @@ from models import (
     BackgroundWorkerStatus,
     BGWorkerHealth,
     ControlStatus,
-    ControlStatusConfig,
-    ControlStatusResponse,
     OrchestratorStatusPayload,
 )
 from prompt_telemetry import PromptTelemetry
-from route_types import RepoSlugParam
+from route_types import ControlStatusConfig, ControlStatusResponse, RepoSlugParam
 from update_check import load_cached_update_result
 
 logger = logging.getLogger("hydraflow.dashboard")

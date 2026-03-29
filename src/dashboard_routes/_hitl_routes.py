@@ -105,7 +105,9 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
             items = await manager.list_hitl_items(hitl_labels)
         enriched = []
         for item in items:
-            data = dict(item) if isinstance(item, dict) else item.model_dump()
+            data = (
+                dict(item) if isinstance(item, dict) else item.model_dump(by_alias=True)
+            )
             issue_num: int = int(
                 data.get("issue", 0) if isinstance(item, dict) else item.issue
             )
