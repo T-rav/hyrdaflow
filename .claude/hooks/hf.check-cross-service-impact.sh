@@ -46,7 +46,7 @@ for svc_dir in "$PROJECT_DIR"/*/; do
   case "$svc" in
     shared|venv|node_modules|__pycache__|.git|.claude|.hydra|.github|ui|docs) continue ;;
   esac
-  if grep -rql "from shared\." "$svc_dir" --include="*.py" 2>/dev/null | head -1 > /dev/null 2>&1; then
+  if grep -rq "from shared\." "$svc_dir" --include="*.py" 2>/dev/null; then
     SERVICES="${SERVICES}  - ${svc}\n"
   fi
 done

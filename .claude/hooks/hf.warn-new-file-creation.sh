@@ -19,13 +19,7 @@ fi
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
-# Check if this file is tracked by git (i.e., existed before)
-if git -C "$PROJECT_DIR" ls-files --error-unmatch "$FILE_PATH" > /dev/null 2>&1; then
-  # File already tracked — this is an overwrite of an existing file, not a new file
-  exit 0
-fi
-
-# File is new (untracked) — soft warning
+# Check marker FIRST (cheap) to avoid git subprocess on repeated writes
 MARKER_DIR="/tmp/claude-code-markers/$(echo -n "$PROJECT_DIR" | (md5sum 2>/dev/null || md5) | cut -d' ' -f1)"
 [ -d "$MARKER_DIR" ] || mkdir -p "$MARKER_DIR"
 WARNED_MARKER="$MARKER_DIR/warned-newfile-$(echo -n "$FILE_PATH" | (md5sum 2>/dev/null || md5) | cut -d' ' -f1)"
@@ -34,6 +28,12 @@ if [ -f "$WARNED_MARKER" ]; then
   exit 0
 fi
 
+# Check if this file is tracked by git (i.e., existed before)
+if git -C "$PROJECT_DIR" ls-files --error-unmatch "$FILE_PATH" > /dev/null 2>&1; then
+  exit 0
+fi
+
+# File is new (untracked) — soft warning
 echo "NOTE: New file created: $FILE_PATH" >&2
 echo "  Prefer editing existing files when possible to avoid file bloat." >&2
 echo "  If this file is necessary, ensure it has:" >&2

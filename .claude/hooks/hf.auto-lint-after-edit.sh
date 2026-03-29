@@ -28,30 +28,24 @@ if [ ! -f "$FILE_PATH" ]; then
   exit 0
 fi
 
-# Auto-fix lint issues on this file only (fast, ~200ms)
+# Auto-fix then check remaining (2 ruff calls, not 3 — skip detection pass)
 if command -v ruff &>/dev/null; then
-  ISSUES=$(ruff check "$FILE_PATH" 2>/dev/null || true)
-  if [ -n "$ISSUES" ]; then
-    ruff check --fix --unsafe-fixes "$FILE_PATH" > /dev/null 2>&1 || true
-    ruff format "$FILE_PATH" > /dev/null 2>&1 || true
-    REMAINING=$(ruff check "$FILE_PATH" 2>/dev/null || true)
-    if [ -n "$REMAINING" ]; then
-      echo "LINT: Auto-fixed some issues in $(basename "$FILE_PATH"), but these remain:" >&2
-      echo "$REMAINING" | head -5 >&2
-      echo "Fix these manually before committing." >&2
-    fi
+  ruff check --fix --unsafe-fixes "$FILE_PATH" > /dev/null 2>&1 || true
+  ruff format "$FILE_PATH" > /dev/null 2>&1 || true
+  REMAINING=$(ruff check "$FILE_PATH" 2>/dev/null || true)
+  if [ -n "$REMAINING" ]; then
+    echo "LINT: Auto-fixed some issues in $(basename "$FILE_PATH"), but these remain:" >&2
+    echo "$REMAINING" | head -5 >&2
+    echo "Fix these manually before committing." >&2
   fi
 elif command -v uv &>/dev/null; then
-  ISSUES=$(uv run ruff check "$FILE_PATH" 2>/dev/null || true)
-  if [ -n "$ISSUES" ]; then
-    uv run ruff check --fix --unsafe-fixes "$FILE_PATH" > /dev/null 2>&1 || true
-    uv run ruff format "$FILE_PATH" > /dev/null 2>&1 || true
-    REMAINING=$(uv run ruff check "$FILE_PATH" 2>/dev/null || true)
-    if [ -n "$REMAINING" ]; then
-      echo "LINT: Auto-fixed some issues in $(basename "$FILE_PATH"), but these remain:" >&2
-      echo "$REMAINING" | head -5 >&2
-      echo "Fix these manually before committing." >&2
-    fi
+  uv run ruff check --fix --unsafe-fixes "$FILE_PATH" > /dev/null 2>&1 || true
+  uv run ruff format "$FILE_PATH" > /dev/null 2>&1 || true
+  REMAINING=$(uv run ruff check "$FILE_PATH" 2>/dev/null || true)
+  if [ -n "$REMAINING" ]; then
+    echo "LINT: Auto-fixed some issues in $(basename "$FILE_PATH"), but these remain:" >&2
+    echo "$REMAINING" | head -5 >&2
+    echo "Fix these manually before committing." >&2
   fi
 fi
 
