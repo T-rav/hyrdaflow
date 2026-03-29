@@ -33,3 +33,17 @@ class ShapeStateMixin:
         """Clear the shape conversation for *issue_number*."""
         self._data.shape_conversations.pop(self._key(issue_number), None)
         self.save()
+
+    def set_shape_response(self, issue_number: int, response: str) -> None:
+        """Store a human response for a shape conversation (from dashboard/WhatsApp)."""
+        self._data.shape_responses[self._key(issue_number)] = response
+        self.save()
+
+    def get_shape_response(self, issue_number: int) -> str | None:
+        """Return a pending shape response for *issue_number*, or *None*."""
+        return self._data.shape_responses.get(self._key(issue_number))
+
+    def clear_shape_response(self, issue_number: int) -> None:
+        """Clear a consumed shape response."""
+        self._data.shape_responses.pop(self._key(issue_number), None)
+        self.save()

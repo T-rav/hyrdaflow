@@ -157,10 +157,10 @@ class PlanPhase:
                 )
         return True
 
-    @staticmethod
-    def _is_product_track_issue(issue: Task) -> bool:
+    async def _is_product_track_issue(self, issue: Task) -> bool:
         """Detect if an issue came through the product discovery/shape track."""
-        for comment in issue.comments or []:
+        enriched = await self._store.enrich_with_comments(issue)
+        for comment in enriched.comments or []:
             if "DECOMPOSITION REQUIRED" in comment:
                 return True
         return False
@@ -170,7 +170,7 @@ class PlanPhase:
         # Product-track decomposition check: if issue came from Shape and
         # the planner didn't produce enough sub-issues, retry with feedback
         if (
-            self._is_product_track_issue(issue)
+            await self._is_product_track_issue(issue)
             and len(result.new_issues) < 3
             and not getattr(result, "_decompose_retried", False)
         ):

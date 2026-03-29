@@ -103,49 +103,12 @@ class ShapePhase:
                         started_at=datetime.now(UTC).isoformat(),
                     )
 
-                # If last turn was agent, check for human response
-                if conv.turns and conv.turns[-1].role == "agent":
-                    response = await self._check_for_response(issue)
-                    if response:
-                        signal = self._classify_signal(response)
-                        conv.turns.append(
-                            ConversationTurn(
-                                role="human",
-                                content=response,
-                                timestamp=datetime.now(UTC).isoformat(),
-                                signal=signal,
-                            )
-                        )
-                        conv.last_activity_at = datetime.now(UTC).isoformat()
-                        self._state.set_shape_conversation(issue.id, conv)
-
-                        # Write per-turn learning signal
-                        await self._write_turn_signal(issue, conv, response, signal)
-
-                        if _CANCEL_RE.search(response):
-                            logger.info(
-                                "Issue #%d shape — cancelled by human", issue.id
-                            )
-                            self._state.remove_shape_conversation(issue.id)
-                            return 1
-
-                        if _FINALIZE_RE.search(response):
-                            conv.status = "finalizing"
-                    else:
-                        # No response yet — check timeout
-                        if self._is_timed_out(conv):
-                            conv.status = "timed_out"
-                            self._state.set_shape_conversation(issue.id, conv)
-                            await self._transitioner.post_comment(
-                                issue.id,
-                                "**Shape conversation timed out.** "
-                                "Reply to this issue to resume the design conversation.",
-                            )
-                            logger.info("Issue #%d shape — timed out", issue.id)
-                            return 0
-                        # Re-enqueue for next poll cycle
-                        self._store.enqueue_transition(issue, "shape")
-                        return 0
+                # Handle waiting states (timed-out or awaiting response)
+                proceed, cancelled = await self._handle_waiting_state(issue, conv)
+                if cancelled:
+                    return 1
+                if not proceed:
+                    return 0
 
                 # Check max turns
                 if len(conv.turns) >= self._config.max_shape_turns:
@@ -183,6 +146,8 @@ class ShapePhase:
                     )
                 )
                 conv.last_activity_at = datetime.now(UTC).isoformat()
+                # Truncate old turn content to keep state.json bounded
+                self._truncate_old_turns(conv)
                 self._state.set_shape_conversation(issue.id, conv)
 
                 if result.is_final or conv.status == "finalizing":
@@ -193,7 +158,7 @@ class ShapePhase:
 
                 # Post agent turn and wait for response
                 await self._post_conversation_turn(
-                    issue, result.content, len(conv.turns)
+                    issue, result.content, len(conv.turns), conv
                 )
                 self._store.enqueue_transition(issue, "shape")
 
@@ -209,23 +174,88 @@ class ShapePhase:
                 )
                 return 1
 
+    async def _handle_waiting_state(
+        self, issue: Task, conv: ShapeConversation
+    ) -> tuple[bool, bool]:
+        """Handle timed-out or waiting-for-response states.
+
+        Returns (proceed, cancelled):
+        - (True, False): ready for next agent turn
+        - (False, False): re-enqueued, waiting
+        - (True, True): cancelled by human
+        """
+        needs_response = conv.status == "timed_out" or (
+            conv.turns and conv.turns[-1].role == "agent"
+        )
+        if not needs_response:
+            return True, False
+
+        response = await self._check_for_response(issue)
+        if not response:
+            if conv.status != "timed_out" and self._is_timed_out(conv):
+                conv.status = "timed_out"
+                self._state.set_shape_conversation(issue.id, conv)
+                await self._transitioner.post_comment(
+                    issue.id,
+                    "**Shape conversation timed out.** "
+                    "Reply to this issue to resume the design conversation.",
+                )
+                logger.info("Issue #%d shape — timed out", issue.id)
+            self._store.enqueue_transition(issue, "shape")
+            return False, False
+
+        # Got a response — process it
+        if conv.status == "timed_out":
+            conv.status = "exploring"
+            logger.info("Issue #%d shape — resumed from timeout", issue.id)
+
+        signal = self._classify_signal(response)
+        conv.turns.append(
+            ConversationTurn(
+                role="human",
+                content=response,
+                timestamp=datetime.now(UTC).isoformat(),
+                signal=signal,
+            )
+        )
+        conv.last_activity_at = datetime.now(UTC).isoformat()
+        self._state.set_shape_conversation(issue.id, conv)
+        await self._write_turn_signal(issue, conv, response, signal)
+
+        if _CANCEL_RE.search(response):
+            logger.info("Issue #%d shape — cancelled by human", issue.id)
+            self._state.remove_shape_conversation(issue.id)
+            return True, True
+
+        if _FINALIZE_RE.search(response):
+            conv.status = "finalizing"
+
+        return True, False
+
     async def _check_for_response(self, issue: Task) -> str | None:
-        """Check GitHub comments, dashboard input, and WhatsApp for a human response."""
-        # Source 1: GitHub comments (primary)
+        """Check all response sources for a human reply.
+
+        Checks in order: dashboard/WhatsApp responses (fastest), then GitHub
+        comments (authoritative). Dashboard and WhatsApp responses arrive via
+        the human-input API before they're mirrored to GitHub, so checking
+        them first avoids a one-cycle race condition.
+        """
+        # Source 1: Dashboard / WhatsApp responses (via human-input API)
+        # These arrive before the GitHub comment mirror, so check first
+        try:
+            # Access via store's bus subscribers or state — the response
+            # dict lives on the HITL controller. We check state for any
+            # response keyed by issue number.
+            response = self._state.get_shape_response(issue.id)
+            if response:
+                self._state.clear_shape_response(issue.id)
+                return response
+        except Exception:
+            pass
+
+        # Source 2: GitHub comments (authoritative, works for all channels)
         enriched = await self._store.enrich_with_comments(issue)
-        github_response = self._find_human_reply(enriched.comments or [])
-        if github_response:
-            return github_response
-
-        # Source 2: Dashboard human-input (if available via orchestrator)
-        # This is checked by the orchestrator's HITL controller — responses
-        # are posted as GitHub comments, so they'll appear in Source 1
-
-        # Source 3: WhatsApp (if configured)
-        # WhatsApp inbound webhook posts to human-input API → GitHub comment
-        # So this also appears in Source 1
-
-        return None
+        return self._find_human_reply(enriched.comments or [])
 
     def _find_human_reply(self, comments: list[str]) -> str | None:
         """Find the most recent human comment after the last agent turn."""
@@ -248,7 +278,11 @@ class ShapePhase:
         return None
 
     async def _post_conversation_turn(
-        self, issue: Task, content: str, turn_num: int
+        self,
+        issue: Task,
+        content: str,
+        turn_num: int,
+        conversation: ShapeConversation | None = None,
     ) -> None:
         """Post an agent turn to GitHub and notify via WhatsApp."""
         comment = (
@@ -260,18 +294,21 @@ class ShapePhase:
         if not self._config.dry_run:
             await self._transitioner.post_comment(issue.id, comment)
 
-            # Save HTML artifact for visual viewing
-            html = self.format_options_html(issue, content, turn_num)
+            # Save HTML artifact with full conversation thread
+            conv_turns = conversation.turns if conversation else None
+            html = self.format_options_html(issue, content, turn_num, conv_turns)
             self._save_html_artifact(issue.id, html)
 
             # WhatsApp notification
             if self._whatsapp and hasattr(self._whatsapp, "send_shape_turn"):
                 try:
-                    artifact_url = (
-                        f"{self._config.dashboard_url}/api/shape/artifact/{issue.id}"
-                    )
+                    from whatsapp_bridge import WhatsAppBridge  # noqa: PLC0415
+
+                    base = self._config.dashboard_url.rstrip("/")
+                    artifact_url = f"{base}/api/shape/artifact/{issue.id}"
+                    summary = WhatsAppBridge.format_condensed_summary(content)
                     await self._whatsapp.send_shape_turn(
-                        issue.id, issue.title, content[:300], artifact_url
+                        issue.id, issue.title, summary, artifact_url
                     )
                 except Exception:
                     logger.warning(
@@ -371,6 +408,22 @@ class ShapePhase:
         )
         await self._suggest_memory(transcript, "shape", f"issue #{issue.id}")
 
+    @staticmethod
+    def _truncate_old_turns(
+        conv: ShapeConversation, keep_recent: int = 4, max_content: int = 500
+    ) -> None:
+        """Truncate old turn content to keep state.json bounded.
+
+        Keeps the last *keep_recent* turns at full length.
+        Older turns are truncated to *max_content* characters.
+        """
+        if len(conv.turns) <= keep_recent:
+            return
+        cutoff = len(conv.turns) - keep_recent
+        for turn in conv.turns[:cutoff]:
+            if len(turn.content) > max_content:
+                turn.content = turn.content[:max_content] + "... [truncated]"
+
     def _is_timed_out(self, conv: ShapeConversation) -> bool:
         """Check if the conversation has timed out."""
         if not conv.last_activity_at:
@@ -427,8 +480,34 @@ class ShapePhase:
         path.write_text(html, encoding="utf-8")
 
     @staticmethod
-    def format_options_html(issue: Task, content: str, turn_num: int) -> str:
-        """Render a conversation turn as self-contained HTML."""
+    def format_options_html(
+        issue: Task,
+        content: str,
+        turn_num: int,
+        conversation_turns: list[ConversationTurn] | None = None,
+    ) -> str:
+        """Render the conversation as self-contained HTML with full thread view."""
+        import html as _html  # noqa: PLC0415
+
+        safe_title = _html.escape(issue.title)
+
+        # Build conversation thread (all turns, not just latest)
+        thread_html = ""
+        if conversation_turns:
+            parts = []
+            for i, turn in enumerate(conversation_turns):
+                role_class = "agent" if turn.role == "agent" else "human"
+                role_label = "Design Agent" if turn.role == "agent" else "Product Owner"
+                safe_content = _html.escape(turn.content)
+                parts.append(
+                    f'<div class="turn {role_class}">'
+                    f'<div class="turn-header">{role_label} · Turn {i + 1}</div>'
+                    f'<div class="turn-content">{safe_content}</div></div>'
+                )
+            thread_html = "\n".join(parts)
+        else:
+            thread_html = f'<div class="turn agent"><div class="turn-content">{_html.escape(content)}</div></div>'
+
         return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Shape #{issue.id} — Turn {turn_num}</title>
 <style>
@@ -437,12 +516,16 @@ class ShapePhase:
          background:#0d1117; color:#c9d1d9; padding:24px; line-height:1.6; }}
   h1 {{ font-size:18px; margin-bottom:4px; }}
   .subtitle {{ color:#8b949e; font-size:13px; margin-bottom:20px; }}
-  .content {{ background:#161b22; border:1px solid #30363d; border-radius:8px;
-              padding:20px; font-size:14px; white-space:pre-wrap; }}
+  .turn {{ background:#161b22; border:1px solid #30363d; border-radius:8px;
+           padding:16px; margin-bottom:8px; font-size:14px; white-space:pre-wrap; }}
+  .turn.human {{ border-left:3px solid #58a6ff; }}
+  .turn.agent {{ border-left:3px solid #56d4dd; }}
+  .turn-header {{ font-size:11px; color:#8b949e; margin-bottom:8px; font-weight:600;
+                  text-transform:uppercase; letter-spacing:0.5px; }}
   .footer {{ margin-top:16px; color:#8b949e; font-size:12px; font-style:italic; }}
 </style></head><body>
 <h1>Shape Conversation — #{issue.id}</h1>
-<p class="subtitle">{issue.title} · Turn {turn_num}</p>
-<div class="content">{content}</div>
+<p class="subtitle">{safe_title} · Turn {turn_num}</p>
+{thread_html}
 <p class="footer">Reply on GitHub, the dashboard, or WhatsApp to continue.</p>
 </body></html>"""

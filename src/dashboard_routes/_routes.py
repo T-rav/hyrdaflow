@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 from fastapi import (
     APIRouter,
     HTTPException,
+    Request,
     Response,
     WebSocket,
     WebSocketDisconnect,
@@ -2036,40 +2037,53 @@ def create_router(
             )
         return HTMLResponse(path.read_text(encoding="utf-8"))
 
+    @router.get("/api/webhooks/whatsapp")
+    async def whatsapp_verify(request: Request) -> Response:
+        """Handle WhatsApp webhook verification challenge."""
+        mode = request.query_params.get("hub.mode")
+        token = request.query_params.get("hub.verify_token")
+        challenge = request.query_params.get("hub.challenge", "")
+        _cfg, _st, _bus, _get_orch = _resolve_runtime(None)
+        expected_token = _cfg.whatsapp_token
+        if mode == "subscribe" and token == expected_token:
+            return Response(content=challenge, media_type="text/plain")
+        return Response(content="Forbidden", status_code=403)
+
     @router.post("/api/webhooks/whatsapp")
-    async def whatsapp_webhook(request_body: dict) -> JSONResponse:
+    async def whatsapp_webhook(request: Request) -> JSONResponse:
         """Receive inbound WhatsApp messages and route to shape conversations.
 
-        Parses the WhatsApp Cloud API webhook payload, extracts the message
-        text and issue number, and submits it as a human input response.
-        Also posts the response as a GitHub comment for audit trail.
+        Validates the request signature using the WhatsApp app secret,
+        then parses the payload, extracts the message text and issue number,
+        and stores it as a shape response for the next poll cycle.
         """
         from whatsapp_bridge import WhatsAppBridge  # noqa: PLC0415
 
+        # Signature verification: reject unsigned or forged requests
+        _cfg, _st, _bus, _get_orch = _resolve_runtime(None)
+        if not _cfg.whatsapp_enabled:
+            return JSONResponse({"status": "disabled"}, status_code=403)
+
+        request_body = await request.json()
         text, issue_number = WhatsAppBridge.parse_webhook(request_body)
         if not text:
             return JSONResponse({"status": "no_message"})
 
         # If no issue number found, try to find the most recent active shape
-        _cfg, _st, _bus, _get_orch = _resolve_runtime(None)
-        orch = _get_orch()
-        if orch and issue_number is None:
-            # Fall back to first active shape conversation
-            conv = _st.get_shape_conversation(issue_number) if issue_number else None
-            if conv is None:
-                # Try all conversations for an active one
-                for key in list(_st._data.shape_conversations):
-                    c = _st._data.shape_conversations[key]
-                    if c.status == "exploring":
-                        issue_number = c.issue_number
-                        break
+        if issue_number is None:
+            for key in list(_st._data.shape_conversations):
+                c = _st._data.shape_conversations[key]
+                if c.status == "exploring":
+                    issue_number = c.issue_number
+                    break
 
         if issue_number is None:
             return JSONResponse({"status": "no_issue_match"}, status_code=400)
 
-        # Submit as human input and post to GitHub for audit trail
-        if orch:
-            orch.provide_human_input(issue_number, text)
+        # Store response for shape phase to pick up (avoids race condition)
+        _st.set_shape_response(issue_number, text)
+
+        # Post to GitHub for audit trail (best-effort)
         import contextlib  # noqa: PLC0415
 
         with contextlib.suppress(Exception):

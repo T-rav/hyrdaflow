@@ -191,6 +191,7 @@ class TestConversationLoop:
     ) -> None:
         """First turn with no existing conversation runs the agent."""
         deps["state"].get_shape_conversation.return_value = None
+        deps["state"].get_shape_response.return_value = None
         deps["shape_runner"].run_turn = AsyncMock(
             return_value=ShapeTurnResult(
                 content="Here are 3 directions...", is_final=False
@@ -222,6 +223,7 @@ class TestConversationLoop:
             last_activity_at=datetime.now(UTC).isoformat(),
         )
         deps["state"].get_shape_conversation.return_value = conv
+        deps["state"].get_shape_response.return_value = None
         deps["store"].enrich_with_comments = AsyncMock(
             return_value=sample_task.model_copy(
                 update={"comments": ["**Shape Turn 1** — Options..."]}
@@ -239,6 +241,7 @@ class TestConversationLoop:
     ) -> None:
         """When agent produces final output, transition to plan."""
         deps["state"].get_shape_conversation.return_value = None
+        deps["state"].get_shape_response.return_value = None
         deps["shape_runner"].run_turn = AsyncMock(
             return_value=ShapeTurnResult(content="Final spec here", is_final=True)
         )

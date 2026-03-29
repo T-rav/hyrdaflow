@@ -1351,6 +1351,7 @@ class StateData(BaseModel):
     bot_pr_settings: BotPRSettings = Field(default_factory=BotPRSettings)
     bot_pr_processed: list[int] = Field(default_factory=list)
     shape_conversations: dict[str, ShapeConversation] = Field(default_factory=dict)
+    shape_responses: dict[str, str] = Field(default_factory=dict)
     last_updated: str | None = None
 
 
