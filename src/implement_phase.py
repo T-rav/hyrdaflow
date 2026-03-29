@@ -232,7 +232,33 @@ class ImplementPhase:
                 logger.debug("Run recording setup failed", exc_info=True)
                 ctx = None
 
+        # Inject prior reflections into the issue context so the agent
+        # benefits from learnings accumulated in previous cycles.
+        from reflections import append_reflection, read_reflections  # noqa: PLC0415
+
+        prior_reflections = read_reflections(self._config, issue.id)
+        if prior_reflections:
+            issue.body = (issue.body or "") + (
+                f"\n\n## Prior Reflections\n\n{prior_reflections}"
+            )
+
         result = await self._run_implementation(issue, branch, idx, review_feedback)
+
+        # Record a reflection for future cycles
+        if result.error:
+            append_reflection(
+                self._config,
+                issue.id,
+                "implement",
+                f"Attempt {idx} failed: {result.error[:200]}",
+            )
+        elif result.success:
+            append_reflection(
+                self._config,
+                issue.id,
+                "implement",
+                f"Attempt {idx} succeeded on branch {branch}.",
+            )
 
         # Finalize the recording
         if ctx is not None:
