@@ -10,6 +10,7 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
+    ClassVar,  # noqa: UP035 — needed at runtime for Pydantic to exclude from fields
     Literal,
     NamedTuple,
     NotRequired,
@@ -1184,6 +1185,38 @@ class EpicState(BaseModel):
     released: bool = False
     auto_decomposed: bool = False
 
+    @property
+    def total_children(self) -> int:
+        """Total number of child issues."""
+        return len(self.child_issues)
+
+    @property
+    def resolved_children(self) -> set[int]:
+        """Children that are completed or excluded (no longer active)."""
+        return set(self.completed_children) | set(self.excluded_children)
+
+    @property
+    def remaining_children(self) -> list[int]:
+        """Children still active (not completed and not excluded)."""
+        resolved = self.resolved_children
+        return [c for c in self.child_issues if c not in resolved]
+
+    @property
+    def progress(self) -> dict[str, int]:
+        """Return a summary dict of child-issue counts by category."""
+        return {
+            "total": self.total_children,
+            "completed": len(self.completed_children),
+            "failed": len(self.failed_children),
+            "excluded": len(self.excluded_children),
+            "approved": len(self.approved_children),
+            "remaining": len(self.remaining_children),
+        }
+
+    def is_child_resolved(self, child_number: int) -> bool:
+        """Return True if *child_number* is completed or excluded."""
+        return child_number in self.resolved_children
+
 
 class Release(BaseModel):
     """Persisted state for a GitHub Release created when an epic completes."""
@@ -1507,6 +1540,30 @@ class TrackedReport(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     history: list[ReportHistoryEntry] = Field(default_factory=list)
+
+    _VALID_TRANSITIONS: ClassVar[dict[str, set[str]]] = {
+        "queued": {"in-progress", "closed"},
+        "in-progress": {"filed", "closed", "queued", "reopened"},
+        "filed": {"fixed", "closed", "reopened"},
+        "fixed": {"closed", "reopened"},
+        "closed": {"reopened"},
+        "reopened": {"in-progress", "closed"},
+    }
+
+    def transition(self, new_status: str, action: str, detail: str = "") -> None:
+        """Transition to *new_status* with a validated state-machine guard.
+
+        Appends a :class:`ReportHistoryEntry` and updates ``updated_at``.
+
+        Raises :class:`ValueError` if the transition is not allowed.
+        """
+        allowed = self._VALID_TRANSITIONS.get(self.status, set())
+        if new_status not in allowed:
+            msg = f"Invalid transition: {self.status} -> {new_status}"
+            raise ValueError(msg)
+        self.status = new_status  # type: ignore[assignment]
+        self.updated_at = datetime.now(UTC).isoformat()
+        self.history.append(ReportHistoryEntry(action=action, detail=detail))
 
 
 class TrackedReportUpdate(BaseModel):

@@ -23,7 +23,6 @@ from models import (
     EscalateFn,
     GitHubIssue,
     HitlEscalation,
-    IssueOutcomeType,
     JudgeResult,
     JudgeVerdict,
     MergeConflictFixFn,
@@ -301,31 +300,26 @@ class PostMergeHandler:
                 )
             except Exception:
                 logger.debug("Failed to record merge outcome", exc_info=True)
-            self._state.mark_issue(pr.issue_number, "merged")
-            self._state.record_pr_merged()
             if self._store is not None:
                 self._store.mark_merged(pr.issue_number)
-            self._state.record_issue_completed()
-            self._state.increment_session_counter("merged")
-            if result.ci_fix_attempts > 0:
-                self._state.record_ci_fix_rounds(result.ci_fix_attempts)
-                for _ in range(result.ci_fix_attempts):
-                    self._state.record_stage_retry(pr.issue_number, "ci_fix")
-            # Track time-to-merge and persist completed timeline
+            # Compute merge duration before consolidated state update
             merge_seconds: float = 0.0
             if issue.created_at:
                 try:
                     created = datetime.fromisoformat(issue.created_at)
                     merge_seconds = (datetime.now(UTC) - created).total_seconds()
-                    self._state.record_merge_duration(merge_seconds)
                 except (ValueError, TypeError):
                     pass
             self._persist_completed_timeline(pr, issue, result, merge_seconds)
-            # Check thresholds and publish alerts
-            proposals = self._state.check_thresholds(
-                self._config.quality_fix_rate_threshold,
-                self._config.approval_rate_threshold,
-                self._config.hitl_rate_threshold,
+            # Consolidated state mutations + threshold check
+            proposals = self._state.record_successful_merge(
+                pr.issue_number,
+                pr.number,
+                ci_fix_attempts=result.ci_fix_attempts,
+                merge_duration_seconds=merge_seconds,
+                quality_fix_rate_threshold=self._config.quality_fix_rate_threshold,
+                approval_rate_threshold=self._config.approval_rate_threshold,
+                hitl_rate_threshold=self._config.hitl_rate_threshold,
             )
             for proposal in proposals:
                 self._state.mark_threshold_fired(proposal["name"])
@@ -343,16 +337,6 @@ class PostMergeHandler:
                         ),
                     )
                 )
-            self._state.record_outcome(
-                pr.issue_number,
-                IssueOutcomeType.MERGED,
-                reason="PR approved and merged",
-                pr_number=pr.number,
-                phase="review",
-            )
-            self._state.reset_review_attempts(pr.issue_number)
-            self._state.reset_issue_attempts(pr.issue_number)
-            self._state.clear_review_feedback(pr.issue_number)
             await self._prs.swap_pipeline_labels(
                 pr.issue_number, self._config.fixed_label[0]
             )

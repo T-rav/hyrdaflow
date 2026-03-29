@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from pydantic import ValidationError
 
 from file_util import atomic_write, rotate_backups
-from models import StateData
+from models import IssueOutcomeType, StateData, ThresholdProposal
 
 if TYPE_CHECKING:
     from dolt_backend import DoltBackend
@@ -207,6 +207,52 @@ class StateTracker(
     def to_dict(self) -> dict[str, Any]:
         """Return a copy of the raw state dict."""
         return self._data.model_dump()
+
+    # --- consolidated mutation helpers ---
+
+    def record_successful_merge(
+        self,
+        issue_number: int,
+        pr_number: int,
+        *,
+        ci_fix_attempts: int = 0,
+        merge_duration_seconds: float = 0.0,
+        quality_fix_rate_threshold: float = 0.0,
+        approval_rate_threshold: float = 0.0,
+        hitl_rate_threshold: float = 0.0,
+    ) -> list[ThresholdProposal]:
+        """Consolidate all state updates for a successful merge.
+
+        Replaces the 13 individual state calls previously scattered in
+        ``PostMergeHandler.handle_approved``.  Returns threshold proposals
+        that should be published as system alerts.
+        """
+        self.mark_issue(issue_number, "merged")
+        self.record_pr_merged()
+        self.record_issue_completed()
+        self.increment_session_counter("merged")
+        if ci_fix_attempts > 0:
+            self.record_ci_fix_rounds(ci_fix_attempts)
+            for _ in range(ci_fix_attempts):
+                self.record_stage_retry(issue_number, "ci_fix")
+        if merge_duration_seconds > 0:
+            self.record_merge_duration(merge_duration_seconds)
+        proposals = self.check_thresholds(
+            quality_fix_rate_threshold,
+            approval_rate_threshold,
+            hitl_rate_threshold,
+        )
+        self.record_outcome(
+            issue_number,
+            IssueOutcomeType.MERGED,
+            reason="PR approved and merged",
+            pr_number=pr_number,
+            phase="review",
+        )
+        self.reset_review_attempts(issue_number)
+        self.reset_issue_attempts(issue_number)
+        self.clear_review_feedback(issue_number)
+        return proposals
 
 
 def build_state_tracker(config: Any) -> StateTracker:

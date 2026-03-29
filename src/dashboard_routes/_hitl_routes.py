@@ -36,9 +36,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
         """Clear all HITL tracking state for an issue."""
         if orch:
             orch.skip_hitl_issue(issue_number)
-        ctx.state.remove_hitl_origin(issue_number)
-        ctx.state.remove_hitl_cause(issue_number)
-        ctx.state.remove_hitl_summary(issue_number)
+        ctx.state.clear_hitl_state(issue_number)
 
     async def _resolve_hitl_item(
         issue_number: int,
