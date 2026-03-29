@@ -40,6 +40,7 @@ it via ``inspect.signature`` comparison.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, runtime_checkable
 
@@ -49,12 +50,20 @@ from models import (
     CodeScanningAlert,
     GitHubIssue,
     HITLItem,
+    LoopResult,
     PRInfo,
     ReviewVerdict,
     Task,
+    TranscriptEventData,
 )
 
-__all__ = ["IssueFetcherPort", "IssueStorePort", "PRPort", "WorkspacePort"]
+__all__ = [
+    "AgentPort",
+    "IssueFetcherPort",
+    "IssueStorePort",
+    "PRPort",
+    "WorkspacePort",
+]
 
 
 @runtime_checkable
@@ -422,4 +431,40 @@ class IssueFetcherPort(Protocol):
         require_complete: bool = False,
     ) -> list[GitHubIssue]:
         """Fetch open issues matching *any* of *labels*, deduplicated."""
+        ...
+
+
+@runtime_checkable
+class AgentPort(Protocol):
+    """Port for agent runner operations used by infrastructure modules.
+
+    Implemented by: ``agent.AgentRunner`` (via ``base_runner.BaseRunner``)
+
+    Defines only the methods needed by infrastructure modules like
+    ``merge_conflict_resolver`` so they can accept the agent runner via
+    dependency injection without importing from the Runner layer.
+
+    Parameter names and types are kept identical to the concrete
+    implementations to satisfy structural subtype checks.
+    """
+
+    def _build_command(self, _worktree_path: Path | None = None) -> list[str]:
+        """Construct the CLI command for the agent."""
+        ...
+
+    async def _execute(
+        self,
+        cmd: list[str],
+        prompt: str,
+        cwd: Path,
+        event_data: TranscriptEventData,
+        *,
+        on_output: Callable[[str], bool] | None = None,
+        telemetry_stats: Mapping[str, object] | None = None,
+    ) -> str:
+        """Run the agent subprocess and return the transcript."""
+        ...
+
+    async def _verify_result(self, worktree_path: Path, branch: str) -> LoopResult:
+        """Verify the agent produced valid commits and quality passes."""
         ...

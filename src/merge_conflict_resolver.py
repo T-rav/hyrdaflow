@@ -27,8 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
     from typing import Any
 
-    from agent import AgentRunner  # noqa: F401
-    from ports import PRPort, WorkspacePort
+    from ports import AgentPort, PRPort, WorkspacePort
 
     #: Async callable that suggests memory entries from transcripts.
     MemorySuggesterFn = Callable[[str, str, str], Coroutine[Any, Any, None]]
@@ -43,7 +42,7 @@ class MergeConflictResolver:
         self,
         config: HydraFlowConfig,
         worktrees: WorkspacePort,
-        agents: AgentRunner | None,
+        agents: AgentPort | None,
         prs: PRPort,
         event_bus: EventBus,
         state: StateTracker,

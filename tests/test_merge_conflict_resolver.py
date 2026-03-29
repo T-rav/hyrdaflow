@@ -524,7 +524,7 @@ class TestFreshRebuildTitleUpdate:
 
     @pytest.mark.asyncio
     async def test_updates_title_on_success(self, tmp_path: Path) -> None:
-        """After successful fresh rebuild, PR title should be updated."""
+        """After successful fresh rebuild, PR title should be updated via PRPort."""
         from pr_manager import PRManager
 
         cfg = ConfigFactory.create(
@@ -547,11 +547,13 @@ class TestFreshRebuildTitleUpdate:
         resolver._worktrees.create = AsyncMock(return_value=new_wt)
         resolver._prs.get_pr_diff = AsyncMock(return_value="diff content")
         resolver._prs.update_pr_title = AsyncMock(return_value=True)
+        # Resolver now uses self._prs.expected_pr_title (PRPort protocol)
+        expected_title = PRManager.expected_pr_title(77, "Fix the gizmo")
+        resolver._prs.expected_pr_title = PRManager.expected_pr_title
 
         result = await resolver.fresh_branch_rebuild(pr, issue, worker_id=0)
 
         assert result is True
-        expected_title = PRManager.expected_pr_title(77, "Fix the gizmo")
         resolver._prs.update_pr_title.assert_awaited_once_with(200, expected_title)
 
     @pytest.mark.asyncio
@@ -607,8 +609,8 @@ class TestArchitectureLayering:
         source = Path(mod.__file__).read_text()
         assert "from phase_utils import" not in source
 
-    def test_constructor_accepts_base_runner(self) -> None:
-        """Constructor should accept BaseRunner (not AgentRunner) for agents param."""
+    def test_constructor_accepts_agent_port(self) -> None:
+        """Constructor should accept AgentPort (not AgentRunner) for agents param."""
         import inspect
 
         from merge_conflict_resolver import MergeConflictResolver
@@ -616,7 +618,7 @@ class TestArchitectureLayering:
         sig = inspect.signature(MergeConflictResolver.__init__)
         agents_param = sig.parameters["agents"]
         annotation_str = str(agents_param.annotation)
-        assert "BaseRunner" in annotation_str
+        assert "AgentPort" in annotation_str
         assert "AgentRunner" not in annotation_str
 
     @pytest.mark.asyncio
@@ -700,7 +702,7 @@ class TestArchitectureLayering:
 
         review_events = [e for e in published if e.type == EventType.REVIEW_UPDATE]
         assert len(review_events) >= 1
-        assert review_events[0].data.role == "reviewer"
+        assert review_events[0].data["role"] == "reviewer"
 
     @pytest.mark.asyncio
     async def test_fresh_rebuild_uses_prs_expected_pr_title(

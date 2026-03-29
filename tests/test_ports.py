@@ -436,3 +436,57 @@ class TestIssueFetcherPortSignatures:
 
         result = _assert_param_names_match(IssueFetcherPort, IssueFetcher, method)
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# AgentPort
+# ---------------------------------------------------------------------------
+
+
+class TestAgentPortConformance:
+    """AgentRunner must satisfy the AgentPort protocol."""
+
+    def test_agent_runner_satisfies_agent_port(self) -> None:
+        """AgentRunner is a structural subtype of AgentPort."""
+        from agent import AgentRunner
+        from ports import AgentPort
+
+        assert isinstance(AgentRunner.__new__(AgentRunner), AgentPort), (
+            "AgentRunner no longer satisfies the AgentPort protocol. "
+            "Check that all methods declared in AgentPort exist on AgentRunner."
+        )
+
+
+class TestAgentPortMethods:
+    """All methods declared in AgentPort exist on AgentRunner."""
+
+    _REQUIRED_METHODS = [
+        "_build_command",
+        "_execute",
+        "_verify_result",
+    ]
+
+    @pytest.mark.parametrize("method", _REQUIRED_METHODS)
+    def test_method_exists_on_agent_runner(self, method: str) -> None:
+        from agent import AgentRunner
+
+        assert hasattr(AgentRunner, method), (
+            f"AgentRunner is missing '{method}' which is declared in AgentPort"
+        )
+
+
+class TestAgentPortSignatures:
+    """AgentPort method signatures must match AgentRunner's implementations."""
+
+    _SIGNED_METHODS = [
+        "_build_command",
+        "_execute",
+    ]
+
+    @pytest.mark.parametrize("method", _SIGNED_METHODS)
+    def test_signature_matches_agent_runner(self, method: str) -> None:
+        from agent import AgentRunner
+        from ports import AgentPort
+
+        result = _assert_param_names_match(AgentPort, AgentRunner, method)
+        assert result is None
