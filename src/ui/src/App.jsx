@@ -7,17 +7,13 @@ import { SystemPanel } from './components/SystemPanel'
 import { OutcomesPanel } from './components/IssueHistoryPanel'
 import { StreamView } from './components/StreamView'
 import { SessionSidebar } from './components/SessionSidebar'
-import { BugReportPanel } from './components/BugReportPanel'
-import { CaretakerPanel } from './components/CaretakerPanel'
 import { theme } from './theme'
 
-const TABS = ['issues', 'hitl', 'outcomes', 'reports', 'caretaker', 'system']
+const TABS = ['issues', 'hitl', 'outcomes', 'system']
 
 const TAB_LABELS = {
   issues: 'Work Stream',
   outcomes: 'Outcomes',
-  reports: 'Reports',
-  caretaker: 'Caretaker',
   hitl: 'HITL',
   system: 'System',
 }
@@ -260,13 +256,6 @@ function AppContent() {
               ? <HITLTable items={hitlItems} onRefresh={refreshHitl} />
               : <div style={idleMessage}>Pipeline is not running — HITL actions are unavailable.</div>
           )}
-          {activeTab === 'reports' && (
-            <BugReportPanel
-              apiBaseUrl=""
-              reporterId={reporterId}
-            />
-          )}
-          {activeTab === 'caretaker' && <CaretakerPanel />}
           {activeTab === 'system' && (
             <SystemPanel
               backgroundWorkers={backgroundWorkers}

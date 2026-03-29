@@ -42,16 +42,6 @@ export function CaretakerPanel() {
     worker: workerMap.get(def.key),
   }))
 
-  const hasAny = caretakerWorkers.some(c => c.worker)
-
-  if (!hasAny) {
-    return (
-      <div style={styles.container} data-testid="caretaker-empty">
-        <div style={styles.empty}>No caretaker workers are running.</div>
-      </div>
-    )
-  }
-
   return (
     <div style={styles.container}>
       <div style={styles.header}>

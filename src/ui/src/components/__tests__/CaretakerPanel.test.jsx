@@ -75,9 +75,10 @@ describe('CaretakerPanel', () => {
     expect(ctx.triggerBgWorker).toHaveBeenCalledWith('stale_issue_gc')
   })
 
-  it('shows empty state when no caretaker workers exist', () => {
+  it('shows all workers even when backend has not reported', () => {
     mockUseHydraFlow.mockReturnValue(defaultContext({ backgroundWorkers: [] }))
     render(<CaretakerPanel />)
-    expect(screen.getByTestId('caretaker-empty')).toBeTruthy()
+    // Workers should still render with 'disabled' status
+    expect(screen.getByText('Stale Issue GC')).toBeTruthy()
   })
 })
