@@ -556,6 +556,24 @@ class ReviewPhase:
 
         await self._record_review_outcome(pr, result)
 
+        # Pre-merge spec check for product-track issues
+        if (
+            result.verdict == ReviewVerdict.APPROVE
+            and pr.number > 0
+            and self._is_product_track_pr(task)
+        ):
+            spec_ok = await self._run_pre_merge_spec_check(task, diff)
+            if not spec_ok:
+                result = result.model_copy(
+                    update={
+                        "verdict": ReviewVerdict.REQUEST_CHANGES,
+                        "summary": (result.summary or "")
+                        + "\n\nSpec-match check failed: implementation does not fully "
+                        "match the product direction from Shape. See spec-match "
+                        "comment on the issue.",
+                    }
+                )
+
         skip_worktree_cleanup = False
         if result.verdict == ReviewVerdict.APPROVE and pr.number > 0:
             await self._handle_approved_merge(
@@ -580,6 +598,65 @@ class ReviewPhase:
 
         await self._cleanup_worktree(pr, result, skip_worktree_cleanup)
         return result
+
+    @staticmethod
+    def _is_product_track_pr(task: Task) -> bool:
+        """Check if the task came through the product discovery/shape track."""
+        return any(
+            "Selected Product Direction" in c or "DECOMPOSITION REQUIRED" in c
+            for c in (task.comments or [])
+        )
+
+    async def _run_pre_merge_spec_check(self, task: Task, diff: str) -> bool:
+        """Run a lightweight spec-match check before merge.
+
+        Returns True if the implementation matches the spec (proceed with merge).
+        Returns False if significant gaps are found (block merge).
+        """
+        from spec_match import (  # noqa: PLC0415
+            build_self_review_prompt,
+            extract_spec_match,
+        )
+
+        diff_summary = diff[:5000] if len(diff) > 5000 else diff
+        prompt = build_self_review_prompt(task, diff_summary)
+
+        try:
+            from agent_cli import build_agent_command  # noqa: PLC0415
+
+            cmd = build_agent_command(
+                tool=self._config.review_tool,
+                model=self._config.review_model,
+                disallowed_tools="Write,Edit,NotebookEdit",
+            )
+            transcript = await self._reviewers._execute(
+                cmd,
+                prompt,
+                self._config.repo_root,
+                {"issue": task.id, "source": "spec-check"},
+            )
+            result = extract_spec_match(transcript)
+            verdict = result.get("verdict", "UNKNOWN")
+
+            if result.get("content"):
+                await self._prs.post_comment(
+                    task.id,
+                    f"## Pre-Merge Spec Check\n\n{result['content']}",
+                )
+
+            if verdict == "MISMATCH":
+                logger.warning(
+                    "Issue #%d spec-match MISMATCH — blocking merge", task.id
+                )
+                return False
+            return True
+        except Exception:
+            logger.warning(
+                "Spec-match check failed for #%d — proceeding with merge",
+                task.id,
+                exc_info=True,
+            )
+            return True  # Don't block on check failure
 
     def _compute_visual_validation(
         self, diff: str, task: Task

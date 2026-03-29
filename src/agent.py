@@ -84,6 +84,19 @@ Run through this checklist before your final commit:
         escalated += "\n".join(extra_items) + "\n"
         return base.rstrip() + "\n" + escalated
 
+    @staticmethod
+    def _build_requirements_gap_section(issue: Task) -> str:
+        """Build requirements gap detection section if issue has spec context."""
+        has_spec = any(
+            "Selected Product Direction" in c or "DECOMPOSITION REQUIRED" in c
+            for c in (issue.comments or [])
+        )
+        if not has_spec:
+            return ""
+        from spec_match import build_requirements_gap_prompt  # noqa: PLC0415
+
+        return build_requirements_gap_prompt(issue)
+
     def __init__(
         self,
         config: HydraFlowConfig,
@@ -658,6 +671,7 @@ Run through this checklist before your final commit:
 7. Commit with: "Fixes #{issue.id}: <concise summary>"
 {feedback_section}{escalation_section}
 {self._build_self_check_checklist(escalations)}
+{self._build_requirements_gap_section(issue)}
 ## UI Guidelines
 
 - Before creating UI components, search `src/ui/src/components/` for existing patterns to reuse.

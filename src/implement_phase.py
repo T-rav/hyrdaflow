@@ -495,6 +495,10 @@ class ImplementPhase:
                 if early_return is not None:
                     return early_return
 
+        # Post-implementation: flag any requirements gaps discovered
+        if result.success and result.transcript:
+            await self._flag_requirements_gaps(issue, result.transcript)
+
         status = "success" if result.success else "failed"
         self._state.mark_issue(issue.id, status)
         return result
@@ -506,6 +510,31 @@ class ImplementPhase:
             not result.success
             and result.error == "No commits found on branch"
             and result.commits == 0
+        )
+
+    async def _flag_requirements_gaps(self, issue: Task, transcript: str) -> None:
+        """Detect and post requirements gaps discovered during implementation."""
+        from spec_match import extract_requirements_gaps  # noqa: PLC0415
+
+        gaps = extract_requirements_gaps(transcript)
+        if not gaps:
+            return
+        lines = ["## Requirements Gaps Discovered During Implementation\n"]
+        for gap in gaps:
+            lines.append(f"- **Gap:** {gap.get('gap', 'Unknown')}")
+            if gap.get("impact"):
+                lines.append(f"  - Impact: {gap['impact']}")
+            if gap.get("assumption"):
+                lines.append(f"  - Assumption made: {gap['assumption']}")
+        lines.append(
+            "\n*These gaps were flagged by the implementation agent. "
+            "Review whether the spec needs updating.*"
+        )
+        await self._prs.post_comment(issue.id, "\n".join(lines))
+        logger.info(
+            "Issue #%d: %d requirements gaps flagged during implementation",
+            issue.id,
+            len(gaps),
         )
 
     async def _handle_zero_commits(

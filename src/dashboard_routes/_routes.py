@@ -2084,8 +2084,6 @@ def create_router(
         _st.set_shape_response(issue_number, text)
 
         # Post to GitHub for audit trail (best-effort)
-        import contextlib  # noqa: PLC0415
-
         with contextlib.suppress(Exception):
             await pr_manager.post_comment(issue_number, f"*[via WhatsApp]* {text}")
 

@@ -755,11 +755,21 @@ Then a brief summary on the next line starting with "SUMMARY: ".
 
         issue_body = self._summarize_issue_body(issue.body)
 
+        # Spec-match section for product-track issues
+        spec_section = ""
+        if any(
+            "Selected Product Direction" in c or "DECOMPOSITION REQUIRED" in c
+            for c in (issue.comments or [])
+        ):
+            from spec_match import build_reviewer_spec_section  # noqa: PLC0415
+
+            spec_section = build_reviewer_spec_section(issue)
+
         prompt = f"""You are reviewing PR #{pr.number} which implements issue #{issue.id}.
 
 ## Issue: {issue.title}
 
-{issue_body}{manifest_section}{memory_section}{log_section}{scanning_section}{bead_section}
+{issue_body}{manifest_section}{memory_section}{log_section}{scanning_section}{bead_section}{spec_section}
 
 ## Precheck Context
 
