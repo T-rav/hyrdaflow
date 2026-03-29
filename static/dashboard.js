@@ -250,6 +250,69 @@ function switchTab(name, evt) {
   document.getElementById(`tab-${name}`).style.display = '';
   currentTab = name;
   if (name === 'transcript') renderTranscript();
+  if (name === 'pipeline') fetchAndRenderPipeline();
+}
+
+// --- Pipeline Kanban ---
+
+const PIPELINE_STAGES = [
+  { key: 'triage', label: 'Triage', track: 'junction' },
+  { key: 'discover', label: 'Discover', track: 'product' },
+  { key: 'shape', label: 'Shape', track: 'product' },
+  { key: 'plan', label: 'Plan', track: 'junction' },
+  { key: 'implement', label: 'Implement', track: 'engineering' },
+  { key: 'review', label: 'Review', track: 'engineering' },
+  { key: 'merged', label: 'Merged', track: 'engineering' },
+];
+
+let pipelineTimer = null;
+
+async function fetchAndRenderPipeline() {
+  try {
+    const resp = await fetch('/api/pipeline');
+    const data = await resp.json();
+    renderKanban(data.stages || {});
+  } catch (e) {
+    const board = document.getElementById('kanban-board');
+    board.innerHTML = '<div class="empty-state">Pipeline data unavailable</div>';
+  }
+  // Auto-refresh while tab is active
+  clearInterval(pipelineTimer);
+  pipelineTimer = setInterval(() => {
+    if (currentTab === 'pipeline') fetchAndRenderPipeline();
+    else clearInterval(pipelineTimer);
+  }, 5000);
+}
+
+function renderKanban(stages) {
+  const board = document.getElementById('kanban-board');
+  board.innerHTML = PIPELINE_STAGES.map(stage => {
+    const issues = stages[stage.key] || [];
+    const trackClass = stage.track === 'product' ? ' product-track' : '';
+    const cards = issues.length > 0
+      ? issues.map(issue => renderKanbanCard(issue, stage.track)).join('')
+      : '<div class="kanban-empty">No issues</div>';
+    return `
+      <div class="kanban-col${trackClass}">
+        <div class="kanban-col-header">
+          <span class="col-label">${stage.label}</span>
+          <span class="count-badge">${issues.length}</span>
+        </div>
+        <div class="kanban-cards">${cards}</div>
+      </div>`;
+  }).join('');
+}
+
+function renderKanbanCard(issue, track) {
+  const trackClass = track === 'product' ? ' track-product' : '';
+  const title = escapeHtml(issue.title || '').slice(0, 50);
+  const status = escapeHtml(issue.status || '');
+  return `
+    <div class="kanban-card${trackClass}" title="${escapeHtml(issue.title || '')}">
+      <span class="card-issue">#${issue.issue_number}</span>
+      <span class="card-title">${title}</span>
+      <div class="card-status">${status}</div>
+    </div>`;
 }
 
 function escapeHtml(text) {
