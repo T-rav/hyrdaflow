@@ -123,7 +123,11 @@ class ShapeRunner(BaseRunner):
         return result
 
     def _build_command(self, _worktree_path=None) -> list[str]:  # type: ignore[override]
-        """Construct the CLI invocation for product shaping."""
+        """Construct the CLI invocation for product shaping.
+
+        Shape agents can read the codebase (Glob, Grep, Read) and search
+        the web (WebSearch, WebFetch) but cannot modify files.
+        """
         return build_agent_command(
             tool=self._config.planner_tool,
             model=self._config.planner_model,
@@ -160,17 +164,19 @@ class ShapeRunner(BaseRunner):
 Use this research to inform your thinking. Do NOT repeat it verbatim.
 """
 
-        # Learned preferences (only on first turn)
+        # Learned preferences and cross-issue context (only on first turn)
         preference_section = ""
         if learned_preferences and turn_count == 0:
             preference_section = f"""
-## Learned Preferences
+## Learned Preferences & Related Decisions
 
 Based on prior product decisions by this user:
 
 {learned_preferences}
 
 Use these to inform your recommendations, but don't constrain your exploration.
+If any prior decisions are directly related to this issue, call out the
+connection and explain how this work should align or differ.
 """
 
         # Adaptive instructions based on turn count
@@ -182,18 +188,27 @@ approaches. Each direction should be meaningfully different.
 
 For each direction, evaluate from four lenses:
 - **User Advocate**: Does this solve the real pain point?
-- **Technical Realist**: How complex to build?
+- **Technical Realist**: How complex to build? Use Glob and Grep to explore
+  the codebase and assess what exists, what can be reused, and what's hard.
 - **Market Strategist**: What's the differentiation?
-- **Scope Hawk**: What's the MVP?"""
+- **Scope Hawk**: What's the MVP?
+
+For UI-heavy directions, sketch the key user flows:
+- Describe the screens/views the user would see
+- Note the primary actions and transitions
+- Call out where the UX is novel vs. standard patterns"""
         elif turn_count < 5:
             phase_instruction = """## Refinement Phase
 
 The product owner is guiding the conversation. Your job:
 - Go deeper on directions they find interesting
 - Combine ideas they suggest
-- Explore angles they ask about
+- Explore angles they ask about — if they mention a competitor or concept,
+  USE WebSearch to research it in real time and bring back specifics
 - Be specific about UX, scope, and implementation details
-- If they seem interested in a direction, flesh it out more"""
+- If they seem interested in a direction, flesh it out more
+- Use Glob/Grep/Read to check the codebase when assessing feasibility
+- For UI directions, describe the user flow step by step"""
         else:
             phase_instruction = """## Crystallization Phase
 
@@ -201,7 +216,8 @@ We're deep in the conversation. Time to converge:
 - Synthesize what the product owner has expressed
 - Propose a clear, specific direction based on the conversation
 - If they haven't narrowed down, recommend your best option with reasoning
-- Be ready to finalize if they agree"""
+- Be ready to finalize if they agree
+- Include concrete UX flow descriptions for the chosen direction"""
 
         # History section
         history_section = ""
@@ -243,6 +259,16 @@ a final specification for the engineering team:
 **Key risks**: What could go wrong
 {_SHAPE_FINALIZE_END}
 
+## Your Capabilities — Use Them
+
+- **Codebase exploration**: Use Glob, Grep, and Read to check existing code
+  when assessing technical feasibility. Mention specific files/functions.
+- **Web research**: Use WebSearch when the product owner asks about competitors,
+  market trends, or specific technologies. Bring back real data, not guesses.
+- **UX sketching**: For UI directions, describe user flows as step-by-step
+  narratives: "User lands on → sees → clicks → transitions to → result."
+  Include layout descriptions and key visual elements.
+
 ## Guidelines
 
 - Be a thought partner, not a form wizard
@@ -250,6 +276,8 @@ a final specification for the engineering team:
 - If they say "go with this" or "ship it", produce the SHAPE_FINALIZE output
 - Every direction should have real tradeoffs, not just pros
 - Prefer depth on 2-3 good ideas over breadth on 5 shallow ones
+- When you reference code feasibility, cite actual files you found
+- When you reference competitors, cite actual features you researched
 
 {MEMORY_SUGGESTION_PROMPT}
 """

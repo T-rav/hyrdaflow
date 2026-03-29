@@ -160,8 +160,19 @@ class ShapePhase:
                     return 1
 
                 research_brief = self._extract_research_brief(issue)
+                # Query learned preferences for cross-issue context (first turn only)
+                learned = ""
+                if (
+                    not conv.turns
+                    and self._runner
+                    and getattr(self._runner, "_hindsight", None)
+                ):
+                    learned = await self._recall_preferences(issue)
                 result = await self._runner.run_turn(
-                    issue, conv, research_brief=research_brief
+                    issue,
+                    conv,
+                    research_brief=research_brief,
+                    learned_preferences=learned,
                 )
 
                 conv.turns.append(
@@ -380,6 +391,26 @@ class ShapePhase:
         if _NEGATIVE_RE.search(response):
             return "negative"
         return "neutral"
+
+    async def _recall_preferences(self, issue: Task) -> str:
+        """Query hindsight for learned product preferences and related decisions."""
+        try:
+            from hindsight import (  # noqa: PLC0415
+                Bank,
+                format_memories_as_markdown,
+                recall_safe,
+            )
+
+            query = f"product direction preferences scope decisions for {issue.title}"
+            hindsight = getattr(self._runner, "_hindsight", None)
+            if not hindsight:
+                return ""
+            memories = await recall_safe(hindsight, Bank.LEARNINGS, query, limit=5)
+            if memories:
+                return format_memories_as_markdown(memories)
+        except Exception:
+            logger.debug("Hindsight recall failed for shape preferences", exc_info=True)
+        return ""
 
     def _extract_research_brief(self, issue: Task) -> str:
         """Extract discovery research brief from issue comments if available."""
