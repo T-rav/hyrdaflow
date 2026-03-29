@@ -85,6 +85,29 @@ Run through this checklist before your final commit:
         return base.rstrip() + "\n" + escalated
 
     @staticmethod
+    def _build_spec_match_check(issue: Task) -> str:
+        """Build spec-match check guidance for pre-quality review."""
+        has_spec = any(
+            "Selected Product Direction" in c or "DECOMPOSITION REQUIRED" in c
+            for c in (issue.comments or [])
+        )
+        if not has_spec:
+            return ""
+        from spec_match import build_spec_context  # noqa: PLC0415
+
+        spec = build_spec_context(issue)
+        # Truncate to avoid prompt bloat
+        if len(spec) > 3000:
+            spec = spec[:3000] + "\n... [truncated]"
+        return (
+            "\nSpec-match check (CRITICAL for product-track issues):\n"
+            "- Compare your implementation against the original product direction below\n"
+            "- Every requirement in the spec must be addressed in the code\n"
+            "- If anything is missing, implement it now before proceeding\n"
+            f"\n<details><summary>Original Spec</summary>\n\n{spec}\n\n</details>\n"
+        )
+
+    @staticmethod
     def _build_requirements_gap_section(issue: Task) -> str:
         """Build requirements gap detection section if issue has spec context."""
         has_spec = any(
@@ -830,6 +853,7 @@ Gap check:
 - check edge cases: empty inputs, None values, missing keys, boundary conditions
 - verify all new functions have type hints and all imports are correct
 - ensure no debug code, print statements, or hardcoded test values remain
+{self._build_spec_match_check(issue)}
 
 Test coverage check:
 - every new public function/method must have at least one test
