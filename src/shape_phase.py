@@ -1,15 +1,20 @@
-"""Shape phase — propose product directions and await human selection."""
+"""Shape phase — multi-turn product design conversation."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
+from datetime import UTC, datetime
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from issue_store import IssueStore
-from models import ProductDirection, ShapeResult, Task
+from models import (
+    ConversationTurn,
+    ShapeConversation,
+    Task,
+)
 from phase_utils import (
     MemorySuggester,  # noqa: TCH001
     _sentry_transaction,
@@ -20,23 +25,33 @@ from pr_manager import PRManager
 from shape_runner import ShapeRunner  # noqa: TCH001
 from state import StateTracker
 from task_source import TaskTransitioner
+from whatsapp_bridge import WhatsAppBridge  # noqa: TCH001
 
 logger = logging.getLogger("hydraflow.shape_phase")
 
-# Marker comment prefix so we can detect shape options vs other comments
 _SHAPE_OPTIONS_MARKER = "## Product Directions"
-_DIRECTION_SELECTED_RE = re.compile(r"(?:direction|option)\s+([A-E])\b", re.IGNORECASE)
+_SHAPE_TURN_MARKER = "**Shape Turn"
+_FINALIZE_RE = re.compile(
+    r"\b(go with|finalize|ship it|let.s do|approved?|lgtm|"
+    r"direction [a-e]|looks good|proceed|build it)\b",
+    re.IGNORECASE,
+)
+_CANCEL_RE = re.compile(r"\b(cancel|nevermind|close this|stop)\b", re.IGNORECASE)
+
+# Learning signal classification
+_SCOPE_NARROW_RE = re.compile(r"\b(just|only|start with|mvp|scope to|limit to)\b", re.I)
+_SCOPE_EXPAND_RE = re.compile(r"\b(also|and also|what about|add|include)\b", re.I)
+_POSITIVE_RE = re.compile(r"\b(like|love|yes|good|great|perfect|exactly)\b", re.I)
+_NEGATIVE_RE = re.compile(r"\b(no|not|don.t|skip|drop|remove|hate)\b", re.I)
 
 
 class ShapePhase:
-    """Proposes product directions and waits for human/agent selection.
+    """Multi-turn product design conversation.
 
-    Two-part loop:
-    - Part A (generate): For issues newly in Shape, generate direction
-      options and post as a structured comment.
-    - Part B (poll): For issues awaiting a decision, poll for reply
-      comments containing a selection. When found, parse the selection,
-      enrich the issue, and transition to plan.
+    The Shape phase is a conversation loop:
+    1. Agent proposes/explores/refines (each turn is a fresh claude -p invocation)
+    2. Human responds via GitHub comment, dashboard, or WhatsApp
+    3. Repeat until finalization or timeout
     """
 
     def __init__(
@@ -48,6 +63,7 @@ class ShapePhase:
         event_bus: EventBus,
         stop_event: asyncio.Event,
         shape_runner: ShapeRunner | None = None,
+        whatsapp_bridge: WhatsAppBridge | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -57,9 +73,8 @@ class ShapePhase:
         self._bus = event_bus
         self._stop_event = stop_event
         self._runner = shape_runner
+        self._whatsapp = whatsapp_bridge
         self._suggest_memory = MemorySuggester(config, prs, state)
-        # Track issues that have had options posted (awaiting selection)
-        self._awaiting_selection: set[int] = set()
 
     async def shape_issues(self) -> bool:
         """Process shape-labeled issues. Returns True if work was done."""
@@ -78,135 +93,199 @@ class ShapePhase:
         return bool(sum(results))
 
     async def _shape_single(self, issue: Task) -> int:
-        """Shape a single issue — generate options or check for selection."""
+        """Run one iteration of the shape conversation for a single issue."""
         with _sentry_transaction("pipeline.shape", f"shape:#{issue.id}"):
             async with store_lifecycle(self._store, issue.id, "shape"):
-                # Check if options have already been posted
-                enriched = await self._store.enrich_with_comments(issue)
-                has_options = any(
-                    _SHAPE_OPTIONS_MARKER in c for c in (enriched.comments or [])
+                conv = self._state.get_shape_conversation(issue.id)
+                if not conv:
+                    conv = ShapeConversation(
+                        issue_number=issue.id,
+                        started_at=datetime.now(UTC).isoformat(),
+                    )
+
+                # If last turn was agent, check for human response
+                if conv.turns and conv.turns[-1].role == "agent":
+                    response = await self._check_for_response(issue)
+                    if response:
+                        signal = self._classify_signal(response)
+                        conv.turns.append(
+                            ConversationTurn(
+                                role="human",
+                                content=response,
+                                timestamp=datetime.now(UTC).isoformat(),
+                                signal=signal,
+                            )
+                        )
+                        conv.last_activity_at = datetime.now(UTC).isoformat()
+                        self._state.set_shape_conversation(issue.id, conv)
+
+                        # Write per-turn learning signal
+                        await self._write_turn_signal(issue, conv, response, signal)
+
+                        if _CANCEL_RE.search(response):
+                            logger.info(
+                                "Issue #%d shape — cancelled by human", issue.id
+                            )
+                            self._state.remove_shape_conversation(issue.id)
+                            return 1
+
+                        if _FINALIZE_RE.search(response):
+                            conv.status = "finalizing"
+                    else:
+                        # No response yet — check timeout
+                        if self._is_timed_out(conv):
+                            conv.status = "timed_out"
+                            self._state.set_shape_conversation(issue.id, conv)
+                            await self._transitioner.post_comment(
+                                issue.id,
+                                "**Shape conversation timed out.** "
+                                "Reply to this issue to resume the design conversation.",
+                            )
+                            logger.info("Issue #%d shape — timed out", issue.id)
+                            return 0
+                        # Re-enqueue for next poll cycle
+                        self._store.enqueue_transition(issue, "shape")
+                        return 0
+
+                # Check max turns
+                if len(conv.turns) >= self._config.max_shape_turns:
+                    conv.status = "finalizing"
+
+                # Run agent turn
+                if not self._runner:
+                    await self._transitioner.post_comment(
+                        issue.id,
+                        "Shape runner not configured. Manual product design required.",
+                    )
+                    return 1
+
+                research_brief = self._extract_research_brief(issue)
+                result = await self._runner.run_turn(
+                    issue, conv, research_brief=research_brief
                 )
 
-                if not has_options:
-                    # Part A: Generate and post direction options
-                    return await self._generate_options(issue)
+                conv.turns.append(
+                    ConversationTurn(
+                        role="agent",
+                        content=result.content,
+                        timestamp=datetime.now(UTC).isoformat(),
+                    )
+                )
+                conv.last_activity_at = datetime.now(UTC).isoformat()
+                self._state.set_shape_conversation(issue.id, conv)
 
-                # Part B: Check for a selection in comments after the options
-                selection = self._find_selection(enriched.comments or [])
-                if selection:
-                    return await self._process_selection(issue, selection)
+                if result.is_final or conv.status == "finalizing":
+                    await self._process_finalization(issue, conv, result.content)
+                    conv.status = "done"
+                    self._state.set_shape_conversation(issue.id, conv)
+                    return 1
 
-                # No selection yet — re-enqueue for polling on next cycle
+                # Post agent turn and wait for response
+                await self._post_conversation_turn(
+                    issue, result.content, len(conv.turns)
+                )
                 self._store.enqueue_transition(issue, "shape")
-                logger.debug("Issue #%d shape — awaiting direction selection", issue.id)
-                return 0
 
-    async def _generate_options(self, issue: Task) -> int:
-        """Generate product direction options and post them."""
-        await self._bus.publish(
-            HydraFlowEvent(
-                type=EventType.SHAPE_UPDATE,
-                data={"issue": issue.id, "action": "generating_options"},
-            )
-        )
+                await self._bus.publish(
+                    HydraFlowEvent(
+                        type=EventType.SHAPE_UPDATE,
+                        data={
+                            "issue": issue.id,
+                            "action": "turn_posted",
+                            "turn": len(conv.turns),
+                        },
+                    )
+                )
+                return 1
 
-        if self._runner:
-            # Extract research brief from discover phase comment (if present)
-            enriched = await self._store.enrich_with_comments(issue)
-            research_brief = self._extract_research_brief(enriched.comments or [])
-            result = await self._runner.shape(issue, research_brief=research_brief)
-        else:
-            result = ShapeResult(
-                issue_number=issue.id,
-                directions=[
-                    ProductDirection(
-                        name="Direction A",
-                        approach="Shape runner not configured",
-                        tradeoffs="Configure ShapeRunner for real direction generation",
-                        effort="TBD",
-                        risk="TBD",
-                    ),
-                ],
-                recommendation="Shape runner not configured — manual direction selection required.",
-            )
+    async def _check_for_response(self, issue: Task) -> str | None:
+        """Check GitHub comments, dashboard input, and WhatsApp for a human response."""
+        # Source 1: GitHub comments (primary)
+        enriched = await self._store.enrich_with_comments(issue)
+        github_response = self._find_human_reply(enriched.comments or [])
+        if github_response:
+            return github_response
 
-        comment = self._format_options(issue, result)
-        html = self.format_options_html(issue, result)
-        if not self._config.dry_run:
-            await self._transitioner.post_comment(issue.id, comment)
-            self._awaiting_selection.add(issue.id)
-            # Save HTML artifact for dashboard/canvas serving
-            self._save_html_artifact(issue.id, html)
+        # Source 2: Dashboard human-input (if available via orchestrator)
+        # This is checked by the orchestrator's HITL controller — responses
+        # are posted as GitHub comments, so they'll appear in Source 1
 
-        await self._bus.publish(
-            HydraFlowEvent(
-                type=EventType.SHAPE_UPDATE,
-                data={
-                    "issue": issue.id,
-                    "action": "options_posted",
-                    "html_artifact": html,
-                    "directions_count": len(result.directions),
-                },
-            )
-        )
-        logger.info(
-            "Issue #%d shape — direction options posted, awaiting selection",
-            issue.id,
-        )
-        # Re-enqueue so the poll part picks it up next cycle
-        self._store.enqueue_transition(issue, "shape")
-        return 1
+        # Source 3: WhatsApp (if configured)
+        # WhatsApp inbound webhook posts to human-input API → GitHub comment
+        # So this also appears in Source 1
 
-    def _find_selection(self, comments: list[str]) -> str | None:
-        """Look for a direction selection in comments after the options marker.
-
-        Returns the selected direction letter (A-E) or None.
-        """
-        found_options = False
-        for comment in comments:
-            if _SHAPE_OPTIONS_MARKER in comment:
-                found_options = True
-                continue
-            if found_options:
-                match = _DIRECTION_SELECTED_RE.search(comment)
-                if match:
-                    return match.group(1).upper()
         return None
 
-    async def _process_selection(self, issue: Task, selection: str) -> int:
-        """Process a direction selection and transition to plan."""
-        self._awaiting_selection.discard(issue.id)
+    def _find_human_reply(self, comments: list[str]) -> str | None:
+        """Find the most recent human comment after the last agent turn."""
+        last_agent_idx = -1
+        for i, comment in enumerate(comments):
+            if _SHAPE_TURN_MARKER in comment or _SHAPE_OPTIONS_MARKER in comment:
+                last_agent_idx = i
 
-        # Extract refinement text from the selection comment
-        enriched = await self._store.enrich_with_comments(issue)
-        refinement = self._extract_refinement(enriched.comments or [], selection)
+        if last_agent_idx == -1:
+            return None
 
-        # Build enrichment with full direction context for the planner
-        direction_detail = self._get_selected_direction_detail(
-            enriched.comments or [], selection
+        # Look for human comments after the last agent comment
+        for comment in comments[last_agent_idx + 1 :]:
+            if (
+                _SHAPE_TURN_MARKER not in comment
+                and _SHAPE_OPTIONS_MARKER not in comment
+            ):
+                return comment.strip()
+
+        return None
+
+    async def _post_conversation_turn(
+        self, issue: Task, content: str, turn_num: int
+    ) -> None:
+        """Post an agent turn to GitHub and notify via WhatsApp."""
+        comment = (
+            f"{_SHAPE_TURN_MARKER} {turn_num}** — Product Design Conversation\n\n"
+            f"{content}\n\n"
+            "---\n"
+            '*Reply to continue the conversation, or say "ship it" to finalize.*'
         )
+        if not self._config.dry_run:
+            await self._transitioner.post_comment(issue.id, comment)
+
+            # Save HTML artifact for visual viewing
+            html = self.format_options_html(issue, content, turn_num)
+            self._save_html_artifact(issue.id, html)
+
+            # WhatsApp notification
+            if self._whatsapp and hasattr(self._whatsapp, "send_shape_turn"):
+                try:
+                    artifact_url = (
+                        f"{self._config.dashboard_url}/api/shape/artifact/{issue.id}"
+                    )
+                    await self._whatsapp.send_shape_turn(
+                        issue.id, issue.title, content[:300], artifact_url
+                    )
+                except Exception:
+                    logger.warning(
+                        "WhatsApp notification failed for issue #%d",
+                        issue.id,
+                        exc_info=True,
+                    )
+
+    async def _process_finalization(
+        self, issue: Task, conv: ShapeConversation, final_content: str
+    ) -> None:
+        """Process the final shape output and transition to plan."""
         enrichment_parts = [
-            "## Selected Product Direction\n",
-            f"**Direction {selection}** was selected during product shaping.\n",
-        ]
-        if refinement:
-            enrichment_parts.append(f"**Refinement:** {refinement}\n")
-        if direction_detail:
-            enrichment_parts.append(f"\n### Direction Detail\n\n{direction_detail}\n")
-        enrichment_parts.append(
+            "## Final Product Direction\n",
+            f"{final_content}\n",
             "\n### Planning Guidance — DECOMPOSITION REQUIRED\n\n"
             "This issue came through the product discovery and shaping track. "
             "It is a BROAD product direction, NOT a single implementable task.\n\n"
             "**You MUST decompose this into 3-8 concrete sub-issues** using the "
             "NEW_ISSUES_START/NEW_ISSUES_END format. Each sub-issue should:\n"
             "- Be independently implementable and testable\n"
-            "- Be scoped to a single concern (one component, one API, one UI piece)\n"
-            "- Have a clear acceptance criteria in its body\n"
-            "- Reference the selected direction above for context\n\n"
-            "Do NOT plan this as a single large implementation. "
-            "The value of the product track is that it breaks vague work "
-            "into well-scoped engineering tasks."
-        )
+            "- Be scoped to a single concern\n"
+            "- Have clear acceptance criteria\n"
+            "- Reference the product direction above for context",
+        ]
         enrichment = "\n".join(enrichment_parts)
 
         if not self._config.dry_run:
@@ -215,101 +294,99 @@ class ShapePhase:
             await self._transitioner.transition(issue.id, "plan")
             self._state.increment_session_counter("shaped")
 
-        # Write learning signal to memory — structured decision for taste profile
-        learning_transcript = (
-            "MEMORY_SUGGESTION_START\n"
-            f"title: Product direction selected for #{issue.id}\n"
-            f"learning: Direction {selection} chosen for '{issue.title}'. "
-            f"{f'Refinement: {refinement}. ' if refinement else ''}"
-            "This decision reflects product taste and scoping preferences.\n"
-            f"context: Product shaping for issue #{issue.id}\n"
-            "type: knowledge\n"
-            "MEMORY_SUGGESTION_END"
-        )
-        await self._suggest_memory(learning_transcript, "shape", f"issue #{issue.id}")
+        # Write finalization learning signal
+        await self._write_finalization_signal(issue, conv)
 
-        # Emit learning signal event for real-time consumers
         await self._bus.publish(
             HydraFlowEvent(
                 type=EventType.SHAPE_UPDATE,
                 data={
                     "issue": issue.id,
-                    "action": "direction_selected",
-                    "direction": selection,
-                    "refinement": refinement,
-                    "issue_title": issue.title,
+                    "action": "finalized",
+                    "turns": len(conv.turns),
                 },
             )
         )
         logger.info(
-            "Issue #%d shape — direction %s selected → %s",
+            "Issue #%d shape finalized after %d turns → %s",
             issue.id,
-            selection,
+            len(conv.turns),
             self._config.planner_label[0],
         )
-        return 1
+
+    async def _write_turn_signal(
+        self, issue: Task, conv: ShapeConversation, response: str, signal: str
+    ) -> None:
+        """Write per-turn learning signal to memory."""
+        turn_num = len(conv.turns)
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            f"title: Shape turn {turn_num} signal for #{issue.id}\n"
+            f"learning: Turn {turn_num} for '{issue.title}': "
+            f"human response classified as '{signal}'. "
+            f"Response excerpt: '{response[:80]}'\n"
+            f"context: Shape conversation turn {turn_num} for issue #{issue.id}\n"
+            "type: knowledge\n"
+            "MEMORY_SUGGESTION_END"
+        )
+        await self._suggest_memory(transcript, "shape", f"issue #{issue.id}")
+
+    async def _write_finalization_signal(
+        self, issue: Task, conv: ShapeConversation
+    ) -> None:
+        """Write comprehensive finalization learning signal."""
+        turn_count = len(conv.turns)
+        human_turns = [t for t in conv.turns if t.role == "human"]
+        signals = [t.signal for t in human_turns if t.signal]
+        taste_tokens = set()
+        for t in human_turns:
+            for word in re.findall(
+                r"\b(simple|clean|fast|powerful|minimal|elegant|robust)\b",
+                t.content,
+                re.I,
+            ):
+                taste_tokens.add(word.lower())
+
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            f"title: Shape conversation completed for #{issue.id}\n"
+            f"learning: Shaped '{issue.title}' in {turn_count} turns. "
+            f"Signals: {', '.join(signals) if signals else 'none classified'}. "
+            f"Taste tokens: {', '.join(taste_tokens) if taste_tokens else 'none extracted'}. "
+            f"Conversation depth indicates {'deep exploration' if turn_count > 6 else 'quick decision'}.\n"
+            f"context: Shape finalization for issue #{issue.id}\n"
+            "type: knowledge\n"
+            "MEMORY_SUGGESTION_END"
+        )
+        await self._suggest_memory(transcript, "shape", f"issue #{issue.id}")
+
+    def _is_timed_out(self, conv: ShapeConversation) -> bool:
+        """Check if the conversation has timed out."""
+        if not conv.last_activity_at:
+            return False
+        last = datetime.fromisoformat(conv.last_activity_at)
+        elapsed = (datetime.now(UTC) - last).total_seconds() / 60
+        return elapsed > self._config.shape_timeout_minutes
 
     @staticmethod
-    def _extract_refinement(comments: list[str], selection: str) -> str:
-        """Extract refinement text from the selection comment.
+    def _classify_signal(response: str) -> str:
+        """Classify a human response for learning signal."""
+        if _SCOPE_NARROW_RE.search(response):
+            return "scope_narrow"
+        if _SCOPE_EXPAND_RE.search(response):
+            return "scope_expand"
+        if _POSITIVE_RE.search(response):
+            return "positive"
+        if _NEGATIVE_RE.search(response):
+            return "negative"
+        return "neutral"
 
-        The selection comment is expected to contain "Direction X" plus
-        any additional text as refinement instructions.
-        """
-        found_options = False
-        for comment in comments:
-            if _SHAPE_OPTIONS_MARKER in comment:
-                found_options = True
-                continue
-            if found_options:
-                match = _DIRECTION_SELECTED_RE.search(comment)
-                if match and match.group(1).upper() == selection:
-                    # Remove the direction selection text, keep the rest
-                    raw = _DIRECTION_SELECTED_RE.sub("", comment).strip()
-                    # Clean up common separators
-                    raw = raw.lstrip("—-–:,.").strip()
-                    return raw
+    def _extract_research_brief(self, issue: Task) -> str:
+        """Extract discovery research brief from issue comments if available."""
+        for comment in issue.comments or []:
+            if "## Product Discovery Brief" in comment:
+                return comment
         return ""
-
-    def _format_options(self, issue: Task, result: ShapeResult) -> str:
-        """Format direction options as a structured GitHub comment."""
-        lines = [
-            f"{_SHAPE_OPTIONS_MARKER} for #{issue.id}",
-            "",
-        ]
-        for i, direction in enumerate(result.directions):
-            letter = chr(65 + i)  # A, B, C, ...
-            lines.extend(
-                [
-                    f"### Direction {letter}: {direction.name}",
-                    "",
-                    f"**Approach:** {direction.approach}",
-                    f"**Tradeoffs:** {direction.tradeoffs}",
-                    f"**Effort:** {direction.effort} | **Risk:** {direction.risk}",
-                ]
-            )
-            if direction.differentiator:
-                lines.append(f"**Differentiator:** {direction.differentiator}")
-            lines.append("")
-
-        if result.recommendation:
-            lines.extend(
-                [
-                    "### Recommendation",
-                    "",
-                    result.recommendation,
-                    "",
-                ]
-            )
-
-        lines.extend(
-            [
-                "---",
-                "Reply with your selection (e.g. `Direction A`) and any refinements.",
-                "The selected direction will be used to inform the implementation plan.",
-            ]
-        )
-        return "\n".join(lines)
 
     def _save_html_artifact(self, issue_number: int, html: str) -> None:
         """Save HTML artifact for dashboard/canvas serving."""
@@ -317,95 +394,24 @@ class ShapePhase:
         artifacts_dir.mkdir(parents=True, exist_ok=True)
         path = artifacts_dir / f"issue-{issue_number}.html"
         path.write_text(html, encoding="utf-8")
-        logger.debug("Saved shape HTML artifact for issue #%d → %s", issue_number, path)
 
     @staticmethod
-    def _get_selected_direction_detail(comments: list[str], selection: str) -> str:
-        """Extract the full detail of the selected direction from the options comment."""
-        for comment in comments:
-            if _SHAPE_OPTIONS_MARKER not in comment:
-                continue
-            # Find the section for the selected direction
-            header = f"### Direction {selection}:"
-            start = comment.find(header)
-            if start == -1:
-                continue
-            # Find the next direction header or end of comment
-            next_header = comment.find("### Direction ", start + len(header))
-            if next_header == -1:
-                next_header = comment.find("### Recommendation", start + len(header))
-            if next_header == -1:
-                next_header = comment.find("---", start + len(header))
-            if next_header == -1:
-                return comment[start:].strip()
-            return comment[start:next_header].strip()
-        return ""
-
-    @staticmethod
-    def _extract_research_brief(comments: list[str]) -> str:
-        """Extract the discovery research brief from issue comments."""
-        for comment in comments:
-            if "## Product Discovery Brief" in comment:
-                return comment
-        return ""
-
-    @staticmethod
-    def format_options_html(issue: Task, result: ShapeResult) -> str:
-        """Render direction options as a self-contained HTML document for canvas display."""
-        effort_colors = {"low": "#3fb950", "medium": "#d29922", "high": "#f85149"}
-        risk_colors = {"low": "#3fb950", "medium": "#d29922", "high": "#f85149"}
-
-        cards_html = []
-        for i, d in enumerate(result.directions):
-            letter = chr(65 + i)
-            effort_color = effort_colors.get(d.effort.lower(), "#8b949e")
-            risk_color = risk_colors.get(d.risk.lower(), "#8b949e")
-            cards_html.append(f"""
-        <div class="card" data-direction="{letter}">
-          <div class="card-header">
-            <span class="letter">{letter}</span>
-            <span class="name">{d.name}</span>
-          </div>
-          <p class="approach">{d.approach}</p>
-          <p class="tradeoffs"><strong>Tradeoffs:</strong> {d.tradeoffs}</p>
-          <div class="badges">
-            <span class="badge" style="background:{effort_color}20;color:{effort_color};border:1px solid {effort_color}">Effort: {d.effort}</span>
-            <span class="badge" style="background:{risk_color}20;color:{risk_color};border:1px solid {risk_color}">Risk: {d.risk}</span>
-          </div>
-          {f'<p class="diff"><strong>Differentiator:</strong> {d.differentiator}</p>' if d.differentiator else ""}
-        </div>""")
-
-        rec_html = ""
-        if result.recommendation:
-            rec_html = f'<div class="recommendation"><strong>Recommendation:</strong> {result.recommendation}</div>'
-
+    def format_options_html(issue: Task, content: str, turn_num: int) -> str:
+        """Render a conversation turn as self-contained HTML."""
         return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Product Directions — #{issue.id}</title>
+<html><head><meta charset="utf-8"><title>Shape #{issue.id} — Turn {turn_num}</title>
 <style>
   * {{ margin:0; padding:0; box-sizing:border-box; }}
   body {{ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
-         background:#0d1117; color:#c9d1d9; padding:24px; }}
+         background:#0d1117; color:#c9d1d9; padding:24px; line-height:1.6; }}
   h1 {{ font-size:18px; margin-bottom:4px; }}
   .subtitle {{ color:#8b949e; font-size:13px; margin-bottom:20px; }}
-  .cards {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; }}
-  .card {{ background:#161b22; border:1px solid #30363d; border-radius:8px; padding:16px;
-           cursor:pointer; transition:border-color 0.2s,box-shadow 0.2s; }}
-  .card:hover {{ border-color:#58a6ff; box-shadow:0 0 0 1px #58a6ff; }}
-  .card-header {{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }}
-  .letter {{ background:#58a6ff20; color:#58a6ff; border:1px solid #58a6ff;
-             border-radius:50%; width:28px; height:28px; display:flex; align-items:center;
-             justify-content:center; font-weight:700; font-size:13px; flex-shrink:0; }}
-  .name {{ font-weight:600; font-size:14px; }}
-  .approach {{ font-size:13px; margin-bottom:8px; line-height:1.5; }}
-  .tradeoffs {{ font-size:12px; color:#8b949e; margin-bottom:8px; line-height:1.4; }}
-  .badges {{ display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap; }}
-  .badge {{ font-size:11px; padding:2px 8px; border-radius:12px; font-weight:500; }}
-  .diff {{ font-size:12px; color:#8b949e; line-height:1.4; }}
-  .recommendation {{ background:#161b22; border:1px solid #30363d; border-radius:8px;
-                     padding:12px; margin-top:16px; font-size:13px; line-height:1.5; }}
+  .content {{ background:#161b22; border:1px solid #30363d; border-radius:8px;
+              padding:20px; font-size:14px; white-space:pre-wrap; }}
+  .footer {{ margin-top:16px; color:#8b949e; font-size:12px; font-style:italic; }}
 </style></head><body>
-<h1>Product Directions for #{issue.id}</h1>
-<p class="subtitle">{issue.title}</p>
-<div class="cards">{"".join(cards_html)}</div>
-{rec_html}
+<h1>Shape Conversation — #{issue.id}</h1>
+<p class="subtitle">{issue.title} · Turn {turn_num}</p>
+<div class="content">{content}</div>
+<p class="footer">Reply on GitHub, the dashboard, or WhatsApp to continue.</p>
 </body></html>"""

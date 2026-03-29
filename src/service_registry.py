@@ -275,6 +275,15 @@ def build_services(
         discover_runner=discover_runner,
     )
     shape_runner = ShapeRunner(config, event_bus)
+    wa_bridge = None
+    if config.whatsapp_enabled:
+        from whatsapp_bridge import WhatsAppBridge  # noqa: PLC0415
+
+        wa_bridge = WhatsAppBridge(
+            phone_id=config.whatsapp_phone_id,
+            token=config.whatsapp_token,
+            recipient=config.whatsapp_recipient,
+        )
     shape_phase = ShapePhase(  # noqa: F841
         config,
         state,
@@ -283,6 +292,7 @@ def build_services(
         event_bus,
         stop_event,
         shape_runner=shape_runner,
+        whatsapp_bridge=wa_bridge,
     )
     planner_phase = PlanPhase(
         config,

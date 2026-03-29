@@ -425,6 +425,46 @@ class ShapeResult(BaseModel):
     )
 
 
+# --- Shape Conversation ---
+
+
+class ConversationTurn(BaseModel):
+    """A single turn in a shape design conversation."""
+
+    role: str = Field(description="Who spoke: 'agent' or 'human'")
+    content: str = Field(description="The message content")
+    timestamp: str = Field(default="", description="ISO 8601 timestamp")
+    signal: str = Field(
+        default="",
+        description="Classified learning signal (e.g. scope_narrow, positive)",
+    )
+    source: str = Field(
+        default="", description="Response source: github, dashboard, whatsapp"
+    )
+
+
+class ShapeConversation(BaseModel):
+    """Persisted state for an active shape design conversation."""
+
+    issue_number: int = Field(description="GitHub issue number")
+    turns: list[ConversationTurn] = Field(default_factory=list)
+    status: str = Field(
+        default="exploring", description="exploring, finalizing, done, timed_out"
+    )
+    started_at: str = Field(default="", description="ISO 8601")
+    last_activity_at: str = Field(default="", description="ISO 8601")
+
+
+class ShapeTurnResult(BaseModel):
+    """Result of a single shape agent turn."""
+
+    content: str = Field(default="", description="Agent's response content")
+    is_final: bool = Field(
+        default=False, description="Whether this is a finalization turn"
+    )
+    transcript: str = Field(default="", description="Full agent transcript")
+
+
 # --- Planner ---
 
 
@@ -1310,6 +1350,7 @@ class StateData(BaseModel):
     digest_hashes: dict[str, str] = Field(default_factory=dict)
     bot_pr_settings: BotPRSettings = Field(default_factory=BotPRSettings)
     bot_pr_processed: list[int] = Field(default_factory=list)
+    shape_conversations: dict[str, ShapeConversation] = Field(default_factory=dict)
     last_updated: str | None = None
 
 

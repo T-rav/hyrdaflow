@@ -33,6 +33,7 @@ from ._lifetime import LifetimeStatsMixin
 from ._report import ReportStateMixin
 from ._review import ReviewStateMixin
 from ._session import SessionStateMixin
+from ._shape import ShapeStateMixin
 from ._worker import WorkerStateMixin
 from ._worktree import WorktreeStateMixin
 
@@ -53,6 +54,7 @@ class StateTracker(
     SessionStateMixin,
     WorkerStateMixin,
     ReportStateMixin,
+    ShapeStateMixin,
     BotPRStateMixin,
 ):
     """JSON-file backed state for crash recovery.

@@ -2036,4 +2036,45 @@ def create_router(
             )
         return HTMLResponse(path.read_text(encoding="utf-8"))
 
+    @router.post("/api/webhooks/whatsapp")
+    async def whatsapp_webhook(request_body: dict) -> JSONResponse:
+        """Receive inbound WhatsApp messages and route to shape conversations.
+
+        Parses the WhatsApp Cloud API webhook payload, extracts the message
+        text and issue number, and submits it as a human input response.
+        Also posts the response as a GitHub comment for audit trail.
+        """
+        from whatsapp_bridge import WhatsAppBridge  # noqa: PLC0415
+
+        text, issue_number = WhatsAppBridge.parse_webhook(request_body)
+        if not text:
+            return JSONResponse({"status": "no_message"})
+
+        # If no issue number found, try to find the most recent active shape
+        _cfg, _st, _bus, _get_orch = _resolve_runtime(None)
+        orch = _get_orch()
+        if orch and issue_number is None:
+            # Fall back to first active shape conversation
+            conv = _st.get_shape_conversation(issue_number) if issue_number else None
+            if conv is None:
+                # Try all conversations for an active one
+                for key in list(_st._data.shape_conversations):
+                    c = _st._data.shape_conversations[key]
+                    if c.status == "exploring":
+                        issue_number = c.issue_number
+                        break
+
+        if issue_number is None:
+            return JSONResponse({"status": "no_issue_match"}, status_code=400)
+
+        # Submit as human input and post to GitHub for audit trail
+        if orch:
+            orch.provide_human_input(issue_number, text)
+        import contextlib  # noqa: PLC0415
+
+        with contextlib.suppress(Exception):
+            await pr_manager.post_comment(issue_number, f"*[via WhatsApp]* {text}")
+
+        return JSONResponse({"status": "ok", "issue": issue_number})
+
     return router

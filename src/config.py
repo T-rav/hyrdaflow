@@ -545,6 +545,38 @@ class HydraFlowConfig(BaseModel):
         le=10,
         description="Clarity score threshold: issues scoring below this route to discovery",
     )
+    max_shape_turns: int = Field(
+        default=10,
+        ge=2,
+        le=20,
+        description="Maximum conversation turns in a shape session",
+    )
+    shape_timeout_minutes: int = Field(
+        default=60,
+        ge=5,
+        le=1440,
+        description="Minutes to wait for human response before timing out shape conversation",
+    )
+    whatsapp_enabled: bool = Field(
+        default=False,
+        description="Enable WhatsApp notifications for shape conversations",
+    )
+    whatsapp_phone_id: str = Field(
+        default="",
+        description="WhatsApp Business API phone number ID",
+    )
+    whatsapp_token: str = Field(
+        default="",
+        description="WhatsApp Business API access token",
+    )
+    whatsapp_recipient: str = Field(
+        default="",
+        description="WhatsApp recipient phone number (with country code)",
+    )
+    dashboard_url: str = Field(
+        default="http://localhost:8000",
+        description="Public URL of the dashboard for artifact links",
+    )
     planner_label: list[str] = Field(
         default=["hydraflow-plan"],
         description="Labels for issues needing plans (OR logic)",
