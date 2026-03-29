@@ -102,6 +102,7 @@ def _generate_test_file(worker_name: str, label: str, interval: int) -> str:
                 status_cb=MagicMock(),
                 enabled_cb=MagicMock(return_value=True),
                 sleep_fn=MagicMock(),
+                interval_cb=None,
             )
             return {cls}(config=config, deps=deps)
 
