@@ -846,7 +846,7 @@ class TestOrchestratorShutdownLifecycle:
     async def test_no_orphaned_processes_after_stop(
         self, config: HydraFlowConfig
     ) -> None:
-        """All runner _active_procs sets are empty after run() returns."""
+        """All runner active_count values are zero after run() returns."""
         orch = HydraFlowOrchestrator(config)
         orch._svc.prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
         mock_fetcher_noop(orch)
@@ -860,10 +860,10 @@ class TestOrchestratorShutdownLifecycle:
 
         await orch.run()
 
-        assert len(orch._svc.planners._active_procs) == 0
-        assert len(orch._svc.agents._active_procs) == 0
-        assert len(orch._svc.reviewers._active_procs) == 0
-        assert len(orch._svc.hitl_runner._active_procs) == 0
+        assert orch._svc.planners.active_count == 0
+        assert orch._svc.agents.active_count == 0
+        assert orch._svc.reviewers.active_count == 0
+        assert orch._svc.hitl_runner.active_count == 0
 
     @pytest.mark.asyncio
     async def test_stop_calls_terminate_eagerly_and_in_finally(

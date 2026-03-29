@@ -96,10 +96,11 @@ def _make_orchestrator(tmp_path: Path) -> HydraFlowOrchestrator:
 
     with patch("orchestrator.build_services") as mock_build:
         svc = MagicMock()
-        # Runners with _active_procs
+        # Runners with active_count property
         for runner_attr in ("planners", "agents", "reviewers", "hitl_runner"):
             runner = MagicMock()
             runner._active_procs = set()
+            runner.active_count = 0
             runner.terminate = MagicMock()
             setattr(svc, runner_attr, runner)
 

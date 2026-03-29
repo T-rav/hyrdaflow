@@ -683,3 +683,46 @@ class TestGetMainCommitsSinceDiverge:
         # Second call is git log
         log_call = mock_exec.call_args_list[1]
         assert "-30" in log_call.args
+
+
+# ---------------------------------------------------------------------------
+# WorkspaceManager.enable_rerere
+# ---------------------------------------------------------------------------
+
+
+class TestEnableRerere:
+    """Tests for WorkspaceManager.enable_rerere."""
+
+    @pytest.mark.asyncio
+    async def test_enable_rerere_runs_git_config(self, config) -> None:
+        """enable_rerere should run ``git config rerere.enabled true`` in repo root."""
+        manager = WorkspaceManager(config)
+        success_proc = make_proc(returncode=0)
+
+        with patch(
+            "asyncio.create_subprocess_exec", return_value=success_proc
+        ) as mock_exec:
+            await manager.enable_rerere()
+
+        args = mock_exec.call_args.args
+        assert "git" in args
+        assert "config" in args
+        assert "rerere.enabled" in args
+        assert "true" in args
+
+    @pytest.mark.asyncio
+    async def test_enable_rerere_swallows_runtime_error(self, config) -> None:
+        """enable_rerere should not raise when git config fails."""
+        manager = WorkspaceManager(config)
+        fail_proc = make_proc(returncode=1, stderr=b"fatal: not in a git repo")
+
+        with patch("asyncio.create_subprocess_exec", return_value=fail_proc):
+            await manager.enable_rerere()  # Should not raise
+
+    @pytest.mark.asyncio
+    async def test_enable_rerere_swallows_file_not_found(self, config) -> None:
+        """enable_rerere should not raise when git binary is missing."""
+        manager = WorkspaceManager(config)
+
+        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError):
+            await manager.enable_rerere()  # Should not raise

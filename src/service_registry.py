@@ -156,6 +156,12 @@ def build_services(
 
     This replaces the 170-line orchestrator constructor body.
     """
+    # Configure global GitHub API concurrency limiter (startup config
+    # belongs in the composition root, not the orchestrator).
+    from subprocess_util import configure_gh_concurrency
+
+    configure_gh_concurrency(config.gh_api_concurrency)
+
     # Hindsight semantic memory (optional)
     hindsight_client = None
     hindsight_wal: HindsightWAL | None = None

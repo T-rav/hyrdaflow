@@ -53,6 +53,11 @@ class BaseRunner:
         self._last_context_stats: dict[str, int] = {"cache_hits": 0, "cache_misses": 0}
         self._hindsight = hindsight
 
+    @property
+    def active_count(self) -> int:
+        """Number of currently running subprocesses."""
+        return len(self._active_procs)
+
     def terminate(self) -> None:
         """Kill all active subprocesses."""
         terminate_processes(self._active_procs)

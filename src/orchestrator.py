@@ -44,8 +44,6 @@ from state_restorer import StateRestorer
 from subprocess_util import (
     AuthenticationError,
     CreditExhaustedError,
-    configure_gh_concurrency,
-    run_subprocess,
 )
 
 if TYPE_CHECKING:
@@ -104,9 +102,6 @@ class HydraFlowOrchestrator:
         self._session_issue_results: dict[int, bool] = {}
         # Loop tasks (set by _supervise_loops for stop() to cancel)
         self._loop_tasks: dict[str, asyncio.Task[None]] = {}
-
-        # Configure global GitHub API concurrency limiter
-        configure_gh_concurrency(config.gh_api_concurrency)
 
         # Build all services via the factory
         svc = build_services(
@@ -207,7 +202,7 @@ class HydraFlowOrchestrator:
         try:
             await self._svc.worktrees.sanitize_repo()
             await self._svc.prs.ensure_labels_exist()
-            await self._enable_rerere()
+            await self._svc.worktrees.enable_rerere()
             self._warn_if_agents_md_missing()
             if self._current_session is None:
                 await self._start_session()
@@ -223,10 +218,10 @@ class HydraFlowOrchestrator:
     def _has_active_processes(self) -> bool:
         """Return True if any runner pool still has live subprocesses."""
         return bool(
-            self._svc.planners._active_procs
-            or self._svc.agents._active_procs
-            or self._svc.reviewers._active_procs
-            or self._svc.hitl_runner._active_procs
+            self._svc.planners.active_count
+            or self._svc.agents.active_count
+            or self._svc.reviewers.active_count
+            or self._svc.hitl_runner.active_count
         )
 
     @property
@@ -485,11 +480,11 @@ class HydraFlowOrchestrator:
 
         # Map stage keys to runner pools for active worker counts
         stage_runners: dict[str, int] = {
-            "triage": len(self._svc.triage._active_procs),
-            "plan": len(self._svc.planners._active_procs),
-            "implement": len(self._svc.agents._active_procs),
-            "review": len(self._svc.reviewers._active_procs),
-            "hitl": len(self._svc.hitl_runner._active_procs),
+            "triage": self._svc.triage.active_count,
+            "plan": self._svc.planners.active_count,
+            "implement": self._svc.agents.active_count,
+            "review": self._svc.reviewers.active_count,
+            "hitl": self._svc.hitl_runner.active_count,
         }
 
         # Map IssueStore stage names to our stage keys
@@ -695,7 +690,7 @@ class HydraFlowOrchestrator:
         if self._pipeline_enabled:
             await self._svc.worktrees.sanitize_repo()
             await self._svc.prs.ensure_labels_exist()
-            await self._enable_rerere()
+            await self._svc.worktrees.enable_rerere()
             self._warn_if_agents_md_missing()
             await self._start_session()
             session_started = True
@@ -715,21 +710,6 @@ class HydraFlowOrchestrator:
             self._running = False
             await self._publish_status()
             logger.info("HydraFlow stopped")
-
-    async def _enable_rerere(self) -> None:
-        """Enable git rerere so resolved conflicts are remembered for next time."""
-        try:
-            await run_subprocess(
-                "git",
-                "config",
-                "rerere.enabled",
-                "true",
-                cwd=self._config.repo_root,
-                gh_token=self._config.gh_token,
-            )
-            logger.info("git rerere enabled")
-        except (RuntimeError, FileNotFoundError):
-            logger.debug("Could not enable git rerere", exc_info=True)
 
     def _warn_if_agents_md_missing(self) -> None:
         """Log a warning if AGENTS.md is absent from the repo root.

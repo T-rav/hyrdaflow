@@ -689,6 +689,23 @@ class WorkspaceManager:
             )
             return ""
 
+    # --- git config utilities ---
+
+    async def enable_rerere(self) -> None:
+        """Enable git rerere so resolved conflicts are remembered for next time."""
+        try:
+            await run_subprocess(
+                "git",
+                "config",
+                "rerere.enabled",
+                "true",
+                cwd=self._repo_root,
+                gh_token=self._config.gh_token,
+            )
+            logger.info("git rerere enabled")
+        except (RuntimeError, FileNotFoundError):
+            logger.debug("Could not enable git rerere", exc_info=True)
+
     # --- environment setup ---
 
     def _setup_env(self, wt_path: Path) -> None:

@@ -32,10 +32,15 @@ from tests.conftest import (
 
 
 class FakeRunner:
-    """Minimal runner stub with terminate() and _active_procs."""
+    """Minimal runner stub with terminate(), _active_procs, and active_count."""
 
     def __init__(self) -> None:
         self._active_procs: set[int] = set()
+
+    @property
+    def active_count(self) -> int:
+        """Number of currently running subprocesses."""
+        return len(self._active_procs)
 
     def terminate(self) -> None:
         self._active_procs.clear()

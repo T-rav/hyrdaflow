@@ -46,6 +46,25 @@ class TestBaseRunnerInit:
         runner = _TestRunner(config, event_bus)
         assert runner._active_procs == set()
 
+    def test_active_count_starts_at_zero(self, config, event_bus: EventBus) -> None:
+        runner = _TestRunner(config, event_bus)
+        assert runner.active_count == 0
+
+    def test_active_count_reflects_active_procs_size(
+        self, config, event_bus: EventBus
+    ) -> None:
+        runner = _TestRunner(config, event_bus)
+        mock_proc1 = MagicMock()
+        mock_proc1.pid = 1
+        mock_proc2 = MagicMock()
+        mock_proc2.pid = 2
+        runner._active_procs.add(mock_proc1)
+        assert runner.active_count == 1
+        runner._active_procs.add(mock_proc2)
+        assert runner.active_count == 2
+        runner._active_procs.discard(mock_proc1)
+        assert runner.active_count == 1
+
     def test_uses_provided_runner(self, config, event_bus: EventBus) -> None:
         mock_runner = MagicMock()
         runner = _TestRunner(config, event_bus, runner=mock_runner)
