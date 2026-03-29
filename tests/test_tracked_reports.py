@@ -168,6 +168,7 @@ class TestTrackedReportState:
                 id="r1",
                 reporter_id="u1",
                 description="Z",
+                status="closed",
                 history=[ReportHistoryEntry(action="submitted", detail="init")],
             )
         )
