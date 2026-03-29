@@ -47,6 +47,9 @@ SKIP_LIST: set[str] = {
     "ci_check",
     # Epic releasing is dispatched via REST (uppercase EPIC_RELEASING), not WS events
     "epic_releasing",
+    # Product track events are consumed server-side (shape phase polling, memory writes)
+    "discover_update",
+    "shape_update",
 }
 
 
