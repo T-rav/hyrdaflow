@@ -811,7 +811,7 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
         repo_root = Path(self._config.repo_root)
         branch = f"adr/accept-{result.adr_number:04d}"
         worktree_path = (
-            Path(self._config.worktree_base) / f"adr-accept-{result.adr_number:04d}"
+            Path(self._config.workspace_base) / f"adr-accept-{result.adr_number:04d}"
         )
 
         try:

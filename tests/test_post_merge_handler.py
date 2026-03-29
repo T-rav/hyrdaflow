@@ -870,7 +870,7 @@ class TestVisualGateInHandleApproved:
         cfg = ConfigFactory.create(
             visual_gate_enabled=True,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         handler = _make_handler(cfg)
@@ -902,7 +902,7 @@ class TestVisualGateInHandleApproved:
         cfg = ConfigFactory.create(
             visual_gate_enabled=True,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         handler = _make_handler(cfg)
@@ -935,7 +935,7 @@ class TestVisualGateInHandleApproved:
         cfg = ConfigFactory.create(
             visual_gate_enabled=True,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         handler = _make_handler(cfg)
@@ -966,7 +966,7 @@ class TestVisualGateInHandleApproved:
         cfg = ConfigFactory.create(
             visual_gate_enabled=True,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         handler = _make_handler(cfg)

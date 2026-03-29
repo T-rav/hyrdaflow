@@ -1077,7 +1077,7 @@ class TestGetDockerRunner:
         monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
         cfg = HydraFlowConfig(
             repo_root=repo_root,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             execution_mode="docker",
             docker_image="hydra:latest",

@@ -143,9 +143,9 @@ class TestLifecycleMetricRecording:
 
         phase._prs.remove_pr_label = AsyncMock()
         phase._prs.add_pr_labels = AsyncMock()
-        phase._worktrees.merge_main = AsyncMock(return_value=False)
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
-        phase._worktrees.abort_merge = AsyncMock()
+        phase._workspaces.merge_main = AsyncMock(return_value=False)
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.abort_merge = AsyncMock()
 
         await phase.review_prs([pr], [issue])
 
@@ -164,7 +164,7 @@ class TestLifecycleMetricRecording:
         phase._prs.merge_pr = AsyncMock(return_value=False)
         phase._prs.remove_pr_label = AsyncMock()
         phase._prs.add_pr_labels = AsyncMock()
-        phase._worktrees.merge_main = AsyncMock(return_value=True)
+        phase._workspaces.merge_main = AsyncMock(return_value=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -181,7 +181,7 @@ class TestLifecycleMetricRecording:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=1,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -212,7 +212,7 @@ class TestLifecycleMetricRecording:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=2,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -291,7 +291,7 @@ class TestRetrospectiveIntegration:
         phase._prs.merge_pr = AsyncMock(return_value=False)
         phase._prs.remove_pr_label = AsyncMock()
         phase._prs.add_pr_labels = AsyncMock()
-        phase._worktrees.merge_main = AsyncMock(return_value=True)
+        phase._workspaces.merge_main = AsyncMock(return_value=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -507,8 +507,8 @@ class TestGranularReviewStatusEvents:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._worktrees.merge_main = AsyncMock(return_value=False)
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.merge_main = AsyncMock(return_value=False)
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
 
         await phase.review_prs([pr], [issue])
 
@@ -540,9 +540,9 @@ class TestGranularReviewStatusEvents:
 
         phase._prs.remove_pr_label = AsyncMock()
         phase._prs.add_pr_labels = AsyncMock()
-        phase._worktrees.merge_main = AsyncMock(return_value=False)
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
-        phase._worktrees.abort_merge = AsyncMock()
+        phase._workspaces.merge_main = AsyncMock(return_value=False)
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.abort_merge = AsyncMock()
 
         await phase.review_prs([pr], [issue])
 
@@ -611,7 +611,7 @@ class TestGranularReviewStatusEvents:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=2,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True, event_bus=event_bus)
@@ -641,7 +641,7 @@ class TestGranularReviewStatusEvents:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=2,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True, event_bus=event_bus)
@@ -689,7 +689,7 @@ class TestGranularReviewStatusEvents:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=1,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True, event_bus=event_bus)
@@ -1464,7 +1464,7 @@ class TestReviewPostMortemMemoryFiling:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=1,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg)
@@ -1489,7 +1489,7 @@ class TestReviewPostMortemMemoryFiling:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         with patch(
@@ -1510,7 +1510,7 @@ class TestReviewPostMortemMemoryFiling:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=1,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg)
@@ -1533,7 +1533,7 @@ class TestReviewPostMortemMemoryFiling:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -1551,7 +1551,7 @@ class TestReviewPostMortemMemoryFiling:
         cfg = ConfigFactory.create(
             max_review_fix_attempts=1,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg)
@@ -1570,7 +1570,7 @@ class TestReviewPostMortemMemoryFiling:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         # Set review attempts to cap so next review triggers escalation

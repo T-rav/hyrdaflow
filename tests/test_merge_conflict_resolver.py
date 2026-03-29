@@ -30,7 +30,7 @@ class TestMergeConflictResolver:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        resolver._worktrees.merge_main = AsyncMock(return_value=True)
+        resolver._workspaces.merge_main = AsyncMock(return_value=True)
         resolver._prs.push_branch = AsyncMock(return_value=True)
         publish_fn = AsyncMock()
         escalate_fn = AsyncMock()
@@ -38,7 +38,7 @@ class TestMergeConflictResolver:
         result = await resolver.merge_with_main(
             pr,
             issue,
-            config.worktree_path_for_issue(42),
+            config.workspace_path_for_issue(42),
             0,
             escalate_fn=escalate_fn,
             publish_fn=publish_fn,
@@ -56,14 +56,14 @@ class TestMergeConflictResolver:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        resolver._worktrees.merge_main = AsyncMock(return_value=False)
+        resolver._workspaces.merge_main = AsyncMock(return_value=False)
         publish_fn = AsyncMock()
         escalate_fn = AsyncMock()
 
         result = await resolver.merge_with_main(
             pr,
             issue,
-            config.worktree_path_for_issue(42),
+            config.workspace_path_for_issue(42),
             0,
             escalate_fn=escalate_fn,
             publish_fn=publish_fn,
@@ -87,7 +87,7 @@ class TestMergeConflictResolver:
         issue = TaskFactory.create()
 
         result = await resolver.resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=0
+            pr, issue, config.workspace_path_for_issue(42), worker_id=0
         )
 
         assert result == ConflictResolutionResult(success=False, used_rebuild=False)
@@ -102,10 +102,10 @@ class TestMergeConflictResolver:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        resolver._worktrees.start_merge_main = AsyncMock(return_value=True)
+        resolver._workspaces.start_merge_main = AsyncMock(return_value=True)
 
         result = await resolver.resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=0
+            pr, issue, config.workspace_path_for_issue(42), worker_id=0
         )
 
         assert result == ConflictResolutionResult(success=True, used_rebuild=False)
@@ -125,10 +125,10 @@ class TestMergeConflictResolver:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
+        resolver._workspaces.start_merge_main = AsyncMock(return_value=False)
 
         result = await resolver.resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=0
+            pr, issue, config.workspace_path_for_issue(42), worker_id=0
         )
 
         assert result == ConflictResolutionResult(success=True, used_rebuild=False)
@@ -149,10 +149,10 @@ class TestMergeConflictResolver:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
+        resolver._workspaces.start_merge_main = AsyncMock(return_value=False)
 
         await resolver.resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=0
+            pr, issue, config.workspace_path_for_issue(42), worker_id=0
         )
 
         log_dir = config.repo_root / ".hydraflow" / "logs"
@@ -176,12 +176,12 @@ class TestSourceParameter:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
+        resolver._workspaces.start_merge_main = AsyncMock(return_value=False)
 
         await resolver.resolve_merge_conflicts(
             pr,
             issue,
-            config.worktree_path_for_issue(42),
+            config.workspace_path_for_issue(42),
             worker_id=0,
             source="pr_unsticker",
         )
@@ -203,13 +203,13 @@ class TestSourceParameter:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
+        resolver._workspaces.start_merge_main = AsyncMock(return_value=False)
         resolver._suggest_memory = AsyncMock()
 
         await resolver.resolve_merge_conflicts(
             pr,
             issue,
-            config.worktree_path_for_issue(42),
+            config.workspace_path_for_issue(42),
             worker_id=0,
             source="test_source",
         )
@@ -235,7 +235,7 @@ class TestWorkerIdNone:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
+        resolver._workspaces.start_merge_main = AsyncMock(return_value=False)
 
         # Spy on the event bus
         publish_calls = []
@@ -248,7 +248,7 @@ class TestWorkerIdNone:
         resolver._bus.publish = track_publish
 
         await resolver.resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=None
+            pr, issue, config.workspace_path_for_issue(42), worker_id=None
         )
 
         # No REVIEW_UPDATE events should have been published
@@ -273,7 +273,7 @@ class TestWorkerIdNone:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
+        resolver._workspaces.start_merge_main = AsyncMock(return_value=False)
 
         publish_calls = []
         original_publish = resolver._bus.publish
@@ -285,7 +285,7 @@ class TestWorkerIdNone:
         resolver._bus.publish = track_publish
 
         await resolver.resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=1
+            pr, issue, config.workspace_path_for_issue(42), worker_id=1
         )
 
         # Should have published at least one REVIEW_UPDATE event
@@ -339,7 +339,7 @@ class TestFreshBranchRebuild:
             max_merge_conflict_fix_attempts=1,
             enable_fresh_branch_rebuild=True,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mock_agents = AsyncMock()
@@ -355,10 +355,10 @@ class TestFreshBranchRebuild:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
-        resolver._worktrees.abort_merge = AsyncMock()
-        resolver._worktrees.destroy = AsyncMock()
-        resolver._worktrees.create = AsyncMock(
+        resolver._workspaces.start_merge_main = AsyncMock(return_value=False)
+        resolver._workspaces.abort_merge = AsyncMock()
+        resolver._workspaces.destroy = AsyncMock()
+        resolver._workspaces.create = AsyncMock(
             return_value=tmp_path / "worktrees" / "issue-42"
         )
         resolver._prs.get_pr_diff = AsyncMock(return_value="diff --git a/foo.py\n+bar")
@@ -369,8 +369,8 @@ class TestFreshBranchRebuild:
 
         assert result.success is True
         assert result.used_rebuild is True
-        resolver._worktrees.destroy.assert_awaited_once()
-        resolver._worktrees.create.assert_awaited_once()
+        resolver._workspaces.destroy.assert_awaited_once()
+        resolver._workspaces.create.assert_awaited_once()
         resolver._prs.get_pr_diff.assert_awaited_once_with(pr.number)
 
     @pytest.mark.asyncio
@@ -379,7 +379,7 @@ class TestFreshBranchRebuild:
         cfg = ConfigFactory.create(
             enable_fresh_branch_rebuild=True,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mock_agents = AsyncMock()
@@ -391,16 +391,16 @@ class TestFreshBranchRebuild:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        new_wt = cfg.worktree_path_for_issue(pr.issue_number)
-        resolver._worktrees.destroy = AsyncMock()
-        resolver._worktrees.create = AsyncMock(return_value=new_wt)
+        new_wt = cfg.workspace_path_for_issue(pr.issue_number)
+        resolver._workspaces.destroy = AsyncMock()
+        resolver._workspaces.create = AsyncMock(return_value=new_wt)
         resolver._prs.get_pr_diff = AsyncMock(return_value="diff content")
 
         result = await resolver.fresh_branch_rebuild(pr, issue, worker_id=0)
 
         assert result is True
-        resolver._worktrees.destroy.assert_awaited_once_with(pr.issue_number)
-        resolver._worktrees.create.assert_awaited_once_with(pr.issue_number, pr.branch)
+        resolver._workspaces.destroy.assert_awaited_once_with(pr.issue_number)
+        resolver._workspaces.create.assert_awaited_once_with(pr.issue_number, pr.branch)
         mock_agents._build_command.assert_called_once_with(new_wt)
         mock_agents._execute.assert_awaited_once()
         mock_agents._verify_result.assert_awaited_once()
@@ -413,7 +413,7 @@ class TestFreshBranchRebuild:
         cfg = ConfigFactory.create(
             enable_fresh_branch_rebuild=False,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mock_agents = AsyncMock()
@@ -432,7 +432,7 @@ class TestFreshBranchRebuild:
         cfg = ConfigFactory.create(
             enable_fresh_branch_rebuild=True,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         resolver = make_conflict_resolver(cfg, agents=None)
@@ -449,7 +449,7 @@ class TestFreshBranchRebuild:
         cfg = ConfigFactory.create(
             enable_fresh_branch_rebuild=True,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mock_agents = AsyncMock()
@@ -462,7 +462,7 @@ class TestFreshBranchRebuild:
         result = await resolver.fresh_branch_rebuild(pr, issue, worker_id=0)
 
         assert result is False
-        resolver._worktrees.destroy.assert_not_awaited()
+        resolver._workspaces.destroy.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_fresh_rebuild_uses_force_flag(self, tmp_path: Path) -> None:
@@ -471,7 +471,7 @@ class TestFreshBranchRebuild:
             max_merge_conflict_fix_attempts=1,
             enable_fresh_branch_rebuild=True,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mock_agents = AsyncMock()
@@ -487,12 +487,12 @@ class TestFreshBranchRebuild:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        new_wt = cfg.worktree_path_for_issue(pr.issue_number)
-        resolver._worktrees.merge_main = AsyncMock(return_value=False)
-        resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
-        resolver._worktrees.abort_merge = AsyncMock()
-        resolver._worktrees.destroy = AsyncMock()
-        resolver._worktrees.create = AsyncMock(return_value=new_wt)
+        new_wt = cfg.workspace_path_for_issue(pr.issue_number)
+        resolver._workspaces.merge_main = AsyncMock(return_value=False)
+        resolver._workspaces.start_merge_main = AsyncMock(return_value=False)
+        resolver._workspaces.abort_merge = AsyncMock()
+        resolver._workspaces.destroy = AsyncMock()
+        resolver._workspaces.create = AsyncMock(return_value=new_wt)
         resolver._prs.get_pr_diff = AsyncMock(return_value="diff content")
         resolver._prs.push_branch = AsyncMock(return_value=True)
 
@@ -510,7 +510,7 @@ class TestFreshBranchRebuild:
 
         assert result is True
         resolver._prs.push_branch.assert_awaited_once_with(
-            cfg.worktree_path_for_issue(pr.issue_number), pr.branch, force=True
+            cfg.workspace_path_for_issue(pr.issue_number), pr.branch, force=True
         )
 
 
@@ -530,7 +530,7 @@ class TestFreshRebuildTitleUpdate:
         cfg = ConfigFactory.create(
             enable_fresh_branch_rebuild=True,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mock_agents = AsyncMock()
@@ -542,9 +542,9 @@ class TestFreshRebuildTitleUpdate:
         pr = PRInfoFactory.create(number=200, issue_number=77)
         issue = TaskFactory.create(id=77, title="Fix the gizmo")
 
-        new_wt = cfg.worktree_path_for_issue(pr.issue_number)
-        resolver._worktrees.destroy = AsyncMock()
-        resolver._worktrees.create = AsyncMock(return_value=new_wt)
+        new_wt = cfg.workspace_path_for_issue(pr.issue_number)
+        resolver._workspaces.destroy = AsyncMock()
+        resolver._workspaces.create = AsyncMock(return_value=new_wt)
         resolver._prs.get_pr_diff = AsyncMock(return_value="diff content")
         resolver._prs.update_pr_title = AsyncMock(return_value=True)
         # Resolver now uses self._prs.expected_pr_title (PRPort protocol)
@@ -562,7 +562,7 @@ class TestFreshRebuildTitleUpdate:
         cfg = ConfigFactory.create(
             enable_fresh_branch_rebuild=True,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mock_agents = AsyncMock()
@@ -574,9 +574,9 @@ class TestFreshRebuildTitleUpdate:
         pr = PRInfoFactory.create(number=200, issue_number=77)
         issue = TaskFactory.create(id=77, title="Fix the gizmo")
 
-        new_wt = cfg.worktree_path_for_issue(pr.issue_number)
-        resolver._worktrees.destroy = AsyncMock()
-        resolver._worktrees.create = AsyncMock(return_value=new_wt)
+        new_wt = cfg.workspace_path_for_issue(pr.issue_number)
+        resolver._workspaces.destroy = AsyncMock()
+        resolver._workspaces.create = AsyncMock(return_value=new_wt)
         resolver._prs.get_pr_diff = AsyncMock(return_value="diff content")
         resolver._prs.update_pr_title = AsyncMock(return_value=True)
 
@@ -637,10 +637,10 @@ class TestArchitectureLayering:
         )
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
-        resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
+        resolver._workspaces.start_merge_main = AsyncMock(return_value=False)
 
         await resolver.resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=0
+            pr, issue, config.workspace_path_for_issue(42), worker_id=0
         )
 
         suggest_fn.assert_awaited_once()
@@ -661,10 +661,10 @@ class TestArchitectureLayering:
         )
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
-        resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
+        resolver._workspaces.start_merge_main = AsyncMock(return_value=False)
 
         result = await resolver.resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=0
+            pr, issue, config.workspace_path_for_issue(42), worker_id=0
         )
 
         assert result == ConflictResolutionResult(success=True, used_rebuild=False)
@@ -682,7 +682,7 @@ class TestArchitectureLayering:
         resolver = make_conflict_resolver(config, agents=mock_agents)
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
-        resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
+        resolver._workspaces.start_merge_main = AsyncMock(return_value=False)
 
         # Track events
         from events import EventType
@@ -697,7 +697,7 @@ class TestArchitectureLayering:
         resolver._bus.publish = track
 
         await resolver.resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=1
+            pr, issue, config.workspace_path_for_issue(42), worker_id=1
         )
 
         review_events = [e for e in published if e.type == EventType.REVIEW_UPDATE]
@@ -712,7 +712,7 @@ class TestArchitectureLayering:
         cfg = ConfigFactory.create(
             enable_fresh_branch_rebuild=True,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mock_agents = AsyncMock()
@@ -724,9 +724,9 @@ class TestArchitectureLayering:
         pr = PRInfoFactory.create(number=200, issue_number=77)
         issue = TaskFactory.create(id=77, title="Fix the gizmo")
 
-        new_wt = cfg.worktree_path_for_issue(pr.issue_number)
-        resolver._worktrees.destroy = AsyncMock()
-        resolver._worktrees.create = AsyncMock(return_value=new_wt)
+        new_wt = cfg.workspace_path_for_issue(pr.issue_number)
+        resolver._workspaces.destroy = AsyncMock()
+        resolver._workspaces.create = AsyncMock(return_value=new_wt)
         resolver._prs.get_pr_diff = AsyncMock(return_value="diff content")
         resolver._prs.update_pr_title = AsyncMock(return_value=True)
         resolver._prs.expected_pr_title = lambda n, t: f"Fixes #{n}: {t}"

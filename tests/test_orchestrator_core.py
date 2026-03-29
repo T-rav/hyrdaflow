@@ -34,7 +34,7 @@ class TestInit:
     # Service-registry wiring: each entry is (svc_attr, module, type_name)
     # ------------------------------------------------------------------
     _SVC_WIRING = [
-        ("worktrees", "workspace", "WorkspaceManager"),
+        ("workspaces", "workspace", "WorkspaceManager"),
         ("agents", "agent", "AgentRunner"),
         ("prs", "pr_manager", "PRManager"),
         ("planners", "planner", "PlannerRunner"),
@@ -318,7 +318,7 @@ class TestRunCallsSanitizeRepo:
         orch._svc.implementer.run_batch = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
 
         with patch.object(
-            orch._svc.worktrees, "sanitize_repo", new_callable=AsyncMock
+            orch._svc.workspaces, "sanitize_repo", new_callable=AsyncMock
         ) as mock_sanitize:
             await orch.run()
 
@@ -1010,7 +1010,7 @@ class TestServiceRegistry:
         """Core services are accessible through _svc."""
         orch = HydraFlowOrchestrator(config)
         svc = orch._svc
-        assert svc.worktrees is not None
+        assert svc.workspaces is not None
         assert svc.agents is not None
         assert svc.prs is not None
         assert svc.store is not None

@@ -38,7 +38,7 @@ class TestResolveMergeConflicts:
         issue = TaskFactory.create()
 
         result = await phase._resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=0
+            pr, issue, config.workspace_path_for_issue(42), worker_id=0
         )
 
         assert result == ConflictResolutionResult(success=False, used_rebuild=False)
@@ -54,10 +54,10 @@ class TestResolveMergeConflicts:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        phase._worktrees.start_merge_main = AsyncMock(return_value=True)
+        phase._workspaces.start_merge_main = AsyncMock(return_value=True)
 
         result = await phase._resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=0
+            pr, issue, config.workspace_path_for_issue(42), worker_id=0
         )
 
         assert result == ConflictResolutionResult(success=True, used_rebuild=False)
@@ -79,10 +79,10 @@ class TestResolveMergeConflicts:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
 
         result = await phase._resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=0
+            pr, issue, config.workspace_path_for_issue(42), worker_id=0
         )
 
         assert result == ConflictResolutionResult(success=True, used_rebuild=False)
@@ -102,16 +102,16 @@ class TestResolveMergeConflicts:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
-        phase._worktrees.abort_merge = AsyncMock()
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.abort_merge = AsyncMock()
 
         result = await phase._resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=0
+            pr, issue, config.workspace_path_for_issue(42), worker_id=0
         )
 
         assert result.success is False
         # abort_merge called between retries + final abort
-        assert phase._worktrees.abort_merge.await_count >= 1
+        assert phase._workspaces.abort_merge.await_count >= 1
 
     @pytest.mark.asyncio
     async def test_retries_on_verify_failure(self, config: HydraFlowConfig) -> None:
@@ -129,11 +129,11 @@ class TestResolveMergeConflicts:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
-        phase._worktrees.abort_merge = AsyncMock()
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.abort_merge = AsyncMock()
 
         result = await phase._resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=0
+            pr, issue, config.workspace_path_for_issue(42), worker_id=0
         )
 
         assert result == ConflictResolutionResult(success=True, used_rebuild=False)
@@ -150,7 +150,7 @@ class TestResolveMergeConflicts:
         cfg = ConfigFactory.create(
             enable_fresh_branch_rebuild=False,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         mock_agents = AsyncMock()
@@ -163,11 +163,11 @@ class TestResolveMergeConflicts:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
-        phase._worktrees.abort_merge = AsyncMock()
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.abort_merge = AsyncMock()
 
         result = await phase._resolve_merge_conflicts(
-            pr, issue, cfg.worktree_base / "issue-42", worker_id=0
+            pr, issue, cfg.workspace_base / "issue-42", worker_id=0
         )
 
         assert result == ConflictResolutionResult(success=False, used_rebuild=False)
@@ -191,11 +191,11 @@ class TestResolveMergeConflicts:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
-        phase._worktrees.abort_merge = AsyncMock()
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.abort_merge = AsyncMock()
 
         await phase._resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=0
+            pr, issue, config.workspace_path_for_issue(42), worker_id=0
         )
 
         # Second call to _execute should have received a prompt with the error
@@ -220,15 +220,15 @@ class TestResolveMergeConflicts:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
-        phase._worktrees.abort_merge = AsyncMock()
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.abort_merge = AsyncMock()
 
         await phase._resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=0
+            pr, issue, config.workspace_path_for_issue(42), worker_id=0
         )
 
         # abort_merge called once before attempt 2
-        phase._worktrees.abort_merge.assert_awaited_once()
+        phase._workspaces.abort_merge.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_saves_transcript_per_attempt(self, config: HydraFlowConfig) -> None:
@@ -246,11 +246,11 @@ class TestResolveMergeConflicts:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
-        phase._worktrees.abort_merge = AsyncMock()
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.abort_merge = AsyncMock()
 
         await phase._resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=0
+            pr, issue, config.workspace_path_for_issue(42), worker_id=0
         )
 
         log_dir = config.repo_root / ".hydraflow" / "logs"
@@ -266,7 +266,7 @@ class TestResolveMergeConflicts:
             max_merge_conflict_fix_attempts=1,
             enable_fresh_branch_rebuild=False,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         mock_agents = AsyncMock()
@@ -279,11 +279,11 @@ class TestResolveMergeConflicts:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
-        phase._worktrees.abort_merge = AsyncMock()
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.abort_merge = AsyncMock()
 
         result = await phase._resolve_merge_conflicts(
-            pr, issue, cfg.worktree_base / "issue-42", worker_id=0
+            pr, issue, cfg.workspace_base / "issue-42", worker_id=0
         )
 
         assert result == ConflictResolutionResult(success=False, used_rebuild=False)
@@ -298,7 +298,7 @@ class TestResolveMergeConflicts:
             max_merge_conflict_fix_attempts=0,
             enable_fresh_branch_rebuild=False,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         mock_agents = AsyncMock()
@@ -307,17 +307,17 @@ class TestResolveMergeConflicts:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
-        phase._worktrees.abort_merge = AsyncMock()
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.abort_merge = AsyncMock()
 
         result = await phase._resolve_merge_conflicts(
-            pr, issue, cfg.worktree_base / "issue-42", worker_id=0
+            pr, issue, cfg.workspace_base / "issue-42", worker_id=0
         )
 
         assert result == ConflictResolutionResult(success=False, used_rebuild=False)
         mock_agents._execute.assert_not_awaited()
         # Final abort_merge should still be called
-        phase._worktrees.abort_merge.assert_awaited_once()
+        phase._workspaces.abort_merge.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_conflict_resolution_calls_file_memory_suggestion(
@@ -334,13 +334,13 @@ class TestResolveMergeConflicts:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
 
         mock_fms = AsyncMock()
         phase._conflict_resolver._suggest_memory = mock_fms
 
         await phase._resolve_merge_conflicts(
-            pr, issue, config.worktree_path_for_issue(42), worker_id=0
+            pr, issue, config.workspace_path_for_issue(42), worker_id=0
         )
 
         mock_fms.assert_awaited_once_with(
@@ -364,7 +364,7 @@ class TestResolveMergeConflicts:
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
 
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
 
         with patch(
             "phase_utils.file_memory_suggestion",
@@ -372,7 +372,7 @@ class TestResolveMergeConflicts:
             side_effect=RuntimeError("network error"),
         ):
             result = await phase._resolve_merge_conflicts(
-                pr, issue, config.worktree_path_for_issue(42), worker_id=0
+                pr, issue, config.workspace_path_for_issue(42), worker_id=0
             )
 
             assert result == ConflictResolutionResult(success=True, used_rebuild=False)
@@ -388,11 +388,11 @@ class TestMergeWithMain:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._worktrees.merge_main = AsyncMock(return_value=True)
+        phase._workspaces.merge_main = AsyncMock(return_value=True)
         phase._prs.push_branch = AsyncMock(return_value=True)
 
         result = await phase._merge_with_main(
-            pr, issue, config.worktree_path_for_issue(42), 0
+            pr, issue, config.workspace_path_for_issue(42), 0
         )
 
         assert result is True
@@ -412,12 +412,12 @@ class TestMergeWithMain:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._worktrees.merge_main = AsyncMock(return_value=False)
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.merge_main = AsyncMock(return_value=False)
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
         phase._prs.push_branch = AsyncMock(return_value=True)
 
         result = await phase._merge_with_main(
-            pr, issue, config.worktree_path_for_issue(42), 0
+            pr, issue, config.workspace_path_for_issue(42), 0
         )
 
         assert result is True
@@ -431,7 +431,7 @@ class TestMergeWithMain:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._worktrees.merge_main = AsyncMock(return_value=False)
+        phase._workspaces.merge_main = AsyncMock(return_value=False)
         phase._prs.push_branch = AsyncMock()
         phase._prs.post_pr_comment = AsyncMock()
         phase._prs.remove_label = AsyncMock()
@@ -440,7 +440,7 @@ class TestMergeWithMain:
         phase._prs.add_pr_labels = AsyncMock()
 
         result = await phase._merge_with_main(
-            pr, issue, config.worktree_path_for_issue(42), 0
+            pr, issue, config.workspace_path_for_issue(42), 0
         )
 
         assert result is False

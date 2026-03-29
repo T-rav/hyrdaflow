@@ -349,7 +349,7 @@ class TestSetupNodeModules:
         repo_root = tmp_path / "repo"
         cfg = ConfigFactory.create(
             repo_root=repo_root,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
             ui_dirs=["frontend", "admin"],
         )
@@ -394,7 +394,7 @@ class TestConfigureGitIdentity:
             git_user_name="Bot",
             git_user_email="bot@example.com",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         manager = WorkspaceManager(cfg)
@@ -419,7 +419,7 @@ class TestConfigureGitIdentity:
 
         cfg = ConfigFactory.create(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         manager = WorkspaceManager(cfg)
@@ -440,7 +440,7 @@ class TestConfigureGitIdentity:
             git_user_name="Bot",
             git_user_email="",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         manager = WorkspaceManager(cfg)
@@ -466,7 +466,7 @@ class TestConfigureGitIdentity:
             git_user_name="",
             git_user_email="bot@example.com",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         manager = WorkspaceManager(cfg)
@@ -488,7 +488,7 @@ class TestConfigureGitIdentity:
             git_user_name="Bot",
             git_user_email="bot@example.com",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         manager = WorkspaceManager(cfg)
@@ -509,11 +509,11 @@ class TestConfigureGitIdentity:
             git_user_name="Bot",
             git_user_email="bot@example.com",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         manager = WorkspaceManager(cfg)
-        cfg.worktree_base.mkdir(parents=True, exist_ok=True)
+        cfg.workspace_base.mkdir(parents=True, exist_ok=True)
 
         success_proc = make_proc()
         configure_identity = AsyncMock()

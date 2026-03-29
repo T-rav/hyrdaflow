@@ -1177,7 +1177,7 @@ def _collab_config(tmp_path: Path, *, enabled: bool = True) -> HydraFlowConfig:
 
     return ConfigFactory.create(
         repo_root=tmp_path / "repo",
-        worktree_base=tmp_path / "worktrees",
+        workspace_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
         collaborator_check_enabled=enabled,
     )

@@ -120,7 +120,7 @@ Run through this checklist before your final commit:
         result = WorkerResult(
             issue_number=task.id,
             branch=branch,
-            worktree_path=str(worktree_path),
+            workspace_path=str(worktree_path),
         )
 
         await self._emit_status(task.id, worker_id, WorkerStatus.RUNNING)

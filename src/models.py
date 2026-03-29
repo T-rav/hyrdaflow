@@ -20,6 +20,7 @@ from uuid import uuid4
 
 from pydantic import (
     AfterValidator,
+    AliasChoices,  # noqa: F401 — used in Field(validation_alias=...)
     BaseModel,
     ConfigDict,
     Field,
@@ -575,8 +576,10 @@ class WorkerResult(BaseModel):
 
     issue_number: int = Field(description="GitHub issue number being implemented")
     branch: str = Field(description="Git branch name for the implementation")
-    worktree_path: str = Field(
-        default="", description="Path to the git worktree directory"
+    workspace_path: str = Field(
+        default="",
+        description="Path to the workspace directory",
+        validation_alias=AliasChoices("workspace_path", "worktree_path"),
     )
     success: bool = Field(
         default=False,
@@ -1244,7 +1247,10 @@ class StateData(BaseModel):
 
     schema_version: int = 1
     processed_issues: dict[str, str] = Field(default_factory=dict)
-    active_worktrees: dict[str, str] = Field(default_factory=dict)
+    active_workspaces: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("active_workspaces", "active_worktrees"),
+    )
     active_branches: dict[str, str] = Field(default_factory=dict)
     reviewed_prs: dict[str, str] = Field(default_factory=dict)
     hitl_origins: dict[str, str] = Field(default_factory=dict)
@@ -1631,7 +1637,7 @@ class ControlStatusConfig(BaseModel):
     batch_size: int = 0
     model: str = ""
     pr_unstick_batch_size: int = 10
-    worktree_base: str = ""
+    workspace_base: str = ""
 
 
 class ControlStatusResponse(BaseModel):

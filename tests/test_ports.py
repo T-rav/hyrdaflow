@@ -87,7 +87,7 @@ class TestWorkspacePortConformance:
         from workspace import WorkspaceManager
 
         config = MagicMock()
-        config.worktree_base = Path("/tmp/wt")
+        config.workspace_base = Path("/tmp/wt")
         config.repo_root = Path("/tmp/repo")
         config.main_branch = "main"
         config.git_command_timeout = 30

@@ -129,7 +129,7 @@ class HydraFlowOrchestrator:
             "report_issue": svc.report_issue_loop,
             "epic_monitor": svc.epic_monitor_loop,
             "epic_sweeper": svc.epic_sweeper_loop,
-            "worktree_gc": svc.worktree_gc_loop,
+            "workspace_gc": svc.workspace_gc_loop,
             "runs_gc": svc.runs_gc_loop,
             "adr_reviewer": svc.adr_reviewer_loop,
             "health_monitor": svc.health_monitor_loop,
@@ -200,9 +200,9 @@ class HydraFlowOrchestrator:
     async def _deferred_pipeline_start(self) -> None:
         """Run repo initialization that was skipped when pipeline was disabled."""
         try:
-            await self._svc.worktrees.sanitize_repo()
+            await self._svc.workspaces.sanitize_repo()
             await self._svc.prs.ensure_labels_exist()
-            await self._svc.worktrees.enable_rerere()
+            await self._svc.workspaces.enable_rerere()
             self._warn_if_agents_md_missing()
             if self._current_session is None:
                 await self._start_session()
@@ -688,9 +688,9 @@ class HydraFlowOrchestrator:
 
         session_started = False
         if self._pipeline_enabled:
-            await self._svc.worktrees.sanitize_repo()
+            await self._svc.workspaces.sanitize_repo()
             await self._svc.prs.ensure_labels_exist()
-            await self._svc.worktrees.enable_rerere()
+            await self._svc.workspaces.enable_rerere()
             self._warn_if_agents_md_missing()
             await self._start_session()
             session_started = True
@@ -705,7 +705,7 @@ class HydraFlowOrchestrator:
             self._svc.reviewers.terminate()
             self._svc.hitl_runner.terminate()
             with contextlib.suppress(Exception):
-                await self._svc.worktrees.sanitize_repo()
+                await self._svc.workspaces.sanitize_repo()
             await asyncio.sleep(0)
             self._running = False
             await self._publish_status()
@@ -823,7 +823,7 @@ class HydraFlowOrchestrator:
             ("report_issue", self._svc.report_issue_loop.run),
             ("epic_monitor", self._svc.epic_monitor_loop.run),
             ("epic_sweeper", self._svc.epic_sweeper_loop.run),
-            ("worktree_gc", self._svc.worktree_gc_loop.run),
+            ("workspace_gc", self._svc.workspace_gc_loop.run),
             ("runs_gc", self._svc.runs_gc_loop.run),
             ("adr_reviewer", self._svc.adr_reviewer_loop.run),
             ("health_monitor", self._svc.health_monitor_loop.run),

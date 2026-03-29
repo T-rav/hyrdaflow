@@ -497,7 +497,7 @@ class TestReviewPhaseVisualValidation:
         bus = EventBus()
         conflict_resolver = MergeConflictResolver(
             config=config,
-            worktrees=AsyncMock(spec=WorkspaceManager),
+            workspaces=AsyncMock(spec=WorkspaceManager),
             agents=None,
             prs=mock_prs,
             event_bus=bus,
@@ -517,7 +517,7 @@ class TestReviewPhaseVisualValidation:
         phase = ReviewPhase(
             config=config,
             state=state,
-            worktrees=AsyncMock(spec=WorkspaceManager),
+            workspaces=AsyncMock(spec=WorkspaceManager),
             reviewers=AsyncMock(spec=ReviewRunner),
             prs=mock_prs,
             stop_event=asyncio.Event(),
@@ -552,7 +552,7 @@ class TestReviewPhaseVisualValidation:
         bus = EventBus()
         conflict_resolver = MergeConflictResolver(
             config=config,
-            worktrees=AsyncMock(spec=WorkspaceManager),
+            workspaces=AsyncMock(spec=WorkspaceManager),
             agents=None,
             prs=mock_prs,
             event_bus=bus,
@@ -572,7 +572,7 @@ class TestReviewPhaseVisualValidation:
         phase = ReviewPhase(
             config=config,
             state=state,
-            worktrees=AsyncMock(spec=WorkspaceManager),
+            workspaces=AsyncMock(spec=WorkspaceManager),
             reviewers=AsyncMock(spec=ReviewRunner),
             prs=mock_prs,
             stop_event=asyncio.Event(),

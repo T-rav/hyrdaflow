@@ -61,7 +61,7 @@ class TestSetupDotenv:
         execution_mode = "docker" if docker else "host"
         config = ConfigFactory.create(
             repo_root=repo,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             execution_mode=execution_mode,
         )
         from workspace import WorkspaceManager
@@ -113,7 +113,7 @@ class TestSetupClaudeSettings:
 
         config = ConfigFactory.create(
             repo_root=repo,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
         )
         from workspace import WorkspaceManager
 
@@ -161,14 +161,14 @@ class TestWorkspaceDestroy:
         repo = _make_repo(tmp_path, "repo")
         config = ConfigFactory.create(
             repo_root=repo,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
         )
         from workspace import WorkspaceManager
 
         mgr = WorkspaceManager(config)
 
         # Create the workspace directory manually
-        wt_path = config.worktree_path_for_issue(42)
+        wt_path = config.workspace_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
         (wt_path / "file.txt").write_text("test")
 
@@ -182,7 +182,7 @@ class TestWorkspaceDestroy:
         repo = _make_repo(tmp_path, "repo")
         config = ConfigFactory.create(
             repo_root=repo,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
         )
         from workspace import WorkspaceManager
 
@@ -190,7 +190,7 @@ class TestWorkspaceDestroy:
         # Should not raise
         await mgr.destroy(999)
         # Non-existent worktree means no path was created
-        wt_path = config.worktree_path_for_issue(999)
+        wt_path = config.workspace_path_for_issue(999)
         assert not wt_path.exists()
 
 
@@ -212,7 +212,7 @@ class TestDetectUiDirs:
 
         config = ConfigFactory.create(
             repo_root=repo,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
         )
         from workspace import WorkspaceManager
 
@@ -229,7 +229,7 @@ class TestDetectUiDirs:
 
         config = ConfigFactory.create(
             repo_root=repo,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
         )
         from workspace import WorkspaceManager
 
@@ -244,7 +244,7 @@ class TestDetectUiDirs:
 
         config = ConfigFactory.create(
             repo_root=repo,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
         )
         from workspace import WorkspaceManager
 

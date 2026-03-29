@@ -509,9 +509,9 @@ class TestWorkerResult:
         assert result.issue_number == 10
         assert result.branch == "agent/issue-10"
 
-    def test_worktree_path_defaults_to_empty_string(self) -> None:
+    def test_workspace_path_defaults_to_empty_string(self) -> None:
         result = WorkerResult(issue_number=1, branch="b")
-        assert result.worktree_path == ""
+        assert result.workspace_path == ""
 
     def test_success_defaults_to_false(self) -> None:
         result = WorkerResult(issue_number=1, branch="b")
@@ -554,7 +554,7 @@ class TestWorkerResult:
         result = WorkerResultFactory.create(
             issue_number=7,
             branch="agent/issue-7",
-            worktree_path="/tmp/wt/issue-7",
+            workspace_path="/tmp/wt/issue-7",
             success=True,
             error=None,
             transcript="Done in 3 steps.",
@@ -565,7 +565,7 @@ class TestWorkerResult:
         # Assert
         assert result.issue_number == 7
         assert result.branch == "agent/issue-7"
-        assert result.worktree_path == "/tmp/wt/issue-7"
+        assert result.workspace_path == "/tmp/wt/issue-7"
         assert result.success is True
         assert result.error is None
         assert result.transcript == "Done in 3 steps."

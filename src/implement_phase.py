@@ -49,7 +49,7 @@ class ImplementPhase:
         self,
         config: HydraFlowConfig,
         state: StateTracker,
-        worktrees: WorkspacePort,
+        workspaces: WorkspacePort,
         agents: AgentRunner,
         prs: PRPort,
         store: IssueStorePort,
@@ -60,7 +60,7 @@ class ImplementPhase:
     ) -> None:
         self._config = config
         self._state = state
-        self._worktrees = worktrees
+        self._workspaces = workspaces
         self._agents = agents
         self._prs = prs
         self._transitioner: TaskTransitioner = prs
@@ -354,7 +354,7 @@ class ImplementPhase:
         When *reset_for_retry* is True, resets an existing worktree to
         ``origin/main`` to discard stale state from a prior failed attempt.
         """
-        wt_path = self._config.worktree_path_for_issue(issue.id)
+        wt_path = self._config.workspace_path_for_issue(issue.id)
         if wt_path.is_dir():
             if reset_for_retry:
                 logger.info(
@@ -362,7 +362,7 @@ class ImplementPhase:
                     issue.id,
                 )
                 try:
-                    await self._worktrees.reset_to_main(wt_path)
+                    await self._workspaces.reset_to_main(wt_path)
                 except (RuntimeError, OSError):
                     logger.warning(
                         "Worktree reset failed for issue #%d — continuing with existing state",
@@ -372,8 +372,8 @@ class ImplementPhase:
             else:
                 logger.info("Resuming existing worktree for issue #%d", issue.id)
         else:
-            wt_path = await self._worktrees.create(issue.id, branch)
-        self._state.set_worktree(issue.id, str(wt_path))
+            wt_path = await self._workspaces.create(issue.id, branch)
+        self._state.set_workspace(issue.id, str(wt_path))
         await self._prs.push_branch(wt_path, branch, force=reset_for_retry)
         await self._transitioner.post_comment(
             issue.id,
@@ -484,9 +484,9 @@ class ImplementPhase:
         if self._is_zero_commit_failure(result):
             return await self._handle_zero_commits(issue, result)
 
-        if result.worktree_path:
+        if result.workspace_path:
             pushed = await self._prs.push_branch(
-                Path(result.worktree_path), result.branch
+                Path(result.workspace_path), result.branch
             )
             if pushed:
                 early_return = await self._handle_successful_push(

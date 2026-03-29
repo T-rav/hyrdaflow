@@ -235,13 +235,13 @@ class ScriptedImplementPhase:
         config: HydraFlowConfig,
         store: IssueStore,
         script: PipelineScript,
-        worktrees: FakeWorkspaceManager,
+        workspaces: FakeWorkspaceManager,
         github: ScriptedGitHub,
     ) -> None:
         self._config = config
         self._store = store
         self._script = script
-        self._worktrees = worktrees
+        self._workspaces = workspaces
         self._github = github
 
     async def run_batch(
@@ -276,7 +276,7 @@ class ScriptedImplementPhase:
             if behavior == "fail":
                 # Intentional: consume issue from queue without re-enqueuing,
                 # simulating a terminal failure (worktree cleaned, issue dropped).
-                self._worktrees.cleanup(issue.id)
+                self._workspaces.cleanup(issue.id)
                 results.append(
                     WorkerResultFactory.create(
                         issue_number=issue.id,
@@ -408,13 +408,13 @@ def build_scripted_services(
     script: PipelineScript,
 ) -> SimpleNamespace:
     """Return a fake ServiceRegistry wired with scripted phases."""
-    worktrees = FakeWorkspaceManager()
+    workspaces = FakeWorkspaceManager()  # noqa: F841
     github = ScriptedGitHub()
 
     store = IssueStore(config, StaticTaskFetcher(), event_bus)
 
     services = SimpleNamespace()
-    services.worktrees = worktrees
+    services.workspaces = workspaces
     services.subprocess_runner = MagicMock()
     services.agents = FakeRunner()
     services.planners = FakeRunner()
@@ -433,7 +433,7 @@ def build_scripted_services(
         config,
         store,
         script,
-        worktrees,
+        workspaces,
         github,
     )
     services.metrics_manager = MagicMock()
@@ -450,7 +450,7 @@ def build_scripted_services(
     services.epic_manager = MagicMock()
     services.epic_monitor_loop = FakeBackgroundLoop()
     services.epic_sweeper_loop = FakeBackgroundLoop()
-    services.worktree_gc_loop = FakeBackgroundLoop()
+    services.workspace_gc_loop = FakeBackgroundLoop()
     services.runs_gc_loop = FakeBackgroundLoop()
     services.adr_reviewer_loop = FakeBackgroundLoop()
     services.health_monitor_loop = FakeBackgroundLoop()

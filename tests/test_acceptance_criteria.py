@@ -685,7 +685,7 @@ class TestRunPrecheckContext:
             subskill_confidence_threshold=0.7,
             debug_escalation_enabled=False,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         gen, _ = _make_generator(cfg, event_bus)
@@ -714,7 +714,7 @@ class TestRunPrecheckContext:
             max_subskill_attempts=1,
             debug_escalation_enabled=False,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         gen, _ = _make_generator(cfg, event_bus)
@@ -757,7 +757,7 @@ class TestRunPrecheckContext:
             max_subskill_attempts=1,
             debug_escalation_enabled=False,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         gen, _ = _make_generator(cfg, event_bus)

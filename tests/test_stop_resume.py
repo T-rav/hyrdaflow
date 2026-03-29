@@ -88,7 +88,7 @@ def _make_orchestrator(tmp_path: Path) -> HydraFlowOrchestrator:
 
     config = ConfigFactory.create(
         repo_root=tmp_path / "repo",
-        worktree_base=tmp_path / "worktrees",
+        workspace_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     (tmp_path / "repo").mkdir(parents=True, exist_ok=True)
@@ -110,7 +110,7 @@ def _make_orchestrator(tmp_path: Path) -> HydraFlowOrchestrator:
         svc.store.clear_active = MagicMock()
 
         # Other services we need
-        svc.worktrees = AsyncMock()
+        svc.workspaces = AsyncMock()
         svc.subprocess_runner = MagicMock()
         svc.prs = AsyncMock()
         svc.prs.ensure_labels_exist = AsyncMock()
@@ -486,13 +486,13 @@ class TestWorktreePreservation:
         phase._prs.pull_main = AsyncMock()
 
         # Create worktree path
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
         # Worktree cleanup should NOT be called — review was interrupted (not merged)
-        phase._worktrees.post_work_cleanup.assert_not_awaited()
+        phase._workspaces.post_work_cleanup.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_review_phase_cleans_worktree_for_merged_pr_with_stop(
@@ -529,13 +529,13 @@ class TestWorktreePreservation:
         phase._prs.swap_pipeline_labels = AsyncMock()
         phase._prs.pull_main = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
 
         # Worktree SHOULD be cleaned up — merge completed, nothing to resume
-        phase._worktrees.post_work_cleanup.assert_awaited_once_with(42)
+        phase._workspaces.post_work_cleanup.assert_awaited_once_with(42)
 
     @pytest.mark.asyncio
     async def test_review_phase_cleans_worktree_when_not_stopped(self, config) -> None:
@@ -559,14 +559,14 @@ class TestWorktreePreservation:
         phase._prs.swap_pipeline_labels = AsyncMock()
         phase._prs.pull_main = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         # Stop event is NOT set
         await phase.review_prs([pr], [issue])
 
         # Worktree cleanup should be called normally
-        phase._worktrees.post_work_cleanup.assert_awaited_once_with(42)
+        phase._workspaces.post_work_cleanup.assert_awaited_once_with(42)
 
 
 # ---------------------------------------------------------------------------
@@ -616,7 +616,7 @@ class TestReviewPhaseStop:
 
         # Create worktree paths
         for num in (10, 20):
-            (config.worktree_base / f"issue-{num}").mkdir(parents=True, exist_ok=True)
+            (config.workspace_base / f"issue-{num}").mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr1, pr2], [issue1, issue2])
 

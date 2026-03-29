@@ -76,7 +76,7 @@ class ServiceRegistry:
     """Holds all service instances for the orchestrator."""
 
     # Core infrastructure
-    worktrees: WorkspaceManager
+    workspaces: WorkspaceManager
     subprocess_runner: SubprocessRunner
     agents: AgentRunner
     planners: PlannerRunner
@@ -119,7 +119,7 @@ class ServiceRegistry:
     report_issue_loop: ReportIssueLoop
     epic_monitor_loop: EpicMonitorLoop
     epic_sweeper_loop: EpicSweeperLoop
-    worktree_gc_loop: WorkspaceGCLoop
+    workspace_gc_loop: WorkspaceGCLoop
     runs_gc_loop: RunsGCLoop
     adr_reviewer_loop: ADRReviewerLoop
     health_monitor_loop: HealthMonitorLoop
@@ -195,7 +195,7 @@ def build_services(
         )
 
     # Core runners
-    worktrees = WorkspaceManager(config)
+    workspaces = WorkspaceManager(config)  # noqa: F841
     subprocess_runner = get_docker_runner(config)
     agents = AgentRunner(
         config,
@@ -284,7 +284,7 @@ def build_services(
         state,
         store,
         fetcher,
-        worktrees,
+        workspaces,
         hitl_runner,
         prs,
         event_bus,
@@ -295,7 +295,7 @@ def build_services(
     implementer = ImplementPhase(
         config,
         state,
-        worktrees,
+        workspaces,
         agents,
         prs,
         store,
@@ -312,7 +312,7 @@ def build_services(
 
     conflict_resolver = MergeConflictResolver(
         config=config,
-        worktrees=worktrees,
+        workspaces=workspaces,
         agents=agents,
         prs=prs,
         event_bus=event_bus,
@@ -326,7 +326,7 @@ def build_services(
         event_bus,
         prs,
         agents,
-        worktrees,
+        workspaces,
         fetcher,
         hitl_runner=hitl_runner,
         stop_event=stop_event,
@@ -387,7 +387,7 @@ def build_services(
     reviewer = ReviewPhase(
         config,
         state,
-        worktrees,
+        workspaces,
         reviewers,
         prs,
         stop_event,
@@ -432,9 +432,9 @@ def build_services(
         state=state,
         deps=loop_deps,
     )
-    worktree_gc_loop = WorkspaceGCLoop(
+    workspace_gc_loop = WorkspaceGCLoop(  # noqa: F841
         config=config,
-        worktrees=worktrees,
+        workspaces=workspaces,
         prs=prs,
         state=state,
         deps=loop_deps,
@@ -487,7 +487,7 @@ def build_services(
     )
 
     return ServiceRegistry(
-        worktrees=worktrees,
+        workspaces=workspaces,
         subprocess_runner=subprocess_runner,
         agents=agents,
         planners=planners,
@@ -518,7 +518,7 @@ def build_services(
         report_issue_loop=report_issue_loop,
         epic_monitor_loop=epic_monitor_loop,
         epic_sweeper_loop=epic_sweeper_loop,
-        worktree_gc_loop=worktree_gc_loop,
+        workspace_gc_loop=workspace_gc_loop,
         runs_gc_loop=runs_gc_loop,
         adr_reviewer_loop=adr_reviewer_loop,
         health_monitor_loop=health_monitor_loop,

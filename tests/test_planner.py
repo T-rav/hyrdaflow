@@ -135,7 +135,7 @@ def test_build_command_supports_codex_backend(tmp_path):
         planner_tool="codex",
         planner_model="gpt-5-codex",
         repo_root=tmp_path / "repo",
-        worktree_base=tmp_path / "wt",
+        workspace_base=tmp_path / "wt",
         state_file=tmp_path / "s.json",
     )
     runner = _make_runner(cfg, None)

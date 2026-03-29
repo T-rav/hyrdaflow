@@ -448,7 +448,7 @@ class TestRetryWrapperUsage:
         cfg = ConfigFactory.create(
             gh_max_retries=5,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mgr = make_pr_manager(cfg, event_bus)
@@ -671,7 +671,7 @@ class TestListHitlItemsExceptionHandling:
             ready_label=config.ready_label,
             repo=config.repo,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mgr = make_pr_manager(cfg, event_bus)
@@ -701,7 +701,7 @@ class TestListHitlItemsExceptionHandling:
             ready_label=config.ready_label,
             repo=config.repo,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mgr = make_pr_manager(cfg, event_bus)
@@ -756,7 +756,7 @@ class TestListHitlItemsExceptionHandling:
             ready_label=config.ready_label,
             repo=config.repo,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         mgr = make_pr_manager(cfg, event_bus)

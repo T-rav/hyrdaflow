@@ -104,7 +104,7 @@ class PRUnsticker:
         event_bus: EventBus,
         pr_manager: PRPort,
         agents: AgentRunner,
-        worktrees: WorkspacePort,
+        workspaces: WorkspacePort,
         fetcher: IssueFetcherPort,
         hitl_runner: HITLRunner | None = None,
         stop_event: asyncio.Event | None = None,
@@ -117,7 +117,7 @@ class PRUnsticker:
         self._bus = event_bus
         self._prs = pr_manager
         self._agents = agents
-        self._worktrees = worktrees
+        self._workspaces = workspaces
         self._fetcher = fetcher
         self._hitl_runner = hitl_runner
         self._stop_event = stop_event or asyncio.Event()
@@ -275,10 +275,10 @@ class PRUnsticker:
                 return False
 
             # Get or create worktree
-            wt_path = self._config.worktree_path_for_issue(issue_number)
+            wt_path = self._config.workspace_path_for_issue(issue_number)
             if not wt_path.is_dir():
-                wt_path = await self._worktrees.create(issue_number, branch)
-            self._state.set_worktree(issue_number, str(wt_path))
+                wt_path = await self._workspaces.create(issue_number, branch)
+            self._state.set_workspace(issue_number, str(wt_path))
 
             # Dispatch to cause-specific resolver
             resolution = await self._resolve_by_cause(
@@ -294,7 +294,7 @@ class PRUnsticker:
             if resolution.success:
                 # Push the fixed branch
                 if resolution.used_rebuild:
-                    new_wt = self._config.worktree_path_for_issue(issue_number)
+                    new_wt = self._config.workspace_path_for_issue(issue_number)
                     await self._prs.push_branch(new_wt, branch, force=True)
                 else:
                     await self._prs.push_branch(wt_path, branch)
@@ -411,10 +411,10 @@ class PRUnsticker:
     ) -> bool:
         """Rebase on main and run agent with a CI/quality fix prompt."""
         # First rebase on main
-        clean = await self._worktrees.start_merge_main(wt_path, branch)
+        clean = await self._workspaces.start_merge_main(wt_path, branch)
         if not clean:
             # If there are conflicts during rebase, try to resolve them first
-            await self._worktrees.abort_merge(wt_path)
+            await self._workspaces.abort_merge(wt_path)
 
         cause_str = self._state.get_hitl_cause(issue_number) or ""
         prompt, prompt_stats = self._build_ci_fix_prompt(issue, pr_url, cause_str)
@@ -574,9 +574,9 @@ diff — you may catch things `make quality` won't.
 
         for attempt in range(1, max_attempts + 1):
             # Rebase on main
-            clean = await self._worktrees.start_merge_main(wt_path, branch)
+            clean = await self._workspaces.start_merge_main(wt_path, branch)
             if not clean:
-                await self._worktrees.abort_merge(wt_path)
+                await self._workspaces.abort_merge(wt_path)
 
             # Isolate which test hangs
             isolation_output = await self._isolate_hanging_tests(wt_path)
@@ -1017,15 +1017,15 @@ TROUBLESHOOTING_PATTERN_END
         for item in remaining:
             issue_number = item.issue
             branch = self._config.branch_for_issue(issue_number)
-            wt_path = self._config.worktree_path_for_issue(issue_number)
+            wt_path = self._config.workspace_path_for_issue(issue_number)
 
             if not wt_path.is_dir():
                 continue
 
             try:
-                clean = await self._worktrees.start_merge_main(wt_path, branch)
+                clean = await self._workspaces.start_merge_main(wt_path, branch)
                 if not clean:
-                    await self._worktrees.abort_merge(wt_path)
+                    await self._workspaces.abort_merge(wt_path)
                     logger.warning(
                         "Re-rebase for issue #%d hit conflicts after sibling "
                         "merge — will resolve on next unstick cycle",

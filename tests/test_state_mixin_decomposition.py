@@ -20,7 +20,7 @@ from state._report import ReportStateMixin
 from state._review import ReviewStateMixin
 from state._session import SessionStateMixin
 from state._worker import WorkerStateMixin
-from state._worktree import WorktreeStateMixin
+from state._workspace import WorkspaceStateMixin
 from tests.helpers import make_tracker
 
 # ---------------------------------------------------------------------------
@@ -35,7 +35,7 @@ class TestFacadeComposition:
         "mixin",
         [
             IssueStateMixin,
-            WorktreeStateMixin,
+            WorkspaceStateMixin,
             HITLStateMixin,
             ReviewStateMixin,
             EpicStateMixin,
@@ -51,7 +51,7 @@ class TestFacadeComposition:
     def test_mro_contains_all_mixins(self) -> None:
         mixin_names = {
             "IssueStateMixin",
-            "WorktreeStateMixin",
+            "WorkspaceStateMixin",
             "HITLStateMixin",
             "ReviewStateMixin",
             "EpicStateMixin",
@@ -84,7 +84,7 @@ class TestCrossMixinPersistence:
         tracker.increment_issue_attempts(1)
 
         # Worktree domain
-        tracker.set_worktree(1, "/wt/1")
+        tracker.set_workspace(1, "/wt/1")
         tracker.set_branch(1, "agent/issue-1")
 
         # HITL domain
@@ -117,7 +117,7 @@ class TestCrossMixinPersistence:
 
         assert tracker2.to_dict()["processed_issues"]["1"] == "planned"
         assert tracker2.get_issue_attempts(1) == 1
-        assert tracker2.get_active_worktrees() == {1: "/wt/1"}
+        assert tracker2.get_active_workspaces() == {1: "/wt/1"}
         assert tracker2.get_branch(1) == "agent/issue-1"
         assert tracker2.get_hitl_origin(1) == "review"
         assert tracker2.get_hitl_cause(1) == "ci_failure"
@@ -245,18 +245,18 @@ class TestIssueStateMixin:
         assert len(t.get_hook_failures(1)) == 500
 
 
-class TestWorktreeStateMixin:
+class TestWorkspaceStateMixin:
     def test_worktree_lifecycle(self, tmp_path: Path) -> None:
         t = make_tracker(tmp_path)
-        t.set_worktree(1, "/wt/1")
-        assert t.get_active_worktrees() == {1: "/wt/1"}
-        t.remove_worktree(1)
-        assert t.get_active_worktrees() == {}
+        t.set_workspace(1, "/wt/1")
+        assert t.get_active_workspaces() == {1: "/wt/1"}
+        t.remove_workspace(1)
+        assert t.get_active_workspaces() == {}
 
     def test_remove_absent_worktree_is_noop(self, tmp_path: Path) -> None:
         t = make_tracker(tmp_path)
-        t.remove_worktree(999)  # should not raise
-        assert t.get_active_worktrees() == {}  # state remains empty
+        t.remove_workspace(999)  # should not raise
+        assert t.get_active_workspaces() == {}  # state remains empty
 
     def test_branch_tracking(self, tmp_path: Path) -> None:
         t = make_tracker(tmp_path)

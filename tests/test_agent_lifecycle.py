@@ -407,7 +407,7 @@ class TestPreQualityReviewLoop:
         cfg = ConfigFactory.create(
             max_pre_quality_review_attempts=2,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         runner = AgentRunner(cfg, event_bus)
@@ -512,7 +512,7 @@ class TestPreQualityReviewLoop:
         cfg = ConfigFactory.create(
             max_quality_fix_attempts=0,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         runner = AgentRunner(cfg, event_bus)

@@ -455,7 +455,7 @@ class TestIssueAttemptTracking:
         state_file = tmp_path / "state.json"
         old_data = {
             "processed_issues": {"1": "success"},
-            "active_worktrees": {},
+            "active_workspaces": {},
             "active_branches": {},
             "reviewed_prs": {},
             "last_updated": None,
@@ -517,7 +517,7 @@ class TestActiveIssueNumbersTracking:
         state_file = tmp_path / "state.json"
         old_data = {
             "processed_issues": {"1": "success"},
-            "active_worktrees": {},
+            "active_workspaces": {},
             "active_branches": {},
             "reviewed_prs": {},
             "last_updated": None,

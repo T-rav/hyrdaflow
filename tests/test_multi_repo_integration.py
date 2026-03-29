@@ -28,7 +28,7 @@ def _make_config(tmp_path: Path, slug: str):
     return ConfigFactory.create(
         repo=f"owner/{slug}",
         repo_root=base / "repo",
-        worktree_base=base / "worktrees",
+        workspace_base=base / "worktrees",
         state_file=base / "state.json",
     )
 
@@ -195,13 +195,13 @@ class TestActiveIssuesIndependence:
 
 
 class TestWorktreePathIsolation:
-    def test_worktree_paths_isolated_per_repo(self, tmp_path: Path) -> None:
+    def test_workspace_paths_isolated_per_repo(self, tmp_path: Path) -> None:
         """Each repo config should produce different worktree paths."""
         alpha_cfg = _make_config(tmp_path, "repo-alpha")
         beta_cfg = _make_config(tmp_path, "repo-beta")
 
-        alpha_path = alpha_cfg.worktree_path_for_issue(42)
-        beta_path = beta_cfg.worktree_path_for_issue(42)
+        alpha_path = alpha_cfg.workspace_path_for_issue(42)
+        beta_path = beta_cfg.workspace_path_for_issue(42)
 
         assert alpha_path != beta_path
         assert "repo-alpha" in str(alpha_path) or "alpha" in str(alpha_path)

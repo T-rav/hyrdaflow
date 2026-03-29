@@ -605,7 +605,7 @@ class TestDisabledWorkersPersistence:
         state_file = tmp_path / "state.json"
         data = {
             "processed_issues": {},
-            "active_worktrees": {},
+            "active_workspaces": {},
             "active_branches": {},
             "reviewed_prs": {},
             "bg_worker_states": {
@@ -629,7 +629,7 @@ class TestDisabledWorkersPersistence:
         state_file = tmp_path / "state.json"
         data = {
             "processed_issues": {"42": "merged"},
-            "active_worktrees": {},
+            "active_workspaces": {},
             "active_branches": {},
             "reviewed_prs": {},
             "bg_worker_states": "not_a_dict",
@@ -651,7 +651,7 @@ class TestDisabledWorkersPersistence:
         state_file = tmp_path / "state.json"
         data = {
             "processed_issues": {},
-            "active_worktrees": {},
+            "active_workspaces": {},
             "active_branches": {},
             "reviewed_prs": {},
             "disabled_workers": ["memory_sync"],
@@ -700,12 +700,12 @@ class TestActiveCrate:
 
 
 # ---------------------------------------------------------------------------
-# get_active_worktrees ValueError handling (issue #2576)
+# get_active_workspaces ValueError handling (issue #2576)
 # ---------------------------------------------------------------------------
 
 
 class TestGetActiveWorktreesValueError:
-    """Verify get_active_worktrees handles non-integer keys gracefully."""
+    """Verify get_active_workspaces handles non-integer keys gracefully."""
 
     def test_skips_non_integer_keys(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -716,11 +716,11 @@ class TestGetActiveWorktreesValueError:
         state_file = tmp_path / "state.json"
         tracker = StateTracker(state_file)
         # Inject corrupt data directly
-        tracker._data.active_worktrees["abc"] = "/wt/abc"
-        tracker._data.active_worktrees["42"] = "/wt/42"
+        tracker._data.active_workspaces["abc"] = "/wt/abc"
+        tracker._data.active_workspaces["42"] = "/wt/42"
 
         with caplog.at_level(logging.WARNING, logger="hydraflow.state"):
-            result = tracker.get_active_worktrees()
+            result = tracker.get_active_workspaces()
 
         assert result == {42: "/wt/42"}
         assert "Skipping non-integer state key" in caplog.text
@@ -729,20 +729,20 @@ class TestGetActiveWorktreesValueError:
         """All non-integer keys should result in an empty dict."""
         state_file = tmp_path / "state.json"
         tracker = StateTracker(state_file)
-        tracker._data.active_worktrees["foo"] = "/wt/foo"
-        tracker._data.active_worktrees["bar"] = "/wt/bar"
+        tracker._data.active_workspaces["foo"] = "/wt/foo"
+        tracker._data.active_workspaces["bar"] = "/wt/bar"
 
-        result = tracker.get_active_worktrees()
+        result = tracker.get_active_workspaces()
         assert result == {}
 
     def test_valid_keys_unaffected(self, tmp_path: Path) -> None:
         """Valid integer-string keys should still convert correctly."""
         state_file = tmp_path / "state.json"
         tracker = StateTracker(state_file)
-        tracker.set_worktree(10, "/wt/10")
-        tracker.set_worktree(20, "/wt/20")
+        tracker.set_workspace(10, "/wt/10")
+        tracker.set_workspace(20, "/wt/20")
 
-        result = tracker.get_active_worktrees()
+        result = tracker.get_active_workspaces()
         assert result == {10: "/wt/10", 20: "/wt/20"}
 
 
@@ -777,7 +777,7 @@ class TestStateKeyHelpers:
         tracker = StateTracker(state_file)
 
         tracker.mark_issue(100, "reviewed")
-        tracker.set_worktree(100, "/wt/100")
+        tracker.set_workspace(100, "/wt/100")
         tracker.set_branch(100, "agent/issue-100")
         tracker.increment_issue_attempts(100)
         tracker.set_hitl_origin(100, "hydraflow-review")
@@ -786,7 +786,7 @@ class TestStateKeyHelpers:
 
         tracker2 = StateTracker(state_file)
         assert tracker2._data.processed_issues["100"] == "reviewed"
-        assert tracker2.get_active_worktrees() == {100: "/wt/100"}
+        assert tracker2.get_active_workspaces() == {100: "/wt/100"}
         assert tracker2.get_branch(100) == "agent/issue-100"
         assert tracker2.get_issue_attempts(100) == 1
         assert tracker2.get_hitl_origin(100) == "hydraflow-review"

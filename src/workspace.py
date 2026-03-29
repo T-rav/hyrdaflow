@@ -41,7 +41,7 @@ class WorkspaceManager:
     def __init__(self, config: HydraFlowConfig) -> None:
         self._config = config
         self._repo_root = config.repo_root
-        self._base = config.worktree_base
+        self._base = config.workspace_base
         self._ui_dirs = self._detect_ui_dirs()
 
     def _detect_ui_dirs(self) -> list[str]:
@@ -241,7 +241,7 @@ class WorkspaceManager:
         Prevents work loss when a worktree is cleaned up after a crash or
         timeout that left uncommitted changes behind.
         """
-        wt_path = self._config.worktree_path_for_issue(issue_number)
+        wt_path = self._config.workspace_path_for_issue(issue_number)
         if not wt_path.exists():
             return
 
@@ -347,7 +347,7 @@ class WorkspaceManager:
 
     async def _create_unlocked(self, issue_number: int, branch: str) -> Path:
         """Inner create logic — must be called under ``_repo_workspace_lock``."""
-        wt_path = self._config.worktree_path_for_issue(issue_number)
+        wt_path = self._config.workspace_path_for_issue(issue_number)
         logger.info(
             "Creating workspace %s on branch %s",
             wt_path,
@@ -464,7 +464,7 @@ class WorkspaceManager:
 
     async def _destroy_unlocked(self, issue_number: int) -> None:
         """Inner destroy logic — must be called under ``_repo_workspace_lock``."""
-        wt_path = self._config.worktree_path_for_issue(issue_number)
+        wt_path = self._config.workspace_path_for_issue(issue_number)
         if self._config.dry_run:
             logger.info("[dry-run] Would destroy workspace %s", wt_path)
             return

@@ -34,7 +34,7 @@ from ._report import ReportStateMixin
 from ._review import ReviewStateMixin
 from ._session import SessionStateMixin
 from ._worker import WorkerStateMixin
-from ._worktree import WorktreeStateMixin
+from ._workspace import WorkspaceStateMixin
 
 logger = logging.getLogger("hydraflow.state")
 
@@ -45,7 +45,7 @@ __all__ = ["StateTracker", "build_state_tracker"]
 
 class StateTracker(
     IssueStateMixin,
-    WorktreeStateMixin,
+    WorkspaceStateMixin,
     HITLStateMixin,
     ReviewStateMixin,
     EpicStateMixin,

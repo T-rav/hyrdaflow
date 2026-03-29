@@ -83,7 +83,7 @@ class ReviewGuardContext:
     """Successful result from _run_initial_guards."""
 
     task: Task
-    worktree_path: Path
+    workspace_path: Path
 
 
 @dataclass(slots=True)
@@ -102,7 +102,7 @@ class ReviewPhase:
         self,
         config: HydraFlowConfig,
         state: StateTracker,
-        worktrees: WorkspacePort,
+        workspaces: WorkspacePort,
         reviewers: ReviewRunner,
         prs: PRPort,
         stop_event: asyncio.Event,
@@ -120,7 +120,7 @@ class ReviewPhase:
     ) -> None:
         self._config = config
         self._state = state
-        self._worktrees = worktrees
+        self._workspaces = workspaces
         self._reviewers = reviewers
         self._prs = prs
         self._transitioner: TaskTransitioner = prs
@@ -308,9 +308,9 @@ class ReviewPhase:
         self, pr: PRInfo, task: Task, idx: int
     ) -> Path | None:
         """Ensure worktree exists and main is merged. Returns path or None on conflict."""
-        wt_path = self._config.worktree_path_for_issue(pr.issue_number)
+        wt_path = self._config.workspace_path_for_issue(pr.issue_number)
         if not wt_path.exists():
-            wt_path = await self._worktrees.create(pr.issue_number, pr.branch)
+            wt_path = await self._workspaces.create(pr.issue_number, pr.branch)
         merged = await self._merge_with_main(pr, task, wt_path, idx)
         if not merged:
             return None
@@ -394,7 +394,7 @@ class ReviewPhase:
         result = await self._run_and_post_review(
             pr,
             guards.task,
-            guards.worktree_path,
+            guards.workspace_path,
             pre_review.diff,
             idx,
             code_scanning_alerts=pre_review.code_scanning_alerts,
@@ -403,7 +403,7 @@ class ReviewPhase:
         return await self._run_post_review_actions(
             pr,
             guards.task,
-            guards.worktree_path,
+            guards.workspace_path,
             result,
             pre_review,
             idx,
@@ -432,7 +432,7 @@ class ReviewPhase:
                 summary="Merge conflicts with main — escalated to HITL",
             )
 
-        return ReviewGuardContext(task=task, worktree_path=wt_path)
+        return ReviewGuardContext(task=task, workspace_path=wt_path)
 
     async def _run_pre_review_checks(
         self,
@@ -719,8 +719,8 @@ class ReviewPhase:
 
         if not skip:
             try:
-                await self._worktrees.post_work_cleanup(pr.issue_number)
-                self._state.remove_worktree(pr.issue_number)
+                await self._workspaces.post_work_cleanup(pr.issue_number)
+                self._state.remove_workspace(pr.issue_number)
             except RuntimeError as exc:
                 logger.warning(
                     "Could not clean up worktree for issue #%d: %s",
@@ -1083,9 +1083,9 @@ class ReviewPhase:
         This keeps the standard review path aligned with unsticker behavior:
         resolve merge conflicts on the branch, push updates, then retry merge.
         """
-        wt_path = self._config.worktree_path_for_issue(pr.issue_number)
+        wt_path = self._config.workspace_path_for_issue(pr.issue_number)
         if not wt_path.exists():
-            wt_path = await self._worktrees.create(pr.issue_number, pr.branch)
+            wt_path = await self._workspaces.create(pr.issue_number, pr.branch)
 
         resolution = await self._conflict_resolver.resolve_merge_conflicts(
             pr,
@@ -1099,7 +1099,7 @@ class ReviewPhase:
 
         if resolution.used_rebuild:
             await self._prs.push_branch(
-                self._config.worktree_path_for_issue(pr.issue_number),
+                self._config.workspace_path_for_issue(pr.issue_number),
                 pr.branch,
                 force=True,
             )

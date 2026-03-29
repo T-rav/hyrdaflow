@@ -135,7 +135,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
         "unstick_auto_merge",
         "unstick_all_causes",
         "memory_auto_approve",
-        "worktree_base",
+        "workspace_base",
     }
 
     def _build_system_worker_inference_stats() -> dict[str, dict[str, int]]:
@@ -286,7 +286,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
                 batch_size=_cfg.batch_size,
                 model=_cfg.model,
                 pr_unstick_batch_size=_cfg.pr_unstick_batch_size,
-                worktree_base=str(_cfg.worktree_base),
+                workspace_base=str(_cfg.workspace_base),
             ),
         )
         data = response.model_dump()

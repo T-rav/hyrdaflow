@@ -274,7 +274,7 @@ class ConfigFactory:
         max_issue_body_chars: int = 10_000,
         max_review_diff_chars: int = 15_000,
         repo_root: Path | None = None,
-        worktree_base: Path | None = None,
+        workspace_base: Path | None = None,
         state_file: Path | None = None,
         event_log_path: Path | None = None,
         config_file: Path | None = None,
@@ -332,7 +332,7 @@ class ConfigFactory:
         epic_decompose_complexity_threshold: int = 8,
         epic_monitor_interval: int = 1800,
         epic_sweep_interval: int = 3600,
-        worktree_gc_interval: int = 1800,
+        workspace_gc_interval: int = 1800,
         epic_stale_days: int = 7,
         epic_merge_strategy: Literal[
             "independent", "bundled", "bundled_hitl", "ordered"
@@ -481,7 +481,7 @@ class ConfigFactory:
                 max_issue_body_chars=max_issue_body_chars,
                 max_review_diff_chars=max_review_diff_chars,
                 repo_root=root,
-                worktree_base=worktree_base or root.parent / "test-worktrees",
+                workspace_base=workspace_base or root.parent / "test-worktrees",
                 state_file=state_file or root / ".hydraflow-state.json",
                 event_log_path=event_log_path or root / ".hydraflow-events.jsonl",
                 memory_compaction_model=memory_compaction_model,
@@ -537,7 +537,7 @@ class ConfigFactory:
                 epic_decompose_complexity_threshold=epic_decompose_complexity_threshold,
                 epic_monitor_interval=epic_monitor_interval,
                 epic_sweep_interval=epic_sweep_interval,
-                worktree_gc_interval=worktree_gc_interval,
+                workspace_gc_interval=workspace_gc_interval,
                 epic_stale_days=epic_stale_days,
                 epic_merge_strategy=epic_merge_strategy,
                 collaborator_check_enabled=collaborator_check_enabled,
@@ -625,7 +625,7 @@ class PipelineHarness:
 
         self.config = config or ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
             max_workers=1,
             max_planners=1,
@@ -658,9 +658,9 @@ class PipelineHarness:
         self._hitl_fetcher = AsyncMock()
         self._hitl_fetcher.fetch_issue_by_number = AsyncMock()
 
-        self.worktrees = AsyncMock()
-        self.worktrees.create = AsyncMock(side_effect=self._default_worktree_create)
-        self.worktrees.destroy = AsyncMock()
+        self.workspaces = AsyncMock()
+        self.workspaces.create = AsyncMock(side_effect=self._default_workspace_create)
+        self.workspaces.destroy = AsyncMock()
 
         self._conflict_resolver = MagicMock()
         self._conflict_resolver.merge_with_main = AsyncMock(return_value=True)
@@ -696,7 +696,7 @@ class PipelineHarness:
         self.implement_phase = ImplementPhase(
             config=self.config,
             state=self.state,
-            worktrees=self.worktrees,
+            workspaces=self.workspaces,
             agents=self.agents,
             prs=self.prs,
             store=self.store,
@@ -705,7 +705,7 @@ class PipelineHarness:
         self.review_phase = ReviewPhase(
             config=self.config,
             state=self.state,
-            worktrees=self.worktrees,
+            workspaces=self.workspaces,
             reviewers=self.reviewers,
             prs=self.prs,
             stop_event=self.stop_event,
@@ -719,7 +719,7 @@ class PipelineHarness:
             state=self.state,
             store=self.store,
             fetcher=self._hitl_fetcher,
-            worktrees=self.worktrees,
+            workspaces=self.workspaces,
             hitl_runner=self.hitl_runner,
             prs=self.prs,
             event_bus=self.bus,
@@ -729,7 +729,7 @@ class PipelineHarness:
     def _ensure_test_dirs(self) -> None:
         paths = {
             self.config.repo_root,
-            self.config.worktree_base,
+            self.config.workspace_base,
             self.config.state_file.parent,
             self.config.data_root,
             self.config.plans_dir,
@@ -787,8 +787,8 @@ class PipelineHarness:
         self.prs.fetch_ci_failure_logs = AsyncMock(return_value="")
         self.prs.merge_pr = AsyncMock(return_value=True)
 
-    def _default_worktree_create(self, issue_number: int, branch: str):
-        path = self.config.worktree_path_for_issue(issue_number)
+    def _default_workspace_create(self, issue_number: int, branch: str):
+        path = self.config.workspace_path_for_issue(issue_number)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.mkdir(parents=True, exist_ok=True)
         return path
@@ -834,14 +834,14 @@ class PipelineHarness:
         )
 
         branch = self.config.branch_for_issue(task.id)
-        worktree_path = self.config.worktree_path_for_issue(task.id)
+        workspace_path = self.config.workspace_path_for_issue(task.id)
         worker_return = (
             worker_result
             if worker_result is not None
             else WorkerResultFactory.create(
                 issue_number=task.id,
                 branch=branch,
-                worktree_path=str(worktree_path),
+                workspace_path=str(workspace_path),
                 success=True,
                 commits=1,
             )
@@ -928,7 +928,7 @@ def make_docker_manager(tmp_path: Path) -> WorkspaceManager:
         cfg = ConfigFactory.create(
             execution_mode="docker",
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
     return WorkspaceManager(cfg)
@@ -1055,7 +1055,7 @@ def make_implement_phase(
             return WorkerResultFactory.create(
                 issue_number=issue.id,
                 success=success,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
             )
 
         agent_run = _default_agent_run
@@ -1073,7 +1073,7 @@ def make_implement_phase(
 
     mock_wt = AsyncMock()
     mock_wt.create = AsyncMock(
-        side_effect=lambda num, branch: config.worktree_base / f"issue-{num}"
+        side_effect=lambda num, branch: config.workspace_base / f"issue-{num}"
     )
 
     mock_prs = AsyncMock()
@@ -1096,7 +1096,7 @@ def make_implement_phase(
     phase = ImplementPhase(
         config=config,
         state=state,
-        worktrees=mock_wt,
+        workspaces=mock_wt,
         agents=mock_agents,
         prs=mock_prs,
         store=mock_store,
@@ -1210,7 +1210,7 @@ def make_hitl_phase(config):
 
     Promoted from test_hitl_phase._make_phase() for reuse across test files.
 
-    Returns (phase, state, fetcher_mock, prs_mock, worktrees_mock,
+    Returns (phase, state, fetcher_mock, prs_mock, workspaces_mock,
              hitl_runner_mock, bus).
     """
     from events import EventBus
@@ -1222,9 +1222,9 @@ def make_hitl_phase(config):
     bus = EventBus()
     fetcher_mock = AsyncMock()
     store = IssueStore(config, AsyncMock(), bus)
-    worktrees = AsyncMock()
-    worktrees.create = AsyncMock(return_value=config.worktree_base / "issue-42")
-    worktrees.destroy = AsyncMock()
+    workspaces = AsyncMock()
+    workspaces.create = AsyncMock(return_value=config.workspace_base / "issue-42")
+    workspaces.destroy = AsyncMock()
     hitl_runner = AsyncMock()
     prs = AsyncMock()
     prs.remove_label = AsyncMock()
@@ -1238,13 +1238,13 @@ def make_hitl_phase(config):
         state,
         store,
         fetcher_mock,
-        worktrees,
+        workspaces,
         hitl_runner,
         prs,
         bus,
         stop_event,
     )
-    return phase, state, fetcher_mock, prs, worktrees, hitl_runner, bus
+    return phase, state, fetcher_mock, prs, workspaces, hitl_runner, bus
 
 
 def make_triage_phase(config):
@@ -1287,7 +1287,7 @@ def make_conflict_resolver(config, *, agents=None, suggest_memory=None):
     state = StateTracker(config.state_file)
     return MergeConflictResolver(
         config=config,
-        worktrees=AsyncMock(),
+        workspaces=AsyncMock(),
         agents=agents,
         prs=AsyncMock(),
         event_bus=EventBus(),
@@ -1435,7 +1435,7 @@ def make_review_phase(
     * ``_prs.push_branch`` → ``True``
     * ``_prs.merge_pr`` → ``True``
     * ``_prs.remove_label`` / ``add_labels`` / ``post_pr_comment`` / ``submit_review``
-    * worktree directory ``issue-{issue_number}`` created under ``config.worktree_base``
+    * worktree directory ``issue-{issue_number}`` created under ``config.workspace_base``
     """
     from events import EventBus
     from issue_store import IssueStore
@@ -1462,7 +1462,7 @@ def make_review_phase(
 
     conflict_resolver = MergeConflictResolver(
         config=config,
-        worktrees=mock_wt,
+        workspaces=mock_wt,
         agents=agents,
         prs=mock_prs,
         event_bus=bus,
@@ -1485,7 +1485,7 @@ def make_review_phase(
     phase = ReviewPhase(
         config=config,
         state=state,
-        worktrees=mock_wt,
+        workspaces=mock_wt,
         reviewers=mock_reviewers,
         prs=mock_prs,
         stop_event=stop_event,
@@ -1517,7 +1517,7 @@ def make_review_phase(
         phase._prs.post_pr_comment = AsyncMock()
         phase._prs.submit_review = AsyncMock(return_value=True)
 
-        wt = config.worktree_base / f"issue-{issue_number}"
+        wt = config.workspace_base / f"issue-{issue_number}"
         wt.mkdir(parents=True, exist_ok=True)
 
     return phase
@@ -1546,15 +1546,15 @@ def mock_fetcher_noop(orch: Any) -> None:
     orch._svc.store.get_active_issues = lambda: {}  # type: ignore[method-assign]
     orch._svc.fetcher.fetch_issue_by_number = AsyncMock(return_value=None)  # type: ignore[method-assign]
     orch._svc.fetcher.fetch_reviewable_prs = AsyncMock(return_value=([], []))  # type: ignore[method-assign]
-    orch._svc.worktrees.enable_rerere = AsyncMock()  # type: ignore[method-assign]
-    orch._svc.worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
+    orch._svc.workspaces.enable_rerere = AsyncMock()  # type: ignore[method-assign]
+    orch._svc.workspaces.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
 
 
 def make_worker_result(
     issue_number: int = 42,
     branch: str = "agent/issue-42",
     success: bool = True,
-    worktree_path: str = "/tmp/worktrees/issue-42",
+    workspace_path: str = "/tmp/worktrees/issue-42",
     transcript: str = "Implemented the feature.",
 ) -> Any:
     """Thin wrapper around ``WorkerResultFactory.create`` with common defaults."""
@@ -1566,7 +1566,7 @@ def make_worker_result(
         success=success,
         transcript=transcript,
         commits=1,
-        worktree_path=worktree_path,
+        workspace_path=workspace_path,
         use_defaults=True,
     )
 

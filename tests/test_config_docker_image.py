@@ -32,7 +32,7 @@ class TestDockerImageConfig:
         cfg = HydraFlowConfig(
             docker_image="explicit/image:v1",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.docker_image == "explicit/image:v1"
@@ -44,7 +44,7 @@ class TestDockerImageConfig:
         monkeypatch.delenv("HYDRAFLOW_DOCKER_IMAGE", raising=False)
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.docker_image == DEFAULT_DOCKER_IMAGE

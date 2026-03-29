@@ -11,7 +11,13 @@ import shutil
 from pathlib import Path
 from typing import Any, Literal, get_args
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 import file_util
 
@@ -48,7 +54,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("stale_report_threshold_hours", "HYDRAFLOW_STALE_REPORT_THRESHOLD_HOURS", 6),
     ("epic_monitor_interval", "HYDRAFLOW_EPIC_MONITOR_INTERVAL", 1800),
     ("epic_sweep_interval", "HYDRAFLOW_EPIC_SWEEP_INTERVAL", 3600),
-    ("worktree_gc_interval", "HYDRAFLOW_WORKTREE_GC_INTERVAL", 1800),
+    ("workspace_gc_interval", "HYDRAFLOW_WORKTREE_GC_INTERVAL", 1800),
     ("stale_issue_gc_interval", "HYDRAFLOW_STALE_ISSUE_GC_INTERVAL", 3600),
     ("stale_issue_threshold_days", "HYDRAFLOW_STALE_ISSUE_THRESHOLD_DAYS", 14),
     ("ci_monitor_interval", "HYDRAFLOW_CI_MONITOR_INTERVAL", 300),
@@ -448,11 +454,12 @@ class HydraFlowConfig(BaseModel):
         le=86400,
         description="Epic sweeper loop interval in seconds (default 1 hour)",
     )
-    worktree_gc_interval: int = Field(
+    workspace_gc_interval: int = Field(
         default=1800,
         ge=300,
         le=86400,
-        description="Worktree GC loop interval in seconds (default 30 min)",
+        description="Workspace GC loop interval in seconds (default 30 min)",
+        validation_alias=AliasChoices("workspace_gc_interval", "worktree_gc_interval"),
     )
     stale_issue_gc_interval: int = Field(
         default=3600,
@@ -1035,8 +1042,10 @@ class HydraFlowConfig(BaseModel):
 
     # Paths (auto-detected)
     repo_root: Path = Field(default=Path("."), description="Repository root directory")
-    worktree_base: Path = Field(
-        default=Path("."), description="Base directory for worktrees"
+    workspace_base: Path = Field(
+        default=Path("."),
+        description="Base directory for workspaces",
+        validation_alias=AliasChoices("workspace_base", "worktree_base"),
     )
     data_root: Path = Field(
         default=Path("."),
@@ -1459,16 +1468,16 @@ class HydraFlowConfig(BaseModel):
         """Return the canonical branch name for a given issue number."""
         return f"agent/issue-{issue_number}"
 
-    def worktree_path_for_issue(self, issue_number: int) -> Path:
-        """Return the repo-scoped worktree directory path for a given issue number."""
-        return self.worktree_base / self.repo_slug / f"issue-{issue_number}"
+    def workspace_path_for_issue(self, issue_number: int) -> Path:
+        """Return the repo-scoped workspace directory path for a given issue number."""
+        return self.workspace_base / self.repo_slug / f"issue-{issue_number}"
 
     @model_validator(mode="after")
     def resolve_defaults(self) -> HydraFlowConfig:
         """Resolve paths, repo slug, and apply env var overrides.
 
         Resolution order (seven steps):
-          1. ``_resolve_base_paths`` — repo_root, worktree_base, data_root
+          1. ``_resolve_base_paths`` — repo_root, workspace_base, data_root
           2. ``_resolve_repo_and_identity`` — repo slug, gh_token, git identity
           3. ``_resolve_repo_scoped_paths`` — state_file, event_log_path, config_file
           4. ``_apply_env_overrides`` — env-var overrides for labels, tokens, etc.
@@ -1573,7 +1582,7 @@ def _harmonize_tool_model_defaults(config: HydraFlowConfig) -> None:
 
 
 def _resolve_base_paths(config: HydraFlowConfig) -> None:
-    """Resolve repo_root, worktree_base, and data_root.
+    """Resolve repo_root, workspace_base, and data_root.
 
     These base paths have no dependency on the repo slug and must be resolved
     first so that ``_resolve_repo_and_identity`` can use ``repo_root`` for
@@ -1583,12 +1592,12 @@ def _resolve_base_paths(config: HydraFlowConfig) -> None:
         object.__setattr__(config, "repo_root", _find_repo_root())
     else:
         object.__setattr__(config, "repo_root", config.repo_root.expanduser().resolve())
-    if config.worktree_base == Path("."):
+    if config.workspace_base == Path("."):
         default_worktrees = Path("~/.hydraflow/worktrees").expanduser().resolve()
-        object.__setattr__(config, "worktree_base", default_worktrees)
+        object.__setattr__(config, "workspace_base", default_worktrees)
     else:
         object.__setattr__(
-            config, "worktree_base", config.worktree_base.expanduser().resolve()
+            config, "workspace_base", config.workspace_base.expanduser().resolve()
         )
     env_home = os.environ.get("HYDRAFLOW_HOME", "").strip()
     if env_home:

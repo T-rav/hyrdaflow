@@ -156,7 +156,7 @@ class TestBuildCommand:
             verification_judge_tool="codex",
             review_model="gpt-5-codex",
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         judge = _make_judge(cfg)
@@ -1152,7 +1152,7 @@ class TestReviewPhaseWiring:
         mock_judge.judge = AsyncMock(return_value=JudgeVerdict(issue_number=42))
 
         # Create worktree dir
-        wt_path = config.worktree_path_for_issue(42)
+        wt_path = config.workspace_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         from merge_conflict_resolver import MergeConflictResolver
@@ -1160,7 +1160,7 @@ class TestReviewPhaseWiring:
 
         conflict_resolver = MergeConflictResolver(
             config=config,
-            worktrees=mock_wt,
+            workspaces=mock_wt,
             agents=None,
             prs=mock_prs,
             event_bus=event_bus,
@@ -1181,7 +1181,7 @@ class TestReviewPhaseWiring:
         phase = ReviewPhase(
             config=config,
             state=state,
-            worktrees=mock_wt,
+            workspaces=mock_wt,
             reviewers=mock_reviewers,
             prs=mock_prs,
             stop_event=stop_event,
@@ -1236,7 +1236,7 @@ class TestReviewPhaseWiring:
         mock_prs.post_pr_comment = AsyncMock()
         mock_prs.submit_review = AsyncMock()
 
-        wt_path = config.worktree_path_for_issue(42)
+        wt_path = config.workspace_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         from merge_conflict_resolver import MergeConflictResolver
@@ -1244,7 +1244,7 @@ class TestReviewPhaseWiring:
 
         conflict_resolver = MergeConflictResolver(
             config=config,
-            worktrees=mock_wt,
+            workspaces=mock_wt,
             agents=None,
             prs=mock_prs,
             event_bus=event_bus,
@@ -1265,7 +1265,7 @@ class TestReviewPhaseWiring:
         phase = ReviewPhase(
             config=config,
             state=state,
-            worktrees=mock_wt,
+            workspaces=mock_wt,
             reviewers=mock_reviewers,
             prs=mock_prs,
             stop_event=stop_event,

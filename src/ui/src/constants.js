@@ -223,7 +223,7 @@ export const BACKGROUND_WORKERS = [
   { key: 'memory_sync',     label: 'Memory Manager', description: 'Ingests memory and transcript issues into durable learnings.', color: theme.accent, system: true },
   { key: 'pr_unsticker',    label: 'PR Unsticker',   description: 'Requeues stalled HITL PRs once requirements are actionable.', color: theme.orange, system: true },
   { key: 'report_issue',   label: 'Report Issue',   description: 'Processes queued bug reports into GitHub issues.', color: theme.red },
-  { key: 'worktree_gc',    label: 'Worktree GC',    description: 'Garbage-collects stale worktrees and orphaned branches.', color: theme.textMuted, system: true },
+  { key: 'workspace_gc',   label: 'Workspace GC',   description: 'Garbage-collects stale workspaces and orphaned branches.', color: theme.textMuted, system: true },
   { key: 'adr_reviewer',   label: 'ADR Reviewer',   description: 'Reviews proposed ADRs via a 3-judge council and routes to accept, reject, or escalate.', color: theme.accent },
   { key: 'epic_sweeper',    label: 'Epic Sweeper',    description: 'Periodically sweeps open epics and auto-closes those with all sub-issues resolved.', color: theme.purple, system: true },
   { key: 'bot_pr', label: 'Bot PR Manager', description: 'Auto-merges dependency update PRs from configured bots after CI passes.', color: theme.green },

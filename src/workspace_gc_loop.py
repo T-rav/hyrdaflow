@@ -31,20 +31,20 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
     def __init__(
         self,
         config: HydraFlowConfig,
-        worktrees: WorkspacePort,
+        workspaces: WorkspacePort,
         prs: PRPort,
         state: StateTracker,
         deps: LoopDeps,
         is_in_pipeline_cb: Callable[[int], bool] | None = None,
     ) -> None:
-        super().__init__(worker_name="worktree_gc", config=config, deps=deps)
-        self._worktrees = worktrees
+        super().__init__(worker_name="workspace_gc", config=config, deps=deps)
+        self._workspaces = workspaces
         self._prs = prs
         self._state = state
         self._is_in_pipeline = is_in_pipeline_cb
 
     def _get_default_interval(self) -> int:
-        return self._config.worktree_gc_interval
+        return self._config.workspace_gc_interval
 
     async def _do_work(self) -> dict[str, Any] | None:
         """Run one GC cycle: state workspaces, orphan dirs, orphan branches."""
@@ -53,17 +53,17 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
         errors = 0
 
         # Phase 1: GC workspaces tracked in state
-        active_worktrees = self._state.get_active_worktrees()
-        for issue_number in list(active_worktrees.keys()):
+        active_workspaces = self._state.get_active_workspaces()
+        for issue_number in list(active_workspaces.keys()):
             if self._stop_event.is_set() or collected >= _MAX_GC_PER_CYCLE:
                 break
             try:
                 if await self._is_safe_to_gc(issue_number):
                     # Remove from state first so a crash between steps
                     # leaves the entry gone (destroy is idempotent).
-                    self._state.remove_worktree(issue_number)
+                    self._state.remove_workspace(issue_number)
                     self._state.remove_branch(issue_number)
-                    await self._worktrees.destroy(issue_number)
+                    await self._workspaces.destroy(issue_number)
                     collected += 1
                     logger.info("GC: collected workspace for issue #%d", issue_number)
                 else:
@@ -79,7 +79,7 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
         # Phase 2: scan filesystem for orphaned issue-* dirs not in state
         if not self._stop_event.is_set():
             orphan_count = await self._collect_orphaned_dirs(
-                active_worktrees, _MAX_GC_PER_CYCLE - collected
+                active_workspaces, _MAX_GC_PER_CYCLE - collected
             )
             collected += orphan_count
 
@@ -227,7 +227,7 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
     async def _collect_orphaned_dirs(self, tracked: dict[int, str], budget: int) -> int:
         """Scan filesystem for orphaned issue-* dirs not tracked in state."""
         collected = 0
-        repo_wt_base = self._config.worktree_base / self._config.repo_slug
+        repo_wt_base = self._config.workspace_base / self._config.repo_slug
         if not repo_wt_base.exists():
             return 0
 
@@ -245,7 +245,7 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
                 continue
             try:
                 if await self._is_safe_to_gc(issue_number):
-                    await self._worktrees.destroy(issue_number)
+                    await self._workspaces.destroy(issue_number)
                     collected += 1
                     logger.info(
                         "GC: collected orphaned worktree dir for issue #%d",
@@ -277,7 +277,7 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
             logger.warning("GC: could not list local branches", exc_info=True)
             return 0
 
-        active_worktrees = self._state.get_active_worktrees()
+        active_workspaces = self._state.get_active_workspaces()
         active_issues = set(self._state.get_active_issue_numbers())
 
         for line in output.strip().splitlines():
@@ -290,7 +290,7 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
             issue_number = int(match.group(1))
             try:
                 # Skip if worktree exists, issue is active, or in pipeline
-                if issue_number in active_worktrees or issue_number in active_issues:
+                if issue_number in active_workspaces or issue_number in active_issues:
                     continue
                 if self._is_in_pipeline and self._is_in_pipeline(issue_number):
                     continue
@@ -317,13 +317,13 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
 
     async def _prune_stale_branch_entries(self, budget: int = _MAX_GC_PER_CYCLE) -> int:
         """Remove ``active_branches`` entries whose issue has no worktree and is safe to GC."""
-        active_worktrees = self._state.get_active_worktrees()
+        active_workspaces = self._state.get_active_workspaces()
         active_branches = self._state.get_active_branches()
         pruned = 0
         for issue_number in list(active_branches.keys()):
             if self._stop_event.is_set() or pruned >= budget:
                 break
-            if issue_number in active_worktrees:
+            if issue_number in active_workspaces:
                 continue  # worktree still exists — branch entry is valid
             try:
                 if await self._is_safe_to_gc(issue_number):

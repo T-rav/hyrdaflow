@@ -205,7 +205,7 @@ class PostMergeHandler:
             should_merge = await ci_gate_fn(
                 pr,
                 issue,
-                self._config.worktree_path_for_issue(pr.issue_number),
+                self._config.workspace_path_for_issue(pr.issue_number),
                 result,
                 worker_id,
                 code_scanning_alerts=code_scanning_alerts,

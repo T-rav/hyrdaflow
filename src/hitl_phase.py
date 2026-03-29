@@ -41,7 +41,7 @@ class HITLPhase:
         state: StateTracker,
         store: IssueStorePort,
         fetcher: IssueFetcherPort,
-        worktrees: WorkspacePort,
+        workspaces: WorkspacePort,
         hitl_runner: HITLRunner,
         prs: PRPort,
         event_bus: EventBus,
@@ -52,7 +52,7 @@ class HITLPhase:
         self._state = state
         self._store = store
         self._fetcher = fetcher
-        self._worktrees = worktrees
+        self._workspaces = workspaces
         self._hitl_runner = hitl_runner
         self._prs = prs
         self._bus = event_bus
@@ -206,10 +206,10 @@ class HITLPhase:
 
                     # Get or create worktree
                     branch = self._config.branch_for_issue(issue_number)
-                    wt_path = self._config.worktree_path_for_issue(issue_number)
+                    wt_path = self._config.workspace_path_for_issue(issue_number)
                     if not wt_path.is_dir():
-                        wt_path = await self._worktrees.create(issue_number, branch)
-                    self._state.set_worktree(issue_number, str(wt_path))
+                        wt_path = await self._workspaces.create(issue_number, branch)
+                    self._state.set_workspace(issue_number, str(wt_path))
 
                     # Swap to active label
                     await self._prs.swap_pipeline_labels(
@@ -330,8 +330,8 @@ class HITLPhase:
                     # Clean up worktree on success; keep on failure for retry
                     if result.success:
                         try:
-                            await self._worktrees.destroy(issue_number)
-                            self._state.remove_worktree(issue_number)
+                            await self._workspaces.destroy(issue_number)
+                            self._state.remove_workspace(issue_number)
                         except RuntimeError as exc:
                             logger.warning(
                                 "Could not destroy worktree for issue #%d: %s",
