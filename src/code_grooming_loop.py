@@ -14,7 +14,7 @@ from dedup_store import DedupStore
 from runner_utils import stream_claude_process
 
 if TYPE_CHECKING:
-    from pr_manager import PRManager
+    from ports import PRPort
 
 logger = logging.getLogger("hydraflow.code_grooming_loop")
 
@@ -39,7 +39,7 @@ class CodeGroomingLoop(BaseBackgroundLoop):
     def __init__(
         self,
         config: HydraFlowConfig,
-        pr_manager: PRManager,
+        pr_manager: PRPort,
         deps: LoopDeps,
     ) -> None:
         super().__init__(worker_name="code_grooming", config=config, deps=deps)

@@ -11,11 +11,15 @@ infrastructure (GitHub API, git CLI, agent subprocesses).
         │
         ├─► TaskFetcher / TaskTransitioner (task_source.py — already formal)
         ├─► PRPort                          (GitHub PR / label / CI operations)
-        └─► WorkspacePort                   (git workspace lifecycle)
+        ├─► WorkspacePort                   (git workspace lifecycle)
+        ├─► IssueStorePort                  (in-memory work queue operations)
+        └─► IssueFetcherPort                (GitHub issue fetching)
 
 Concrete adapters:
-  - PRPort      → pr_manager.PRManager
-  - WorkspacePort → workspace.WorkspaceManager
+  - PRPort          → pr_manager.PRManager
+  - WorkspacePort   → workspace.WorkspaceManager
+  - IssueStorePort  → issue_store.IssueStore
+  - IssueFetcherPort → issue_fetcher.IssueFetcher
 
 Both concrete classes satisfy their respective protocols via structural
 subtyping (typing.runtime_checkable).  No changes to the concrete classes
@@ -37,13 +41,20 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import runtime_checkable
+from typing import Any, runtime_checkable
 
 from typing_extensions import Protocol
 
-from models import CodeScanningAlert, GitHubIssue, HITLItem, PRInfo, ReviewVerdict
+from models import (
+    CodeScanningAlert,
+    GitHubIssue,
+    HITLItem,
+    PRInfo,
+    ReviewVerdict,
+    Task,
+)
 
-__all__ = ["PRPort", "WorkspacePort"]
+__all__ = ["IssueFetcherPort", "IssueStorePort", "PRPort", "WorkspacePort"]
 
 
 @runtime_checkable
@@ -173,12 +184,108 @@ class PRPort(Protocol):
         """Return open issues carrying any of *hitl_labels*."""
         ...
 
+    # --- Branch inspection ---
+
+    async def find_open_pr_for_branch(
+        self, branch: str, *, issue_number: int = 0
+    ) -> PRInfo | None:
+        """Return the open PR for *branch*, or ``None`` when absent/unreadable."""
+        ...
+
+    async def branch_has_diff_from_main(self, branch: str) -> bool:
+        """Return whether *branch* has commits ahead of configured main branch."""
+        ...
+
+    @staticmethod
+    def expected_pr_title(issue_number: int, issue_title: str) -> str:
+        """Return the canonical PR title for an issue: ``Fixes #N: <title>``."""
+        ...
+
+    async def update_pr_title(self, pr_number: int, title: str) -> bool:
+        """Update the title of an existing PR. Returns True on success."""
+        ...
+
+    # --- PR detail accessors ---
+
+    async def get_pr_diff_names(self, pr_number: int) -> list[str]:
+        """Fetch the list of files changed in *pr_number*."""
+        ...
+
+    async def get_pr_approvers(self, pr_number: int) -> list[str]:
+        """Fetch the list of GitHub usernames that approved *pr_number*."""
+        ...
+
+    async def get_pr_head_sha(self, pr_number: int) -> str:
+        """Fetch the HEAD commit SHA for *pr_number*. Returns empty string on failure."""
+        ...
+
+    async def get_pr_mergeable(self, pr_number: int) -> bool | None:
+        """Return whether *pr_number* is mergeable. ``None`` if unknown."""
+        ...
+
+    async def post_pr_comment(self, pr_number: int, body: str) -> None:
+        """Post a comment on a GitHub pull request."""
+        ...
+
+    # --- Issue detail accessors ---
+
+    async def list_issues_by_label(self, label: str) -> list[dict[str, Any]]:
+        """Return open issues with the given label as a list of dicts."""
+        ...
+
+    async def get_issue_state(self, issue_number: int) -> str:
+        """Return the resolved state of a GitHub issue (``'COMPLETED'``, ``'OPEN'``, etc.)."""
+        ...
+
+    async def get_issue_updated_at(self, issue_number: int) -> str:
+        """Return the updated_at timestamp for an issue as ISO string."""
+        ...
+
+    async def update_issue_body(self, issue_number: int, body: str) -> None:
+        """Update the body of a GitHub issue."""
+        ...
+
+    # --- CI / repo operations ---
+
+    async def get_latest_ci_status(self) -> tuple[str, str]:
+        """Return (conclusion, url) for the latest CI run on the main branch."""
+        ...
+
+    async def get_dependabot_alerts(self, state: str = "open") -> list[dict]:
+        """Fetch Dependabot alerts for the repository."""
+        ...
+
+    async def pull_main(self) -> bool:
+        """Pull latest main into the local repo."""
+        ...
+
+    # --- Asset upload ---
+
+    async def upload_screenshot(self, png_path: Path) -> str:
+        """Upload a local PNG to GitHub and return the URL. Empty string on failure."""
+        ...
+
     # --- TaskTransitioner compatibility ---
-    # PRManager satisfies TaskTransitioner (post_comment, close_task,
-    # transition, create_task) — those methods are defined on PRPort via the
-    # shared post_comment above.  The remaining transition methods are
-    # intentionally omitted here to keep PRPort focused on infrastructure
-    # concerns; use TaskTransitioner from task_source for domain transitions.
+    # PRManager satisfies both PRPort and TaskTransitioner.  Phases assign
+    # ``self._transitioner: TaskTransitioner = prs`` from a PRPort-typed
+    # parameter, so PRPort must include these methods for structural
+    # compatibility.
+
+    async def transition(
+        self, issue_number: int, new_stage: str, *, pr_number: int | None = None
+    ) -> None:
+        """Move *issue_number* to *new_stage* in the pipeline."""
+        ...
+
+    async def close_task(self, issue_number: int) -> None:
+        """Close a task (GitHub issue)."""
+        ...
+
+    async def create_task(
+        self, title: str, body: str, labels: list[str] | None = None
+    ) -> int:
+        """Create a new task (GitHub issue). Returns the new issue number."""
+        ...
 
 
 @runtime_checkable
@@ -209,4 +316,110 @@ class WorkspacePort(Protocol):
 
     async def get_conflicting_files(self, worktree_path: Path) -> list[str]:
         """Return a list of files with merge conflicts in *worktree_path*."""
+        ...
+
+    async def reset_to_main(self, worktree_path: Path) -> None:
+        """Hard-reset worktree to ``origin/main`` and clean untracked files."""
+        ...
+
+    async def post_work_cleanup(self, issue_number: int) -> None:
+        """Clean up after an issue is done (salvage uncommitted changes, destroy workspace)."""
+        ...
+
+    async def abort_merge(self, worktree_path: Path) -> None:
+        """Abort an in-progress merge in *worktree_path*."""
+        ...
+
+    async def start_merge_main(self, worktree_path: Path, branch: str) -> bool:
+        """Begin merging main into *branch*, leaving conflicts for manual resolution.
+
+        Returns *True* if the merge completed cleanly, *False* if conflicts remain.
+        """
+        ...
+
+
+@runtime_checkable
+class IssueStorePort(Protocol):
+    """Port for in-memory issue work-queue operations.
+
+    Implemented by: ``issue_store.IssueStore``
+
+    Only the methods consumed by domain code (phases, background loops,
+    phase utilities) are declared here.  Orchestrator-only and dashboard-only
+    methods stay on the concrete class.
+    """
+
+    # --- Queue accessors ---
+
+    def get_triageable(self, max_count: int) -> list[Task]:
+        """Return up to *max_count* issues from the find queue."""
+        ...
+
+    def get_plannable(self, max_count: int) -> list[Task]:
+        """Return up to *max_count* issues from the plan queue."""
+        ...
+
+    def get_implementable(self, max_count: int) -> list[Task]:
+        """Return up to *max_count* issues from the ready queue."""
+        ...
+
+    def get_reviewable(self, max_count: int) -> list[Task]:
+        """Return up to *max_count* issues from the review queue."""
+        ...
+
+    # --- Transition / lifecycle ---
+
+    def enqueue_transition(self, task: Task, next_stage: str) -> None:
+        """Immediately route *task* into *next_stage* in-memory."""
+        ...
+
+    def mark_active(self, issue_number: int, stage: str) -> None:
+        """Mark a task as actively being processed in *stage*."""
+        ...
+
+    def mark_complete(self, issue_number: int) -> None:
+        """Mark a task as done processing; increment throughput counter."""
+        ...
+
+    def mark_merged(self, issue_number: int) -> None:
+        """Record an issue as merged so it appears in the pipeline snapshot."""
+        ...
+
+    def release_in_flight(self, issue_numbers: set[int]) -> None:
+        """Remove *issue_numbers* from the in-flight protection set."""
+        ...
+
+    def is_active(self, issue_number: int) -> bool:
+        """Return True if the task is currently being processed."""
+        ...
+
+    # --- Enrichment ---
+
+    async def enrich_with_comments(self, task: Task) -> Task:
+        """Fetch issue comments and return an enriched copy of *task*."""
+        ...
+
+
+@runtime_checkable
+class IssueFetcherPort(Protocol):
+    """Port for GitHub issue fetching operations.
+
+    Implemented by: ``issue_fetcher.IssueFetcher``
+
+    Only the methods consumed by domain code (phases, background loops)
+    are declared here.
+    """
+
+    async def fetch_issue_by_number(self, issue_number: int) -> GitHubIssue | None:
+        """Fetch a single issue by number. Returns ``None`` on failure."""
+        ...
+
+    async def fetch_issues_by_labels(
+        self,
+        labels: list[str],
+        limit: int,
+        exclude_labels: list[str] | None = None,
+        require_complete: bool = False,
+    ) -> list[GitHubIssue]:
+        """Fetch open issues matching *any* of *labels*, deduplicated."""
         ...

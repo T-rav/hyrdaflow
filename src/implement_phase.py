@@ -7,13 +7,13 @@ import contextlib
 import logging
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from adr_utils import is_adr_issue_title, next_adr_number
 from agent import AgentRunner
 from beads_manager import BeadsManager
 from config import HydraFlowConfig
 from harness_insights import FailureCategory, HarnessInsightStore
-from issue_store import IssueStore
 from models import (
     GitHubIssue,
     PipelineStage,
@@ -32,11 +32,12 @@ from phase_utils import (
     run_with_fatal_guard,
     store_lifecycle,
 )
-from pr_manager import PRManager
 from run_recorder import RunRecorder
 from state import StateTracker
 from task_source import TaskTransitioner
-from workspace import WorkspaceManager
+
+if TYPE_CHECKING:
+    from ports import IssueStorePort, PRPort, WorkspacePort
 
 logger = logging.getLogger("hydraflow.implement_phase")
 
@@ -48,10 +49,10 @@ class ImplementPhase:
         self,
         config: HydraFlowConfig,
         state: StateTracker,
-        worktrees: WorkspaceManager,
+        worktrees: WorkspacePort,
         agents: AgentRunner,
-        prs: PRManager,
-        store: IssueStore,
+        prs: PRPort,
+        store: IssueStorePort,
         stop_event: asyncio.Event,
         run_recorder: RunRecorder | None = None,
         harness_insights: HarnessInsightStore | None = None,
@@ -545,7 +546,9 @@ class ImplementPhase:
                 result.branch, issue_number=issue.id
             )
             if pr is not None and pr.number > 0:
-                expected_title = PRManager.expected_pr_title(issue.id, issue.title)
+                from pr_manager import PRManager as _PRManager  # noqa: PLC0415
+
+                expected_title = _PRManager.expected_pr_title(issue.id, issue.title)
                 await self._prs.update_pr_title(pr.number, expected_title)
         result.pr_info = pr
         return pr

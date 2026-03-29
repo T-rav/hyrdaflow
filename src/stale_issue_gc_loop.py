@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
-from pr_manager import PRManager
+
+if TYPE_CHECKING:
+    from ports import PRPort
 
 logger = logging.getLogger("hydraflow.stale_issue_gc")
 
@@ -27,7 +29,7 @@ class StaleIssueGCLoop(BaseBackgroundLoop):
     def __init__(
         self,
         config: HydraFlowConfig,
-        pr_manager: PRManager,
+        pr_manager: PRPort,
         deps: LoopDeps,
     ) -> None:
         super().__init__(

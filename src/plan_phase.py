@@ -11,7 +11,6 @@ from analysis import PlanAnalyzer
 from config import HydraFlowConfig
 from events import EventBus
 from harness_insights import FailureCategory, HarnessInsightStore
-from issue_store import IssueStore
 from models import EpicGapReview, IssueOutcomeType, PipelineStage, PlanResult, Task
 from phase_utils import (
     MemorySuggester,
@@ -23,7 +22,6 @@ from phase_utils import (
     store_lifecycle,
 )
 from planner import PlannerRunner
-from pr_manager import PRManager
 from research_runner import ResearchRunner
 from state import StateTracker
 from task_source import TaskTransitioner
@@ -32,6 +30,7 @@ from transcript_summarizer import TranscriptSummarizer
 if TYPE_CHECKING:
     from beads_manager import BeadsManager
     from epic import EpicManager
+    from ports import IssueStorePort, PRPort
 
 logger = logging.getLogger("hydraflow.plan_phase")
 
@@ -46,9 +45,9 @@ class PlanPhase:
         self,
         config: HydraFlowConfig,
         state: StateTracker,
-        store: IssueStore,
+        store: IssueStorePort,
         planners: PlannerRunner,
-        prs: PRManager,
+        prs: PRPort,
         event_bus: EventBus,
         stop_event: asyncio.Event,
         transcript_summarizer: TranscriptSummarizer | None = None,

@@ -15,8 +15,7 @@ from config import HydraFlowConfig
 from epic import check_all_checkboxes, parse_epic_sub_issues
 
 if TYPE_CHECKING:
-    from issue_fetcher import IssueFetcher
-    from pr_manager import PRManager
+    from ports import IssueFetcherPort, PRPort
     from state import StateTracker
 
 logger = logging.getLogger("hydraflow.epic_sweeper_loop")
@@ -28,8 +27,8 @@ class EpicSweeperLoop(BaseBackgroundLoop):
     def __init__(
         self,
         config: HydraFlowConfig,
-        fetcher: IssueFetcher,
-        prs: PRManager,
+        fetcher: IssueFetcherPort,
+        prs: PRPort,
         state: StateTracker,
         deps: LoopDeps,
     ) -> None:

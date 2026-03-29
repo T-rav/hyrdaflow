@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from dolt_backend import DoltBackend
     from hindsight import HindsightClient
     from hindsight_wal import HindsightWAL
+    from ports import IssueStorePort, PRPort, WorkspacePort
     from visual_validator import VisualValidator
 
 from adr_utils import (
@@ -29,7 +30,6 @@ from comment_formatter import SelfReviewError
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from harness_insights import FailureCategory, HarnessInsightStore
-from issue_store import IssueStore
 from merge_conflict_resolver import MergeConflictResolver
 from models import (
     BaselineApprovalResult,
@@ -60,7 +60,6 @@ from phase_utils import (
     store_lifecycle,
 )
 from post_merge_handler import PostMergeHandler
-from pr_manager import PRManager
 from review_insights import (
     _PROPOSAL_STALE_DAYS,
     CATEGORY_DESCRIPTIONS,
@@ -74,7 +73,6 @@ from review_insights import (
 from reviewer import ReviewRunner
 from state import StateTracker
 from task_source import TaskTransitioner
-from workspace import WorkspaceManager
 
 logger = logging.getLogger("hydraflow.review_phase")
 
@@ -103,11 +101,11 @@ class ReviewPhase:
         self,
         config: HydraFlowConfig,
         state: StateTracker,
-        worktrees: WorkspaceManager,
+        worktrees: WorkspacePort,
         reviewers: ReviewRunner,
-        prs: PRManager,
+        prs: PRPort,
         stop_event: asyncio.Event,
-        store: IssueStore,
+        store: IssueStorePort,
         event_bus: EventBus | None = None,
         harness_insights: HarnessInsightStore | None = None,
         conflict_resolver: MergeConflictResolver | None = None,

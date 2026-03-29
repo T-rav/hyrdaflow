@@ -18,17 +18,15 @@ if TYPE_CHECKING:
     from config import HydraFlowConfig
     from events import EventBus
     from hitl_runner import HITLRunner
-    from issue_fetcher import IssueFetcher
     from issue_store import IssueStore
     from merge_conflict_resolver import MergeConflictResolver
     from models import GitHubIssue, HITLItem, UnstickResult
-    from pr_manager import PRManager
+    from ports import IssueFetcherPort, PRPort, WorkspacePort
     from state import StateTracker
     from troubleshooting_store import (
         TroubleshootingPattern,
         TroubleshootingPatternStore,
     )
-    from workspace import WorkspaceManager
 
 logger = logging.getLogger("hydraflow.pr_unsticker")
 
@@ -104,10 +102,10 @@ class PRUnsticker:
         config: HydraFlowConfig,
         state: StateTracker,
         event_bus: EventBus,
-        pr_manager: PRManager,
+        pr_manager: PRPort,
         agents: AgentRunner,
-        worktrees: WorkspaceManager,
-        fetcher: IssueFetcher,
+        worktrees: WorkspacePort,
+        fetcher: IssueFetcherPort,
         hitl_runner: HITLRunner | None = None,
         stop_event: asyncio.Event | None = None,
         resolver: MergeConflictResolver | None = None,

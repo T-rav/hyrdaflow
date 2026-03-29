@@ -22,10 +22,9 @@ from adr_utils import (  # noqa: F401
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from harness_insights import FailureCategory, FailureRecord, HarnessInsightStore
-from issue_store import IssueStore
 from memory import file_memory_suggestion
 from models import PipelineStage, PRInfo, ReviewUpdatePayload, Task
-from ports import PRPort
+from ports import IssueStorePort, PRPort
 from state import StateTracker
 
 logger = logging.getLogger("hydraflow.phase_utils")
@@ -154,7 +153,7 @@ async def run_refilling_pool(
     return results
 
 
-def release_batch_in_flight(store: IssueStore, issue_numbers: set[int]) -> None:
+def release_batch_in_flight(store: IssueStorePort, issue_numbers: set[int]) -> None:
     """Release in-flight protection for a batch of issues.
 
     Should be called in a ``finally`` block after ``run_concurrent_batch``
@@ -247,7 +246,7 @@ def record_harness_failure(
 
 @asynccontextmanager
 async def store_lifecycle(
-    store: IssueStore,
+    store: IssueStorePort,
     issue_number: int,
     stage: str,
 ):
@@ -465,7 +464,7 @@ class PipelineEscalator:
         self,
         state: StateTracker,
         prs: PRPort,
-        store: IssueStore,
+        store: IssueStorePort,
         harness_insights: HarnessInsightStore | None,
         *,
         origin_label: str,

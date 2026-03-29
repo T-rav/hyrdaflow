@@ -14,7 +14,6 @@ from adr_utils import (
 )
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
-from issue_store import IssueStore
 from models import HITLUpdatePayload, Task, TriageResult
 from phase_utils import (
     _sentry_transaction,
@@ -23,13 +22,13 @@ from phase_utils import (
     run_refilling_pool,
     store_lifecycle,
 )
-from pr_manager import PRManager
 from state import StateTracker
 from task_source import TaskTransitioner
 from triage import TriageRunner
 
 if TYPE_CHECKING:
     from epic import EpicManager
+    from ports import IssueStorePort, PRPort
 
 logger = logging.getLogger("hydraflow.triage_phase")
 
@@ -48,9 +47,9 @@ class TriagePhase:
         self,
         config: HydraFlowConfig,
         state: StateTracker,
-        store: IssueStore,
+        store: IssueStorePort,
         triage: TriageRunner,
-        prs: PRManager,
+        prs: PRPort,
         event_bus: EventBus,
         stop_event: asyncio.Event,
         epic_manager: EpicManager | None = None,

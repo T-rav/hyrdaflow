@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agent import AgentRunner
 from config import HydraFlowConfig
@@ -18,11 +19,12 @@ from models import (
     WorkerStatus,
 )
 from phase_utils import MemorySuggester, is_likely_bug, publish_review_status
-from pr_manager import PRManager
 from prompt_stats import build_prompt_stats
 from state import StateTracker
 from transcript_summarizer import TranscriptSummarizer
-from workspace import WorkspaceManager
+
+if TYPE_CHECKING:
+    from ports import PRPort, WorkspacePort
 
 logger = logging.getLogger("hydraflow.merge_conflict_resolver")
 
@@ -33,9 +35,9 @@ class MergeConflictResolver:
     def __init__(
         self,
         config: HydraFlowConfig,
-        worktrees: WorkspaceManager,
+        worktrees: WorkspacePort,
         agents: AgentRunner | None,
-        prs: PRManager,
+        prs: PRPort,
         event_bus: EventBus,
         state: StateTracker,
         summarizer: TranscriptSummarizer | None,
@@ -325,7 +327,9 @@ class MergeConflictResolver:
             verify = await self._agents._verify_result(new_wt, pr.branch)
             if verify.passed:
                 await self._maybe_summarize_conflict(transcript, issue.id, pr.number)
-                expected_title = PRManager.expected_pr_title(issue.id, issue.title)
+                from pr_manager import PRManager as _PRManager  # noqa: PLC0415
+
+                expected_title = _PRManager.expected_pr_title(issue.id, issue.title)
                 await self._prs.update_pr_title(pr.number, expected_title)
                 logger.info("Fresh branch rebuild succeeded for PR #%d", pr.number)
                 return True

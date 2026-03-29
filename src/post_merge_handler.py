@@ -15,7 +15,8 @@ from events import EventBus, EventType, HydraFlowEvent
 
 if TYPE_CHECKING:
     from epic import EpicManager
-    from issue_store import IssueStore
+    from ports import IssueStorePort, PRPort
+
 from models import (
     CiGateFn,
     CodeScanningAlert,
@@ -38,7 +39,6 @@ from models import (
     VisualValidationDecision,
     VisualValidationPolicy,
 )
-from pr_manager import PRManager
 from prompt_telemetry import PromptTelemetry
 from retrospective import RetrospectiveCollector
 from state import StateTracker
@@ -88,7 +88,7 @@ class PostMergeHandler:
         self,
         config: HydraFlowConfig,
         state: StateTracker,
-        prs: PRManager,
+        prs: PRPort,
         event_bus: EventBus,
         ac_generator: AcceptanceCriteriaGenerator | None,
         retrospective: RetrospectiveCollector | None,
@@ -96,7 +96,7 @@ class PostMergeHandler:
         epic_checker: EpicCompletionChecker | None,
         update_bg_worker_status: StatusCallback | None = None,
         epic_manager: EpicManager | None = None,
-        store: IssueStore | None = None,
+        store: IssueStorePort | None = None,
     ) -> None:
         self._config = config
         self._state = state

@@ -5,22 +5,22 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from hitl_runner import HITLRunner
-from issue_fetcher import IssueFetcher
-from issue_store import IssueStore
 from models import GitHubIssue, HITLUpdatePayload
 from phase_utils import (
     MemorySuggester,
     _sentry_transaction,
     log_exception_with_bug_classification,
 )
-from pr_manager import PRManager
 from state import StateTracker
 from subprocess_util import AuthenticationError, CreditExhaustedError
-from workspace import WorkspaceManager
+
+if TYPE_CHECKING:
+    from ports import IssueFetcherPort, IssueStorePort, PRPort, WorkspacePort
 
 logger = logging.getLogger("hydraflow.hitl_phase")
 
@@ -39,11 +39,11 @@ class HITLPhase:
         self,
         config: HydraFlowConfig,
         state: StateTracker,
-        store: IssueStore,
-        fetcher: IssueFetcher,
-        worktrees: WorkspaceManager,
+        store: IssueStorePort,
+        fetcher: IssueFetcherPort,
+        worktrees: WorkspacePort,
         hitl_runner: HITLRunner,
-        prs: PRManager,
+        prs: PRPort,
         event_bus: EventBus,
         stop_event: asyncio.Event,
         active_issues_cb: Callable[[], None] | None = None,

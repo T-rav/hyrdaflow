@@ -5,14 +5,15 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
-from pr_manager import PRManager
 from state import StateTracker
 from subprocess_util import run_subprocess
-from workspace import WorkspaceManager
+
+if TYPE_CHECKING:
+    from ports import PRPort, WorkspacePort
 
 logger = logging.getLogger("hydraflow.workspace_gc_loop")
 
@@ -30,8 +31,8 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
     def __init__(
         self,
         config: HydraFlowConfig,
-        worktrees: WorkspaceManager,
-        prs: PRManager,
+        worktrees: WorkspacePort,
+        prs: PRPort,
         state: StateTracker,
         deps: LoopDeps,
         is_in_pipeline_cb: Callable[[int], bool] | None = None,
