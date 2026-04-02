@@ -26,13 +26,16 @@ if TYPE_CHECKING:
     from dolt_backend import DoltBackend
 
 from ._bot_pr import BotPRStateMixin
+from ._ci_monitor import CIMonitorStateMixin
 from ._epic import EpicStateMixin
 from ._hitl import HITLStateMixin
 from ._issue import IssueStateMixin
 from ._lifetime import LifetimeStatsMixin
 from ._report import ReportStateMixin
 from ._review import ReviewStateMixin
+from ._security_patch import SecurityPatchStateMixin
 from ._session import SessionStateMixin
+from ._stale_issue import StaleIssueStateMixin
 from ._worker import WorkerStateMixin
 from ._worktree import WorktreeStateMixin
 
@@ -54,6 +57,9 @@ class StateTracker(
     WorkerStateMixin,
     ReportStateMixin,
     BotPRStateMixin,
+    StaleIssueStateMixin,
+    SecurityPatchStateMixin,
+    CIMonitorStateMixin,
 ):
     """JSON-file backed state for crash recovery.
 

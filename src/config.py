@@ -105,6 +105,9 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("state_backup_interval", "HYDRAFLOW_STATE_BACKUP_INTERVAL", 300),
     ("state_backup_count", "HYDRAFLOW_STATE_BACKUP_COUNT", 3),
     ("health_monitor_interval", "HYDRAFLOW_HEALTH_MONITOR_INTERVAL", 7200),
+    ("stale_issue_interval", "HYDRAFLOW_STALE_ISSUE_INTERVAL", 86400),
+    ("security_patch_interval", "HYDRAFLOW_SECURITY_PATCH_INTERVAL", 21600),
+    ("ci_monitor_interval", "HYDRAFLOW_CI_MONITOR_INTERVAL", 1800),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -1107,6 +1110,24 @@ class HydraFlowConfig(BaseModel):
         ge=60,
         le=86400,
         description="Seconds between bot PR auto-merge polls",
+    )
+    stale_issue_interval: int = Field(
+        default=86400,
+        ge=60,
+        le=604800,
+        description="Stale issue check interval (seconds)",
+    )
+    security_patch_interval: int = Field(
+        default=21600,
+        ge=60,
+        le=86400,
+        description="Security patch check interval (seconds)",
+    )
+    ci_monitor_interval: int = Field(
+        default=1800,
+        ge=60,
+        le=86400,
+        description="CI monitor check interval (seconds)",
     )
     pr_unstick_batch_size: int = Field(
         default=10,
