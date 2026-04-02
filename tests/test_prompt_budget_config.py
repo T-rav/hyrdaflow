@@ -30,7 +30,7 @@ class TestPromptBudgetDefaults:
     def cfg(self, tmp_path: Path) -> HydraFlowConfig:
         return ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
 
@@ -83,7 +83,7 @@ class TestPromptBudgetOverrides:
         """All 12 fields accept non-default values via constructor."""
         cfg = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             max_discussion_comment_chars=1_000,
             max_common_feedback_chars=4_000,
@@ -127,7 +127,7 @@ class TestAgentRunnerUsesConfig:
 
         cfg = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             max_discussion_comment_chars=100,
         )
@@ -146,7 +146,7 @@ class TestAgentRunnerUsesConfig:
 
         cfg = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             max_discussion_comment_chars=500,
         )
@@ -165,7 +165,7 @@ class TestAgentRunnerUsesConfig:
 
         cfg = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             max_impl_plan_chars=1_000,
         )
@@ -187,7 +187,7 @@ class TestAgentRunnerUsesConfig:
 
         cfg = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             max_review_feedback_chars=100,
         )
@@ -219,7 +219,7 @@ class TestPlannerRunnerUsesConfig:
 
         cfg = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             max_planner_line_chars=100,
             max_planner_comment_chars=1_000,
@@ -244,7 +244,7 @@ class TestPlannerRunnerUsesConfig:
 
         cfg = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             max_planner_failed_plan_chars=500,
             max_planner_line_chars=500,
@@ -277,7 +277,7 @@ class TestHITLRunnerUsesConfig:
 
         cfg = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             max_hitl_cause_chars=100,
         )
@@ -299,7 +299,7 @@ class TestHITLRunnerUsesConfig:
 
         cfg = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             max_hitl_correction_chars=500,
         )
@@ -329,7 +329,7 @@ class TestReviewRunnerUsesConfig:
 
         cfg = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             max_ci_log_prompt_chars=1_000,
         )
@@ -435,7 +435,7 @@ class TestPRUnstickerUsesConfig:
 
         cfg = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             max_unsticker_cause_chars=100,
         )

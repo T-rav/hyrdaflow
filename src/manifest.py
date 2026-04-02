@@ -27,7 +27,6 @@ from pathlib import Path
 
 from config import HydraFlowConfig
 from file_util import atomic_write
-from manifest_curator import CuratedManifestStore
 from models import ManifestRefreshResult
 
 logger = logging.getLogger("hydraflow.manifest")
@@ -396,10 +395,8 @@ class ProjectManifestManager:
     def __init__(
         self,
         config: HydraFlowConfig,
-        curator: CuratedManifestStore | None = None,
     ) -> None:
         self._config = config
-        self._curator = curator or CuratedManifestStore(config)
 
     @property
     def manifest_path(self) -> Path:
@@ -432,21 +429,10 @@ class ProjectManifestManager:
         return on_disk_hash != current_hash
 
     def refresh(self) -> ManifestRefreshResult:
-        """Scan, merge curated data, write, and return the content and hash."""
-        content = self._merge_curated_sections(self.scan())
+        """Scan, write, and return the content and hash."""
+        content = self.scan()
         digest_hash = self.write(content)
         return ManifestRefreshResult(content=content, digest_hash=digest_hash)
-
-    def _merge_curated_sections(self, base_content: str) -> str:
-        """Append curated manifest sections when available."""
-        curated_markdown = self._curator.render_markdown()
-        curated = curated_markdown.strip()
-        base = base_content.strip()
-        # Curated sections come first so prompt truncation keeps them intact.
-        sections = [section for section in (curated, base) if section]
-        if not sections:
-            return ""
-        return "\n\n".join(sections) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -458,7 +444,7 @@ def load_project_manifest(config: HydraFlowConfig) -> str:
     """Read the project manifest from disk if it exists.
 
     Returns an empty string if the file is missing or empty.
-    Content is capped at ``config.max_manifest_prompt_chars``.
+    Content is capped at ``config.max_memory_prompt_chars``.
     """
     _migrate_legacy_manifest(config)
     manifest_path = config.data_path("manifest", "manifest.md")
@@ -470,7 +456,7 @@ def load_project_manifest(config: HydraFlowConfig) -> str:
         return ""
     if not content.strip():
         return ""
-    max_chars = config.max_manifest_prompt_chars
+    max_chars = config.max_memory_prompt_chars
     if len(content) > max_chars:
         content = content[:max_chars] + "\n\n...(truncated)"
     return content

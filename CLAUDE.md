@@ -63,10 +63,19 @@ HydraFlow runs five concurrent async loops from `orchestrator.py`:
 
 HydraFlow creates isolated git worktrees for each issue. **Always clean up worktrees when their PRs are merged or issues are closed. Always implement issue work on a dedicated git worktree branch; do not implement directly in the primary repo checkout.**
 
-**CRITICAL: Always use a worktree for code changes.** Before writing any code, create a worktree with `git worktree add` (manual git commands, NOT the `EnterWorktree` tool which auto-cleans up). Never commit directly to `main` or the current working branch. This prevents conflicts with other sessions and keeps the primary checkout clean.
+**CRITICAL: The `main` branch is protected. Direct commits and pushes to `main` will be rejected.** All code changes — including one-line fixes — MUST go through a worktree branch and a pull request. Never stage, commit, or modify files in the primary repo checkout.
+
+**Workflow for every code change:**
+1. Create a worktree: `git worktree add ../hydraflow-worktrees/<name> origin/main`
+2. Create a branch in the worktree: `git checkout -b <branch-name> origin/main`
+3. Make changes, commit, and push the branch
+4. Create a PR via `gh pr create`
+5. Clean up: `git worktree remove ../hydraflow-worktrees/<name>`
+
+**Do NOT use `EnterWorktree` tool** — it auto-cleans up and loses work. Use manual `git worktree add` commands.
 
 - **Default location:** `../hydraflow-worktrees/` (sibling to repo root)
-- **Naming:** `issue-{issue_number}/`
+- **Naming:** `issue-{issue_number}/` for issue work, descriptive names for other changes
 - **Config:** `worktree_base` field in `HydraFlowConfig`
 - **Cleanup:** `make clean` removes all worktrees and state
 - Worktrees get independent venvs (`uv sync`), symlinked `.env`, and pre-commit hooks
@@ -117,9 +126,29 @@ Simple mechanical tasks (rename, format, move) don't need these — just do them
 
 The `/hf.quality-gate` command runs a structured quality check sequence. Use it before presenting work as complete.
 
+## Background Loop Guidelines
+
+When creating a new background loop (`BaseBackgroundLoop` subclass):
+
+1. **Use `make scaffold-loop`** to generate boilerplate — it handles all wiring
+2. **Restart safety**: Any `self._` state that affects behavior across cycles must either:
+   - Be persisted via `StateTracker` or `DedupStore` (survives restart)
+   - Be rehydrated from an external source (GitHub API) on first `_do_work()` cycle
+   - Be explicitly documented as ephemeral with `# ephemeral: lost on restart` comment
+3. **Wiring checklist** (automated by `tests/test_loop_wiring_completeness.py`):
+   - `src/service_registry.py` — dataclass field + `build_services()` instantiation
+   - `src/orchestrator.py` — entry in `bg_loop_registry` dict
+   - `src/ui/src/constants.js` — entry in `BACKGROUND_WORKERS`
+   - `src/dashboard_routes/_common.py` — entry in `_INTERVAL_BOUNDS`
+   - `src/config.py` — interval Field + `_ENV_INT_OVERRIDES` entry
+
 ## Never Skip Commit Hooks
 
 **NEVER** use `git commit --no-verify` or `--no-hooks` flags. Always fix code issues first.
+
+## Never Commit to Main
+
+**NEVER** commit directly to `main`. The branch is protected and pushes will be rejected. All changes go through worktree branches and PRs — no exceptions, not even for one-line fixes.
 
 ## Development Commands
 
@@ -158,6 +187,32 @@ make lint && make test
 # Before committing
 make quality
 ```
+
+## Sentry Error Tracking
+
+HydraFlow uses **Sentry** (`sentry_sdk`) for error monitoring. Follow these rules to keep Sentry signal-to-noise high:
+
+### What Goes to Sentry
+- **Real code bugs only**: `TypeError`, `KeyError`, `AttributeError`, `ValueError`, `IndexError`, `NotImplementedError`
+- The `before_send` filter in `server.py` drops all exceptions that are NOT in the bug-types tuple
+- `LoggingIntegration` captures `logger.error()` calls — these also go through the `before_send` filter
+
+### What Does NOT Go to Sentry
+- **Transient errors**: network timeouts, auth failures, rate limits, subprocess crashes — these are operational, not bugs
+- **Handled exceptions**: if you catch an error and handle it, use `logger.warning()` not `logger.error()` / `logger.exception()`
+- **Test mock exceptions**: never let test mocks raise through code paths that log at `error` level when `SENTRY_DSN` is set
+
+### Rules for New Code
+1. Use `logger.warning()` for expected/transient failures (network, auth, rate limit)
+2. Use `logger.error()` or `logger.exception()` ONLY for unexpected code bugs you want Sentry to capture
+3. Never use bare `except: pass` — always log at `warning` level minimum
+4. When adding a new background loop, catch operational errors and log at `warning`; let real bugs propagate to the base class error handler which logs at `error`
+5. The `_before_send` callback in `server.py` is the gatekeeper — if you add new exception types that indicate real bugs, add them to `_BUG_TYPES`
+6. The `SentryIngestLoop` in `sentry_loop.py` polls Sentry for unresolved issues and files them as GitHub issues — avoid creating noise that feeds back into this loop
+
+### Key Files
+- `src/server.py` — Sentry init, `_before_send` filter, `_BUG_TYPES` tuple
+- `src/sentry_loop.py` — Background loop that ingests Sentry issues into GitHub
 
 ## Tech Stack
 

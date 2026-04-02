@@ -1116,7 +1116,8 @@ class TestStartupDrain:
 class TestStaleReportSweep:
     """Tests for _sweep_stale_reports auto-closing old queued reports."""
 
-    def test_stale_report_auto_closed(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_stale_report_auto_closed(self, tmp_path: Path) -> None:
         """Reports older than the threshold are removed and marked closed."""
         loop, _stop, state, _pr = _make_loop(tmp_path)
         # Create a report with a created_at 7 hours ago (threshold is 6h)
@@ -1133,7 +1134,7 @@ class TestStaleReportSweep:
         )
         state.add_tracked_report(tracked)
 
-        closed = loop._sweep_stale_reports()
+        closed = await loop._sweep_stale_reports()
 
         assert closed == 1
         assert state.peek_report() is None
@@ -1143,18 +1144,20 @@ class TestStaleReportSweep:
         actions = [h.action for h in updated.history]
         assert "stale" in actions
 
-    def test_fresh_report_not_swept(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_fresh_report_not_swept(self, tmp_path: Path) -> None:
         """Reports younger than the threshold are kept."""
         loop, _stop, state, _pr = _make_loop(tmp_path)
         report = PendingReport(description="Fresh bug")
         state.enqueue_report(report)
 
-        closed = loop._sweep_stale_reports()
+        closed = await loop._sweep_stale_reports()
 
         assert closed == 0
         assert state.peek_report() is not None
 
-    def test_mixed_stale_and_fresh(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_mixed_stale_and_fresh(self, tmp_path: Path) -> None:
         """Only stale reports are swept; fresh ones remain."""
         loop, _stop, state, _pr = _make_loop(tmp_path)
 
@@ -1166,21 +1169,22 @@ class TestStaleReportSweep:
         fresh = PendingReport(description="Fresh bug")
         state.enqueue_report(fresh)
 
-        closed = loop._sweep_stale_reports()
+        closed = await loop._sweep_stale_reports()
 
         assert closed == 1
         remaining = state.get_pending_reports()
         assert len(remaining) == 1
         assert remaining[0].id == fresh.id
 
-    def test_invalid_created_at_skipped(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_invalid_created_at_skipped(self, tmp_path: Path) -> None:
         """Reports with unparseable created_at are not swept."""
         loop, _stop, state, _pr = _make_loop(tmp_path)
         report = PendingReport(description="Bad timestamp")
         report.created_at = "not-a-date"
         state.enqueue_report(report)
 
-        closed = loop._sweep_stale_reports()
+        closed = await loop._sweep_stale_reports()
 
         assert closed == 0
         assert state.peek_report() is not None
@@ -1200,13 +1204,15 @@ class TestStaleReportSweep:
         assert result is None
         assert state.peek_report() is None
 
-    def test_sweep_with_zero_reports(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_sweep_with_zero_reports(self, tmp_path: Path) -> None:
         """Sweep on empty queue returns 0 and doesn't crash."""
         loop, _stop, state, _pr = _make_loop(tmp_path)
-        closed = loop._sweep_stale_reports()
+        closed = await loop._sweep_stale_reports()
         assert closed == 0
 
-    def test_naive_datetime_skipped(self, tmp_path: Path, caplog: Any) -> None:
+    @pytest.mark.asyncio
+    async def test_naive_datetime_skipped(self, tmp_path: Path, caplog: Any) -> None:
         """Reports with naive (timezone-unaware) created_at are skipped with a warning."""
         import logging
 
@@ -1217,13 +1223,14 @@ class TestStaleReportSweep:
         state.enqueue_report(report)
 
         with caplog.at_level(logging.WARNING, logger="hydraflow.report_issue_loop"):
-            closed = loop._sweep_stale_reports()
+            closed = await loop._sweep_stale_reports()
 
         assert closed == 0
         assert state.peek_report() is not None
         assert any("unparseable created_at" in r.message for r in caplog.records)
 
-    def test_stale_report_no_tracked_report_warns(
+    @pytest.mark.asyncio
+    async def test_stale_report_no_tracked_report_warns(
         self, tmp_path: Path, caplog: Any
     ) -> None:
         """When a stale PendingReport has no TrackedReport, a warning is emitted."""
@@ -1237,7 +1244,7 @@ class TestStaleReportSweep:
         # Deliberately do NOT add a TrackedReport for this report
 
         with caplog.at_level(logging.WARNING, logger="hydraflow.report_issue_loop"):
-            closed = loop._sweep_stale_reports()
+            closed = await loop._sweep_stale_reports()
 
         assert closed == 1
         assert state.peek_report() is None
@@ -1449,3 +1456,213 @@ class TestExtractIssueNumberFromUrl:
             )
             == 0
         )
+
+
+class TestReportEventPublishing:
+    """Tests verifying REPORT_UPDATE events are published at each status transition."""
+
+    @pytest.mark.asyncio
+    async def test_publishes_in_progress_event_on_processing_start(
+        self, tmp_path: Path
+    ) -> None:
+        """When _do_work starts processing, a REPORT_UPDATE event with status=in-progress is published."""
+        from events import EventType
+
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = PendingReport(description="Event test", reporter_id="u1")
+        state.enqueue_report(report)
+        state.add_tracked_report(
+            TrackedReport(
+                id=report.id, reporter_id="u1", description=report.description
+            )
+        )
+
+        published = []
+        original_publish = loop._bus.publish
+
+        async def capture_publish(event):
+            if event.type == EventType.REPORT_UPDATE:
+                published.append(event.data)
+            await original_publish(event)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "https://github.com/acme/repo/issues/50"
+            with patch.object(loop._bus, "publish", side_effect=capture_publish):
+                await loop._do_work()
+
+        in_progress = [e for e in published if e.get("status") == "in-progress"]
+        assert len(in_progress) == 1
+        assert in_progress[0]["report_id"] == report.id
+
+    @pytest.mark.asyncio
+    async def test_publishes_filed_event_on_success(self, tmp_path: Path) -> None:
+        """When a report is successfully filed, a REPORT_UPDATE event with status=filed is published."""
+        from events import EventType
+
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = PendingReport(description="Filed test", reporter_id="u1")
+        state.enqueue_report(report)
+        state.add_tracked_report(
+            TrackedReport(
+                id=report.id, reporter_id="u1", description=report.description
+            )
+        )
+
+        published = []
+        original_publish = loop._bus.publish
+
+        async def capture_publish(event):
+            if event.type == EventType.REPORT_UPDATE:
+                published.append(event.data)
+            await original_publish(event)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "https://github.com/acme/repo/issues/77"
+            with patch.object(loop._bus, "publish", side_effect=capture_publish):
+                await loop._do_work()
+
+        filed = [e for e in published if e.get("status") == "filed"]
+        assert len(filed) == 1
+        assert filed[0]["report_id"] == report.id
+        assert filed[0]["issue_number"] == 77
+
+    @pytest.mark.asyncio
+    async def test_publishes_retry_event_on_failure(self, tmp_path: Path) -> None:
+        """When a report fails but has retries left, a REPORT_UPDATE event with status=queued is published."""
+        from events import EventType
+
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        report = PendingReport(description="Retry event test", reporter_id="u1")
+        state.enqueue_report(report)
+        state.add_tracked_report(
+            TrackedReport(
+                id=report.id, reporter_id="u1", description=report.description
+            )
+        )
+
+        published = []
+        original_publish = loop._bus.publish
+
+        async def capture_publish(event):
+            if event.type == EventType.REPORT_UPDATE:
+                published.append(event.data)
+            await original_publish(event)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "no url"
+            with patch.object(loop._bus, "publish", side_effect=capture_publish):
+                await loop._do_work()
+
+        retry = [e for e in published if e.get("status") == "queued"]
+        assert len(retry) == 1
+        assert retry[0]["report_id"] == report.id
+        assert "retry" in retry[0].get("detail", "").lower()
+
+    @pytest.mark.asyncio
+    async def test_publishes_escalation_event_on_max_attempts(
+        self, tmp_path: Path
+    ) -> None:
+        """After max attempts, a REPORT_UPDATE event with status=closed is published."""
+        from events import EventType
+
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        report = PendingReport(description="Escalate event test", reporter_id="u1")
+        state.enqueue_report(report)
+        state.add_tracked_report(
+            TrackedReport(
+                id=report.id, reporter_id="u1", description=report.description
+            )
+        )
+        for _ in range(4):
+            state.fail_report(report.id)
+
+        published = []
+        original_publish = loop._bus.publish
+
+        async def capture_publish(event):
+            if event.type == EventType.REPORT_UPDATE:
+                published.append(event.data)
+            await original_publish(event)
+
+        with patch(
+            "report_issue_loop.stream_claude_process", new_callable=AsyncMock
+        ) as mock_stream:
+            mock_stream.return_value = "no url"
+            with patch.object(loop._bus, "publish", side_effect=capture_publish):
+                await loop._do_work()
+
+        closed = [e for e in published if e.get("status") == "closed"]
+        assert len(closed) == 1
+        assert closed[0]["report_id"] == report.id
+        assert "escalat" in closed[0].get("detail", "").lower()
+
+    @pytest.mark.asyncio
+    async def test_publishes_fixed_event_on_issue_resolved(
+        self, tmp_path: Path
+    ) -> None:
+        """_sync_filed_reports publishes a REPORT_UPDATE with status=fixed when the issue is resolved."""
+        from events import EventType
+
+        loop, _stop, state, pr_mgr = _make_loop(tmp_path)
+        tracked = TrackedReport(
+            id="r-fixed",
+            reporter_id="u1",
+            description="Fix me",
+            status="filed",
+            linked_issue_url="https://github.com/acme/repo/issues/99",
+        )
+        state.add_tracked_report(tracked)
+        pr_mgr.get_issue_state = AsyncMock(return_value="COMPLETED")
+
+        published = []
+        original_publish = loop._bus.publish
+
+        async def capture_publish(event):
+            if event.type == EventType.REPORT_UPDATE:
+                published.append(event.data)
+            await original_publish(event)
+
+        with patch.object(loop._bus, "publish", side_effect=capture_publish):
+            await loop._sync_filed_reports()
+
+        fixed = [e for e in published if e.get("status") == "fixed"]
+        assert len(fixed) == 1
+        assert fixed[0]["report_id"] == "r-fixed"
+
+    @pytest.mark.asyncio
+    async def test_publishes_stale_closed_event(self, tmp_path: Path) -> None:
+        """_sweep_stale_reports publishes a REPORT_UPDATE with status=closed for stale reports."""
+        from events import EventType
+
+        loop, _stop, state, _pr = _make_loop(tmp_path)
+        old_time = (datetime.now(UTC) - timedelta(hours=10)).isoformat()
+        report = PendingReport(description="Stale event test", reporter_id="u1")
+        report.created_at = old_time
+        state.enqueue_report(report)
+        state.add_tracked_report(
+            TrackedReport(
+                id=report.id, reporter_id="u1", description=report.description
+            )
+        )
+
+        published = []
+        original_publish = loop._bus.publish
+
+        async def capture_publish(event):
+            if event.type == EventType.REPORT_UPDATE:
+                published.append(event.data)
+            await original_publish(event)
+
+        with patch.object(loop._bus, "publish", side_effect=capture_publish):
+            await loop._sweep_stale_reports()
+
+        closed = [e for e in published if e.get("status") == "closed"]
+        assert len(closed) == 1
+        assert closed[0]["report_id"] == report.id
+        assert closed[0]["detail"] == "stale"

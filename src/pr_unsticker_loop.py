@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
-from pr_manager import PRManager
 from pr_unsticker import PRUnsticker
+
+if TYPE_CHECKING:
+    from ports import PRPort
 
 logger = logging.getLogger("hydraflow.pr_unsticker_loop")
 
@@ -20,7 +22,7 @@ class PRUnstickerLoop(BaseBackgroundLoop):
         self,
         config: HydraFlowConfig,
         pr_unsticker: PRUnsticker,
-        prs: PRManager,
+        prs: PRPort,
         deps: LoopDeps,
     ) -> None:
         super().__init__(worker_name="pr_unsticker", config=config, deps=deps)

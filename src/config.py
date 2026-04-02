@@ -11,7 +11,13 @@ import shutil
 from pathlib import Path
 from typing import Any, Literal, get_args
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 import file_util
 
@@ -41,7 +47,6 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("max_ci_timeout_fix_attempts", "HYDRAFLOW_MAX_CI_TIMEOUT_FIX_ATTEMPTS", 2),
     ("data_poll_interval", "HYDRAFLOW_DATA_POLL_INTERVAL", 300),
     ("max_sessions_per_repo", "HYDRAFLOW_MAX_SESSIONS_PER_REPO", 10),
-    ("max_manifest_prompt_chars", "HYDRAFLOW_MAX_MANIFEST_PROMPT_CHARS", 2000),
     ("max_transcript_summary_chars", "HYDRAFLOW_MAX_TRANSCRIPT_SUMMARY_CHARS", 50_000),
     ("pr_unstick_interval", "HYDRAFLOW_PR_UNSTICK_INTERVAL", 3600),
     ("bot_pr_interval", "HYDRAFLOW_BOT_PR_INTERVAL", 3600),
@@ -49,7 +54,10 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("stale_report_threshold_hours", "HYDRAFLOW_STALE_REPORT_THRESHOLD_HOURS", 6),
     ("epic_monitor_interval", "HYDRAFLOW_EPIC_MONITOR_INTERVAL", 1800),
     ("epic_sweep_interval", "HYDRAFLOW_EPIC_SWEEP_INTERVAL", 3600),
-    ("worktree_gc_interval", "HYDRAFLOW_WORKTREE_GC_INTERVAL", 1800),
+    ("workspace_gc_interval", "HYDRAFLOW_WORKTREE_GC_INTERVAL", 1800),
+    ("stale_issue_gc_interval", "HYDRAFLOW_STALE_ISSUE_GC_INTERVAL", 3600),
+    ("stale_issue_threshold_days", "HYDRAFLOW_STALE_ISSUE_THRESHOLD_DAYS", 14),
+    ("ci_monitor_interval", "HYDRAFLOW_CI_MONITOR_INTERVAL", 300),
     ("collaborator_cache_ttl", "HYDRAFLOW_COLLABORATOR_CACHE_TTL", 600),
     ("artifact_retention_days", "HYDRAFLOW_ARTIFACT_RETENTION_DAYS", 30),
     ("artifact_max_size_mb", "HYDRAFLOW_ARTIFACT_MAX_SIZE_MB", 500),
@@ -106,12 +114,19 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("state_backup_count", "HYDRAFLOW_STATE_BACKUP_COUNT", 3),
     ("health_monitor_interval", "HYDRAFLOW_HEALTH_MONITOR_INTERVAL", 7200),
     ("stale_issue_interval", "HYDRAFLOW_STALE_ISSUE_INTERVAL", 86400),
-    ("security_patch_interval", "HYDRAFLOW_SECURITY_PATCH_INTERVAL", 21600),
+    ("sentry_poll_interval", "SENTRY_POLL_INTERVAL", 600),
+    ("sentry_min_events", "SENTRY_MIN_EVENTS", 2),
+    ("security_patch_interval", "HYDRAFLOW_SECURITY_PATCH_INTERVAL", 3600),
     ("ci_monitor_interval", "HYDRAFLOW_CI_MONITOR_INTERVAL", 1800),
     ("code_grooming_interval", "HYDRAFLOW_CODE_GROOMING_INTERVAL", 86400),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
+    (
+        "security_patch_severity_threshold",
+        "HYDRAFLOW_SECURITY_PATCH_SEVERITY_THRESHOLD",
+        "high",
+    ),
     ("dashboard_host", "HYDRAFLOW_DASHBOARD_HOST", "127.0.0.1"),
     ("test_command", "HYDRAFLOW_TEST_COMMAND", "make test"),
     ("docker_image", "HYDRAFLOW_DOCKER_IMAGE", "ghcr.io/t-rav/hydraflow-agent:latest"),
@@ -131,6 +146,9 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("repos_workspace_dir", "HYDRAFLOW_REPOS_WORKSPACE_DIR", "~/.hydra/repos"),
     ("hindsight_url", "HYDRAFLOW_HINDSIGHT_URL", ""),
     ("hindsight_api_key", "HYDRAFLOW_HINDSIGHT_API_KEY", ""),
+    ("sentry_auth_token", "SENTRY_AUTH_TOKEN", ""),
+    ("sentry_org", "SENTRY_ORG", ""),
+    ("sentry_project_filter", "SENTRY_PROJECT_FILTER", ""),
 ]
 
 _ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
@@ -175,8 +193,6 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         True,
     ),
     ("screenshot_gist_public", "HYDRAFLOW_SCREENSHOT_GIST_PUBLIC", False),
-    ("hindsight_enabled", "HYDRAFLOW_HINDSIGHT_ENABLED", False),
-    ("hindsight_exclusive", "HYDRAFLOW_HINDSIGHT_EXCLUSIVE", False),
     ("skip_preflight", "HYDRAFLOW_SKIP_PREFLIGHT", False),
 ]
 
@@ -226,9 +242,6 @@ _ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
     "HYDRAFLOW_LABEL_HITL_ACTIVE": ("hitl_active_label", ["hydraflow-hitl-active"]),
     "HYDRAFLOW_LABEL_HITL_AUTOFIX": ("hitl_autofix_label", ["hydraflow-hitl-autofix"]),
     "HYDRAFLOW_LABEL_FIXED": ("fixed_label", ["hydraflow-fixed"]),
-    "HYDRAFLOW_LABEL_IMPROVE": ("improve_label", ["hydraflow-improve"]),
-    "HYDRAFLOW_LABEL_MEMORY": ("memory_label", ["hydraflow-memory"]),
-    "HYDRAFLOW_LABEL_TRANSCRIPT": ("transcript_label", ["hydraflow-transcript"]),
     "HYDRAFLOW_LABEL_DUP": ("dup_label", ["hydraflow-dup"]),
     "HYDRAFLOW_LABEL_EPIC": ("epic_label", ["hydraflow-epic"]),
     "HYDRAFLOW_LABEL_EPIC_CHILD": ("epic_child_label", ["hydraflow-epic-child"]),
@@ -405,18 +418,6 @@ class HydraFlowConfig(BaseModel):
         default=["hydraflow-verify"],
         description="Labels for post-merge verification issues (OR logic)",
     )
-    improve_label: list[str] = Field(
-        default=["hydraflow-improve"],
-        description="Labels for improvement/memory suggestion issues (OR logic)",
-    )
-    memory_label: list[str] = Field(
-        default=["hydraflow-memory"],
-        description="Labels for accepted agent learnings (OR logic)",
-    )
-    transcript_label: list[str] = Field(
-        default=["hydraflow-transcript"],
-        description="Labels for transcript-summary issues queued for memory sync (OR logic)",
-    )
     dup_label: list[str] = Field(
         default=["hydraflow-dup"],
         description="Labels applied when issue is already satisfied (no changes needed)",
@@ -455,11 +456,36 @@ class HydraFlowConfig(BaseModel):
         le=86400,
         description="Epic sweeper loop interval in seconds (default 1 hour)",
     )
-    worktree_gc_interval: int = Field(
+    workspace_gc_interval: int = Field(
         default=1800,
         ge=300,
         le=86400,
-        description="Worktree GC loop interval in seconds (default 30 min)",
+        description="Workspace GC loop interval in seconds (default 30 min)",
+        validation_alias=AliasChoices("workspace_gc_interval", "worktree_gc_interval"),
+    )
+    stale_issue_gc_interval: int = Field(
+        default=3600,
+        ge=300,
+        le=86400,
+        description="Stale issue GC loop interval in seconds (default 1 hour)",
+    )
+    stale_issue_interval: int = Field(
+        default=86400,
+        ge=60,
+        le=604800,
+        description="Stale issue check interval (seconds)",
+    )
+    stale_issue_threshold_days: int = Field(
+        default=14,
+        ge=1,
+        le=365,
+        description="Days of inactivity before auto-closing an issue (default 14)",
+    )
+    ci_monitor_interval: int = Field(
+        default=300,
+        ge=60,
+        le=86400,
+        description="CI health monitor loop interval in seconds (default 5 min)",
     )
     collaborator_check_enabled: bool = Field(
         default=True,
@@ -711,11 +737,52 @@ class HydraFlowConfig(BaseModel):
         description="Cheap model for summarising memory digest when over size limit",
     )
 
-    # Hindsight semantic memory
-    hindsight_enabled: bool = Field(
-        default=False,
-        description="Enable Hindsight semantic memory for recall instead of file-based digest",
+    # Sentry error ingestion
+    sentry_auth_token: str = Field(
+        default="",
+        description="Sentry API auth token for reading issues (PAT or internal integration)",
     )
+    sentry_org: str = Field(
+        default="",
+        description="Sentry organization slug",
+    )
+    sentry_project_filter: str = Field(
+        default="",
+        description="Comma-separated Sentry project slugs to poll (empty = all projects)",
+    )
+    sentry_poll_interval: int = Field(
+        default=600,
+        ge=60,
+        le=86400,
+        description="Seconds between Sentry issue polls",
+    )
+    sentry_min_events: int = Field(
+        default=2,
+        ge=1,
+        le=1000,
+        description="Minimum Sentry event count before filing a GitHub issue",
+    )
+
+    # Security patch monitoring
+    security_patch_interval: int = Field(
+        default=3600,
+        ge=300,
+        le=86400,
+        description="Seconds between Dependabot alert polls",
+    )
+    security_patch_severity_threshold: str = Field(
+        default="high",
+        description="Minimum severity to file issues for (critical, high, medium, low)",
+    )
+    # Code grooming
+    code_grooming_interval: int = Field(
+        default=86400,
+        ge=3600,
+        le=604800,
+        description="Seconds between code grooming audit cycles",
+    )
+
+    # Hindsight semantic memory
     hindsight_url: str = Field(
         default="",
         description="Base URL for the Hindsight REST API",
@@ -729,10 +796,6 @@ class HydraFlowConfig(BaseModel):
         ge=5,
         le=120,
         description="HTTP timeout in seconds for Hindsight API calls",
-    )
-    hindsight_exclusive: bool = Field(
-        default=False,
-        description="When True and Hindsight is enabled, skip file-based memory fallback",
     )
 
     memory_auto_approve: bool = Field(
@@ -933,14 +996,6 @@ class HydraFlowConfig(BaseModel):
         description="Upload screenshot gists as public (True) or secret/unlisted (False)",
     )
 
-    # Manifest detection
-    max_manifest_prompt_chars: int = Field(
-        default=2000,
-        ge=200,
-        le=10_000,
-        description="Max characters for project manifest injected into agent prompts",
-    )
-
     # Transcript summarization
     transcript_summarization_enabled: bool = Field(
         default=True,
@@ -995,8 +1050,10 @@ class HydraFlowConfig(BaseModel):
 
     # Paths (auto-detected)
     repo_root: Path = Field(default=Path("."), description="Repository root directory")
-    worktree_base: Path = Field(
-        default=Path("."), description="Base directory for worktrees"
+    workspace_base: Path = Field(
+        default=Path("."),
+        description="Base directory for workspaces",
+        validation_alias=AliasChoices("workspace_base", "worktree_base"),
     )
     data_root: Path = Field(
         default=Path("."),
@@ -1111,30 +1168,6 @@ class HydraFlowConfig(BaseModel):
         ge=60,
         le=86400,
         description="Seconds between bot PR auto-merge polls",
-    )
-    stale_issue_interval: int = Field(
-        default=86400,
-        ge=60,
-        le=604800,
-        description="Stale issue check interval (seconds)",
-    )
-    security_patch_interval: int = Field(
-        default=21600,
-        ge=60,
-        le=86400,
-        description="Security patch check interval (seconds)",
-    )
-    ci_monitor_interval: int = Field(
-        default=1800,
-        ge=60,
-        le=86400,
-        description="CI monitor check interval (seconds)",
-    )
-    code_grooming_interval: int = Field(
-        default=86400,
-        ge=60,
-        le=604800,
-        description="Code grooming audit interval (seconds)",
     )
     pr_unstick_batch_size: int = Field(
         default=10,
@@ -1342,9 +1375,6 @@ class HydraFlowConfig(BaseModel):
         "hitl_active_label",
         "hitl_autofix_label",
         "fixed_label",
-        "improve_label",
-        "memory_label",
-        "transcript_label",
         "dup_label",
         "epic_label",
         "epic_child_label",
@@ -1397,25 +1427,8 @@ class HydraFlowConfig(BaseModel):
             self.hitl_autofix_label,
             self.fixed_label,
             self.verify_label,
-            self.improve_label,
-            self.transcript_label,
         ):
             result.extend(labels)
-        return result
-
-    @property
-    def memory_sync_labels(self) -> list[str]:
-        """Return labels fetched by memory sync (memory + improve + transcript).
-
-        .. deprecated::
-            Memory sync now reads from local JSONL instead of GitHub issues.
-            This property is retained for backward compatibility but is no
-            longer used by the memory sync loop.
-        """
-        result: list[str] = []
-        for label in [*self.memory_label, *self.improve_label, *self.transcript_label]:
-            if label not in result:
-                result.append(label)
         return result
 
     @property
@@ -1463,16 +1476,16 @@ class HydraFlowConfig(BaseModel):
         """Return the canonical branch name for a given issue number."""
         return f"agent/issue-{issue_number}"
 
-    def worktree_path_for_issue(self, issue_number: int) -> Path:
-        """Return the repo-scoped worktree directory path for a given issue number."""
-        return self.worktree_base / self.repo_slug / f"issue-{issue_number}"
+    def workspace_path_for_issue(self, issue_number: int) -> Path:
+        """Return the repo-scoped workspace directory path for a given issue number."""
+        return self.workspace_base / self.repo_slug / f"issue-{issue_number}"
 
     @model_validator(mode="after")
     def resolve_defaults(self) -> HydraFlowConfig:
         """Resolve paths, repo slug, and apply env var overrides.
 
         Resolution order (seven steps):
-          1. ``_resolve_base_paths`` — repo_root, worktree_base, data_root
+          1. ``_resolve_base_paths`` — repo_root, workspace_base, data_root
           2. ``_resolve_repo_and_identity`` — repo slug, gh_token, git identity
           3. ``_resolve_repo_scoped_paths`` — state_file, event_log_path, config_file
           4. ``_apply_env_overrides`` — env-var overrides for labels, tokens, etc.
@@ -1499,8 +1512,6 @@ class HydraFlowConfig(BaseModel):
             HYDRAFLOW_LABEL_HITL_AUTOFIX → hitl_autofix_label
             HYDRAFLOW_LABEL_FIXED       → fixed_label
             HYDRAFLOW_LABEL_VERIFY      → verify_label
-            HYDRAFLOW_LABEL_IMPROVE     → improve_label
-            HYDRAFLOW_LABEL_MEMORY      → memory_label
             HYDRAFLOW_LABEL_DUP         → dup_label
             HYDRAFLOW_LABEL_EPIC        → epic_label
             HYDRAFLOW_LABEL_EPIC_CHILD  → epic_child_label
@@ -1579,7 +1590,7 @@ def _harmonize_tool_model_defaults(config: HydraFlowConfig) -> None:
 
 
 def _resolve_base_paths(config: HydraFlowConfig) -> None:
-    """Resolve repo_root, worktree_base, and data_root.
+    """Resolve repo_root, workspace_base, and data_root.
 
     These base paths have no dependency on the repo slug and must be resolved
     first so that ``_resolve_repo_and_identity`` can use ``repo_root`` for
@@ -1589,12 +1600,12 @@ def _resolve_base_paths(config: HydraFlowConfig) -> None:
         object.__setattr__(config, "repo_root", _find_repo_root())
     else:
         object.__setattr__(config, "repo_root", config.repo_root.expanduser().resolve())
-    if config.worktree_base == Path("."):
+    if config.workspace_base == Path("."):
         default_worktrees = Path("~/.hydraflow/worktrees").expanduser().resolve()
-        object.__setattr__(config, "worktree_base", default_worktrees)
+        object.__setattr__(config, "workspace_base", default_worktrees)
     else:
         object.__setattr__(
-            config, "worktree_base", config.worktree_base.expanduser().resolve()
+            config, "workspace_base", config.workspace_base.expanduser().resolve()
         )
     env_home = os.environ.get("HYDRAFLOW_HOME", "").strip()
     if env_home:

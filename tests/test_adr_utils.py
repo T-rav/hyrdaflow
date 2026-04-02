@@ -1,0 +1,265 @@
+"""Tests for adr_utils.py — ADR utility functions extracted from phase_utils."""
+
+from __future__ import annotations
+
+import sys
+from collections.abc import Generator
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from adr_utils import (
+    ADR_FILE_RE,
+    adr_validation_reasons,
+    is_adr_issue_title,
+    load_existing_adr_topics,
+    next_adr_number,
+    normalize_adr_topic,
+)
+
+# ---------------------------------------------------------------------------
+# is_adr_issue_title
+# ---------------------------------------------------------------------------
+
+
+class TestIsAdrIssueTitle:
+    def test_matches_standard_adr_prefix(self) -> None:
+        assert is_adr_issue_title("[ADR] Use event sourcing for state") is True
+
+    def test_matches_case_insensitive(self) -> None:
+        assert is_adr_issue_title("[adr] lowercase prefix") is True
+        assert is_adr_issue_title("[Adr] mixed case") is True
+
+    def test_matches_with_leading_whitespace(self) -> None:
+        assert is_adr_issue_title("  [ADR] leading spaces") is True
+
+    def test_rejects_non_adr_title(self) -> None:
+        assert is_adr_issue_title("Fix broken tests") is False
+
+    def test_rejects_adr_not_at_start(self) -> None:
+        assert is_adr_issue_title("Issue about [ADR] formatting") is False
+
+    def test_rejects_empty_string(self) -> None:
+        assert is_adr_issue_title("") is False
+
+    def test_rejects_partial_prefix(self) -> None:
+        assert is_adr_issue_title("[AD] not quite") is False
+
+
+# ---------------------------------------------------------------------------
+# normalize_adr_topic
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeAdrTopic:
+    def test_strips_memory_prefix(self) -> None:
+        assert (
+            normalize_adr_topic("[Memory] ADR test policy — only structural tests")
+            == "adr test policy only structural tests"
+        )
+
+    def test_strips_adr_draft_prefix(self) -> None:
+        assert (
+            normalize_adr_topic(
+                "[ADR] Draft decision from memory #123: Worker topology shift"
+            )
+            == "worker topology shift"
+        )
+
+    def test_lowercases_and_normalizes(self) -> None:
+        assert normalize_adr_topic("Use Event Sourcing") == "use event sourcing"
+
+    def test_strips_non_alphanumeric(self) -> None:
+        assert normalize_adr_topic("foo--bar__baz") == "foo bar baz"
+
+    def test_empty_string(self) -> None:
+        assert normalize_adr_topic("") == ""
+
+    def test_only_prefix(self) -> None:
+        result = normalize_adr_topic("[Memory]")
+        assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# adr_validation_reasons
+# ---------------------------------------------------------------------------
+
+
+class TestAdrValidationReasons:
+    def test_valid_adr_body_returns_empty(self) -> None:
+        body = (
+            "## Context\n\nWe need to decide on X.\n\n"
+            "## Decision\n\nWe will do Y because of reasons.\n\n"
+            "## Consequences\n\nThis means Z will change and we need to update docs. "
+            "Additional detail here to meet length."
+        )
+        assert adr_validation_reasons(body) == []
+
+    def test_too_short_body(self) -> None:
+        body = "## Context\n## Decision\n## Consequences\nShort."
+        reasons = adr_validation_reasons(body)
+        assert any("too short" in r for r in reasons)
+
+    def test_missing_context_heading(self) -> None:
+        body = (
+            "## Decision\n\nWe will do Y.\n\n"
+            "## Consequences\n\nThis changes Z.\n" + "x" * 120
+        )
+        reasons = adr_validation_reasons(body)
+        assert any("## Context" in r for r in reasons)
+
+    def test_missing_decision_heading(self) -> None:
+        body = (
+            "## Context\n\nWe need to decide.\n\n"
+            "## Consequences\n\nThis changes Z.\n" + "x" * 120
+        )
+        reasons = adr_validation_reasons(body)
+        assert any("## Decision" in r for r in reasons)
+
+    def test_missing_consequences_heading(self) -> None:
+        body = (
+            "## Context\n\nWe need to decide.\n\n"
+            "## Decision\n\nWe will do Y.\n" + "x" * 120
+        )
+        reasons = adr_validation_reasons(body)
+        assert any("## Consequences" in r for r in reasons)
+
+    def test_multiple_failures(self) -> None:
+        body = "Short"
+        reasons = adr_validation_reasons(body)
+        assert len(reasons) == 2  # too short + missing all headings
+
+
+# ---------------------------------------------------------------------------
+# load_existing_adr_topics
+# ---------------------------------------------------------------------------
+
+
+class TestLoadExistingAdrTopics:
+    def test_loads_topics_from_adr_dir(self, tmp_path: Path) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir.mkdir(parents=True)
+        (adr_dir / "0001-five-concurrent-loops.md").write_text("# ADR\n")
+        (adr_dir / "0002-labels-state-machine.md").write_text("# ADR\n")
+        (adr_dir / "README.md").write_text("# Index\n")
+
+        topics = load_existing_adr_topics(tmp_path)
+        assert "five concurrent loops" in topics
+        assert "labels state machine" in topics
+
+    def test_skips_readme(self, tmp_path: Path) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir.mkdir(parents=True)
+        (adr_dir / "README.md").write_text("# Index\n")
+
+        topics = load_existing_adr_topics(tmp_path)
+        assert len(topics) == 0
+
+    def test_returns_empty_for_missing_dir(self, tmp_path: Path) -> None:
+        topics = load_existing_adr_topics(tmp_path)
+        assert topics == set()
+
+    def test_strips_numeric_prefix(self, tmp_path: Path) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir.mkdir(parents=True)
+        (adr_dir / "0042-adopt-pydantic.md").write_text("# ADR\n")
+
+        topics = load_existing_adr_topics(tmp_path)
+        assert "adopt pydantic" in topics
+
+
+# ---------------------------------------------------------------------------
+# next_adr_number
+# ---------------------------------------------------------------------------
+
+
+class TestNextAdrNumber:
+    @pytest.fixture(autouse=True)
+    def _clear_assigned(self) -> Generator[None, None, None]:
+        """Reset the module-level assigned set before and after each test."""
+        import adr_utils
+
+        adr_utils._assigned_adr_numbers.clear()
+        yield
+        adr_utils._assigned_adr_numbers.clear()
+
+    def test_returns_one_for_empty_dir(self, tmp_path: Path) -> None:
+        assert next_adr_number(tmp_path) == 1
+
+    def test_returns_one_for_missing_dir(self, tmp_path: Path) -> None:
+        assert next_adr_number(tmp_path / "nonexistent") == 1
+
+    def test_increments_past_highest(self, tmp_path: Path) -> None:
+        (tmp_path / "0001-first.md").touch()
+        (tmp_path / "0003-third.md").touch()
+        assert next_adr_number(tmp_path) == 4
+
+    def test_ignores_non_adr_files(self, tmp_path: Path) -> None:
+        (tmp_path / "0005-fifth.md").touch()
+        (tmp_path / "README.md").touch()
+        (tmp_path / "template.md").touch()
+        assert next_adr_number(tmp_path) == 6
+
+    def test_concurrent_calls_return_unique_numbers(self, tmp_path: Path) -> None:
+        (tmp_path / "0002-existing.md").touch()
+        results = [next_adr_number(tmp_path) for _ in range(5)]
+        assert results == [3, 4, 5, 6, 7]
+
+    def test_scans_primary_adr_dir(self, tmp_path: Path) -> None:
+        local = tmp_path / "worktree" / "docs" / "adr"
+        local.mkdir(parents=True)
+        (local / "0001-local.md").touch()
+
+        primary = tmp_path / "primary" / "docs" / "adr"
+        primary.mkdir(parents=True)
+        (primary / "0010-primary.md").touch()
+
+        result = next_adr_number(local, primary_adr_dir=primary)
+        assert result == 11
+
+
+# ---------------------------------------------------------------------------
+# ADR_FILE_RE
+# ---------------------------------------------------------------------------
+
+
+class TestAdrFileRe:
+    def test_matches_four_digit_prefix(self) -> None:
+        m = ADR_FILE_RE.match("0023-some-title.md")
+        assert m is not None
+        assert m.group(1) == "0023"
+
+    def test_rejects_non_adr_filenames(self) -> None:
+        assert ADR_FILE_RE.match("README.md") is None
+        assert ADR_FILE_RE.match("abc-title.md") is None
+        assert ADR_FILE_RE.match("00-short.md") is None
+        assert ADR_FILE_RE.match("023-title.md") is None
+
+
+# ---------------------------------------------------------------------------
+# Backward compatibility — phase_utils re-exports
+# ---------------------------------------------------------------------------
+
+
+class TestBackwardCompatReexports:
+    """Ensure phase_utils still exposes ADR utilities for existing consumers."""
+
+    def test_phase_utils_reexports_is_adr_issue_title(self) -> None:
+        from adr_utils import is_adr_issue_title as au_fn
+        from phase_utils import is_adr_issue_title as pu_fn
+
+        assert pu_fn is au_fn
+
+    def test_phase_utils_reexports_adr_file_re(self) -> None:
+        from adr_utils import ADR_FILE_RE as au_re
+        from phase_utils import ADR_FILE_RE as pu_re
+
+        assert pu_re is au_re
+
+    def test_phase_utils_reexports_next_adr_number(self) -> None:
+        from adr_utils import next_adr_number as au_fn
+        from phase_utils import next_adr_number as pu_fn
+
+        assert pu_fn is au_fn

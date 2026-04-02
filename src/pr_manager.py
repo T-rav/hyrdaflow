@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Literal, TypeVar
 from urllib.parse import quote
 
+from comment_formatter import CommentFormatter, SelfReviewError
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from models import (
@@ -49,48 +50,8 @@ def _is_missing_label_404(exc: RuntimeError) -> bool:
     return "label does not exist" in msg and "http 404" in msg
 
 
-class SelfReviewError(RuntimeError):
-    """Raised when a formal review fails due to the 'own pull request' restriction."""
-
-
-class CommentFormatter:
-    """GitHub comment body formatting — chunking and hard-truncation."""
-
-    GITHUB_COMMENT_LIMIT: int = 65_536  # GitHub maximum comment body size
-    TRUNCATION_MARKER: str = "\n\n*...truncated to fit GitHub comment limit*"
-
-    @staticmethod
-    def chunk(body: str, limit: int | None = None) -> list[str]:
-        """Split *body* into chunks that fit within *limit* characters."""
-        if limit is None:
-            limit = CommentFormatter.GITHUB_COMMENT_LIMIT
-        if len(body) <= limit:
-            return [body]
-        chunks: list[str] = []
-        while body:
-            if len(body) <= limit:
-                chunks.append(body)
-                break
-            split_at = body.rfind("\n", 0, limit)
-            if split_at <= 0:
-                split_at = limit
-            chunks.append(body[:split_at])
-            body = body[split_at:].lstrip("\n")
-        return chunks
-
-    @staticmethod
-    def cap(body: str, limit: int | None = None) -> str:
-        """Hard-truncate *body* to *limit* characters.
-
-        Acts as a safety net after chunking / header prepending to guarantee
-        no single payload exceeds GitHub's comment size limit.
-        """
-        if limit is None:
-            limit = CommentFormatter.GITHUB_COMMENT_LIMIT
-        if len(body) <= limit:
-            return body
-        marker = CommentFormatter.TRUNCATION_MARKER
-        return body[: limit - len(marker)] + marker
+# Re-export for backward compatibility
+__all__ = ["CommentFormatter", "SelfReviewError", "PRManager"]
 
 
 class PRManager:
@@ -715,6 +676,82 @@ class PRManager:
             )
             return "UNKNOWN"
 
+    async def list_issues_by_label(self, label: str) -> list[dict[str, Any]]:
+        """Return open issues with the given label as a list of dicts."""
+        self._assert_repo()
+        try:
+            output = await self._run_gh(
+                "gh",
+                "issue",
+                "list",
+                "--repo",
+                self._repo,
+                "--label",
+                label,
+                "--state",
+                "open",
+                "--json",
+                "number,title,updatedAt",
+                "--limit",
+                "100",
+            )
+            items = json.loads(output)
+            return [
+                {
+                    "number": item.get("number", 0),
+                    "title": item.get("title", ""),
+                    "updated_at": item.get("updatedAt", ""),
+                }
+                for item in items
+            ]
+        except Exception:
+            logger.warning("Failed to list issues for label %s", label, exc_info=True)
+            raise
+
+    async def get_issue_updated_at(self, issue_number: int) -> str:
+        """Return the updated_at timestamp for an issue as ISO string."""
+        self._assert_repo()
+        output = await self._run_gh(
+            "gh",
+            "issue",
+            "view",
+            str(issue_number),
+            "--repo",
+            self._repo,
+            "--json",
+            "updatedAt",
+            "--jq",
+            ".updatedAt",
+        )
+        return output.strip()
+
+    async def get_latest_ci_status(self) -> tuple[str, str]:
+        """Return (conclusion, url) for the latest CI run on the main branch."""
+        self._assert_repo()
+        try:
+            output = await self._run_gh(
+                "gh",
+                "run",
+                "list",
+                "--repo",
+                self._repo,
+                "--branch",
+                self._config.main_branch,
+                "--limit",
+                "1",
+                "--json",
+                "conclusion,url",
+                "--jq",
+                ".[0] | [.conclusion, .url] | @tsv",
+            )
+            parts = output.strip().split("\t")
+            conclusion = parts[0] if parts else ""
+            url = parts[1] if len(parts) > 1 else ""
+            return (conclusion, url)
+        except Exception:
+            logger.warning("Could not fetch CI status", exc_info=True)
+            raise
+
     async def close_issue(self, issue_number: int) -> None:
         """Close a GitHub issue."""
         self._assert_repo()
@@ -844,6 +881,26 @@ class PRManager:
                 if pr_number is not None:
                     await self._remove_label("pr", pr_number, lbl)
 
+    async def get_dependabot_alerts(self, state: str = "open") -> list[dict]:
+        """Fetch Dependabot alerts for the repository.
+
+        Returns a list of alert dicts from the GitHub API, or an empty list
+        on error or in dry-run mode.
+        """
+        return await self._gh_json_query(
+            "gh",
+            "api",
+            f"repos/{self._repo}/dependabot/alerts",
+            "--paginate",
+            "--field",
+            f"state={state}",
+            "--field",
+            "per_page=100",
+            dry_run_return=[],
+            dry_run_log="[dry-run] Would fetch Dependabot alerts",
+            error_log="Failed to fetch Dependabot alerts",
+        )
+
     async def create_issue(
         self,
         title: str,
@@ -894,44 +951,6 @@ class PRManager:
         except (RuntimeError, ValueError) as exc:
             logger.error("Issue creation failed for %r: %s", title, exc)
             return 0
-
-    async def find_issue_number_by_label_and_title(
-        self,
-        label: str,
-        title_substring: str,
-        *,
-        state: str = "all",
-    ) -> int | None:
-        """Find a GitHub issue by label and title substring.
-
-        Searches for issues with the given *label* whose title contains
-        *title_substring* (case-insensitive).  Returns the issue number
-        of the first match, or ``None`` if no match is found.
-        """
-        issues: list[dict[str, object]] = await self._gh_json_query(  # type: ignore[assignment]
-            "gh",
-            "issue",
-            "list",
-            "--repo",
-            self._repo,
-            "--label",
-            label,
-            "--state",
-            state,
-            "--json",
-            "number,title",
-            "--limit",
-            "100",
-            dry_run_return=[],
-            error_log="Could not search issues by label and title",
-        )
-        needle = title_substring.lower()
-        for issue in issues:
-            if needle in str(issue.get("title", "")).lower():
-                num = issue.get("number")
-                if num is not None:
-                    return int(num)  # type: ignore[arg-type]
-        return None
 
     _SCREENSHOT_RELEASE_TAG = "screenshots"
 
@@ -1685,9 +1704,9 @@ class PRManager:
         return HITLItem(
             issue=raw_issue["number"],
             title=raw_issue.get("title", ""),
-            issueUrl=raw_issue.get("url", ""),
+            issue_url=raw_issue.get("url", ""),
             pr=pr_number,
-            prUrl=pr_url,
+            pr_url=pr_url,
             branch=branch,
         )
 

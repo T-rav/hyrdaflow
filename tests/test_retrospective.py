@@ -934,7 +934,7 @@ class TestRetrospectiveHindsightDualWrite:
         retro_path = config.data_path("memory", "retrospectives.jsonl")
         assert not retro_path.exists()
 
-    def test_file_write_skipped_when_hindsight_enabled(
+    def test_file_write_skipped_when_hindsight_configured(
         self, config: HydraFlowConfig
     ) -> None:
         """When hindsight client is set, JSONL file write is skipped."""

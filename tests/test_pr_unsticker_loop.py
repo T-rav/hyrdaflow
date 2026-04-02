@@ -154,16 +154,16 @@ class TestPRUnstickerLoopRun:
                 HITLItem(
                     issue=1,
                     title="Verify: foo",
-                    issueUrl="https://github.com/o/r/issues/1",
+                    issue_url="https://github.com/o/r/issues/1",
                     pr=0,
-                    prUrl="",
+                    pr_url="",
                 ),
                 HITLItem(
                     issue=2,
                     title="Regular HITL issue",
-                    issueUrl="https://github.com/o/r/issues/2",
+                    issue_url="https://github.com/o/r/issues/2",
                     pr=123,
-                    prUrl="https://github.com/o/r/pull/123",
+                    pr_url="https://github.com/o/r/pull/123",
                 ),
             ]
         )

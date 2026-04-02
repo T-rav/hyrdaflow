@@ -48,10 +48,9 @@ def _make_entry(
 
 
 def _make_config(
-    improve_label: list[str] | None = None, hitl_label: list[str] | None = None
+    hitl_label: list[str] | None = None,
 ) -> MagicMock:
     cfg = MagicMock()
-    cfg.improve_label = improve_label or ["hydraflow-improve"]
     cfg.hitl_label = hitl_label or ["hydraflow-hitl"]
     return cfg
 

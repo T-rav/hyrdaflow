@@ -341,13 +341,6 @@ function LearningsSection() {
   if (!data) return <div style={styles.empty}>Loading learnings...</div>
   if (data.total_items === 0) return <div style={styles.empty}>No learnings recorded yet.</div>
 
-  const curated = data.curated || {}
-  const hasCurated =
-    curated.overview ||
-    (curated.architecture && curated.architecture.length > 0) ||
-    (curated.key_services && curated.key_services.length > 0) ||
-    (curated.standards && curated.standards.length > 0)
-
   const filterLower = memoryFilter.toLowerCase()
   const filteredItems = (data.items || []).filter((item) => {
     if (!filterLower) return true
@@ -362,52 +355,9 @@ function LearningsSection() {
       <div style={styles.header}>
         <span style={styles.totalBadge}>{data.total_items}</span>
         <span style={styles.headerText}>memory items</span>
-        {data.digest_chars > 0 && (
-          <span style={styles.digestPill}>{Math.round(data.digest_chars / 1000)}k chars in digest</span>
-        )}
       </div>
 
-      {hasCurated && (
-        <LearningsSubSection title="Curated Knowledge" defaultExpanded>
-          {curated.overview && (
-            <div style={styles.section}>
-              <div style={styles.sectionTitle}>Project Overview</div>
-              <div style={styles.overviewText}>{curated.overview}</div>
-            </div>
-          )}
-
-          {curated.architecture && curated.architecture.length > 0 && (
-            <div style={styles.section}>
-              <div style={styles.sectionTitle}>Architecture Notes</div>
-              {curated.architecture.map((note, i) => (
-                <div key={i} style={styles.learningItem}>{note}</div>
-              ))}
-            </div>
-          )}
-
-          {curated.key_services && curated.key_services.length > 0 && (
-            <div style={styles.section}>
-              <div style={styles.sectionTitle}>Key Services</div>
-              <div style={styles.tagCloud}>
-                {curated.key_services.map((svc, i) => (
-                  <span key={i} style={styles.serviceTag}>{svc}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {curated.standards && curated.standards.length > 0 && (
-            <div style={styles.section}>
-              <div style={styles.sectionTitle}>Standards</div>
-              {curated.standards.map((std, i) => (
-                <div key={i} style={styles.learningItem}>{std}</div>
-              ))}
-            </div>
-          )}
-        </LearningsSubSection>
-      )}
-
-      <LearningsSubSection title="Memory Items" defaultExpanded={false}>
+      <LearningsSubSection title="Memory Items" defaultExpanded>
         <div style={styles.section}>
           <input
             type="text"
@@ -710,32 +660,12 @@ const styles = {
     borderBottom: `1px solid ${theme.border}`,
     color: theme.text,
   },
-  digestPill: {
-    fontSize: 11,
-    color: theme.accent,
-    border: `1px solid ${theme.accent}`,
-    borderRadius: 6,
-    padding: '1px 6px',
-  },
-  overviewText: {
-    fontSize: 12,
-    color: theme.text,
-    lineHeight: 1.5,
-  },
   learningItem: {
     fontSize: 12,
     color: theme.text,
     paddingLeft: 12,
     borderLeft: `2px solid ${theme.border}`,
     lineHeight: 1.5,
-  },
-  serviceTag: {
-    fontSize: 11,
-    color: theme.text,
-    background: theme.surfaceInset,
-    border: `1px solid ${theme.border}`,
-    borderRadius: 12,
-    padding: '2px 10px',
   },
   memoryCard: {
     display: 'flex',

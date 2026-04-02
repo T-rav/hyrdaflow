@@ -156,7 +156,7 @@ class TestHitlPhaseCallableType:
             state=MagicMock(),
             store=MagicMock(),
             fetcher=MagicMock(),
-            worktrees=MagicMock(),
+            workspaces=MagicMock(),
             hitl_runner=MagicMock(),
             prs=MagicMock(),
             event_bus=MagicMock(),
@@ -202,7 +202,7 @@ class TestPrUnstickerReturnType:
             event_bus=MagicMock(),
             pr_manager=MagicMock(),
             agents=MagicMock(),
-            worktrees=MagicMock(),
+            workspaces=MagicMock(),
             fetcher=MagicMock(),
         )
         result = await unsticker.unstick([])

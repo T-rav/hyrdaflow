@@ -13,91 +13,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventBus, EventType
 from models import HITLItem
-from state import StateTracker
 from tests.conftest import make_orchestrator_mock, make_state
-from tests.helpers import ConfigFactory, find_endpoint, make_dashboard_router
-
-
-class TestHITLMemoryAutoApproveFiltering:
-    """Tests that /api/hitl filters out memory suggestions when memory_auto_approve is enabled.
-
-    The filter check precedes the isMemorySuggestion flag assignment so that filtered
-    items never reach the enriched list.
-    """
-
-    @pytest.mark.asyncio
-    async def test_memory_suggestions_filtered_when_auto_approve_enabled(
-        self, event_bus: EventBus, tmp_path: Path
-    ) -> None:
-        """When memory_auto_approve=True, memory suggestion items are omitted from HITL list."""
-        config = ConfigFactory.create(
-            repo_root=tmp_path / "repo",
-            memory_auto_approve=True,
-            transcript_summarization_enabled=False,
-        )
-        state = StateTracker(config.state_file)
-        state.set_hitl_origin(42, config.improve_label[0])
-
-        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
-        hitl_item = HITLItem(issue=42, title="Memory suggestion", pr=101)
-        pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
-
-        get_hitl = find_endpoint(router, "/api/hitl")
-        assert get_hitl is not None
-        response = await get_hitl()
-
-        items = json.loads(response.body)
-        assert len(items) == 0
-
-    @pytest.mark.asyncio
-    async def test_memory_suggestions_not_filtered_when_auto_approve_disabled(
-        self, event_bus: EventBus, tmp_path: Path
-    ) -> None:
-        """When memory_auto_approve=False (default), memory suggestion items remain in HITL list."""
-        config = ConfigFactory.create(
-            repo_root=tmp_path / "repo",
-            memory_auto_approve=False,
-            transcript_summarization_enabled=False,
-        )
-        state = StateTracker(config.state_file)
-        state.set_hitl_origin(42, config.improve_label[0])
-
-        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
-        hitl_item = HITLItem(issue=42, title="Memory suggestion", pr=101)
-        pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
-
-        get_hitl = find_endpoint(router, "/api/hitl")
-        assert get_hitl is not None
-        response = await get_hitl()
-
-        items = json.loads(response.body)
-        assert len(items) == 1
-        assert items[0]["isMemorySuggestion"] is True
-
-    @pytest.mark.asyncio
-    async def test_non_memory_items_not_filtered_when_auto_approve_enabled(
-        self, event_bus: EventBus, tmp_path: Path
-    ) -> None:
-        """When memory_auto_approve=True, non-memory HITL items are still returned."""
-        config = ConfigFactory.create(
-            repo_root=tmp_path / "repo",
-            memory_auto_approve=True,
-            transcript_summarization_enabled=False,
-        )
-        state = StateTracker(config.state_file)
-        # No origin set — not a memory suggestion
-
-        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
-        hitl_item = HITLItem(issue=99, title="CI failure", pr=200)
-        pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
-
-        get_hitl = find_endpoint(router, "/api/hitl")
-        assert get_hitl is not None
-        response = await get_hitl()
-
-        items = json.loads(response.body)
-        assert len(items) == 1
-        assert items[0]["isMemorySuggestion"] is False
+from tests.helpers import find_endpoint, make_dashboard_router
 
 
 class TestHITLEndpointCause:
@@ -251,62 +168,6 @@ class TestHITLEndpointCause:
         assert items[0]["cause"] == ""
 
     @pytest.mark.asyncio
-    async def test_hitl_includes_is_memory_suggestion_when_origin_is_improve(
-        self, config, event_bus: EventBus, state, tmp_path: Path
-    ) -> None:
-        """When HITL origin matches improve_label, isMemorySuggestion should be True."""
-        state.set_hitl_origin(42, "hydraflow-improve")
-        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
-
-        hitl_item = HITLItem(issue=42, title="Memory suggestion", pr=101)
-        pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
-
-        get_hitl = find_endpoint(router, "/api/hitl")
-        assert get_hitl is not None
-        response = await get_hitl()
-
-        items = json.loads(response.body)
-        assert len(items) == 1
-        assert items[0]["isMemorySuggestion"] is True
-
-    @pytest.mark.asyncio
-    async def test_hitl_is_memory_suggestion_false_when_origin_is_other(
-        self, config, event_bus: EventBus, state, tmp_path: Path
-    ) -> None:
-        """When HITL origin is not improve_label, isMemorySuggestion should be False."""
-        state.set_hitl_origin(42, "hydraflow-review")
-        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
-
-        hitl_item = HITLItem(issue=42, title="Fix bug", pr=101)
-        pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
-
-        get_hitl = find_endpoint(router, "/api/hitl")
-        assert get_hitl is not None
-        response = await get_hitl()
-
-        items = json.loads(response.body)
-        assert len(items) == 1
-        assert items[0]["isMemorySuggestion"] is False
-
-    @pytest.mark.asyncio
-    async def test_hitl_is_memory_suggestion_false_when_no_origin(
-        self, config, event_bus: EventBus, state, tmp_path: Path
-    ) -> None:
-        """When no HITL origin is set at all, isMemorySuggestion should be False."""
-        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
-
-        hitl_item = HITLItem(issue=42, title="Fix bug", pr=101)
-        pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
-
-        get_hitl = find_endpoint(router, "/api/hitl")
-        assert get_hitl is not None
-        response = await get_hitl()
-
-        items = json.loads(response.body)
-        assert len(items) == 1
-        assert items[0]["isMemorySuggestion"] is False
-
-    @pytest.mark.asyncio
     async def test_hitl_endpoint_falls_back_to_origin_label(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
@@ -438,43 +299,10 @@ class TestHITLSkipImproveTransition:
     """Tests that /api/hitl/{issue}/skip transitions improve issues to triage."""
 
     @pytest.mark.asyncio
-    async def test_hitl_skip_improve_origin_transitions_to_triage(
+    async def test_hitl_skip_closes_issue(
         self, config, event_bus, state, tmp_path
     ) -> None:
-        """Skipping an improve-origin HITL item should remove improve and add find label."""
-        from models import HITLSkipRequest
-
-        state.set_hitl_origin(42, "hydraflow-improve")
-        state.set_hitl_cause(42, "Memory suggestion")
-
-        mock_orch = MagicMock()
-        mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        pr_mgr.remove_label = AsyncMock()
-        pr_mgr.add_labels = AsyncMock()
-        pr_mgr.swap_pipeline_labels = AsyncMock()
-        pr_mgr.post_comment = AsyncMock()
-
-        skip = find_endpoint(router, "/api/hitl/{issue_number}/skip")
-        assert skip is not None
-
-        response = await skip(42, HITLSkipRequest(reason="Not actionable"))
-        assert response.status_code == 200
-
-        # Verify find/triage label was set via swap
-        pr_mgr.swap_pipeline_labels.assert_any_call(42, config.find_label[0])
-
-        # Verify state cleanup
-        assert state.get_hitl_origin(42) is None
-        assert state.get_hitl_cause(42) is None
-
-    @pytest.mark.asyncio
-    async def test_hitl_skip_non_improve_origin_no_triage_transition(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        """Non-improve HITL items should be closed on skip (not orphaned)."""
+        """Skipping a HITL item should close the issue."""
         from models import HITLSkipRequest
 
         state.set_hitl_origin(42, "hydraflow-review")
@@ -778,60 +606,6 @@ class TestHITLSkipCommentResilience:
         assert outcome.outcome.value == "hitl_skipped"
 
 
-# ---------------------------------------------------------------------------
-# POST /api/hitl/{issue_number}/approve-memory
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# POST /api/hitl/{issue_number}/approve-memory
-# ---------------------------------------------------------------------------
-
-
-class TestHITLApproveMemoryEndpoint:
-    """Tests for POST /api/hitl/{issue_number}/approve-memory."""
-
-    @pytest.mark.asyncio
-    async def test_approve_memory_removes_pipeline_labels(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        mock_orch = MagicMock()
-        mock_orch.skip_hitl_issue = MagicMock()
-        router, pr_mgr = make_dashboard_router(
-            config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
-        )
-        pr_mgr.remove_label = AsyncMock()  # type: ignore[method-assign]
-        pr_mgr.add_labels = AsyncMock()  # type: ignore[method-assign]
-        endpoint = find_endpoint(router, "/api/hitl/{issue_number}/approve-memory")
-        state.set_hitl_origin(42, "hydraflow-review")
-        state.set_hitl_cause(42, "some cause")
-        state.set_hitl_summary(42, "cached summary")
-        response = await endpoint(42)
-        data = json.loads(response.body)
-        assert data["status"] == "ok"
-        # Should add memory label (first, before removing pipeline labels)
-        pr_mgr.add_labels.assert_called_once_with(42, config.memory_label)
-        # Should remove all pipeline labels
-        removed = {call.args[1] for call in pr_mgr.remove_label.call_args_list}
-        assert removed == set(config.all_pipeline_labels)
-        # State should be cleaned up
-        assert state.get_hitl_origin(42) is None
-        assert state.get_hitl_cause(42) is None
-        assert state.get_hitl_summary(42) is None
-
-    @pytest.mark.asyncio
-    async def test_approve_memory_works_without_orchestrator(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
-        pr_mgr.remove_label = AsyncMock()  # type: ignore[method-assign]
-        pr_mgr.add_labels = AsyncMock()  # type: ignore[method-assign]
-        endpoint = find_endpoint(router, "/api/hitl/{issue_number}/approve-memory")
-        response = await endpoint(42)
-        data = json.loads(response.body)
-        assert data["status"] == "ok"
-
-
 class TestClearHitlStateHelper:
     """Tests for the _clear_hitl_state internal helper."""
 
@@ -864,27 +638,6 @@ class TestClearHitlStateHelper:
         assert state.get_hitl_origin(99) is None
         assert state.get_hitl_cause(99) is None
         assert state.get_hitl_summary(99) is None
-
-    @pytest.mark.asyncio
-    async def test_clear_hitl_state_tolerates_none_orchestrator(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        """approve-memory uses _clear_hitl_state with orch=None and should not crash."""
-        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
-        pr_mgr.remove_label = AsyncMock()
-        pr_mgr.add_labels = AsyncMock()
-
-        state.set_hitl_origin(50, "hydraflow-plan")
-        state.set_hitl_cause(50, "reason")
-        state.set_hitl_summary(50, "summary")
-
-        endpoint = find_endpoint(router, "/api/hitl/{issue_number}/approve-memory")
-        response = await endpoint(50)
-        assert response.status_code == 200
-
-        assert state.get_hitl_origin(50) is None
-        assert state.get_hitl_cause(50) is None
-        assert state.get_hitl_summary(50) is None
 
 
 class TestHITLApproveProcessEndpoint:
@@ -1261,9 +1014,9 @@ class TestHITLRoute:
             HITLItem(
                 issue=42,
                 title="Fix widget",
-                issueUrl="https://github.com/org/repo/issues/42",
+                issue_url="https://github.com/org/repo/issues/42",
                 pr=99,
-                prUrl="https://github.com/org/repo/pull/99",
+                pr_url="https://github.com/org/repo/pull/99",
                 branch="agent/issue-42",
             ),
         ]
@@ -1310,9 +1063,9 @@ class TestHITLRoute:
             HITLItem(
                 issue=10,
                 title="Broken thing",
-                issueUrl="",
+                issue_url="",
                 pr=0,
-                prUrl="",
+                pr_url="",
                 branch="agent/issue-10",
             ),
         ]
@@ -1717,197 +1470,6 @@ class TestHITLCloseEndpointViaTestClient:
             client.post("/api/hitl/42/close", json={"reason": "duplicate"})
 
         assert state.get_hitl_origin(42) is None
-
-
-# ---------------------------------------------------------------------------
-# POST /api/hitl/{issue}/approve-memory (TestClient style)
-# ---------------------------------------------------------------------------
-
-
-class TestHITLApproveMemoryEndpointViaTestClient:
-    """Tests for the POST /api/hitl/{issue}/approve-memory route (TestClient integration style)."""
-
-    def test_approve_memory_returns_ok_with_orchestrator(
-        self, config, event_bus: EventBus, state
-    ) -> None:
-        from fastapi.testclient import TestClient
-
-        from dashboard import HydraFlowDashboard
-
-        orch = make_orchestrator_mock()
-        orch.skip_hitl_issue = MagicMock()
-        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
-        app = dashboard.create_app()
-
-        client = TestClient(app)
-        with (
-            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
-            patch("pr_manager.PRManager.add_labels", new_callable=AsyncMock),
-        ):
-            response = client.post("/api/hitl/42/approve-memory")
-
-        assert response.status_code == 200
-        assert response.json() == {"status": "ok"}
-
-    def test_approve_memory_calls_orchestrator_skip(
-        self, config, event_bus: EventBus, state
-    ) -> None:
-        from fastapi.testclient import TestClient
-
-        from dashboard import HydraFlowDashboard
-
-        orch = make_orchestrator_mock()
-        orch.skip_hitl_issue = MagicMock()
-        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
-        app = dashboard.create_app()
-
-        client = TestClient(app)
-        with (
-            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
-            patch("pr_manager.PRManager.add_labels", new_callable=AsyncMock),
-        ):
-            client.post("/api/hitl/42/approve-memory")
-
-        orch.skip_hitl_issue.assert_called_once_with(42)
-
-    def test_approve_memory_works_without_orchestrator(
-        self, config, event_bus: EventBus, state
-    ) -> None:
-        from fastapi.testclient import TestClient
-
-        from dashboard import HydraFlowDashboard
-
-        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=None)
-        app = dashboard.create_app()
-
-        client = TestClient(app)
-        with (
-            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
-            patch("pr_manager.PRManager.add_labels", new_callable=AsyncMock),
-        ):
-            response = client.post("/api/hitl/42/approve-memory")
-
-        assert response.status_code == 200
-        assert response.json() == {"status": "ok"}
-
-    def test_approve_memory_publishes_hitl_update_event(
-        self, config, event_bus, state
-    ) -> None:
-        from fastapi.testclient import TestClient
-
-        from dashboard import HydraFlowDashboard
-
-        orch = make_orchestrator_mock()
-        orch.skip_hitl_issue = MagicMock()
-        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
-        app = dashboard.create_app()
-
-        client = TestClient(app)
-        with (
-            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
-            patch("pr_manager.PRManager.add_labels", new_callable=AsyncMock),
-        ):
-            client.post("/api/hitl/42/approve-memory")
-
-        history = event_bus.get_history()
-        hitl_events = [e for e in history if e.type.value == "hitl_update"]
-        assert len(hitl_events) == 1
-        assert hitl_events[0].data["issue"] == 42
-        assert hitl_events[0].data["status"] == "resolved"
-        assert hitl_events[0].data["action"] == "approved_as_memory"
-
-    def test_approve_memory_removes_hitl_origin(
-        self, config, event_bus: EventBus, state
-    ) -> None:
-        from fastapi.testclient import TestClient
-
-        from dashboard import HydraFlowDashboard
-
-        state.set_hitl_origin(42, "hydraflow-improve")
-        orch = make_orchestrator_mock()
-        orch.skip_hitl_issue = MagicMock()
-        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
-        app = dashboard.create_app()
-
-        client = TestClient(app)
-        with (
-            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
-            patch("pr_manager.PRManager.add_labels", new_callable=AsyncMock),
-        ):
-            client.post("/api/hitl/42/approve-memory")
-
-        assert state.get_hitl_origin(42) is None
-
-    def test_approve_memory_removes_hitl_cause(
-        self, config, event_bus: EventBus, state
-    ) -> None:
-        from fastapi.testclient import TestClient
-
-        from dashboard import HydraFlowDashboard
-
-        state.set_hitl_cause(42, "Memory suggestion")
-        orch = make_orchestrator_mock()
-        orch.skip_hitl_issue = MagicMock()
-        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
-        app = dashboard.create_app()
-
-        client = TestClient(app)
-        with (
-            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
-            patch("pr_manager.PRManager.add_labels", new_callable=AsyncMock),
-        ):
-            client.post("/api/hitl/42/approve-memory")
-
-        assert state.get_hitl_cause(42) is None
-
-    def test_approve_memory_adds_memory_label(
-        self, config, event_bus: EventBus, state
-    ) -> None:
-        from fastapi.testclient import TestClient
-
-        from dashboard import HydraFlowDashboard
-
-        orch = make_orchestrator_mock()
-        orch.skip_hitl_issue = MagicMock()
-        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
-        app = dashboard.create_app()
-
-        client = TestClient(app)
-        with (
-            patch("pr_manager.PRManager.remove_label", new_callable=AsyncMock),
-            patch(
-                "pr_manager.PRManager.add_labels", new_callable=AsyncMock
-            ) as mock_add,
-        ):
-            client.post("/api/hitl/42/approve-memory")
-
-        mock_add.assert_called_once_with(42, ["hydraflow-memory"])
-
-    def test_approve_memory_removes_improve_and_hitl_labels(
-        self, config, event_bus: EventBus, state
-    ) -> None:
-        from fastapi.testclient import TestClient
-
-        from dashboard import HydraFlowDashboard
-
-        orch = make_orchestrator_mock()
-        orch.skip_hitl_issue = MagicMock()
-        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
-        app = dashboard.create_app()
-
-        client = TestClient(app)
-        with (
-            patch(
-                "pr_manager.PRManager.remove_label", new_callable=AsyncMock
-            ) as mock_remove,
-            patch("pr_manager.PRManager.add_labels", new_callable=AsyncMock),
-        ):
-            client.post("/api/hitl/42/approve-memory")
-
-        # Should remove both improve and hitl labels
-        removed_labels = [call.args[1] for call in mock_remove.call_args_list]
-        assert "hydraflow-improve" in removed_labels
-        assert "hydraflow-hitl" in removed_labels
 
 
 # ---------------------------------------------------------------------------

@@ -4,32 +4,41 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from collections.abc import Callable, Coroutine, Generator
 from contextlib import asynccontextmanager, contextmanager
-from pathlib import Path
 from typing import Any, TypeVar
 
+# ADR utilities — canonical home is ``adr_utils``; re-exported here for
+# backward compatibility so existing consumers don't break.
+from adr_utils import (  # noqa: F401
+    ADR_FILE_RE,
+    _assigned_adr_numbers,
+    adr_validation_reasons,
+    is_adr_issue_title,
+    load_existing_adr_topics,
+    next_adr_number,
+    normalize_adr_topic,
+)
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+
+# Exception classification — canonical definitions live in
+# ``exception_classify`` (cross-cutting); re-exported here for backward
+# compatibility so existing consumers don't break.
+from exception_classify import (  # noqa: F401
+    LIKELY_BUG_EXCEPTIONS,
+    is_likely_bug,
+)
 from harness_insights import FailureCategory, FailureRecord, HarnessInsightStore
-from issue_store import IssueStore
 from memory import file_memory_suggestion
 from models import PipelineStage, PRInfo, ReviewUpdatePayload, Task
-from ports import PRPort
+from ports import IssueStorePort, PRPort
 from state import StateTracker
 
 logger = logging.getLogger("hydraflow.phase_utils")
 
 T = TypeVar("T")
 T_Result = TypeVar("T_Result")
-
-_ADR_TITLE_RE = re.compile(r"^\s*\[ADR\]\s+", re.IGNORECASE)
-_ADR_REQUIRED_HEADINGS = ("## Context", "## Decision", "## Consequences")
-
-# Module-level set tracking ADR numbers already handed out in this process,
-# so concurrent workers each get a unique number even before their files land.
-_assigned_adr_numbers: set[int] = set()
 
 
 @contextmanager
@@ -133,7 +142,7 @@ async def run_refilling_pool(
 
                     if isinstance(
                         exc,
-                        (AuthenticationError, CreditExhaustedError, MemoryError),
+                        AuthenticationError | CreditExhaustedError | MemoryError,
                     ):
                         for t in pending:
                             t.cancel()
@@ -152,7 +161,7 @@ async def run_refilling_pool(
     return results
 
 
-def release_batch_in_flight(store: IssueStore, issue_numbers: set[int]) -> None:
+def release_batch_in_flight(store: IssueStorePort, issue_numbers: set[int]) -> None:
     """Release in-flight protection for a batch of issues.
 
     Should be called in a ``finally`` block after ``run_concurrent_batch``
@@ -245,7 +254,7 @@ def record_harness_failure(
 
 @asynccontextmanager
 async def store_lifecycle(
-    store: IssueStore,
+    store: IssueStorePort,
     issue_number: int,
     stage: str,
 ):
@@ -286,80 +295,10 @@ async def publish_review_status(
     )
 
 
-def is_adr_issue_title(title: str) -> bool:
-    """Return ``True`` when *title* starts with ``[ADR]`` (case-insensitive)."""
-    return bool(_ADR_TITLE_RE.match(title))
-
-
-def adr_validation_reasons(body: str) -> list[str]:
-    """Return shape-validation failures for ADR markdown content."""
-    reasons: list[str] = []
-    text = body.strip()
-    if len(text) < 120:
-        reasons.append("ADR body is too short (minimum 120 characters)")
-    lower = text.lower()
-    missing = [h for h in _ADR_REQUIRED_HEADINGS if h.lower() not in lower]
-    if missing:
-        reasons.append("Missing required ADR sections: " + ", ".join(missing))
-    return reasons
-
-
-def normalize_adr_topic(title: str) -> str:
-    """Extract a normalized topic key from a memory/ADR title for dedup.
-
-    Strips prefixes like ``[Memory]``, ``[ADR] Draft decision from memory #N:``,
-    lowercases, and removes non-alphanumeric characters.
-    """
-    cleaned = re.sub(
-        r"^\[(?:Memory|ADR)\]\s*(?:Draft decision from memory #\d+:\s*)?",
-        "",
-        title,
-        flags=re.IGNORECASE,
-    ).strip()
-    return re.sub(r"[^a-z0-9]+", " ", cleaned.lower()).strip()
-
-
-def load_existing_adr_topics(repo_root: Path) -> set[str]:
-    """Scan ``docs/adr/`` files and return normalized topic keys."""
-    adr_dir = repo_root / "docs" / "adr"
-    topics: set[str] = set()
-    if not adr_dir.is_dir():
-        return topics
-    for path in adr_dir.glob("*.md"):
-        if path.name.lower() == "readme.md":
-            continue
-        stem = path.stem
-        cleaned = re.sub(r"^\d+-", "", stem)
-        topic = re.sub(r"[^a-z0-9]+", " ", cleaned.lower()).strip()
-        if topic:
-            topics.add(topic)
-    return topics
-
-
-ADR_FILE_RE = re.compile(r"^(\d{4})-.*\.md$")
-
-
 # ---------------------------------------------------------------------------
-# Exception classification
+# Exception classification helpers (use ``is_likely_bug`` and
+# ``LIKELY_BUG_EXCEPTIONS`` imported from ``exception_classify`` above).
 # ---------------------------------------------------------------------------
-
-#: Exception types that almost certainly indicate a code bug rather than a
-#: transient/environmental failure.  When one of these is caught in a
-#: catch-all handler, it should be logged at a higher severity so operators
-#: can distinguish "needs a code fix" from "will probably succeed on retry".
-LIKELY_BUG_EXCEPTIONS: tuple[type[BaseException], ...] = (
-    TypeError,
-    KeyError,
-    AttributeError,
-    ValueError,
-    IndexError,
-    NotImplementedError,
-)
-
-
-def is_likely_bug(exc: BaseException) -> bool:
-    """Return True if *exc* is likely a code bug rather than a transient failure."""
-    return isinstance(exc, LIKELY_BUG_EXCEPTIONS)
 
 
 def capture_if_bug(exc: Exception, **context: object) -> None:
@@ -399,7 +338,7 @@ def reraise_on_credit_or_bug(exc: BaseException) -> None:
     """
     from subprocess_util import AuthenticationError, CreditExhaustedError
 
-    if isinstance(exc, (AuthenticationError, CreditExhaustedError)):
+    if isinstance(exc, AuthenticationError | CreditExhaustedError):
         raise exc
     if is_likely_bug(exc):
         raise exc
@@ -516,7 +455,7 @@ class PipelineEscalator:
         self,
         state: StateTracker,
         prs: PRPort,
-        store: IssueStore,
+        store: IssueStorePort,
         harness_insights: HarnessInsightStore | None,
         *,
         origin_label: str,
@@ -574,35 +513,3 @@ class PipelineEscalator:
             details,
             stage=self._stage,
         )
-
-
-def next_adr_number(
-    adr_dir: Path,
-    *,
-    primary_adr_dir: Path | None = None,
-) -> int:
-    """Return the next available ADR number, unique across concurrent workers.
-
-    Scans both the local *adr_dir* **and** the *primary_adr_dir* (the
-    primary repo checkout, not a worktree copy) to find the highest
-    existing number.  Also considers numbers already handed out via
-    ``_assigned_adr_numbers`` so that concurrent workers in the same
-    process each receive a distinct number.
-
-    The returned number is recorded in ``_assigned_adr_numbers`` so
-    subsequent calls will never return the same value.
-    """
-    highest = 0
-    for d in (adr_dir, primary_adr_dir):
-        if d is not None and d.is_dir():
-            for f in d.iterdir():
-                m = ADR_FILE_RE.match(f.name)
-                if m:
-                    highest = max(highest, int(m.group(1)))
-
-    if _assigned_adr_numbers:
-        highest = max(highest, *_assigned_adr_numbers)
-
-    number = highest + 1
-    _assigned_adr_numbers.add(number)
-    return number

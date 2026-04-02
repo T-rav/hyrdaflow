@@ -13,7 +13,7 @@ if [ -z "$COMMAND" ]; then
 fi
 
 # Block destructive git commands
-if echo "$COMMAND" | grep -qE 'git\s+(push\s+.*--force|push\s+-f\b|reset\s+--hard|checkout\s+\.|restore\s+\.|clean\s+-f|branch\s+-D)' && \
+if echo "$COMMAND" | grep -qE 'git\s+(push\s+.*--force|push\s+.*-f\b|reset\s+--hard|checkout\s+\.|restore\s+\.|clean\s+-f|branch\s+-D)' && \
    ! echo "$COMMAND" | grep -qF -- '--force-with-lease'; then
   echo "BLOCKED: Destructive git command detected." >&2
   echo "" >&2

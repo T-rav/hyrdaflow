@@ -221,7 +221,6 @@ class TestCrateEndpoints:
     async def test_remove_crate_items_error(
         self, config, event_bus, state, tmp_path
     ) -> None:
-
         from models import CrateItemsRequest
 
         router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
@@ -632,7 +631,7 @@ class TestPickRepoFolder:
         endpoint = find_endpoint(router, "/api/repos/pick-folder", "POST")
 
         with patch(
-            "dashboard_routes._routes._pick_folder_with_dialog",
+            "dashboard_routes._state_routes._pick_folder_with_dialog",
             new_callable=AsyncMock,
             return_value=None,
         ):
@@ -658,7 +657,7 @@ class TestPickRepoFolder:
         endpoint = find_endpoint(router, "/api/repos/pick-folder", "POST")
 
         with patch(
-            "dashboard_routes._routes._pick_folder_with_dialog",
+            "dashboard_routes._state_routes._pick_folder_with_dialog",
             new_callable=AsyncMock,
             return_value=str(repo_dir),
         ):
@@ -896,7 +895,7 @@ class TestRepoStoreRuntimeIntegration:
         repo_store = RepoRegistryStore(tmp_path / "repos-data")
         base_config = ConfigFactory.create(
             repo_root=tmp_path / "base",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
 
@@ -949,7 +948,7 @@ class TestRepoStoreRuntimeIntegration:
         repo_store = RepoRegistryStore(tmp_path / "repos-data")
         base_config = ConfigFactory.create(
             repo_root=tmp_path / "base",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         repo_path = tmp_path / "widgets"
@@ -989,7 +988,7 @@ class TestRepoStoreRuntimeIntegration:
         repo_store = RepoRegistryStore(tmp_path / "repos-data")
         base_config = ConfigFactory.create(
             repo_root=tmp_path / "base",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         repo_path = tmp_path / "widgets"
@@ -1027,6 +1026,51 @@ class TestRepoStoreRuntimeIntegration:
         assert response.status_code == 200
         assert repo_store.get("acme-widgets") is None
         assert registry.get("acme-widgets") is None
+
+    @pytest.mark.asyncio
+    async def test_remove_repo_falls_back_to_store_without_callback(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """DELETE /api/repos/{slug} removes from repo_store when no callback."""
+        repo_store = RepoRegistryStore(tmp_path / "repos-data")
+        record = RepoRecord(
+            slug="acme-widgets", repo="acme/widgets", path=str(tmp_path)
+        )
+        repo_store.upsert(record)
+
+        router, _ = make_dashboard_router(
+            config,
+            event_bus,
+            state,
+            tmp_path,
+            repo_store=repo_store,
+            remove_repo_cb=None,
+        )
+        delete_endpoint = find_endpoint(router, "/api/repos/{slug}", "DELETE")
+
+        response = await delete_endpoint("acme-widgets")
+        assert response.status_code == 200
+        assert repo_store.get("acme-widgets") is None
+
+    @pytest.mark.asyncio
+    async def test_remove_repo_store_fallback_returns_404_for_unknown(
+        self, config, event_bus, state, tmp_path
+    ) -> None:
+        """DELETE /api/repos/{slug} returns 404 when slug not in store."""
+        repo_store = RepoRegistryStore(tmp_path / "repos-data")
+
+        router, _ = make_dashboard_router(
+            config,
+            event_bus,
+            state,
+            tmp_path,
+            repo_store=repo_store,
+            remove_repo_cb=None,
+        )
+        delete_endpoint = find_endpoint(router, "/api/repos/{slug}", "DELETE")
+
+        response = await delete_endpoint("nonexistent")
+        assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------

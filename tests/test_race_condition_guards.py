@@ -27,7 +27,7 @@ class TestImplementPhaseActiveIssuesLock:
 
     def test_has_active_issues_lock(self, tmp_path) -> None:
         config = ConfigFactory.create(
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             repo_root=tmp_path / "repo",
         )
         phase, _, _ = make_implement_phase(config, [])
@@ -43,7 +43,7 @@ class TestImplementPhaseActiveIssuesLock:
         from state import StateTracker
 
         config = ConfigFactory.create(
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             repo_root=tmp_path / "repo",
             max_workers=3,
         )
@@ -70,7 +70,7 @@ class TestImplementPhaseActiveIssuesLock:
                 branch=br,
                 success=True,
                 commits=1,
-                worktree_path=str(wt),
+                workspace_path=str(wt),
                 use_defaults=True,
             )
         )
@@ -92,7 +92,7 @@ class TestImplementPhaseActiveIssuesLock:
         phase = ImplementPhase(
             config=config,
             state=state,
-            worktrees=mock_worktrees,
+            workspaces=mock_worktrees,
             agents=mock_agents,
             prs=mock_prs,
             store=mock_store,
@@ -127,7 +127,7 @@ class TestReviewPhaseActiveIssuesLock:
 
     def test_has_active_issues_lock(self, tmp_path) -> None:
         config = ConfigFactory.create(
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             repo_root=tmp_path / "repo",
         )
         phase = make_review_phase(config)
@@ -352,7 +352,7 @@ def _make_orchestrator(tmp_path):
 
     config = ConfigFactory.create(
         repo_root=tmp_path / "repo",
-        worktree_base=tmp_path / "worktrees",
+        workspace_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     (tmp_path / "repo").mkdir(parents=True, exist_ok=True)

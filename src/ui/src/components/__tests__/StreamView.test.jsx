@@ -671,7 +671,7 @@ describe('Merged stage count display', () => {
     render(<StreamView {...defaultProps} />)
     const section = screen.getByTestId('stage-section-implement')
     expect(section.textContent).toContain('1 queued')
-    expect(section.textContent).toContain('workers')
+    expect(section.textContent).toContain('worker')
   })
 
   it('counts items from pipelineIssues.merged', () => {

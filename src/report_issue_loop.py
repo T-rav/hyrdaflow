@@ -18,17 +18,19 @@ import re
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agent_cli import build_agent_command
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
 from execution import SubprocessRunner
 from models import PendingReport, TranscriptEventData
-from pr_manager import PRManager
-from runner_utils import stream_claude_process
+from runner_utils import AuthenticationRetryError, stream_claude_process
 from screenshot_scanner import scan_base64_for_secrets
 from state import StateTracker
+
+if TYPE_CHECKING:
+    from pr_manager import PRManager
 
 logger = logging.getLogger("hydraflow.report_issue_loop")
 
@@ -59,6 +61,19 @@ class ReportIssueLoop(BaseBackgroundLoop):
         self._runner = runner
         self._active_procs: set[asyncio.subprocess.Process] = set()
 
+    async def _emit_report_event(
+        self, report_id: str, status: str, **extra: object
+    ) -> None:
+        """Publish a REPORT_UPDATE event so listeners (WebSocket, metrics) react."""
+        from events import EventType, HydraFlowEvent
+
+        await self._bus.publish(
+            HydraFlowEvent(
+                type=EventType.REPORT_UPDATE,
+                data={"report_id": report_id, "status": status, **extra},
+            )
+        )
+
     async def run(self) -> None:
         """Drain all queued reports on startup, then enter the normal loop.
 
@@ -68,14 +83,20 @@ class ReportIssueLoop(BaseBackgroundLoop):
         before entering steady-state polling.
         """
         while not self._stop_event.is_set() and self._state.peek_report() is not None:
-            await self._execute_cycle()
+            try:
+                await self._execute_cycle()
+            except AuthenticationRetryError:
+                logger.warning(
+                    "Auth error during report drain — deferring to polling loop"
+                )
+                break
 
         await super().run()
 
     def _get_default_interval(self) -> int:
         return self._config.report_issue_interval
 
-    def _sweep_stale_reports(self) -> int:
+    async def _sweep_stale_reports(self) -> int:
         """Auto-close reports stuck at 'queued' longer than the configured threshold.
 
         Returns the number of reports closed.
@@ -101,6 +122,11 @@ class ReportIssueLoop(BaseBackgroundLoop):
                     status="closed",
                     action_label="stale",
                     detail=f"Auto-closed after {age_hours:.1f}h (threshold: {threshold_hours}h)",
+                )
+                await self._emit_report_event(
+                    report.id,
+                    "closed",
+                    detail="stale",
                 )
                 if updated is None:
                     logger.warning(
@@ -144,6 +170,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
                     action_label="fixed",
                     detail=f"Issue #{issue_number} resolved",
                 )
+                await self._emit_report_event(report.id, "fixed")
                 transitioned += 1
                 logger.info(
                     "Report %s auto-transitioned to fixed (issue #%d resolved)",
@@ -157,6 +184,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
                     action_label="closed",
                     detail=f"Issue #{issue_number} closed as won't fix",
                 )
+                await self._emit_report_event(report.id, "closed", detail="won't fix")
                 transitioned += 1
                 logger.info(
                     "Report %s auto-transitioned to closed (issue #%d won't fix)",
@@ -175,7 +203,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
         if self._config.dry_run:
             return None
 
-        self._sweep_stale_reports()
+        await self._sweep_stale_reports()
         await self._sync_filed_reports()
 
         report = self._state.peek_report()
@@ -190,6 +218,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
             action_label="processing",
             detail="Agent started processing bug report",
         )
+        await self._emit_report_event(report.id, "in-progress", detail="processing")
 
         # Save screenshot to a temp PNG so the agent can *see* it via Read
         # and reference it as a markdown image in the issue body.  The `gh
@@ -252,15 +281,16 @@ class ReportIssueLoop(BaseBackgroundLoop):
                     "broken image."
                 )
 
-        # Use hydraflow-ready so bug reports skip triage/planning and go
-        # straight to implementation.
-        ready_label = (
-            self._config.ready_label[0]
-            if self._config.ready_label
-            else "hydraflow-ready"
+        # Use hydraflow-plan so bug reports go through the planning phase
+        # (lite plan auto-detected) before implementation. This ensures every
+        # issue has a plan comment that the implement agent can reference.
+        plan_label = (
+            self._config.planner_label[0]
+            if self._config.planner_label
+            else "hydraflow-plan"
         )
         description += (
-            f"\n\nIMPORTANT: Use the label `{ready_label}` instead of "
+            f"\n\nIMPORTANT: Use the label `{plan_label}` instead of "
             f"`hydraflow-find` for this issue."
         )
 
@@ -290,6 +320,12 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 gh_token=self._config.gh_token,
             )
             issue_number = self._extract_issue_number_from_transcript(transcript)
+        except AuthenticationRetryError:
+            logger.warning(
+                "Report %s hit authentication error — deferring to next cycle",
+                report.id,
+            )
+            raise
         except Exception:
             logger.exception("Report issue agent failed for report %s", report.id)
         finally:
@@ -298,7 +334,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
 
         if issue_number > 0:
             # Verify the agent applied the correct label and screenshot
-            await self._verify_issue(issue_number, ready_label, screenshot_url)
+            await self._verify_issue(issue_number, plan_label, screenshot_url)
 
             issue_url = f"https://github.com/{self._config.repo}/issues/{issue_number}"
 
@@ -316,6 +352,12 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 status="filed",
                 action_label="filed",
                 detail=f"Created issue #{issue_number}",
+            )
+            await self._emit_report_event(
+                report.id,
+                "filed",
+                issue_number=issue_number,
+                issue_url=issue_url,
             )
             self._state.remove_report(report.id)
             logger.info(
@@ -341,6 +383,11 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 action_label="escalated",
                 detail=f"Failed after {attempt_count} attempts — escalated to HITL",
             )
+            await self._emit_report_event(
+                report.id,
+                "closed",
+                detail=f"Escalated after {attempt_count} failed attempts",
+            )
 
             logger.error(
                 "Report %s failed %d times — escalated to HITL",
@@ -360,6 +407,11 @@ class ReportIssueLoop(BaseBackgroundLoop):
             status="queued",
             action_label="retry",
             detail=f"Attempt {attempt_count}/{_MAX_REPORT_ATTEMPTS} failed — will retry",
+        )
+        await self._emit_report_event(
+            report.id,
+            "queued",
+            detail=f"Retry attempt {attempt_count}/{_MAX_REPORT_ATTEMPTS}",
         )
 
         logger.warning(

@@ -478,7 +478,7 @@ def _map_top_level_usage_scalars(event: dict[str, Any]) -> dict[str, int]:
     """Map only top-level scalar usage keys (avoid nested tool payload false positives)."""
     totals: dict[str, int] = {}
     for key, value in event.items():
-        if not isinstance(value, (int, float)):
+        if not isinstance(value, int | float):
             continue
         canonical = _canonical_usage_key(str(key))
         if not canonical:
@@ -492,7 +492,7 @@ def _iter_numeric_fields(obj: Any) -> list[tuple[str, int]]:
     out: list[tuple[str, int]] = []
     if isinstance(obj, dict):
         for k, v in obj.items():
-            if isinstance(v, (int, float)):
+            if isinstance(v, int | float):
                 out.append((str(k), int(v)))
             else:
                 out.extend(_iter_numeric_fields(v))

@@ -15,31 +15,25 @@ from events import EventBus, EventType, HydraFlowEvent
 
 if TYPE_CHECKING:
     from epic import EpicManager
-    from issue_store import IssueStore
+    from ports import IssueStorePort, PRPort
+
 from models import (
-    CiGateFn,
-    CodeScanningAlert,
     CriterionVerdict,
-    EscalateFn,
     GitHubIssue,
     HitlEscalation,
-    IssueOutcomeType,
     JudgeResult,
     JudgeVerdict,
-    MergeConflictFixFn,
+    MergeApprovalContext,
     PRInfo,
-    PublishFn,
     ReviewResult,
     StatusCallback,
     SystemAlertPayload,
     Task,
     VerificationCriterion,
-    VisualGateFn,
     VisualGatePayload,
     VisualValidationDecision,
     VisualValidationPolicy,
 )
-from pr_manager import PRManager
 from prompt_telemetry import PromptTelemetry
 from retrospective import RetrospectiveCollector
 from state import StateTracker
@@ -89,7 +83,7 @@ class PostMergeHandler:
         self,
         config: HydraFlowConfig,
         state: StateTracker,
-        prs: PRManager,
+        prs: PRPort,
         event_bus: EventBus,
         ac_generator: AcceptanceCriteriaGenerator | None,
         retrospective: RetrospectiveCollector | None,
@@ -97,7 +91,7 @@ class PostMergeHandler:
         epic_checker: EpicCompletionChecker | None,
         update_bg_worker_status: StatusCallback | None = None,
         epic_manager: EpicManager | None = None,
-        store: IssueStore | None = None,
+        store: IssueStorePort | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -172,24 +166,26 @@ class PostMergeHandler:
 
     async def handle_approved(
         self,
-        pr: PRInfo,
-        issue: Task,
-        result: ReviewResult,
-        diff: str,
-        worker_id: int,
-        ci_gate_fn: CiGateFn,
-        escalate_fn: EscalateFn,
-        publish_fn: PublishFn,
-        code_scanning_alerts: list[CodeScanningAlert] | None = None,
-        visual_gate_fn: VisualGateFn | None = None,
-        visual_decision: VisualValidationDecision | None = None,
-        merge_conflict_fix_fn: MergeConflictFixFn | None = None,
+        ctx: MergeApprovalContext,
     ) -> None:
         """Attempt merge for an approved PR (with optional CI gate).
 
         For epic children with bundled merge strategies, the PR is approved
         but merge is deferred until all siblings are ready.
         """
+        pr = ctx.pr
+        issue = ctx.issue
+        result = ctx.result
+        diff = ctx.diff
+        worker_id = ctx.worker_id
+        ci_gate_fn = ctx.ci_gate_fn
+        escalate_fn = ctx.escalate_fn
+        publish_fn = ctx.publish_fn
+        code_scanning_alerts = ctx.code_scanning_alerts
+        visual_gate_fn = ctx.visual_gate_fn
+        visual_decision = ctx.visual_decision
+        merge_conflict_fix_fn = ctx.merge_conflict_fix_fn
+
         # Notify EpicManager of approval (for bundled merge coordination)
         if self._epic_manager is not None:
             await self._notify_epic_approval(pr.issue_number)
@@ -209,7 +205,7 @@ class PostMergeHandler:
             should_merge = await ci_gate_fn(
                 pr,
                 issue,
-                self._config.worktree_path_for_issue(pr.issue_number),
+                self._config.workspace_path_for_issue(pr.issue_number),
                 result,
                 worker_id,
                 code_scanning_alerts=code_scanning_alerts,
@@ -241,6 +237,18 @@ class PostMergeHandler:
                 visual_ok = await visual_gate_fn(pr, issue, result, worker_id)
                 if not visual_ok:
                     return
+
+        # Normalize PR title to canonical "Fixes #N: title" before merge
+        # so the merge commit and event history show a consistent format.
+        try:
+            expected_title = self._prs.expected_pr_title(issue.id, issue.title)
+            await self._prs.update_pr_title(pr.number, expected_title)
+        except Exception:
+            logger.debug(
+                "Could not normalize PR #%d title before merge",
+                pr.number,
+                exc_info=True,
+            )
 
         await publish_fn(pr, worker_id, "merging")
         success = await self._prs.merge_pr(pr.number)
@@ -289,31 +297,26 @@ class PostMergeHandler:
                 )
             except Exception:
                 logger.debug("Failed to record merge outcome", exc_info=True)
-            self._state.mark_issue(pr.issue_number, "merged")
-            self._state.record_pr_merged()
             if self._store is not None:
                 self._store.mark_merged(pr.issue_number)
-            self._state.record_issue_completed()
-            self._state.increment_session_counter("merged")
-            if result.ci_fix_attempts > 0:
-                self._state.record_ci_fix_rounds(result.ci_fix_attempts)
-                for _ in range(result.ci_fix_attempts):
-                    self._state.record_stage_retry(pr.issue_number, "ci_fix")
-            # Track time-to-merge and persist completed timeline
+            # Compute merge duration before consolidated state update
             merge_seconds: float = 0.0
             if issue.created_at:
                 try:
                     created = datetime.fromisoformat(issue.created_at)
                     merge_seconds = (datetime.now(UTC) - created).total_seconds()
-                    self._state.record_merge_duration(merge_seconds)
                 except (ValueError, TypeError):
                     pass
             self._persist_completed_timeline(pr, issue, result, merge_seconds)
-            # Check thresholds and publish alerts
-            proposals = self._state.check_thresholds(
-                self._config.quality_fix_rate_threshold,
-                self._config.approval_rate_threshold,
-                self._config.hitl_rate_threshold,
+            # Consolidated state mutations + threshold check
+            proposals = self._state.record_successful_merge(
+                pr.issue_number,
+                pr.number,
+                ci_fix_attempts=result.ci_fix_attempts,
+                merge_duration_seconds=merge_seconds,
+                quality_fix_rate_threshold=self._config.quality_fix_rate_threshold,
+                approval_rate_threshold=self._config.approval_rate_threshold,
+                hitl_rate_threshold=self._config.hitl_rate_threshold,
             )
             for proposal in proposals:
                 self._state.mark_threshold_fired(proposal["name"])
@@ -331,16 +334,6 @@ class PostMergeHandler:
                         ),
                     )
                 )
-            self._state.record_outcome(
-                pr.issue_number,
-                IssueOutcomeType.MERGED,
-                reason="PR approved and merged",
-                pr_number=pr.number,
-                phase="review",
-            )
-            self._state.reset_review_attempts(pr.issue_number)
-            self._state.reset_issue_attempts(pr.issue_number)
-            self._state.clear_review_feedback(pr.issue_number)
             await self._prs.swap_pipeline_labels(
                 pr.issue_number, self._config.fixed_label[0]
             )

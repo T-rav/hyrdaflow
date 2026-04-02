@@ -1,179 +1,129 @@
-"""Background worker loop — monitor CI health and create issues for failures."""
+"""Background worker loop — monitor CI health on the main branch."""
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING, Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
-from subprocess_util import run_subprocess_with_retry
 
 if TYPE_CHECKING:
-    from pr_manager import PRManager
-    from state import StateTracker
+    from ports import PRPort
 
-logger = logging.getLogger("hydraflow.ci_monitor_loop")
-
-_CI_FIX_PREFIX = "[CI Fix]"
+logger = logging.getLogger("hydraflow.ci_monitor")
 
 
 class CIMonitorLoop(BaseBackgroundLoop):
-    """Polls GitHub Actions workflow runs and creates issues for failures."""
+    """Watches CI status on the main branch and files issues when CI is red.
+
+    Auto-closes the issue when CI recovers to green. Prevents duplicate
+    issue creation by tracking the open CI-failure issue number.
+    """
 
     def __init__(
         self,
         config: HydraFlowConfig,
-        prs: PRManager,
-        state: StateTracker,
+        pr_manager: PRPort,
         deps: LoopDeps,
     ) -> None:
-        super().__init__(worker_name="ci_monitor", config=config, deps=deps)
-        self._prs = prs
-        self._state = state
+        super().__init__(
+            worker_name="ci_monitor",
+            config=config,
+            deps=deps,
+        )
+        self._prs = pr_manager
+        self._open_issue: int | None = None
+        self._startup_check_done = False
 
     def _get_default_interval(self) -> int:
         return self._config.ci_monitor_interval
 
-    async def _fetch_runs(self, branch: str) -> list[dict[str, Any]]:
-        """Fetch recent workflow runs for the given branch."""
-        repo = self._config.repo
-        raw = await run_subprocess_with_retry(
-            "gh",
-            "api",
-            f"repos/{repo}/actions/runs?branch={branch}&per_page=5",
-        )
-        data = json.loads(raw)
-        return data.get("workflow_runs", [])
-
-    async def _has_open_ci_fix_issue(self, workflow: str, branch: str) -> bool:
-        """Check whether an open issue with the [CI Fix] prefix already exists."""
-        repo = self._config.repo
-        title_query = f"{_CI_FIX_PREFIX} {workflow} failing on {branch}"
+    async def _rehydrate_open_issue(self) -> None:
+        """On first cycle, check if an open CI failure issue already exists."""
+        if self._startup_check_done:
+            return
+        self._startup_check_done = True
         try:
-            raw = await run_subprocess_with_retry(
-                "gh",
-                "issue",
-                "list",
-                "--repo",
-                repo,
-                "--state",
-                "open",
-                "--search",
-                title_query,
-                "--json",
-                "number,title",
-            )
-            issues = json.loads(raw)
-            return any(
-                issue.get("title", "").startswith(f"{_CI_FIX_PREFIX} {workflow}")
-                for issue in issues
-            )
+            issues = await self._prs.list_issues_by_label("hydraflow-ci-failure")
+            if issues:
+                self._open_issue = issues[0].get("number")
+                logger.info(
+                    "CI monitor: rehydrated open issue #%s from previous run",
+                    self._open_issue,
+                )
         except Exception:
-            logger.debug("Failed to search for existing CI fix issues", exc_info=True)
-            return False
+            logger.debug("CI monitor: could not rehydrate open issue", exc_info=True)
 
     async def _do_work(self) -> dict[str, Any] | None:
-        """Check CI workflows and create issues for failures."""
-        settings = self._state.get_ci_monitor_settings()
-        tracked = self._state.get_ci_monitor_tracked_failures()
-        branch = settings.branch
-        filter_workflows = set(settings.workflows) if settings.workflows else None
+        """Check CI status and create/close issues as needed."""
+        if self._config.dry_run:
+            return None
 
-        runs = await self._fetch_runs(branch)
-
-        # Group by workflow name, keep most recent per workflow
-        latest_by_workflow: dict[str, dict[str, Any]] = {}
-        for run in runs:
-            wf_name = run.get("name", "")
-            if not wf_name:
-                continue
-            if filter_workflows and wf_name not in filter_workflows:
-                continue
-            if wf_name not in latest_by_workflow:
-                latest_by_workflow[wf_name] = run
-
-        workflows_checked = len(latest_by_workflow)
-        failures_detected = 0
-        issues_created = 0
-        recovered = 0
-
-        for wf_name, run in latest_by_workflow.items():
-            conclusion = run.get("conclusion")
-            run_id = str(run.get("id", ""))
-            html_url = run.get("html_url", "")
-
-            if conclusion == "failure":
-                if wf_name in tracked:
-                    # Already tracked — dedup
-                    continue
-                failures_detected += 1
-
-                if settings.create_issue:
-                    # Check for existing open issue before creating
-                    if await self._has_open_ci_fix_issue(wf_name, branch):
-                        logger.info(
-                            "Open [CI Fix] issue already exists for %s — skipping",
-                            wf_name,
-                        )
-                        # Still track it so we don't re-check next cycle
-                        tracked[wf_name] = run_id
-                        continue
-
-                    title = f"{_CI_FIX_PREFIX} {wf_name} failing on {branch}"
-                    body = (
-                        f"## CI Failure Detected\n\n"
-                        f"**Workflow:** {wf_name}\n"
-                        f"**Branch:** {branch}\n"
-                        f"**Run ID:** {run_id}\n"
-                        f"**Link:** {html_url}\n\n"
-                        f"This issue was automatically created by the CI monitor."
-                    )
-                    find_label = (self._config.find_label or ["hydraflow-find"])[0]
-                    await self._prs.create_issue(title, body, [find_label])
-                    issues_created += 1
-                    logger.info(
-                        "Created CI fix issue for workflow %s (run %s)",
-                        wf_name,
-                        run_id,
-                    )
-                else:
-                    logger.info(
-                        "CI failure detected for %s but create_issue disabled — skipping issue creation",
-                        wf_name,
-                    )
-
-                tracked[wf_name] = run_id
-
-            elif conclusion == "success" and wf_name in tracked:
-                # Workflow recovered
-                del tracked[wf_name]
-                recovered += 1
-                logger.info("Workflow %s recovered on %s", wf_name, branch)
-
-        self._state.set_ci_monitor_tracked_failures(tracked)
+        await self._rehydrate_open_issue()
 
         try:
-            import sentry_sdk as _sentry  # noqa: PLC0415
+            conclusion, run_url = await self._prs.get_latest_ci_status()
+        except Exception:
+            logger.warning("CI monitor: could not fetch CI status", exc_info=True)
+            return {"error": True}
 
-            _sentry.add_breadcrumb(
-                category="ci_monitor.check_completed",
-                message="CI monitor check completed",
-                level="info",
-                data={
-                    "workflows_checked": workflows_checked,
-                    "failures_detected": failures_detected,
-                    "issues_created": issues_created,
-                    "recovered": recovered,
-                },
+        # Empty conclusion = no runs or in-progress; treat same as green (no action)
+        is_green = conclusion in ("success", "")
+
+        if is_green:
+            # CI is green — close any open failure issue
+            if self._open_issue is not None:
+                try:
+                    await self._prs.post_comment(
+                        self._open_issue,
+                        "CI has recovered — auto-closing this issue.",
+                    )
+                    await self._prs.close_issue(self._open_issue)
+                    logger.info(
+                        "CI monitor: CI recovered, closed issue #%d",
+                        self._open_issue,
+                    )
+                    self._open_issue = None
+                except Exception:
+                    logger.warning(
+                        "CI monitor: failed to close recovery issue #%d — will retry",
+                        self._open_issue,
+                        exc_info=True,
+                    )
+            return {"status": "green"}
+
+        # CI is red
+        if self._open_issue is not None:
+            # Already tracking this failure
+            return {"status": "red"}
+
+        # File a new issue
+        try:
+            title = f"[CI] Main branch CI is failing ({conclusion})"
+            body = (
+                f"## CI Failure Detected\n\n"
+                f"The latest CI run on `{self._config.main_branch}` "
+                f"completed with status: **{conclusion}**.\n\n"
             )
-        except ImportError:
-            pass
-
-        return {
-            "workflows_checked": workflows_checked,
-            "failures_detected": failures_detected,
-            "issues_created": issues_created,
-            "recovered": recovered,
-        }
+            if run_url:
+                body += f"Run: {run_url}\n\n"
+            body += (
+                "This issue was auto-created by the CI health monitor. "
+                "It will be auto-closed when CI recovers."
+            )
+            issue_number = await self._prs.create_issue(
+                title, body, labels=["hydraflow-ci-failure"]
+            )
+            self._open_issue = issue_number
+            logger.info(
+                "CI monitor: filed issue #%d for CI failure (%s)",
+                issue_number,
+                conclusion,
+            )
+            return {"status": "red", "issue_created": issue_number}
+        except Exception:
+            logger.warning(
+                "CI monitor: failed to create CI failure issue", exc_info=True
+            )
+            return {"status": "red", "error": True}

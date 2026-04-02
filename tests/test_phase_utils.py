@@ -12,6 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from adr_utils import next_adr_number
 from events import EventType
 from harness_insights import FailureCategory, HarnessInsightStore
 from models import PipelineStage
@@ -21,7 +22,6 @@ from phase_utils import (
     PipelineEscalator,
     escalate_to_hitl,
     is_likely_bug,
-    next_adr_number,
     publish_review_status,
     record_harness_failure,
     reraise_on_credit_or_bug,
@@ -604,11 +604,11 @@ class TestNextAdrNumber:
     @pytest.fixture(autouse=True)
     def _clear_assigned(self) -> Generator[None, None, None]:
         """Reset the module-level assigned set before and after each test."""
-        import phase_utils
+        import adr_utils
 
-        phase_utils._assigned_adr_numbers.clear()
+        adr_utils._assigned_adr_numbers.clear()
         yield
-        phase_utils._assigned_adr_numbers.clear()
+        adr_utils._assigned_adr_numbers.clear()
 
     def test_returns_one_for_empty_dir(self, tmp_path: Path) -> None:
         assert next_adr_number(tmp_path) == 1
@@ -648,17 +648,17 @@ class TestNextAdrNumber:
 
     def test_assigned_set_tracks_numbers(self, tmp_path: Path) -> None:
         """Returned numbers must be recorded in the module-level set."""
-        import phase_utils
+        import adr_utils
 
         next_adr_number(tmp_path)
         next_adr_number(tmp_path)
-        assert phase_utils._assigned_adr_numbers == {1, 2}
+        assert adr_utils._assigned_adr_numbers == {1, 2}
 
     def test_assigned_numbers_override_disk(self, tmp_path: Path) -> None:
         """Previously assigned numbers beat what's on disk."""
-        import phase_utils
+        import adr_utils
 
-        phase_utils._assigned_adr_numbers.add(20)
+        adr_utils._assigned_adr_numbers.add(20)
         result = next_adr_number(tmp_path)
         assert result == 21
 

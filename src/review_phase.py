@@ -16,13 +16,20 @@ if TYPE_CHECKING:
     from dolt_backend import DoltBackend
     from hindsight import HindsightClient
     from hindsight_wal import HindsightWAL
+    from ports import IssueStorePort, PRPort, WorkspacePort
     from visual_validator import VisualValidator
 
+from adr_utils import (
+    adr_validation_reasons,
+    is_adr_issue_title,
+    load_existing_adr_topics,
+    normalize_adr_topic,
+)
 from baseline_policy import BaselinePolicy
+from comment_formatter import SelfReviewError
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from harness_insights import FailureCategory, HarnessInsightStore
-from issue_store import IssueStore
 from merge_conflict_resolver import MergeConflictResolver
 from models import (
     BaselineApprovalResult,
@@ -30,6 +37,7 @@ from models import (
     ConflictResolutionResult,
     HitlEscalation,
     JudgeResult,
+    MergeApprovalContext,
     PipelineStage,
     PRInfo,
     ReviewResult,
@@ -45,10 +53,6 @@ from models import (
 from phase_utils import (
     MemorySuggester,
     _sentry_transaction,
-    adr_validation_reasons,
-    is_adr_issue_title,
-    load_existing_adr_topics,
-    normalize_adr_topic,
     publish_review_status,
     record_harness_failure,
     release_batch_in_flight,
@@ -57,7 +61,6 @@ from phase_utils import (
     store_lifecycle,
 )
 from post_merge_handler import PostMergeHandler
-from pr_manager import PRManager, SelfReviewError
 from review_insights import (
     _PROPOSAL_STALE_DAYS,
     CATEGORY_DESCRIPTIONS,
@@ -71,7 +74,6 @@ from review_insights import (
 from reviewer import ReviewRunner
 from state import StateTracker
 from task_source import TaskTransitioner
-from workspace import WorkspaceManager
 
 logger = logging.getLogger("hydraflow.review_phase")
 
@@ -81,7 +83,7 @@ class ReviewGuardContext:
     """Successful result from _run_initial_guards."""
 
     task: Task
-    worktree_path: Path
+    workspace_path: Path
 
 
 @dataclass(slots=True)
@@ -100,15 +102,16 @@ class ReviewPhase:
         self,
         config: HydraFlowConfig,
         state: StateTracker,
-        worktrees: WorkspaceManager,
+        workspaces: WorkspacePort,
         reviewers: ReviewRunner,
-        prs: PRManager,
+        prs: PRPort,
         stop_event: asyncio.Event,
-        store: IssueStore,
+        store: IssueStorePort,
+        conflict_resolver: MergeConflictResolver,
+        post_merge: PostMergeHandler,
         event_bus: EventBus | None = None,
         harness_insights: HarnessInsightStore | None = None,
-        conflict_resolver: MergeConflictResolver | None = None,
-        post_merge: PostMergeHandler | None = None,
+        review_insights: ReviewInsightStore | None = None,
         update_bg_worker_status: StatusCallback | None = None,
         baseline_policy: BaselinePolicy | None = None,
         hindsight: HindsightClient | None = None,
@@ -117,7 +120,7 @@ class ReviewPhase:
     ) -> None:
         self._config = config
         self._state = state
-        self._worktrees = worktrees
+        self._workspaces = workspaces
         self._reviewers = reviewers
         self._prs = prs
         self._transitioner: TaskTransitioner = prs
@@ -127,30 +130,14 @@ class ReviewPhase:
         self._suggest_memory = MemorySuggester(config, prs, state)
         self._update_bg_worker_status = update_bg_worker_status
         self._harness_insights = harness_insights
-        self._insights = ReviewInsightStore(config.memory_dir, dolt=dolt, wal=wal)
+        self._insights = review_insights or ReviewInsightStore(
+            config.memory_dir, dolt=dolt, wal=wal
+        )
         self._wal = wal
         self._active_issues: set[int] = set()
         self._active_issues_lock = asyncio.Lock()
-        self._conflict_resolver = conflict_resolver or MergeConflictResolver(
-            config=config,
-            worktrees=worktrees,
-            agents=None,
-            prs=prs,
-            event_bus=self._bus,
-            state=state,
-            summarizer=None,
-        )
-        self._post_merge = post_merge or PostMergeHandler(
-            config=config,
-            state=state,
-            prs=prs,
-            event_bus=self._bus,
-            ac_generator=None,
-            retrospective=None,
-            verification_judge=None,
-            epic_checker=None,
-            store=store,
-        )
+        self._conflict_resolver = conflict_resolver
+        self._post_merge = post_merge
         self._baseline_policy = baseline_policy
         self._hindsight = hindsight
         self._visual_validator: VisualValidator | None = None
@@ -321,9 +308,9 @@ class ReviewPhase:
         self, pr: PRInfo, task: Task, idx: int
     ) -> Path | None:
         """Ensure worktree exists and main is merged. Returns path or None on conflict."""
-        wt_path = self._config.worktree_path_for_issue(pr.issue_number)
+        wt_path = self._config.workspace_path_for_issue(pr.issue_number)
         if not wt_path.exists():
-            wt_path = await self._worktrees.create(pr.issue_number, pr.branch)
+            wt_path = await self._workspaces.create(pr.issue_number, pr.branch)
         merged = await self._merge_with_main(pr, task, wt_path, idx)
         if not merged:
             return None
@@ -407,7 +394,7 @@ class ReviewPhase:
         result = await self._run_and_post_review(
             pr,
             guards.task,
-            guards.worktree_path,
+            guards.workspace_path,
             pre_review.diff,
             idx,
             code_scanning_alerts=pre_review.code_scanning_alerts,
@@ -416,7 +403,7 @@ class ReviewPhase:
         return await self._run_post_review_actions(
             pr,
             guards.task,
-            guards.worktree_path,
+            guards.workspace_path,
             result,
             pre_review,
             idx,
@@ -445,7 +432,7 @@ class ReviewPhase:
                 summary="Merge conflicts with main — escalated to HITL",
             )
 
-        return ReviewGuardContext(task=task, worktree_path=wt_path)
+        return ReviewGuardContext(task=task, workspace_path=wt_path)
 
     async def _run_pre_review_checks(
         self,
@@ -732,8 +719,8 @@ class ReviewPhase:
 
         if not skip:
             try:
-                await self._worktrees.post_work_cleanup(pr.issue_number)
-                self._state.remove_worktree(pr.issue_number)
+                await self._workspaces.post_work_cleanup(pr.issue_number)
+                self._state.remove_workspace(pr.issue_number)
             except RuntimeError as exc:
                 logger.warning(
                     "Could not clean up worktree for issue #%d: %s",
@@ -1069,12 +1056,12 @@ class ReviewPhase:
         visual_decision: VisualValidationDecision | None = None,
     ) -> None:
         """Attempt merge for an approved PR (with optional CI gate)."""
-        await self._post_merge.handle_approved(
-            pr,
-            issue,
-            result,
-            diff,
-            worker_id,
+        ctx = MergeApprovalContext(
+            pr=pr,
+            issue=issue,
+            result=result,
+            diff=diff,
+            worker_id=worker_id,
             ci_gate_fn=self.wait_and_fix_ci,
             escalate_fn=self._escalate_to_hitl,
             publish_fn=self._publish_review_status,
@@ -1083,6 +1070,7 @@ class ReviewPhase:
             visual_decision=visual_decision,
             merge_conflict_fix_fn=self._attempt_post_merge_conflict_fix,
         )
+        await self._post_merge.handle_approved(ctx)
 
     async def _attempt_post_merge_conflict_fix(
         self,
@@ -1095,9 +1083,9 @@ class ReviewPhase:
         This keeps the standard review path aligned with unsticker behavior:
         resolve merge conflicts on the branch, push updates, then retry merge.
         """
-        wt_path = self._config.worktree_path_for_issue(pr.issue_number)
+        wt_path = self._config.workspace_path_for_issue(pr.issue_number)
         if not wt_path.exists():
-            wt_path = await self._worktrees.create(pr.issue_number, pr.branch)
+            wt_path = await self._workspaces.create(pr.issue_number, pr.branch)
 
         resolution = await self._conflict_resolver.resolve_merge_conflicts(
             pr,
@@ -1111,7 +1099,7 @@ class ReviewPhase:
 
         if resolution.used_rebuild:
             await self._prs.push_branch(
-                self._config.worktree_path_for_issue(pr.issue_number),
+                self._config.workspace_path_for_issue(pr.issue_number),
                 pr.branch,
                 force=True,
             )
@@ -1505,7 +1493,7 @@ class ReviewPhase:
                 body = build_insight_issue_body(category, count, len(recent), evidence)
                 desc = CATEGORY_DESCRIPTIONS.get(category, category)
                 title = f"[Review Insight] Recurring feedback: {desc}"
-                labels = self._config.improve_label[:1]
+                labels = self._config.find_label[:1]
                 await self._transitioner.create_task(title, body, labels)
                 self._insights.mark_category_proposed(category)
                 self._insights.record_proposal(category, pre_count=count)
@@ -1523,9 +1511,7 @@ class ReviewPhase:
                     f"required to resolve this recurring feedback loop.\n\n"
                     f"---\n*Auto-escalated by HydraFlow review insight verification.*"
                 )
-                hitl_labels = list(self._config.improve_label[:1]) + list(
-                    self._config.hitl_label
-                )
+                hitl_labels = list(self._config.hitl_label)
                 await self._transitioner.create_task(title, body, hitl_labels)
         except (RuntimeError, OSError):
             status = "error"

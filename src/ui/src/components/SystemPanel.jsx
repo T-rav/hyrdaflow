@@ -314,47 +314,140 @@ function UnstickWorkersDropdown() {
   )
 }
 
-function MemoryAutoApproveToggle() {
-  const { config, selectedRepoSlug } = useHydraFlow()
-  const [localValue, setLocalValue] = useState(null)
 
-  const enabled = localValue !== null ? localValue : (config?.memory_auto_approve ?? false)
+const KNOWN_BOTS = [
+  { username: 'dependabot[bot]', label: 'Dependabot' },
+  { username: 'renovate[bot]', label: 'Renovate' },
+  { username: 'snyk-bot', label: 'Snyk' },
+]
 
-  const handleToggle = useCallback(async () => {
-    const newValue = !enabled
-    setLocalValue(newValue)
+const FAILURE_STRATEGIES = [
+  { value: 'skip', label: 'Skip' },
+  { value: 'escalate', label: 'Escalate to HITL' },
+  { value: 'close', label: 'Close PR' },
+]
+
+const REVIEW_MODES = [
+  { value: 'ci_only', label: 'CI Only' },
+  { value: 'llm_review', label: 'LLM Review' },
+]
+
+function BotPRSettingsPanel() {
+  const [settings, setSettings] = useState(null)
+  const [customBot, setCustomBot] = useState('')
+
+  const fetchSettings = useCallback(async () => {
     try {
-      const url = selectedRepoSlug
-        ? `/api/control/config?repo=${encodeURIComponent(selectedRepoSlug)}`
-        : '/api/control/config'
-      const resp = await fetch(url, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memory_auto_approve: newValue, persist: true }),
-      })
-      if (!resp.ok) {
-        setLocalValue(enabled)
+      const resp = await fetch('/api/bot-pr/settings')
+      if (resp.ok) {
+        const data = await resp.json()
+        setSettings(data)
       }
-    } catch {
-      setLocalValue(enabled)
+    } catch { /* ignore */ }
+  }, [])
+
+  React.useEffect(() => { fetchSettings() }, [fetchSettings])
+
+  const saveSettings = useCallback(async (updated) => {
+    setSettings(updated)
+    try {
+      await fetch('/api/bot-pr/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      })
+    } catch { /* ignore */ }
+  }, [])
+
+  const toggleBot = useCallback((username) => {
+    if (!settings) return
+    const bots = settings.allowed_bots || []
+    const next = bots.includes(username)
+      ? bots.filter(b => b !== username)
+      : [...bots, username]
+    saveSettings({ ...settings, allowed_bots: next })
+  }, [settings, saveSettings])
+
+  const addCustomBot = useCallback(() => {
+    const trimmed = customBot.trim()
+    if (!trimmed || !settings) return
+    const bots = settings.allowed_bots || []
+    if (!bots.includes(trimmed)) {
+      saveSettings({ ...settings, allowed_bots: [...bots, trimmed] })
     }
-  }, [enabled, selectedRepoSlug])
+    setCustomBot('')
+  }, [customBot, settings, saveSettings])
+
+  if (!settings) return null
+
+  const allowedBots = settings.allowed_bots || []
 
   return (
-    <div style={styles.autoApproveRow} data-testid="memory-auto-approve-toggle">
-      <div style={styles.autoApproveLabel}>
-        <span style={styles.autoApproveText}>Auto-approve</span>
-        <span style={styles.autoApproveHint}>
-          Skip HITL for memory suggestions
-        </span>
+    <div style={styles.botPrPanel} data-testid="bot-pr-settings">
+      <div style={styles.botPrSection}>
+        <div style={styles.botPrSectionLabel}>Allowed Bots</div>
+        {KNOWN_BOTS.map(bot => (
+          <label key={bot.username} style={styles.botPrCheckbox}>
+            <input
+              type="checkbox"
+              checked={allowedBots.includes(bot.username)}
+              onChange={() => toggleBot(bot.username)}
+              data-testid={`bot-checkbox-${bot.username}`}
+            />
+            <span style={styles.botPrCheckboxLabel}>{bot.label}</span>
+          </label>
+        ))}
+        <div style={styles.botPrAddRow}>
+          <input
+            type="text"
+            value={customBot}
+            onChange={e => setCustomBot(e.target.value)}
+            placeholder="Custom bot username"
+            style={styles.botPrInput}
+            data-testid="bot-pr-custom-input"
+            onKeyDown={e => { if (e.key === 'Enter') addCustomBot() }}
+          />
+          <button
+            onClick={addCustomBot}
+            style={styles.botPrAddBtn}
+            data-testid="bot-pr-add-btn"
+          >
+            Add
+          </button>
+        </div>
       </div>
-      <button
-        style={enabled ? styles.toggleOn : styles.toggleOff}
-        onClick={handleToggle}
-        data-testid="memory-auto-approve-btn"
-      >
-        {enabled ? 'On' : 'Off'}
-      </button>
+      <div style={styles.botPrSection}>
+        <div style={styles.botPrSectionLabel}>Failure Strategy</div>
+        {FAILURE_STRATEGIES.map(opt => (
+          <label key={opt.value} style={styles.botPrRadio}>
+            <input
+              type="radio"
+              name="bot-pr-failure-strategy"
+              value={opt.value}
+              checked={settings.failure_strategy === opt.value}
+              onChange={() => saveSettings({ ...settings, failure_strategy: opt.value })}
+              data-testid={`failure-strategy-${opt.value}`}
+            />
+            <span style={styles.botPrRadioLabel}>{opt.label}</span>
+          </label>
+        ))}
+      </div>
+      <div style={styles.botPrSection}>
+        <div style={styles.botPrSectionLabel}>Review Mode</div>
+        {REVIEW_MODES.map(opt => (
+          <label key={opt.value} style={styles.botPrRadio}>
+            <input
+              type="radio"
+              name="bot-pr-review-mode"
+              value={opt.value}
+              checked={settings.review_mode === opt.value}
+              onChange={() => saveSettings({ ...settings, review_mode: opt.value })}
+              data-testid={`review-mode-${opt.value}`}
+            />
+            <span style={styles.botPrRadioLabel}>{opt.label}</span>
+          </label>
+        ))}
+      </div>
     </div>
   )
 }
@@ -560,7 +653,6 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onTriggerBgWo
                     events={events}
                     extraContent={
                       def.key === 'pr_unsticker' ? <UnstickWorkersDropdown /> :
-                      def.key === 'memory_sync' ? <MemoryAutoApproveToggle /> :
                       undefined
                     }
                   />

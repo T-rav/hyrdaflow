@@ -2,8 +2,8 @@ import React, { useCallback, useState } from 'react'
 import { theme } from '../theme'
 import { useHydraFlow } from '../context/HydraFlowContext'
 import { PIPELINE_STAGES, SENSITIVE_SELECTORS } from '../constants'
+import { BugReportPanel } from './BugReportPanel'
 import { ReportIssueModal } from './ReportIssueModal'
-import { BugReportTracker } from './BugReportTracker'
 import html2canvasLib from 'html2canvas'
 
 function isCrossOriginImage(el) {
@@ -80,10 +80,6 @@ function sanitizeClonedDocumentForHtml2Canvas(clonedDoc) {
     })
   })
 }
-function openReportCount(reports) {
-  return reports.filter((r) => r.status !== 'closed').length
-}
-
 const MAX_SCREENSHOT_WIDTH = 1280
 
 /**
@@ -192,9 +188,7 @@ export function Header({ connected, orchestratorStatus }) {
     stageStatus,
     config,
     submitReport,
-    trackedReports = [],
-    updateTrackedReport,
-    refreshReportStatuses,
+    reporterId,
     startOrchestrator,
     stopOrchestrator,
   } = useHydraFlow()
@@ -302,9 +296,8 @@ export function Header({ connected, orchestratorStatus }) {
           </svg>
         </button>
         <button
-          style={trackedReports.length > 0 ? styles.trackerBtn : trackerBtnDisabled}
+          style={styles.trackerBtn}
           onClick={() => setTrackerOpen(true)}
-          disabled={trackedReports.length === 0}
           data-testid="tracker-button"
           aria-label="Bug report tracker"
           title="Bug report tracker"
@@ -312,11 +305,6 @@ export function Header({ connected, orchestratorStatus }) {
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
             <path d="M1.75 0h12.5C15.216 0 16 .784 16 1.75v12.5A1.75 1.75 0 0 1 14.25 16H1.75A1.75 1.75 0 0 1 0 14.25V1.75C0 .784.784 0 1.75 0ZM1.5 1.75v12.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V1.75a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25ZM11 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm-4 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm1-5.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Zm-4 0A.75.75 0 0 1 4.75 5h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z" fill="currentColor" />
           </svg>
-          {trackedReports.length > 0 && (
-            <span style={styles.trackerBadge} data-testid="tracker-badge">
-              {openReportCount(trackedReports)}
-            </span>
-          )}
         </button>
       </div>
       <ReportIssueModal
@@ -325,13 +313,21 @@ export function Header({ connected, orchestratorStatus }) {
         onSubmit={handleReportSubmit}
         onClose={() => setReportModalOpen(false)}
       />
-      <BugReportTracker
-        isOpen={trackerOpen}
-        onClose={() => setTrackerOpen(false)}
-        reports={trackedReports}
-        onAction={updateTrackedReport}
-        onRefresh={refreshReportStatuses}
-      />
+      {trackerOpen && (
+        <div style={trackerOverlay} onClick={() => setTrackerOpen(false)} data-testid="tracker-overlay">
+          <div style={trackerModal} onClick={e => e.stopPropagation()}>
+            <div style={trackerHeader}>
+              <span style={trackerTitle}>Bug Report Tracker</span>
+              <button style={trackerClose} onClick={() => setTrackerOpen(false)} data-testid="tracker-close">×</button>
+            </div>
+            <BugReportPanel
+              apiBaseUrl=""
+              reporterId={reporterId}
+              onOpenReportModal={() => { setTrackerOpen(false); handleReportClick() }}
+            />
+          </div>
+        </div>
+      )}
     </header>
   )
 }
@@ -443,35 +439,6 @@ const styles = {
     cursor: 'pointer',
     transition: 'opacity 0.15s',
   },
-  trackerBtn: {
-    position: 'relative',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 6,
-    borderRadius: 6,
-    border: `1px solid ${theme.border}`,
-    background: theme.surface,
-    color: theme.textMuted,
-    cursor: 'pointer',
-    transition: 'opacity 0.15s',
-  },
-  trackerBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    minWidth: 14,
-    height: 14,
-    borderRadius: 7,
-    background: theme.accent,
-    color: theme.bg,
-    fontSize: 9,
-    fontWeight: 700,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '0 3px',
-  },
 }
 
 // Pre-computed pipeline stage style maps (avoids object spread in render loops)
@@ -484,9 +451,32 @@ export const pipelineLabelStylesMap = Object.fromEntries(PIPELINE_STAGES.map(s =
 export const dotConnected = { ...styles.dot, background: theme.green }
 export const dotDisconnected = { ...styles.dot, background: theme.red }
 
+// Tracker button + modal styles
+styles.trackerBtn = {
+  position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  padding: 6, borderRadius: 6, border: `1px solid ${theme.border}`,
+  background: theme.surface, color: theme.textMuted, cursor: 'pointer', transition: 'opacity 0.15s',
+}
+
+const trackerOverlay = {
+  position: 'fixed', inset: 0, background: theme.overlay,
+  display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+}
+const trackerModal = {
+  background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 12,
+  width: 700, maxWidth: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+}
+const trackerHeader = {
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+  padding: '16px 20px', borderBottom: `1px solid ${theme.border}`,
+}
+const trackerTitle = { fontSize: 14, fontWeight: 700, color: theme.textBright }
+const trackerClose = {
+  background: 'none', border: 'none', color: theme.textMuted, fontSize: 18, cursor: 'pointer', padding: 4,
+}
+
 // Pre-computed report button variant
 const reportBtnDisabled = { ...styles.reportBtn, opacity: 0.4, cursor: 'not-allowed' }
-const trackerBtnDisabled = { ...styles.trackerBtn, opacity: 0.4, cursor: 'not-allowed' }
 const controlBtnDisabled = {
   ...styles.controlStartBtn,
   opacity: 0.4,

@@ -37,6 +37,16 @@ class IssueFetcher:
         self._pr_cache_fetched_at: datetime | None = None
 
     @staticmethod
+    def _normalize_labels(raw: list[Any]) -> list[str]:
+        """Flatten label dicts (``{"name": "..."}`` from gh CLI) to plain strings."""
+        return [lbl["name"] if isinstance(lbl, dict) else str(lbl) for lbl in raw]
+
+    @staticmethod
+    def _normalize_comments(raw: list[Any]) -> list[str]:
+        """Flatten comment dicts (``{"body": "..."}`` from gh CLI) to plain strings."""
+        return [c.get("body", "") if isinstance(c, dict) else str(c) for c in raw]
+
+    @staticmethod
     def _normalize_graphql_issue(node: dict[str, Any]) -> dict[str, Any]:
         """Map a GraphQL issue node to the GitHubIssue-compatible payload."""
         labels_raw = node.get("labels", {})
@@ -53,11 +63,11 @@ class IssueFetcher:
             "number": node.get("number"),
             "title": node.get("title", ""),
             "body": node.get("body", ""),
-            "labels": labels,
+            "labels": IssueFetcher._normalize_labels(labels),
             "comments": [],
             "url": node.get("url", ""),
             "state": (node.get("state", "OPEN")).lower(),
-            "createdAt": node.get("createdAt", ""),
+            "created_at": node.get("createdAt", ""),
             "author": author,
             "milestone_number": milestone_number,
         }
@@ -77,11 +87,11 @@ class IssueFetcher:
             "number": item.get("number"),
             "title": item.get("title", ""),
             "body": item.get("body", ""),
-            "labels": item.get("labels", []),
-            "comments": comments,
+            "labels": IssueFetcher._normalize_labels(item.get("labels", [])),
+            "comments": IssueFetcher._normalize_comments(comments),
             "url": item.get("html_url", item.get("url", "")),
             "state": item.get("state", "open"),
-            "createdAt": item.get("createdAt", item.get("created_at", "")),
+            "created_at": item.get("createdAt", item.get("created_at", "")),
             "author": author,
             "milestone_number": milestone_number,
         }
@@ -236,10 +246,7 @@ class IssueFetcher:
             exclude_set = set(exclude_labels)
             to_remove = []
             for num, raw in seen.items():
-                raw_labels = {
-                    (rl["name"] if isinstance(rl, dict) else str(rl))
-                    for rl in raw.get("labels", [])
-                }
+                raw_labels = set(raw.get("labels", []))
                 if raw_labels & exclude_set:
                     to_remove.append(num)
             for num in to_remove:
@@ -421,11 +428,12 @@ class IssueFetcher:
                 "api",
                 f"repos/{self._config.repo}/issues/{issue_number}",
                 "--jq",
-                '{number, title, body, labels, url: .html_url, state, createdAt: .created_at, author: (.user.login // "")}',
+                '{number, title, body, labels, url: .html_url, state, created_at: .created_at, author: (.user.login // "")}',
                 gh_token=self._config.gh_token,
             )
             data = json.loads(raw)
             if isinstance(data, dict):
+                data["labels"] = self._normalize_labels(data.get("labels", []))
                 data["comments"] = await self.fetch_issue_comments(issue_number)
             return GitHubIssue.model_validate(data)
         except (RuntimeError, json.JSONDecodeError) as exc:

@@ -387,7 +387,7 @@ class TestBuildPromptFallbackAndTruncation:
         cfg = ConfigFactory.create(
             test_command="npm test",
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         (tmp_path / "repo").mkdir(parents=True, exist_ok=True)

@@ -771,7 +771,7 @@ class TestReviewInsightHindsightDualWrite:
         reviews_path = tmp_path / "reviews.jsonl"
         assert not reviews_path.exists()
 
-    def test_file_write_skipped_when_hindsight_enabled(self, tmp_path: Path) -> None:
+    def test_file_write_skipped_when_hindsight_configured(self, tmp_path: Path) -> None:
         """When hindsight client is set, JSONL file write is skipped."""
         from unittest.mock import MagicMock, patch
 

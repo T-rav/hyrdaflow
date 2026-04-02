@@ -393,7 +393,7 @@ async def test_create_issue_passes_correct_gh_args(config, event_bus, tmp_path):
         ready_label=config.ready_label,
         repo=config.repo,
         repo_root=tmp_path,
-        worktree_base=tmp_path / "worktrees",
+        workspace_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = make_pr_manager(cfg, event_bus)
@@ -548,7 +548,7 @@ class TestUploadScreenshotGist:
 
         cfg = ConfigFactory.create(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
             screenshot_gist_public=False,
         )
@@ -570,7 +570,7 @@ class TestUploadScreenshotGist:
 
         cfg = ConfigFactory.create(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
             screenshot_gist_public=True,
         )
@@ -1537,15 +1537,12 @@ async def test_ensure_labels_exist_uses_config_label_names(config, event_bus, tm
         hitl_label=["custom-hitl"],
         hitl_active_label=["custom-hitl-active"],
         fixed_label=["custom-fixed"],
-        improve_label=["custom-improve"],
-        memory_label=["custom-memory"],
-        transcript_label=["custom-transcript"],
         dup_label=["custom-dup"],
         epic_label=["custom-epic"],
         epic_child_label=["custom-epic-child"],
         verify_label=["custom-verify"],
         repo_root=tmp_path,
-        worktree_base=tmp_path / "worktrees",
+        workspace_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
     mgr = make_pr_manager(cfg, event_bus)
@@ -1583,9 +1580,6 @@ async def test_ensure_labels_exist_uses_config_label_names(config, event_bus, tm
         "custom-hitl",
         "custom-hitl-active",
         "custom-fixed",
-        "custom-improve",
-        "custom-memory",
-        "custom-transcript",
         "custom-dup",
         "custom-epic",
         "custom-epic-child",

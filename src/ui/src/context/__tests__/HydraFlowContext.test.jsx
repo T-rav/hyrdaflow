@@ -1329,8 +1329,13 @@ describe('seed state injection via __HYDRAFLOW_SEED_STATE__', () => {
       )
     })
 
-    // With seed state, no API or WebSocket calls should be made
-    expect(fetchSpy).not.toHaveBeenCalled()
+    // With seed state, only report status polling should fetch
+    // (report status is inherently dynamic and must always poll).
+    // All other API/WebSocket calls should be skipped.
+    const nonReportCalls = fetchSpy.mock.calls.filter(
+      ([url]) => !String(url).includes('/api/reports')
+    )
+    expect(nonReportCalls).toHaveLength(0)
   })
 })
 

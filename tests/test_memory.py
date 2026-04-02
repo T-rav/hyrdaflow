@@ -275,66 +275,6 @@ class TestMemorySyncWorkerExtractLearning:
         assert result == ""
 
 
-class TestMemorySyncWorkerCompactItems:
-    """Tests for item compaction (dedup + eviction)."""
-
-    @pytest.mark.asyncio
-    async def test_returns_list_of_surviving_records(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (1, "Short learning", "2024-01-01", MemoryType.KNOWLEDGE),
-        ]
-        result = await worker._compact_items(learnings, max_chars=10000)
-        assert isinstance(result, list)
-        assert len(result) == 1
-
-    @pytest.mark.asyncio
-    async def test_dedup_removes_near_duplicates(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (
-                1,
-                "Always run make lint before make test to catch formatting",
-                "2024-01-01",
-                MemoryType.KNOWLEDGE,
-            ),
-            (
-                2,
-                "Always run make lint before make test to catch issues",
-                "2024-01-02",
-                MemoryType.KNOWLEDGE,
-            ),
-            (
-                3,
-                "Use atomic writes for state persistence",
-                "2024-01-03",
-                MemoryType.KNOWLEDGE,
-            ),
-        ]
-        result = await worker._compact_items(learnings, max_chars=10000)
-        # Should have deduped the similar lint learnings — only 2 unique items
-        assert len(result) == 2
-
-    @pytest.mark.asyncio
-    async def test_preserves_distinct_items(self, tmp_path: Path) -> None:
-        """Items with distinct content should all survive deduplication."""
-        config = ConfigFactory.create(repo_root=tmp_path)
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (1, "Config learning alpha", "2024-01-01", MemoryType.CONFIG),
-            (
-                2,
-                "Knowledge learning beta about databases",
-                "2024-01-02",
-                MemoryType.KNOWLEDGE,
-            ),
-        ]
-        result = await worker._compact_items(learnings, max_chars=10000)
-        assert len(result) == 2
-
-
 class TestMemorySyncWorkerSync:
     """Tests for the full sync method."""
 
@@ -738,7 +678,7 @@ class TestMemorySyncWorkerSync:
         )
 
     def test_normalize_adr_topic_strips_prefixes(self) -> None:
-        from phase_utils import normalize_adr_topic
+        from adr_utils import normalize_adr_topic
 
         assert (
             normalize_adr_topic("[Memory] ADR test policy — only structural tests")
@@ -752,7 +692,7 @@ class TestMemorySyncWorkerSync:
         )
 
     def test_load_existing_adr_topics_reads_docs_adr(self, tmp_path: Path) -> None:
-        from phase_utils import load_existing_adr_topics
+        from adr_utils import load_existing_adr_topics
 
         adr_dir = tmp_path / "docs" / "adr"
         adr_dir.mkdir(parents=True)
@@ -890,16 +830,6 @@ class TestMemoryState:
 class TestMemoryConfig:
     """Tests for memory-related config fields."""
 
-    def test_memory_label_default(self) -> None:
-        from config import HydraFlowConfig
-
-        config = HydraFlowConfig(repo="test/repo")
-        assert config.memory_label == ["hydraflow-memory"]
-
-    def test_memory_label_custom(self) -> None:
-        config = ConfigFactory.create(memory_label=["custom-memory"])
-        assert config.memory_label == ["custom-memory"]
-
     def test_memory_sync_interval_default(self) -> None:
         from config import HydraFlowConfig
 
@@ -917,13 +847,6 @@ class TestMemoryConfig:
 
         config = HydraFlowConfig(repo="test/repo")
         assert config.max_memory_prompt_chars == 4000
-
-    def test_memory_label_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from config import HydraFlowConfig
-
-        monkeypatch.setenv("HYDRAFLOW_LABEL_MEMORY", "my-memory-label")
-        config = HydraFlowConfig(repo="test/repo")
-        assert config.memory_label == ["my-memory-label"]
 
     def test_memory_sync_interval_env_override(
         self, monkeypatch: pytest.MonkeyPatch
@@ -949,12 +872,6 @@ class TestMemoryModels:
         assert data.memory_digest_hash == ""
         assert data.memory_last_synced is None
 
-    def test_control_status_config_memory_label(self) -> None:
-        from models import ControlStatusConfig
-
-        cfg = ControlStatusConfig(memory_label=["hydraflow-memory"])
-        assert cfg.memory_label == ["hydraflow-memory"]
-
     def test_github_issue_created_at_from_camel_case(self) -> None:
         from models import GitHubIssue
 
@@ -962,7 +879,7 @@ class TestMemoryModels:
             {
                 "number": 42,
                 "title": "Test",
-                "createdAt": "2024-06-15T12:00:00Z",
+                "created_at": "2024-06-15T12:00:00Z",
             }
         )
         assert issue.created_at == "2024-06-15T12:00:00Z"
@@ -998,25 +915,6 @@ class TestMemoryCompactionModelConfig:
 
 
 # --- PR Manager tests ---
-
-
-class TestMemoryPRManager:
-    """Tests for memory label in PR manager."""
-
-    def test_hydraflow_labels_includes_memory(self) -> None:
-        from pr_manager import PRManager
-
-        label_fields = [entry[0] for entry in PRManager._HYDRAFLOW_LABELS]
-        assert "memory_label" in label_fields
-
-    def test_memory_label_color(self) -> None:
-        from pr_manager import PRManager
-
-        for field, color, _ in PRManager._HYDRAFLOW_LABELS:
-            if field == "memory_label":
-                assert color == "1d76db"
-                return
-        pytest.fail("memory_label not found in _HYDRAFLOW_LABELS")
 
 
 # --- Orchestrator tests ---
@@ -1311,14 +1209,14 @@ class TestRouteAdrCandidatesPerItemIsolation:
                 "number": 10,
                 "title": "[Memory] Architecture shift alpha",
                 "body": "**Type:** knowledge\n\n**Learning:** Major architecture change alpha",
-                "labels": list(config.memory_label),
+                "labels": ["hydraflow-find"],
                 "createdAt": "2024-06-01",
             },
             {
                 "number": 20,
                 "title": "[Memory] Architecture shift beta",
                 "body": "**Type:** knowledge\n\n**Learning:** Major architecture change beta",
-                "labels": list(config.memory_label),
+                "labels": ["hydraflow-find"],
                 "createdAt": "2024-06-02",
             },
         ]
@@ -1328,8 +1226,8 @@ class TestRouteAdrCandidatesPerItemIsolation:
         adr_sources_path.parent.mkdir(parents=True, exist_ok=True)
 
         with (
-            patch("phase_utils.load_existing_adr_topics", return_value=set()),
-            patch("phase_utils.normalize_adr_topic", side_effect=lambda t: t.lower()),
+            patch("memory.load_existing_adr_topics", return_value=set()),
+            patch("memory.normalize_adr_topic", side_effect=lambda t: t.lower()),
         ):
             await worker._route_adr_candidates(issues)
 
@@ -1465,7 +1363,9 @@ class TestMemorySyncHindsightDualWrite:
             assert call_kw.kwargs["metadata"]["memory_type"] == "config"
 
     @pytest.mark.asyncio
-    async def test_no_digest_file_when_hindsight_enabled(self, tmp_path: Path) -> None:
+    async def test_no_digest_file_when_hindsight_configured(
+        self, tmp_path: Path
+    ) -> None:
         """digest.md is never written regardless of whether hindsight is configured."""
         import json
 
@@ -1535,120 +1435,3 @@ class TestMemorySyncWorkerDolt:
         # File SHOULD be written
         path = config.data_path("memory", "adr_sources.json")
         assert path.exists()
-
-
-# ---------------------------------------------------------------------------
-# Sentry breadcrumb tests for _compact_items eviction
-# ---------------------------------------------------------------------------
-
-
-class TestCompactItemsSentryBreadcrumb:
-    """Tests for Sentry breadcrumb emission when memory items are evicted."""
-
-    @pytest.mark.asyncio
-    async def test_eviction_emits_sentry_breadcrumb(self, tmp_path: Path) -> None:
-        """_compact_items adds a Sentry breadcrumb when items are auto-evicted."""
-        from memory_scoring import MemoryScorer, OutcomeRecord
-
-        config = ConfigFactory.create(repo_root=tmp_path)
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-
-        # Seed low score for item 1 so it qualifies for auto-eviction (score < 0.2)
-        scorer = MemoryScorer(config.memory_dir)
-        for _ in range(6):
-            scorer.update_scores(
-                OutcomeRecord(
-                    issue_id=99,
-                    outcome="failure",
-                    score=0.0,
-                    digest_hash="x",
-                ),
-                active_item_ids=[1],
-            )
-        # Verify item 1 is below auto-evict threshold
-        assert scorer.classify_for_compaction(1) == "auto_evict"
-
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (
-                1,
-                "Low-value learning that should be evicted",
-                "2024-01-01",
-                MemoryType.KNOWLEDGE,
-            ),
-            (
-                2,
-                "High-value learning that should be kept",
-                "2024-01-02",
-                MemoryType.KNOWLEDGE,
-            ),
-        ]
-
-        mock_sentry = MagicMock()
-        with patch.dict("sys.modules", {"sentry_sdk": mock_sentry}):
-            await worker._compact_items(learnings, max_chars=10000)
-
-        mock_sentry.add_breadcrumb.assert_called()
-        breadcrumb_calls = [
-            c
-            for c in mock_sentry.add_breadcrumb.call_args_list
-            if c[1].get("category") == "memory.compaction"
-        ]
-        assert len(breadcrumb_calls) == 1
-        call_kwargs = breadcrumb_calls[0][1]
-        assert call_kwargs["level"] == "info"
-        assert "Evicted" in call_kwargs["message"]
-        assert "1" in call_kwargs["message"]
-
-    @pytest.mark.asyncio
-    async def test_no_breadcrumb_when_no_evictions(self, tmp_path: Path) -> None:
-        """_compact_items does not emit a compaction breadcrumb when nothing is evicted."""
-        config = ConfigFactory.create(repo_root=tmp_path)
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (10, "A perfectly good learning", "2024-01-01", MemoryType.KNOWLEDGE),
-        ]
-
-        mock_sentry = MagicMock()
-        with patch.dict("sys.modules", {"sentry_sdk": mock_sentry}):
-            await worker._compact_items(learnings, max_chars=10000)
-
-        compaction_calls = [
-            c
-            for c in mock_sentry.add_breadcrumb.call_args_list
-            if c[1].get("category") == "memory.compaction"
-        ]
-        assert len(compaction_calls) == 0
-
-    @pytest.mark.asyncio
-    async def test_eviction_breadcrumb_not_emitted_when_sentry_unavailable(
-        self, tmp_path: Path
-    ) -> None:
-        """_compact_items does not raise when sentry_sdk is missing during eviction."""
-        import sys
-
-        from memory_scoring import MemoryScorer, OutcomeRecord
-
-        config = ConfigFactory.create(repo_root=tmp_path)
-        worker = MemorySyncWorker(config, MagicMock(), MagicMock())
-
-        # Force item 1 to auto-evict territory
-        scorer = MemoryScorer(config.memory_dir)
-        for _ in range(6):
-            scorer.update_scores(
-                OutcomeRecord(
-                    issue_id=99, outcome="failure", score=0.0, digest_hash="x"
-                ),
-                active_item_ids=[1],
-            )
-
-        learnings: list[MemorySyncWorker._TypedLearning] = [
-            (1, "Evictable learning", "2024-01-01", MemoryType.KNOWLEDGE),
-        ]
-
-        original = sys.modules.pop("sentry_sdk", None)
-        try:
-            await worker._compact_items(learnings, max_chars=10000)  # should not raise
-        finally:
-            if original is not None:
-                sys.modules["sentry_sdk"] = original

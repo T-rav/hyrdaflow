@@ -168,6 +168,7 @@ class TestTrackedReportState:
                 id="r1",
                 reporter_id="u1",
                 description="Z",
+                status="closed",
                 history=[ReportHistoryEntry(action="submitted", detail="init")],
             )
         )
@@ -178,6 +179,52 @@ class TestTrackedReportState:
         assert report is not None
         assert len(report.history) == 2
         assert report.history[1].action == "reopen"
+
+    def test_get_tracked_reports_filters_by_status(self, state) -> None:
+        """get_tracked_reports(status='filed') returns only filed reports."""
+        state.add_tracked_report(
+            TrackedReport(id="r1", reporter_id="u1", description="A", status="queued")
+        )
+        state.add_tracked_report(
+            TrackedReport(id="r2", reporter_id="u1", description="B", status="filed")
+        )
+        state.add_tracked_report(
+            TrackedReport(id="r3", reporter_id="u1", description="C", status="filed")
+        )
+        results = state.get_tracked_reports("u1", status="filed")
+        assert len(results) == 2
+        assert all(r.status == "filed" for r in results)
+
+    def test_get_tracked_reports_no_status_returns_all(self, state) -> None:
+        """get_tracked_reports without status returns all reports for the reporter."""
+        state.add_tracked_report(
+            TrackedReport(id="r1", reporter_id="u1", description="A", status="queued")
+        )
+        state.add_tracked_report(
+            TrackedReport(id="r2", reporter_id="u1", description="B", status="filed")
+        )
+        results = state.get_tracked_reports("u1")
+        assert len(results) == 2
+
+    def test_get_tracked_reports_status_and_reporter_filter(self, state) -> None:
+        """Status filter does not leak reports from other reporters."""
+        state.add_tracked_report(
+            TrackedReport(id="r1", reporter_id="u1", description="A", status="filed")
+        )
+        state.add_tracked_report(
+            TrackedReport(id="r2", reporter_id="u2", description="B", status="filed")
+        )
+        results = state.get_tracked_reports("u1", status="filed")
+        assert len(results) == 1
+        assert results[0].reporter_id == "u1"
+
+    def test_get_tracked_reports_nonexistent_status_returns_empty(self, state) -> None:
+        """Filtering by a status with no matches returns empty list."""
+        state.add_tracked_report(
+            TrackedReport(id="r1", reporter_id="u1", description="A", status="queued")
+        )
+        results = state.get_tracked_reports("u1", status="fixed")
+        assert results == []
 
 
 # ---------------------------------------------------------------------------

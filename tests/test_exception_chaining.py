@@ -24,7 +24,7 @@ from tests.helpers import ConfigFactory
 def config(tmp_path: Path):
     return ConfigFactory.create(
         repo_root=tmp_path / "repo",
-        worktree_base=tmp_path / "wt",
+        workspace_base=tmp_path / "wt",
         state_file=tmp_path / "s.json",
     )
 
@@ -346,7 +346,7 @@ class TestMergeConflictResolverExceptionChaining:
 
         return MergeConflictResolver(
             config=config,
-            worktrees=MagicMock(),
+            workspaces=MagicMock(),
             agents=MagicMock(),
             prs=MagicMock(),
             event_bus=event_bus,
@@ -361,7 +361,7 @@ class TestMergeConflictResolverExceptionChaining:
         task = TaskFactory.create(id=5)
 
         # Mock worktrees.start_merge_main to return False (has conflicts)
-        resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
+        resolver._workspaces.start_merge_main = AsyncMock(return_value=False)
         resolver._publish_review_status = AsyncMock()
 
         # Mock agents._build_command to raise TypeError (a likely bug)
@@ -379,9 +379,9 @@ class TestMergeConflictResolverExceptionChaining:
         task = TaskFactory.create(id=5)
 
         # Mock worktrees.start_merge_main to return False (has conflicts)
-        resolver._worktrees.start_merge_main = AsyncMock(return_value=False)
+        resolver._workspaces.start_merge_main = AsyncMock(return_value=False)
         resolver._publish_review_status = AsyncMock()
-        resolver._worktrees.abort_merge = AsyncMock()
+        resolver._workspaces.abort_merge = AsyncMock()
 
         # Mock agents._build_command to raise RuntimeError (transient)
         resolver._agents._build_command = MagicMock(

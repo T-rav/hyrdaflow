@@ -101,14 +101,6 @@ class TestHITLCorrection:
         orch._state.set_hitl_origin(42, label)
         assert orch.get_hitl_status(42) == expected
 
-    def test_get_hitl_status_returns_approval_for_improve_origin(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """Memory suggestions use config.improve_label, not a hardcoded string."""
-        orch = HydraFlowOrchestrator(config)
-        orch._state.set_hitl_origin(42, config.improve_label[0])
-        assert orch.get_hitl_status(42) == "approval"
-
     def test_get_hitl_status_falls_back_to_pending_for_unknown_label(
         self, config: HydraFlowConfig
     ) -> None:
@@ -414,8 +406,8 @@ class TestSupervisorLoops:
         """If one loop crashes despite try/except, others should keep running."""
         orch = HydraFlowOrchestrator(config)
         orch._svc.prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
-        orch._enable_rerere = AsyncMock()  # type: ignore[method-assign]
-        orch._svc.worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
+        orch._svc.workspaces.enable_rerere = AsyncMock()  # type: ignore[method-assign]
+        orch._svc.workspaces.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
 
         implement_calls = 0
 
@@ -698,8 +690,8 @@ class TestAuthFailure:
         """An AuthenticationError in any loop should stop the orchestrator."""
         orch = HydraFlowOrchestrator(config)
         orch._svc.prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
-        orch._enable_rerere = AsyncMock()  # type: ignore[method-assign]
-        orch._svc.worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
+        orch._svc.workspaces.enable_rerere = AsyncMock()  # type: ignore[method-assign]
+        orch._svc.workspaces.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
 
         async def auth_failing_triage() -> None:
             raise AuthenticationError("401 Unauthorized")
@@ -726,8 +718,8 @@ class TestAuthFailure:
         """Auth failure should publish a SYSTEM_ALERT event."""
         orch = HydraFlowOrchestrator(config, event_bus=event_bus)
         orch._svc.prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
-        orch._enable_rerere = AsyncMock()  # type: ignore[method-assign]
-        orch._svc.worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
+        orch._svc.workspaces.enable_rerere = AsyncMock()  # type: ignore[method-assign]
+        orch._svc.workspaces.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
 
         async def auth_failing_plan() -> list[PlanResult]:
             raise AuthenticationError("401 Unauthorized")
@@ -758,8 +750,8 @@ class TestAuthFailure:
         """Auth failure should set the _auth_failed flag."""
         orch = HydraFlowOrchestrator(config)
         orch._svc.prs.ensure_labels_exist = AsyncMock()  # type: ignore[method-assign]
-        orch._enable_rerere = AsyncMock()  # type: ignore[method-assign]
-        orch._svc.worktrees.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
+        orch._svc.workspaces.enable_rerere = AsyncMock()  # type: ignore[method-assign]
+        orch._svc.workspaces.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
 
         async def auth_failing_implement() -> tuple[list[WorkerResult], list[Task]]:
             raise AuthenticationError("401 Unauthorized")

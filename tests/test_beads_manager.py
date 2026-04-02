@@ -646,7 +646,7 @@ class TestImplementPhaseBeadsIntegration:
 
             captured.append(kwargs)
             return WorkerResultFactory.create(
-                issue_number=issue.id, success=True, worktree_path=str(wt_path)
+                issue_number=issue.id, success=True, workspace_path=str(wt_path)
             )
 
         issue = TaskFactory.create(id=42)
@@ -674,7 +674,7 @@ class TestImplementPhaseBeadsIntegration:
 
             captured.append(kwargs)
             return WorkerResultFactory.create(
-                issue_number=issue.id, success=True, worktree_path=str(wt_path)
+                issue_number=issue.id, success=True, workspace_path=str(wt_path)
             )
 
         issue = TaskFactory.create(id=42)
@@ -694,7 +694,7 @@ class TestImplementPhaseBeadsIntegration:
 
             captured.append(kwargs)
             return WorkerResultFactory.create(
-                issue_number=issue.id, success=True, worktree_path=str(wt_path)
+                issue_number=issue.id, success=True, workspace_path=str(wt_path)
             )
 
         issue = TaskFactory.create(id=42)

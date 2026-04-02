@@ -6,30 +6,38 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from config import HydraFlowConfig
-from events import EventBus, EventType, HydraFlowEvent
-from issue_store import IssueStore
-from models import HITLUpdatePayload, Task, TriageResult
-from phase_utils import (
-    _sentry_transaction,
+from adr_utils import (
     adr_validation_reasons,
-    escalate_to_hitl,
     is_adr_issue_title,
     load_existing_adr_topics,
     normalize_adr_topic,
+)
+from config import HydraFlowConfig
+from events import EventBus, EventType, HydraFlowEvent
+from models import HITLUpdatePayload, Task, TriageResult
+from phase_utils import (
+    _sentry_transaction,
+    escalate_to_hitl,
     release_batch_in_flight,
     run_refilling_pool,
     store_lifecycle,
 )
-from pr_manager import PRManager
 from state import StateTracker
 from task_source import TaskTransitioner
 from triage import TriageRunner
 
 if TYPE_CHECKING:
     from epic import EpicManager
+    from ports import IssueStorePort, PRPort
 
 logger = logging.getLogger("hydraflow.triage_phase")
+
+_SENTRY_MARKER = "<!-- [sentry:"
+
+
+def _is_sentry_issue(issue: Task) -> bool:
+    """Return True if the issue was filed by the Sentry ingest loop."""
+    return _SENTRY_MARKER in (issue.body or "")
 
 
 class TriagePhase:
@@ -39,9 +47,9 @@ class TriagePhase:
         self,
         config: HydraFlowConfig,
         state: StateTracker,
-        store: IssueStore,
+        store: IssueStorePort,
         triage: TriageRunner,
-        prs: PRManager,
+        prs: PRPort,
         event_bus: EventBus,
         stop_event: asyncio.Event,
         epic_manager: EpicManager | None = None,
@@ -167,6 +175,21 @@ class TriagePhase:
                     issue.id,
                     self._config.planner_label[0],
                 )
+        elif _is_sentry_issue(issue):
+            # Sentry-originated issues that fail triage are noise — auto-close
+            await self._prs.post_comment(
+                issue.id,
+                "## Auto-closed\n\nThis Sentry-originated issue did not pass triage "
+                "evaluation. Likely a transient infrastructure error, not a code bug.\n\n"
+                f"Reasons: {'; '.join(result.reasons)}",
+            )
+            await self._transitioner.close_task(issue.id)
+            self._state.mark_issue(issue.id, "completed")
+            logger.info(
+                "Issue #%d Sentry noise auto-closed by triage: %s",
+                issue.id,
+                "; ".join(result.reasons),
+            )
         else:
             await self._escalate_triage_issue(issue.id, result.reasons)
             self._store.enqueue_transition(issue, "hitl")

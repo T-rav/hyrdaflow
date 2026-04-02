@@ -12,34 +12,28 @@ import re
 import sys
 import tempfile
 import time
-from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from fastapi import (
     APIRouter,
-    Body,
     HTTPException,
-    Query,
     Response,
     WebSocket,
     WebSocketDisconnect,
 )
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
-from pydantic import ValidationError
 
-from admin_tasks import TaskResult, run_clean, run_ensure_labels, run_prep, run_scaffold
+from admin_tasks import TaskResult
 from app_version import get_app_version
-from config import HydraFlowConfig, save_config_file
+from config import HydraFlowConfig
 from dashboard_routes._common import (
     _EPIC_INTERNAL_LABELS,
     _FRONTEND_STAGE_TO_LABEL_FIELD,
     _INFERENCE_COUNTER_KEYS,
-    _INTERVAL_BOUNDS,
-    _SAFE_SLUG_COMPONENT,
     _STAGE_NAME_MAP,
     _coerce_history_status,
     _coerce_int,
@@ -51,23 +45,10 @@ from dashboard_routes._common import (
 from events import EventBus, EventType, HydraFlowEvent
 from github_cache import GitHubDataCache
 from issue_fetcher import IssueFetcher
-from metrics_manager import get_metrics_cache_dir
 from models import (
-    BackgroundWorkersResponse,
-    BackgroundWorkerState,
-    BackgroundWorkerStatus,
     BGWorkerHealth,
-    ControlStatus,
-    ControlStatusConfig,
-    ControlStatusResponse,
-    CrateCreateRequest,
-    CrateItemsRequest,
-    CrateUpdateRequest,
     GitHubIssue,
-    HITLCloseRequest,
     HITLEscalationPayload,
-    HITLSkipRequest,
-    HITLUpdatePayload,
     IntentRequest,
     IntentResponse,
     IssueHistoryEntry,
@@ -76,21 +57,10 @@ from models import (
     IssueHistoryResponse,
     IssueOutcome,
     IssueOutcomeType,
-    MetricsHistoryResponse,
-    MetricsResponse,
-    MetricsSnapshot,
-    OrchestratorStatusPayload,
-    PendingReport,
     PipelineIssue,
     PipelineSnapshot,
     PipelineSnapshotEntry,
     QueueStats,
-    ReportHistoryEntry,
-    ReportIssueRequest,
-    ReportIssueResponse,
-    RepoRuntimeInfo,
-    TrackedReport,
-    TrackedReportUpdate,
     parse_task_links,
 )
 from pr_manager import PRManager
@@ -99,7 +69,6 @@ from route_types import RepoSlugParam
 from state import StateTracker
 from timeline import TimelineBuilder
 from transcript_summarizer import TranscriptSummarizer
-from update_check import load_cached_update_result
 
 if TYPE_CHECKING:
     from orchestrator import HydraFlowOrchestrator
@@ -710,38 +679,6 @@ def create_router(
     ) -> None:
         await ctx.warm_hitl_summary(issue_number, cause=cause, origin=origin)
 
-    def _load_local_metrics_cache(
-        target_config: HydraFlowConfig,
-        limit: int = 100,
-    ) -> list[MetricsSnapshot]:
-        """Load metrics snapshots from local disk cache without requiring the orchestrator."""
-        cache_file = get_metrics_cache_dir(target_config) / "snapshots.jsonl"
-        if not cache_file.exists():
-            return []
-        snapshots: list[MetricsSnapshot] = []
-        try:
-            with open(cache_file) as f:
-                for raw_line in f:
-                    stripped = raw_line.strip()
-                    if not stripped:
-                        continue
-                    try:
-                        snapshots.append(MetricsSnapshot.model_validate_json(stripped))
-                    except ValidationError:
-                        logger.debug(
-                            "Skipping corrupt metrics snapshot line",
-                            exc_info=True,
-                        )
-                        continue
-        except OSError:
-            logger.warning(
-                "Could not read metrics cache %s",
-                cache_file,
-                exc_info=True,
-            )
-            return []
-        return snapshots[-limit:]
-
     def _build_history_links(
         raw: dict[int, dict[str, Any]] | Iterable[Any],
     ) -> list[IssueHistoryLink]:
@@ -1307,10 +1244,7 @@ def create_router(
                 "public": dashboard_public,
             },
             "hindsight": {
-                "status": "ok"
-                if config.hindsight_enabled and config.hindsight_url
-                else "disabled",
-                "enabled": config.hindsight_enabled,
+                "status": "ok" if config.hindsight_url else "disabled",
                 "configured": bool(config.hindsight_url),
             },
             "github_cache": github_cache_health,
@@ -1325,7 +1259,7 @@ def create_router(
             "timestamp": datetime.now(UTC).isoformat(),
             "orchestrator_running": orchestrator_running,
             "active_issue_count": len(state.get_active_issue_numbers()),
-            "active_worktrees": len(state.get_active_worktrees()),
+            "active_workspaces": len(state.get_active_workspaces()),
             "worker_count": worker_count,
             "worker_errors": worker_errors,
             "dashboard": dashboard_binding,
@@ -1339,7 +1273,7 @@ def create_router(
     @router.get("/api/hindsight/health")
     async def hindsight_health() -> JSONResponse:
         """Check Hindsight server connectivity."""
-        if not config.hindsight_enabled or not config.hindsight_url:
+        if not config.hindsight_url:
             return JSONResponse(
                 {"status": "disabled", "reachable": False, "url": ""},
             )
@@ -1365,7 +1299,7 @@ def create_router(
     @router.post("/api/hindsight/audit")
     async def hindsight_audit() -> JSONResponse:
         """Run a memory quality audit across all Hindsight banks."""
-        if not config.hindsight_enabled or not config.hindsight_url:
+        if not config.hindsight_url:
             return JSONResponse({"status": "disabled", "results": []})
         from hindsight import HindsightClient  # noqa: PLC0415
         from memory_audit import MemoryAuditor  # noqa: PLC0415
@@ -1385,7 +1319,7 @@ def create_router(
     @router.get("/api/hindsight/banks")
     async def hindsight_banks() -> JSONResponse:
         """List Hindsight memory banks with stats."""
-        if not config.hindsight_enabled or not config.hindsight_url:
+        if not config.hindsight_url:
             return JSONResponse({"status": "disabled", "banks": []})
         from hindsight import Bank  # noqa: PLC0415
 
@@ -1548,7 +1482,6 @@ def create_router(
                     *_cfg.hitl_label,
                     *_cfg.hitl_active_label,
                     *_cfg.planner_label,
-                    *_cfg.improve_label,
                 }
             )
             items = await manager.list_open_prs(all_labels)
@@ -1573,110 +1506,30 @@ def create_router(
             [item if isinstance(item, dict) else item.model_dump() for item in items]
         )
 
-    @router.get("/api/epics")
-    async def get_epics(
-        repo: RepoSlugParam = None,
-    ) -> JSONResponse:
-        """Return all tracked epics with enriched sub-issue progress."""
-        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
-        orch = _get_orch()
-        if orch is None:
-            return JSONResponse([])
-        details = await orch._svc.epic_manager.get_all_detail()
-        return JSONResponse([d.model_dump() for d in details])
+    # --- Epic routes (extracted to _epic_routes.py) ---
+    from dashboard_routes._epic_routes import register as _register_epics
 
-    @router.get("/api/epics/{epic_number}")
-    async def get_epic_detail(
-        epic_number: int,
-        repo: RepoSlugParam = None,
-    ) -> JSONResponse:
-        """Return full detail for a single epic including child issue info."""
-        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
-        orch = _get_orch()
-        if orch is None:
-            return JSONResponse({"error": "orchestrator not running"}, status_code=503)
-        detail = await orch._svc.epic_manager.get_detail(epic_number)
-        if detail is None:
-            return JSONResponse({"error": "epic not found"}, status_code=404)
-        return JSONResponse(detail.model_dump())
+    _register_epics(router, ctx)
 
-    @router.post("/api/epics/{epic_number}/release")
-    async def trigger_epic_release(
-        epic_number: int,
-        repo: RepoSlugParam = None,
-    ) -> JSONResponse:
-        """Trigger async merge sequence and release creation for an epic.
+    # --- Crate routes (extracted to _crates_routes.py) ---
+    from dashboard_routes._crates_routes import register as _register_crates
 
-        Returns a job_id. Completion is signalled via the EPIC_RELEASED WebSocket
-        event — there is no REST polling endpoint for job status.
-        """
-        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
-        orch = _get_orch()
-        if orch is None:
-            return JSONResponse({"error": "orchestrator not running"}, status_code=503)
-        result = await orch._svc.epic_manager.trigger_release(epic_number)
-        if "error" in result:
-            return JSONResponse(result, status_code=400)
-        return JSONResponse(result)
+    _register_crates(router, ctx)
 
-    # --- Crate (milestone) routes ---
+    # --- HITL routes (extracted to _hitl_routes.py) ---
+    from dashboard_routes._hitl_routes import register as _register_hitl
 
-    @router.get("/api/crates")
-    async def get_crates() -> JSONResponse:
-        """List all milestones as crates with enriched progress data."""
-        try:
-            crates = await pr_manager.list_milestones()
-            result = []
-            for crate in crates:
-                data = crate.model_dump()
-                data["total_issues"] = crate.open_issues + crate.closed_issues
-                data["progress"] = (
-                    round(
-                        crate.closed_issues
-                        / (crate.open_issues + crate.closed_issues)
-                        * 100
-                    )
-                    if (crate.open_issues + crate.closed_issues) > 0
-                    else 0
-                )
-                result.append(data)
-            return JSONResponse(result)
-        except RuntimeError as exc:
-            logger.error("Failed to fetch crates: %s", exc)
-            return JSONResponse({"error": "Failed to fetch crates"}, status_code=500)
+    _register_hitl(router, ctx)
 
-    @router.post("/api/crates")
-    async def create_crate(body: CrateCreateRequest) -> JSONResponse:
-        """Create a new milestone (crate)."""
-        if not body.title.strip():
-            return JSONResponse({"error": "title is required"}, status_code=400)
-        try:
-            crate = await pr_manager.create_milestone(
-                title=body.title.strip(),
-                description=body.description,
-                due_on=body.due_on,
-            )
-            return JSONResponse(crate.model_dump())
-        except RuntimeError as exc:
-            logger.error("Failed to create crate: %s", exc)
-            return JSONResponse({"error": "Failed to create crate"}, status_code=500)
+    # --- Control routes (extracted to _control_routes.py) ---
+    from dashboard_routes._control_routes import register as _register_control
 
-    @router.patch("/api/crates/{crate_number}")
-    async def update_crate(crate_number: int, body: CrateUpdateRequest) -> JSONResponse:
-        """Update a milestone (crate).
+    _register_control(router, ctx)
 
-        Only fields present in the request JSON are forwarded.  Sending
-        ``"due_on": null`` clears the milestone due date.
-        """
-        fields = {k: body.model_dump()[k] for k in body.model_fields_set}
-        if not fields:
-            return JSONResponse({"error": "no fields to update"}, status_code=400)
-        try:
-            crate = await pr_manager.update_milestone(crate_number, **fields)
-            return JSONResponse(crate.model_dump())
-        except RuntimeError as exc:
-            logger.error("Failed to update crate #%d: %s", crate_number, exc)
-            return JSONResponse({"error": "Failed to update crate"}, status_code=500)
+    # --- Metrics routes (extracted to _metrics_routes.py) ---
+    from dashboard_routes._metrics_routes import register as _register_metrics
+
+    _register_metrics(router, ctx)
 
     @router.delete("/api/crates/{crate_number}")
     async def delete_crate(crate_number: int) -> JSONResponse:
@@ -3129,319 +2982,23 @@ def create_router(
             ).model_dump()
         )
 
-    @router.get("/api/metrics")
-    async def get_metrics(
-        repo: RepoSlugParam = None,
-    ) -> JSONResponse:
-        """Return lifetime stats, derived rates, time-to-merge, and thresholds."""
-        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
-        lifetime = _state.get_lifetime_stats()
-        rates: dict[str, float] = {}
-        total_reviews = (
-            lifetime.total_review_approvals + lifetime.total_review_request_changes
-        )
-        if lifetime.issues_completed > 0:
-            rates["merge_rate"] = lifetime.prs_merged / lifetime.issues_completed
-            rates["quality_fix_rate"] = (
-                lifetime.total_quality_fix_rounds / lifetime.issues_completed
-            )
-            rates["hitl_escalation_rate"] = (
-                lifetime.total_hitl_escalations / lifetime.issues_completed
-            )
-            rates["avg_implementation_seconds"] = (
-                lifetime.total_implementation_seconds / lifetime.issues_completed
-            )
-        if total_reviews > 0:
-            rates["first_pass_approval_rate"] = (
-                lifetime.total_review_approvals / total_reviews
-            )
-            rates["reviewer_fix_rate"] = lifetime.total_reviewer_fixes / total_reviews
-        time_to_merge = _state.get_merge_duration_stats()
-        thresholds = _state.check_thresholds(
-            _cfg.quality_fix_rate_threshold,
-            _cfg.approval_rate_threshold,
-            _cfg.hitl_rate_threshold,
-        )
-        retries = _state.get_retries_summary()
-        if retries:
-            rates["retries_per_stage"] = sum(retries.values())
-
-        telemetry = PromptTelemetry(_cfg)
-        inference_lifetime = telemetry.get_lifetime_totals()
-        orch = _get_orch()
-        session_id = orch.current_session_id if orch else ""
-        inference_session = (
-            telemetry.get_session_totals(session_id) if session_id else {}
-        )
-
-        return JSONResponse(
-            MetricsResponse(
-                lifetime=lifetime,
-                rates=rates,
-                time_to_merge=time_to_merge,
-                thresholds=thresholds,
-                inference_lifetime=inference_lifetime,
-                inference_session=inference_session,
-            ).model_dump()
-        )
-
-    @router.get("/api/metrics/github")
-    async def get_github_metrics(
-        repo: RepoSlugParam = None,
-    ) -> JSONResponse:
-        """Query GitHub for issue/PR counts by label state."""
-        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
-        manager = _pr_manager_for(_cfg, _bus)
-        counts = await manager.get_label_counts(_cfg)
-        return JSONResponse(counts)
-
-    @router.get("/api/metrics/history")
-    async def get_metrics_history(
-        repo: RepoSlugParam = None,
-    ) -> JSONResponse:
-        """Historical snapshots from the metrics issue + current in-memory snapshot.
-
-        Falls back to local disk cache when the orchestrator is not running.
-        """
-        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
-        orch = _get_orch()
-        if orch is None:
-            # Serve from local cache without requiring the orchestrator
-            snapshots = _load_local_metrics_cache(_cfg)
-            return JSONResponse(
-                MetricsHistoryResponse(snapshots=snapshots).model_dump()
-            )
-        mgr = orch.metrics_manager
-        snapshots = await mgr.fetch_history_from_issue()
-        current = mgr.latest_snapshot
-        return JSONResponse(
-            MetricsHistoryResponse(
-                snapshots=snapshots,
-                current=current,
-            ).model_dump()
-        )
-
-    @router.get("/api/runs")
-    async def list_run_issues() -> JSONResponse:
-        """Return issue numbers that have recorded runs."""
-        orch = get_orchestrator()
-        if not orch:
-            return JSONResponse([])
-        return JSONResponse(orch.run_recorder.list_issues())
-
-    @router.get("/api/runs/{issue_number}")
-    async def get_runs(issue_number: int) -> JSONResponse:
-        """Return all recorded runs for an issue."""
-        orch = get_orchestrator()
-        if not orch:
-            return JSONResponse([])
-        runs = orch.run_recorder.list_runs(issue_number)
-        return JSONResponse([r.model_dump() for r in runs])
-
-    @router.get("/api/runs/{issue_number}/{timestamp}/{filename}")
-    async def get_run_artifact(
-        issue_number: int, timestamp: str, filename: str
-    ) -> Response:
-        """Return a specific artifact file from a recorded run."""
-        orch = get_orchestrator()
-        if not orch:
-            return JSONResponse({"error": "no orchestrator"}, status_code=400)
-        content = orch.run_recorder.get_run_artifact(issue_number, timestamp, filename)
-        if content is None:
-            return JSONResponse({"error": "artifact not found"}, status_code=404)
-        return Response(content=content, media_type="text/plain")
-
-    @router.get("/api/artifacts/stats")
-    async def get_artifact_stats() -> JSONResponse:
-        """Return storage statistics for run artifacts."""
-        orch = get_orchestrator()
-        if not orch:
-            return JSONResponse({"error": "no orchestrator"}, status_code=400)
-        stats = orch.run_recorder.get_storage_stats()
-        stats["retention_days"] = config.artifact_retention_days
-        stats["max_size_mb"] = config.artifact_max_size_mb
-        return JSONResponse(stats)
-
-    @router.get("/api/harness-insights")
-    async def get_harness_insights() -> JSONResponse:
-        """Return recent harness failure patterns and improvement suggestions."""
-        from harness_insights import (
-            HarnessInsightStore,
-            generate_suggestions,
-        )
-
-        memory_dir = config.data_path("memory")
-        store = HarnessInsightStore(memory_dir)
-        records = store.load_recent(config.harness_insight_window)
-        proposed = store.get_proposed_patterns()
-        suggestions = generate_suggestions(
-            records, config.harness_pattern_threshold, proposed
-        )
-
-        # Build category summary
-        cat_counts: Counter[str] = Counter(r.category for r in records)
-        sub_counts: Counter[str] = Counter()
-        for r in records:
-            for sub in r.subcategories:
-                sub_counts[sub] += 1
-
-        return JSONResponse(
-            {
-                "total_failures": len(records),
-                "category_counts": dict(cat_counts.most_common()),
-                "subcategory_counts": dict(sub_counts.most_common()),
-                "suggestions": [s.model_dump() for s in suggestions],
-                "proposed_patterns": sorted(proposed),
-            }
-        )
-
-    @router.get("/api/harness-insights/history")
-    async def get_harness_insights_history() -> JSONResponse:
-        """Return raw failure records for historical analysis."""
-        from harness_insights import HarnessInsightStore
-
-        memory_dir = config.data_path("memory")
-        store = HarnessInsightStore(memory_dir)
-        records = store.load_recent(config.harness_insight_window)
-        return JSONResponse([r.model_dump() for r in records])
-
-    @router.get("/api/review-insights")
-    async def get_review_insights() -> JSONResponse:
-        """Return aggregated review feedback patterns and category breakdown."""
-        from review_insights import ReviewInsightStore, analyze_patterns
-
-        memory_dir = config.data_path("memory")
-        store = ReviewInsightStore(memory_dir)
-        records = store.load_recent(config.review_insight_window)
-        proposed = store.get_proposed_categories()
-
-        verdict_counts: Counter[str] = Counter(r.verdict.value for r in records)
-        category_counts: Counter[str] = Counter(
-            cat for r in records for cat in r.categories
-        )
-        fixes_made_count = sum(1 for r in records if r.fixes_made)
-
-        patterns_raw = analyze_patterns(records, config.harness_pattern_threshold)
-        patterns = [
-            {
-                "category": cat,
-                "count": cnt,
-                "evidence": [
-                    {
-                        "issue_number": r.issue_number,
-                        "pr_number": r.pr_number,
-                        "summary": r.summary,
-                    }
-                    for r in evidence
-                ],
-            }
-            for cat, cnt, evidence in patterns_raw
-        ]
-
-        return JSONResponse(
-            {
-                "total_reviews": len(records),
-                "verdict_counts": dict(verdict_counts),
-                "category_counts": dict(category_counts),
-                "fixes_made_count": fixes_made_count,
-                "patterns": patterns,
-                "proposed_categories": sorted(proposed),
-            }
-        )
-
-    @router.get("/api/retrospectives")
-    async def get_retrospectives() -> JSONResponse:
-        """Return aggregated retrospective stats and recent entries."""
-        from retrospective import RetrospectiveEntry
-
-        retro_path = config.data_path("memory", "retrospectives.jsonl")
-        entries: list[RetrospectiveEntry] = []
-        if retro_path.exists():
-            for line in retro_path.read_text().strip().splitlines():
-                with contextlib.suppress(Exception):
-                    entries.append(RetrospectiveEntry.model_validate_json(line))
-        entries = entries[-config.retrospective_window :]
-
-        if not entries:
-            return JSONResponse(
-                {
-                    "total_entries": 0,
-                    "avg_plan_accuracy": 0,
-                    "avg_quality_fix_rounds": 0,
-                    "avg_ci_fix_rounds": 0,
-                    "avg_duration_seconds": 0,
-                    "reviewer_fix_rate": 0,
-                    "verdict_counts": {},
-                    "entries": [],
-                }
-            )
-
-        n = len(entries)
-        avg_accuracy = round(sum(e.plan_accuracy_pct for e in entries) / n, 1)
-        avg_quality = round(sum(e.quality_fix_rounds for e in entries) / n, 2)
-        avg_ci = round(sum(e.ci_fix_rounds for e in entries) / n, 2)
-        avg_duration = round(sum(e.duration_seconds for e in entries) / n, 1)
-        fix_count = sum(1 for e in entries if e.reviewer_fixes_made)
-        verdict_counts: Counter[str] = Counter(
-            str(e.review_verdict) for e in entries if e.review_verdict
-        )
-
-        return JSONResponse(
-            {
-                "total_entries": n,
-                "avg_plan_accuracy": avg_accuracy,
-                "avg_quality_fix_rounds": avg_quality,
-                "avg_ci_fix_rounds": avg_ci,
-                "avg_duration_seconds": avg_duration,
-                "reviewer_fix_rate": round(fix_count / n, 3),
-                "verdict_counts": dict(verdict_counts),
-                "entries": [e.model_dump() for e in entries],
-            }
-        )
-
     @router.get("/api/memories")
     async def get_memories() -> JSONResponse:
-        """Return memory items and curated manifest data."""
+        """Return memory items from local JSONL event log."""
         import json as _json  # noqa: PLC0415
 
-        from manifest_curator import CuratedManifestStore
-
-        items_dir = config.data_path("memory", "items")
         items_jsonl = config.data_path("memory", "items.jsonl")
 
         items: list[dict[str, object]] = []
-        if items_dir.is_dir():
-            for path in sorted(items_dir.glob("*.md"), reverse=True):
-                try:
-                    issue_number = int(path.stem)
-                    items.append(
-                        {
-                            "issue_number": issue_number,
-                            "learning": path.read_text().strip(),
-                        }
-                    )
-                except (ValueError, OSError):
-                    pass
-
-        # Count items from items.jsonl (the write-ahead queue)
-        jsonl_item_count = 0
         if items_jsonl.exists():
             with contextlib.suppress(OSError):
                 for line in items_jsonl.read_text().splitlines():
-                    try:
-                        _json.loads(line)
-                        jsonl_item_count += 1
-                    except _json.JSONDecodeError:
-                        pass
-
-        curated_store = CuratedManifestStore(config)
-        curated = curated_store.load()
+                    with contextlib.suppress(_json.JSONDecodeError):
+                        items.append(_json.loads(line))
 
         return JSONResponse(
             {
                 "total_items": len(items),
-                "jsonl_item_count": jsonl_item_count,
-                "curated": curated,
                 "items": items[-50:],
             }
         )
@@ -3490,610 +3047,10 @@ def create_router(
         timelines = state.get_all_completed_timelines()
         return JSONResponse([t.model_dump() for t in timelines.values()])
 
-    # --- Repo runtime lifecycle endpoints ---
+    # --- State/runtimes/repos/filesystem routes (extracted to _state_routes.py) ---
+    from dashboard_routes._state_routes import register as _register_state
 
-    def _is_default_repo(slug: str) -> bool:
-        """Check if *slug* refers to the default (host) repo."""
-        return ctx._is_default_repo(slug)
-
-    @router.get("/api/runtimes")
-    async def list_runtimes() -> JSONResponse:
-        """List all registered repo runtimes with status."""
-
-        infos: list[dict[str, Any]] = []
-
-        # Always include the default (host) repo.
-        orch = get_orchestrator()
-        pipeline_active = _default_repo_pipeline_running()
-        default_slug = config.repo.replace("/", "-") if config.repo else ""
-        if config.repo:
-            infos.append(
-                RepoRuntimeInfo(
-                    slug=default_slug,
-                    repo=config.repo,
-                    running=pipeline_active,
-                    session_id=orch.current_session_id
-                    if orch and orch.running
-                    else None,
-                ).model_dump()
-            )
-
-        if registry is not None:
-            for rt in registry.all:
-                infos.append(
-                    RepoRuntimeInfo(
-                        slug=rt.slug,
-                        repo=rt.config.repo,
-                        running=rt.running,
-                        session_id=rt.orchestrator.current_session_id
-                        if rt.running
-                        else None,
-                    ).model_dump()
-                )
-        return JSONResponse({"runtimes": infos})
-
-    @router.get("/api/runtimes/{slug}")
-    async def get_runtime_status(slug: str) -> JSONResponse:
-        """Get status of a specific repo runtime."""
-
-        if _is_default_repo(slug):
-            orch = get_orchestrator()
-            pipeline_active = _default_repo_pipeline_running()
-            default_slug = config.repo.replace("/", "-") if config.repo else ""
-            info = RepoRuntimeInfo(
-                slug=default_slug,
-                repo=config.repo,
-                running=pipeline_active,
-                session_id=orch.current_session_id if orch and orch.running else None,
-            )
-            return JSONResponse(info.model_dump())
-
-        if registry is None:
-            return JSONResponse(
-                {"error": "No runtime registry configured"}, status_code=501
-            )
-        rt = registry.get(slug)
-        if rt is None:
-            return JSONResponse({"error": f"Unknown repo: {slug}"}, status_code=404)
-        info = RepoRuntimeInfo(
-            slug=rt.slug,
-            repo=rt.config.repo,
-            running=rt.running,
-            session_id=rt.orchestrator.current_session_id if rt.running else None,
-        )
-        return JSONResponse(info.model_dump())
-
-    _DEFAULT_PIPELINE_WORKERS = ("triage", "plan", "implement", "review", "hitl")
-
-    def _default_repo_pipeline_running() -> bool:
-        """Return True if the default repo's pipeline is enabled."""
-        orch = get_orchestrator()
-        if not orch or not orch.running:
-            return False
-        return orch.pipeline_enabled
-
-    @router.post("/api/runtimes/{slug}/start")
-    async def start_runtime(slug: str) -> JSONResponse:
-        """Start a specific repo runtime."""
-        if _is_default_repo(slug):
-            orch = get_orchestrator()
-            if not orch or not orch.running:
-                return JSONResponse(
-                    {"error": "Orchestrator not running"}, status_code=400
-                )
-            orch.pipeline_enabled = True
-            return JSONResponse({"status": "started", "slug": slug})
-
-        if registry is None:
-            return JSONResponse(
-                {"error": "No runtime registry configured"}, status_code=501
-            )
-        rt = registry.get(slug)
-        if rt is None:
-            return JSONResponse({"error": f"Unknown repo: {slug}"}, status_code=404)
-        if rt.running:
-            return JSONResponse({"error": "Already running"}, status_code=409)
-        await rt.start()
-        return JSONResponse({"status": "started", "slug": slug})
-
-    @router.post("/api/runtimes/{slug}/stop")
-    async def stop_runtime(slug: str) -> JSONResponse:
-        """Stop a specific repo runtime."""
-        if _is_default_repo(slug):
-            orch = get_orchestrator()
-            if not orch or not orch.running:
-                return JSONResponse({"error": "Not running"}, status_code=400)
-            orch.pipeline_enabled = False
-            return JSONResponse({"status": "stopped", "slug": slug})
-
-        if registry is None:
-            return JSONResponse(
-                {"error": "No runtime registry configured"}, status_code=501
-            )
-        rt = registry.get(slug)
-        if rt is None:
-            return JSONResponse({"error": f"Unknown repo: {slug}"}, status_code=404)
-        if not rt.running:
-            return JSONResponse({"error": "Not running"}, status_code=400)
-        await rt.stop()
-        return JSONResponse({"status": "stopped", "slug": slug})
-
-    @router.delete("/api/runtimes/{slug}")
-    async def remove_runtime(slug: str) -> JSONResponse:
-        """Stop and unregister a repo runtime."""
-        if registry is None:
-            return JSONResponse(
-                {"error": "No runtime registry configured"}, status_code=501
-            )
-        rt = registry.get(slug)
-        if rt is None:
-            return JSONResponse({"error": f"Unknown repo: {slug}"}, status_code=404)
-        if remove_repo_cb is not None:
-            try:
-                await remove_repo_cb(slug)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("remove_repo callback failed for %s: %s", slug, exc)
-                return JSONResponse({"error": "Failed to remove repo"}, status_code=500)
-            return JSONResponse({"status": "removed", "slug": slug})
-        if rt.running:
-            await rt.stop()
-        registry.remove(slug)
-        if repo_store is not None:
-            try:
-                repo_store.remove(slug)
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    "Failed to remove repo %s from store", slug, exc_info=True
-                )
-        return JSONResponse({"status": "removed", "slug": slug})
-
-    # --- Multi-repo endpoints ---
-
-    @router.get("/api/repos")
-    async def list_supervised_repos() -> JSONResponse:
-        """List repos from the store or callback."""
-        if repo_store is not None or list_repos_cb is not None:
-            records = _list_repo_records()
-            payload: list[dict[str, Any]] = []
-            for rec in records:
-                runtime = registry.get(rec.slug) if registry else None
-                safe_slug = rec.slug.replace("/", "-") if rec.slug else rec.slug
-                payload.append(
-                    {
-                        "slug": safe_slug,
-                        "repo": rec.repo,
-                        "path": rec.path,
-                        "running": bool(runtime.running) if runtime else False,
-                        "session_id": runtime.orchestrator.current_session_id
-                        if runtime and runtime.running
-                        else None,
-                    }
-                )
-            return JSONResponse({"repos": payload, "can_register": True})
-        return JSONResponse({"repos": [], "can_register": False})
-
-    _root_names: dict[int, str] = {0: "Home", 1: "Temp"}
-
-    @router.get("/api/fs/roots")
-    async def list_browsable_roots() -> JSONResponse:
-        """Return filesystem roots that are safe to browse from the UI."""
-        all_roots = _repo_roots_fn()
-        roots = [
-            {"name": _root_names.get(i, f"Root {i + 1}"), "path": root}
-            for i, root in enumerate(all_roots)
-        ]
-        return JSONResponse({"roots": roots})
-
-    @router.get("/api/fs/list")
-    async def list_browsable_directories(
-        path: str | None = Query(default=None),
-    ) -> JSONResponse:
-        """List child directories for the requested path under allowed roots."""
-        allowed_roots = _repo_roots_fn()
-        if not allowed_roots:
-            return JSONResponse(
-                {"error": "no allowed roots configured"}, status_code=500
-            )
-        target_raw = path or allowed_roots[0]
-        target_path, error = _normalize_allowed_dir(
-            target_raw, allowed_roots=allowed_roots
-        )
-        if error or target_path is None:
-            return JSONResponse({"error": error or "invalid path"}, status_code=400)
-
-        current = str(target_path)
-        parent: str | None = None
-        parent_candidate = os.path.realpath(str(target_path.parent))
-        inside_allowed_parent = any(
-            parent_candidate == root or parent_candidate.startswith(f"{root}{os.sep}")
-            for root in allowed_roots
-        )
-        if inside_allowed_parent and parent_candidate != current:
-            parent = parent_candidate
-
-        directories: list[dict[str, str]] = []
-        try:
-            for child in sorted(target_path.iterdir(), key=lambda p: p.name.lower()):
-                if not child.is_dir():
-                    continue
-                # Hide dot-directories in the default browser view.
-                if child.name.startswith("."):
-                    continue
-                child_real = os.path.realpath(str(child))
-                inside_allowed_child = any(
-                    child_real == root or child_real.startswith(f"{root}{os.sep}")
-                    for root in allowed_roots
-                )
-                if not inside_allowed_child:
-                    continue
-                directories.append({"name": child.name, "path": child_real})
-        except OSError as exc:
-            logger.warning("Failed to list directory %s: %s", target_path, exc)
-            return JSONResponse({"error": "failed to list directory"}, status_code=500)
-
-        return JSONResponse(
-            {
-                "current_path": current,
-                "parent_path": parent,
-                "directories": directories,
-            }
-        )
-
-    @router.post("/api/repos")
-    async def ensure_repo() -> JSONResponse:
-        """Legacy endpoint — supervisor feature removed (issue #2205)."""
-        return JSONResponse({"error": "supervisor unavailable"}, status_code=503)
-
-    @router.delete("/api/repos/{slug}")
-    async def remove_repo(slug: str) -> JSONResponse:
-        """Remove a repo via the callback."""
-        if remove_repo_cb is not None:
-            try:
-                removed = await remove_repo_cb(slug)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("remove_repo callback failed: %s", exc)
-                return JSONResponse({"error": "Failed to remove repo"}, status_code=500)
-            if not removed:
-                return JSONResponse({"error": "Repo not found"}, status_code=404)
-            return JSONResponse({"status": "ok"})
-        return JSONResponse({"error": "supervisor unavailable"}, status_code=503)
-
-    async def _detect_repo_slug_from_path(repo_path: Path) -> str | None:  # noqa: PLR0911
-        """Extract ``owner/repo`` from git remote origin URL at *repo_path*."""
-        from urllib.parse import urlparse  # noqa: PLC0415
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "git",
-                "-C",
-                str(repo_path),
-                "remote",
-                "get-url",
-                "origin",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
-        except (FileNotFoundError, OSError, TimeoutError):
-            return None
-        url = (stdout or b"").decode().strip()
-        if not url:
-            return None
-        if url.startswith(("http://", "https://")):
-            parsed = urlparse(url)
-            host = (parsed.hostname or "").lower()
-            if host != "github.com":
-                return None
-            return parsed.path.lstrip("/").removesuffix(".git") or None
-        if url.startswith("git@"):
-            if "@" not in url or ":" not in url:
-                return None
-            user_host, _, remainder = url.partition(":")
-            _, _, host = user_host.partition("@")
-            if host.lower() != "github.com":
-                return None
-            slug = remainder.lstrip("/").removesuffix(".git")
-            return slug or None
-        return None
-
-    @router.post("/api/repos/add")
-    async def add_repo_by_path(  # noqa: PLR0911
-        req: dict[str, Any] | None = Body(default=None),
-        req_query: str | None = Query(default=None, alias="req"),
-        path: str | None = Query(default=None),
-        repo_path_query: str | None = Query(default=None, alias="repo_path"),
-    ) -> JSONResponse:
-        """Register a repo by local filesystem path (does NOT start it)."""
-        if isinstance(req, dict):
-            for key in ("path", "repo_path"):
-                value = req.get(key)
-                if value is not None and not isinstance(value, str):
-                    return JSONResponse(
-                        {"error": "path must be a string"}, status_code=400
-                    )
-            nested = req.get("req")
-            if isinstance(nested, dict):
-                for key in ("path", "repo_path"):
-                    value = nested.get(key)
-                    if value is not None and not isinstance(value, str):
-                        return JSONResponse(
-                            {"error": "path must be a string"}, status_code=400
-                        )
-        raw_path = _extract_repo_path(req, req_query, path, repo_path_query)
-        if not raw_path:
-            return JSONResponse({"error": "path required"}, status_code=400)
-        repo_path, path_error = _normalize_allowed_dir(
-            raw_path, allowed_roots=_repo_roots_fn()
-        )
-        if path_error or repo_path is None:
-            return JSONResponse(
-                {"error": path_error or "invalid path"}, status_code=400
-            )
-        # Validate it's a git repo
-        is_git = False
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "git",
-                "-C",
-                str(repo_path),
-                "rev-parse",
-                "--git-dir",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(proc.communicate(), timeout=10)
-            is_git = proc.returncode == 0
-        except (FileNotFoundError, OSError, TimeoutError):
-            pass
-        if not is_git:
-            return JSONResponse(
-                {"error": f"not a git repository: {raw_path}"},
-                status_code=400,
-            )
-        # Detect slug
-        slug = await _detect_repo_slug_from_path(repo_path)
-        if register_repo_cb is not None:
-            try:
-                record, repo_cfg = await register_repo_cb(repo_path, slug)
-            except ValueError as exc:
-                return JSONResponse({"error": str(exc)}, status_code=400)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("register_repo callback failed: %s", exc)
-                return JSONResponse(
-                    {"error": "Failed to register repo"}, status_code=500
-                )
-            labels_created = False
-            if slug:
-                try:
-                    from prep import ensure_labels  # noqa: PLC0415
-
-                    await ensure_labels(repo_cfg)
-                    labels_created = True
-                except Exception:  # noqa: BLE001
-                    logger.warning("Label creation failed for %s", slug, exc_info=True)
-            return JSONResponse(
-                {
-                    "status": "ok",
-                    "slug": record.slug,
-                    "path": record.path,
-                    "labels_created": labels_created,
-                }
-            )
-
-        # Supervisor fallback removed (issue #2205) — no register_repo_cb means 503.
-        return JSONResponse(
-            {"error": "supervisor unavailable"},
-            status_code=503,
-        )
-
-    @router.post("/api/repos/pick-folder")
-    async def pick_repo_folder() -> JSONResponse:
-        """Open a native folder picker and return the selected path."""
-        selected = await _pick_folder_with_dialog()
-        if not selected:
-            return JSONResponse({"error": "No folder selected"}, status_code=400)
-        path = Path(os.path.realpath(os.path.expanduser(selected)))
-        if not path.is_dir():
-            return JSONResponse(
-                {"error": "Selected path is not a directory"}, status_code=400
-            )
-        return JSONResponse({"path": str(path)})
-
-    @router.get("/api/github/repos")
-    async def list_github_repos(
-        query: str | None = Query(default=None),
-    ) -> JSONResponse:
-        """List GitHub repos for the authenticated user via ``gh repo list``."""
-        cmd = [
-            "gh",
-            "repo",
-            "list",
-            "--json",
-            "name,owner,url,description",
-            "--limit",
-            "100",
-        ]
-        proc: asyncio.subprocess.Process | None = None
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
-        except FileNotFoundError:
-            return JSONResponse(
-                {
-                    "error": "gh CLI not found — install GitHub CLI and run 'gh auth login'"
-                },
-                status_code=503,
-            )
-        except TimeoutError:
-            if proc is not None:
-                with contextlib.suppress(ProcessLookupError):
-                    proc.kill()
-            return JSONResponse(
-                {"error": "gh CLI timed out"},
-                status_code=504,
-            )
-        if proc.returncode != 0:
-            msg = (stderr or b"").decode().strip()
-            if "auth" in msg.lower() or "login" in msg.lower():
-                return JSONResponse(
-                    {"error": "Not authenticated — run 'gh auth login' first"},
-                    status_code=401,
-                )
-            return JSONResponse(
-                {"error": f"gh repo list failed: {msg}"},
-                status_code=502,
-            )
-        try:
-            repos = json.loads(stdout or b"[]")
-        except json.JSONDecodeError:
-            return JSONResponse(
-                {"error": "Failed to parse gh output"},
-                status_code=502,
-            )
-        # Filter by query if provided
-        if query:
-            q = query.lower()
-            repos = [
-                r
-                for r in repos
-                if q in (r.get("name") or "").lower()
-                or q in ((r.get("owner") or {}).get("login") or "").lower()
-                or q
-                in f"{(r.get('owner') or {}).get('login', '')}/{r.get('name', '')}".lower()
-            ]
-        return JSONResponse({"repos": repos})
-
-    @router.post("/api/github/clone")
-    async def clone_github_repo(  # noqa: PLR0911
-        req: dict[str, Any] | None = Body(default=None),
-    ) -> JSONResponse:
-        """Clone a GitHub repo into the workspace directory and register it."""
-        if not isinstance(req, dict):
-            return JSONResponse({"error": "request body required"}, status_code=400)
-        slug = (req.get("slug") or "").strip()
-        if not slug or "/" not in slug:
-            return JSONResponse(
-                {"error": "slug required in owner/repo format"},
-                status_code=400,
-            )
-        raw_owner, raw_repo = slug.split("/", 1)
-        if not raw_owner or not raw_repo:
-            return JSONResponse(
-                {"error": "slug required in owner/repo format"},
-                status_code=400,
-            )
-        # Validate path components to prevent directory traversal
-        if (
-            not _SAFE_SLUG_COMPONENT.match(raw_owner)
-            or not _SAFE_SLUG_COMPONENT.match(raw_repo)
-            or set(raw_owner) <= {"."}
-            or set(raw_repo) <= {"."}
-        ):
-            return JSONResponse(
-                {"error": "slug contains invalid characters"},
-                status_code=400,
-            )
-        # Sanitise: extract only the final path component to break any
-        # traversal sequences.  PurePosixPath.name is recognised by
-        # CodeQL as a path-injection sanitiser.
-        owner = PurePosixPath(raw_owner).name
-        repo_name = PurePosixPath(raw_repo).name
-        if not owner or not repo_name:
-            return JSONResponse(
-                {"error": "slug contains invalid characters"},
-                status_code=400,
-            )
-        workspace_dir = Path(
-            os.path.expanduser(str(config.repos_workspace_dir))
-        ).resolve()
-        clone_target = (workspace_dir / owner / repo_name).resolve()
-        if not clone_target.is_relative_to(workspace_dir):
-            return JSONResponse(
-                {"error": "slug contains invalid characters"},
-                status_code=400,
-            )
-        # Reconstruct slug from sanitised components
-        slug = f"{owner}/{repo_name}"
-        already_cloned = clone_target.is_dir() and (clone_target / ".git").is_dir()
-        if not already_cloned:
-            workspace_dir.mkdir(parents=True, exist_ok=True)
-            owner_dir = clone_target.parent
-            owner_dir.mkdir(parents=True, exist_ok=True)
-            cmd = ["gh", "repo", "clone", slug, str(clone_target)]
-            clone_proc: asyncio.subprocess.Process | None = None
-            try:
-                clone_proc = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                _, stderr = await asyncio.wait_for(
-                    clone_proc.communicate(), timeout=300
-                )
-            except FileNotFoundError:
-                return JSONResponse(
-                    {"error": "gh CLI not found"},
-                    status_code=503,
-                )
-            except TimeoutError:
-                if clone_proc is not None:
-                    with contextlib.suppress(ProcessLookupError):
-                        clone_proc.kill()
-                return JSONResponse(
-                    {"error": "Clone timed out"},
-                    status_code=504,
-                )
-            if clone_proc.returncode != 0:
-                msg = (stderr or b"").decode().strip()
-                return JSONResponse(
-                    {"error": f"Clone failed: {msg}"},
-                    status_code=502,
-                )
-        # Register with the callback
-        if register_repo_cb is not None:
-            try:
-                record, repo_cfg = await register_repo_cb(clone_target, slug)
-            except ValueError as exc:
-                logger.warning("register_repo validation error: %s", exc)
-                return JSONResponse(
-                    {"error": "Invalid repository configuration"}, status_code=400
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("register_repo callback failed: %s", exc)
-                return JSONResponse(
-                    {"error": "Failed to register repo"}, status_code=500
-                )
-            labels_created = False
-            try:
-                from prep import ensure_labels  # noqa: PLC0415
-
-                await ensure_labels(repo_cfg)
-                labels_created = True
-            except Exception:  # noqa: BLE001
-                logger.warning("Label creation failed for %s", slug, exc_info=True)
-            return JSONResponse(
-                {
-                    "status": "ok",
-                    "slug": record.slug,
-                    "path": record.path,
-                    "already_cloned": already_cloned,
-                    "labels_created": labels_created,
-                }
-            )
-        # Fallback: register via add_repo_by_path logic
-        return JSONResponse(
-            {
-                "status": "ok",
-                "slug": slug,
-                "path": str(clone_target),
-                "already_cloned": already_cloned,
-                "labels_created": False,
-            }
-        )
+    _register_state(router, ctx)
 
     @router.post("/api/intent")
     async def submit_intent(request: IntentRequest) -> JSONResponse:
@@ -4113,175 +3070,10 @@ def create_router(
         response = IntentResponse(issue_number=issue_number, title=title, url=url)
         return JSONResponse(response.model_dump())
 
-    @router.post("/api/report")
-    async def submit_report(request: ReportIssueRequest) -> JSONResponse:
-        """Queue a bug report for async processing by the report issue worker."""
-        report = PendingReport(
-            description=request.description,
-            screenshot_base64=request.screenshot_base64,
-            environment=request.environment,
-            reporter_id=request.reporter_id,
-        )
-        state.enqueue_report(report)
+    # --- Reports routes (extracted to _reports_routes.py) ---
+    from dashboard_routes._reports_routes import register as _register_reports
 
-        # Create a tracked report for the reporter if a reporter_id is provided
-        if request.reporter_id:
-            tracked = TrackedReport(
-                id=report.id,
-                reporter_id=request.reporter_id,
-                description=request.description,
-                status="queued",
-                history=[
-                    ReportHistoryEntry(
-                        action="submitted",
-                        detail="Bug report submitted via dashboard",
-                    )
-                ],
-            )
-            state.add_tracked_report(tracked)
-
-        # Trigger the report-issue worker immediately so the report
-        # doesn't wait for the next polling interval.
-        orch = get_orchestrator()
-        if orch is not None:
-            orch.trigger_bg_worker("report_issue")
-
-        title = f"[Bug Report] {request.description[:100]}"
-        response = ReportIssueResponse(
-            issue_number=0, title=title, url="", status="queued"
-        )
-        return JSONResponse(response.model_dump())
-
-    @router.get("/api/reports")
-    async def list_tracked_reports(reporter_id: str = "") -> JSONResponse:
-        """List tracked reports for a given reporter."""
-        if not reporter_id:
-            return JSONResponse([])
-        reports = state.get_tracked_reports(reporter_id)
-        return JSONResponse([r.model_dump() for r in reports])
-
-    @router.patch("/api/reports/{report_id}")
-    async def update_tracked_report(
-        report_id: str, body: TrackedReportUpdate
-    ) -> JSONResponse:
-        """Update a tracked report (confirm fixed, reopen, cancel)."""
-        report = state.get_tracked_report(report_id)
-        if report is None:
-            return JSONResponse({"error": "Report not found"}, status_code=404)
-        if (
-            body.reporter_id
-            and report.reporter_id
-            and body.reporter_id != report.reporter_id
-        ):
-            return JSONResponse({"error": "Forbidden"}, status_code=403)
-        # Validate state-machine transitions
-        valid_actions: dict[str, list[str]] = {
-            "confirm_fixed": ["fixed"],
-            "reopen": ["filed", "fixed", "in-progress", "closed"],
-            "cancel": ["queued", "in-progress", "filed", "fixed", "reopened"],
-        }
-        if report.status not in valid_actions.get(body.action, []):
-            return JSONResponse(
-                {
-                    "error": f"Action '{body.action}' is not allowed in status '{report.status}'"
-                },
-                status_code=422,
-            )
-        action_map: dict[
-            str,
-            tuple[
-                Literal[
-                    "queued",
-                    "in-progress",
-                    "filed",
-                    "fixed",
-                    "closed",
-                    "reopened",
-                ],
-                str,
-            ],
-        ] = {
-            "confirm_fixed": ("closed", "Confirmed fixed by reporter"),
-            "reopen": ("reopened", "Reopened by reporter"),
-            "cancel": ("closed", "Cancelled by reporter"),
-        }
-        status, default_detail = action_map[body.action]
-        updated = state.update_tracked_report(
-            report_id,
-            status=status,
-            detail=body.detail or default_detail,
-            action_label=body.action,
-        )
-        if updated is None:
-            return JSONResponse({"error": "Report not found"}, status_code=404)
-        return JSONResponse(updated.model_dump())
-
-    @router.get("/api/reports/{report_id}/history")
-    async def get_report_history(report_id: str) -> JSONResponse:
-        """Get the timeline/history for a tracked report."""
-        report = state.get_tracked_report(report_id)
-        if report is None:
-            return JSONResponse({"error": "Report not found"}, status_code=404)
-        return JSONResponse([entry.model_dump() for entry in report.history])
-
-    @router.post("/api/reports/refresh")
-    async def refresh_report_statuses(reporter_id: str = "") -> JSONResponse:
-        """Refresh statuses for filed and stale-queued reports.
-
-        * **Filed** reports: checks the linked GitHub issue state; if
-          the issue is closed the report transitions to ``"fixed"``.
-        * **Stale queued** reports (>30 min): re-enqueues them into the
-          pending queue so the background worker retries processing.
-        """
-        refreshed: list[dict[str, str]] = []
-
-        # --- filed → fixed when linked issue is closed as completed ---
-        for report in state.get_filed_reports():
-            if reporter_id and report.reporter_id != reporter_id:
-                continue
-            issue_number = _extract_issue_number(report.linked_issue_url)
-            if issue_number <= 0:
-                continue
-            issue_state = await pr_manager.get_issue_state(issue_number)
-            if issue_state == "COMPLETED":
-                state.update_tracked_report(
-                    report.id,
-                    status="fixed",
-                    action_label="fixed",
-                    detail=f"Issue #{issue_number} resolved",
-                )
-                refreshed.append({"id": report.id, "new_status": "fixed"})
-            elif issue_state == "NOT_PLANNED":
-                state.update_tracked_report(
-                    report.id,
-                    status="closed",
-                    action_label="closed",
-                    detail=f"Issue #{issue_number} closed as won't fix",
-                )
-                refreshed.append({"id": report.id, "new_status": "closed"})
-
-        # --- stale queued → re-enqueue pending ---
-        pending_ids = {p.id for p in state.get_pending_reports()}
-        for report in state.get_stale_queued_reports(stale_minutes=30):
-            if reporter_id and report.reporter_id != reporter_id:
-                continue
-            # Only re-enqueue if there's no pending entry already
-            if report.id not in pending_ids:
-                state.enqueue_report(
-                    PendingReport(
-                        id=report.id,
-                        description=report.description,
-                        reporter_id=report.reporter_id,
-                    )
-                )
-                state.update_tracked_report(
-                    report.id,
-                    action_label="retry",
-                    detail="Stale queued report re-enqueued for processing",
-                )
-                refreshed.append({"id": report.id, "new_status": "queued"})
-
-        return JSONResponse({"refreshed": refreshed})
+    _register_reports(router, ctx)
 
     @router.get("/api/sessions")
     async def get_sessions(

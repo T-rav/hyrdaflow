@@ -75,9 +75,16 @@ class ReportStateMixin:
         self._data.tracked_reports.append(report)
         self.save()
 
-    def get_tracked_reports(self, reporter_id: str) -> list[TrackedReport]:
-        """Return tracked reports for a given reporter."""
-        return [r for r in self._data.tracked_reports if r.reporter_id == reporter_id]
+    def get_tracked_reports(
+        self, reporter_id: str, *, status: str | None = None
+    ) -> list[TrackedReport]:
+        """Return tracked reports for a given reporter, optionally filtered by status."""
+        reports = [
+            r for r in self._data.tracked_reports if r.reporter_id == reporter_id
+        ]
+        if status:
+            reports = [r for r in reports if r.status == status]
+        return reports
 
     def get_tracked_report(self, report_id: str) -> TrackedReport | None:
         """Return a single tracked report by ID, or None."""
@@ -95,18 +102,28 @@ class ReportStateMixin:
         detail: str = "",
         action_label: str = "",
     ) -> TrackedReport | None:
-        """Update a tracked report's status and append a history entry."""
+        """Update a tracked report's status and append a history entry.
+
+        When *status* is provided, delegates to :meth:`TrackedReport.transition`
+        for validated state-machine enforcement.  When *status* is ``None``,
+        only appends a history entry (e.g. for "retry" annotations).
+        """
         for r in self._data.tracked_reports:
             if r.id == report_id:
                 if status:
-                    r.status = status
-                r.updated_at = datetime.now(UTC).isoformat()
-                r.history.append(
-                    ReportHistoryEntry(
-                        action=action_label or status or "updated",
+                    r.transition(
+                        status,
+                        action=action_label or status,
                         detail=detail,
                     )
-                )
+                else:
+                    r.updated_at = datetime.now(UTC).isoformat()
+                    r.history.append(
+                        ReportHistoryEntry(
+                            action=action_label or "updated",
+                            detail=detail,
+                        )
+                    )
                 self.save()
                 return r
         return None
@@ -134,19 +151,9 @@ class ReportStateMixin:
 
     # --- metrics state ---
 
-    def get_metrics_issue_number(self) -> int | None:
-        """Return the cached metrics issue number, or *None*."""
-        return self._data.metrics_issue_number
-
-    def set_metrics_issue_number(self, issue_number: int) -> None:
-        """Cache the metrics issue number."""
-        self._data.metrics_issue_number = issue_number
-        self.save()
-
-    def get_metrics_state(self) -> tuple[int | None, str, str | None]:
-        """Return ``(issue_number, last_snapshot_hash, last_synced)``."""
+    def get_metrics_state(self) -> tuple[str, str | None]:
+        """Return ``(last_snapshot_hash, last_synced)``."""
         return (
-            self._data.metrics_issue_number,
             self._data.metrics_last_snapshot_hash,
             self._data.metrics_last_synced,
         )
@@ -171,24 +178,6 @@ class ReportStateMixin:
             self._data.manifest_hash,
             self._data.manifest_last_updated,
         )
-
-    def get_manifest_issue_number(self) -> int | None:
-        """Return the cached manifest issue number, or *None*."""
-        return self._data.manifest_issue_number
-
-    def set_manifest_issue_number(self, issue_number: int) -> None:
-        """Cache the manifest issue number."""
-        self._data.manifest_issue_number = issue_number
-        self.save()
-
-    def get_manifest_snapshot_hash(self) -> str:
-        """Return the last manifest snapshot hash posted to the manifest issue."""
-        return self._data.manifest_snapshot_hash
-
-    def set_manifest_snapshot_hash(self, snapshot_hash: str) -> None:
-        """Update the last manifest snapshot hash posted to the manifest issue."""
-        self._data.manifest_snapshot_hash = snapshot_hash
-        self.save()
 
     # --- memory state ---
 

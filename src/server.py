@@ -42,6 +42,42 @@ def _init_sentry() -> None:
             return [_scrub(v) for v in obj]
         return obj
 
+    # Exception types that indicate real code bugs (not transient infra errors)
+    _BUG_TYPES = (
+        TypeError,
+        KeyError,
+        AttributeError,
+        ValueError,
+        IndexError,
+        NotImplementedError,
+    )
+
+    def _before_send(event, hint):  # type: ignore[no-untyped-def]
+        """Drop transient errors, fingerprint bugs, scrub credentials."""
+        # Check if this event has an exception attached
+        exc_info = hint.get("exc_info")
+        if exc_info:
+            exc_type = exc_info[0]
+            if exc_type and not issubclass(exc_type, _BUG_TYPES):
+                return None  # Drop transient errors (network, auth, Docker, etc.)
+            # Fingerprint by exception type + module to collapse duplicates
+            exc_name = exc_type.__name__ if exc_type else "Unknown"
+            module = getattr(exc_info[1], "__module__", "") or ""
+            event["fingerprint"] = [exc_name, module]
+
+        # Check log-record events (from LoggingIntegration)
+        log_record = hint.get("log_record")
+        if log_record and not exc_info:
+            record_exc = getattr(log_record, "exc_info", None)
+            if (
+                record_exc
+                and record_exc[0]
+                and not issubclass(record_exc[0], _BUG_TYPES)
+            ):
+                return None  # Drop transient errors logged via logger.exception()
+
+        return _scrub(event)
+
     sentry_sdk.init(
         dsn=dsn,
         environment=os.environ.get("HYDRAFLOW_ENV", "development"),
@@ -53,7 +89,7 @@ def _init_sentry() -> None:
             FastApiIntegration(transaction_style="endpoint"),
             LoggingIntegration(level=logging.WARNING, event_level=logging.ERROR),
         ],
-        before_send=lambda event, hint: _scrub(event),
+        before_send=_before_send,  # type: ignore[arg-type]
         before_send_transaction=lambda event, hint: _scrub(event),  # type: ignore[arg-type]
     )
 

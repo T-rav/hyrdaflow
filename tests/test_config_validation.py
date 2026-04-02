@@ -40,7 +40,7 @@ _BOUNDED_INT_IDS = [f[0] for f in _BOUNDED_INT_FIELDS]
 def _make_cfg(tmp_path: Path, **overrides: object) -> HydraFlowConfig:
     return HydraFlowConfig(
         repo_root=tmp_path,
-        worktree_base=tmp_path / "wt",
+        workspace_base=tmp_path / "wt",
         state_file=tmp_path / "s.json",
         **overrides,  # type: ignore[arg-type]
     )
@@ -160,7 +160,7 @@ class TestHydraFlowConfigGhToken:
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.gh_token == ""
@@ -169,7 +169,7 @@ class TestHydraFlowConfigGhToken:
         cfg = HydraFlowConfig(
             gh_token="ghp_explicit123",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.gh_token == "ghp_explicit123"
@@ -180,7 +180,7 @@ class TestHydraFlowConfigGhToken:
         monkeypatch.setenv("HYDRAFLOW_GH_TOKEN", "ghp_from_env")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.gh_token == "ghp_from_env"
@@ -192,7 +192,7 @@ class TestHydraFlowConfigGhToken:
         cfg = HydraFlowConfig(
             gh_token="ghp_explicit",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.gh_token == "ghp_explicit"
@@ -206,7 +206,7 @@ class TestHydraFlowConfigGhToken:
         (tmp_path / ".env").write_text("HYDRAFLOW_GH_TOKEN=ghp_from_dotenv\n")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.gh_token == "ghp_from_dotenv"
@@ -222,7 +222,7 @@ class TestHydraFlowConfigGhToken:
         )
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.gh_token == "ghp_from_dotenv"
@@ -258,7 +258,7 @@ class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
         self._clear_git_identity_env(monkeypatch)
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.git_user_name == ""
@@ -269,7 +269,7 @@ class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
         self._clear_git_identity_env(monkeypatch)
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.git_user_email == ""
@@ -278,7 +278,7 @@ class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
         cfg = HydraFlowConfig(
             git_user_name="Bot",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.git_user_name == "Bot"
@@ -287,7 +287,7 @@ class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
         cfg = HydraFlowConfig(
             git_user_email="bot@example.com",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.git_user_email == "bot@example.com"
@@ -299,7 +299,7 @@ class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
         monkeypatch.setenv("HYDRAFLOW_GIT_USER_NAME", "EnvBot")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.git_user_name == "EnvBot"
@@ -311,7 +311,7 @@ class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
         monkeypatch.setenv("HYDRAFLOW_GIT_USER_EMAIL", "env@example.com")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.git_user_email == "env@example.com"
@@ -324,7 +324,7 @@ class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
         cfg = HydraFlowConfig(
             git_user_name="ExplicitBot",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.git_user_name == "ExplicitBot"
@@ -337,7 +337,7 @@ class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
         cfg = HydraFlowConfig(
             git_user_email="explicit@example.com",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.git_user_email == "explicit@example.com"
@@ -352,7 +352,7 @@ class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
         )
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.git_user_name == "Dotenv Bot"
@@ -368,7 +368,7 @@ class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
         )
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.git_user_name == "Dotenv Bot"
@@ -389,7 +389,7 @@ class TestHydraFlowConfigHitlActiveLabel:
         monkeypatch.setenv("HYDRAFLOW_LABEL_HITL_ACTIVE", "custom-active")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.hitl_active_label == ["custom-active"]
@@ -401,7 +401,7 @@ class TestHydraFlowConfigHitlActiveLabel:
         cfg = HydraFlowConfig(
             hitl_active_label=["explicit-active"],
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.hitl_active_label == ["explicit-active"]
@@ -418,7 +418,7 @@ class TestHydraFlowConfigDupLabel:
     def test_dup_label_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.dup_label == ["hydraflow-dup"]
@@ -427,7 +427,7 @@ class TestHydraFlowConfigDupLabel:
         cfg = HydraFlowConfig(
             dup_label=["my-dup"],
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.dup_label == ["my-dup"]
@@ -438,7 +438,7 @@ class TestHydraFlowConfigDupLabel:
         monkeypatch.setenv("HYDRAFLOW_LABEL_DUP", "custom-dup")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.dup_label == ["custom-dup"]
@@ -450,37 +450,10 @@ class TestHydraFlowConfigDupLabel:
         cfg = HydraFlowConfig(
             dup_label=["explicit-dup"],
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.dup_label == ["explicit-dup"]
-
-
-class TestHydraFlowConfigImproveLabel:
-    """Tests for improve_label env var override."""
-
-    def test_improve_label_env_var_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_LABEL_IMPROVE", "custom-improve")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.improve_label == ["custom-improve"]
-
-    def test_improve_label_env_var_not_applied_when_explicit(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_LABEL_IMPROVE", "env-improve")
-        cfg = HydraFlowConfig(
-            improve_label=["explicit-improve"],
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.improve_label == ["explicit-improve"]
 
 
 class TestHydraFlowConfigEpicChildLabel:
@@ -489,7 +462,7 @@ class TestHydraFlowConfigEpicChildLabel:
     def test_epic_child_label_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.epic_child_label == ["hydraflow-epic-child"]
@@ -498,7 +471,7 @@ class TestHydraFlowConfigEpicChildLabel:
         cfg = HydraFlowConfig(
             epic_child_label=["my-epic-child"],
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.epic_child_label == ["my-epic-child"]
@@ -509,7 +482,7 @@ class TestHydraFlowConfigEpicChildLabel:
         monkeypatch.setenv("HYDRAFLOW_LABEL_EPIC_CHILD", "custom-epic-child")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.epic_child_label == ["custom-epic-child"]
@@ -521,7 +494,7 @@ class TestHydraFlowConfigEpicChildLabel:
         cfg = HydraFlowConfig(
             epic_child_label=["explicit-epic-child"],
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.epic_child_label == ["explicit-epic-child"]
@@ -538,7 +511,7 @@ class TestHydraFlowConfigMinPlanWords:
     def test_min_plan_words_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.min_plan_words == 200
@@ -549,7 +522,7 @@ class TestHydraFlowConfigMinPlanWords:
         monkeypatch.setenv("HYDRAFLOW_MIN_PLAN_WORDS", "300")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.min_plan_words == 300
@@ -561,7 +534,7 @@ class TestHydraFlowConfigMinPlanWords:
         cfg = HydraFlowConfig(
             min_plan_words=100,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.min_plan_words == 100
@@ -581,7 +554,7 @@ class TestHydraFlowConfigMaxReviewFixAttempts:
         monkeypatch.setenv("HYDRAFLOW_MAX_REVIEW_FIX_ATTEMPTS", "4")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_review_fix_attempts == 4
@@ -593,7 +566,7 @@ class TestHydraFlowConfigMaxReviewFixAttempts:
         cfg = HydraFlowConfig(
             max_review_fix_attempts=1,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_review_fix_attempts == 1
@@ -608,7 +581,7 @@ class TestHydraFlowConfigMaxPreQualityReviewAttempts:
         monkeypatch.setenv("HYDRAFLOW_MAX_PRE_QUALITY_REVIEW_ATTEMPTS", "4")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_pre_quality_review_attempts == 4
@@ -620,7 +593,7 @@ class TestHydraFlowConfigMaxPreQualityReviewAttempts:
         cfg = HydraFlowConfig(
             max_pre_quality_review_attempts=2,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_pre_quality_review_attempts == 2
@@ -640,7 +613,7 @@ class TestHydraFlowConfigMinReviewFindings:
         monkeypatch.setenv("HYDRAFLOW_MIN_REVIEW_FINDINGS", "5")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.min_review_findings == 5
@@ -652,7 +625,7 @@ class TestHydraFlowConfigMinReviewFindings:
         cfg = HydraFlowConfig(
             min_review_findings=1,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.min_review_findings == 1
@@ -672,7 +645,7 @@ class TestHydraFlowConfigMaxMergeConflictFixAttempts:
         monkeypatch.setenv("HYDRAFLOW_MAX_MERGE_CONFLICT_FIX_ATTEMPTS", "5")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_merge_conflict_fix_attempts == 5
@@ -684,7 +657,7 @@ class TestHydraFlowConfigMaxMergeConflictFixAttempts:
         cfg = HydraFlowConfig(
             max_merge_conflict_fix_attempts=1,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_merge_conflict_fix_attempts == 1
@@ -695,7 +668,7 @@ class TestHydraFlowConfigMaxMergeConflictFixAttempts:
         monkeypatch.setenv("HYDRAFLOW_MAX_MERGE_CONFLICT_FIX_ATTEMPTS", "not-a-number")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_merge_conflict_fix_attempts == 3
@@ -707,7 +680,7 @@ class TestHydraFlowConfigLitePlanLabels:
     def test_lite_plan_labels_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.lite_plan_labels == ["bug", "typo", "docs"]
@@ -718,7 +691,7 @@ class TestHydraFlowConfigLitePlanLabels:
         monkeypatch.setenv("HYDRAFLOW_LITE_PLAN_LABELS", "hotfix,patch")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.lite_plan_labels == ["hotfix", "patch"]
@@ -730,117 +703,15 @@ class TestHydraFlowConfigLitePlanLabels:
         cfg = HydraFlowConfig(
             lite_plan_labels=["custom"],
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.lite_plan_labels == ["custom"]
 
-
-# ---------------------------------------------------------------------------
-# HydraFlowConfig – improve_label / memory/transcript label env var overrides
-# ---------------------------------------------------------------------------
-
-
-class TestHydraFlowConfigImproveLabelAndMemoryLabel:
-    """Tests for improve_label, memory_label, and transcript_label."""
-
-    def test_improve_label_default(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.improve_label == ["hydraflow-improve"]
-
-    def test_memory_label_default(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.memory_label == ["hydraflow-memory"]
-
-    def test_transcript_label_default(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.transcript_label == ["hydraflow-transcript"]
-
-    def test_improve_label_env_var_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_LABEL_IMPROVE", "custom-improve")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.improve_label == ["custom-improve"]
-
-    def test_memory_label_env_var_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_LABEL_MEMORY", "custom-memory")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.memory_label == ["custom-memory"]
-
-    def test_transcript_label_env_var_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_LABEL_TRANSCRIPT", "custom-transcript")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.transcript_label == ["custom-transcript"]
-
-    def test_improve_label_explicit_overrides_env_var(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_LABEL_IMPROVE", "env-improve")
-        cfg = HydraFlowConfig(
-            improve_label=["explicit-improve"],
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.improve_label == ["explicit-improve"]
-
-    def test_memory_label_explicit_overrides_env_var(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_LABEL_MEMORY", "env-memory")
-        cfg = HydraFlowConfig(
-            memory_label=["explicit-memory"],
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.memory_label == ["explicit-memory"]
-
-    def test_transcript_label_explicit_overrides_env_var(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_LABEL_TRANSCRIPT", "env-transcript")
-        cfg = HydraFlowConfig(
-            transcript_label=["explicit-transcript"],
-            repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.transcript_label == ["explicit-transcript"]
-
     def test_pr_unstick_interval_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.pr_unstick_interval == 3600
@@ -848,7 +719,7 @@ class TestHydraFlowConfigImproveLabelAndMemoryLabel:
     def test_pr_unstick_batch_size_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.pr_unstick_batch_size == 10
@@ -859,7 +730,7 @@ class TestHydraFlowConfigImproveLabelAndMemoryLabel:
         monkeypatch.setenv("HYDRAFLOW_PR_UNSTICK_INTERVAL", "1800")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.pr_unstick_interval == 1800
@@ -870,7 +741,7 @@ class TestHydraFlowConfigImproveLabelAndMemoryLabel:
         monkeypatch.setenv("HYDRAFLOW_PR_UNSTICK_BATCH_SIZE", "5")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.pr_unstick_batch_size == 5
@@ -887,7 +758,7 @@ class TestHydraFlowConfigThresholds:
     def test_quality_fix_rate_threshold_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.quality_fix_rate_threshold == pytest.approx(0.5)
@@ -895,7 +766,7 @@ class TestHydraFlowConfigThresholds:
     def test_approval_rate_threshold_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.approval_rate_threshold == pytest.approx(0.5)
@@ -903,7 +774,7 @@ class TestHydraFlowConfigThresholds:
     def test_hitl_rate_threshold_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.hitl_rate_threshold == pytest.approx(0.2)
@@ -912,7 +783,7 @@ class TestHydraFlowConfigThresholds:
         cfg = HydraFlowConfig(
             quality_fix_rate_threshold=0.8,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.quality_fix_rate_threshold == pytest.approx(0.8)
@@ -921,7 +792,7 @@ class TestHydraFlowConfigThresholds:
         cfg = HydraFlowConfig(
             approval_rate_threshold=0.7,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.approval_rate_threshold == pytest.approx(0.7)
@@ -930,7 +801,7 @@ class TestHydraFlowConfigThresholds:
         cfg = HydraFlowConfig(
             hitl_rate_threshold=0.1,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.hitl_rate_threshold == pytest.approx(0.1)
@@ -940,7 +811,7 @@ class TestHydraFlowConfigThresholds:
             HydraFlowConfig(
                 quality_fix_rate_threshold=-0.1,
                 repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
+                workspace_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
             )
 
@@ -949,7 +820,7 @@ class TestHydraFlowConfigThresholds:
             HydraFlowConfig(
                 quality_fix_rate_threshold=1.1,
                 repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
+                workspace_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
             )
 
@@ -957,7 +828,7 @@ class TestHydraFlowConfigThresholds:
         cfg = HydraFlowConfig(
             quality_fix_rate_threshold=0.0,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.quality_fix_rate_threshold == pytest.approx(0.0)
@@ -966,7 +837,7 @@ class TestHydraFlowConfigThresholds:
         cfg = HydraFlowConfig(
             quality_fix_rate_threshold=1.0,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.quality_fix_rate_threshold == pytest.approx(1.0)
@@ -983,7 +854,7 @@ class TestHydraFlowConfigTestCommand:
     def test_test_command_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.test_command == "make test"
@@ -992,7 +863,7 @@ class TestHydraFlowConfigTestCommand:
         cfg = HydraFlowConfig(
             test_command="npm test",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.test_command == "npm test"
@@ -1003,7 +874,7 @@ class TestHydraFlowConfigTestCommand:
         monkeypatch.setenv("HYDRAFLOW_TEST_COMMAND", "pytest -x")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.test_command == "pytest -x"
@@ -1015,7 +886,7 @@ class TestHydraFlowConfigTestCommand:
         cfg = HydraFlowConfig(
             test_command="cargo test",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.test_command == "cargo test"
@@ -1032,7 +903,7 @@ class TestHydraFlowConfigMaxIssueBodyChars:
     def test_max_issue_body_chars_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_issue_body_chars == 10_000
@@ -1041,7 +912,7 @@ class TestHydraFlowConfigMaxIssueBodyChars:
         cfg = HydraFlowConfig(
             max_issue_body_chars=5_000,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_issue_body_chars == 5_000
@@ -1053,7 +924,7 @@ class TestHydraFlowConfigMaxIssueBodyChars:
         monkeypatch.setenv("HYDRAFLOW_MAX_ISSUE_BODY_CHARS", "20000")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_issue_body_chars == 20_000
@@ -1066,7 +937,7 @@ class TestHydraFlowConfigMaxIssueBodyChars:
         cfg = HydraFlowConfig(
             max_issue_body_chars=5_000,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_issue_body_chars == 5_000
@@ -1083,7 +954,7 @@ class TestHydraFlowConfigMaxReviewDiffChars:
     def test_max_review_diff_chars_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_review_diff_chars == 15_000
@@ -1092,7 +963,7 @@ class TestHydraFlowConfigMaxReviewDiffChars:
         cfg = HydraFlowConfig(
             max_review_diff_chars=30_000,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_review_diff_chars == 30_000
@@ -1104,7 +975,7 @@ class TestHydraFlowConfigMaxReviewDiffChars:
         monkeypatch.setenv("HYDRAFLOW_MAX_REVIEW_DIFF_CHARS", "50000")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_review_diff_chars == 50_000
@@ -1117,7 +988,7 @@ class TestHydraFlowConfigMaxReviewDiffChars:
         cfg = HydraFlowConfig(
             max_review_diff_chars=25_000,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_review_diff_chars == 25_000
@@ -1134,7 +1005,7 @@ class TestMaxIssueAttempts:
     def test_default_is_three(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_issue_attempts == 3
@@ -1145,7 +1016,7 @@ class TestMaxIssueAttempts:
         monkeypatch.setenv("HYDRAFLOW_MAX_ISSUE_ATTEMPTS", "5")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_issue_attempts == 5
@@ -1157,7 +1028,7 @@ class TestMaxIssueAttempts:
         cfg = HydraFlowConfig(
             max_issue_attempts=4,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_issue_attempts == 4
@@ -1169,7 +1040,7 @@ class TestUpdatedIntervalDefaults:
     def test_memory_sync_default_is_3600(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.memory_sync_interval == 3600
@@ -1177,7 +1048,7 @@ class TestUpdatedIntervalDefaults:
     def test_memory_sync_max_increased_to_14400(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             memory_sync_interval=14400,
         )
@@ -1189,7 +1060,7 @@ class TestUpdatedIntervalDefaults:
         monkeypatch.setenv("HYDRAFLOW_MEMORY_SYNC_INTERVAL", "900")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.memory_sync_interval == 900
@@ -1206,7 +1077,7 @@ class TestTranscriptSummarizationConfig:
     def test_default_enabled(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.transcript_summarization_enabled is True
@@ -1214,7 +1085,7 @@ class TestTranscriptSummarizationConfig:
     def test_default_model(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.transcript_summary_model == "haiku"
@@ -1222,7 +1093,7 @@ class TestTranscriptSummarizationConfig:
     def test_default_max_chars(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_transcript_summary_chars == 50_000
@@ -1233,7 +1104,7 @@ class TestTranscriptSummarizationConfig:
         monkeypatch.setenv("HYDRAFLOW_TRANSCRIPT_SUMMARIZATION_ENABLED", "false")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.transcript_summarization_enabled is False
@@ -1244,7 +1115,7 @@ class TestTranscriptSummarizationConfig:
         monkeypatch.setenv("HYDRAFLOW_TRANSCRIPT_SUMMARIZATION_ENABLED", "0")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.transcript_summarization_enabled is False
@@ -1255,7 +1126,7 @@ class TestTranscriptSummarizationConfig:
         monkeypatch.setenv("HYDRAFLOW_TRANSCRIPT_SUMMARY_MODEL", "sonnet")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.transcript_summary_model == "sonnet"
@@ -1266,7 +1137,7 @@ class TestTranscriptSummarizationConfig:
         monkeypatch.setenv("HYDRAFLOW_MAX_TRANSCRIPT_SUMMARY_CHARS", "20000")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.max_transcript_summary_chars == 20_000
@@ -1279,7 +1150,7 @@ class TestTranscriptSummarizationConfig:
             HydraFlowConfig(
                 max_transcript_summary_chars=1000,
                 repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
+                workspace_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
             )
 
@@ -1291,7 +1162,7 @@ class TestTranscriptSummarizationConfig:
             HydraFlowConfig(
                 max_transcript_summary_chars=1_000_000,
                 repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
+                workspace_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
             )
 
@@ -1302,7 +1173,7 @@ class TestTranscriptSummarizationConfig:
         cfg = HydraFlowConfig(
             transcript_summary_model="opus",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         # Explicit "opus" != default "haiku", so env var should NOT override
@@ -1325,9 +1196,6 @@ class TestLabelValidation:
             "hitl_label",
             "hitl_active_label",
             "fixed_label",
-            "improve_label",
-            "memory_label",
-            "transcript_label",
             "dup_label",
             "epic_label",
             "epic_child_label",
@@ -1345,7 +1213,7 @@ class TestLabelValidation:
             HydraFlowConfig(
                 **{field: []},  # type: ignore[arg-type]
                 repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
+                workspace_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
             )
 
@@ -1356,7 +1224,7 @@ class TestLabelValidation:
         monkeypatch.setenv("HYDRAFLOW_LABEL_READY", "")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.ready_label == ["hydraflow-ready"]
@@ -1365,7 +1233,7 @@ class TestLabelValidation:
         """verify_label should default to ['hydraflow-verify']."""
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.verify_label == ["hydraflow-verify"]
@@ -1377,7 +1245,7 @@ class TestLabelValidation:
         monkeypatch.setenv("HYDRAFLOW_LABEL_VERIFY", "custom-verify")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.verify_label == ["custom-verify"]
@@ -1386,7 +1254,7 @@ class TestLabelValidation:
         """verify_label should appear in all_pipeline_labels."""
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert "hydraflow-verify" in cfg.all_pipeline_labels
@@ -1515,7 +1383,7 @@ class TestTimeoutAndLimitFields:
         """quality_timeout should default to 3600."""
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.quality_timeout == 3600
@@ -1524,7 +1392,7 @@ class TestTimeoutAndLimitFields:
         """git_command_timeout should default to 30."""
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.git_command_timeout == 30
@@ -1533,7 +1401,7 @@ class TestTimeoutAndLimitFields:
         """summarizer_timeout should default to 120."""
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.summarizer_timeout == 120
@@ -1542,7 +1410,7 @@ class TestTimeoutAndLimitFields:
         """error_output_max_chars should default to 3000."""
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.error_output_max_chars == 3000
@@ -1551,7 +1419,7 @@ class TestTimeoutAndLimitFields:
         """quality_timeout should accept a custom value within range."""
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             quality_timeout=1800,
         )
@@ -1561,7 +1429,7 @@ class TestTimeoutAndLimitFields:
         """git_command_timeout should accept a custom value within range."""
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             git_command_timeout=60,
         )
@@ -1571,7 +1439,7 @@ class TestTimeoutAndLimitFields:
         """summarizer_timeout should accept a custom value within range."""
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             summarizer_timeout=300,
         )
@@ -1581,7 +1449,7 @@ class TestTimeoutAndLimitFields:
         """error_output_max_chars should accept a custom value within range."""
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             error_output_max_chars=5000,
         )
@@ -1592,7 +1460,7 @@ class TestTimeoutAndLimitFields:
         with pytest.raises(ValueError, match="greater than or equal to 60"):
             HydraFlowConfig(
                 repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
+                workspace_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
                 quality_timeout=10,
             )
@@ -1602,7 +1470,7 @@ class TestTimeoutAndLimitFields:
         with pytest.raises(ValueError, match="less than or equal to 7200"):
             HydraFlowConfig(
                 repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
+                workspace_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
                 quality_timeout=10000,
             )
@@ -1612,7 +1480,7 @@ class TestTimeoutAndLimitFields:
         with pytest.raises(ValueError, match="greater than or equal to 5"):
             HydraFlowConfig(
                 repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
+                workspace_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
                 git_command_timeout=1,
             )
@@ -1622,7 +1490,7 @@ class TestTimeoutAndLimitFields:
         with pytest.raises(ValueError, match="greater than or equal to 30"):
             HydraFlowConfig(
                 repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
+                workspace_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
                 summarizer_timeout=5,
             )
@@ -1634,7 +1502,7 @@ class TestTimeoutAndLimitFields:
         with pytest.raises(ValueError, match="greater than or equal to 500"):
             HydraFlowConfig(
                 repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
+                workspace_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
                 error_output_max_chars=100,
             )
@@ -1644,7 +1512,7 @@ class TestTimeoutAndLimitFields:
         with pytest.raises(ValueError, match="less than or equal to 120"):
             HydraFlowConfig(
                 repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
+                workspace_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
                 git_command_timeout=300,
             )
@@ -1654,7 +1522,7 @@ class TestTimeoutAndLimitFields:
         with pytest.raises(ValueError, match="less than or equal to 600"):
             HydraFlowConfig(
                 repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
+                workspace_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
                 summarizer_timeout=1200,
             )
@@ -1666,7 +1534,7 @@ class TestTimeoutAndLimitFields:
         with pytest.raises(ValueError, match="less than or equal to 20000"):
             HydraFlowConfig(
                 repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
+                workspace_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
                 error_output_max_chars=50_000,
             )
@@ -1683,7 +1551,7 @@ class TestUnstickConfigFields:
     def test_unstick_auto_merge_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.unstick_auto_merge is True
@@ -1691,7 +1559,7 @@ class TestUnstickConfigFields:
     def test_unstick_all_causes_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.unstick_all_causes is True
@@ -1702,7 +1570,7 @@ class TestUnstickConfigFields:
         monkeypatch.setenv("HYDRAFLOW_UNSTICK_AUTO_MERGE", "false")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.unstick_auto_merge is False
@@ -1713,7 +1581,7 @@ class TestUnstickConfigFields:
         monkeypatch.setenv("HYDRAFLOW_UNSTICK_ALL_CAUSES", "false")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.unstick_all_causes is False
@@ -1738,8 +1606,6 @@ class TestAllPipelineLabels:
         assert cfg.find_label[0] in labels
         assert cfg.hitl_active_label[0] in labels
         assert cfg.fixed_label[0] in labels
-        assert cfg.improve_label[0] in labels
-        assert cfg.transcript_label[0] in labels
 
     def test_returns_flat_list(self, tmp_path: Path) -> None:
         from tests.helpers import ConfigFactory
@@ -1801,7 +1667,7 @@ class TestAgentToolFields:
     def test_tool_defaults(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.implementation_tool == "claude"
@@ -1828,7 +1694,7 @@ class TestAgentToolFields:
         monkeypatch.setenv("HYDRAFLOW_VERIFICATION_JUDGE_TOOL", "codex")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.implementation_tool == "codex"
@@ -1858,7 +1724,7 @@ class TestAgentToolFields:
         monkeypatch.setenv("HYDRAFLOW_BACKGROUND_TOOL", "pi")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.implementation_tool == "pi"
@@ -1877,7 +1743,7 @@ class TestAgentToolFields:
     def test_profile_tool_overrides_apply_to_defaults(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             system_tool="codex",
             background_tool="codex",
@@ -1897,7 +1763,7 @@ class TestAgentToolFields:
     def test_profile_model_overrides_apply_to_defaults(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             system_model="gpt-5-codex",
             background_model="gpt-5-codex",
@@ -1917,7 +1783,7 @@ class TestAgentToolFields:
     ) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             system_tool="codex",
             background_tool="codex",
@@ -1940,7 +1806,7 @@ class TestTieringFields:
     ) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.subskill_tool == "claude"

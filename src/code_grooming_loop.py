@@ -1,241 +1,148 @@
-"""Background worker loop — periodic code audits that file prioritized improvement issues."""
+"""Background worker loop — run code audits and file issues for critical findings."""
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
+from agent_cli import build_agent_command
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
-from models import AuditFinding
+from dedup_store import DedupStore
+from runner_utils import stream_claude_process
 
 if TYPE_CHECKING:
-    from pr_manager import PRManager
-    from state import StateTracker
+    from ports import PRPort
 
 logger = logging.getLogger("hydraflow.code_grooming_loop")
 
-# Priority ordering for filtering
-_PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
-
-
-def _meets_min_priority(finding_priority: str, min_priority: str) -> bool:
-    """Return True if *finding_priority* is at or above *min_priority*."""
-    return _PRIORITY_ORDER.get(finding_priority, 99) <= _PRIORITY_ORDER.get(
-        min_priority, 99
-    )
-
-
-async def _run_audit(audit_name: str, repo_root: str) -> list[AuditFinding]:
-    """Run a single audit tool and parse findings.
-
-    Uses ``asyncio.create_subprocess_exec`` (never ``shell=True``) to avoid
-    command-injection risks — all arguments are passed as a list.
-    """
-    findings: list[AuditFinding] = []
-
-    if audit_name == "lint":
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "ruff",
-                "check",
-                "--output-format=json",
-                repo_root,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await proc.communicate()
-            if stdout:
-                for item in json.loads(stdout):
-                    findings.append(
-                        AuditFinding(
-                            category="lint",
-                            priority="P2",
-                            summary=f"{item.get('code', 'unknown')}: {item.get('message', '')}",
-                            file_path=item.get("filename", ""),
-                            details=item.get("message", ""),
-                        )
-                    )
-        except (FileNotFoundError, json.JSONDecodeError):
-            logger.debug("ruff not available or output parse error")
-
-    elif audit_name == "dead_code":
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "vulture",
-                repo_root,
-                "--min-confidence=80",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await proc.communicate()
-            if stdout:
-                for line in stdout.decode().strip().splitlines():
-                    findings.append(
-                        AuditFinding(
-                            category="dead_code",
-                            priority="P3",
-                            summary=line.strip(),
-                            file_path=line.split(":")[0] if ":" in line else "",
-                        )
-                    )
-        except FileNotFoundError:
-            logger.debug("vulture not available")
-
-    elif audit_name == "complexity":
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "ruff",
-                "check",
-                "--select=C901",
-                "--output-format=json",
-                repo_root,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await proc.communicate()
-            if stdout:
-                for item in json.loads(stdout):
-                    findings.append(
-                        AuditFinding(
-                            category="complexity",
-                            priority="P1",
-                            summary=f"High complexity: {item.get('message', '')}",
-                            file_path=item.get("filename", ""),
-                            details=item.get("message", ""),
-                        )
-                    )
-        except (FileNotFoundError, json.JSONDecodeError):
-            logger.debug("ruff complexity check failed")
-
-    return findings
+# Severities that warrant filing an issue.
+_ACTIONABLE_SEVERITIES = frozenset({"critical", "high"})
 
 
 class CodeGroomingLoop(BaseBackgroundLoop):
-    """Runs configured audit checks, classifies findings, and files issues."""
+    """Periodically runs code quality audits and files issues for critical findings.
+
+    Invokes the Claude CLI with the ``/hf.audit-code`` skill, parses the
+    output for structured findings, and files GitHub issues for any
+    critical or high severity items.  Uses :class:`DedupStore` to avoid
+    filing duplicate issues for the same finding.
+    """
+
+    _FINDING_RE = re.compile(
+        r"\{[^{}]*\"id\"\s*:\s*\"[^\"]+\"[^{}]*\}",
+        re.DOTALL,
+    )
 
     def __init__(
         self,
         config: HydraFlowConfig,
-        prs: PRManager,
-        state: StateTracker,
+        pr_manager: PRPort,
         deps: LoopDeps,
     ) -> None:
         super().__init__(worker_name="code_grooming", config=config, deps=deps)
-        self._prs = prs
-        self._state = state
+        self._pr_manager = pr_manager
+        self._dedup = DedupStore(
+            "code_grooming_findings",
+            config.data_root / "memory" / "code_grooming_dedup.json",
+        )
 
     def _get_default_interval(self) -> int:
         return self._config.code_grooming_interval
 
+    async def _run_audit(self) -> list[dict]:
+        """Run the code audit skill and return parsed findings.
+
+        Each finding is expected to be a JSON object with at least
+        ``id``, ``severity``, ``title``, and ``description`` keys.
+        """
+        cmd = build_agent_command(
+            tool=self._config.background_tool
+            if self._config.background_tool != "inherit"
+            else "claude",
+            model=self._config.background_model or "sonnet",
+            max_turns=10,
+        )
+
+        transcript = await stream_claude_process(
+            cmd=cmd,
+            prompt="/hf.audit-code",
+            cwd=self._config.repo_root,
+            active_procs=set(),
+            event_bus=self._bus,
+            event_data={"source": "code_grooming"},
+            logger=logger,
+            gh_token=self._config.gh_token,
+        )
+
+        return self._parse_findings(transcript)
+
+    @classmethod
+    def _parse_findings(cls, transcript: str) -> list[dict]:
+        """Extract structured finding dicts from audit transcript."""
+        findings: list[dict] = []
+        for match in cls._FINDING_RE.finditer(transcript):
+            try:
+                obj = json.loads(match.group(0))
+                if isinstance(obj, dict) and "id" in obj and "severity" in obj:
+                    findings.append(obj)
+            except (json.JSONDecodeError, TypeError):
+                continue
+        return findings
+
     async def _do_work(self) -> dict[str, Any] | None:
-        """Execute one grooming cycle."""
-        settings = self._state.get_code_grooming_settings()
-        already_filed = self._state.get_code_grooming_filed()
+        if self._config.dry_run:
+            return None
 
-        stats: dict[str, int] = {"scanned": 0, "filed": 0, "skipped": 0}
-
-        # Collect findings from all enabled audits
-        all_findings: list[AuditFinding] = []
-        for audit in settings.enabled_audits:
-            try:
-                findings = await _run_audit(audit, str(self._config.repo_root))
-                all_findings.extend(findings)
-            except Exception:
-                logger.exception("Audit %s failed", audit)
-
-        stats["scanned"] = len(all_findings)
-
-        # Filter by priority
-        eligible = [
-            f
-            for f in all_findings
-            if _meets_min_priority(f.priority, settings.min_priority)
-        ]
-
-        # Deduplicate against already-filed
-        new_findings = [
-            f for f in eligible if f"{f.category}:{f.summary}" not in already_filed
-        ]
-
-        # Also deduplicate against open issues to avoid re-filing
-        open_issue_titles: set[str] = set()
         try:
-            raw = await self._prs._run_gh(
-                "gh",
-                "issue",
-                "list",
-                "--repo",
-                self._prs._repo,
-                "--state",
-                "open",
-                "--limit",
-                "200",
-                "--json",
-                "title",
-            )
-            if raw:
-                open_issue_titles = {item.get("title", "") for item in json.loads(raw)}
+            findings = await self._run_audit()
         except Exception:
-            logger.debug("Failed to fetch open issues for dedup")
+            logger.exception("Code grooming audit failed")
+            return {"filed": 0, "error": True}
 
-        filed_count = 0
-        for finding in new_findings:
-            if filed_count >= settings.max_issues_per_cycle:
-                break
+        seen = self._dedup.get()
+        filed = 0
+        skipped_dedup = 0
+        skipped_severity = 0
 
-            title = f"[Code Grooming] [{finding.priority}] {finding.summary[:80]}"
-            if title in open_issue_titles:
-                stats["skipped"] += 1
+        for finding in findings:
+            finding_id = finding.get("id", "")
+            if not finding_id:
                 continue
 
-            if settings.dry_run:
-                logger.info("[dry-run] Would file: %s", title)
-                filed_count += 1
-                stats["filed"] += 1
+            if finding_id in seen:
+                skipped_dedup += 1
                 continue
 
+            severity = finding.get("severity", "").lower()
+            if severity not in _ACTIONABLE_SEVERITIES:
+                skipped_severity += 1
+                continue
+
+            title = f"[Code Grooming] {finding.get('title', 'Code quality finding')}"
             body = (
-                f"## Code Grooming Finding\n\n"
-                f"**Category:** {finding.category}\n"
-                f"**Priority:** {finding.priority}\n"
-                f"**File:** `{finding.file_path}`\n\n"
-                f"### Details\n{finding.details or finding.summary}\n\n"
-                f"*Filed automatically by HydraFlow Code Grooming.*"
+                f"## Code Quality Finding\n\n"
+                f"**ID:** {finding_id}\n"
+                f"**Severity:** {severity}\n\n"
+                f"### Description\n\n"
+                f"{finding.get('description', 'No description available.')}\n"
             )
 
-            try:
-                await self._prs._run_gh(
-                    "gh",
-                    "issue",
-                    "create",
-                    "--repo",
-                    self._prs._repo,
-                    "--title",
-                    title,
-                    "--body",
-                    body,
-                )
-                key = f"{finding.category}:{finding.summary}"
-                self._state.add_code_grooming_filed(key)
-                filed_count += 1
-                stats["filed"] += 1
-                logger.info("Filed grooming issue: %s", title)
-            except Exception:
-                logger.exception("Failed to file grooming issue: %s", title)
+            await self._pr_manager.create_issue(title, body, labels=["code-quality"])
+            self._dedup.add(finding_id)
+            filed += 1
 
-        try:
-            import sentry_sdk as _sentry
-
-            _sentry.add_breadcrumb(
-                category="code_grooming.cycle",
-                message=f"Scanned {stats['scanned']} findings, filed {stats['filed']}",
-                level="info",
-                data=stats,
+            logger.info(
+                "Filed code grooming issue: %s (%s)",
+                finding_id,
+                severity,
             )
-        except ImportError:
-            pass
 
-        return stats
+        return {
+            "total_findings": len(findings),
+            "filed": filed,
+            "skipped_dedup": skipped_dedup,
+            "skipped_severity": skipped_severity,
+        }

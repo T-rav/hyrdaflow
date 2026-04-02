@@ -47,7 +47,7 @@ class TestBuildServices:
         registry = build_services(config, bus, state, stop_event, callbacks)
 
         assert isinstance(registry, ServiceRegistry)
-        assert isinstance(registry.worktrees, WorkspaceManager)
+        assert isinstance(registry.workspaces, WorkspaceManager)
 
     def test_all_fields_are_set(self, config: HydraFlowConfig) -> None:
         """All ServiceRegistry fields should be non-None."""

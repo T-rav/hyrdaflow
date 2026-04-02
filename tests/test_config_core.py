@@ -317,14 +317,14 @@ class TestHydraFlowConfigPathResolution:
         # Act
         cfg = HydraFlowConfig(
             repo_root=explicit_root,
-            worktree_base=explicit_root / "wt",
+            workspace_base=explicit_root / "wt",
             state_file=explicit_root / "state.json",
         )
 
         # Assert
         assert cfg.repo_root == explicit_root
 
-    def test_explicit_worktree_base_is_preserved(self, tmp_path: Path) -> None:
+    def test_explicit_workspace_base_is_preserved(self, tmp_path: Path) -> None:
         # Arrange
         explicit_root = tmp_path / "repo"
         explicit_wt = tmp_path / "worktrees"
@@ -332,12 +332,12 @@ class TestHydraFlowConfigPathResolution:
         # Act
         cfg = HydraFlowConfig(
             repo_root=explicit_root,
-            worktree_base=explicit_wt,
+            workspace_base=explicit_wt,
             state_file=explicit_root / "state.json",
         )
 
         # Assert
-        assert cfg.worktree_base == explicit_wt
+        assert cfg.workspace_base == explicit_wt
 
     def test_explicit_state_file_is_preserved(self, tmp_path: Path) -> None:
         # Arrange
@@ -347,26 +347,28 @@ class TestHydraFlowConfigPathResolution:
         # Act
         cfg = HydraFlowConfig(
             repo_root=explicit_root,
-            worktree_base=explicit_root / "wt",
+            workspace_base=explicit_root / "wt",
             state_file=explicit_state,
         )
 
         # Assert
         assert cfg.state_file == explicit_state
 
-    def test_default_worktree_base_derived_from_repo_root(self, tmp_path: Path) -> None:
-        """When worktree_base is left as Path('.'), it should default to ~/.hydraflow/worktrees."""
+    def test_default_workspace_base_derived_from_repo_root(
+        self, tmp_path: Path
+    ) -> None:
+        """When workspace_base is left as Path('.'), it should default to ~/.hydraflow/worktrees."""
         # Arrange
         git_root = tmp_path / "hydra"
         git_root.mkdir()
         (git_root / ".git").mkdir()
 
-        # Act – pass repo_root explicitly but leave worktree_base and state_file at their defaults (Path("."))
+        # Act – pass repo_root explicitly but leave workspace_base and state_file at their defaults (Path("."))
         cfg = HydraFlowConfig(repo_root=git_root)
 
         # Assert
         assert (
-            cfg.worktree_base == Path("~/.hydraflow/worktrees").expanduser().resolve()
+            cfg.workspace_base == Path("~/.hydraflow/worktrees").expanduser().resolve()
         )
 
     def test_default_state_file_derived_from_repo_root(self, tmp_path: Path) -> None:
@@ -398,10 +400,10 @@ class TestHydraFlowConfigPathResolution:
         # Assert
         assert cfg.repo_root.is_absolute()
 
-    def test_auto_detected_worktree_base_uses_hydraflow_worktrees_name(
+    def test_auto_detected_workspace_base_uses_hydraflow_worktrees_name(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Auto-derived worktree_base should be ~/.hydraflow/worktrees."""
+        """Auto-derived workspace_base should be ~/.hydraflow/worktrees."""
         # Arrange
         git_root = tmp_path / "repo"
         git_root.mkdir()
@@ -413,7 +415,7 @@ class TestHydraFlowConfigPathResolution:
 
         # Assert
         assert (
-            cfg.worktree_base == Path("~/.hydraflow/worktrees").expanduser().resolve()
+            cfg.workspace_base == Path("~/.hydraflow/worktrees").expanduser().resolve()
         )
 
     def test_auto_detected_state_file_named_hydraflow_state_json(
@@ -436,7 +438,7 @@ class TestHydraFlowConfigPathResolution:
 
 
 # ---------------------------------------------------------------------------
-# HydraFlowConfig – branch_for_issue / worktree_path_for_issue helpers
+# HydraFlowConfig – branch_for_issue / workspace_path_for_issue helpers
 # ---------------------------------------------------------------------------
 
 
@@ -446,7 +448,7 @@ class TestBranchForIssue:
     def test_returns_canonical_branch_name(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.branch_for_issue(42) == "agent/issue-42"
@@ -454,7 +456,7 @@ class TestBranchForIssue:
     def test_single_digit_issue(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.branch_for_issue(1) == "agent/issue-1"
@@ -462,24 +464,24 @@ class TestBranchForIssue:
     def test_large_issue_number(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.branch_for_issue(99999) == "agent/issue-99999"
 
 
 class TestWorktreePathForIssue:
-    """Tests for HydraFlowConfig.worktree_path_for_issue()."""
+    """Tests for HydraFlowConfig.workspace_path_for_issue()."""
 
-    def test_returns_path_under_worktree_base(self, tmp_path: Path) -> None:
+    def test_returns_path_under_workspace_base(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo="org/my-repo",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert (
-            cfg.worktree_path_for_issue(42)
+            cfg.workspace_path_for_issue(42)
             == tmp_path / "wt" / "org-my-repo" / "issue-42"
         )
 
@@ -487,29 +489,29 @@ class TestWorktreePathForIssue:
         cfg = HydraFlowConfig(
             repo="org/my-repo",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert (
-            cfg.worktree_path_for_issue(1)
+            cfg.workspace_path_for_issue(1)
             == tmp_path / "wt" / "org-my-repo" / "issue-1"
         )
 
-    def test_uses_configured_worktree_base(self, tmp_path: Path) -> None:
+    def test_uses_configured_workspace_base(self, tmp_path: Path) -> None:
         custom_base = tmp_path / "custom-worktrees"
         cfg = HydraFlowConfig(
             repo="org/proj",
             repo_root=tmp_path,
-            worktree_base=custom_base,
+            workspace_base=custom_base,
             state_file=tmp_path / "s.json",
         )
-        assert cfg.worktree_path_for_issue(7) == custom_base / "org-proj" / "issue-7"
+        assert cfg.workspace_path_for_issue(7) == custom_base / "org-proj" / "issue-7"
 
     def test_repo_slug_from_repo(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo="acme/widgets",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.repo_slug == "acme-widgets"
@@ -522,7 +524,7 @@ class TestWorktreePathForIssue:
         cfg = HydraFlowConfig(
             repo="",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.repo_slug == tmp_path.name
@@ -549,7 +551,7 @@ class TestResolveDefaults:
         monkeypatch.setenv("HYDRAFLOW_GITHUB_REPO", "env-org/env-repo")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.repo == "env-org/env-repo"
@@ -561,7 +563,7 @@ class TestResolveDefaults:
         cfg = HydraFlowConfig(
             repo="explicit-org/explicit-repo",
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.repo == "explicit-org/explicit-repo"
@@ -572,7 +574,7 @@ class TestResolveDefaults:
         monkeypatch.setenv("HYDRAFLOW_DATA_POLL_INTERVAL", "120")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.data_poll_interval == 120
@@ -592,7 +594,7 @@ class TestDirectoryProperties:
         """log_dir should return repo_root / .hydraflow / logs."""
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.log_dir == tmp_path / ".hydraflow" / "logs"
@@ -603,7 +605,7 @@ class TestDirectoryProperties:
         """plans_dir should return repo_root / .hydraflow / plans."""
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.plans_dir == tmp_path / ".hydraflow" / "plans"
@@ -614,7 +616,7 @@ class TestDirectoryProperties:
         """memory_dir should return repo_root / .hydraflow / memory."""
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.memory_dir == tmp_path / ".hydraflow" / "memory"
@@ -625,7 +627,7 @@ class TestDirectoryProperties:
         custom_root.mkdir(parents=True)
         cfg = HydraFlowConfig(
             repo_root=custom_root,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert cfg.log_dir.parent.parent == custom_root
@@ -755,7 +757,7 @@ class TestNamespaceRepoPaths:
 class TestTwoPhasePathResolution:
     """Tests verifying that repo-scoped paths depend on repo being resolved first.
 
-    The resolve_defaults validator must resolve base paths (repo_root, worktree_base,
+    The resolve_defaults validator must resolve base paths (repo_root, workspace_base,
     data_root) before resolving the repo slug, and resolve the repo slug before
     computing repo-scoped paths (state_file, event_log_path).
     """
@@ -987,39 +989,3 @@ class TestADR0021PersistenceLayout:
         HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
 
         assert call_order == step_names
-
-
-# ---------------------------------------------------------------------------
-# memory_sync_labels property
-# ---------------------------------------------------------------------------
-
-
-class TestMemorySyncLabels:
-    """Tests for the memory_sync_labels property."""
-
-    def test_includes_improve_label(self, tmp_path: Path) -> None:
-        """memory_sync_labels must include improve_label so [Memory] issues are consumed."""
-        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
-        labels = cfg.memory_sync_labels
-        for lbl in cfg.improve_label:
-            assert lbl in labels, (
-                f"improve_label '{lbl}' missing from memory_sync_labels"
-            )
-
-    def test_includes_memory_and_transcript_labels(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
-        labels = cfg.memory_sync_labels
-        for lbl in cfg.memory_label:
-            assert lbl in labels
-        for lbl in cfg.transcript_label:
-            assert lbl in labels
-
-    def test_no_duplicates(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            repo="acme/widgets",
-            memory_label=["shared"],
-            improve_label=["shared"],
-            transcript_label=["shared"],
-        )
-        assert cfg.memory_sync_labels == ["shared"]

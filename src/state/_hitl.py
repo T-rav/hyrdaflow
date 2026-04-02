@@ -127,3 +127,15 @@ class HITLStateMixin:
         """Clear visual evidence for *issue_number*."""
         self._data.hitl_visual_evidence.pop(self._key(issue_number), None)
         self.save()
+
+    def clear_hitl_state(self, issue_number: int) -> None:
+        """Clear all HITL tracking state (origin, cause, summary) for *issue_number*.
+
+        Consolidates the three individual remove calls and persists once.
+        """
+        key = self._key(issue_number)
+        self._data.hitl_origins.pop(key, None)
+        self._data.hitl_causes.pop(key, None)
+        self._data.hitl_summaries.pop(key, None)
+        self._data.hitl_summary_failures.pop(key, None)
+        self.save()

@@ -18,13 +18,6 @@ const { InsightsPanel } = await import('../InsightsPanel')
 function memoriesPayload(overrides = {}) {
   return {
     total_items: 2,
-    digest_chars: 5000,
-    curated: {
-      overview: 'A multi-agent orchestration system',
-      architecture: ['Async loops', 'Event-driven'],
-      key_services: ['Triage', 'Planner', 'Reviewer'],
-      standards: ['Always write tests'],
-    },
     items: [
       { issue_number: 42, learning: 'Always validate inputs' },
       { issue_number: 55, learning: 'Use async for I/O' },
@@ -83,27 +76,10 @@ describe('InsightsPanel — LearningsSection sub-sections', () => {
     expect(screen.getByText('Learnings')).toBeInTheDocument()
   })
 
-  it('shows Curated Knowledge sub-section with overview and architecture', async () => {
+  it('shows Memory Items sub-section expanded by default with search filtering', async () => {
     render(<InsightsPanel />)
     // Expand Learnings section
     fireEvent.click(screen.getByText('Learnings'))
-
-    await waitFor(() => {
-      expect(screen.getByText('Curated Knowledge')).toBeInTheDocument()
-      expect(screen.getByText('A multi-agent orchestration system')).toBeInTheDocument()
-    })
-  })
-
-  it('shows Memory Items sub-section with search filtering', async () => {
-    render(<InsightsPanel />)
-    fireEvent.click(screen.getByText('Learnings'))
-
-    await waitFor(() => {
-      expect(screen.getByText('Memory Items')).toBeInTheDocument()
-    })
-
-    // Expand Memory Items sub-section
-    fireEvent.click(screen.getByText('Memory Items'))
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText('Filter by issue # or text...')).toBeInTheDocument()

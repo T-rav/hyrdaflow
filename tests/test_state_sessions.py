@@ -174,7 +174,7 @@ class TestLoadUnicodeDecodeError:
 
         assert "Corrupt state file, resetting" in caplog.text
         # Should have default state
-        assert tracker.get_active_worktrees() == {}
+        assert tracker.get_active_workspaces() == {}
         assert tracker.to_dict()["processed_issues"] == {}
 
 

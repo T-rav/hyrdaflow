@@ -101,9 +101,9 @@ docker-ensure:
 EXECUTION_MODE ?= $(or $(HYDRAFLOW_EXECUTION_MODE),host)
 
 ifeq ($(EXECUTION_MODE),docker)
-run: check-node-ui docker-ensure
+run: check-node-ui docker-ensure hindsight
 else
-run: check-node-ui
+run: check-node-ui hindsight
 endif
 	@mkdir -p $(LOG_DIR)
 	@echo "$(BLUE)Starting HydraFlow — backend :$(PORT) + frontend :5556$(RESET)"
@@ -416,6 +416,9 @@ scaffold: deps
 	@curl -sf -X POST "http://localhost:$(PORT)/api/admin/scaffold" 2>/dev/null \
 		&& echo "$(GREEN)Scaffold complete (via API)$(RESET)" \
 		|| (cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py scaffold && echo "$(GREEN)Scaffold complete$(RESET)")
+
+scaffold-loop:
+	@python scripts/scaffold_loop.py $(NAME) $(LABEL) $(DESC) --interval $(or $(INTERVAL),3600)
 
 ensure-labels: deps
 	@echo "$(BLUE)Creating HydraFlow lifecycle labels...$(RESET)"

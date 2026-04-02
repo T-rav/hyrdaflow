@@ -232,7 +232,7 @@ export function SessionSidebar() {
                     onMouseLeave={() => setHoveredSession(null)}
                     style={rowStyle}
                   >
-                    <span style={isActive ? styles.dotActive : styles.dotCompleted} />
+                    <span style={isLiveSession ? styles.dotActive : styles.dotCompleted} />
                     <div style={styles.sessionInfo}>
                       <span style={styles.sessionRepo}>{shortRepo(session.repo)}</span>
                       <span style={styles.sessionTime}>

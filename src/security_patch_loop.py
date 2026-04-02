@@ -1,184 +1,139 @@
-"""Background worker loop — auto-patch Dependabot security alerts."""
+"""Background worker loop — poll Dependabot alerts and file issues for fixable vulnerabilities."""
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING, Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
+from dedup_store import DedupStore
 
 if TYPE_CHECKING:
-    from pr_manager import PRManager
-    from state import StateTracker
+    from ports import PRPort
 
 logger = logging.getLogger("hydraflow.security_patch_loop")
 
+# Severity levels ordered from most to least severe.
+_SEVERITY_RANK: dict[str, int] = {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 3,
+}
+
 
 class SecurityPatchLoop(BaseBackgroundLoop):
-    """Polls Dependabot alerts and triggers fixes for matching severities."""
+    """Periodically polls Dependabot alerts and files issues for fixable vulnerabilities.
+
+    Only processes alerts at or above the configured severity threshold and
+    that have a ``first_patched_version`` available.  Uses :class:`DedupStore`
+    to avoid filing duplicate issues for the same alert number.
+    """
 
     def __init__(
         self,
         config: HydraFlowConfig,
-        prs: PRManager,
-        state: StateTracker,
+        pr_manager: PRPort,
         deps: LoopDeps,
     ) -> None:
         super().__init__(worker_name="security_patch", config=config, deps=deps)
-        self._prs = prs
-        self._state = state
+        self._pr_manager = pr_manager
+        self._dedup = DedupStore(
+            "security_patch_alerts",
+            config.data_root / "memory" / "security_patch_dedup.json",
+        )
 
     def _get_default_interval(self) -> int:
         return self._config.security_patch_interval
 
-    async def _do_work(self) -> dict[str, Any] | None:
-        """Check Dependabot alerts and trigger fixes for matching severities."""
-        settings = self._state.get_security_patch_settings()
-        processed = self._state.get_security_patch_processed()
-        severity_set = {s.lower() for s in settings.severity_levels}
-
-        alerts = await self._fetch_alerts()
-
-        triggered = 0
-        skipped = 0
-        manual_issues = 0
-
-        for alert in alerts:
-            alert_id = str(alert.get("number", ""))
-            severity = alert.get("security_advisory", {}).get("severity", "").lower()
-
-            # Skip already-processed alerts
-            if alert_id in processed:
-                skipped += 1
-                continue
-
-            # Skip alerts not matching configured severity
-            if severity not in severity_set:
-                skipped += 1
-                continue
-
-            # Skip alerts that already have a fix
-            if self._has_existing_pr(alert):
-                skipped += 1
-                continue
-
-            # Try to trigger Dependabot auto-fix
-            fix_triggered = await self._trigger_fix(alert)
-            if fix_triggered:
-                triggered += 1
-                self._state.add_security_patch_processed(alert_id)
-                logger.info(
-                    "Triggered Dependabot fix for alert #%s (%s)",
-                    alert_id,
-                    severity,
-                )
-            else:
-                # Dependabot can't auto-fix — create a manual issue
-                await self._create_manual_issue(alert)
-                manual_issues += 1
-                self._state.add_security_patch_processed(alert_id)
-                logger.info(
-                    "Created manual issue for alert #%s (%s)",
-                    alert_id,
-                    severity,
-                )
-
-        # Emit Sentry breadcrumb
-        self._emit_sentry_breadcrumb(triggered, skipped, manual_issues)
-
-        return {
-            "triggered": triggered,
-            "skipped": skipped,
-            "manual_issues": manual_issues,
-        }
-
-    async def _fetch_alerts(self) -> list[dict[str, Any]]:
-        """Fetch open Dependabot alerts via gh api."""
-        repo = self._config.repo
-        if not repo:
-            logger.warning("No repo configured — skipping security patch check")
-            return []
-        try:
-            raw = await self._prs._run_gh(
-                "gh",
-                "api",
-                f"repos/{repo}/dependabot/alerts?state=open",
-            )
-            result = json.loads(raw)
-            if isinstance(result, list):
-                return result
-        except Exception:  # noqa: BLE001
-            logger.debug("Failed to fetch Dependabot alerts", exc_info=True)
-        return []
-
-    def _has_existing_pr(self, alert: dict[str, Any]) -> bool:
-        """Check if the alert already has a fix (fixed_at is set)."""
-        return alert.get("fixed_at") is not None
-
-    async def _trigger_fix(self, alert: dict[str, Any]) -> bool:
-        """Comment on the alert to trigger Dependabot auto-fix.
-
-        Returns True if the comment was posted successfully.
-        """
-        alert_number = alert.get("number")
-        if alert_number is None:
-            return False
-        try:
-            repo = self._config.repo
-            await self._prs._run_gh(
-                "gh",
-                "api",
-                f"repos/{repo}/issues/{alert_number}/comments",
-                "-f",
-                "body=@dependabot create fix",
-            )
-            return True
-        except Exception:  # noqa: BLE001
-            logger.debug(
-                "Failed to trigger Dependabot fix for alert #%s",
-                alert_number,
-                exc_info=True,
-            )
-            return False
-
-    async def _create_manual_issue(self, alert: dict[str, Any]) -> None:
-        """Create a GitHub issue for manual fixing of a security alert."""
-        alert_number = alert.get("number", "?")
-        severity = alert.get("security_advisory", {}).get("severity", "unknown")
-        pkg = alert.get("dependency", {}).get("package", {})
-        pkg_name = pkg.get("name", "unknown")
-        ecosystem = pkg.get("ecosystem", "unknown")
-
-        title = f"[Security] Fix {severity} vulnerability in {pkg_name} ({ecosystem})"
-        body = (
-            f"## Security Alert #{alert_number}\n\n"
-            f"**Severity:** {severity}\n"
-            f"**Package:** {pkg_name} ({ecosystem})\n\n"
-            f"Dependabot was unable to create an automatic fix for this alert. "
-            f"Manual intervention is required.\n\n"
-            f"See: https://github.com/{self._config.repo}/security/dependabot/{alert_number}"
-        )
-        await self._prs.create_task(title, body)
+    def _meets_severity(self, severity: str) -> bool:
+        """Return True if *severity* meets or exceeds the configured threshold."""
+        threshold = self._config.security_patch_severity_threshold
+        alert_rank = _SEVERITY_RANK.get(severity.lower(), 99)
+        threshold_rank = _SEVERITY_RANK.get(threshold.lower(), 1)
+        return alert_rank <= threshold_rank
 
     @staticmethod
-    def _emit_sentry_breadcrumb(
-        triggered: int, skipped: int, manual_issues: int
-    ) -> None:
-        """Emit a Sentry breadcrumb summarizing the cycle."""
-        try:
-            import sentry_sdk  # noqa: PLC0415
+    def _is_fixable(alert: dict) -> bool:
+        """Return True if the alert has a patched version with a known identifier."""
+        vuln = alert.get("security_vulnerability") or {}
+        patched = vuln.get("first_patched_version")
+        if patched is None:
+            return False
+        if isinstance(patched, dict):
+            return bool(patched.get("identifier"))
+        return bool(patched)
 
-            sentry_sdk.add_breadcrumb(
-                category="security_patch",
-                message=f"Security patch cycle: {triggered} triggered, {skipped} skipped, {manual_issues} manual",
-                level="info",
-                data={
-                    "triggered": triggered,
-                    "skipped": skipped,
-                    "manual_issues": manual_issues,
-                },
+    @staticmethod
+    def _extract_info(alert: dict) -> tuple[str, str, str]:
+        """Extract (package_name, severity, advisory_summary) from an alert."""
+        vuln = alert.get("security_vulnerability") or {}
+        pkg = vuln.get("package", {}).get("name", "unknown")
+        severity = vuln.get("severity", "unknown")
+        advisory = alert.get("security_advisory") or {}
+        summary = advisory.get("summary", "Security vulnerability")
+        return pkg, severity, summary
+
+    async def _do_work(self) -> dict[str, Any] | None:
+        if self._config.dry_run:
+            return None
+
+        alerts = await self._pr_manager.get_dependabot_alerts(state="open")
+        seen = self._dedup.get()
+
+        filed = 0
+        skipped_dedup = 0
+        skipped_unfixable = 0
+        skipped_severity = 0
+
+        for alert in alerts:
+            alert_key = str(alert.get("number", ""))
+            if not alert_key:
+                continue
+
+            # Skip already-processed alerts
+            if alert_key in seen:
+                skipped_dedup += 1
+                continue
+
+            # Skip unfixable alerts
+            if not self._is_fixable(alert):
+                skipped_unfixable += 1
+                continue
+
+            pkg, severity, summary = self._extract_info(alert)
+
+            # Skip alerts below severity threshold
+            if not self._meets_severity(severity):
+                skipped_severity += 1
+                continue
+
+            title = f"[Security] {summary} in {pkg}"
+            body = (
+                f"## Dependabot Alert #{alert_key}\n\n"
+                f"**Package:** {pkg}\n"
+                f"**Severity:** {severity}\n"
+                f"**Summary:** {summary}\n\n"
+                f"A patched version is available. Please update the dependency.\n"
             )
-        except ImportError:
-            pass
+
+            await self._pr_manager.create_issue(title, body, labels=["security"])
+            self._dedup.add(alert_key)
+            filed += 1
+
+            logger.info(
+                "Filed security issue for alert #%s: %s in %s (%s)",
+                alert_key,
+                summary,
+                pkg,
+                severity,
+            )
+
+        return {
+            "total_alerts": len(alerts),
+            "filed": filed,
+            "skipped_dedup": skipped_dedup,
+            "skipped_unfixable": skipped_unfixable,
+            "skipped_severity": skipped_severity,
+        }

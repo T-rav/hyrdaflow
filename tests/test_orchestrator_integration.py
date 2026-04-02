@@ -82,7 +82,7 @@ def _queue_depth(orch: HydraFlowOrchestrator, stage: str) -> int:
 def _config(tmp_path):
     return ConfigFactory.create(
         repo_root=tmp_path / "repo",
-        worktree_base=tmp_path / "worktrees",
+        workspace_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
         poll_interval=5,
         data_poll_interval=10,
@@ -239,7 +239,7 @@ async def test_failed_implementation_discards_worktree(tmp_path) -> None:
             lambda: _queue_depth(orch, "ready") == 0,
         )
 
-        worktrees = cast(FakeWorkspaceManager, orch._svc.worktrees)
+        worktrees = cast(FakeWorkspaceManager, orch._svc.workspaces)
         assert issue_number in worktrees.cleaned
 
 

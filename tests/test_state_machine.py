@@ -48,7 +48,6 @@ ALL_PIPELINE_LABELS: list[str] = [
     "hydraflow-hitl",
     "hydraflow-hitl-active",
     "hydraflow-fixed",
-    "hydraflow-improve",
 ]
 
 # Valid stage names accepted by PRManager.transition()
@@ -95,7 +94,6 @@ def _make_config(labels: list[str] | None = None) -> MagicMock:
     config.hitl_label = ["hydraflow-hitl"]
     config.hitl_active_label = ["hydraflow-hitl-active"]
     config.fixed_label = ["hydraflow-fixed"]
-    config.improve_label = ["hydraflow-improve"]
     config.repo = "org/repo"
     config.gh_token = None
     config.dry_run = False

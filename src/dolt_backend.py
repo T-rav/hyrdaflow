@@ -136,7 +136,7 @@ class DoltBackend:
         Uses a temp SQL file for large payloads to avoid CLI argument limits.
         """
         now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
-        escaped = data.replace("'", "''")
+        escaped = data.replace("\\", "\\\\").replace("'", "''")
         sql = f"REPLACE INTO state (id, data, updated_at) VALUES (1, '{escaped}', '{now}');"
 
         # Write SQL to temp file and execute via source
@@ -158,7 +158,7 @@ class DoltBackend:
 
     def save_session(self, session_id: str, repo: str, data: str, status: str) -> None:
         """Upsert a session record."""
-        escaped_data = data.replace("'", "''")
+        escaped_data = data.replace("\\", "\\\\").replace("'", "''")
         escaped_id = session_id.replace("'", "''")
         escaped_repo = repo.replace("'", "''")
         now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")

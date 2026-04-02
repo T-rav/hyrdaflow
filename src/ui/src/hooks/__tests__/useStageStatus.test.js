@@ -84,12 +84,12 @@ describe('deriveStageStatus', () => {
     expect(result.triage.sessionCount).toBe(10)
     expect(result.triage.activeCount).toBe(2)
     expect(result.triage.queuedCount).toBe(3)
-    expect(result.triage.workerCount).toBe(1)
+    expect(result.triage.workerCount).toBe(2)
 
     expect(result.implement.sessionCount).toBe(20)
     expect(result.implement.activeCount).toBe(4)
     expect(result.implement.queuedCount).toBe(1)
-    expect(result.implement.workerCount).toBe(3)
+    expect(result.implement.workerCount).toBe(4)
   })
 
   it('uses pipelineStats worker_cap for workerCaps', () => {
@@ -226,6 +226,16 @@ describe('deriveStageStatus', () => {
       const result = deriveStageStatus(emptyPipeline, workers, [], makePipelineStats())
       expect(result.workload).toEqual({ total: 0, active: 3, done: 0, failed: 0 })
     })
+  })
+
+  it('workerCount falls back to active count when worker_count is 0', () => {
+    const stats = makePipelineStats({
+      implement: { queued: 1, active: 3, completed_session: 0, completed_lifetime: 0, worker_count: 0, worker_cap: 5 },
+    })
+
+    const result = deriveStageStatus(emptyPipeline, {}, [], stats)
+
+    expect(result.implement.workerCount).toBe(3)
   })
 
   it('handles a full realistic scenario', () => {

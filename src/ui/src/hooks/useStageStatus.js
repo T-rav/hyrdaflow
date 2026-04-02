@@ -49,7 +49,7 @@ export function deriveStageStatus(pipelineIssues, workers, backgroundWorkers, pi
       issueCount: stageIssues.length,
       activeCount: ss?.active ?? 0,
       queuedCount: ss?.queued ?? 0,
-      workerCount: ss?.worker_count ?? 0,
+      workerCount: Math.max(ss?.worker_count ?? 0, ss?.active ?? 0),
       enabled,
       sessionCount: ss?.completed_session ?? 0,
     }

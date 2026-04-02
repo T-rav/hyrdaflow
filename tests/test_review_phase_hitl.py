@@ -52,7 +52,7 @@ def _setup_escalate_to_hitl_mocks(phase: ReviewPhase) -> None:
 def _setup_conflict_scenario(phase: ReviewPhase) -> None:
     """Set up mocks for a merge-conflict escalation scenario (merge_main returns False)."""
     _setup_escalate_to_hitl_mocks(phase)
-    phase._worktrees.merge_main = AsyncMock(return_value=False)
+    phase._workspaces.merge_main = AsyncMock(return_value=False)
 
 
 # ---------------------------------------------------------------------------
@@ -76,10 +76,10 @@ class TestHITLEscalationEvents:
         pr = PRInfoFactory.create()
 
         _setup_conflict_scenario(phase)
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
-        phase._worktrees.abort_merge = AsyncMock()
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.abort_merge = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -109,9 +109,9 @@ class TestHITLEscalationEvents:
         phase._prs.push_branch = AsyncMock(return_value=True)
         phase._prs.merge_pr = AsyncMock(return_value=False)
         _setup_escalate_to_hitl_mocks(phase)
-        phase._worktrees.merge_main = AsyncMock(return_value=True)
+        phase._workspaces.merge_main = AsyncMock(return_value=True)
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -135,7 +135,7 @@ class TestHITLEscalationEvents:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=1,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, event_bus=event_bus)
@@ -154,9 +154,9 @@ class TestHITLEscalationEvents:
         phase._prs.merge_pr = AsyncMock(return_value=True)
         phase._prs.wait_for_ci = AsyncMock(return_value=(False, "Failed checks: ci"))
         _setup_escalate_to_hitl_mocks(phase)
-        phase._worktrees.merge_main = AsyncMock(return_value=True)
+        phase._workspaces.merge_main = AsyncMock(return_value=True)
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -188,9 +188,9 @@ class TestHITLEscalationEvents:
         phase._prs.merge_pr = AsyncMock(return_value=True)
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
-        phase._worktrees.merge_main = AsyncMock(return_value=True)
+        phase._workspaces.merge_main = AsyncMock(return_value=True)
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -223,9 +223,9 @@ class TestHITLEscalationEvents:
         _setup_escalate_to_hitl_mocks(phase)
         phase._prs.post_comment = AsyncMock()
         phase._prs.submit_review = AsyncMock()
-        phase._worktrees.merge_main = AsyncMock(return_value=True)
+        phase._workspaces.merge_main = AsyncMock(return_value=True)
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -274,7 +274,7 @@ class TestRequestChangesRetry:
         phase._prs.post_pr_comment = AsyncMock()
         phase._prs.submit_review = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         return phase, pr, issue
@@ -299,7 +299,7 @@ class TestRequestChangesRetry:
 
         await phase.review_prs([pr], [issue])
 
-        phase._worktrees.destroy.assert_not_awaited()
+        phase._workspaces.destroy.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_request_changes_under_cap_stores_feedback(
@@ -372,7 +372,7 @@ class TestRequestChangesRetry:
         phase._prs.post_comment = AsyncMock()
         phase._prs.submit_review = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -380,7 +380,7 @@ class TestRequestChangesRetry:
         # Should swap to ready label (same as REQUEST_CHANGES)
         phase._prs.transition.assert_any_await(42, "ready", pr_number=101)
         # Worktree should be preserved
-        phase._worktrees.destroy.assert_not_awaited()
+        phase._workspaces.destroy.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_approve_resets_review_attempts(
@@ -401,7 +401,7 @@ class TestRequestChangesRetry:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -427,7 +427,7 @@ class TestRequestChangesRetry:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -464,7 +464,7 @@ class TestAdversarialReview:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -493,7 +493,7 @@ class TestAdversarialReview:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -529,7 +529,7 @@ class TestAdversarialReview:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -545,7 +545,7 @@ class TestAdversarialReview:
         cfg = ConfigFactory.create(
             min_review_findings=0,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg)
@@ -565,7 +565,7 @@ class TestAdversarialReview:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -600,7 +600,7 @@ class TestAdversarialReview:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -637,7 +637,7 @@ class TestAdversarialReview:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -1077,14 +1077,14 @@ class TestRunVisualValidation:
         cfg = ConfigFactory.create(
             visual_validation_enabled=False,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg)
         pr = PRInfoFactory.create()
 
         # Act
-        result = await phase._run_visual_validation(pr, config.worktree_base, 0)
+        result = await phase._run_visual_validation(pr, config.workspace_base, 0)
 
         # Assert
         assert result is None
@@ -1097,7 +1097,7 @@ class TestRunVisualValidation:
         pr = PRInfoFactory.create()
 
         # Act
-        result = await phase._run_visual_validation(pr, config.worktree_base, 0)
+        result = await phase._run_visual_validation(pr, config.workspace_base, 0)
 
         # Assert
         assert result is not None
@@ -1116,7 +1116,7 @@ class TestRunVisualValidation:
         )
 
         # Act
-        result = await phase._run_visual_validation(pr, config.worktree_base, 0)
+        result = await phase._run_visual_validation(pr, config.workspace_base, 0)
 
         # Assert
         assert result is None

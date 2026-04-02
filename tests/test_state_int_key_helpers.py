@@ -98,15 +98,15 @@ class TestAccessorMethodsUseHelpers:
 
     def test_set_and_get_worktree(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
-        tracker.set_worktree(10, "/tmp/wt-10")
-        worktrees = tracker.get_active_worktrees()
+        tracker.set_workspace(10, "/tmp/wt-10")
+        worktrees = tracker.get_active_workspaces()
         assert worktrees == {10: "/tmp/wt-10"}
 
-    def test_remove_worktree(self, tmp_path: Path) -> None:
+    def test_remove_workspace(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
-        tracker.set_worktree(10, "/tmp/wt-10")
-        tracker.remove_worktree(10)
-        assert tracker.get_active_worktrees() == {}
+        tracker.set_workspace(10, "/tmp/wt-10")
+        tracker.remove_workspace(10)
+        assert tracker.get_active_workspaces() == {}
 
     def test_set_and_get_branch(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
@@ -239,7 +239,7 @@ class TestStateRoundtrip:
 
         # Populate various int-keyed fields
         tracker.mark_issue(1, "triaged")
-        tracker.set_worktree(2, "/tmp/wt-2")
+        tracker.set_workspace(2, "/tmp/wt-2")
         tracker.set_branch(3, "issue-3")
         tracker.mark_pr(4, "approved")
         tracker.set_hitl_origin(5, "hydraflow-implement")
@@ -259,7 +259,7 @@ class TestStateRoundtrip:
 
         # Verify all fields roundtrip correctly
         assert tracker2.to_dict()["processed_issues"]["1"] == "triaged"
-        assert tracker2.get_active_worktrees() == {2: "/tmp/wt-2"}
+        assert tracker2.get_active_workspaces() == {2: "/tmp/wt-2"}
         assert tracker2.get_branch(3) == "issue-3"
         assert tracker2.to_dict()["reviewed_prs"]["4"] == "approved"
         assert tracker2.get_hitl_origin(5) == "hydraflow-implement"
@@ -278,24 +278,24 @@ class TestStateRoundtrip:
     def test_json_uses_string_keys(self, tmp_path: Path) -> None:
         """Verify the persisted JSON file uses string keys (backwards compat)."""
         tracker = make_tracker(tmp_path)
-        tracker.set_worktree(42, "/tmp/wt-42")
+        tracker.set_workspace(42, "/tmp/wt-42")
         tracker.increment_review_attempts(99)
 
         raw = json.loads((tmp_path / "state.json").read_text())
         # JSON keys must be strings
-        assert "42" in raw["active_worktrees"]
+        assert "42" in raw["active_workspaces"]
         assert "99" in raw["review_attempts"]
         # int keys should NOT appear
-        assert 42 not in raw["active_worktrees"]
+        assert 42 not in raw["active_workspaces"]
         assert 99 not in raw["review_attempts"]
 
     def test_multiple_entries_roundtrip(self, tmp_path: Path) -> None:
         """Multiple entries in the same dict field survive roundtrip."""
         tracker = make_tracker(tmp_path)
-        tracker.set_worktree(1, "/a")
-        tracker.set_worktree(2, "/b")
-        tracker.set_worktree(3, "/c")
+        tracker.set_workspace(1, "/a")
+        tracker.set_workspace(2, "/b")
+        tracker.set_workspace(3, "/c")
 
         tracker2 = StateTracker(tmp_path / "state.json")
-        wts = tracker2.get_active_worktrees()
+        wts = tracker2.get_active_workspaces()
         assert wts == {1: "/a", 2: "/b", 3: "/c"}

@@ -143,12 +143,12 @@ class WorkerStateMixin:
         stored.pop("enabled", None)  # enabled is runtime-only
         raw_details = stored.get("details")
         details = self._normalise_details(
-            raw_details if isinstance(raw_details, (dict, str)) else None
+            raw_details if isinstance(raw_details, dict | str) else None
         )
         status = str(stored.get("status", "disabled"))
         raw_last_run = stored.get("last_run")
         last_run = self._coerce_last_run(
-            raw_last_run if isinstance(raw_last_run, (str, int, float)) else None
+            raw_last_run if isinstance(raw_last_run, str | int | float) else None
         )
         self._persist_worker_state(name, status, last_run, details)
         self.save()

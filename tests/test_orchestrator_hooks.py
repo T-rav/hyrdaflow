@@ -980,9 +980,14 @@ class TestStartSession:
         orch = HydraFlowOrchestrator(config, event_bus=bus)
 
         await orch._start_session()
+        await asyncio.sleep(0)  # Flush pending event-loop callbacks
 
-        events = [e for e in bus.get_history() if e.type == EventType.SESSION_START]
-        assert len(events) == 1
+        history = bus.get_history()
+        events = [e for e in history if e.type == EventType.SESSION_START]
+        assert len(events) == 1, (
+            f"Expected 1 SESSION_START event, got {len(events)}. "
+            f"Total history: {len(history)} events, types: {[e.type for e in history]}"
+        )
         assert events[0].data["repo"] == config.repo
 
     @pytest.mark.asyncio

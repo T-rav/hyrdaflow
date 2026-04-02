@@ -15,27 +15,6 @@ from events import EventBus
 from tests.helpers import find_endpoint, make_dashboard_router
 
 
-class TestControlStatusImproveLabel:
-    """Tests that /api/control/status includes improve_label."""
-
-    @pytest.mark.asyncio
-    async def test_control_status_includes_improve_label(
-        self, config, event_bus: EventBus, state, tmp_path: Path
-    ) -> None:
-        """GET /api/control/status should include improve_label from config."""
-        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
-
-        get_control_status = find_endpoint(router, "/api/control/status")
-
-        assert get_control_status is not None
-        response = await get_control_status()
-
-        data = json.loads(response.body)
-        assert "config" in data
-        assert "improve_label" in data["config"]
-        assert data["config"]["improve_label"] == config.improve_label
-
-
 class TestControlStatusMaxTriagers:
     """Tests that /api/control/status includes max_triagers."""
 
@@ -81,7 +60,7 @@ class TestControlStatusAppVersion:
         from update_check import UpdateCheckResult
 
         monkeypatch.setattr(
-            "dashboard_routes._routes.load_cached_update_result",
+            "dashboard_routes._control_routes.load_cached_update_result",
             lambda **_kwargs: UpdateCheckResult(
                 current_version="0.9.1",
                 latest_version="0.9.2",
@@ -182,13 +161,13 @@ class TestPatchConfigWithRegistry:
 
         base_cfg = ConfigFactory.create(
             repo_root=tmp_path / "base-repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         repo_cfg = ConfigFactory.create(
             repo="acme/widgets",
             repo_root=tmp_path / "widgets",
-            worktree_base=tmp_path / "widgets-worktrees",
+            workspace_base=tmp_path / "widgets-worktrees",
             state_file=tmp_path / "widgets-state.json",
         )
         runtime_state = StateTracker(repo_cfg.state_file)

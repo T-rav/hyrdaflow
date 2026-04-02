@@ -172,6 +172,7 @@ function AppContent() {
     stageStatus,
     requestChanges,
     config,
+    reporterId,
   } = useHydraFlow()
   const [activeTab, setActiveTab] = useState('issues')
   const [expandedStages, setExpandedStages] = useState({})
@@ -245,8 +246,16 @@ function AppContent() {
               onRequestChanges={handleRequestChanges}
             />
           )}
-          {activeTab === 'outcomes' && <OutcomesPanel />}
-          {activeTab === 'hitl' && <HITLTable items={hitlItems} onRefresh={refreshHitl} />}
+          {activeTab === 'outcomes' && (
+            orchestratorStatus === 'running'
+              ? <OutcomesPanel />
+              : <div style={idleMessage}>Pipeline is not running — outcomes data may be stale.</div>
+          )}
+          {activeTab === 'hitl' && (
+            orchestratorStatus === 'running'
+              ? <HITLTable items={hitlItems} onRefresh={refreshHitl} />
+              : <div style={idleMessage}>Pipeline is not running — HITL actions are unavailable.</div>
+          )}
           {activeTab === 'system' && (
             <SystemPanel
               backgroundWorkers={backgroundWorkers}
@@ -281,6 +290,13 @@ const _alertRefreshBase = {
   color: theme.red,
   marginLeft: 'auto',
   flexShrink: 0,
+}
+
+const idleMessage = {
+  padding: 32,
+  textAlign: 'center',
+  color: theme.dimText,
+  fontSize: 13,
 }
 
 const styles = {

@@ -19,7 +19,7 @@ def _get_function_docstrings(filepath: Path) -> dict[str, str | None]:
     tree = ast.parse(source, filename=str(filepath))
     result: dict[str, str | None] = {}
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             result[node.name] = ast.get_docstring(node)
     return result
 
@@ -29,9 +29,11 @@ class TestDashboardRoutesDocstrings:
 
     @pytest.fixture(autouse=True)
     def _load_docstrings(self) -> None:
-        routes = _get_function_docstrings(SRC / "dashboard_routes" / "_routes.py")
-        common = _get_function_docstrings(SRC / "dashboard_routes" / "_common.py")
-        self.docstrings = {**common, **routes}
+        routes_dir = SRC / "dashboard_routes"
+        merged: dict[str, str | None] = {}
+        for py_file in routes_dir.glob("*.py"):
+            merged.update(_get_function_docstrings(py_file))
+        self.docstrings = merged
 
     @pytest.mark.parametrize(
         "func_name",
