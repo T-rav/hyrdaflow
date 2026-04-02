@@ -13,6 +13,7 @@ from issue_store import IssueStore
 from models import (
     ConversationTurn,
     ShapeConversation,
+    ShapeResult,  # noqa: TCH001
     Task,
 )
 from phase_utils import (
