@@ -5,8 +5,8 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from shared_prompt_prefix import SharedPromptPrefix
 
+from shared_prompt_prefix import SharedPromptPrefix
 from tests.helpers import ConfigFactory
 
 
