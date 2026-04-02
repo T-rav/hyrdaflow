@@ -117,7 +117,6 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("sentry_poll_interval", "SENTRY_POLL_INTERVAL", 600),
     ("sentry_min_events", "SENTRY_MIN_EVENTS", 2),
     ("security_patch_interval", "HYDRAFLOW_SECURITY_PATCH_INTERVAL", 3600),
-    ("ci_monitor_interval", "HYDRAFLOW_CI_MONITOR_INTERVAL", 1800),
     ("code_grooming_interval", "HYDRAFLOW_CODE_GROOMING_INTERVAL", 86400),
 ]
 
