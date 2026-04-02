@@ -57,9 +57,9 @@ class TestWorkerResultBuilder:
         same = builder.with_issue_number(1)
         assert same is builder
 
-    def test_with_worktree_path(self):
-        result = WorkerResultBuilder().with_worktree_path("/tmp/wt").build()
-        assert result.worktree_path == "/tmp/wt"
+    def test_with_workspace_path(self):
+        result = WorkerResultBuilder().with_workspace_path("/tmp/wt").build()
+        assert result.workspace_path == "/tmp/wt"
 
     def test_with_quality_attempts(self):
         result = (
@@ -85,7 +85,7 @@ class TestWorkerResultBuilder:
         assert result.success is False
         assert result.transcript == ""
         assert result.commits == 0
-        assert result.worktree_path == ""
+        assert result.workspace_path == ""
 
     def test_model_defaults_with_overrides(self):
         """with_model_defaults() still respects explicit .with_*() overrides."""

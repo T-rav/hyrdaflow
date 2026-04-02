@@ -57,7 +57,7 @@ def _setup_escalate_to_hitl_mocks(phase: ReviewPhase) -> None:
 def _setup_conflict_scenario(phase: ReviewPhase) -> None:
     """Set up mocks for a merge-conflict escalation scenario (merge_main returns False)."""
     _setup_escalate_to_hitl_mocks(phase)
-    phase._worktrees.merge_main = AsyncMock(return_value=False)
+    phase._workspaces.merge_main = AsyncMock(return_value=False)
 
 
 def _setup_rejected_review_mocks(phase: ReviewPhase) -> None:
@@ -140,7 +140,7 @@ class TestReviewPRs:
         ]
 
         for i in range(1, 7):
-            wt = config.worktree_base / f"issue-{i}"
+            wt = config.workspace_base / f"issue-{i}"
             wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs(prs, issues)
@@ -158,7 +158,7 @@ class TestPostMergeConflictFix:
         phase = make_review_phase(config)
         pr = PRInfoFactory.create(number=101, issue_number=42, branch="agent/issue-42")
         issue = TaskFactory.create(id=42)
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         phase._conflict_resolver.resolve_merge_conflicts = AsyncMock(
@@ -177,7 +177,7 @@ class TestPostMergeConflictFix:
         phase = make_review_phase(config)
         pr = PRInfoFactory.create(number=101, issue_number=42, branch="agent/issue-42")
         issue = TaskFactory.create(id=42)
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         phase._conflict_resolver.resolve_merge_conflicts = AsyncMock(
@@ -200,7 +200,7 @@ class TestPostMergeConflictFix:
         phase._prs.get_pr_diff = AsyncMock(return_value="diff")
 
         # Worktree for issue-999 exists
-        wt = config.worktree_path_for_issue(999)
+        wt = config.workspace_path_for_issue(999)
         wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [])  # no matching issues
@@ -250,12 +250,12 @@ class TestPostMergeConflictFix:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._worktrees.merge_main = AsyncMock(return_value=True)
+        phase._workspaces.merge_main = AsyncMock(return_value=True)
 
         results = await phase.review_prs([pr], [issue])
 
         assert results[0].merged is True
-        phase._worktrees.merge_main.assert_awaited_once()
+        phase._workspaces.merge_main.assert_awaited_once()
         phase._prs.push_branch.assert_awaited()
         phase._reviewers.review.assert_awaited_once()
 
@@ -275,10 +275,10 @@ class TestPostMergeConflictFix:
 
         _setup_conflict_scenario(phase)
         # Agent resolution also fails
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
-        phase._worktrees.abort_merge = AsyncMock()
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.abort_merge = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
@@ -305,10 +305,10 @@ class TestPostMergeConflictFix:
         pr = PRInfoFactory.create()
 
         _setup_conflict_scenario(phase)
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
-        phase._worktrees.abort_merge = AsyncMock()
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.abort_merge = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -330,10 +330,10 @@ class TestPostMergeConflictFix:
         pr = PRInfoFactory.create()
 
         _setup_conflict_scenario(phase)
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
-        phase._worktrees.abort_merge = AsyncMock()
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.abort_merge = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -354,9 +354,9 @@ class TestPostMergeConflictFix:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._worktrees.merge_main = AsyncMock(return_value=False)  # Conflicts
+        phase._workspaces.merge_main = AsyncMock(return_value=False)  # Conflicts
         # But agent resolves them
-        phase._worktrees.start_merge_main = AsyncMock(return_value=False)
+        phase._workspaces.start_merge_main = AsyncMock(return_value=False)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -375,7 +375,7 @@ class TestPostMergeConflictFix:
 
         _setup_conflict_scenario(phase)
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
@@ -396,7 +396,7 @@ class TestPostMergeConflictFix:
         phase._prs.merge_pr = AsyncMock(return_value=False)  # Override for this test
         phase._prs.remove_pr_label = AsyncMock()
         phase._prs.add_pr_labels = AsyncMock()
-        phase._worktrees.merge_main = AsyncMock(return_value=True)
+        phase._workspaces.merge_main = AsyncMock(return_value=True)
 
         results = await phase.review_prs([pr], [issue])
 
@@ -421,7 +421,7 @@ class TestPostMergeConflictFix:
         phase._prs.merge_pr = AsyncMock(return_value=False)  # Override for this test
         phase._prs.remove_pr_label = AsyncMock()
         phase._prs.add_pr_labels = AsyncMock()
-        phase._worktrees.merge_main = AsyncMock(return_value=True)
+        phase._workspaces.merge_main = AsyncMock(return_value=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -439,7 +439,7 @@ class TestPostMergeConflictFix:
         phase._prs.merge_pr = AsyncMock(return_value=False)  # Override for this test
         phase._prs.remove_pr_label = AsyncMock()
         phase._prs.add_pr_labels = AsyncMock()
-        phase._worktrees.merge_main = AsyncMock(return_value=True)
+        phase._workspaces.merge_main = AsyncMock(return_value=True)
 
         await phase.review_prs([pr], [issue])
 
@@ -677,7 +677,7 @@ class TestPostMergeConflictFix:
         phase._prs.submit_review = fake_submit_review  # type: ignore[method-assign]
 
         for i in (1, 2):
-            wt = config.worktree_base / f"issue-{i}"
+            wt = config.workspace_base / f"issue-{i}"
             wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs(prs, issues)
@@ -744,7 +744,7 @@ class TestPostMergeConflictFix:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -795,7 +795,7 @@ class TestReviewExceptionIsolation:
         phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
         phase._prs.push_branch = AsyncMock(return_value=True)
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [issue])
@@ -819,7 +819,7 @@ class TestReviewExceptionIsolation:
         phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
         phase._prs.push_branch = AsyncMock(return_value=True)
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [issue])
@@ -864,7 +864,7 @@ class TestReviewExceptionIsolation:
         phase._prs.add_labels = AsyncMock()
 
         for i in (1, 2):
-            wt = config.worktree_base / f"issue-{i}"
+            wt = config.workspace_base / f"issue-{i}"
             wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs(prs, issues)
@@ -894,7 +894,7 @@ class TestActiveIssuesCleanup:
         phase = make_review_phase(config)
         pr = PRInfoFactory.create(issue_number=999)
 
-        wt = config.worktree_path_for_issue(999)
+        wt = config.workspace_path_for_issue(999)
         wt.mkdir(parents=True, exist_ok=True)
 
         results = await phase.review_prs([pr], [])  # no matching issues
@@ -912,11 +912,11 @@ class TestActiveIssuesCleanup:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._worktrees.merge_main = AsyncMock(
+        phase._workspaces.merge_main = AsyncMock(
             side_effect=RuntimeError("merge exploded")
         )
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         # Exception isolation catches the error and returns a failed result
@@ -939,7 +939,7 @@ class TestActiveIssuesCleanup:
         phase._prs.get_pr_diff = AsyncMock(return_value="diff")
         phase._prs.push_branch = AsyncMock(return_value=True)
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         # Exception isolation catches the error and returns a failed result
@@ -958,7 +958,7 @@ class TestActiveIssuesCleanup:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        phase._worktrees.create = AsyncMock(
+        phase._workspaces.create = AsyncMock(
             side_effect=RuntimeError("worktree create failed")
         )
 
@@ -1023,7 +1023,7 @@ class TestReviewUpdateStartEvent:
         phase = make_review_phase(config, event_bus=event_bus)
         pr = PRInfoFactory.create(issue_number=999)
 
-        wt = config.worktree_path_for_issue(999)
+        wt = config.workspace_path_for_issue(999)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase.review_prs([pr], [])
@@ -1079,7 +1079,7 @@ class TestRunAndPostReview:
         phase._prs.post_pr_comment = AsyncMock()
 
         result = await phase._run_and_post_review(
-            pr, issue, config.worktree_path_for_issue(42), "diff", 0
+            pr, issue, config.workspace_path_for_issue(42), "diff", 0
         )
 
         assert result.fixes_made is True
@@ -1098,7 +1098,7 @@ class TestRunAndPostReview:
         phase._prs.post_pr_comment = AsyncMock()
 
         result = await phase._run_and_post_review(
-            pr, issue, config.worktree_path_for_issue(42), "diff", 0
+            pr, issue, config.workspace_path_for_issue(42), "diff", 0
         )
 
         assert (
@@ -1122,7 +1122,7 @@ class TestRunAndPostReview:
         phase._prs.submit_review = AsyncMock()
 
         await phase._run_and_post_review(
-            pr, issue, config.worktree_path_for_issue(42), "diff", 0
+            pr, issue, config.workspace_path_for_issue(42), "diff", 0
         )
 
         phase._prs.submit_review.assert_not_awaited()
@@ -1143,7 +1143,7 @@ class TestRunAndPostReview:
         phase._prs.submit_review = AsyncMock()
 
         result = await phase._run_and_post_review(
-            pr, issue, config.worktree_path_for_issue(42), "diff", 0
+            pr, issue, config.workspace_path_for_issue(42), "diff", 0
         )
 
         assert (
@@ -1169,7 +1169,7 @@ class TestRunAndPostReview:
         )
 
         result = await phase._run_and_post_review(
-            pr, issue, config.worktree_path_for_issue(42), "diff", 0
+            pr, issue, config.workspace_path_for_issue(42), "diff", 0
         )
 
         assert result.verdict == ReviewVerdict.REQUEST_CHANGES
@@ -1190,7 +1190,7 @@ class TestHandleApprovedMerge:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase._handle_approved_merge(pr, issue, result, "diff", 0)
@@ -1211,7 +1211,7 @@ class TestHandleApprovedMerge:
         phase._prs.merge_pr = AsyncMock(return_value=False)
         _setup_escalate_to_hitl_mocks(phase)
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase._handle_approved_merge(pr, issue, result, "diff", 0)
@@ -1231,7 +1231,7 @@ class TestHandleApprovedMerge:
         phase._prs.remove_label = AsyncMock()
         phase._prs.add_labels = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         await phase._handle_approved_merge(pr, issue, result, "diff", 0)
@@ -1414,7 +1414,7 @@ class TestReviewOneInner:
         phase = make_review_phase(config)
         pr = PRInfoFactory.create(issue_number=999)
 
-        wt = config.worktree_path_for_issue(999)
+        wt = config.workspace_path_for_issue(999)
         wt.mkdir(parents=True, exist_ok=True)
 
         result = await phase._review_one_inner(0, pr, {})
@@ -1447,7 +1447,7 @@ class TestReviewOneInner:
         _setup_conflict_scenario(phase)
         phase._prs.push_branch = AsyncMock()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         result = await phase._review_one_inner(0, pr, {42: issue})
@@ -1554,7 +1554,7 @@ class TestHandleRejectedReview:
         config = ConfigFactory.create(
             max_review_fix_attempts=2,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         phase = make_review_phase(config)
@@ -1583,7 +1583,7 @@ class TestHandleRejectedReview:
         config = ConfigFactory.create(
             max_review_fix_attempts=2,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         phase = make_review_phase(config, event_bus=event_bus)
@@ -1610,7 +1610,7 @@ class TestHandleRejectedReview:
         config = ConfigFactory.create(
             max_review_fix_attempts=1,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         phase = make_review_phase(config)
@@ -1663,7 +1663,7 @@ class TestAttemptReviewFix:
         pr = PRInfoFactory.create()
         phase._prs.get_pr_diff = AsyncMock(return_value="updated diff")
         phase._prs.push_branch = AsyncMock(return_value=True)
-        wt = config.worktree_base / f"issue-{pr.issue_number}"
+        wt = config.workspace_base / f"issue-{pr.issue_number}"
         wt.mkdir(parents=True, exist_ok=True)
         return phase, pr, issue, wt
 
@@ -1772,7 +1772,7 @@ class TestHandleSelfFixReReview:
         pr = PRInfoFactory.create()
         phase._prs.get_pr_diff = AsyncMock(return_value="updated diff")
         phase._prs.push_branch = AsyncMock(return_value=True)
-        wt = config.worktree_base / f"issue-{pr.issue_number}"
+        wt = config.workspace_base / f"issue-{pr.issue_number}"
         wt.mkdir(parents=True, exist_ok=True)
         return phase, pr, issue, wt
 
@@ -1900,7 +1900,7 @@ class TestCriticalExceptionPropagation:
         )
         phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         with pytest.raises(AuthenticationError, match="401"):
@@ -1922,7 +1922,7 @@ class TestCriticalExceptionPropagation:
         )
         phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         with pytest.raises(CreditExhaustedError, match="limit reached"):
@@ -1940,7 +1940,7 @@ class TestCriticalExceptionPropagation:
         phase._reviewers.review = AsyncMock(side_effect=MemoryError("OOM"))
         phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         with pytest.raises(MemoryError, match="OOM"):
@@ -1970,7 +1970,7 @@ class TestCriticalExceptionPropagation:
             await phase._handle_self_fix_re_review(
                 pr,
                 issue,
-                config.worktree_path_for_issue(42),
+                config.workspace_path_for_issue(42),
                 original_result,
                 "diff",
                 worker_id=0,
@@ -1996,7 +1996,7 @@ class TestCriticalExceptionPropagation:
             await phase._handle_self_fix_re_review(
                 pr,
                 issue,
-                config.worktree_path_for_issue(42),
+                config.workspace_path_for_issue(42),
                 original_result,
                 "diff",
                 worker_id=0,
@@ -2018,7 +2018,7 @@ class TestCriticalExceptionPropagation:
         )
         phase._prs.get_pr_diff = AsyncMock(return_value="diff text")
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         with pytest.raises(AuthenticationError):
@@ -2223,7 +2223,7 @@ class TestCleanupWorktree:
 
         await phase._cleanup_worktree(pr, result, skip=False)
 
-        phase._worktrees.post_work_cleanup.assert_awaited_once_with(pr.issue_number)
+        phase._workspaces.post_work_cleanup.assert_awaited_once_with(pr.issue_number)
 
     @pytest.mark.asyncio
     async def test_preserves_when_skipped(self, config: HydraFlowConfig) -> None:
@@ -2234,7 +2234,7 @@ class TestCleanupWorktree:
 
         await phase._cleanup_worktree(pr, result, skip=True)
 
-        phase._worktrees.post_work_cleanup.assert_not_awaited()
+        phase._workspaces.post_work_cleanup.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_preserves_when_stop_event_set_and_not_merged(
@@ -2249,7 +2249,7 @@ class TestCleanupWorktree:
 
         await phase._cleanup_worktree(pr, result, skip=False)
 
-        phase._worktrees.post_work_cleanup.assert_not_awaited()
+        phase._workspaces.post_work_cleanup.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_destroys_when_stop_event_set_but_merged(
@@ -2264,33 +2264,27 @@ class TestCleanupWorktree:
 
         await phase._cleanup_worktree(pr, result, skip=False)
 
-        phase._worktrees.post_work_cleanup.assert_awaited_once_with(pr.issue_number)
+        phase._workspaces.post_work_cleanup.assert_awaited_once_with(pr.issue_number)
 
 
-class TestConstructorDefaultHelpers:
-    """Tests that ReviewPhase builds default helpers when not provided."""
+class TestRequiredDIParameters:
+    """Tests that ReviewPhase requires DI parameters (no fallback constructors)."""
 
-    def test_builds_default_conflict_resolver(self, config: HydraFlowConfig) -> None:
-        """ReviewPhase should build a MergeConflictResolver when not provided."""
+    def test_conflict_resolver_injected(self, config: HydraFlowConfig) -> None:
+        """ReviewPhase should receive a MergeConflictResolver via DI."""
         from merge_conflict_resolver import MergeConflictResolver
 
         phase = make_review_phase(config)
 
         assert isinstance(phase._conflict_resolver, MergeConflictResolver)
 
-    def test_builds_default_post_merge_handler(self, config: HydraFlowConfig) -> None:
-        """ReviewPhase should build a PostMergeHandler with all optional deps None."""
+    def test_post_merge_handler_injected(self, config: HydraFlowConfig) -> None:
+        """ReviewPhase should receive a PostMergeHandler via DI."""
         from post_merge_handler import PostMergeHandler
 
         phase = make_review_phase(config)
 
         assert isinstance(phase._post_merge, PostMergeHandler)
-        # Verify all optional post-merge dependencies default to None, not to
-        # values carried over from removed ReviewPhase constructor parameters.
-        assert phase._post_merge._ac_generator is None
-        assert phase._post_merge._retrospective is None
-        assert phase._post_merge._verification_judge is None
-        assert phase._post_merge._epic_checker is None
 
 
 class TestADRReviewPath:
@@ -2394,7 +2388,7 @@ class TestRunInitialGuards:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create(issue_number=issue.id)
 
-        wt_path = config.worktree_path_for_issue(issue.id)
+        wt_path = config.workspace_path_for_issue(issue.id)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         phase._prepare_review_worktree = AsyncMock(return_value=wt_path)
@@ -2403,7 +2397,7 @@ class TestRunInitialGuards:
 
         assert isinstance(guards, ReviewGuardContext)
         assert guards.task == issue
-        assert guards.worktree_path == wt_path
+        assert guards.workspace_path == wt_path
         phase._prepare_review_worktree.assert_awaited_once_with(pr, issue, 0)
 
 
@@ -2485,7 +2479,7 @@ class TestRunPostReviewActions:
         phase = make_review_phase(config)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create(issue_number=issue.id)
-        wt_path = config.worktree_path_for_issue(issue.id)
+        wt_path = config.workspace_path_for_issue(issue.id)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         initial = ReviewResultFactory.create(
@@ -2530,7 +2524,7 @@ class TestRunPostReviewActions:
         phase = make_review_phase(config)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create(issue_number=issue.id)
-        wt_path = config.worktree_path_for_issue(issue.id)
+        wt_path = config.workspace_path_for_issue(issue.id)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         result = ReviewResultFactory.create(
@@ -2586,7 +2580,7 @@ class TestBaselinePolicyIntegration:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         result = await phase._review_one_inner(0, pr, {42: issue})
@@ -2618,7 +2612,7 @@ class TestBaselinePolicyIntegration:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         result = await phase._review_one_inner(0, pr, {42: issue})
@@ -2653,7 +2647,7 @@ class TestBaselinePolicyIntegration:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         result = await phase._review_one_inner(0, pr, {42: issue})
@@ -2677,7 +2671,7 @@ class TestBaselinePolicyIntegration:
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
 
-        wt = config.worktree_path_for_issue(42)
+        wt = config.workspace_path_for_issue(42)
         wt.mkdir(parents=True, exist_ok=True)
 
         result = await phase._review_one_inner(0, pr, {42: issue})

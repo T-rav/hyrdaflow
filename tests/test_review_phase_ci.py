@@ -42,7 +42,7 @@ class TestWaitAndFixCI:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=2,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -65,7 +65,7 @@ class TestWaitAndFixCI:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=1,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -94,7 +94,7 @@ class TestWaitAndFixCI:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=0,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -117,7 +117,7 @@ class TestWaitAndFixCI:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=2,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -145,7 +145,7 @@ class TestWaitAndFixCI:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=2,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -188,7 +188,7 @@ class TestWaitAndFixCI:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=3,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -219,7 +219,7 @@ class TestWaitAndFixCI:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=1,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -251,7 +251,7 @@ class TestWaitAndFixCI:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=1,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -280,7 +280,7 @@ class TestWaitAndFixCI:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=1,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -316,7 +316,7 @@ class TestWaitAndFixCIEdgeCases:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=2,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -351,7 +351,7 @@ class TestWaitAndFixCIEdgeCases:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=2,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -389,7 +389,7 @@ class TestWaitAndFixCIWithLogs:
         config = ConfigFactory.create(
             max_ci_fix_attempts=1,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "state.json",
         )
         phase = make_review_phase(config, default_mocks=True)
@@ -434,7 +434,7 @@ class TestCodeScanningAlertsFetch:
         """When code_scanning_enabled is True and alerts exist, returns them."""
         cfg = ConfigFactory.create(
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -451,7 +451,7 @@ class TestCodeScanningAlertsFetch:
         """When API returns empty list, returns None."""
         cfg = ConfigFactory.create(
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -467,7 +467,7 @@ class TestCodeScanningAlertsFetch:
         """When API raises, returns None gracefully."""
         cfg = ConfigFactory.create(
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -489,7 +489,7 @@ class TestCodeScanningAlertThreading:
         """Alerts are passed through to the reviewer.review call."""
         cfg = ConfigFactory.create(
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -511,7 +511,7 @@ class TestCodeScanningAlertThreading:
         cfg = ConfigFactory.create(
             max_ci_fix_attempts=1,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -549,7 +549,7 @@ class TestVisualGate:
         cfg = ConfigFactory.create(
             visual_gate_enabled=False,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -570,7 +570,7 @@ class TestVisualGate:
             visual_gate_enabled=True,
             visual_gate_bypass=True,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -597,7 +597,7 @@ class TestVisualGate:
             visual_gate_enabled=True,
             visual_gate_bypass=False,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -620,7 +620,7 @@ class TestVisualGate:
         cfg = ConfigFactory.create(
             visual_gate_enabled=True,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -647,7 +647,7 @@ class TestVisualGate:
         cfg = ConfigFactory.create(
             visual_gate_enabled=True,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -671,7 +671,7 @@ class TestVisualGate:
             visual_gate_enabled=True,
             visual_gate_bypass=False,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -700,7 +700,7 @@ class TestVisualGate:
             visual_gate_enabled=True,
             visual_gate_bypass=False,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -725,7 +725,7 @@ class TestVisualGate:
             visual_gate_enabled=True,
             visual_gate_bypass=False,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)
@@ -756,7 +756,7 @@ class TestVisualGate:
             visual_gate_enabled=True,
             visual_gate_bypass=False,
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         phase = make_review_phase(cfg, default_mocks=True)

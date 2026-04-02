@@ -678,7 +678,7 @@ class TestMemorySyncWorkerSync:
         )
 
     def test_normalize_adr_topic_strips_prefixes(self) -> None:
-        from phase_utils import normalize_adr_topic
+        from adr_utils import normalize_adr_topic
 
         assert (
             normalize_adr_topic("[Memory] ADR test policy — only structural tests")
@@ -692,7 +692,7 @@ class TestMemorySyncWorkerSync:
         )
 
     def test_load_existing_adr_topics_reads_docs_adr(self, tmp_path: Path) -> None:
-        from phase_utils import load_existing_adr_topics
+        from adr_utils import load_existing_adr_topics
 
         adr_dir = tmp_path / "docs" / "adr"
         adr_dir.mkdir(parents=True)
@@ -879,7 +879,7 @@ class TestMemoryModels:
             {
                 "number": 42,
                 "title": "Test",
-                "createdAt": "2024-06-15T12:00:00Z",
+                "created_at": "2024-06-15T12:00:00Z",
             }
         )
         assert issue.created_at == "2024-06-15T12:00:00Z"
@@ -1226,8 +1226,8 @@ class TestRouteAdrCandidatesPerItemIsolation:
         adr_sources_path.parent.mkdir(parents=True, exist_ok=True)
 
         with (
-            patch("phase_utils.load_existing_adr_topics", return_value=set()),
-            patch("phase_utils.normalize_adr_topic", side_effect=lambda t: t.lower()),
+            patch("memory.load_existing_adr_topics", return_value=set()),
+            patch("memory.normalize_adr_topic", side_effect=lambda t: t.lower()),
         ):
             await worker._route_adr_candidates(issues)
 

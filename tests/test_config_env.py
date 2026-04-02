@@ -44,7 +44,7 @@ class TestEnvVarOverrideTable:
         monkeypatch.setenv(env_key, str(override_value))
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert getattr(cfg, field) == override_value
@@ -69,7 +69,7 @@ class TestEnvVarOverrideTable:
         cfg = HydraFlowConfig(
             **{field: explicit},  # type: ignore[arg-type]
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert getattr(cfg, field) == explicit
@@ -91,7 +91,7 @@ class TestEnvVarOverrideTable:
         monkeypatch.setenv(env_key, "not-a-number")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert getattr(cfg, field) == default
@@ -113,7 +113,7 @@ class TestEnvVarOverrideTable:
         monkeypatch.setenv(env_key, "custom-value")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         result = getattr(cfg, field)
@@ -144,7 +144,7 @@ class TestEnvVarOverrideTable:
         cfg = HydraFlowConfig(
             **{field: explicit},  # type: ignore[arg-type]
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert str(getattr(cfg, field)) == explicit
@@ -167,7 +167,7 @@ class TestEnvVarOverrideTable:
         monkeypatch.setenv(env_key, str(override_value))
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert getattr(cfg, field) == pytest.approx(override_value)
@@ -191,7 +191,7 @@ class TestEnvVarOverrideTable:
         cfg = HydraFlowConfig(
             **{field: explicit},  # type: ignore[arg-type]
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert getattr(cfg, field) == pytest.approx(explicit)
@@ -213,7 +213,7 @@ class TestEnvVarOverrideTable:
         monkeypatch.setenv(env_key, "not-a-number")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert getattr(cfg, field) == pytest.approx(default)
@@ -235,7 +235,7 @@ class TestEnvVarOverrideTable:
         monkeypatch.setenv(env_key, "false")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert getattr(cfg, field) is False
@@ -258,7 +258,7 @@ class TestEnvVarOverrideTable:
             monkeypatch.setenv(env_key, truthy)
             cfg = HydraFlowConfig(
                 repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
+                workspace_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
             )
             assert getattr(cfg, field) is True, f"'{truthy}' should parse as True"
@@ -281,7 +281,7 @@ class TestEnvVarOverrideTable:
             monkeypatch.setenv(env_key, falsy)
             cfg = HydraFlowConfig(
                 repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
+                workspace_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
             )
             assert getattr(cfg, field) is False, f"'{falsy}' should parse as False"
@@ -307,7 +307,7 @@ class TestEnvVarOverrideTable:
         cfg = HydraFlowConfig(
             **{field: explicit},  # type: ignore[arg-type]
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert getattr(cfg, field) is explicit
@@ -337,7 +337,7 @@ class TestEnvVarOverrideTable:
             monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert getattr(cfg, field) == non_default
@@ -368,7 +368,7 @@ class TestEnvVarOverrideTable:
         cfg = HydraFlowConfig(
             **{field: non_default},  # type: ignore[arg-type]
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         assert getattr(cfg, field) == non_default
@@ -392,7 +392,7 @@ class TestEnvVarOverrideTable:
         with caplog.at_level(logging.WARNING, logger="hydraflow.config"):
             cfg = HydraFlowConfig(
                 repo_root=tmp_path,
-                worktree_base=tmp_path / "wt",
+                workspace_base=tmp_path / "wt",
                 state_file=tmp_path / "s.json",
             )
         assert getattr(cfg, field) == default

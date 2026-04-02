@@ -21,7 +21,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from ports import PRPort, WorkspacePort
+from ports import IssueFetcherPort, IssueStorePort, PRPort, WorkspacePort
 
 # ---------------------------------------------------------------------------
 # PRPort
@@ -87,7 +87,7 @@ class TestWorkspacePortConformance:
         from workspace import WorkspaceManager
 
         config = MagicMock()
-        config.worktree_base = Path("/tmp/wt")
+        config.workspace_base = Path("/tmp/wt")
         config.repo_root = Path("/tmp/repo")
         config.main_branch = "main"
         config.git_command_timeout = 30
@@ -128,6 +128,23 @@ class TestPRPortMethods:
         "close_issue",
         "create_issue",
         "list_hitl_items",
+        "find_open_pr_for_branch",
+        "branch_has_diff_from_main",
+        "expected_pr_title",
+        "update_pr_title",
+        "get_pr_diff_names",
+        "get_pr_approvers",
+        "get_pr_head_sha",
+        "get_pr_mergeable",
+        "post_pr_comment",
+        "list_issues_by_label",
+        "get_issue_state",
+        "get_issue_updated_at",
+        "update_issue_body",
+        "get_latest_ci_status",
+        "get_dependabot_alerts",
+        "pull_main",
+        "upload_screenshot",
     ]
 
     @pytest.mark.parametrize("method", _REQUIRED_METHODS)
@@ -148,6 +165,10 @@ class TestWorkspacePortMethods:
         "destroy_all",
         "merge_main",
         "get_conflicting_files",
+        "reset_to_main",
+        "post_work_cleanup",
+        "abort_merge",
+        "start_merge_main",
     ]
 
     @pytest.mark.parametrize("method", _REQUIRED_METHODS)
@@ -212,6 +233,23 @@ class TestPRPortSignatures:
         "close_issue",
         "create_issue",
         "list_hitl_items",
+        "find_open_pr_for_branch",
+        "branch_has_diff_from_main",
+        "expected_pr_title",
+        "update_pr_title",
+        "get_pr_diff_names",
+        "get_pr_approvers",
+        "get_pr_head_sha",
+        "get_pr_mergeable",
+        "post_pr_comment",
+        "list_issues_by_label",
+        "get_issue_state",
+        "get_issue_updated_at",
+        "update_issue_body",
+        "get_latest_ci_status",
+        "get_dependabot_alerts",
+        "pull_main",
+        "upload_screenshot",
     ]
 
     @pytest.mark.parametrize("method", _SIGNED_METHODS)
@@ -231,6 +269,10 @@ class TestWorkspacePortSignatures:
         "destroy_all",
         "merge_main",
         "get_conflicting_files",
+        "reset_to_main",
+        "post_work_cleanup",
+        "abort_merge",
+        "start_merge_main",
     ]
 
     @pytest.mark.parametrize("method", _SIGNED_METHODS)
@@ -239,3 +281,212 @@ class TestWorkspacePortSignatures:
 
         result = _assert_param_names_match(WorkspacePort, WorkspaceManager, method)
         assert result is None  # raises AssertionError on mismatch
+
+
+# ---------------------------------------------------------------------------
+# IssueStorePort
+# ---------------------------------------------------------------------------
+
+
+class TestIssueStorePortConformance:
+    """IssueStore must satisfy the IssueStorePort protocol."""
+
+    def test_issue_store_satisfies_port(self) -> None:
+        """IssueStore is a structural subtype of IssueStorePort."""
+        from events import EventBus
+        from issue_store import IssueStore
+        from task_source import TaskFetcher
+
+        config = MagicMock()
+        config.data_poll_interval = 30
+        config.find_label = ["hydraflow-find"]
+        config.planner_label = ["hydraflow-plan"]
+        config.ready_label = ["hydraflow-ready"]
+        config.review_label = ["hydraflow-review"]
+        config.hitl_label = ["hydraflow-hitl"]
+        config.hitl_active_label = ["hydraflow-hitl-active"]
+        config.epic_child_label = []
+
+        fetcher = AsyncMock(spec=TaskFetcher)
+        bus = EventBus()
+
+        store = IssueStore(config, fetcher, bus)
+        assert isinstance(store, IssueStorePort), (
+            "IssueStore no longer satisfies the IssueStorePort protocol. "
+            "Check that all methods declared in IssueStorePort exist on IssueStore."
+        )
+
+    def test_async_mock_satisfies_issue_store_port(self) -> None:
+        """An AsyncMock spec'd to IssueStorePort is accepted."""
+        mock: IssueStorePort = AsyncMock(spec=IssueStorePort)  # type: ignore[assignment]
+        assert isinstance(mock, IssueStorePort)
+
+
+class TestIssueStorePortMethods:
+    """All methods declared in IssueStorePort exist on IssueStore."""
+
+    _REQUIRED_METHODS = [
+        "get_triageable",
+        "get_plannable",
+        "get_implementable",
+        "get_reviewable",
+        "enqueue_transition",
+        "mark_active",
+        "mark_complete",
+        "mark_merged",
+        "release_in_flight",
+        "is_active",
+        "enrich_with_comments",
+    ]
+
+    @pytest.mark.parametrize("method", _REQUIRED_METHODS)
+    def test_method_exists_on_issue_store(self, method: str) -> None:
+        from issue_store import IssueStore
+
+        assert hasattr(IssueStore, method), (
+            f"IssueStore is missing '{method}' which is declared in IssueStorePort"
+        )
+
+
+class TestIssueStorePortSignatures:
+    """IssueStorePort method signatures must match IssueStore's implementations."""
+
+    _SIGNED_METHODS = [
+        "get_triageable",
+        "get_plannable",
+        "get_implementable",
+        "get_reviewable",
+        "enqueue_transition",
+        "mark_active",
+        "mark_complete",
+        "mark_merged",
+        "release_in_flight",
+        "is_active",
+        "enrich_with_comments",
+    ]
+
+    @pytest.mark.parametrize("method", _SIGNED_METHODS)
+    def test_signature_matches_issue_store(self, method: str) -> None:
+        from issue_store import IssueStore
+
+        result = _assert_param_names_match(IssueStorePort, IssueStore, method)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# IssueFetcherPort
+# ---------------------------------------------------------------------------
+
+
+class TestIssueFetcherPortConformance:
+    """IssueFetcher must satisfy the IssueFetcherPort protocol."""
+
+    def test_issue_fetcher_satisfies_port(self) -> None:
+        """IssueFetcher is a structural subtype of IssueFetcherPort."""
+        from issue_fetcher import IssueFetcher
+
+        config = MagicMock()
+        config.repo = "org/repo"
+        config.gh_token = None
+        config.dry_run = False
+        config.data_poll_interval = 30
+        config.collaborator_cache_ttl = 600
+        config.collaborator_check_enabled = False
+
+        fetcher = IssueFetcher(config)
+        assert isinstance(fetcher, IssueFetcherPort), (
+            "IssueFetcher no longer satisfies the IssueFetcherPort protocol. "
+            "Check that all methods declared in IssueFetcherPort exist on IssueFetcher."
+        )
+
+    def test_async_mock_satisfies_issue_fetcher_port(self) -> None:
+        """An AsyncMock spec'd to IssueFetcherPort is accepted."""
+        mock: IssueFetcherPort = AsyncMock(spec=IssueFetcherPort)  # type: ignore[assignment]
+        assert isinstance(mock, IssueFetcherPort)
+
+
+class TestIssueFetcherPortMethods:
+    """All methods declared in IssueFetcherPort exist on IssueFetcher."""
+
+    _REQUIRED_METHODS = [
+        "fetch_issue_by_number",
+        "fetch_issues_by_labels",
+    ]
+
+    @pytest.mark.parametrize("method", _REQUIRED_METHODS)
+    def test_method_exists_on_issue_fetcher(self, method: str) -> None:
+        from issue_fetcher import IssueFetcher
+
+        assert hasattr(IssueFetcher, method), (
+            f"IssueFetcher is missing '{method}' which is declared in IssueFetcherPort"
+        )
+
+
+class TestIssueFetcherPortSignatures:
+    """IssueFetcherPort method signatures must match IssueFetcher's implementations."""
+
+    _SIGNED_METHODS = [
+        "fetch_issue_by_number",
+        "fetch_issues_by_labels",
+    ]
+
+    @pytest.mark.parametrize("method", _SIGNED_METHODS)
+    def test_signature_matches_issue_fetcher(self, method: str) -> None:
+        from issue_fetcher import IssueFetcher
+
+        result = _assert_param_names_match(IssueFetcherPort, IssueFetcher, method)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# AgentPort
+# ---------------------------------------------------------------------------
+
+
+class TestAgentPortConformance:
+    """AgentRunner must satisfy the AgentPort protocol."""
+
+    def test_agent_runner_satisfies_agent_port(self) -> None:
+        """AgentRunner is a structural subtype of AgentPort."""
+        from agent import AgentRunner
+        from ports import AgentPort
+
+        assert isinstance(AgentRunner.__new__(AgentRunner), AgentPort), (
+            "AgentRunner no longer satisfies the AgentPort protocol. "
+            "Check that all methods declared in AgentPort exist on AgentRunner."
+        )
+
+
+class TestAgentPortMethods:
+    """All methods declared in AgentPort exist on AgentRunner."""
+
+    _REQUIRED_METHODS = [
+        "_build_command",
+        "_execute",
+        "_verify_result",
+    ]
+
+    @pytest.mark.parametrize("method", _REQUIRED_METHODS)
+    def test_method_exists_on_agent_runner(self, method: str) -> None:
+        from agent import AgentRunner
+
+        assert hasattr(AgentRunner, method), (
+            f"AgentRunner is missing '{method}' which is declared in AgentPort"
+        )
+
+
+class TestAgentPortSignatures:
+    """AgentPort method signatures must match AgentRunner's implementations."""
+
+    _SIGNED_METHODS = [
+        "_build_command",
+        "_execute",
+    ]
+
+    @pytest.mark.parametrize("method", _SIGNED_METHODS)
+    def test_signature_matches_agent_runner(self, method: str) -> None:
+        from agent import AgentRunner
+        from ports import AgentPort
+
+        result = _assert_param_names_match(AgentPort, AgentRunner, method)
+        assert result is None

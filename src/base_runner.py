@@ -53,6 +53,11 @@ class BaseRunner:
         self._last_context_stats: dict[str, int] = {"cache_hits": 0, "cache_misses": 0}
         self._hindsight = hindsight
 
+    @property
+    def active_count(self) -> int:
+        """Number of currently running subprocesses."""
+        return len(self._active_procs)
+
     def terminate(self) -> None:
         """Kill all active subprocesses."""
         terminate_processes(self._active_procs)
@@ -192,6 +197,8 @@ class BaseRunner:
         retrospectives_raw = ""
         review_insights_raw = ""
         harness_insights_raw = ""
+        dedup_items_removed = 0
+        dedup_chars_saved = 0
 
         if self._hindsight and query_context:
             from hindsight import Bank, format_memories_as_markdown, recall_safe
@@ -273,6 +280,54 @@ class BaseRunner:
             except ImportError:
                 pass
 
+        # Deduplicate memory items across banks before assembly.
+        from prompt_dedup import PromptDeduplicator  # noqa: PLC0415
+
+        deduper = PromptDeduplicator()
+        all_raw = {
+            "memory": memory_raw,
+            "troubleshooting": troubleshooting_raw,
+            "retrospectives": retrospectives_raw,
+            "review_insights": review_insights_raw,
+            "harness_insights": harness_insights_raw,
+        }
+        all_items: list[str] = []
+        for raw in all_raw.values():
+            if raw:
+                # Split markdown list items (each starts with "- ")
+                items = [f"- {chunk}" for chunk in raw.split("\n- ") if chunk.strip()]
+                if items and items[0].startswith("- - "):
+                    items[0] = items[0][2:]  # fix double prefix on first
+                all_items.extend(items)
+
+        total_before = len(all_items)
+        deduped_items = deduper.dedup_memories(all_items)
+        dedup_items_removed = total_before - len(deduped_items)
+        dedup_chars_saved = sum(len(i) for i in all_items) - sum(
+            len(i) for i in deduped_items
+        )
+
+        # Rebuild per-bank raw strings from deduped items by re-splitting.
+        # Each bank keeps only items that survived dedup.
+        deduped_set = set(deduped_items)
+        for key, raw in all_raw.items():
+            if raw:
+                items = [f"- {chunk}" for chunk in raw.split("\n- ") if chunk.strip()]
+                if items and items[0].startswith("- - "):
+                    items[0] = items[0][2:]
+                kept = [item for item in items if item in deduped_set]
+                new_raw = "\n".join(kept)
+                if key == "memory":
+                    memory_raw = new_raw
+                elif key == "troubleshooting":
+                    troubleshooting_raw = new_raw
+                elif key == "retrospectives":
+                    retrospectives_raw = new_raw
+                elif key == "review_insights":
+                    review_insights_raw = new_raw
+                elif key == "harness_insights":
+                    harness_insights_raw = new_raw
+
         # Assemble the memory section from all available banks.
         # Cap the combined section at max_memory_prompt_chars.
         combined_parts: list[str] = []
@@ -308,6 +363,8 @@ class BaseRunner:
                 + len(harness_insights_raw)
             ),
             "context_chars_after": len(manifest_section) + len(memory_section),
+            "dedup_items_removed": dedup_items_removed,
+            "dedup_chars_saved": dedup_chars_saved,
         }
 
         return manifest_section, memory_section

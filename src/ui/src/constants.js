@@ -170,6 +170,46 @@ export const BOT_PR_PRESETS = [
   { label: '24h', seconds: 86400 },
 ]
 
+/**
+ * Preset interval options for the stale_issue worker.
+ */
+export const STALE_ISSUE_PRESETS = [
+  { label: '12h', seconds: 43200 },
+  { label: '24h', seconds: 86400 },
+  { label: '3d', seconds: 259200 },
+  { label: '7d', seconds: 604800 },
+]
+
+/**
+ * Preset interval options for the security_patch worker.
+ */
+export const SECURITY_PATCH_PRESETS = [
+  { label: '1h', seconds: 3600 },
+  { label: '6h', seconds: 21600 },
+  { label: '12h', seconds: 43200 },
+  { label: '24h', seconds: 86400 },
+]
+
+/**
+ * Preset interval options for the ci_monitor worker.
+ */
+export const CI_MONITOR_PRESETS = [
+  { label: '10m', seconds: 600 },
+  { label: '30m', seconds: 1800 },
+  { label: '1h', seconds: 3600 },
+  { label: '6h', seconds: 21600 },
+]
+
+/**
+ * Preset interval options for the code_grooming worker.
+ */
+export const CODE_GROOMING_PRESETS = [
+  { label: '12h', seconds: 43200 },
+  { label: '24h', seconds: 86400 },
+  { label: '3d', seconds: 259200 },
+  { label: '7d', seconds: 604800 },
+]
+
 const SENTRY_INGEST_PRESETS = [
   { label: '30m', seconds: 1800 },
   { label: '1h', seconds: 3600 },
@@ -186,13 +226,17 @@ export const WORKER_PRESETS = {
   adr_reviewer: ADR_REVIEWER_PRESETS,
   report_issue: REPORT_ISSUE_PRESETS,
   bot_pr: BOT_PR_PRESETS,
+  stale_issue: STALE_ISSUE_PRESETS,
+  security_patch: SECURITY_PATCH_PRESETS,
+  ci_monitor: CI_MONITOR_PRESETS,
+  code_grooming: CODE_GROOMING_PRESETS,
   sentry_ingest: SENTRY_INGEST_PRESETS,
 }
 
 /**
  * Workers whose interval can be edited from the UI.
  */
-export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'pr_unsticker', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer', 'epic_sweeper', 'bot_pr', 'sentry_ingest'])
+export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'pr_unsticker', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer', 'epic_sweeper', 'bot_pr', 'stale_issue', 'security_patch', 'ci_monitor', 'code_grooming', 'sentry_ingest'])
 
 /**
  * Default intervals (in seconds) for system workers.
@@ -208,6 +252,10 @@ export const SYSTEM_WORKER_INTERVALS = {
   adr_reviewer: 86400,
   epic_sweeper: 3600,
   bot_pr: 3600,
+  stale_issue: 86400,
+  security_patch: 21600,
+  ci_monitor: 1800,
+  code_grooming: 86400,
 }
 
 /**
@@ -234,11 +282,12 @@ export const BACKGROUND_WORKERS = [
   { key: 'memory_sync',     label: 'Memory Manager', description: 'Ingests memory and transcript issues into durable learnings.', color: theme.accent, system: true },
   { key: 'pr_unsticker',    label: 'PR Unsticker',   description: 'Requeues stalled HITL PRs once requirements are actionable.', color: theme.orange, system: true },
   { key: 'report_issue',   label: 'Report Issue',   description: 'Processes queued bug reports into GitHub issues.', color: theme.red },
-  { key: 'worktree_gc',    label: 'Worktree GC',    description: 'Garbage-collects stale worktrees and orphaned branches.', color: theme.textMuted, system: true },
+  { key: 'workspace_gc',   label: 'Workspace GC',   description: 'Garbage-collects stale workspaces and orphaned branches.', color: theme.textMuted, system: true },
   { key: 'adr_reviewer',   label: 'ADR Reviewer',   description: 'Reviews proposed ADRs via a 3-judge council and routes to accept, reject, or escalate.', color: theme.accent },
   { key: 'epic_sweeper',    label: 'Epic Sweeper',    description: 'Periodically sweeps open epics and auto-closes those with all sub-issues resolved.', color: theme.purple, system: true },
   { key: 'bot_pr', label: 'Bot PR Manager', description: 'Auto-merges dependency update PRs from configured bots after CI passes.', color: theme.green },
   { key: 'health_monitor', label: 'Health Monitor', description: 'Analyzes pipeline trends, auto-tunes parameters, detects knowledge gaps, and ingests log patterns.', color: theme.green, system: true },
+  { key: 'stale_issue', label: 'Stale Issue Cleanup', description: 'Auto-closes issues with no activity after configurable period.', color: theme.orange },
   { key: 'sentry_ingest', label: 'Sentry Ingest', description: 'Polls Sentry for unresolved errors and files them as GitHub issues for the pipeline.', color: theme.red },
   { key: 'stale_issue_gc', label: 'Stale Issue GC', description: 'Auto-closes HITL issues with no activity beyond the configured threshold.', color: theme.textMuted },
   { key: 'ci_monitor', label: 'CI Monitor', description: 'Detects failing CI on main and files/auto-closes issues.', color: theme.yellow },

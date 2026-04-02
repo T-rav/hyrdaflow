@@ -4,25 +4,33 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from agent import AgentRunner
 from config import HydraFlowConfig
-from events import EventBus
+from events import EventBus, EventType, HydraFlowEvent
+from exception_classify import is_likely_bug
 from models import (
     ConflictResolutionResult,
     EscalateFn,
     HitlEscalation,
     PRInfo,
     PublishFn,
+    ReviewUpdatePayload,
     Task,
     WorkerStatus,
 )
-from phase_utils import MemorySuggester, is_likely_bug, publish_review_status
-from pr_manager import PRManager
 from prompt_stats import build_prompt_stats
 from state import StateTracker
 from transcript_summarizer import TranscriptSummarizer
-from workspace import WorkspaceManager
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+    from typing import Any
+
+    from ports import AgentPort, PRPort, WorkspacePort
+
+    #: Async callable that suggests memory entries from transcripts.
+    MemorySuggesterFn = Callable[[str, str, str], Coroutine[Any, Any, None]]
 
 logger = logging.getLogger("hydraflow.merge_conflict_resolver")
 
@@ -33,21 +41,22 @@ class MergeConflictResolver:
     def __init__(
         self,
         config: HydraFlowConfig,
-        worktrees: WorkspaceManager,
-        agents: AgentRunner | None,
-        prs: PRManager,
+        workspaces: WorkspacePort,
+        agents: AgentPort | None,
+        prs: PRPort,
         event_bus: EventBus,
         state: StateTracker,
         summarizer: TranscriptSummarizer | None,
+        suggest_memory: MemorySuggesterFn | None = None,
     ) -> None:
         self._config = config
-        self._worktrees = worktrees
+        self._workspaces = workspaces
         self._agents = agents
         self._prs = prs
         self._bus = event_bus
         self._state = state
         self._summarizer = summarizer
-        self._suggest_memory = MemorySuggester(config, prs, state)
+        self._suggest_memory = suggest_memory
 
     async def merge_with_main(
         self,
@@ -63,7 +72,7 @@ class MergeConflictResolver:
         Returns True on success, False on failure (escalates to HITL).
         """
         await publish_fn(pr, worker_id, "merge_main")
-        merged = await self._worktrees.merge_main(wt_path, pr.branch)
+        merged = await self._workspaces.merge_main(wt_path, pr.branch)
         used_rebuild = False
         if not merged:
             logger.info(
@@ -80,7 +89,7 @@ class MergeConflictResolver:
         if merged:
             if used_rebuild:
                 # Branch history was rewritten — need force-push
-                new_wt = self._config.worktree_path_for_issue(pr.issue_number)
+                new_wt = self._config.workspace_path_for_issue(pr.issue_number)
                 await self._prs.push_branch(new_wt, pr.branch, force=True)
             else:
                 await self._prs.push_branch(wt_path, pr.branch)
@@ -145,10 +154,10 @@ class MergeConflictResolver:
         for attempt in range(1, max_attempts + 1):
             # Abort any prior failed merge before retrying
             if attempt > 1:
-                await self._worktrees.abort_merge(wt_path)
+                await self._workspaces.abort_merge(wt_path)
 
             # Start merge leaving conflict markers in place
-            clean = await self._worktrees.start_merge_main(wt_path, pr.branch)
+            clean = await self._workspaces.start_merge_main(wt_path, pr.branch)
             if clean:
                 return ConflictResolutionResult(success=True, used_rebuild=False)
 
@@ -192,7 +201,8 @@ class MergeConflictResolver:
                     pr.number, issue.id, attempt, transcript, source=source
                 )
 
-                await self._suggest_memory(transcript, source, f"PR #{pr.number}")
+                if self._suggest_memory is not None:
+                    await self._suggest_memory(transcript, source, f"PR #{pr.number}")
 
                 verify = await self._agents._verify_result(wt_path, pr.branch)
                 if verify.passed:
@@ -227,7 +237,7 @@ class MergeConflictResolver:
                 last_error = repr(exc)
 
         # All merge attempts exhausted — abort merge and try fresh rebuild
-        await self._worktrees.abort_merge(wt_path)
+        await self._workspaces.abort_merge(wt_path)
 
         logger.info(
             "All %d merge attempts exhausted for PR #%d — trying fresh branch rebuild",
@@ -280,8 +290,8 @@ class MergeConflictResolver:
         )
 
         # Destroy old worktree and create fresh one from main
-        await self._worktrees.destroy(pr.issue_number)
-        new_wt = await self._worktrees.create(pr.issue_number, pr.branch)
+        await self._workspaces.destroy(pr.issue_number)
+        new_wt = await self._workspaces.create(pr.issue_number, pr.branch)
 
         logger.info(
             "Fresh branch rebuild: created clean worktree at %s for PR #%d",
@@ -320,12 +330,13 @@ class MergeConflictResolver:
                 pr.number, issue.id, 0, transcript, source=source
             )
 
-            await self._suggest_memory(transcript, source, f"PR #{pr.number}")
+            if self._suggest_memory is not None:
+                await self._suggest_memory(transcript, source, f"PR #{pr.number}")
 
             verify = await self._agents._verify_result(new_wt, pr.branch)
             if verify.passed:
                 await self._maybe_summarize_conflict(transcript, issue.id, pr.number)
-                expected_title = PRManager.expected_pr_title(issue.id, issue.title)
+                expected_title = self._prs.expected_pr_title(issue.id, issue.title)
                 await self._prs.update_pr_title(pr.number, expected_title)
                 logger.info("Fresh branch rebuild succeeded for PR #%d", pr.number)
                 return True
@@ -403,4 +414,15 @@ class MergeConflictResolver:
         """
         if worker_id is None:
             return
-        await publish_review_status(self._bus, pr, worker_id, status)
+        await self._bus.publish(
+            HydraFlowEvent(
+                type=EventType.REVIEW_UPDATE,
+                data=ReviewUpdatePayload(
+                    pr=pr.number,
+                    issue=pr.issue_number,
+                    worker=worker_id,
+                    status=status,
+                    role="reviewer",
+                ),
+            )
+        )

@@ -1432,7 +1432,7 @@ class TestRepoScopedEndpoints:
             def __init__(self, issue: int) -> None:
                 self.issue = issue
 
-            def model_dump(self) -> dict:
+            def model_dump(self, **kwargs: object) -> dict:
                 return {"issue": self.issue}
 
         with patch("dashboard_routes._routes.PRManager") as MockPRManager:

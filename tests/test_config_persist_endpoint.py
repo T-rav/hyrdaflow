@@ -82,7 +82,7 @@ class TestPatchConfigEndpoint:
         config_path = tmp_path / ".hydraflow" / "config.json"
         cfg = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         # Set config_file path on config
@@ -156,7 +156,7 @@ class TestPatchConfigEndpoint:
         config_path = tmp_path / ".hydraflow" / "config.json"
         cfg = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         object.__setattr__(cfg, "config_file", config_path)
@@ -241,7 +241,7 @@ class TestPatchConfigEndpoint:
         config_path = tmp_path / ".hydraflow" / "config.json"
         cfg = ConfigFactory.create(
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         object.__setattr__(cfg, "config_file", config_path)

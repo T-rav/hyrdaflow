@@ -30,6 +30,10 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+
+hypothesis = pytest.importorskip(
+    "hypothesis", reason="hypothesis package not installed"
+)
 from hypothesis import given, settings
 from hypothesis import strategies as st
 

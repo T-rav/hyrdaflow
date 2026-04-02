@@ -80,14 +80,14 @@ Some consequences.
 
 
 class TestADRFileREShared:
-    """Verify ADR_FILE_RE is shared between adr_reviewer and phase_utils."""
+    """Verify ADR_FILE_RE is shared between adr_reviewer and adr_utils."""
 
-    def test_adr_reviewer_uses_phase_utils_regex(self) -> None:
-        """adr_reviewer.ADR_FILE_RE must be the exact same object as phase_utils.ADR_FILE_RE."""
+    def test_adr_reviewer_uses_adr_utils_regex(self) -> None:
+        """adr_reviewer.ADR_FILE_RE must be the exact same object as adr_utils.ADR_FILE_RE."""
         import adr_reviewer
-        import phase_utils
+        import adr_utils
 
-        assert adr_reviewer.ADR_FILE_RE is phase_utils.ADR_FILE_RE
+        assert adr_reviewer.ADR_FILE_RE is adr_utils.ADR_FILE_RE
 
     def test_shared_regex_matches_adr_filenames(self) -> None:
         """The shared regex correctly matches NNNN-*.md and captures the number."""

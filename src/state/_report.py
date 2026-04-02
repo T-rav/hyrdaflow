@@ -102,18 +102,28 @@ class ReportStateMixin:
         detail: str = "",
         action_label: str = "",
     ) -> TrackedReport | None:
-        """Update a tracked report's status and append a history entry."""
+        """Update a tracked report's status and append a history entry.
+
+        When *status* is provided, delegates to :meth:`TrackedReport.transition`
+        for validated state-machine enforcement.  When *status* is ``None``,
+        only appends a history entry (e.g. for "retry" annotations).
+        """
         for r in self._data.tracked_reports:
             if r.id == report_id:
                 if status:
-                    r.status = status
-                r.updated_at = datetime.now(UTC).isoformat()
-                r.history.append(
-                    ReportHistoryEntry(
-                        action=action_label or status or "updated",
+                    r.transition(
+                        status,
+                        action=action_label or status,
                         detail=detail,
                     )
-                )
+                else:
+                    r.updated_at = datetime.now(UTC).isoformat()
+                    r.history.append(
+                        ReportHistoryEntry(
+                            action=action_label or "updated",
+                            detail=detail,
+                        )
+                    )
                 self.save()
                 return r
         return None

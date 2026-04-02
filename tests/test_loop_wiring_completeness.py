@@ -31,7 +31,7 @@ _INTERVAL_BOUNDS_SKIP: set[str] = {
     "report_issue",
     "epic_monitor",
     "epic_sweeper",
-    "worktree_gc",
+    "workspace_gc",
     "runs_gc",
     "health_monitor",
     "bot_pr",

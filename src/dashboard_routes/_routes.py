@@ -1260,7 +1260,7 @@ def create_router(
             "timestamp": datetime.now(UTC).isoformat(),
             "orchestrator_running": orchestrator_running,
             "active_issue_count": len(state.get_active_issue_numbers()),
-            "active_worktrees": len(state.get_active_worktrees()),
+            "active_workspaces": len(state.get_active_workspaces()),
             "worker_count": worker_count,
             "worker_errors": worker_errors,
             "dashboard": dashboard_binding,

@@ -115,7 +115,7 @@ class TestBuildCommand:
             implementation_tool="codex",
             model="gpt-5-codex",
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         runner = AgentRunner(cfg, event_bus)

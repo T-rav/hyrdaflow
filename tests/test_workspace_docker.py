@@ -455,7 +455,7 @@ class TestDetectUiDirs:
 
         cfg = ConfigFactory.create(
             repo_root=repo_root,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         manager = WorkspaceManager(cfg)
@@ -476,7 +476,7 @@ class TestDetectUiDirs:
 
         cfg = ConfigFactory.create(
             repo_root=repo_root,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         manager = WorkspaceManager(cfg)
@@ -492,7 +492,7 @@ class TestDetectUiDirs:
 
         cfg = ConfigFactory.create(
             repo_root=repo_root,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         manager = WorkspaceManager(cfg)
@@ -508,7 +508,7 @@ class TestDetectUiDirs:
 
         cfg = ConfigFactory.create(
             repo_root=repo_root,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         manager = WorkspaceManager(cfg)
@@ -523,7 +523,7 @@ class TestDetectUiDirs:
 
         cfg = ConfigFactory.create(
             repo_root=repo_root,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
             ui_dirs=["custom/ui", "other/frontend"],
         )
@@ -540,7 +540,7 @@ class TestDetectUiDirs:
 
         cfg = ConfigFactory.create(
             repo_root=repo_root,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
             ui_dirs=["old/ui"],
         )
@@ -642,7 +642,7 @@ class TestResetToMain:
         """reset_to_main should fetch, hard-reset, and clean."""
         config = ConfigFactory.create(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         manager = WorkspaceManager(config)
@@ -669,7 +669,7 @@ class TestResetToMain:
         """reset_to_main should use the configured main branch name."""
         config = ConfigFactory.create(
             repo_root=tmp_path,
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         # Override main_branch for this test
@@ -732,7 +732,7 @@ class TestPostWorkCleanup:
     async def test_post_work_salvages_uncommitted_changes(self, config) -> None:
         manager = WorkspaceManager(config)
 
-        wt_path = config.worktree_path_for_issue(42)
+        wt_path = config.workspace_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         calls: list[tuple[str, ...]] = []
@@ -758,7 +758,7 @@ class TestPostWorkCleanup:
     async def test_post_work_skips_salvage_when_clean(self, config) -> None:
         manager = WorkspaceManager(config)
 
-        wt_path = config.worktree_path_for_issue(42)
+        wt_path = config.workspace_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         calls: list[tuple[str, ...]] = []
@@ -803,7 +803,7 @@ class TestCreateCallsPreWorkCheck:
     @pytest.mark.asyncio
     async def test_create_calls_pre_work_check(self, config) -> None:
         manager = WorkspaceManager(config)
-        config.worktree_base.mkdir(parents=True, exist_ok=True)
+        config.workspace_base.mkdir(parents=True, exist_ok=True)
 
         success_proc = make_proc(returncode=0)
 

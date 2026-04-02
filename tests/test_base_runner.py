@@ -46,6 +46,25 @@ class TestBaseRunnerInit:
         runner = _TestRunner(config, event_bus)
         assert runner._active_procs == set()
 
+    def test_active_count_starts_at_zero(self, config, event_bus: EventBus) -> None:
+        runner = _TestRunner(config, event_bus)
+        assert runner.active_count == 0
+
+    def test_active_count_reflects_active_procs_size(
+        self, config, event_bus: EventBus
+    ) -> None:
+        runner = _TestRunner(config, event_bus)
+        mock_proc1 = MagicMock()
+        mock_proc1.pid = 1
+        mock_proc2 = MagicMock()
+        mock_proc2.pid = 2
+        runner._active_procs.add(mock_proc1)
+        assert runner.active_count == 1
+        runner._active_procs.add(mock_proc2)
+        assert runner.active_count == 2
+        runner._active_procs.discard(mock_proc1)
+        assert runner.active_count == 1
+
     def test_uses_provided_runner(self, config, event_bus: EventBus) -> None:
         mock_runner = MagicMock()
         runner = _TestRunner(config, event_bus, runner=mock_runner)
@@ -617,15 +636,15 @@ class TestBuildCommand:
     def test_build_command_path_argument_is_unused(
         self, config, event_bus: EventBus, tmp_path: Path
     ) -> None:
-        """The worktree_path arg is accepted for API compatibility but not included in cmd."""
+        """The workspace_path arg is accepted for API compatibility but not included in cmd."""
         runner = _TestRunner(config, event_bus)
         cmd = runner._build_command(tmp_path)
         assert "--cwd" not in cmd
 
-    def test_build_command_accepts_none_worktree_path(
+    def test_build_command_accepts_none_workspace_path(
         self, config, event_bus: EventBus
     ) -> None:
-        """The worktree_path parameter is optional (None) for runners that don't need worktrees."""
+        """The workspace_path parameter is optional (None) for runners that don't need worktrees."""
         runner = _TestRunner(config, event_bus)
         cmd = runner._build_command(None)
         assert cmd[0] == "claude"
@@ -633,7 +652,7 @@ class TestBuildCommand:
     def test_build_command_works_without_arguments(
         self, config, event_bus: EventBus
     ) -> None:
-        """The worktree_path parameter defaults to None when omitted."""
+        """The workspace_path parameter defaults to None when omitted."""
         runner = _TestRunner(config, event_bus)
         cmd = runner._build_command()
         assert cmd[0] == "claude"

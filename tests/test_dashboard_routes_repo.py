@@ -895,7 +895,7 @@ class TestRepoStoreRuntimeIntegration:
         repo_store = RepoRegistryStore(tmp_path / "repos-data")
         base_config = ConfigFactory.create(
             repo_root=tmp_path / "base",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
 
@@ -948,7 +948,7 @@ class TestRepoStoreRuntimeIntegration:
         repo_store = RepoRegistryStore(tmp_path / "repos-data")
         base_config = ConfigFactory.create(
             repo_root=tmp_path / "base",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         repo_path = tmp_path / "widgets"
@@ -988,7 +988,7 @@ class TestRepoStoreRuntimeIntegration:
         repo_store = RepoRegistryStore(tmp_path / "repos-data")
         base_config = ConfigFactory.create(
             repo_root=tmp_path / "base",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         repo_path = tmp_path / "widgets"

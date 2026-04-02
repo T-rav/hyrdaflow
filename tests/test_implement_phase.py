@@ -48,11 +48,11 @@ class TestImplementBatch:
         expected = [
             WorkerResultFactory.create(
                 issue_number=1,
-                worktree_path=str(config.worktree_path_for_issue(1)),
+                workspace_path=str(config.workspace_path_for_issue(1)),
             ),
             WorkerResultFactory.create(
                 issue_number=2,
-                worktree_path=str(config.worktree_path_for_issue(2)),
+                workspace_path=str(config.workspace_path_for_issue(2)),
             ),
         ]
 
@@ -95,7 +95,7 @@ class TestImplementBatch:
             await asyncio.sleep(0)  # yield
             concurrency_counter["current"] -= 1
             return WorkerResultFactory.create(
-                issue_number=issue.id, worktree_path=str(wt_path)
+                issue_number=issue.id, workspace_path=str(wt_path)
             )
 
         issues = [TaskFactory.create(id=i) for i in range(1, 6)]
@@ -148,7 +148,7 @@ class TestImplementBatch:
         issue = TaskFactory.create(id=77)
 
         # Pre-create worktree directory to simulate resume
-        wt_path = config.worktree_path_for_issue(77)
+        wt_path = config.workspace_path_for_issue(77)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         phase, mock_wt, _ = make_implement_phase(
@@ -245,7 +245,7 @@ class TestImplementIncludesPush:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
             )
 
         phase, _, mock_prs = (
@@ -388,7 +388,7 @@ class TestWorkerExceptionIsolation:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
             )
 
         phase, _, _ = make_implement_phase(
@@ -447,7 +447,7 @@ class TestWorktreeCreationFailure:
         async def create_side_effect(num: int, branch: str) -> Path:
             if num == 1:
                 raise RuntimeError("disk full")
-            return config.worktree_base / f"issue-{num}"
+            return config.workspace_base / f"issue-{num}"
 
         phase, mock_wt, _ = (
             ImplementPhaseMockBuilder(config)
@@ -491,7 +491,7 @@ class TestWorktreeCreationFailure:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
             )
 
         phase, mock_wt, _ = make_implement_phase(
@@ -499,7 +499,7 @@ class TestWorktreeCreationFailure:
         )
 
         # Simulate existing worktree directory
-        wt_path = config.worktree_path_for_issue(99)
+        wt_path = config.workspace_path_for_issue(99)
         wt_path.mkdir(parents=True, exist_ok=True)
         phase._state = state
 
@@ -526,7 +526,7 @@ class TestWorktreeCreationFailure:
 
         phase, mock_wt, _ = make_implement_phase(config, [issue])
 
-        wt_path = config.worktree_path_for_issue(99)
+        wt_path = config.workspace_path_for_issue(99)
         wt_path.mkdir(parents=True, exist_ok=True)
         phase._state = state
 
@@ -569,13 +569,13 @@ class TestWorktreeCreationFailure:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
             )
 
         phase, mock_wt, _ = make_implement_phase(
             config, [issue], agent_run=capturing_agent
         )
-        wt_path = config.worktree_path_for_issue(99)
+        wt_path = config.workspace_path_for_issue(99)
         wt_path.mkdir(parents=True, exist_ok=True)
         phase._state = state
 
@@ -608,7 +608,7 @@ class TestWorktreeCreationFailure:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
             )
 
         phase, _, _ = make_implement_phase(config, issues, agent_run=slow_agent_run)
@@ -651,7 +651,7 @@ class TestImplementLifecycleMetrics:
                 issue_number=issue.id,
                 branch=branch,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
                 duration_seconds=60.5,
             )
 
@@ -680,7 +680,7 @@ class TestImplementLifecycleMetrics:
                 issue_number=issue.id,
                 branch=branch,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
                 duration_seconds=0.0,
             )
 
@@ -709,7 +709,7 @@ class TestImplementLifecycleMetrics:
                 issue_number=issue.id,
                 branch=branch,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
                 quality_fix_attempts=2,
             )
 
@@ -751,7 +751,7 @@ class TestImplementLifecycleMetrics:
                 issue_number=issue.id,
                 branch=branch,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
                 duration_seconds=30.0,
                 quality_fix_attempts=1,
             )
@@ -792,7 +792,7 @@ class TestReviewFeedbackPassing:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
             )
 
         phase, _, _ = make_implement_phase(
@@ -827,7 +827,7 @@ class TestReviewFeedbackPassing:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
             )
 
         phase, _, _ = make_implement_phase(
@@ -863,7 +863,7 @@ class TestReviewFeedbackPassing:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
             )
 
         phase, _, _ = make_implement_phase(
@@ -895,7 +895,7 @@ class TestReviewFeedbackPassing:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
             )
 
         phase, _, mock_prs = (
@@ -938,7 +938,7 @@ class TestReviewFeedbackPassing:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
             )
 
         phase, _, mock_prs = make_implement_phase(
@@ -984,7 +984,7 @@ class TestWorkerResultMetaPersistence:
                 issue_number=issue.id,
                 branch=branch,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
                 quality_fix_attempts=2,
                 duration_seconds=150.5,
             )
@@ -1019,7 +1019,7 @@ class TestWorkerResultMetaPersistence:
                 issue_number=issue.id,
                 branch=branch,
                 success=False,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
                 quality_fix_attempts=0,
                 duration_seconds=30.0,
                 error="make quality failed",
@@ -1062,7 +1062,7 @@ class TestZeroCommitEscalation:
                 success=False,
                 error="No commits found on branch",
                 commits=0,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
             )
 
         phase, _, mock_prs = make_implement_phase(
@@ -1099,7 +1099,7 @@ class TestZeroCommitEscalation:
                 success=False,
                 error="No commits found on branch",
                 commits=0,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
             )
 
         phase, _, mock_prs = make_implement_phase(
@@ -1131,7 +1131,7 @@ class TestZeroCommitEscalation:
                 success=False,
                 error="make quality failed",
                 commits=2,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
             )
 
         phase, _, mock_prs = (
@@ -1172,7 +1172,7 @@ class TestZeroCommitEscalation:
                 success=False,
                 error="No commits found on branch",
                 commits=0,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
             )
 
         phase, _, mock_prs = make_implement_phase(
@@ -1216,7 +1216,7 @@ class TestPostMortemMemoryFiling:
                 success=False,
                 error="No commits found on branch",
                 commits=0,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
                 transcript="MEMORY_SUGGESTION_START\ntitle: test\nlearning: learned\nMEMORY_SUGGESTION_END",
             )
 
@@ -1258,7 +1258,7 @@ class TestPostMortemMemoryFiling:
                 success=False,
                 error="No commits found on branch",
                 commits=0,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
                 transcript="",
             )
 
@@ -1292,7 +1292,7 @@ class TestPostMortemMemoryFiling:
                 branch=branch,
                 success=True,
                 commits=1,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
                 transcript="MEMORY_SUGGESTION_START\ntitle: zero diff\nlearning: no changes\nMEMORY_SUGGESTION_END",
             )
 
@@ -1334,7 +1334,7 @@ class TestRetryCapEscalation:
         config = ConfigFactory.create(
             max_issue_attempts=3,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         issue = TaskFactory.create()
@@ -1357,7 +1357,7 @@ class TestRetryCapEscalation:
         config = ConfigFactory.create(
             max_issue_attempts=2,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         issue = TaskFactory.create()
@@ -1377,7 +1377,7 @@ class TestRetryCapEscalation:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
             )
 
         phase, _, mock_prs = make_implement_phase(
@@ -1414,7 +1414,7 @@ class TestRetryCapEscalation:
         config = ConfigFactory.create(
             max_issue_attempts=3,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         issue = TaskFactory.create()
@@ -1456,7 +1456,7 @@ class TestCommitsPersistedInMeta:
                 issue_number=issue.id,
                 branch=branch,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
                 commits=3,
                 quality_fix_attempts=1,
                 duration_seconds=90.0,
@@ -1513,7 +1513,7 @@ class TestCheckAttemptCap:
         config = ConfigFactory.create(
             max_issue_attempts=3,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         issue = TaskFactory.create()
@@ -1531,7 +1531,7 @@ class TestCheckAttemptCap:
         config = ConfigFactory.create(
             max_issue_attempts=3,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         issue = TaskFactory.create()
@@ -1553,7 +1553,7 @@ class TestCheckAttemptCap:
         config = ConfigFactory.create(
             max_issue_attempts=2,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         issue = TaskFactory.create()
@@ -1577,7 +1577,7 @@ class TestCheckAttemptCap:
         config = ConfigFactory.create(
             max_issue_attempts=2,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         issue = TaskFactory.create()
@@ -1599,7 +1599,7 @@ class TestCheckAttemptCap:
         config = ConfigFactory.create(
             max_issue_attempts=2,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         issue = TaskFactory.create()
@@ -1631,7 +1631,7 @@ class TestRunImplementation:
         """When worktree dir exists, should reuse it."""
         issue = TaskFactory.create()
 
-        wt_path = config.worktree_path_for_issue(42)
+        wt_path = config.workspace_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         phase, mock_wt, _ = make_implement_phase(config, [issue])
@@ -1660,7 +1660,7 @@ class TestRunImplementation:
             return WorkerResultFactory.create(
                 issue_number=issue.id,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
             )
 
         phase, _, _ = make_implement_phase(config, [issue], agent_run=capturing_agent)
@@ -1702,7 +1702,7 @@ class TestRunImplementation:
                 issue_number=issue.id,
                 branch=branch,
                 success=True,
-                worktree_path=str(wt_path),
+                workspace_path=str(wt_path),
                 duration_seconds=60.0,
                 quality_fix_attempts=2,
             )
@@ -1731,7 +1731,7 @@ class TestHandleImplementationResult:
             success=False,
             error="No commits found on branch",
             commits=0,
-            worktree_path=str(config.worktree_path_for_issue(42)),
+            workspace_path=str(config.workspace_path_for_issue(42)),
         )
 
         phase, _, mock_prs = make_implement_phase(config, [issue])
@@ -1753,7 +1753,7 @@ class TestHandleImplementationResult:
         result = WorkerResultFactory.create(
             issue_number=42,
             success=True,
-            worktree_path=str(config.worktree_path_for_issue(42)),
+            workspace_path=str(config.workspace_path_for_issue(42)),
         )
 
         phase, _, mock_prs = make_implement_phase(
@@ -1775,7 +1775,7 @@ class TestHandleImplementationResult:
         result = WorkerResultFactory.create(
             issue_number=42,
             success=True,
-            worktree_path=str(config.worktree_path_for_issue(42)),
+            workspace_path=str(config.workspace_path_for_issue(42)),
         )
 
         phase, _, mock_prs = (
@@ -1804,7 +1804,7 @@ class TestHandleImplementationResult:
         result = WorkerResultFactory.create(
             issue_number=42,
             success=True,
-            worktree_path=str(config.worktree_path_for_issue(42)),
+            workspace_path=str(config.workspace_path_for_issue(42)),
         )
 
         phase, _, mock_prs = (
@@ -1834,7 +1834,7 @@ class TestHandleImplementationResult:
         result = WorkerResultFactory.create(
             issue_number=42,
             success=True,
-            worktree_path=str(config.worktree_path_for_issue(42)),
+            workspace_path=str(config.workspace_path_for_issue(42)),
         )
 
         phase, _, mock_prs = (
@@ -1866,14 +1866,14 @@ class TestHandleImplementationResult:
         assert phase._state.to_dict()["processed_issues"].get(str(42)) == "failed"
 
     @pytest.mark.asyncio
-    async def test_empty_worktree_path_skips_push_and_pr(
+    async def test_empty_workspace_path_skips_push_and_pr(
         self, config: HydraFlowConfig
     ) -> None:
-        """When result.worktree_path is empty, push and PR creation should be skipped."""
+        """When result.workspace_path is empty, push and PR creation should be skipped."""
         issue = TaskFactory.create()
         result = WorkerResultFactory.create(
             success=True,
-            worktree_path="",
+            workspace_path="",
         )
 
         phase, _, mock_prs = make_implement_phase(config, [issue])
@@ -1897,7 +1897,7 @@ class TestWorkerInner:
         config = ConfigFactory.create(
             max_issue_attempts=1,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         issue = TaskFactory.create()
@@ -1915,7 +1915,7 @@ class TestWorkerInner:
             nonlocal agent_called
             agent_called = True
             return WorkerResultFactory.create(
-                issue_number=issue.id, worktree_path=str(wt_path)
+                issue_number=issue.id, workspace_path=str(wt_path)
             )
 
         phase, _, _ = make_implement_phase(config, [issue], agent_run=tracking_agent)
@@ -1963,7 +1963,7 @@ class TestWorkerInner:
             nonlocal agent_called
             agent_called = True
             return WorkerResultFactory.create(
-                issue_number=issue.id, worktree_path=str(wt_path)
+                issue_number=issue.id, workspace_path=str(wt_path)
             )
 
         phase, _, mock_prs = (
@@ -2216,7 +2216,7 @@ class TestWorktreeResetOnRetry:
     ) -> None:
         """Existing worktree should be reset when there's a prior error."""
         issue = TaskFactory.create()
-        wt_path = config.worktree_path_for_issue(42)
+        wt_path = config.workspace_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         phase, mock_wt, _ = make_implement_phase(config, [issue])
@@ -2234,7 +2234,7 @@ class TestWorktreeResetOnRetry:
     async def test_no_reset_when_no_prior_error(self, config: HydraFlowConfig) -> None:
         """Should not reset worktree when there's no prior error."""
         issue = TaskFactory.create()
-        wt_path = config.worktree_path_for_issue(42)
+        wt_path = config.workspace_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         phase, mock_wt, _ = make_implement_phase(config, [issue])
@@ -2262,7 +2262,7 @@ class TestWorktreeResetOnRetry:
     async def test_reset_failure_does_not_crash(self, config: HydraFlowConfig) -> None:
         """If reset_to_main raises, should log warning and continue."""
         issue = TaskFactory.create()
-        wt_path = config.worktree_path_for_issue(42)
+        wt_path = config.workspace_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         phase, mock_wt, _ = (
@@ -2305,7 +2305,7 @@ class TestPriorFailureFeedback:
         ) -> WorkerResult:
             captured.append(prior_failure)
             return WorkerResultFactory.create(
-                issue_number=issue.id, success=True, worktree_path=str(wt_path)
+                issue_number=issue.id, success=True, workspace_path=str(wt_path)
             )
 
         phase, _, _ = make_implement_phase(config, [issue], agent_run=capturing_agent)
@@ -2335,7 +2335,7 @@ class TestPriorFailureFeedback:
         ) -> WorkerResult:
             captured.append(prior_failure)
             return WorkerResultFactory.create(
-                issue_number=issue.id, success=True, worktree_path=str(wt_path)
+                issue_number=issue.id, success=True, workspace_path=str(wt_path)
             )
 
         phase, _, _ = make_implement_phase(config, [issue], agent_run=capturing_agent)
@@ -2363,7 +2363,7 @@ class TestZeroCommitCorrectiveRetry:
             success=False,
             error="No commits found on branch",
             commits=0,
-            worktree_path=str(config.worktree_path_for_issue(42)),
+            workspace_path=str(config.workspace_path_for_issue(42)),
         )
 
         phase, _, mock_prs = make_implement_phase(config, [issue])
@@ -2451,7 +2451,7 @@ class TestHandleZeroCommits:
             success=False,
             error="No commits found on branch",
             commits=0,
-            worktree_path=str(config.worktree_path_for_issue(42)),
+            workspace_path=str(config.workspace_path_for_issue(42)),
         )
 
         phase, _, mock_prs = make_implement_phase(config, [issue])
@@ -2480,7 +2480,7 @@ class TestHandleSuccessfulPush:
         result = WorkerResultFactory.create(
             issue_number=42,
             success=True,
-            worktree_path=str(config.worktree_path_for_issue(42)),
+            workspace_path=str(config.workspace_path_for_issue(42)),
         )
 
         phase, _, mock_prs = make_implement_phase(
@@ -2500,7 +2500,7 @@ class TestHandleSuccessfulPush:
         result = WorkerResultFactory.create(
             issue_number=42,
             success=True,
-            worktree_path=str(config.worktree_path_for_issue(42)),
+            workspace_path=str(config.workspace_path_for_issue(42)),
         )
 
         phase, _, mock_prs = (
@@ -2526,7 +2526,7 @@ class TestHandleSuccessfulPush:
         result = WorkerResultFactory.create(
             issue_number=42,
             success=True,
-            worktree_path=str(config.worktree_path_for_issue(42)),
+            workspace_path=str(config.workspace_path_for_issue(42)),
         )
 
         phase, _, mock_prs = (
@@ -2552,7 +2552,7 @@ class TestHandleSuccessfulPush:
         result = WorkerResultFactory.create(
             issue_number=42,
             success=False,
-            worktree_path=str(config.worktree_path_for_issue(42)),
+            workspace_path=str(config.workspace_path_for_issue(42)),
         )
 
         phase, _, mock_prs = make_implement_phase(
@@ -2580,7 +2580,7 @@ class TestHandleNoPrFallback:
         result = WorkerResultFactory.create(
             issue_number=42,
             success=True,
-            worktree_path=str(config.worktree_path_for_issue(42)),
+            workspace_path=str(config.workspace_path_for_issue(42)),
         )
 
         phase, _, mock_prs = (
@@ -2604,7 +2604,7 @@ class TestHandleNoPrFallback:
         result = WorkerResultFactory.create(
             issue_number=42,
             success=True,
-            worktree_path=str(config.worktree_path_for_issue(42)),
+            workspace_path=str(config.workspace_path_for_issue(42)),
         )
 
         phase, _, mock_prs = (
@@ -2638,7 +2638,7 @@ class TestRetryPrTitleConsistency:
         result = WorkerResultFactory.create(
             issue_number=99,
             success=True,
-            worktree_path=str(config.worktree_path_for_issue(99)),
+            workspace_path=str(config.workspace_path_for_issue(99)),
         )
         existing_pr = PRInfoFactory.create(number=200, issue_number=99)
 
@@ -2668,7 +2668,7 @@ class TestRetryPrTitleConsistency:
         result = WorkerResultFactory.create(
             issue_number=99,
             success=True,
-            worktree_path=str(config.worktree_path_for_issue(99)),
+            workspace_path=str(config.workspace_path_for_issue(99)),
         )
 
         phase, _, mock_prs = (
@@ -2692,7 +2692,7 @@ class TestRetryPrTitleConsistency:
         result = WorkerResultFactory.create(
             issue_number=99,
             success=True,
-            worktree_path=str(config.worktree_path_for_issue(99)),
+            workspace_path=str(config.workspace_path_for_issue(99)),
         )
 
         phase, _, mock_prs = make_implement_phase(
@@ -2715,7 +2715,7 @@ class TestRetryPrTitleConsistency:
         result = WorkerResultFactory.create(
             issue_number=99,
             success=True,
-            worktree_path=str(config.worktree_path_for_issue(99)),
+            workspace_path=str(config.workspace_path_for_issue(99)),
         )
         zero_pr = PRInfoFactory.create(number=0, issue_number=99)
 

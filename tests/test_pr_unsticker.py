@@ -36,7 +36,7 @@ class UnstickerHarness:
 def _make_config(tmp_path: Path, **overrides) -> MagicMock:
     return ConfigFactory.create(
         repo_root=tmp_path / "repo",
-        worktree_base=tmp_path / "worktrees",
+        workspace_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
         **overrides,
     )
@@ -49,7 +49,7 @@ def _make_unsticker(
     state=None,
     pr_manager=None,
     agents=None,
-    worktrees=None,
+    workspaces=None,
     fetcher=None,
     hitl_runner=None,
     stop_event=None,
@@ -64,7 +64,7 @@ def _make_unsticker(
     bus.publish = AsyncMock()
     prs = pr_manager or AsyncMock()
     ag = agents or AsyncMock()
-    wt = worktrees or AsyncMock()
+    wt = workspaces or AsyncMock()
     ft = fetcher or AsyncMock()
     hr = hitl_runner or AsyncMock()
     se = stop_event or asyncio.Event()
@@ -292,7 +292,7 @@ class TestCleanMerge:
             return_value=ConflictResolutionResult(success=True, used_rebuild=False)
         )
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
 
         stats = await h.unsticker.unstick([_make_hitl_item(42)])
@@ -325,7 +325,7 @@ class TestSuccessfulResolution:
             return_value=ConflictResolutionResult(success=True, used_rebuild=False)
         )
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
 
         stats = await h.unsticker.unstick([_make_hitl_item(42)])
@@ -360,7 +360,7 @@ class TestFailedResolution:
             return_value=ConflictResolutionResult(success=False, used_rebuild=False)
         )
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
 
         stats = await h.unsticker.unstick([_make_hitl_item(42)])
@@ -430,7 +430,7 @@ class TestCIFailureResolution:
 
         h.prs.push_branch = AsyncMock(return_value=True)
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
         (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
 
@@ -469,7 +469,7 @@ class TestGenericResolution:
         h.wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
         h.prs.push_branch = AsyncMock(return_value=True)
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
 
         stats = await h.unsticker.unstick([_make_hitl_item(42)])
@@ -497,7 +497,7 @@ class TestGenericResolution:
         h.fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
         h.wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
 
         stats = await h.unsticker.unstick([_make_hitl_item(42)])
@@ -530,7 +530,7 @@ class TestAutoMerge:
             return_value=ConflictResolutionResult(success=True, used_rebuild=False)
         )
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
 
         stats = await h.unsticker.unstick([_make_hitl_item(42, pr=100)])
@@ -566,7 +566,7 @@ class TestAutoMerge:
             return_value=ConflictResolutionResult(success=True, used_rebuild=False)
         )
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
 
         await h.unsticker.unstick([_make_hitl_item(42, pr=100)])
@@ -597,7 +597,7 @@ class TestAutoMerge:
             return_value=ConflictResolutionResult(success=True, used_rebuild=False)
         )
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
 
         await h.unsticker.unstick([_make_hitl_item(42, pr=100)])
@@ -627,7 +627,7 @@ class TestAutoMergeDisabled:
             return_value=ConflictResolutionResult(success=True, used_rebuild=False)
         )
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
 
         stats = await h.unsticker.unstick([_make_hitl_item(42, pr=100)])
@@ -652,7 +652,7 @@ class TestCascadingRebase:
 
         # Create worktree dirs (repo-scoped path)
         for i in [1, 2]:
-            h.unsticker._config.worktree_path_for_issue(i).mkdir(
+            h.unsticker._config.workspace_path_for_issue(i).mkdir(
                 parents=True, exist_ok=True
             )
 
@@ -806,7 +806,7 @@ class TestGoalDrivenLoop:
         )
 
         for i in [1, 2]:
-            h.unsticker._config.worktree_path_for_issue(i).mkdir(
+            h.unsticker._config.workspace_path_for_issue(i).mkdir(
                 parents=True, exist_ok=True
             )
 
@@ -849,7 +849,7 @@ class TestMergeConflictDelegation:
             return_value=ConflictResolutionResult(success=True, used_rebuild=False)
         )
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
 
         pr_url = "https://github.com/test-org/test-repo/pull/100"
@@ -884,7 +884,7 @@ class TestMergeConflictDelegation:
             return_value=ConflictResolutionResult(success=True, used_rebuild=False)
         )
 
-        h.unsticker._config.worktree_path_for_issue(42).mkdir(
+        h.unsticker._config.workspace_path_for_issue(42).mkdir(
             parents=True, exist_ok=True
         )
 
@@ -920,7 +920,7 @@ class TestFreshBranchRebuild:
         )
         h.prs.push_branch = AsyncMock(return_value=True)
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
 
         pr_url = "https://github.com/test-org/test-repo/pull/100"
@@ -949,7 +949,7 @@ class TestFreshBranchRebuild:
             return_value=ConflictResolutionResult(success=False, used_rebuild=False)
         )
 
-        h.unsticker._config.worktree_path_for_issue(42).mkdir(
+        h.unsticker._config.workspace_path_for_issue(42).mkdir(
             parents=True, exist_ok=True
         )
 
@@ -981,7 +981,7 @@ class TestResolverNoneEdgeCases:
         h.fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
         h.wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
 
-        h.unsticker._config.worktree_path_for_issue(42).mkdir(
+        h.unsticker._config.workspace_path_for_issue(42).mkdir(
             parents=True, exist_ok=True
         )
 
@@ -1017,7 +1017,7 @@ def _setup_ci_fix_memory_test(
 
     h.prs.push_branch = AsyncMock(return_value=True)
 
-    h.unsticker._config.worktree_path_for_issue(42).mkdir(parents=True, exist_ok=True)
+    h.unsticker._config.workspace_path_for_issue(42).mkdir(parents=True, exist_ok=True)
     (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
 
     return h
@@ -1081,7 +1081,7 @@ class TestCITimeoutResolution:
 
         h.prs.push_branch = AsyncMock(return_value=True)
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
         (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
 
@@ -1163,7 +1163,7 @@ class TestCITimeoutResolution:
         )
         h.prs.push_branch = AsyncMock(return_value=True)
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
         (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
 
@@ -1210,7 +1210,7 @@ class TestCITimeoutResolution:
         )
         h.prs.push_branch = AsyncMock(return_value=True)
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
         (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
 
@@ -1291,7 +1291,7 @@ class TestCITimeoutResolution:
         )
         h.prs.push_branch = AsyncMock(return_value=True)
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
         (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
 
@@ -1355,7 +1355,7 @@ Done."""
         )
         h.prs.push_branch = AsyncMock(return_value=True)
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
         (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
 
@@ -1406,7 +1406,7 @@ Done."""
         )
         h.prs.push_branch = AsyncMock(return_value=True)
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
         (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
 
@@ -1475,7 +1475,7 @@ Done."""
         )
         h.prs.push_branch = AsyncMock(return_value=True)
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
         (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
 
@@ -1549,7 +1549,7 @@ TROUBLESHOOTING_PATTERN_END
         )
         h.prs.push_branch = AsyncMock(return_value=True)
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
         (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
 
@@ -1611,7 +1611,7 @@ TROUBLESHOOTING_PATTERN_END
         )
         h.prs.push_branch = AsyncMock(return_value=True)
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
         (tmp_path / "repo" / ".hydraflow" / "logs").mkdir(parents=True)
 
@@ -1735,7 +1735,7 @@ class TestNarrowedExceptionHandling:
         """RuntimeError during re-rebase should be caught gracefully."""
         h = _make_unsticker(tmp_path)
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
 
         h.wt.start_merge_main = AsyncMock(side_effect=RuntimeError("git failed"))
@@ -1755,7 +1755,7 @@ class TestNarrowedExceptionHandling:
         """TypeError during re-rebase must propagate."""
         h = _make_unsticker(tmp_path)
 
-        wt_dir = h.unsticker._config.worktree_path_for_issue(42)
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
         wt_dir.mkdir(parents=True)
 
         h.wt.start_merge_main = AsyncMock(side_effect=TypeError("bad type"))

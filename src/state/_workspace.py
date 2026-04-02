@@ -1,4 +1,4 @@
-"""Worktree and branch tracking state."""
+"""Workspace and branch tracking state."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ if TYPE_CHECKING:
     from models import StateData
 
 
-class WorktreeStateMixin:
-    """Methods for worktree and branch tracking."""
+class WorkspaceStateMixin:
+    """Methods for workspace and branch tracking."""
 
     _data: StateData
 
@@ -23,20 +23,20 @@ class WorktreeStateMixin:
     @staticmethod
     def _int_keys(d: dict[str, _V]) -> dict[int, _V]: ...  # provided by StateTracker
 
-    # --- worktree tracking ---
+    # --- workspace tracking ---
 
-    def get_active_worktrees(self) -> dict[int, str]:
-        """Return ``{issue_number: worktree_path}`` mapping."""
-        return self._int_keys(self._data.active_worktrees)
+    def get_active_workspaces(self) -> dict[int, str]:
+        """Return ``{issue_number: workspace_path}`` mapping."""
+        return self._int_keys(self._data.active_workspaces)
 
-    def set_worktree(self, issue_number: int, path: str) -> None:
-        """Record the worktree filesystem *path* for *issue_number*."""
-        self._data.active_worktrees[self._key(issue_number)] = path
+    def set_workspace(self, issue_number: int, path: str) -> None:
+        """Record the workspace filesystem *path* for *issue_number*."""
+        self._data.active_workspaces[self._key(issue_number)] = path
         self.save()
 
-    def remove_worktree(self, issue_number: int) -> None:
-        """Remove the worktree mapping for *issue_number* (no-op if absent)."""
-        self._data.active_worktrees.pop(self._key(issue_number), None)
+    def remove_workspace(self, issue_number: int) -> None:
+        """Remove the workspace mapping for *issue_number* (no-op if absent)."""
+        self._data.active_workspaces.pop(self._key(issue_number), None)
         self.save()
 
     # --- branch tracking ---

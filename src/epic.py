@@ -697,11 +697,12 @@ class EpicManager:
         if epic is None:
             return None
 
-        total = len(epic.child_issues)
-        completed = len(epic.completed_children)
-        failed = len(epic.failed_children)
-        excluded = len(epic.excluded_children)
-        approved = len(epic.approved_children)
+        p = epic.progress  # {total, completed, failed, excluded, approved, remaining}
+        total = p["total"]
+        completed = p["completed"]
+        failed = p["failed"]
+        excluded = p["excluded"]
+        approved = p["approved"]
         in_progress = total - completed - failed - excluded
 
         if epic.closed:
@@ -1378,9 +1379,8 @@ class EpicManager:
         if epic is None or epic.closed:
             return
 
-        resolved = set(epic.completed_children) | set(epic.excluded_children)
         all_children = set(epic.child_issues)
-        if not all_children or not all_children.issubset(resolved):
+        if not all_children or not all_children.issubset(epic.resolved_children):
             return
 
         # Try the full checker workflow (body update, label, release).

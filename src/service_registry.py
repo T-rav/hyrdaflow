@@ -50,6 +50,7 @@ from pr_unsticker_loop import PRUnstickerLoop
 from report_issue_loop import ReportIssueLoop
 from research_runner import ResearchRunner
 from retrospective import RetrospectiveCollector
+from review_insights import ReviewInsightStore
 from review_phase import ReviewPhase
 from reviewer import ReviewRunner
 from run_recorder import RunRecorder
@@ -59,6 +60,7 @@ from sentry_loop import SentryLoop  # noqa: TCH001 — used in dataclass field
 from shape_phase import ShapePhase  # noqa: TCH001
 from shape_runner import ShapeRunner
 from stale_issue_gc_loop import StaleIssueGCLoop  # noqa: TCH001
+from stale_issue_loop import StaleIssueLoop
 from state import StateTracker
 from transcript_summarizer import TranscriptSummarizer
 from triage import TriageRunner
@@ -79,7 +81,7 @@ class ServiceRegistry:
     """Holds all service instances for the orchestrator."""
 
     # Core infrastructure
-    worktrees: WorkspaceManager
+    workspaces: WorkspaceManager
     subprocess_runner: SubprocessRunner
     agents: AgentRunner
     planners: PlannerRunner
@@ -124,11 +126,12 @@ class ServiceRegistry:
     report_issue_loop: ReportIssueLoop
     epic_monitor_loop: EpicMonitorLoop
     epic_sweeper_loop: EpicSweeperLoop
-    worktree_gc_loop: WorkspaceGCLoop
+    workspace_gc_loop: WorkspaceGCLoop
     runs_gc_loop: RunsGCLoop
     adr_reviewer_loop: ADRReviewerLoop
     health_monitor_loop: HealthMonitorLoop
     bot_pr_loop: BotPRLoop
+    stale_issue_loop: StaleIssueLoop
     sentry_loop: SentryLoop
     stale_issue_gc_loop: StaleIssueGCLoop
     ci_monitor_loop: CIMonitorLoop
@@ -162,6 +165,12 @@ def build_services(
 
     This replaces the 170-line orchestrator constructor body.
     """
+    # Configure global GitHub API concurrency limiter (startup config
+    # belongs in the composition root, not the orchestrator).
+    from subprocess_util import configure_gh_concurrency
+
+    configure_gh_concurrency(config.gh_api_concurrency)
+
     # Hindsight semantic memory (optional)
     hindsight_client = None
     hindsight_wal: HindsightWAL | None = None
@@ -194,7 +203,7 @@ def build_services(
         )
 
     # Core runners
-    worktrees = WorkspaceManager(config)
+    workspaces = WorkspaceManager(config)  # noqa: F841
     subprocess_runner = get_docker_runner(config)
     agents = AgentRunner(
         config,
@@ -313,7 +322,7 @@ def build_services(
         state,
         store,
         fetcher,
-        worktrees,
+        workspaces,
         hitl_runner,
         prs,
         event_bus,
@@ -324,7 +333,7 @@ def build_services(
     implementer = ImplementPhase(
         config,
         state,
-        worktrees,
+        workspaces,
         agents,
         prs,
         store,
@@ -337,14 +346,17 @@ def build_services(
     from metrics_manager import MetricsManager
 
     metrics_manager = MetricsManager(config, state, prs, event_bus)
+    from phase_utils import MemorySuggester
+
     conflict_resolver = MergeConflictResolver(
         config=config,
-        worktrees=worktrees,
+        workspaces=workspaces,
         agents=agents,
         prs=prs,
         event_bus=event_bus,
         state=state,
         summarizer=summarizer,
+        suggest_memory=MemorySuggester(config, prs, state),
     )
     pr_unsticker = PRUnsticker(
         config,
@@ -352,7 +364,7 @@ def build_services(
         event_bus,
         prs,
         agents,
-        worktrees,
+        workspaces,
         fetcher,
         hitl_runner=hitl_runner,
         stop_event=stop_event,
@@ -400,18 +412,29 @@ def build_services(
         epic_manager=epic_manager,
         store=store,
     )
+    # ReviewInsightStore shared between AgentRunner and ReviewPhase
+    review_insights = ReviewInsightStore(
+        config.memory_dir,
+        hindsight=hindsight_client,
+        dolt=dolt_backend,
+        wal=hindsight_wal,
+    )
+    # Inject shared store into AgentRunner (replacing its self-constructed copy)
+    agents._insights = review_insights
+
     reviewer = ReviewPhase(
         config,
         state,
-        worktrees,
+        workspaces,
         reviewers,
         prs,
         stop_event,
         store,
+        conflict_resolver,
+        post_merge_handler,
         event_bus=event_bus,
         harness_insights=harness_insights,
-        conflict_resolver=conflict_resolver,
-        post_merge=post_merge_handler,
+        review_insights=review_insights,
         update_bg_worker_status=callbacks.update_bg_worker_status,
         baseline_policy=baseline_policy,
         hindsight=hindsight_client,
@@ -447,9 +470,9 @@ def build_services(
         state=state,
         deps=loop_deps,
     )
-    worktree_gc_loop = WorkspaceGCLoop(
+    workspace_gc_loop = WorkspaceGCLoop(  # noqa: F841
         config=config,
-        worktrees=worktrees,
+        workspaces=workspaces,
         prs=prs,
         state=state,
         deps=loop_deps,
@@ -468,6 +491,12 @@ def build_services(
     bot_pr_loop = BotPRLoop(
         config=config,
         cache=gh_cache,
+        prs=prs,
+        state=state,
+        deps=loop_deps,
+    )
+    stale_issue_loop = StaleIssueLoop(
+        config=config,
         prs=prs,
         state=state,
         deps=loop_deps,
@@ -502,7 +531,7 @@ def build_services(
     )
 
     return ServiceRegistry(
-        worktrees=worktrees,
+        workspaces=workspaces,
         subprocess_runner=subprocess_runner,
         agents=agents,
         planners=planners,
@@ -535,11 +564,12 @@ def build_services(
         report_issue_loop=report_issue_loop,
         epic_monitor_loop=epic_monitor_loop,
         epic_sweeper_loop=epic_sweeper_loop,
-        worktree_gc_loop=worktree_gc_loop,
+        workspace_gc_loop=workspace_gc_loop,
         runs_gc_loop=runs_gc_loop,
         adr_reviewer_loop=adr_reviewer_loop,
         health_monitor_loop=health_monitor_loop,
         bot_pr_loop=bot_pr_loop,
+        stale_issue_loop=stale_issue_loop,
         hindsight=hindsight_client,
         hindsight_wal=hindsight_wal,
         github_cache=gh_cache,

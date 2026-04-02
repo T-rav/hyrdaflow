@@ -222,7 +222,7 @@ class TestWorktreeOriginValidation:
         config.repo = repo
         config.repo_root = Path("/tmp/repo")  # noqa: S108
         config.repo_slug = repo.replace("/", "-") if repo else ""
-        config.worktree_base = Path("/tmp/worktrees")  # noqa: S108
+        config.workspace_base = Path("/tmp/worktrees")  # noqa: S108
         config.main_branch = "main"
         config.gh_token = ""
         config.dry_run = False

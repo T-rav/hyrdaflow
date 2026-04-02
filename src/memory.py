@@ -8,6 +8,7 @@ import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from adr_utils import load_existing_adr_topics, normalize_adr_topic
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from execution import SubprocessRunner, get_default_runner
@@ -334,11 +335,6 @@ class MemorySyncWorker:
         """Write ADR draft decisions from architecture-shift memory issues to JSONL."""
         import json as _json  # noqa: PLC0415
         from datetime import UTC, datetime  # noqa: PLC0415
-
-        from phase_utils import (  # noqa: PLC0415
-            load_existing_adr_topics,
-            normalize_adr_topic,
-        )
 
         seen = self._load_adr_source_ids()
         existing_topics = load_existing_adr_topics(self._config.repo_root)

@@ -484,6 +484,8 @@ class TestReviewPhaseVisualValidation:
 
         from events import EventBus
         from issue_store import IssueStore
+        from merge_conflict_resolver import MergeConflictResolver
+        from post_merge_handler import PostMergeHandler
         from review_phase import ReviewPhase
         from reviewer import ReviewRunner
         from state import StateTracker
@@ -491,15 +493,38 @@ class TestReviewPhaseVisualValidation:
 
         config = ConfigFactory.create()
         state = StateTracker(config.state_file)
+        mock_prs = AsyncMock()
+        bus = EventBus()
+        conflict_resolver = MergeConflictResolver(
+            config=config,
+            workspaces=AsyncMock(spec=WorkspaceManager),
+            agents=None,
+            prs=mock_prs,
+            event_bus=bus,
+            state=state,
+            summarizer=None,
+        )
+        post_merge = PostMergeHandler(
+            config=config,
+            state=state,
+            prs=mock_prs,
+            event_bus=bus,
+            ac_generator=None,
+            retrospective=None,
+            verification_judge=None,
+            epic_checker=None,
+        )
         phase = ReviewPhase(
             config=config,
             state=state,
-            worktrees=AsyncMock(spec=WorkspaceManager),
+            workspaces=AsyncMock(spec=WorkspaceManager),
             reviewers=AsyncMock(spec=ReviewRunner),
-            prs=AsyncMock(),
+            prs=mock_prs,
             stop_event=asyncio.Event(),
             store=AsyncMock(spec=IssueStore),
-            event_bus=EventBus(),
+            conflict_resolver=conflict_resolver,
+            post_merge=post_merge,
+            event_bus=bus,
         )
 
         task = TaskFactory.create(tags=[], comments=[])
@@ -514,6 +539,8 @@ class TestReviewPhaseVisualValidation:
 
         from events import EventBus
         from issue_store import IssueStore
+        from merge_conflict_resolver import MergeConflictResolver
+        from post_merge_handler import PostMergeHandler
         from review_phase import ReviewPhase
         from reviewer import ReviewRunner
         from state import StateTracker
@@ -521,15 +548,38 @@ class TestReviewPhaseVisualValidation:
 
         config = ConfigFactory.create(visual_validation_enabled=False)
         state = StateTracker(config.state_file)
+        mock_prs = AsyncMock()
+        bus = EventBus()
+        conflict_resolver = MergeConflictResolver(
+            config=config,
+            workspaces=AsyncMock(spec=WorkspaceManager),
+            agents=None,
+            prs=mock_prs,
+            event_bus=bus,
+            state=state,
+            summarizer=None,
+        )
+        post_merge = PostMergeHandler(
+            config=config,
+            state=state,
+            prs=mock_prs,
+            event_bus=bus,
+            ac_generator=None,
+            retrospective=None,
+            verification_judge=None,
+            epic_checker=None,
+        )
         phase = ReviewPhase(
             config=config,
             state=state,
-            worktrees=AsyncMock(spec=WorkspaceManager),
+            workspaces=AsyncMock(spec=WorkspaceManager),
             reviewers=AsyncMock(spec=ReviewRunner),
-            prs=AsyncMock(),
+            prs=mock_prs,
             stop_event=asyncio.Event(),
             store=AsyncMock(spec=IssueStore),
-            event_bus=EventBus(),
+            conflict_resolver=conflict_resolver,
+            post_merge=post_merge,
+            event_bus=bus,
         )
 
         task = TaskFactory.create()

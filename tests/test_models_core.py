@@ -120,29 +120,19 @@ class TestGitHubIssue:
 
     # -- Label field validator ------------------------------------------------
 
-    def test_labels_from_dict_list(self) -> None:
-        """gh CLI returns labels as list of dicts with a 'name' key."""
-        # Arrange / Act
-        issue = GitHubIssue.model_validate(
-            {"number": 1, "title": "t", "labels": [{"name": "bug"}, {"name": "ready"}]}
-        )
-
-        # Assert
-        assert issue.labels == ["bug", "ready"]
-
     def test_labels_from_string_list(self) -> None:
-        """Plain string lists (existing usage) must still work."""
+        """Plain string lists (the canonical format after upstream normalization)."""
         # Arrange / Act
         issue = IssueFactory.create(number=1, title="t", labels=["bug", "ready"])
 
         # Assert
         assert issue.labels == ["bug", "ready"]
 
-    def test_labels_mixed_dict_and_string(self) -> None:
-        """Mixed list of dicts and strings should normalise correctly."""
+    def test_labels_coerced_to_strings(self) -> None:
+        """Non-string iterables are coerced via str() by the validator."""
         # Arrange / Act
         issue = GitHubIssue.model_validate(
-            {"number": 1, "title": "t", "labels": [{"name": "bug"}, "enhancement"]}
+            {"number": 1, "title": "t", "labels": ["bug", "enhancement"]}
         )
 
         # Assert
@@ -150,55 +140,35 @@ class TestGitHubIssue:
 
     # -- Comment field validator -----------------------------------------------
 
-    def test_comments_from_dict_list(self) -> None:
-        """gh CLI returns comments as list of dicts with a 'body' key."""
-        # Arrange / Act
-        issue = GitHubIssue.model_validate(
-            {"number": 1, "title": "t", "comments": [{"body": "LGTM"}]}
-        )
-
-        # Assert
-        assert issue.comments == ["LGTM"]
-
     def test_comments_from_string_list(self) -> None:
-        """Plain string lists (existing usage) must still work."""
+        """Plain string lists (the canonical format after upstream normalization)."""
         # Arrange / Act
         issue = IssueFactory.create(number=1, title="t", comments=["LGTM", "Ship it"])
 
         # Assert
         assert issue.comments == ["LGTM", "Ship it"]
 
-    def test_comments_mixed_dict_and_string(self) -> None:
-        """Mixed list of dicts and strings should normalise correctly."""
+    def test_comments_coerced_to_strings(self) -> None:
+        """Non-string values are coerced via str() by the validator."""
         # Arrange / Act
         issue = GitHubIssue.model_validate(
-            {"number": 1, "title": "t", "comments": [{"body": "Nice"}, "plain"]}
+            {"number": 1, "title": "t", "comments": ["LGTM", "plain"]}
         )
 
         # Assert
-        assert issue.comments == ["Nice", "plain"]
-
-    def test_comments_dict_missing_body_key(self) -> None:
-        """A dict without 'body' should fall back to empty string."""
-        # Arrange / Act
-        issue = GitHubIssue.model_validate(
-            {"number": 1, "title": "t", "comments": [{"author": "alice"}]}
-        )
-
-        # Assert
-        assert issue.comments == [""]
+        assert issue.comments == ["LGTM", "plain"]
 
     # -- Full round-trip -------------------------------------------------------
 
-    def test_model_validate_full_gh_json(self) -> None:
-        """Full round-trip: realistic gh issue list JSON blob."""
+    def test_model_validate_full_normalized_json(self) -> None:
+        """Full round-trip with pre-normalized data (strings, not dicts)."""
         # Arrange
         raw = {
             "number": 42,
             "title": "Improve widget",
             "body": "The widget is slow.",
-            "labels": [{"name": "hydraflow-ready"}, {"name": "perf"}],
-            "comments": [{"body": "LGTM"}, {"body": "Needs tests"}],
+            "labels": ["hydraflow-ready", "perf"],
+            "comments": ["LGTM", "Needs tests"],
             "url": "https://github.com/org/repo/issues/42",
         }
 
@@ -539,9 +509,9 @@ class TestWorkerResult:
         assert result.issue_number == 10
         assert result.branch == "agent/issue-10"
 
-    def test_worktree_path_defaults_to_empty_string(self) -> None:
+    def test_workspace_path_defaults_to_empty_string(self) -> None:
         result = WorkerResult(issue_number=1, branch="b")
-        assert result.worktree_path == ""
+        assert result.workspace_path == ""
 
     def test_success_defaults_to_false(self) -> None:
         result = WorkerResult(issue_number=1, branch="b")
@@ -584,7 +554,7 @@ class TestWorkerResult:
         result = WorkerResultFactory.create(
             issue_number=7,
             branch="agent/issue-7",
-            worktree_path="/tmp/wt/issue-7",
+            workspace_path="/tmp/wt/issue-7",
             success=True,
             error=None,
             transcript="Done in 3 steps.",
@@ -595,7 +565,7 @@ class TestWorkerResult:
         # Assert
         assert result.issue_number == 7
         assert result.branch == "agent/issue-7"
-        assert result.worktree_path == "/tmp/wt/issue-7"
+        assert result.workspace_path == "/tmp/wt/issue-7"
         assert result.success is True
         assert result.error is None
         assert result.transcript == "Done in 3 steps."
@@ -1017,9 +987,9 @@ class TestHITLItem:
     def test_hitl_item_defaults_to_empty_title_and_pending_status(self) -> None:
         item = HITLItem(issue=1)
         assert item.title == ""
-        assert item.issueUrl == ""
+        assert item.issue_url == ""
         assert item.pr == 0
-        assert item.prUrl == ""
+        assert item.pr_url == ""
         assert item.branch == ""
         assert item.cause == ""
         assert item.status == "pending"
@@ -1028,18 +998,18 @@ class TestHITLItem:
         item = HITLItem(
             issue=42,
             title="Fix widget",
-            issueUrl="https://github.com/org/repo/issues/42",
+            issue_url="https://github.com/org/repo/issues/42",
             pr=99,
-            prUrl="https://github.com/org/repo/pull/99",
+            pr_url="https://github.com/org/repo/pull/99",
             branch="agent/issue-42",
             cause="CI failure",
             status="processing",
         )
         assert item.issue == 42
         assert item.title == "Fix widget"
-        assert item.issueUrl == "https://github.com/org/repo/issues/42"
+        assert item.issue_url == "https://github.com/org/repo/issues/42"
         assert item.pr == 99
-        assert item.prUrl == "https://github.com/org/repo/pull/99"
+        assert item.pr_url == "https://github.com/org/repo/pull/99"
         assert item.branch == "agent/issue-42"
         assert item.cause == "CI failure"
         assert item.status == "processing"
@@ -1053,13 +1023,13 @@ class TestHITLItem:
         assert item.status == "pending"
 
     def test_serialization_with_model_dump(self) -> None:
-        """Confirm camelCase keys (issueUrl, prUrl) and new fields serialize correctly."""
+        """model_dump() returns snake_case keys by default."""
         item = HITLItem(
             issue=10,
             title="Broken thing",
-            issueUrl="https://example.com/issues/10",
+            issue_url="https://example.com/issues/10",
             pr=20,
-            prUrl="https://example.com/pull/20",
+            pr_url="https://example.com/pull/20",
             branch="agent/issue-10",
             cause="test failure",
             status="processing",
@@ -1068,24 +1038,44 @@ class TestHITLItem:
         assert data == {
             "issue": 10,
             "title": "Broken thing",
-            "issueUrl": "https://example.com/issues/10",
+            "issue_url": "https://example.com/issues/10",
             "pr": 20,
-            "prUrl": "https://example.com/pull/20",
+            "pr_url": "https://example.com/pull/20",
             "branch": "agent/issue-10",
             "cause": "test failure",
             "status": "processing",
-            "isMemorySuggestion": False,
-            "llmSummary": "",
-            "llmSummaryUpdatedAt": None,
-            "visualEvidence": None,
+            "is_memory_suggestion": False,
+            "llm_summary": "",
+            "llm_summary_updated_at": None,
+            "visual_evidence": None,
         }
 
+    def test_serialization_by_alias_outputs_camel_case(self) -> None:
+        """model_dump(by_alias=True) outputs camelCase for the frontend."""
+        item = HITLItem(
+            issue=10,
+            title="Broken thing",
+            issue_url="https://example.com/issues/10",
+            pr=20,
+            pr_url="https://example.com/pull/20",
+            branch="agent/issue-10",
+            cause="test failure",
+            status="processing",
+        )
+        data = item.model_dump(by_alias=True)
+        assert data["issueUrl"] == "https://example.com/issues/10"
+        assert data["prUrl"] == "https://example.com/pull/20"
+        assert data["isMemorySuggestion"] is False
+        assert data["llmSummary"] == ""
+        assert data["llmSummaryUpdatedAt"] is None
+        assert data["visualEvidence"] is None
+
     def test_serialization_defaults_include_new_fields(self) -> None:
-        """model_dump includes cause, status, and isMemorySuggestion even with defaults."""
+        """model_dump includes cause, status, and is_memory_suggestion even with defaults."""
         item = HITLItem(issue=1)
         data = item.model_dump()
         assert data["cause"] == ""
         assert data["status"] == "pending"
-        assert data["isMemorySuggestion"] is False
-        assert data["llmSummary"] == ""
-        assert data["llmSummaryUpdatedAt"] is None
+        assert data["is_memory_suggestion"] is False
+        assert data["llm_summary"] == ""
+        assert data["llm_summary_updated_at"] is None

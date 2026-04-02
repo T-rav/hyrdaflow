@@ -162,7 +162,7 @@ class TestConfigFileMergePriority:
         cfg = HydraFlowConfig(
             **file_values,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
 
@@ -180,7 +180,7 @@ class TestConfigFileMergePriority:
         cfg = HydraFlowConfig(
             **file_values,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
 
@@ -196,7 +196,7 @@ class TestConfigFileMergePriority:
         cfg = HydraFlowConfig(
             **file_values,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
 
@@ -212,7 +212,7 @@ class TestConfigFileMergePriority:
         cfg = HydraFlowConfig(
             **file_values,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
 
@@ -261,7 +261,7 @@ class TestWorkerCountRoundTrip:
         cfg = HydraFlowConfig(
             **file_values,
             repo_root=tmp_path,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
 

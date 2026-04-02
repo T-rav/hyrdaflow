@@ -367,16 +367,16 @@ class TestVisualEvidence:
 
 
 # ---------------------------------------------------------------------------
-# HITLItem — visualEvidence field
+# HITLItem — visual_evidence field
 # ---------------------------------------------------------------------------
 
 
 class TestHITLItemVisualEvidence:
-    """Tests for the visualEvidence field on HITLItem."""
+    """Tests for the visual_evidence field on HITLItem."""
 
     def test_default_is_none(self) -> None:
         item = HITLItem(issue=1)
-        assert item.visualEvidence is None
+        assert item.visual_evidence is None
 
     def test_with_visual_evidence(self) -> None:
         ev = VisualEvidence(
@@ -385,9 +385,9 @@ class TestHITLItemVisualEvidence:
             ],
             summary="1 screen failed",
         )
-        item = HITLItem(issue=1, visualEvidence=ev)
-        assert item.visualEvidence is not None
-        assert item.visualEvidence.items[0].screen_name == "home"
+        item = HITLItem(issue=1, visual_evidence=ev)
+        assert item.visual_evidence is not None
+        assert item.visual_evidence.items[0].screen_name == "home"
 
     def test_model_dump_includes_visual_evidence(self) -> None:
         ev = VisualEvidence(
@@ -395,14 +395,14 @@ class TestHITLItemVisualEvidence:
                 VisualEvidenceItem(screen_name="nav", diff_percent=2.0, status="warn")
             ],
         )
-        item = HITLItem(issue=1, visualEvidence=ev)
+        item = HITLItem(issue=1, visual_evidence=ev)
         data = item.model_dump()
-        assert data["visualEvidence"]["items"][0]["screen_name"] == "nav"
+        assert data["visual_evidence"]["items"][0]["screen_name"] == "nav"
 
     def test_model_dump_excludes_none_visual_evidence(self) -> None:
         item = HITLItem(issue=1)
         data = item.model_dump()
-        assert data["visualEvidence"] is None
+        assert data["visual_evidence"] is None
 
 
 # ---------------------------------------------------------------------------

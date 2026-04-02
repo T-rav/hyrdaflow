@@ -99,9 +99,9 @@ async def test_post_merge_chain_updates_state_and_cleans_worktree(tmp_path):
     assert outcome is not None
     assert outcome.outcome == IssueOutcomeType.MERGED
 
-    cleanup_calls = harness.worktrees.post_work_cleanup.await_args_list
+    cleanup_calls = harness.workspaces.post_work_cleanup.await_args_list
     assert cleanup_calls and cleanup_calls[-1] == call(result.task.id)
-    assert harness.state.get_active_worktrees() == {}
+    assert harness.state.get_active_workspaces() == {}
 
     assert any(
         e.type == EventType.REVIEW_UPDATE and e.data.get("status") == "merging"

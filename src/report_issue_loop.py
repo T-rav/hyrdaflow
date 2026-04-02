@@ -18,17 +18,19 @@ import re
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agent_cli import build_agent_command
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
 from execution import SubprocessRunner
 from models import PendingReport, TranscriptEventData
-from pr_manager import PRManager
 from runner_utils import AuthenticationRetryError, stream_claude_process
 from screenshot_scanner import scan_base64_for_secrets
 from state import StateTracker
+
+if TYPE_CHECKING:
+    from pr_manager import PRManager
 
 logger = logging.getLogger("hydraflow.report_issue_loop")
 

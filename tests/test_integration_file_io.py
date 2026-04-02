@@ -191,7 +191,7 @@ class TestStateTrackerPersistence:
         state_file = tmp_path / "state.json"
         tracker = StateTracker(state_file)
         tracker.mark_issue(42, "planned")
-        tracker.set_worktree(42, "/tmp/wt/issue-42")
+        tracker.set_workspace(42, "/tmp/wt/issue-42")
         tracker.set_branch(42, "agent/issue-42")
         tracker.mark_pr(101, "approved")
         tracker.set_hitl_origin(42, "hydraflow-review")
@@ -201,7 +201,7 @@ class TestStateTrackerPersistence:
         tracker2 = StateTracker(state_file)
         data = tracker2.to_dict()
         assert data["processed_issues"]["42"] == "planned"
-        assert tracker2.get_active_worktrees() == {42: "/tmp/wt/issue-42"}
+        assert tracker2.get_active_workspaces() == {42: "/tmp/wt/issue-42"}
         assert tracker2.get_branch(42) == "agent/issue-42"
         assert data["reviewed_prs"]["101"] == "approved"
         assert tracker2.get_hitl_origin(42) == "hydraflow-review"
@@ -215,7 +215,7 @@ class TestStateTrackerPersistence:
 
         tracker = StateTracker(state_file)
         # Should have reset to defaults
-        assert tracker.get_active_worktrees() == {}
+        assert tracker.get_active_workspaces() == {}
         assert tracker.get_branch(1) is None
 
     def test_empty_file_resets(self, tmp_path: Path) -> None:
@@ -225,7 +225,7 @@ class TestStateTrackerPersistence:
         state_file.write_text("")
 
         tracker = StateTracker(state_file)
-        assert tracker.get_active_worktrees() == {}
+        assert tracker.get_active_workspaces() == {}
 
     def test_non_object_json_resets(self, tmp_path: Path) -> None:
         from state import StateTracker
@@ -234,7 +234,7 @@ class TestStateTrackerPersistence:
         state_file.write_text("[1, 2, 3]")
 
         tracker = StateTracker(state_file)
-        assert tracker.get_active_worktrees() == {}
+        assert tracker.get_active_workspaces() == {}
 
     def test_last_updated_set_on_save(self, tmp_path: Path) -> None:
         from state import StateTracker
@@ -254,14 +254,14 @@ class TestStateTrackerPersistence:
         tracker = StateTracker(state_file)
 
         tracker.mark_issue(1, "planned")
-        tracker.set_worktree(2, "/wt/2")
+        tracker.set_workspace(2, "/wt/2")
         tracker.set_branch(3, "branch-3")
         tracker.mark_pr(4, "reviewed")
 
         tracker2 = StateTracker(state_file)
         data = tracker2.to_dict()
         assert data["processed_issues"]["1"] == "planned"
-        assert data["active_worktrees"]["2"] == "/wt/2"
+        assert data["active_workspaces"]["2"] == "/wt/2"
         assert data["active_branches"]["3"] == "branch-3"
         assert data["reviewed_prs"]["4"] == "reviewed"
 

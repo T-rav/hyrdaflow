@@ -36,9 +36,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
         """Clear all HITL tracking state for an issue."""
         if orch:
             orch.skip_hitl_issue(issue_number)
-        ctx.state.remove_hitl_origin(issue_number)
-        ctx.state.remove_hitl_cause(issue_number)
-        ctx.state.remove_hitl_summary(issue_number)
+        ctx.state.clear_hitl_state(issue_number)
 
     async def _resolve_hitl_item(
         issue_number: int,
@@ -105,7 +103,9 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
             items = await manager.list_hitl_items(hitl_labels)
         enriched = []
         for item in items:
-            data = dict(item) if isinstance(item, dict) else item.model_dump()
+            data = (
+                dict(item) if isinstance(item, dict) else item.model_dump(by_alias=True)
+            )
             issue_num: int = int(
                 data.get("issue", 0) if isinstance(item, dict) else item.issue
             )

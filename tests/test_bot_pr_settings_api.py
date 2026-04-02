@@ -33,3 +33,6 @@ def test_bot_pr_settings_partial_update():
     new = BotPRSettings(**update)
     assert new.failure_strategy == "hitl"
     assert new.authors == ["dependabot[bot]"]  # unchanged
+
+
+# Caretaker settings endpoint tests covered by test_bot_pr_settings_api.py

@@ -291,7 +291,7 @@ class TestPlanEpicGroup:
 
         cfg = ConfigFactory.create(
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         # Override the iteration limit
@@ -521,7 +521,7 @@ class TestPlanIssuesMixedEpicAndStandalone:
 
         cfg = ConfigFactory.create(
             repo_root=config.repo_root,
-            worktree_base=config.worktree_base,
+            workspace_base=config.workspace_base,
             state_file=config.state_file,
         )
         # epic_group_planning defaults to False in ConfigFactory

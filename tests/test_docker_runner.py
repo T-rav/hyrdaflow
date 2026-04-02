@@ -10,6 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+docker = pytest.importorskip("docker", reason="docker package not installed")
+
 from config import HydraFlowConfig
 from docker_runner import (
     DockerProcess,
@@ -1077,7 +1079,7 @@ class TestGetDockerRunner:
         monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/docker")
         cfg = HydraFlowConfig(
             repo_root=repo_root,
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             execution_mode="docker",
             docker_image="hydra:latest",

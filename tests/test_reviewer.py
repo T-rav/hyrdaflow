@@ -49,7 +49,7 @@ def test_build_command_does_not_include_cwd(config, tmp_path):
     assert "--cwd" not in cmd
 
 
-def test_build_command_accepts_none_worktree_path(config):
+def test_build_command_accepts_none_workspace_path(config):
     """ReviewRunner._build_command accepts None since it doesn't use the path."""
     runner = _make_runner(config, None)
     cmd = runner._build_command(None)
@@ -70,7 +70,7 @@ def test_build_command_supports_codex_backend(tmp_path):
         review_tool="codex",
         review_model="gpt-5-codex",
         repo_root=tmp_path / "repo",
-        worktree_base=tmp_path / "wt",
+        workspace_base=tmp_path / "wt",
         state_file=tmp_path / "s.json",
     )
     runner = _make_runner(cfg, None)
@@ -1955,7 +1955,7 @@ class TestRunPrecheckContext:
         cfg = ConfigFactory.create(
             max_subskill_attempts=1,
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         runner = _make_runner(cfg, event_bus)

@@ -11,7 +11,7 @@ from models import ReviewVerdict
 
 if TYPE_CHECKING:
     from github_cache import GitHubDataCache
-    from pr_manager import PRManager
+    from ports import PRPort
     from state import StateTracker
 
 logger = logging.getLogger("hydraflow.bot_pr_loop")
@@ -24,7 +24,7 @@ class BotPRLoop(BaseBackgroundLoop):
         self,
         config: HydraFlowConfig,
         cache: GitHubDataCache,
-        prs: PRManager,
+        prs: PRPort,
         state: StateTracker,
         deps: LoopDeps,
     ) -> None:

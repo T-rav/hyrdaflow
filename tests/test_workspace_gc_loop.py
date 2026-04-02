@@ -25,17 +25,17 @@ def _make_loop(
     *,
     enabled: bool = True,
     interval: int = 600,
-    active_worktrees: dict[int, str] | None = None,
+    active_workspaces: dict[int, str] | None = None,
     active_issue_numbers: list[int] | None = None,
     hitl_causes: dict[int, str] | None = None,
     pipeline_issues: set[int] | None = None,
 ) -> tuple[WorkspaceGCLoop, StateTracker, asyncio.Event]:
     """Build a WorkspaceGCLoop with test-friendly defaults."""
-    deps = make_bg_loop_deps(tmp_path, enabled=enabled, worktree_gc_interval=interval)
+    deps = make_bg_loop_deps(tmp_path, enabled=enabled, workspace_gc_interval=interval)
 
     state = StateTracker(deps.config.state_file)
-    for num, path in (active_worktrees or {}).items():
-        state.set_worktree(num, path)
+    for num, path in (active_workspaces or {}).items():
+        state.set_workspace(num, path)
     if active_issue_numbers:
         state.set_active_issue_numbers(active_issue_numbers)
     for num, cause in (hitl_causes or {}).items():
@@ -43,13 +43,13 @@ def _make_loop(
 
     in_pipeline = pipeline_issues or set()
 
-    worktrees = MagicMock()
-    worktrees.destroy = AsyncMock()
+    workspaces = MagicMock()
+    workspaces.destroy = AsyncMock()
     prs = MagicMock()
 
     loop = WorkspaceGCLoop(
         config=deps.config,
-        worktrees=worktrees,
+        workspaces=workspaces,
         prs=prs,
         state=state,
         deps=deps.loop_deps,
@@ -63,7 +63,7 @@ def _make_loop(
 class TestWorkspaceGCLoopBasics:
     def test_worker_name(self, tmp_path: Path) -> None:
         loop, _state, _stop = _make_loop(tmp_path)
-        assert loop._worker_name == "worktree_gc"
+        assert loop._worker_name == "workspace_gc"
 
     def test_default_interval(self, tmp_path: Path) -> None:
         loop, _state, _stop = _make_loop(tmp_path, interval=900)
@@ -91,43 +91,43 @@ class TestWorkspaceGCLoopBasics:
             if e.type == EventType.BACKGROUND_WORKER_STATUS
         ]
         assert len(events) >= 1
-        assert events[0].data["worker"] == "worktree_gc"
+        assert events[0].data["worker"] == "workspace_gc"
         assert events[0].data["status"] == "ok"
 
 
 class TestWorktreeGCCollectsClosedIssues:
     @pytest.mark.asyncio
     async def test_gc_closed_issue_worktree(self, tmp_path: Path) -> None:
-        loop, state, _stop = _make_loop(tmp_path, active_worktrees={42: "/p/42"})
+        loop, state, _stop = _make_loop(tmp_path, active_workspaces={42: "/p/42"})
         loop._get_issue_state = AsyncMock(return_value="closed")
         await loop._do_work()
-        loop._worktrees.destroy.assert_awaited_once_with(42)
-        assert 42 not in state.get_active_worktrees()
+        loop._workspaces.destroy.assert_awaited_once_with(42)
+        assert 42 not in state.get_active_workspaces()
 
     @pytest.mark.asyncio
     async def test_gc_returns_collected_count(self, tmp_path: Path) -> None:
-        loop, _state, _stop = _make_loop(tmp_path, active_worktrees={42: "/p/42"})
+        loop, _state, _stop = _make_loop(tmp_path, active_workspaces={42: "/p/42"})
         loop._get_issue_state = AsyncMock(return_value="closed")
         result = await loop._do_work()
         assert result["collected"] >= 1
 
     @pytest.mark.asyncio
     async def test_state_removed_before_destroy(self, tmp_path: Path) -> None:
-        loop, state, _stop = _make_loop(tmp_path, active_worktrees={42: "/p/42"})
+        loop, state, _stop = _make_loop(tmp_path, active_workspaces={42: "/p/42"})
         loop._get_issue_state = AsyncMock(return_value="closed")
         call_order: list[str] = []
-        original_remove = state.remove_worktree
+        original_remove = state.remove_workspace
 
         def tracked_remove(num: int) -> None:
             call_order.append("remove_state")
             original_remove(num)
 
-        state.remove_worktree = tracked_remove  # type: ignore[method-assign]
+        state.remove_workspace = tracked_remove  # type: ignore[method-assign]
 
         async def tracked_destroy(num: int) -> None:
             call_order.append("destroy")
 
-        loop._worktrees.destroy = tracked_destroy  # type: ignore[method-assign]
+        loop._workspaces.destroy = tracked_destroy  # type: ignore[method-assign]
         await loop._do_work()
         assert call_order == ["remove_state", "destroy"]
 
@@ -136,45 +136,45 @@ class TestWorktreeGCSkipsActive:
     @pytest.mark.asyncio
     async def test_skips_active_issue(self, tmp_path: Path) -> None:
         loop, _s, _e = _make_loop(
-            tmp_path, active_worktrees={42: "/p/42"}, active_issue_numbers=[42]
+            tmp_path, active_workspaces={42: "/p/42"}, active_issue_numbers=[42]
         )
         result = await loop._do_work()
-        loop._worktrees.destroy.assert_not_awaited()
+        loop._workspaces.destroy.assert_not_awaited()
         assert result["skipped"] == 1
 
     @pytest.mark.asyncio
     async def test_skips_hitl_in_progress(self, tmp_path: Path) -> None:
         loop, _s, _e = _make_loop(
-            tmp_path, active_worktrees={42: "/p/42"}, hitl_causes={42: "ci_failure"}
+            tmp_path, active_workspaces={42: "/p/42"}, hitl_causes={42: "ci_failure"}
         )
         result = await loop._do_work()
-        loop._worktrees.destroy.assert_not_awaited()
+        loop._workspaces.destroy.assert_not_awaited()
         assert result["skipped"] == 1
 
     @pytest.mark.asyncio
     async def test_skips_open_issue_with_pr(self, tmp_path: Path) -> None:
-        loop, _s, _e = _make_loop(tmp_path, active_worktrees={42: "/p/42"})
+        loop, _s, _e = _make_loop(tmp_path, active_workspaces={42: "/p/42"})
         loop._get_issue_state = AsyncMock(return_value="open")
         loop._has_open_pr = AsyncMock(return_value=True)
         result = await loop._do_work()
-        loop._worktrees.destroy.assert_not_awaited()
+        loop._workspaces.destroy.assert_not_awaited()
         assert result["skipped"] == 1
 
     @pytest.mark.asyncio
     async def test_gc_open_issue_without_pr(self, tmp_path: Path) -> None:
-        loop, state, _e = _make_loop(tmp_path, active_worktrees={42: "/p/42"})
+        loop, state, _e = _make_loop(tmp_path, active_workspaces={42: "/p/42"})
         loop._get_issue_state = AsyncMock(return_value="open")
         loop._has_open_pr = AsyncMock(return_value=False)
         result = await loop._do_work()
-        loop._worktrees.destroy.assert_awaited_once_with(42)
+        loop._workspaces.destroy.assert_awaited_once_with(42)
         assert result["collected"] >= 1
 
     @pytest.mark.asyncio
     async def test_skips_unknown_issue_state(self, tmp_path: Path) -> None:
-        loop, _s, _e = _make_loop(tmp_path, active_worktrees={42: "/p/42"})
+        loop, _s, _e = _make_loop(tmp_path, active_workspaces={42: "/p/42"})
         loop._get_issue_state = AsyncMock(return_value="unknown")
         result = await loop._do_work()
-        loop._worktrees.destroy.assert_not_awaited()
+        loop._workspaces.destroy.assert_not_awaited()
         assert result["skipped"] == 1
 
 
@@ -182,16 +182,16 @@ class TestWorktreeGCBudgetCap:
     @pytest.mark.asyncio
     async def test_budget_caps_phase1_at_max(self, tmp_path: Path) -> None:
         wts = {i: f"/p/issue-{i}" for i in range(1, _MAX_GC_PER_CYCLE + 5)}
-        loop, _s, _e = _make_loop(tmp_path, active_worktrees=wts)
+        loop, _s, _e = _make_loop(tmp_path, active_workspaces=wts)
         loop._get_issue_state = AsyncMock(return_value="closed")
         result = await loop._do_work()
         assert result["collected"] == _MAX_GC_PER_CYCLE
-        assert loop._worktrees.destroy.await_count == _MAX_GC_PER_CYCLE
+        assert loop._workspaces.destroy.await_count == _MAX_GC_PER_CYCLE
 
     @pytest.mark.asyncio
     async def test_budget_shared_across_phases(self, tmp_path: Path) -> None:
         wts = {i: f"/p/issue-{i}" for i in range(1, 6)}
-        loop, _s, _e = _make_loop(tmp_path, active_worktrees=wts)
+        loop, _s, _e = _make_loop(tmp_path, active_workspaces=wts)
         loop._get_issue_state = AsyncMock(return_value="closed")
         calls: list[int] = []
 
@@ -208,29 +208,29 @@ class TestWorktreeGCOrphanedDirs:
     @pytest.mark.asyncio
     async def test_collects_orphaned_filesystem_dirs(self, tmp_path: Path) -> None:
         loop, _s, _e = _make_loop(tmp_path)
-        orphan = loop._config.worktree_base / loop._config.repo_slug / "issue-99"
+        orphan = loop._config.workspace_base / loop._config.repo_slug / "issue-99"
         orphan.mkdir(parents=True)
         loop._get_issue_state = AsyncMock(return_value="closed")
         result = await loop._do_work()
-        loop._worktrees.destroy.assert_awaited_once_with(99)
+        loop._workspaces.destroy.assert_awaited_once_with(99)
         assert result["collected"] >= 1
 
     @pytest.mark.asyncio
     async def test_skips_non_issue_dirs(self, tmp_path: Path) -> None:
         loop, _s, _e = _make_loop(tmp_path)
-        base = loop._config.worktree_base / loop._config.repo_slug
+        base = loop._config.workspace_base / loop._config.repo_slug
         (base / "random-dir").mkdir(parents=True)
         result = await loop._do_work()
-        loop._worktrees.destroy.assert_not_awaited()
+        loop._workspaces.destroy.assert_not_awaited()
         assert result["collected"] == 0
 
     @pytest.mark.asyncio
     async def test_skips_non_numeric_issue_dirs(self, tmp_path: Path) -> None:
         loop, _s, _e = _make_loop(tmp_path)
-        base = loop._config.worktree_base / loop._config.repo_slug
+        base = loop._config.workspace_base / loop._config.repo_slug
         (base / "issue-abc").mkdir(parents=True)
         await loop._do_work()
-        loop._worktrees.destroy.assert_not_awaited()
+        loop._workspaces.destroy.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_returns_zero_when_base_missing(self, tmp_path: Path) -> None:
@@ -254,7 +254,7 @@ class TestWorktreeGCOrphanedBranches:
 
     @pytest.mark.asyncio
     async def test_skips_branches_with_active_worktree(self, tmp_path: Path) -> None:
-        loop, _s, _e = _make_loop(tmp_path, active_worktrees={99: "/p/99"})
+        loop, _s, _e = _make_loop(tmp_path, active_workspaces={99: "/p/99"})
         loop._collect_orphaned_branches = (
             WorkspaceGCLoop._collect_orphaned_branches.__get__(loop)
         )  # type: ignore[attr-defined]
@@ -386,28 +386,28 @@ class TestWorktreeGCSubprocessArgs:
 class TestWorktreeGCErrorHandling:
     @pytest.mark.asyncio
     async def test_api_error_skips_worktree(self, tmp_path: Path) -> None:
-        loop, state, _e = _make_loop(tmp_path, active_worktrees={42: "/p/42"})
+        loop, state, _e = _make_loop(tmp_path, active_workspaces={42: "/p/42"})
         loop._get_issue_state = AsyncMock(side_effect=RuntimeError("API failure"))
         result = await loop._do_work()
-        loop._worktrees.destroy.assert_not_awaited()
-        assert 42 in state.get_active_worktrees()
+        loop._workspaces.destroy.assert_not_awaited()
+        assert 42 in state.get_active_workspaces()
         assert result["skipped"] == 1
 
     @pytest.mark.asyncio
     async def test_destroy_error_increments_error_count(self, tmp_path: Path) -> None:
-        loop, _s, _e = _make_loop(tmp_path, active_worktrees={42: "/p/42"})
+        loop, _s, _e = _make_loop(tmp_path, active_workspaces={42: "/p/42"})
         loop._get_issue_state = AsyncMock(return_value="closed")
-        loop._worktrees.destroy = AsyncMock(side_effect=RuntimeError("destroy failed"))
+        loop._workspaces.destroy = AsyncMock(side_effect=RuntimeError("destroy failed"))
         result = await loop._do_work()
         assert result["errors"] == 1
 
     @pytest.mark.asyncio
     async def test_has_open_pr_error_skips_worktree(self, tmp_path: Path) -> None:
-        loop, _s, _e = _make_loop(tmp_path, active_worktrees={42: "/p/42"})
+        loop, _s, _e = _make_loop(tmp_path, active_workspaces={42: "/p/42"})
         loop._get_issue_state = AsyncMock(return_value="open")
         loop._has_open_pr = AsyncMock(side_effect=RuntimeError("PR check failed"))
         result = await loop._do_work()
-        loop._worktrees.destroy.assert_not_awaited()
+        loop._workspaces.destroy.assert_not_awaited()
         assert result["skipped"] == 1
 
 
@@ -415,16 +415,16 @@ class TestWorktreeGCStopEvent:
     @pytest.mark.asyncio
     async def test_stop_event_halts_gc(self, tmp_path: Path) -> None:
         loop, _s, stop = _make_loop(
-            tmp_path, active_worktrees={1: "/p/1", 2: "/p/2", 3: "/p/3"}
+            tmp_path, active_workspaces={1: "/p/1", 2: "/p/2", 3: "/p/3"}
         )
         stop.set()
         result = await loop._do_work()
-        loop._worktrees.destroy.assert_not_awaited()
+        loop._workspaces.destroy.assert_not_awaited()
         assert result["collected"] == 0
 
     @pytest.mark.asyncio
     async def test_stop_event_skips_later_phases(self, tmp_path: Path) -> None:
-        loop, _s, stop = _make_loop(tmp_path, active_worktrees={42: "/p/42"})
+        loop, _s, stop = _make_loop(tmp_path, active_workspaces={42: "/p/42"})
 
         async def gc_and_stop(issue_number: int) -> str:
             stop.set()
@@ -444,13 +444,13 @@ class TestWorktreeGCOrphanedDirsBudget:
         """Phase 2 stops collecting when budget is exhausted."""
         # Phase 1 collects 18, leaving budget of 2 for Phase 2
         wts = {i: f"/p/issue-{i}" for i in range(1, 19)}
-        loop, _s, _e = _make_loop(tmp_path, active_worktrees=wts)
+        loop, _s, _e = _make_loop(tmp_path, active_workspaces=wts)
         loop._get_issue_state = AsyncMock(return_value="closed")
 
         # Create 5 orphaned dirs — only 2 should be collected (budget = 20 - 18)
         slug = loop._config.repo_slug
         for i in range(100, 105):
-            (loop._config.worktree_base / slug / f"issue-{i}").mkdir(parents=True)
+            (loop._config.workspace_base / slug / f"issue-{i}").mkdir(parents=True)
 
         result = await loop._do_work()
         assert result["collected"] == _MAX_GC_PER_CYCLE  # 18 + 2 = 20
@@ -464,8 +464,8 @@ class TestWorktreeGCOrphanedDirsErrors:
         """A destroy failure for one orphaned dir does not stop processing others."""
         loop, _s, _e = _make_loop(tmp_path)
         slug = loop._config.repo_slug
-        (loop._config.worktree_base / slug / "issue-50").mkdir(parents=True)
-        (loop._config.worktree_base / slug / "issue-51").mkdir(parents=True)
+        (loop._config.workspace_base / slug / "issue-50").mkdir(parents=True)
+        (loop._config.workspace_base / slug / "issue-51").mkdir(parents=True)
 
         loop._get_issue_state = AsyncMock(return_value="closed")
 
@@ -477,7 +477,7 @@ class TestWorktreeGCOrphanedDirsErrors:
             if issue_number == 50:
                 raise RuntimeError("destroy failed")
 
-        loop._worktrees.destroy = fail_then_succeed  # type: ignore[method-assign]
+        loop._workspaces.destroy = fail_then_succeed  # type: ignore[method-assign]
 
         result = await loop._do_work()
         # issue-50 fails, issue-51 succeeds
@@ -496,7 +496,7 @@ class TestWorktreeGCStopEventPhase2:
         loop, _s, stop = _make_loop(tmp_path)
         slug = loop._config.repo_slug
         for i in range(100, 105):
-            (loop._config.worktree_base / slug / f"issue-{i}").mkdir(parents=True)
+            (loop._config.workspace_base / slug / f"issue-{i}").mkdir(parents=True)
 
         call_count = 0
 
@@ -617,22 +617,22 @@ class TestWorktreeGCPipelineProtection:
     async def test_skips_worktree_for_queued_issue(self, tmp_path: Path) -> None:
         """Worktrees for issues still in the pipeline queue are not collected."""
         loop, state, _e = _make_loop(
-            tmp_path, active_worktrees={42: "/p/42"}, pipeline_issues={42}
+            tmp_path, active_workspaces={42: "/p/42"}, pipeline_issues={42}
         )
         result = await loop._do_work()
-        loop._worktrees.destroy.assert_not_awaited()
+        loop._workspaces.destroy.assert_not_awaited()
         assert result["skipped"] == 1
-        assert 42 in state.get_active_worktrees()
+        assert 42 in state.get_active_workspaces()
 
     @pytest.mark.asyncio
     async def test_collects_worktree_not_in_pipeline(self, tmp_path: Path) -> None:
         """Worktrees for issues no longer in the pipeline are collected normally."""
         loop, _s, _e = _make_loop(
-            tmp_path, active_worktrees={42: "/p/42"}, pipeline_issues=set()
+            tmp_path, active_workspaces={42: "/p/42"}, pipeline_issues=set()
         )
         loop._get_issue_state = AsyncMock(return_value="closed")
         result = await loop._do_work()
-        loop._worktrees.destroy.assert_awaited_once_with(42)
+        loop._workspaces.destroy.assert_awaited_once_with(42)
         assert result["collected"] >= 1
 
     @pytest.mark.asyncio
@@ -642,7 +642,7 @@ class TestWorktreeGCPipelineProtection:
         """GitHub labels protect queued issues even if IssueStore callback misses them."""
         loop, state, _e = _make_loop(
             tmp_path,
-            active_worktrees={42: "/p/42"},
+            active_workspaces={42: "/p/42"},
             pipeline_issues=set(),
         )
         loop._get_issue_state = AsyncMock(return_value="open")
@@ -650,18 +650,18 @@ class TestWorktreeGCPipelineProtection:
         loop._has_open_pr = AsyncMock(return_value=False)
 
         result = await loop._do_work()
-        loop._worktrees.destroy.assert_not_awaited()
+        loop._workspaces.destroy.assert_not_awaited()
         assert result["skipped"] == 1
-        assert 42 in state.get_active_worktrees()
+        assert 42 in state.get_active_workspaces()
 
     @pytest.mark.asyncio
     async def test_skips_orphaned_dir_for_pipeline_issue(self, tmp_path: Path) -> None:
         """Orphaned filesystem dirs for pipeline issues are not collected."""
         loop, _s, _e = _make_loop(tmp_path, pipeline_issues={99})
-        orphan = loop._config.worktree_base / loop._config.repo_slug / "issue-99"
+        orphan = loop._config.workspace_base / loop._config.repo_slug / "issue-99"
         orphan.mkdir(parents=True)
         result = await loop._do_work()
-        loop._worktrees.destroy.assert_not_awaited()
+        loop._workspaces.destroy.assert_not_awaited()
         assert result["collected"] == 0
 
     @pytest.mark.asyncio
@@ -683,7 +683,7 @@ class TestGCRemovesBranchStateOnWorktreeCollection:
 
     @pytest.mark.asyncio
     async def test_phase1_removes_branch_entry(self, tmp_path: Path) -> None:
-        loop, state, _e = _make_loop(tmp_path, active_worktrees={42: "/p/42"})
+        loop, state, _e = _make_loop(tmp_path, active_workspaces={42: "/p/42"})
         state.set_branch(42, "agent/issue-42")
         loop._get_issue_state = AsyncMock(return_value="closed")
         await loop._do_work()
@@ -692,7 +692,7 @@ class TestGCRemovesBranchStateOnWorktreeCollection:
     @pytest.mark.asyncio
     async def test_phase1_noop_when_no_branch_entry(self, tmp_path: Path) -> None:
         """No error when GC'ing a worktree that has no branch entry."""
-        loop, state, _e = _make_loop(tmp_path, active_worktrees={42: "/p/42"})
+        loop, state, _e = _make_loop(tmp_path, active_workspaces={42: "/p/42"})
         loop._get_issue_state = AsyncMock(return_value="closed")
         await loop._do_work()
         assert state.get_branch(42) is None
@@ -700,7 +700,7 @@ class TestGCRemovesBranchStateOnWorktreeCollection:
     @pytest.mark.asyncio
     async def test_phase1_removes_branch_before_destroy(self, tmp_path: Path) -> None:
         """remove_branch must be called before destroy (crash-safe ordering)."""
-        loop, state, _e = _make_loop(tmp_path, active_worktrees={42: "/p/42"})
+        loop, state, _e = _make_loop(tmp_path, active_workspaces={42: "/p/42"})
         state.set_branch(42, "agent/issue-42")
         loop._get_issue_state = AsyncMock(return_value="closed")
 
@@ -715,7 +715,7 @@ class TestGCRemovesBranchStateOnWorktreeCollection:
             call_order.append("destroy")
 
         state.remove_branch = tracked_remove_branch  # type: ignore[method-assign]
-        loop._worktrees.destroy = tracked_destroy  # type: ignore[method-assign]
+        loop._workspaces.destroy = tracked_destroy  # type: ignore[method-assign]
         await loop._do_work()
         assert "remove_branch" in call_order
         assert call_order.index("remove_branch") < call_order.index("destroy")
@@ -752,7 +752,7 @@ class TestGCPrunesStaleActiveBranches:
 
     @pytest.mark.asyncio
     async def test_skips_branch_with_active_worktree(self, tmp_path: Path) -> None:
-        loop, state, _e = _make_loop(tmp_path, active_worktrees={42: "/p/42"})
+        loop, state, _e = _make_loop(tmp_path, active_workspaces={42: "/p/42"})
         state.set_branch(42, "agent/issue-42")
         loop._is_safe_to_gc = AsyncMock(return_value=True)
         pruned = await loop._prune_stale_branch_entries()
@@ -846,11 +846,11 @@ class TestCollectOrphanedBranchesPerItemIsolation:
                 raise RuntimeError("callback boom")
             return False
 
-        deps = make_bg_loop_deps(tmp_path, enabled=True, worktree_gc_interval=600)
+        deps = make_bg_loop_deps(tmp_path, enabled=True, workspace_gc_interval=600)
         state = StateTracker(deps.config.state_file)
         loop = WorkspaceGCLoop(
             config=deps.config,
-            worktrees=MagicMock(),
+            workspaces=MagicMock(),
             prs=MagicMock(),
             state=state,
             deps=deps.loop_deps,

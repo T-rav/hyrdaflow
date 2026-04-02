@@ -425,7 +425,7 @@ class TestHITLResetsAttempts:
         )
 
         # Create worktree directory
-        wt_path = config.worktree_path_for_issue(42)
+        wt_path = config.workspace_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
         wt.create = AsyncMock(return_value=wt_path)
 

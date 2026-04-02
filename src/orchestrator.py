@@ -9,6 +9,7 @@ from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from adr_utils import is_adr_issue_title
 from bg_worker_manager import BGWorkerManager
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
@@ -33,7 +34,6 @@ from models import (
 )
 from phase_utils import (
     MemorySuggester,
-    is_adr_issue_title,
     is_likely_bug,
     log_exception_with_bug_classification,
     release_batch_in_flight,
@@ -44,8 +44,6 @@ from state_restorer import StateRestorer
 from subprocess_util import (
     AuthenticationError,
     CreditExhaustedError,
-    configure_gh_concurrency,
-    run_subprocess,
 )
 
 if TYPE_CHECKING:
@@ -105,9 +103,6 @@ class HydraFlowOrchestrator:
         # Loop tasks (set by _supervise_loops for stop() to cancel)
         self._loop_tasks: dict[str, asyncio.Task[None]] = {}
 
-        # Configure global GitHub API concurrency limiter
-        configure_gh_concurrency(config.gh_api_concurrency)
-
         # Build all services via the factory
         svc = build_services(
             config,
@@ -134,11 +129,12 @@ class HydraFlowOrchestrator:
             "report_issue": svc.report_issue_loop,
             "epic_monitor": svc.epic_monitor_loop,
             "epic_sweeper": svc.epic_sweeper_loop,
-            "worktree_gc": svc.worktree_gc_loop,
+            "workspace_gc": svc.workspace_gc_loop,
             "runs_gc": svc.runs_gc_loop,
             "adr_reviewer": svc.adr_reviewer_loop,
             "health_monitor": svc.health_monitor_loop,
             "bot_pr": svc.bot_pr_loop,
+            "stale_issue": svc.stale_issue_loop,
             "sentry_ingest": svc.sentry_loop,
             "stale_issue_gc": svc.stale_issue_gc_loop,
             "ci_monitor": svc.ci_monitor_loop,
@@ -205,9 +201,9 @@ class HydraFlowOrchestrator:
     async def _deferred_pipeline_start(self) -> None:
         """Run repo initialization that was skipped when pipeline was disabled."""
         try:
-            await self._svc.worktrees.sanitize_repo()
+            await self._svc.workspaces.sanitize_repo()
             await self._svc.prs.ensure_labels_exist()
-            await self._enable_rerere()
+            await self._svc.workspaces.enable_rerere()
             self._warn_if_agents_md_missing()
             if self._current_session is None:
                 await self._start_session()
@@ -223,10 +219,10 @@ class HydraFlowOrchestrator:
     def _has_active_processes(self) -> bool:
         """Return True if any runner pool still has live subprocesses."""
         return bool(
-            self._svc.planners._active_procs
-            or self._svc.agents._active_procs
-            or self._svc.reviewers._active_procs
-            or self._svc.hitl_runner._active_procs
+            self._svc.planners.active_count
+            or self._svc.agents.active_count
+            or self._svc.reviewers.active_count
+            or self._svc.hitl_runner.active_count
         )
 
     @property
@@ -485,11 +481,11 @@ class HydraFlowOrchestrator:
 
         # Map stage keys to runner pools for active worker counts
         stage_runners: dict[str, int] = {
-            "triage": len(self._svc.triage._active_procs),
-            "plan": len(self._svc.planners._active_procs),
-            "implement": len(self._svc.agents._active_procs),
-            "review": len(self._svc.reviewers._active_procs),
-            "hitl": len(self._svc.hitl_runner._active_procs),
+            "triage": self._svc.triage.active_count,
+            "plan": self._svc.planners.active_count,
+            "implement": self._svc.agents.active_count,
+            "review": self._svc.reviewers.active_count,
+            "hitl": self._svc.hitl_runner.active_count,
         }
 
         # Map IssueStore stage names to our stage keys
@@ -693,9 +689,9 @@ class HydraFlowOrchestrator:
 
         session_started = False
         if self._pipeline_enabled:
-            await self._svc.worktrees.sanitize_repo()
+            await self._svc.workspaces.sanitize_repo()
             await self._svc.prs.ensure_labels_exist()
-            await self._enable_rerere()
+            await self._svc.workspaces.enable_rerere()
             self._warn_if_agents_md_missing()
             await self._start_session()
             session_started = True
@@ -710,26 +706,11 @@ class HydraFlowOrchestrator:
             self._svc.reviewers.terminate()
             self._svc.hitl_runner.terminate()
             with contextlib.suppress(Exception):
-                await self._svc.worktrees.sanitize_repo()
+                await self._svc.workspaces.sanitize_repo()
             await asyncio.sleep(0)
             self._running = False
             await self._publish_status()
             logger.info("HydraFlow stopped")
-
-    async def _enable_rerere(self) -> None:
-        """Enable git rerere so resolved conflicts are remembered for next time."""
-        try:
-            await run_subprocess(
-                "git",
-                "config",
-                "rerere.enabled",
-                "true",
-                cwd=self._config.repo_root,
-                gh_token=self._config.gh_token,
-            )
-            logger.info("git rerere enabled")
-        except (RuntimeError, FileNotFoundError):
-            logger.debug("Could not enable git rerere", exc_info=True)
 
     def _warn_if_agents_md_missing(self) -> None:
         """Log a warning if AGENTS.md is absent from the repo root.
@@ -845,11 +826,12 @@ class HydraFlowOrchestrator:
             ("report_issue", self._svc.report_issue_loop.run),
             ("epic_monitor", self._svc.epic_monitor_loop.run),
             ("epic_sweeper", self._svc.epic_sweeper_loop.run),
-            ("worktree_gc", self._svc.worktree_gc_loop.run),
+            ("workspace_gc", self._svc.workspace_gc_loop.run),
             ("runs_gc", self._svc.runs_gc_loop.run),
             ("adr_reviewer", self._svc.adr_reviewer_loop.run),
             ("health_monitor", self._svc.health_monitor_loop.run),
             ("bot_pr", self._svc.bot_pr_loop.run),
+            ("stale_issue", self._svc.stale_issue_loop.run),
             ("sentry_ingest", self._svc.sentry_loop.run),
             ("github_cache", self._svc.github_cache_loop.run),
             ("pipeline_stats", self._pipeline_stats_loop),

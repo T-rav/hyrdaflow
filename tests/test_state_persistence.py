@@ -211,7 +211,7 @@ class TestStateDataModel:
         """StateData() should have correct zero/empty defaults."""
         data = StateData()
         assert data.processed_issues == {}
-        assert data.active_worktrees == {}
+        assert data.active_workspaces == {}
         assert data.active_branches == {}
         assert data.reviewed_prs == {}
         assert data.hitl_origins == {}
@@ -228,7 +228,7 @@ class TestStateDataModel:
         """model_validate should accept a well-formed dict."""
         raw = {
             "processed_issues": {"1": "success"},
-            "active_worktrees": {"2": "/wt/2"},
+            "active_workspaces": {"2": "/wt/2"},
             "active_branches": {"2": "agent/issue-2"},
             "reviewed_prs": {"10": "merged"},
             "hitl_origins": {"42": "hydraflow-review"},
@@ -249,7 +249,7 @@ class TestStateDataModel:
         """Missing keys should get defaults -- enables migration from old files."""
         data = StateData.model_validate({"processed_issues": {"1": "success"}})
         assert data.processed_issues == {"1": "success"}
-        assert data.active_worktrees == {}
+        assert data.active_workspaces == {}
         assert data.lifetime_stats.issues_completed == 0
 
     def test_rejects_wrong_types(self) -> None:
@@ -327,7 +327,7 @@ class TestWorkerResultMeta:
         state_file = tmp_path / "state.json"
         old_data = {
             "processed_issues": {"1": "success"},
-            "active_worktrees": {},
+            "active_workspaces": {},
             "active_branches": {},
             "reviewed_prs": {},
             "last_updated": None,

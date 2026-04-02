@@ -27,7 +27,7 @@ class TestCreate:
         manager = WorkspaceManager(config)
 
         # Pre-create the base directory so mkdir doesn't cause issues
-        config.worktree_base.mkdir(parents=True, exist_ok=True)
+        config.workspace_base.mkdir(parents=True, exist_ok=True)
 
         success_proc = make_proc(returncode=0)
 
@@ -70,7 +70,7 @@ class TestCreate:
     ) -> None:
         """create should fetch the remote branch and checkout instead of creating new."""
         manager = WorkspaceManager(config)
-        config.worktree_base.mkdir(parents=True, exist_ok=True)
+        config.workspace_base.mkdir(parents=True, exist_ok=True)
 
         success_proc = make_proc(returncode=0)
 
@@ -122,7 +122,7 @@ class TestCreate:
     ) -> None:
         """create should checkout -b from origin/main when no remote branch exists."""
         manager = WorkspaceManager(config)
-        config.worktree_base.mkdir(parents=True, exist_ok=True)
+        config.workspace_base.mkdir(parents=True, exist_ok=True)
 
         success_proc = make_proc(returncode=0)
 
@@ -159,7 +159,7 @@ class TestCreate:
     ) -> None:
         """create should invoke _setup_env, _create_venv, and _install_hooks."""
         manager = WorkspaceManager(config)
-        config.worktree_base.mkdir(parents=True, exist_ok=True)
+        config.workspace_base.mkdir(parents=True, exist_ok=True)
 
         success_proc = make_proc()
 
@@ -179,13 +179,13 @@ class TestCreate:
         setup_env.assert_called_once()
         create_venv.assert_awaited_once()
         install_hooks.assert_awaited_once()
-        assert result == config.worktree_path_for_issue(7)
+        assert result == config.workspace_path_for_issue(7)
 
     @pytest.mark.asyncio
     async def test_create_returns_correct_path(self, config, tmp_path: Path) -> None:
-        """create should return <worktree_base>/issue-<number>."""
+        """create should return <workspace_base>/issue-<number>."""
         manager = WorkspaceManager(config)
-        config.worktree_base.mkdir(parents=True, exist_ok=True)
+        config.workspace_base.mkdir(parents=True, exist_ok=True)
 
         success_proc = make_proc()
 
@@ -198,7 +198,7 @@ class TestCreate:
         ):
             result = await manager.create(issue_number=99, branch="agent/issue-99")
 
-        assert result == config.worktree_path_for_issue(99)
+        assert result == config.workspace_path_for_issue(99)
 
     @pytest.mark.asyncio
     async def test_create_dry_run_skips_git_commands(
@@ -211,7 +211,7 @@ class TestCreate:
             result = await manager.create(issue_number=7, branch="agent/issue-7")
 
         mock_exec.assert_not_called()
-        assert result == dry_config.worktree_path_for_issue(7)
+        assert result == dry_config.workspace_path_for_issue(7)
 
     @pytest.mark.asyncio
     async def test_create_raises_when_fetch_origin_main_fails(
@@ -219,7 +219,7 @@ class TestCreate:
     ) -> None:
         """create should propagate RuntimeError when 'git fetch origin main' fails."""
         manager = WorkspaceManager(config)
-        config.worktree_base.mkdir(parents=True, exist_ok=True)
+        config.workspace_base.mkdir(parents=True, exist_ok=True)
 
         fail_proc = make_proc(returncode=1, stderr=b"fatal: network error")
 
@@ -235,7 +235,7 @@ class TestCreate:
     ) -> None:
         """create should retry when git fetch hits origin/main ref-lock races."""
         manager = WorkspaceManager(config)
-        config.worktree_base.mkdir(parents=True, exist_ok=True)
+        config.workspace_base.mkdir(parents=True, exist_ok=True)
 
         race_proc = make_proc(
             returncode=1,
@@ -280,7 +280,7 @@ class TestCreate:
         ):
             result = await manager.create(issue_number=7, branch="agent/issue-7")
 
-        assert result == config.worktree_path_for_issue(7)
+        assert result == config.workspace_path_for_issue(7)
         # clone, set-url, fetch (fail), fetch (retry), ls-remote, checkout -b
         assert call_count >= 4
         sleep_mock.assert_awaited_once()
@@ -291,7 +291,7 @@ class TestCreate:
     ) -> None:
         """Concurrent create() calls should never overlap git fetch origin/main."""
         manager = WorkspaceManager(config)
-        config.worktree_base.mkdir(parents=True, exist_ok=True)
+        config.workspace_base.mkdir(parents=True, exist_ok=True)
 
         fetch_in_flight = 0
         max_fetch_in_flight = 0
@@ -325,7 +325,7 @@ class TestCreate:
     ) -> None:
         """create should propagate RuntimeError when 'git checkout -b' fails after clone."""
         manager = WorkspaceManager(config)
-        config.worktree_base.mkdir(parents=True, exist_ok=True)
+        config.workspace_base.mkdir(parents=True, exist_ok=True)
 
         success_proc = make_proc(returncode=0)
         fail_proc = make_proc(returncode=1, stderr=b"fatal: checkout failed")
@@ -359,7 +359,7 @@ class TestCreate:
     ) -> None:
         """create should propagate OSError from _setup_env (not wrapped in try/except)."""
         manager = WorkspaceManager(config)
-        config.worktree_base.mkdir(parents=True, exist_ok=True)
+        config.workspace_base.mkdir(parents=True, exist_ok=True)
 
         success_proc = make_proc(returncode=0)
 
@@ -379,7 +379,7 @@ class TestCreate:
     ) -> None:
         """create should return a valid path even when uv sync fails inside _create_venv."""
         manager = WorkspaceManager(config)
-        config.worktree_base.mkdir(parents=True, exist_ok=True)
+        config.workspace_base.mkdir(parents=True, exist_ok=True)
 
         success_proc = make_proc(returncode=0)
         fail_proc = make_proc(returncode=1, stderr=b"uv sync failed")
@@ -397,7 +397,7 @@ class TestCreate:
             result = await manager.create(issue_number=7, branch="agent/issue-7")
 
         # _create_venv catches RuntimeError internally, so create completes
-        assert result == config.worktree_path_for_issue(7)
+        assert result == config.workspace_path_for_issue(7)
 
     @pytest.mark.asyncio
     async def test_create_cleans_up_on_checkout_failure(
@@ -405,7 +405,7 @@ class TestCreate:
     ) -> None:
         """Cleanup should remove cloned directory when checkout fails."""
         manager = WorkspaceManager(config)
-        config.worktree_base.mkdir(parents=True, exist_ok=True)
+        config.workspace_base.mkdir(parents=True, exist_ok=True)
 
         success_proc = make_proc(returncode=0)
         fail_proc = make_proc(returncode=1, stderr=b"fatal: checkout failed")
@@ -416,7 +416,7 @@ class TestCreate:
                 return fail_proc
             return success_proc
 
-        wt_path = config.worktree_path_for_issue(7)
+        wt_path = config.workspace_path_for_issue(7)
         # Create the directory so cleanup finds it
         wt_path.mkdir(parents=True, exist_ok=True)
 
@@ -447,9 +447,9 @@ class TestCreate:
     ) -> None:
         """Cleanup should remove cloned directory when post-creation setup fails."""
         manager = WorkspaceManager(config)
-        config.worktree_base.mkdir(parents=True, exist_ok=True)
+        config.workspace_base.mkdir(parents=True, exist_ok=True)
 
-        wt_path = config.worktree_path_for_issue(7)
+        wt_path = config.workspace_path_for_issue(7)
         # Pre-create the directory so cleanup finds it
         wt_path.mkdir(parents=True, exist_ok=True)
 
@@ -483,7 +483,7 @@ class TestDestroy:
         manager = WorkspaceManager(config)
 
         # Simulate existing worktree path
-        wt_path = config.worktree_path_for_issue(7)
+        wt_path = config.workspace_path_for_issue(7)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         await manager.destroy(issue_number=7)
@@ -498,7 +498,7 @@ class TestDestroy:
         manager = WorkspaceManager(config)
 
         # wt_path does NOT exist — destroy should not raise
-        wt_path = config.worktree_path_for_issue(999)
+        wt_path = config.workspace_path_for_issue(999)
         await manager.destroy(issue_number=999)
         assert not wt_path.exists()
 
@@ -509,7 +509,7 @@ class TestDestroy:
         """destroy should remove the workspace directory via shutil.rmtree."""
         manager = WorkspaceManager(config)
 
-        wt_path = config.worktree_path_for_issue(7)
+        wt_path = config.workspace_path_for_issue(7)
         wt_path.mkdir(parents=True, exist_ok=True)
         (wt_path / "somefile.txt").write_text("content")
 
@@ -524,7 +524,7 @@ class TestDestroy:
         """In dry-run mode, destroy should not remove the directory."""
         manager = WorkspaceManager(dry_config)
 
-        wt_path = dry_config.worktree_path_for_issue(7)
+        wt_path = dry_config.workspace_path_for_issue(7)
         wt_path.mkdir(parents=True, exist_ok=True)
 
         await manager.destroy(issue_number=7)
@@ -549,7 +549,7 @@ class TestDestroyAll:
         manager = WorkspaceManager(config)
 
         # Create two issue directories in the repo-scoped subdirectory
-        repo_base = config.worktree_base / config.repo_slug
+        repo_base = config.workspace_base / config.repo_slug
         (repo_base / "issue-1").mkdir(parents=True, exist_ok=True)
         (repo_base / "issue-2").mkdir(parents=True, exist_ok=True)
 
@@ -565,9 +565,9 @@ class TestDestroyAll:
 
     @pytest.mark.asyncio
     async def test_destroy_all_noop_when_base_missing(self, config) -> None:
-        """destroy_all should return immediately if worktree_base does not exist."""
+        """destroy_all should return immediately if workspace_base does not exist."""
         manager = WorkspaceManager(config)
-        # config.worktree_base was NOT created
+        # config.workspace_base was NOT created
 
         with patch.object(manager, "destroy", new_callable=AsyncMock) as mock_destroy:
             await manager.destroy_all()
@@ -581,7 +581,7 @@ class TestDestroyAll:
         """destroy_all should skip directories not named issue-N."""
         manager = WorkspaceManager(config)
 
-        repo_base = config.worktree_base / config.repo_slug
+        repo_base = config.workspace_base / config.repo_slug
         (repo_base / "random-dir").mkdir(parents=True, exist_ok=True)
         (repo_base / "issue-5").mkdir(parents=True, exist_ok=True)
 
@@ -604,9 +604,9 @@ class TestDestroyAll:
 class TestRepoScopedPaths:
     """Verify worktree paths are namespaced by repo slug."""
 
-    def test_worktree_path_includes_repo_slug(self, config) -> None:
-        """worktree_path_for_issue should include repo_slug in the path."""
-        path = config.worktree_path_for_issue(42)
+    def test_workspace_path_includes_repo_slug(self, config) -> None:
+        """workspace_path_for_issue should include repo_slug in the path."""
+        path = config.workspace_path_for_issue(42)
         assert config.repo_slug in str(path)
         assert path.name == "issue-42"
         assert path.parent.name == config.repo_slug
@@ -615,16 +615,16 @@ class TestRepoScopedPaths:
         """Two different repos should have non-overlapping worktree paths."""
         cfg_a = ConfigFactory.create(
             repo="org/repo-a",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             repo_root=tmp_path / "a",
         )
         cfg_b = ConfigFactory.create(
             repo="org/repo-b",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             repo_root=tmp_path / "b",
         )
-        path_a = cfg_a.worktree_path_for_issue(10)
-        path_b = cfg_b.worktree_path_for_issue(10)
+        path_a = cfg_a.workspace_path_for_issue(10)
+        path_b = cfg_b.workspace_path_for_issue(10)
         assert path_a != path_b
         assert "org-repo-a" in str(path_a)
         assert "org-repo-b" in str(path_b)
@@ -638,12 +638,12 @@ class TestPerRepoWorktreeLock:
         """create should delegate to _create_unlocked under the lock."""
         manager = WorkspaceManager(config)
 
-        mock_create = AsyncMock(return_value=config.worktree_path_for_issue(7))
+        mock_create = AsyncMock(return_value=config.workspace_path_for_issue(7))
         with patch.object(manager, "_create_unlocked", mock_create):
             result = await manager.create(7, "agent/issue-7")
 
         mock_create.assert_awaited_once_with(7, "agent/issue-7")
-        assert result == config.worktree_path_for_issue(7)
+        assert result == config.workspace_path_for_issue(7)
 
     def test_same_repo_gets_same_lock(self, config) -> None:
         """Two managers for the same repo should share the same lock."""
@@ -655,12 +655,12 @@ class TestPerRepoWorktreeLock:
         """Two managers for different repos should have independent locks."""
         cfg_a = ConfigFactory.create(
             repo="org/alpha",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             repo_root=tmp_path / "a",
         )
         cfg_b = ConfigFactory.create(
             repo="org/beta",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             repo_root=tmp_path / "b",
         )
         lock_a = WorkspaceManager(cfg_a)._repo_workspace_lock()
@@ -678,7 +678,7 @@ class TestDestroyAllRepoScoped:
         """destroy_all should remove worktrees under the repo-scoped directory."""
         cfg = ConfigFactory.create(
             repo="org/alpha",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             repo_root=tmp_path / "repo",
         )
         manager = WorkspaceManager(cfg)

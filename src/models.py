@@ -10,6 +10,7 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
+    ClassVar,  # noqa: UP035 — needed at runtime for Pydantic to exclude from fields
     Literal,
     NamedTuple,
     NotRequired,
@@ -19,11 +20,14 @@ from uuid import uuid4
 
 from pydantic import (
     AfterValidator,
-    AliasChoices,
+    AliasChoices,  # noqa: F401 — used in Field(validation_alias=...)
     BaseModel,
     ConfigDict,
     Field,
     field_validator,
+)
+from pydantic.alias_generators import (
+    to_camel,  # used at runtime in HITLItem.model_config
 )
 from typing_extensions import TypedDict
 
@@ -253,25 +257,22 @@ class GitHubIssue(BaseModel):
     author: str = ""
     state: GitHubIssueState = GitHubIssueState.OPEN
     milestone_number: int | None = None
-    created_at: str = Field(
-        default="",
-        validation_alias=AliasChoices("createdAt", "created_at"),
-    )
+    created_at: str = ""
 
     @field_validator("labels", mode="before")
     @classmethod
     def _normalise_labels(cls, v: Any) -> list[str]:
-        """Normalise ``gh`` CLI label objects (``{"name": "..."}`` dicts) to plain strings."""
+        """Validate that labels are plain strings (infrastructure dicts are normalized upstream)."""
         if isinstance(v, list):
-            return [lbl["name"] if isinstance(lbl, dict) else str(lbl) for lbl in v]
+            return [str(lbl) for lbl in v]
         return v  # type: ignore[return-value]
 
     @field_validator("comments", mode="before")
     @classmethod
     def _normalise_comments(cls, v: Any) -> list[str]:
-        """Normalise ``gh`` CLI comment objects (``{"body": "..."}`` dicts) to plain strings."""
+        """Validate that comments are plain strings (infrastructure dicts are normalized upstream)."""
         if isinstance(v, list):
-            return [c.get("body", "") if isinstance(c, dict) else str(c) for c in v]
+            return [str(c) for c in v]
         return v  # type: ignore[return-value]
 
     @field_validator("state", mode="before")
@@ -669,8 +670,10 @@ class WorkerResult(BaseModel):
 
     issue_number: int = Field(description="GitHub issue number being implemented")
     branch: str = Field(description="Git branch name for the implementation")
-    worktree_path: str = Field(
-        default="", description="Path to the git worktree directory"
+    workspace_path: str = Field(
+        default="",
+        description="Path to the workspace directory",
+        validation_alias=AliasChoices("workspace_path", "worktree_path"),
     )
     success: bool = Field(
         default=False,
@@ -1278,6 +1281,38 @@ class EpicState(BaseModel):
     released: bool = False
     auto_decomposed: bool = False
 
+    @property
+    def total_children(self) -> int:
+        """Total number of child issues."""
+        return len(self.child_issues)
+
+    @property
+    def resolved_children(self) -> set[int]:
+        """Children that are completed or excluded (no longer active)."""
+        return set(self.completed_children) | set(self.excluded_children)
+
+    @property
+    def remaining_children(self) -> list[int]:
+        """Children still active (not completed and not excluded)."""
+        resolved = self.resolved_children
+        return [c for c in self.child_issues if c not in resolved]
+
+    @property
+    def progress(self) -> dict[str, int]:
+        """Return a summary dict of child-issue counts by category."""
+        return {
+            "total": self.total_children,
+            "completed": len(self.completed_children),
+            "failed": len(self.failed_children),
+            "excluded": len(self.excluded_children),
+            "approved": len(self.approved_children),
+            "remaining": len(self.remaining_children),
+        }
+
+    def is_child_resolved(self, child_number: int) -> bool:
+        """Return True if *child_number* is completed or excluded."""
+        return child_number in self.resolved_children
+
 
 class Release(BaseModel):
     """Persisted state for a GitHub Release created when an epic completes."""
@@ -1301,12 +1336,60 @@ class BotPRSettings(BaseModel):
     review_mode: Literal["ci_only", "llm_review"] = "ci_only"
 
 
+class StaleIssueSettings(BaseModel):
+    """Configuration for the stale issue cleanup worker."""
+
+    staleness_days: int = Field(default=30, ge=7, le=365)
+    excluded_labels: list[str] = Field(default_factory=list)
+    dry_run: bool = False
+
+
+class SecurityPatchSettings(BaseModel):
+    """Configuration for the security alert auto-patch worker."""
+
+    severity_levels: list[Literal["critical", "high", "medium", "low"]] = Field(
+        default_factory=lambda: ["critical", "high"]
+    )
+
+
+class CIMonitorSettings(BaseModel):
+    """Configuration for the CI health monitor worker."""
+
+    branch: str = "main"
+    workflows: list[str] = Field(default_factory=list)
+    create_issue: bool = True
+
+
+class AuditFinding(BaseModel):
+    """A single finding from a code audit."""
+
+    category: str
+    priority: Literal["P0", "P1", "P2", "P3"]
+    summary: str
+    file_path: str = ""
+    details: str = ""
+
+
+class CodeGroomingSettings(BaseModel):
+    """Configuration for the code grooming worker."""
+
+    max_issues_per_cycle: int = Field(default=5, ge=1, le=50)
+    min_priority: Literal["P0", "P1", "P2", "P3"] = "P1"
+    enabled_audits: list[str] = Field(
+        default_factory=lambda: ["lint", "complexity", "dead_code"]
+    )
+    dry_run: bool = False
+
+
 class StateData(BaseModel):
     """Typed schema for the JSON-backed crash-recovery state."""
 
     schema_version: int = 1
     processed_issues: dict[str, str] = Field(default_factory=dict)
-    active_worktrees: dict[str, str] = Field(default_factory=dict)
+    active_workspaces: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("active_workspaces", "active_worktrees"),
+    )
     active_branches: dict[str, str] = Field(default_factory=dict)
     reviewed_prs: dict[str, str] = Field(default_factory=dict)
     hitl_origins: dict[str, str] = Field(default_factory=dict)
@@ -1352,6 +1435,18 @@ class StateData(BaseModel):
     bot_pr_processed: list[int] = Field(default_factory=list)
     shape_conversations: dict[str, ShapeConversation] = Field(default_factory=dict)
     shape_responses: dict[str, str] = Field(default_factory=dict)
+    stale_issue_settings: StaleIssueSettings = Field(default_factory=StaleIssueSettings)
+    stale_issue_closed: list[int] = Field(default_factory=list)
+    security_patch_settings: SecurityPatchSettings = Field(
+        default_factory=SecurityPatchSettings
+    )
+    security_patch_processed: list[str] = Field(default_factory=list)
+    ci_monitor_settings: CIMonitorSettings = Field(default_factory=CIMonitorSettings)
+    ci_monitor_tracked_failures: dict[str, str] = Field(default_factory=dict)
+    code_grooming_settings: CodeGroomingSettings = Field(
+        default_factory=CodeGroomingSettings
+    )
+    code_grooming_filed: list[str] = Field(default_factory=list)
     last_updated: str | None = None
 
 
@@ -1605,6 +1700,30 @@ class TrackedReport(BaseModel):
     updated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     history: list[ReportHistoryEntry] = Field(default_factory=list)
 
+    _VALID_TRANSITIONS: ClassVar[dict[str, set[str]]] = {
+        "queued": {"in-progress", "closed"},
+        "in-progress": {"filed", "closed", "queued", "reopened"},
+        "filed": {"fixed", "closed", "reopened"},
+        "fixed": {"closed", "reopened"},
+        "closed": {"reopened"},
+        "reopened": {"in-progress", "closed"},
+    }
+
+    def transition(self, new_status: str, action: str, detail: str = "") -> None:
+        """Transition to *new_status* with a validated state-machine guard.
+
+        Appends a :class:`ReportHistoryEntry` and updates ``updated_at``.
+
+        Raises :class:`ValueError` if the transition is not allowed.
+        """
+        allowed = self._VALID_TRANSITIONS.get(self.status, set())
+        if new_status not in allowed:
+            msg = f"Invalid transition: {self.status} -> {new_status}"
+            raise ValueError(msg)
+        self.status = new_status  # type: ignore[assignment]
+        self.updated_at = datetime.now(UTC).isoformat()
+        self.history.append(ReportHistoryEntry(action=action, detail=detail))
+
 
 class TrackedReportUpdate(BaseModel):
     """Request body for PATCH /api/reports/<id>."""
@@ -1630,22 +1749,28 @@ class PRListItem(BaseModel):
 class HITLItem(BaseModel):
     """A HITL issue entry returned by GET /api/hitl."""
 
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
     issue: int
     title: str = ""
-    issueUrl: HttpUrl = ""  # camelCase to match existing frontend contract
+    issue_url: HttpUrl = ""
     pr: int = 0
-    prUrl: HttpUrl = ""  # camelCase to match existing frontend contract
+    pr_url: HttpUrl = ""
     branch: str = ""
     cause: str = ""  # escalation reason (populated by #113)
     status: HITLItemStatus = HITLItemStatus.PENDING
-    isMemorySuggestion: bool = False  # camelCase to match frontend contract
-    llmSummary: str = ""  # cached, operator-focused context summary
-    llmSummaryUpdatedAt: str | None = None
-    visualEvidence: VisualEvidence | None = None  # camelCase to match frontend
+    is_memory_suggestion: bool = False
+    llm_summary: str = ""  # cached, operator-focused context summary
+    llm_summary_updated_at: str | None = None
+    visual_evidence: VisualEvidence | None = None
 
 
 class ControlStatusConfig(BaseModel):
-    """Config subset returned by GET /api/control/status."""
+    """Config subset returned by GET /api/control/status.
+
+    This is an API DTO, not a domain model.  Also re-exported from
+    ``route_types`` for convenience.
+    """
 
     app_version: str = ""
     latest_version: str = ""
@@ -1666,11 +1791,15 @@ class ControlStatusConfig(BaseModel):
     batch_size: int = 0
     model: str = ""
     pr_unstick_batch_size: int = 10
-    worktree_base: str = ""
+    workspace_base: str = ""
 
 
 class ControlStatusResponse(BaseModel):
-    """Response for GET /api/control/status."""
+    """Response for GET /api/control/status.
+
+    This is an API DTO, not a domain model.  Also re-exported from
+    ``route_types`` for convenience.
+    """
 
     status: ControlStatus = ControlStatus.IDLE
     credits_paused_until: str | None = None
@@ -2532,6 +2661,28 @@ class MergeConflictFixFn(Protocol):
         issue: Task,
         worker_id: int,
     ) -> bool: ...
+
+
+@dataclass(slots=True)
+class MergeApprovalContext:
+    """Groups the 12 parameters of ``PostMergeHandler.handle_approved``.
+
+    Replacing a flat parameter list with a typed context object makes call
+    sites self-documenting and eliminates positional-argument ordering bugs.
+    """
+
+    pr: PRInfo
+    issue: Task
+    result: ReviewResult
+    diff: str
+    worker_id: int
+    ci_gate_fn: CiGateFn
+    escalate_fn: EscalateFn
+    publish_fn: PublishFn
+    code_scanning_alerts: list[CodeScanningAlert] | None = None
+    visual_gate_fn: VisualGateFn | None = None
+    visual_decision: VisualValidationDecision | None = None
+    merge_conflict_fix_fn: MergeConflictFixFn | None = None
 
 
 class StatusCallback(Protocol):

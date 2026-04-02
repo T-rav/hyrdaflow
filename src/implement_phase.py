@@ -7,12 +7,13 @@ import contextlib
 import logging
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from adr_utils import is_adr_issue_title, next_adr_number
 from agent import AgentRunner
 from beads_manager import BeadsManager
 from config import HydraFlowConfig
 from harness_insights import FailureCategory, HarnessInsightStore
-from issue_store import IssueStore
 from models import (
     GitHubIssue,
     PipelineStage,
@@ -25,19 +26,18 @@ from phase_utils import (
     MemorySuggester,
     PipelineEscalator,
     _sentry_transaction,
-    is_adr_issue_title,
-    next_adr_number,
     record_harness_failure,
     release_batch_in_flight,
     run_refilling_pool,
     run_with_fatal_guard,
     store_lifecycle,
 )
-from pr_manager import PRManager
 from run_recorder import RunRecorder
 from state import StateTracker
 from task_source import TaskTransitioner
-from workspace import WorkspaceManager
+
+if TYPE_CHECKING:
+    from ports import IssueStorePort, PRPort, WorkspacePort
 
 logger = logging.getLogger("hydraflow.implement_phase")
 
@@ -49,10 +49,10 @@ class ImplementPhase:
         self,
         config: HydraFlowConfig,
         state: StateTracker,
-        worktrees: WorkspaceManager,
+        workspaces: WorkspacePort,
         agents: AgentRunner,
-        prs: PRManager,
-        store: IssueStore,
+        prs: PRPort,
+        store: IssueStorePort,
         stop_event: asyncio.Event,
         run_recorder: RunRecorder | None = None,
         harness_insights: HarnessInsightStore | None = None,
@@ -60,7 +60,7 @@ class ImplementPhase:
     ) -> None:
         self._config = config
         self._state = state
-        self._worktrees = worktrees
+        self._workspaces = workspaces
         self._agents = agents
         self._prs = prs
         self._transitioner: TaskTransitioner = prs
@@ -354,7 +354,7 @@ class ImplementPhase:
         When *reset_for_retry* is True, resets an existing worktree to
         ``origin/main`` to discard stale state from a prior failed attempt.
         """
-        wt_path = self._config.worktree_path_for_issue(issue.id)
+        wt_path = self._config.workspace_path_for_issue(issue.id)
         if wt_path.is_dir():
             if reset_for_retry:
                 logger.info(
@@ -362,7 +362,7 @@ class ImplementPhase:
                     issue.id,
                 )
                 try:
-                    await self._worktrees.reset_to_main(wt_path)
+                    await self._workspaces.reset_to_main(wt_path)
                 except (RuntimeError, OSError):
                     logger.warning(
                         "Worktree reset failed for issue #%d — continuing with existing state",
@@ -372,8 +372,8 @@ class ImplementPhase:
             else:
                 logger.info("Resuming existing worktree for issue #%d", issue.id)
         else:
-            wt_path = await self._worktrees.create(issue.id, branch)
-        self._state.set_worktree(issue.id, str(wt_path))
+            wt_path = await self._workspaces.create(issue.id, branch)
+        self._state.set_workspace(issue.id, str(wt_path))
         await self._prs.push_branch(wt_path, branch, force=reset_for_retry)
         await self._transitioner.post_comment(
             issue.id,
@@ -484,9 +484,9 @@ class ImplementPhase:
         if self._is_zero_commit_failure(result):
             return await self._handle_zero_commits(issue, result)
 
-        if result.worktree_path:
+        if result.workspace_path:
             pushed = await self._prs.push_branch(
-                Path(result.worktree_path), result.branch
+                Path(result.workspace_path), result.branch
             )
             if pushed:
                 early_return = await self._handle_successful_push(
@@ -575,7 +575,9 @@ class ImplementPhase:
                 result.branch, issue_number=issue.id
             )
             if pr is not None and pr.number > 0:
-                expected_title = PRManager.expected_pr_title(issue.id, issue.title)
+                from pr_manager import PRManager as _PRManager  # noqa: PLC0415
+
+                expected_title = _PRManager.expected_pr_title(issue.id, issue.title)
                 await self._prs.update_pr_title(pr.number, expected_title)
         result.pr_info = pr
         return pr

@@ -97,20 +97,20 @@ class TestUrlValidation:
             )
 
     def test_url_validation_on_hitl_item_issue_url(self) -> None:
-        item = HITLItem(issue=1, issueUrl="https://github.com/issues/1")
-        assert item.issueUrl == "https://github.com/issues/1"
+        item = HITLItem(issue=1, issue_url="https://github.com/issues/1")
+        assert item.issue_url == "https://github.com/issues/1"
 
     def test_hitl_item_rejects_invalid_issue_url(self) -> None:
         with pytest.raises(
             ValidationError, match="URL must be empty or start with http"
         ):
-            HITLItem(issue=1, issueUrl="bad-url")
+            HITLItem(issue=1, issue_url="bad-url")
 
     def test_hitl_item_rejects_invalid_pr_url(self) -> None:
         with pytest.raises(
             ValidationError, match="URL must be empty or start with http"
         ):
-            HITLItem(issue=1, prUrl="bad-url")
+            HITLItem(issue=1, pr_url="bad-url")
 
     def test_url_validation_on_pipeline_issue(self) -> None:
         pi = PipelineIssue(issue_number=1, url="https://example.com")

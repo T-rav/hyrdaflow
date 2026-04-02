@@ -41,7 +41,7 @@ def _module_level_names(tree: ast.Module) -> set[str]:
     """
     names: set[str] = set()
     for node in ast.iter_child_nodes(tree):
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
+        if isinstance(node, ast.Import | ast.ImportFrom):
             for alias in node.names:
                 names.add(alias.asname or alias.name)
     return names
@@ -56,10 +56,10 @@ def _inline_shadow_imports(tree: ast.Module) -> list[tuple[int, str]]:
     violations: list[tuple[int, str]] = []
 
     for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         for child in ast.walk(node):
-            if isinstance(child, (ast.Import, ast.ImportFrom)):
+            if isinstance(child, ast.Import | ast.ImportFrom):
                 for alias in child.names:
                     name = alias.asname or alias.name
                     if name in top_names:

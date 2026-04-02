@@ -156,7 +156,7 @@ class TestBuildCommand:
             verification_judge_tool="codex",
             review_model="gpt-5-codex",
             repo_root=tmp_path / "repo",
-            worktree_base=tmp_path / "wt",
+            workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
         judge = _make_judge(cfg)
@@ -1152,20 +1152,44 @@ class TestReviewPhaseWiring:
         mock_judge.judge = AsyncMock(return_value=JudgeVerdict(issue_number=42))
 
         # Create worktree dir
-        wt_path = config.worktree_path_for_issue(42)
+        wt_path = config.workspace_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
+
+        from merge_conflict_resolver import MergeConflictResolver
+        from post_merge_handler import PostMergeHandler
+
+        conflict_resolver = MergeConflictResolver(
+            config=config,
+            workspaces=mock_wt,
+            agents=None,
+            prs=mock_prs,
+            event_bus=event_bus,
+            state=state,
+            summarizer=None,
+        )
+        post_merge = PostMergeHandler(
+            config=config,
+            state=state,
+            prs=mock_prs,
+            event_bus=event_bus,
+            ac_generator=None,
+            retrospective=None,
+            verification_judge=mock_judge,
+            epic_checker=None,
+        )
 
         phase = ReviewPhase(
             config=config,
             state=state,
-            worktrees=mock_wt,
+            workspaces=mock_wt,
             reviewers=mock_reviewers,
             prs=mock_prs,
             stop_event=stop_event,
             store=MagicMock(),
+            conflict_resolver=conflict_resolver,
+            post_merge=post_merge,
             event_bus=event_bus,
         )
-        phase._post_merge._verification_judge = mock_judge
 
         pr = PRInfoFactory.create()
         issue = TaskFactory.create(
@@ -1212,19 +1236,43 @@ class TestReviewPhaseWiring:
         mock_prs.post_pr_comment = AsyncMock()
         mock_prs.submit_review = AsyncMock()
 
-        wt_path = config.worktree_path_for_issue(42)
+        wt_path = config.workspace_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
+
+        from merge_conflict_resolver import MergeConflictResolver
+        from post_merge_handler import PostMergeHandler
+
+        conflict_resolver = MergeConflictResolver(
+            config=config,
+            workspaces=mock_wt,
+            agents=None,
+            prs=mock_prs,
+            event_bus=event_bus,
+            state=state,
+            summarizer=None,
+        )
+        post_merge = PostMergeHandler(
+            config=config,
+            state=state,
+            prs=mock_prs,
+            event_bus=event_bus,
+            ac_generator=None,
+            retrospective=None,
+            verification_judge=None,  # No verification_judge
+            epic_checker=None,
+        )
 
         phase = ReviewPhase(
             config=config,
             state=state,
-            worktrees=mock_wt,
+            workspaces=mock_wt,
             reviewers=mock_reviewers,
             prs=mock_prs,
             stop_event=stop_event,
             store=MagicMock(),
+            conflict_resolver=conflict_resolver,
+            post_merge=post_merge,
             event_bus=event_bus,
-            # No verification_judge
         )
 
         pr = PRInfoFactory.create()

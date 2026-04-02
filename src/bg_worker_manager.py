@@ -133,6 +133,6 @@ class BGWorkerManager:
             "pr_unsticker": self._config.pr_unstick_interval,
             "report_issue": self._config.report_issue_interval,
             "epic_monitor": self._config.epic_monitor_interval,
-            "worktree_gc": self._config.worktree_gc_interval,
+            "workspace_gc": self._config.workspace_gc_interval,
         }
         return defaults.get(name, self._config.poll_interval)

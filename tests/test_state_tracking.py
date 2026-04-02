@@ -15,10 +15,10 @@ from tests.helpers import make_tracker
 
 
 class TestInitialization:
-    def test_fresh_tracker_has_no_active_worktrees(self, tmp_path: Path) -> None:
+    def test_fresh_tracker_has_no_active_workspaces(self, tmp_path: Path) -> None:
         """A fresh tracker with no backing file should have no active worktrees."""
         tracker = make_tracker(tmp_path)
-        assert tracker.get_active_worktrees() == {}
+        assert tracker.get_active_workspaces() == {}
 
     def test_fresh_tracker_has_no_processed_issues(self, tmp_path: Path) -> None:
         """A fresh tracker with no backing file should have no processed issues."""
@@ -44,11 +44,15 @@ class TestInitialization:
             "active_crate_number",
             "bead_mappings",
             "active_issue_numbers",
-            "active_worktrees",
+            "active_workspaces",
             "baseline_audit",
             "bg_worker_states",
             "bot_pr_processed",
             "bot_pr_settings",
+            "ci_monitor_settings",
+            "ci_monitor_tracked_failures",
+            "code_grooming_filed",
+            "code_grooming_settings",
             "disabled_workers",
             "epic_states",
             "hitl_causes",
@@ -82,6 +86,10 @@ class TestInitialization:
             "schema_version",
             "shape_conversations",
             "shape_responses",
+            "security_patch_processed",
+            "security_patch_settings",
+            "stale_issue_closed",
+            "stale_issue_settings",
             "session_counters",
             "verification_issues",
             "worker_heartbeats",
@@ -96,7 +104,7 @@ class TestInitialization:
         legacy_data = {
             "current_batch": 7,
             "processed_issues": {"3": "success"},
-            "active_worktrees": {},
+            "active_workspaces": {},
             "active_branches": {},
             "reviewed_prs": {"42": "approve"},
             "last_updated": None,
@@ -114,7 +122,7 @@ class TestInitialization:
         state_file = tmp_path / "state.json"
         initial_data = {
             "processed_issues": {"7": "success"},
-            "active_worktrees": {},
+            "active_workspaces": {},
             "active_branches": {},
             "reviewed_prs": {},
             "last_updated": None,
@@ -165,9 +173,9 @@ class TestLoadSave:
     def test_round_trip_preserves_worktree(self, tmp_path: Path) -> None:
         state_file = tmp_path / "state.json"
         tracker = StateTracker(state_file)
-        tracker.set_worktree(10, "/tmp/wt-10")
+        tracker.set_workspace(10, "/tmp/wt-10")
         tracker2 = StateTracker(state_file)
-        assert tracker2.get_active_worktrees() == {10: "/tmp/wt-10"}
+        assert tracker2.get_active_workspaces() == {10: "/tmp/wt-10"}
 
     def test_round_trip_preserves_branch(self, tmp_path: Path) -> None:
         state_file = tmp_path / "state.json"
@@ -330,48 +338,48 @@ class TestIssueTracking:
 
 
 class TestWorktreeTracking:
-    def test_set_worktree_stores_path(self, tmp_path: Path) -> None:
+    def test_set_workspace_stores_path(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
-        tracker.set_worktree(7, "/tmp/wt-7")
-        assert tracker.get_active_worktrees() == {7: "/tmp/wt-7"}
+        tracker.set_workspace(7, "/tmp/wt-7")
+        assert tracker.get_active_workspaces() == {7: "/tmp/wt-7"}
 
-    def test_set_worktree_triggers_save(self, tmp_path: Path) -> None:
+    def test_set_workspace_triggers_save(self, tmp_path: Path) -> None:
         state_file = tmp_path / "state.json"
         tracker = StateTracker(state_file)
-        tracker.set_worktree(7, "/tmp/wt-7")
+        tracker.set_workspace(7, "/tmp/wt-7")
         assert state_file.exists()
 
-    def test_remove_worktree_deletes_entry(self, tmp_path: Path) -> None:
+    def test_remove_workspace_deletes_entry(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
-        tracker.set_worktree(7, "/tmp/wt-7")
-        tracker.remove_worktree(7)
-        assert 7 not in tracker.get_active_worktrees()
+        tracker.set_workspace(7, "/tmp/wt-7")
+        tracker.remove_workspace(7)
+        assert 7 not in tracker.get_active_workspaces()
 
-    def test_remove_worktree_nonexistent_is_noop(self, tmp_path: Path) -> None:
+    def test_remove_workspace_nonexistent_is_noop(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         # Should not raise
-        tracker.remove_worktree(999)
-        assert tracker.get_active_worktrees() == {}
+        tracker.remove_workspace(999)
+        assert tracker.get_active_workspaces() == {}
 
-    def test_get_active_worktrees_returns_int_keys(self, tmp_path: Path) -> None:
+    def test_get_active_workspaces_returns_int_keys(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
-        tracker.set_worktree(10, "/wt/10")
-        tracker.set_worktree(20, "/wt/20")
-        wt = tracker.get_active_worktrees()
+        tracker.set_workspace(10, "/wt/10")
+        tracker.set_workspace(20, "/wt/20")
+        wt = tracker.get_active_workspaces()
         assert all(isinstance(k, int) for k in wt)
 
     def test_multiple_worktrees(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
-        tracker.set_worktree(1, "/wt/1")
-        tracker.set_worktree(2, "/wt/2")
-        assert tracker.get_active_worktrees() == {1: "/wt/1", 2: "/wt/2"}
+        tracker.set_workspace(1, "/wt/1")
+        tracker.set_workspace(2, "/wt/2")
+        assert tracker.get_active_workspaces() == {1: "/wt/1", 2: "/wt/2"}
 
     def test_remove_one_worktree_leaves_others(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
-        tracker.set_worktree(1, "/wt/1")
-        tracker.set_worktree(2, "/wt/2")
-        tracker.remove_worktree(1)
-        assert tracker.get_active_worktrees() == {2: "/wt/2"}
+        tracker.set_workspace(1, "/wt/1")
+        tracker.set_workspace(2, "/wt/2")
+        tracker.remove_workspace(1)
+        assert tracker.get_active_workspaces() == {2: "/wt/2"}
 
 
 # ---------------------------------------------------------------------------
@@ -509,7 +517,7 @@ class TestHITLOriginTracking:
         state_file = tmp_path / "state.json"
         old_data = {
             "processed_issues": {"1": "success"},
-            "active_worktrees": {},
+            "active_workspaces": {},
             "active_branches": {},
             "reviewed_prs": {},
             "last_updated": None,
@@ -587,7 +595,7 @@ class TestHITLCauseTracking:
         state_file = tmp_path / "state.json"
         old_data = {
             "processed_issues": {"1": "success"},
-            "active_worktrees": {},
+            "active_workspaces": {},
             "active_branches": {},
             "reviewed_prs": {},
             "hitl_origins": {"42": "hydraflow-review"},
@@ -764,11 +772,11 @@ class TestReset:
         tracker.reset()
         assert tracker.to_dict()["processed_issues"].get(str(1)) is None
 
-    def test_reset_clears_active_worktrees(self, tmp_path: Path) -> None:
+    def test_reset_clears_active_workspaces(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
-        tracker.set_worktree(1, "/wt/1")
+        tracker.set_workspace(1, "/wt/1")
         tracker.reset()
-        assert tracker.get_active_worktrees() == {}
+        assert tracker.get_active_workspaces() == {}
 
     def test_reset_clears_active_branches(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
@@ -794,7 +802,7 @@ class TestReset:
     def test_reset_clears_all_state_at_once(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.mark_issue(1, "success")
-        tracker.set_worktree(1, "/wt/1")
+        tracker.set_workspace(1, "/wt/1")
         tracker.set_branch(1, "agent/issue-1")
         tracker.mark_pr(10, "open")
         tracker.set_hitl_origin(1, "hydraflow-review")
@@ -804,7 +812,7 @@ class TestReset:
 
         tracker.reset()
 
-        assert tracker.get_active_worktrees() == {}
+        assert tracker.get_active_workspaces() == {}
         assert tracker.to_dict()["processed_issues"].get(str(1)) is None
         assert tracker.get_branch(1) is None
         assert tracker.to_dict()["reviewed_prs"].get(str(10)) is None
@@ -826,14 +834,14 @@ class TestCorruptFileHandling:
 
         # Should not raise; should silently reset to defaults
         tracker = StateTracker(state_file)
-        assert tracker.get_active_worktrees() == {}
+        assert tracker.get_active_workspaces() == {}
 
     def test_empty_file_falls_back_to_defaults(self, tmp_path: Path) -> None:
         state_file = tmp_path / "state.json"
         state_file.write_text("")
 
         tracker = StateTracker(state_file)
-        assert tracker.get_active_worktrees() == {}
+        assert tracker.get_active_workspaces() == {}
 
     def test_load_with_corrupt_file_falls_back_to_defaults(
         self, tmp_path: Path
@@ -855,7 +863,7 @@ class TestCorruptFileHandling:
         # A state file containing 'null' (valid JSON but unexpected) should
         # not raise and should behave as if the state is empty.
         tracker = StateTracker(state_file)
-        worktrees = tracker.get_active_worktrees()
+        worktrees = tracker.get_active_workspaces()
         assert worktrees == {}
         assert tracker.to_dict().get("processed_issues") == {}
 
@@ -875,7 +883,7 @@ class TestToDict:
         d = tracker.to_dict()
         expected_keys = {
             "processed_issues",
-            "active_worktrees",
+            "active_workspaces",
             "active_branches",
             "reviewed_prs",
             "hitl_origins",
@@ -1002,7 +1010,7 @@ class TestLifetimeStats:
         state_file = tmp_path / "state.json"
         old_data = {
             "processed_issues": {"1": "success"},
-            "active_worktrees": {},
+            "active_workspaces": {},
             "active_branches": {},
             "reviewed_prs": {},
             "last_updated": None,

@@ -40,14 +40,14 @@ class IssueStateMixin:
         """Record the processing status for *issue_number*.
 
         When *status* is terminal (merged, failed, completed, hitl_closed),
-        the corresponding ``active_branches`` and ``active_worktrees``
+        the corresponding ``active_branches`` and ``active_workspaces``
         entries are removed to prevent stale state accumulation.
         """
         self._data.processed_issues[self._key(issue_number)] = status
         if status in self._TERMINAL_STATUSES:
             key = self._key(issue_number)
             self._data.active_branches.pop(key, None)
-            self._data.active_worktrees.pop(key, None)
+            self._data.active_workspaces.pop(key, None)
         self.save()
 
     # --- PR tracking ---

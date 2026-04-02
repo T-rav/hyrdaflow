@@ -130,7 +130,7 @@ def config(tmp_path: Path) -> HydraFlowConfig:
 
     return ConfigFactory.create(
         repo_root=tmp_path / "repo",
-        worktree_base=tmp_path / "worktrees",
+        workspace_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
 
@@ -141,7 +141,7 @@ def dry_config(tmp_path: Path) -> HydraFlowConfig:
     return ConfigFactory.create(
         dry_run=True,
         repo_root=tmp_path / "repo",
-        worktree_base=tmp_path / "worktrees",
+        workspace_base=tmp_path / "worktrees",
         state_file=tmp_path / "state.json",
     )
 
@@ -248,7 +248,7 @@ class WorkerResultFactory:
         success: bool | None = None,
         transcript: str | None = None,
         commits: int | None = None,
-        worktree_path: str | None = None,
+        workspace_path: str | None = None,
         error: str | None = None,
         duration_seconds: float | None = None,
         pre_quality_review_attempts: int | None = None,
@@ -275,8 +275,8 @@ class WorkerResultFactory:
                 "issue_number": issue_number,
                 "branch": branch,
             }
-            if worktree_path is not None:
-                kwargs["worktree_path"] = worktree_path
+            if workspace_path is not None:
+                kwargs["workspace_path"] = workspace_path
             if success is not None:
                 kwargs["success"] = success
             if error is not None:
@@ -298,9 +298,9 @@ class WorkerResultFactory:
         return WorkerResult(
             issue_number=issue_number,
             branch=branch,
-            worktree_path=(
-                worktree_path
-                if worktree_path is not None
+            workspace_path=(
+                workspace_path
+                if workspace_path is not None
                 else "/tmp/worktrees/issue-42"
             ),
             success=True if success is None else success,
@@ -356,8 +356,8 @@ class WorkerResultBuilder:
         self._kwargs["commits"] = value
         return self
 
-    def with_worktree_path(self, value: str) -> WorkerResultBuilder:
-        self._kwargs["worktree_path"] = value
+    def with_workspace_path(self, value: str) -> WorkerResultBuilder:
+        self._kwargs["workspace_path"] = value
         return self
 
     def with_error(self, value: str) -> WorkerResultBuilder:
@@ -1127,10 +1127,10 @@ class ReviewMockBuilder:
         # Worktree mock
         mock_wt = AsyncMock()
         mock_wt.destroy = AsyncMock()
-        self._orch._svc.worktrees = mock_wt
+        self._orch._svc.workspaces = mock_wt
 
         # Create worktree directory
-        wt = self._config.worktree_base / f"issue-{self._issue_number}"
+        wt = self._config.workspace_base / f"issue-{self._issue_number}"
         wt.mkdir(parents=True, exist_ok=True)
 
         return mock_reviewers, mock_prs, mock_wt

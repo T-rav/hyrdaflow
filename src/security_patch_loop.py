@@ -10,7 +10,7 @@ from config import HydraFlowConfig
 from dedup_store import DedupStore
 
 if TYPE_CHECKING:
-    from pr_manager import PRManager
+    from ports import PRPort
 
 logger = logging.getLogger("hydraflow.security_patch_loop")
 
@@ -34,7 +34,7 @@ class SecurityPatchLoop(BaseBackgroundLoop):
     def __init__(
         self,
         config: HydraFlowConfig,
-        pr_manager: PRManager,
+        pr_manager: PRPort,
         deps: LoopDeps,
     ) -> None:
         super().__init__(worker_name="security_patch", config=config, deps=deps)

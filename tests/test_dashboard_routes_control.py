@@ -161,13 +161,13 @@ class TestPatchConfigWithRegistry:
 
         base_cfg = ConfigFactory.create(
             repo_root=tmp_path / "base-repo",
-            worktree_base=tmp_path / "worktrees",
+            workspace_base=tmp_path / "worktrees",
             state_file=tmp_path / "state.json",
         )
         repo_cfg = ConfigFactory.create(
             repo="acme/widgets",
             repo_root=tmp_path / "widgets",
-            worktree_base=tmp_path / "widgets-worktrees",
+            workspace_base=tmp_path / "widgets-worktrees",
             state_file=tmp_path / "widgets-state.json",
         )
         runtime_state = StateTracker(repo_cfg.state_file)
