@@ -113,6 +113,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("state_backup_interval", "HYDRAFLOW_STATE_BACKUP_INTERVAL", 300),
     ("state_backup_count", "HYDRAFLOW_STATE_BACKUP_COUNT", 3),
     ("health_monitor_interval", "HYDRAFLOW_HEALTH_MONITOR_INTERVAL", 7200),
+    ("stale_issue_interval", "HYDRAFLOW_STALE_ISSUE_INTERVAL", 86400),
     ("sentry_poll_interval", "SENTRY_POLL_INTERVAL", 600),
     ("sentry_min_events", "SENTRY_MIN_EVENTS", 2),
     ("security_patch_interval", "HYDRAFLOW_SECURITY_PATCH_INTERVAL", 3600),
@@ -466,6 +467,12 @@ class HydraFlowConfig(BaseModel):
         ge=300,
         le=86400,
         description="Stale issue GC loop interval in seconds (default 1 hour)",
+    )
+    stale_issue_interval: int = Field(
+        default=86400,
+        ge=60,
+        le=604800,
+        description="Stale issue check interval (seconds)",
     )
     stale_issue_threshold_days: int = Field(
         default=14,

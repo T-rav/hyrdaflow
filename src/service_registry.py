@@ -56,6 +56,7 @@ from runs_gc_loop import RunsGCLoop
 from security_patch_loop import SecurityPatchLoop  # noqa: TCH001
 from sentry_loop import SentryLoop  # noqa: TCH001 — used in dataclass field
 from stale_issue_gc_loop import StaleIssueGCLoop  # noqa: TCH001
+from stale_issue_loop import StaleIssueLoop
 from state import StateTracker
 from transcript_summarizer import TranscriptSummarizer
 from triage import TriageRunner
@@ -124,6 +125,7 @@ class ServiceRegistry:
     adr_reviewer_loop: ADRReviewerLoop
     health_monitor_loop: HealthMonitorLoop
     bot_pr_loop: BotPRLoop
+    stale_issue_loop: StaleIssueLoop
     sentry_loop: SentryLoop
     stale_issue_gc_loop: StaleIssueGCLoop
     ci_monitor_loop: CIMonitorLoop
@@ -457,6 +459,12 @@ def build_services(
         state=state,
         deps=loop_deps,
     )
+    stale_issue_loop = StaleIssueLoop(
+        config=config,
+        prs=prs,
+        state=state,
+        deps=loop_deps,
+    )
     gh_cache_loop = GitHubCacheLoop(config, gh_cache, deps=loop_deps)  # noqa: F841
     sentry_loop = SentryLoop(
         config=config,
@@ -523,6 +531,7 @@ def build_services(
         adr_reviewer_loop=adr_reviewer_loop,
         health_monitor_loop=health_monitor_loop,
         bot_pr_loop=bot_pr_loop,
+        stale_issue_loop=stale_issue_loop,
         hindsight=hindsight_client,
         hindsight_wal=hindsight_wal,
         github_cache=gh_cache,

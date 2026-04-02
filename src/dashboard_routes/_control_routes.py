@@ -553,3 +553,132 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
 
         orch.state.set_bot_pr_settings(new_settings)
         return JSONResponse({"status": "ok", **new_settings.model_dump()})
+
+    # --- Stale Issue Settings ---
+
+    @router.get("/api/stale-issue/settings")
+    async def get_stale_issue_settings() -> JSONResponse:
+        """Return current stale issue cleanup settings."""
+        orch = ctx.get_orchestrator()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        settings = orch.state.get_stale_issue_settings()
+        return JSONResponse(settings.model_dump())
+
+    @router.post("/api/stale-issue/settings")
+    async def set_stale_issue_settings(body: dict[str, Any]) -> JSONResponse:
+        """Update stale issue cleanup settings."""
+        orch = ctx.get_orchestrator()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        current = orch.state.get_stale_issue_settings()
+        update = current.model_dump()
+        for key in ("staleness_days", "excluded_labels", "dry_run"):
+            if key in body:
+                update[key] = body[key]
+        try:
+            from models import StaleIssueSettings  # noqa: PLC0415
+
+            new_settings = StaleIssueSettings(**update)
+        except (ValueError, ValidationError) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        orch.state.set_stale_issue_settings(new_settings)
+        return JSONResponse({"status": "ok", **new_settings.model_dump()})
+
+    # --- Security Patch Settings ---
+
+    @router.get("/api/security-patch/settings")
+    async def get_security_patch_settings() -> JSONResponse:
+        """Return current security patch settings."""
+        orch = ctx.get_orchestrator()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        settings = orch.state.get_security_patch_settings()
+        return JSONResponse(settings.model_dump())
+
+    @router.post("/api/security-patch/settings")
+    async def set_security_patch_settings(body: dict[str, Any]) -> JSONResponse:
+        """Update security patch settings."""
+        orch = ctx.get_orchestrator()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        current = orch.state.get_security_patch_settings()
+        update = current.model_dump()
+        for key in ("severity_levels",):
+            if key in body:
+                update[key] = body[key]
+        try:
+            from models import SecurityPatchSettings  # noqa: PLC0415
+
+            new_settings = SecurityPatchSettings(**update)
+        except (ValueError, ValidationError) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        orch.state.set_security_patch_settings(new_settings)
+        return JSONResponse({"status": "ok", **new_settings.model_dump()})
+
+    # --- CI Monitor Settings ---
+
+    @router.get("/api/ci-monitor/settings")
+    async def get_ci_monitor_settings() -> JSONResponse:
+        """Return current CI monitor settings."""
+        orch = ctx.get_orchestrator()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        settings = orch.state.get_ci_monitor_settings()
+        return JSONResponse(settings.model_dump())
+
+    @router.post("/api/ci-monitor/settings")
+    async def set_ci_monitor_settings(body: dict[str, Any]) -> JSONResponse:
+        """Update CI monitor settings."""
+        orch = ctx.get_orchestrator()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        current = orch.state.get_ci_monitor_settings()
+        update = current.model_dump()
+        for key in ("branch", "workflows", "create_issue"):
+            if key in body:
+                update[key] = body[key]
+        try:
+            from models import CIMonitorSettings  # noqa: PLC0415
+
+            new_settings = CIMonitorSettings(**update)
+        except (ValueError, ValidationError) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        orch.state.set_ci_monitor_settings(new_settings)
+        return JSONResponse({"status": "ok", **new_settings.model_dump()})
+
+    # --- Code Grooming Settings ---
+
+    @router.get("/api/code-grooming/settings")
+    async def get_code_grooming_settings() -> JSONResponse:
+        """Return current code grooming settings."""
+        orch = ctx.get_orchestrator()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        settings = orch.state.get_code_grooming_settings()
+        return JSONResponse(settings.model_dump())
+
+    @router.post("/api/code-grooming/settings")
+    async def set_code_grooming_settings(body: dict[str, Any]) -> JSONResponse:
+        """Update code grooming settings."""
+        orch = ctx.get_orchestrator()
+        if not orch:
+            return JSONResponse({"error": "no orchestrator"}, status_code=400)
+        current = orch.state.get_code_grooming_settings()
+        update = current.model_dump()
+        for key in (
+            "max_issues_per_cycle",
+            "min_priority",
+            "enabled_audits",
+            "dry_run",
+        ):
+            if key in body:
+                update[key] = body[key]
+        try:
+            from models import CodeGroomingSettings  # noqa: PLC0415
+
+            new_settings = CodeGroomingSettings(**update)
+        except (ValueError, ValidationError) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        orch.state.set_code_grooming_settings(new_settings)
+        return JSONResponse({"status": "ok", **new_settings.model_dump()})

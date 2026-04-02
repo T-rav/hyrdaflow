@@ -452,6 +452,7 @@ function BotPRSettingsPanel() {
   )
 }
 
+
 export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onTriggerBgWorker, onUpdateInterval }) {
   const { pipelinePollerLastRun, orchestratorStatus, events, pipelineIssues } = useHydraFlow()
   const [activeSubTab, setActiveSubTab] = useState('workers')

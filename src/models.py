@@ -1242,6 +1242,51 @@ class BotPRSettings(BaseModel):
     review_mode: Literal["ci_only", "llm_review"] = "ci_only"
 
 
+class StaleIssueSettings(BaseModel):
+    """Configuration for the stale issue cleanup worker."""
+
+    staleness_days: int = Field(default=30, ge=7, le=365)
+    excluded_labels: list[str] = Field(default_factory=list)
+    dry_run: bool = False
+
+
+class SecurityPatchSettings(BaseModel):
+    """Configuration for the security alert auto-patch worker."""
+
+    severity_levels: list[Literal["critical", "high", "medium", "low"]] = Field(
+        default_factory=lambda: ["critical", "high"]
+    )
+
+
+class CIMonitorSettings(BaseModel):
+    """Configuration for the CI health monitor worker."""
+
+    branch: str = "main"
+    workflows: list[str] = Field(default_factory=list)
+    create_issue: bool = True
+
+
+class AuditFinding(BaseModel):
+    """A single finding from a code audit."""
+
+    category: str
+    priority: Literal["P0", "P1", "P2", "P3"]
+    summary: str
+    file_path: str = ""
+    details: str = ""
+
+
+class CodeGroomingSettings(BaseModel):
+    """Configuration for the code grooming worker."""
+
+    max_issues_per_cycle: int = Field(default=5, ge=1, le=50)
+    min_priority: Literal["P0", "P1", "P2", "P3"] = "P1"
+    enabled_audits: list[str] = Field(
+        default_factory=lambda: ["lint", "complexity", "dead_code"]
+    )
+    dry_run: bool = False
+
+
 class StateData(BaseModel):
     """Typed schema for the JSON-backed crash-recovery state."""
 
@@ -1294,6 +1339,18 @@ class StateData(BaseModel):
     digest_hashes: dict[str, str] = Field(default_factory=dict)
     bot_pr_settings: BotPRSettings = Field(default_factory=BotPRSettings)
     bot_pr_processed: list[int] = Field(default_factory=list)
+    stale_issue_settings: StaleIssueSettings = Field(default_factory=StaleIssueSettings)
+    stale_issue_closed: list[int] = Field(default_factory=list)
+    security_patch_settings: SecurityPatchSettings = Field(
+        default_factory=SecurityPatchSettings
+    )
+    security_patch_processed: list[str] = Field(default_factory=list)
+    ci_monitor_settings: CIMonitorSettings = Field(default_factory=CIMonitorSettings)
+    ci_monitor_tracked_failures: dict[str, str] = Field(default_factory=dict)
+    code_grooming_settings: CodeGroomingSettings = Field(
+        default_factory=CodeGroomingSettings
+    )
+    code_grooming_filed: list[str] = Field(default_factory=list)
     last_updated: str | None = None
 
 

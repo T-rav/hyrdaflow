@@ -659,10 +659,8 @@ class TestVisualGate:
         await phase._handle_approved_merge(pr, issue, result, "diff", 0)
 
         phase._post_merge.handle_approved.assert_awaited_once()
-        call_kwargs = phase._post_merge.handle_approved.call_args.kwargs
-        assert (
-            call_kwargs["visual_gate_fn"].__func__ is phase.check_visual_gate.__func__
-        )
+        ctx = phase._post_merge.handle_approved.call_args[0][0]
+        assert ctx.visual_gate_fn.__func__ is phase.check_visual_gate.__func__
 
     @pytest.mark.asyncio
     async def test_fail_verdict_blocks_merge_and_escalates(

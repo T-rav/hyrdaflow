@@ -94,6 +94,26 @@ HydraFlow creates isolated git worktrees for each issue. **Always clean up workt
 - **Never write tests for ADR markdown content.** ADRs are documentation, not code. Do not create `test_adr_NNNN_*.py` files that assert on markdown headings, status fields, or prose content — these break whenever the document is edited and provide no value. Only test ADR-related *code* (e.g., `test_adr_reviewer.py` tests the reviewer logic).
 - **Never include line numbers in ADR source citations.** Throughout ADR documents (Related, Context, Decision, Consequences sections), cite source files by function or class name only (e.g., `src/config.py:_resolve_base_paths`). Do NOT add `(line 42)` or similar anywhere — line numbers drift as the source file is edited and council reviews will flag them as stale.
 
+## Avoided Patterns
+
+Common mistakes agents make in this codebase — avoid these:
+
+- **Adding a Pydantic model field without updating serialization tests.** When you add a field to any model in `models.py` (e.g., `PRListItem`, `StateData`), grep `tests/` for the model name and update ALL exact-match serialization tests (`model_dump()` assertions, expected key sets in smoke tests).
+- **Top-level imports of optional dependencies in test files.** Never `from hindsight import Bank` at module level in tests — `httpx` is not always available. Use deferred imports inside test methods: `from hindsight import Bank`.
+- **Spawning background sleep loops to poll for results.** Never `sleep(N)` in a loop waiting for a test suite or background process. Use `run_in_background` with a single command, or run in foreground.
+- **Mocking at the wrong level.** Patch functions at their *import site*, not their *definition site*. If `base_runner.py` does `from hindsight import recall_safe`, patch `hindsight.recall_safe` (the definition module), not `base_runner.recall_safe`.
+- **Using `not obj` instead of `obj is None` for optional dependencies.** Falsy checks on optional objects (e.g., `not self._hindsight`) can trigger incorrectly with mock objects. Use `self._hindsight is None` for explicit null checks.
+
+## Reasoning Triggers
+
+For analysis-heavy tasks (architecture decisions, debugging, code review), use explicit reasoning prompts to trigger deeper analysis:
+
+- "Think through the tradeoffs of this approach before implementing"
+- "Consider what could go wrong and what edge cases exist"
+- "Explain your reasoning before making changes"
+
+Simple mechanical tasks (rename, format, move) don't need these — just do them.
+
 ## Quality Before Completion
 
 **Always run lint and tests before declaring work complete or committing.** Do not present implementation as "done" until quality checks pass.

@@ -455,6 +455,7 @@ def build_scripted_services(
     services.adr_reviewer_loop = FakeBackgroundLoop()
     services.health_monitor_loop = FakeBackgroundLoop()
     services.bot_pr_loop = FakeBackgroundLoop()
+    services.stale_issue_loop = FakeBackgroundLoop()
     services.sentry_loop = FakeBackgroundLoop()
     services.stale_issue_gc_loop = FakeBackgroundLoop()
     services.ci_monitor_loop = FakeBackgroundLoop()
