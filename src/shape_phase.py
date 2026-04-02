@@ -176,6 +176,7 @@ class ShapePhase:
             and getattr(self._runner, "_hindsight", None)
         ):
             learned = await self._recall_preferences(issue)
+        assert self._runner is not None  # guaranteed by caller
         result = await self._runner.run_turn(
             issue,
             conv,

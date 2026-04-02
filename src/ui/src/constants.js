@@ -109,9 +109,11 @@ export const WORKER_COUNT_MAX = 10
  */
 export const PIPELINE_LOOPS = [
   { key: 'triage',    label: 'Triage',    color: theme.yellow,      dimColor: theme.yellowSubtle,  configKey: 'max_triagers' },
-  { key: 'plan',      label: 'Plan',      color: theme.purple,      dimColor: theme.purpleSubtle, configKey: 'max_planners' },
-  { key: 'implement', label: 'Implement', color: theme.accent,      dimColor: theme.accentSubtle, configKey: 'max_workers' },
-  { key: 'review',    label: 'Review',    color: theme.orange,      dimColor: theme.orangeSubtle, configKey: 'max_reviewers' },
+  { key: 'discover',  label: 'Discover',  color: theme.cyan,        dimColor: theme.cyanSubtle,    configKey: 'max_triagers' },
+  { key: 'shape',     label: 'Shape',     color: theme.purple,      dimColor: theme.purpleSubtle,  configKey: 'max_triagers' },
+  { key: 'plan',      label: 'Plan',      color: theme.purple,      dimColor: theme.purpleSubtle,  configKey: 'max_planners' },
+  { key: 'implement', label: 'Implement', color: theme.accent,      dimColor: theme.accentSubtle,  configKey: 'max_workers' },
+  { key: 'review',    label: 'Review',    color: theme.orange,      dimColor: theme.orangeSubtle,  configKey: 'max_reviewers' },
 ]
 
 /**

@@ -12,8 +12,8 @@ import {
 // ── Constants ────────────────────────────────────────────────────────
 
 describe('STAGE_KEYS', () => {
-  it('contains all five pipeline stages in order', () => {
-    expect(STAGE_KEYS).toEqual(['triage', 'plan', 'implement', 'review', 'merged'])
+  it('contains all pipeline stages in order', () => {
+    expect(STAGE_KEYS).toEqual(['triage', 'discover', 'shape', 'plan', 'implement', 'review', 'merged'])
   })
 })
 
