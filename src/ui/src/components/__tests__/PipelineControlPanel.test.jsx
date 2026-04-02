@@ -148,7 +148,7 @@ describe('PipelineControlPanel', () => {
       render(<PipelineControlPanel onToggleBgWorker={() => {}} />)
       expect(screen.getByText('Off')).toBeInTheDocument()
       const onButtons = screen.getAllByText('On')
-      expect(onButtons.length).toBe(3) // 3 enabled loops
+      expect(onButtons.length).toBe(PIPELINE_LOOPS.length - 1) // all loops minus triage (disabled)
     })
 
     it('shows dimmed dot color when loop is disabled', () => {

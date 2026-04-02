@@ -287,7 +287,11 @@ describe('Header component', () => {
       })
 
       const arrows = screen.getAllByText('\u2192')
-      expect(arrows.length).toBe(PIPELINE_STAGES.length - 1)
+      // 4 arrows in main track (plan, implement, review, merged) +
+      // 1 arrow between product track stages (discover → shape) = 5
+      const mainTrackArrows = PIPELINE_STAGES.filter(s => s.track !== 'product').length - 1
+      const productTrackArrows = Math.max(0, PIPELINE_STAGES.filter(s => s.track === 'product').length - 1)
+      expect(arrows.length).toBe(mainTrackArrows + productTrackArrows)
     })
 
     it('shows abbreviated stage labels in each session pill', () => {
