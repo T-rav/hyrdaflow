@@ -304,6 +304,105 @@ a final specification for the engineering team:
             transcript[-2000:].strip() if len(transcript) > 2000 else transcript.strip()
         )
 
+    def _extract_result(self, transcript: str, issue_number: int) -> ShapeResult | None:
+        """Extract structured ShapeResult from agent transcript.
+
+        Looks for SHAPE_RESULT_START/END (or legacy SHAPE_START/END) markers
+        containing a JSON code block with directions and recommendation.
+        """
+        return self.extract_result(transcript, issue_number)
+
+    def _build_advocate_prompt(
+        self,
+        task: Task,
+        research_brief: str = "",
+        learned_preferences: str = "",
+    ) -> str:
+        """Build the prompt for the advocate perspective.
+
+        Presents the issue from multiple lenses: User Advocate, Technical
+        Realist, Market Strategist, and Scope Hawk.
+        """
+        research_section = ""
+        if research_brief:
+            research_section = f"""
+## Discovery Research Brief
+
+{research_brief}
+
+Use this research to inform your thinking. Do NOT repeat it verbatim.
+"""
+
+        preference_section = ""
+        if learned_preferences:
+            preference_section = f"""
+## Learned Preferences
+
+{learned_preferences}
+"""
+
+        return f"""You are a product design advocate for GitHub issue #{task.id}.
+
+## Issue: {task.title}
+
+{task.body or "(No description provided)"}
+{research_section}{preference_section}
+Present 3-5 distinct product DIRECTIONS. Each direction should be meaningfully different.
+
+For each direction, evaluate from four lenses:
+- **User Advocate**: Does this solve the real pain point?
+- **Technical Realist**: How complex to build?
+- **Market Strategist**: What's the differentiation?
+- **Scope Hawk**: What's the MVP?
+
+Output your directions as structured JSON between markers.
+"""
+
+    def _build_critic_prompt(
+        self,
+        task: Task,
+        advocate_result: ShapeResult,
+    ) -> str:
+        """Build the prompt for the CRITIC perspective.
+
+        Takes the advocate's directions and challenges them — poking holes,
+        stress-testing assumptions, and recommending which to kill.
+        """
+        directions_text = ""
+        for d in advocate_result.directions:
+            directions_text += f"\n### {d.name}\n"
+            directions_text += f"- Approach: {d.approach}\n"
+            directions_text += f"- Tradeoffs: {d.tradeoffs}\n"
+            directions_text += f"- Effort: {d.effort}\n"
+            directions_text += f"- Risk: {d.risk}\n"
+            if d.differentiator:
+                directions_text += f"- Differentiator: {d.differentiator}\n"
+
+        return f"""You are a CRITIC reviewing proposed product directions for GitHub issue #{task.id}.
+
+## Issue: {task.title}
+
+{task.body or "(No description provided)"}
+
+## Advocate's Directions
+{directions_text}
+
+## Advocate's Recommendation
+
+{advocate_result.recommendation}
+
+## Your Role: CHALLENGE Everything
+
+CHALLENGE each direction rigorously:
+- Kill weak directions that don't hold up to scrutiny
+- Poke holes in assumptions
+- Identify hidden risks the advocate missed
+- Stress-test the effort estimates
+- Question whether the differentiator is real
+
+Be constructive but ruthless. The goal is to surface the strongest direction.
+"""
+
     def extract_result(self, transcript: str, issue_number: int) -> ShapeResult | None:
         """Extract structured ShapeResult from agent transcript (legacy compatibility)."""
         start_idx = transcript.find(_SHAPE_START)

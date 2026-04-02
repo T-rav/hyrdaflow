@@ -80,6 +80,8 @@ class TestInitialization:
             "digest_hashes",
             "reviewed_prs",
             "schema_version",
+            "shape_conversations",
+            "shape_responses",
             "session_counters",
             "verification_issues",
             "worker_heartbeats",

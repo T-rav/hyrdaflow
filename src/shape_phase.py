@@ -567,14 +567,24 @@ class ShapePhase:
     @staticmethod
     def format_options_html(
         issue: Task,
-        content: str,
-        turn_num: int,
+        content: str | ShapeResult,
+        turn_num: int = 0,
         conversation_turns: list[ConversationTurn] | None = None,
     ) -> str:
-        """Render the conversation as self-contained HTML with full thread view."""
+        """Render the conversation as self-contained HTML with full thread view.
+
+        *content* may be a plain string (conversation turn text) or a
+        :class:`ShapeResult` with structured directions.
+        """
         import html as _html  # noqa: PLC0415
 
+        from models import ShapeResult as _SR  # noqa: PLC0415
+
         safe_title = _html.escape(issue.title)
+
+        # If content is a ShapeResult, render structured directions
+        if isinstance(content, _SR):
+            return ShapePhase._render_shape_result_html(issue, content, safe_title)
 
         # Build conversation thread (all turns, not just latest)
         thread_html = ""
@@ -612,5 +622,74 @@ class ShapePhase:
 <h1>Shape Conversation — #{issue.id}</h1>
 <p class="subtitle">{safe_title} · Turn {turn_num}</p>
 {thread_html}
+<p class="footer">Reply on GitHub, the dashboard, or WhatsApp to continue.</p>
+</body></html>"""
+
+    @staticmethod
+    def _render_shape_result_html(
+        issue: Task,
+        result: ShapeResult,
+        safe_title: str,
+    ) -> str:
+        """Render a ShapeResult as structured HTML with direction cards."""
+        import html as _html  # noqa: PLC0415
+
+        effort_colors = {
+            "low": "#3fb950",
+            "medium": "#d29922",
+            "high": "#f85149",
+            "unknown": "#8b949e",
+        }
+        risk_colors = {
+            "low": "#3fb950",
+            "medium": "#d29922",
+            "high": "#f85149",
+            "unknown": "#8b949e",
+        }
+
+        cards = []
+        for d in result.directions:
+            eff_color = effort_colors.get(d.effort, "#8b949e")
+            risk_color = risk_colors.get(d.risk, "#8b949e")
+            diff_html = ""
+            if d.differentiator:
+                diff_html = f"<p><strong>Differentiator:</strong> {_html.escape(d.differentiator)}</p>"
+            cards.append(
+                f'<div class="direction">'
+                f"<h3>{_html.escape(d.name)}</h3>"
+                f"<p>{_html.escape(d.approach)}</p>"
+                f"<p><em>Tradeoffs:</em> {_html.escape(d.tradeoffs)}</p>"
+                f'<span class="badge" style="background:{eff_color}">effort: {_html.escape(d.effort)}</span> '
+                f'<span class="badge" style="background:{risk_color}">risk: {_html.escape(d.risk)}</span>'
+                f"{diff_html}"
+                f"</div>"
+            )
+
+        directions_html = "\n".join(cards)
+        rec_html = ""
+        if result.recommendation:
+            rec_html = f'<div class="recommendation"><strong>Recommendation:</strong> {_html.escape(result.recommendation)}</div>'
+
+        return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Shape #{issue.id} — Directions</title>
+<style>
+  * {{ margin:0; padding:0; box-sizing:border-box; }}
+  body {{ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+         background:#0d1117; color:#c9d1d9; padding:24px; line-height:1.6; }}
+  h1 {{ font-size:18px; margin-bottom:4px; }}
+  .subtitle {{ color:#8b949e; font-size:13px; margin-bottom:20px; }}
+  .direction {{ background:#161b22; border:1px solid #30363d; border-radius:8px;
+                padding:16px; margin-bottom:12px; }}
+  .direction h3 {{ font-size:16px; margin-bottom:8px; color:#58a6ff; }}
+  .badge {{ display:inline-block; padding:2px 8px; border-radius:4px; font-size:12px;
+            color:#fff; margin-right:4px; }}
+  .recommendation {{ background:#161b22; border:1px solid #3fb950; border-radius:8px;
+                     padding:16px; margin-top:16px; }}
+  .footer {{ margin-top:16px; color:#8b949e; font-size:12px; font-style:italic; }}
+</style></head><body>
+<h1>Shape Directions — #{issue.id}</h1>
+<p class="subtitle">{safe_title}</p>
+{directions_html}
+{rec_html}
 <p class="footer">Reply on GitHub, the dashboard, or WhatsApp to continue.</p>
 </body></html>"""
