@@ -18,13 +18,15 @@ const { PipelineControlPanel } = await import('../PipelineControlPanel')
 function buildPipelineStats(caps = {}) {
   const stages = {}
   if (caps.triage != null) stages.triage = { worker_cap: caps.triage }
+  if (caps.discover != null) stages.discover = { worker_cap: caps.discover }
+  if (caps.shape != null) stages.shape = { worker_cap: caps.shape }
   if (caps.plan != null) stages.plan = { worker_cap: caps.plan }
   if (caps.implement != null) stages.implement = { worker_cap: caps.implement }
   if (caps.review != null) stages.review = { worker_cap: caps.review }
   return { stages }
 }
 
-const DEFAULT_CAPS = { triage: 1, plan: 2, implement: 3, review: 2 }
+const DEFAULT_CAPS = { triage: 1, discover: 1, shape: 1, plan: 2, implement: 3, review: 2 }
 
 function defaultMockContext(overrides = {}) {
   const pipelineIssues = overrides.pipelineIssues || {}
