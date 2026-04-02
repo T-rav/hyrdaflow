@@ -15,13 +15,12 @@ def config(tmp_path):
     return ConfigFactory.create(repo_root=tmp_path)
 
 
-def test_build_caches_prefix(config):
+@pytest.mark.asyncio()
+async def test_build_caches_prefix(config):
     """Second call returns same string without rebuilding."""
-    import asyncio
-
     prefix = SharedPromptPrefix(config)
-    result1 = asyncio.get_event_loop().run_until_complete(prefix.build())
-    result2 = asyncio.get_event_loop().run_until_complete(prefix.build())
+    result1 = await prefix.build()
+    result2 = await prefix.build()
     assert result1 is result2  # same object, not just equal
 
 
