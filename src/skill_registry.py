@@ -13,8 +13,10 @@ Two registries:
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from diff_sanity import build_diff_sanity_prompt, parse_diff_sanity_result
@@ -107,8 +109,6 @@ def format_skills_for_prompt(skills: list[AgentSkill]) -> str:
 # Agent Tools — slash commands discovered from .claude/commands/hf.*.md
 # ---------------------------------------------------------------------------
 
-import logging
-from pathlib import Path
 
 _tool_logger = logging.getLogger("hydraflow.skill_registry")
 

@@ -441,6 +441,7 @@ class WorkspaceManager:
             await self._configure_git_identity(wt_path)
             await self._create_venv(wt_path)
             await self._install_hooks(wt_path)
+            self._install_commands(wt_path)
         except BaseException:
             logger.warning(
                 "Workspace creation failed for issue %d; cleaning up",
@@ -897,3 +898,40 @@ class WorkspaceManager:
                     logger.debug(
                         "Could not copy hook %s → %s", hook_file, dst, exc_info=True
                     )
+
+    def _install_commands(self, wt_path: Path) -> None:
+        """Copy ``hf.*.md`` command files into the worktree if missing.
+
+        Only runs in Docker mode — on the host the commands already exist
+        in the HydraFlow repo and worktrees share them via the git checkout.
+        In Docker containers the target repo may not have HydraFlow's
+        commands, so we copy them from the HydraFlow source.
+        """
+        if self._config.execution_mode != "docker":
+            return
+
+        src_commands = self._repo_root / ".claude" / "commands"
+        if not src_commands.is_dir():
+            return
+
+        dst_commands = wt_path / ".claude" / "commands"
+        dst_commands.mkdir(parents=True, exist_ok=True)
+
+        installed = 0
+        for src_file in sorted(src_commands.glob("hf.*.md")):
+            dst_file = dst_commands / src_file.name
+            if dst_file.exists():
+                continue
+            try:
+                shutil.copy2(src_file, dst_file)
+                installed += 1
+            except OSError:
+                logger.debug(
+                    "Could not copy command %s → %s",
+                    src_file,
+                    dst_file,
+                    exc_info=True,
+                )
+
+        if installed:
+            logger.info("Installed %d hf.* commands into %s", installed, dst_commands)
