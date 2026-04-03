@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
-from diff_sanity import build_diff_sanity_prompt, parse_diff_sanity_result
 from events import EventBus, EventType, HydraFlowEvent
 from models import LoopResult, Task, WorkerResult, WorkerStatus, WorkerUpdatePayload
 from phase_utils import is_likely_bug, reraise_on_credit_or_bug
@@ -22,8 +21,8 @@ from review_insights import (
     get_escalation_data,
 )
 from runner_constants import MEMORY_SUGGESTION_PROMPT
+from skill_registry import AgentSkill, format_skills_for_prompt, get_skills
 from task_graph import extract_phases, has_task_graph, topological_sort
-from test_adequacy import build_test_adequacy_prompt, parse_test_adequacy_result
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
@@ -195,32 +194,31 @@ Run through this checklist before your final commit:
             # Force-commit any uncommitted work the agent left behind
             await self._force_commit_uncommitted(task, worktree_path)
 
-            # Diff sanity check (blocking — agent must fix flagged issues)
-            sanity = await self._run_diff_sanity_loop(
-                task, worktree_path, branch, worker_id
-            )
-            if not sanity.passed:
-                logger.warning(
-                    "Diff sanity flagged issues for #%d: %s",
-                    task.id,
-                    sanity.summary,
+            # Run registered post-implementation skills (diff-sanity, test-adequacy, etc.)
+            for skill in get_skills():
+                skill_result = await self._run_skill(
+                    skill, task, worktree_path, branch, worker_id
                 )
-                result.success = False
-                result.error = f"Diff sanity check failed: {sanity.summary}"
-                result.commits = await self._count_commits(worktree_path, branch)
-                await self._emit_status(task.id, worker_id, WorkerStatus.FAILED)
-                result.duration_seconds = time.monotonic() - start
-                return result
-
-            adequacy = await self._run_test_adequacy_loop(
-                task, worktree_path, branch, worker_id
-            )
-            if not adequacy.passed:
-                logger.warning(
-                    "Test adequacy flagged gaps for #%d: %s (non-blocking)",
-                    task.id,
-                    adequacy.summary,
-                )
+                if not skill_result.passed and skill.blocking:
+                    logger.warning(
+                        "%s flagged issues for #%d: %s",
+                        skill.name,
+                        task.id,
+                        skill_result.summary,
+                    )
+                    result.success = False
+                    result.error = f"{skill.name} failed: {skill_result.summary}"
+                    result.commits = await self._count_commits(worktree_path, branch)
+                    await self._emit_status(task.id, worker_id, WorkerStatus.FAILED)
+                    result.duration_seconds = time.monotonic() - start
+                    return result
+                if not skill_result.passed:
+                    logger.warning(
+                        "%s flagged gaps for #%d: %s (non-blocking)",
+                        skill.name,
+                        task.id,
+                        skill_result.summary,
+                    )
 
             # Mandatory pre-quality self-review/correction loop
             pre_quality = await self._run_pre_quality_review_loop(
@@ -688,10 +686,12 @@ Run through this checklist before your final commit:
 1. Understand the issue and relevant code paths.
 2. Implement the solution — write the code changes first.
 3. Write tests to ensure functionality, prevent regressions, and catch bugs.
-4. Diff Sanity Check and Test Adequacy Check run automatically after your implementation.
+4. Post-implementation skills run automatically (see below).
 5. Run Pre-Quality Review Skill for correctness, plan adherence, and missing tests.
 6. Run Run-Tool Skill: `make lint` → `{test_cmd}` → `make quality-lite`; fix and rerun.
 7. Commit with: "Fixes #{issue.id}: <concise summary>"
+
+{format_skills_for_prompt(get_skills())}
 {feedback_section}{escalation_section}
 {self._build_self_check_checklist(escalations)}
 {self._build_requirements_gap_section(issue)}
@@ -1007,21 +1007,22 @@ SUMMARY: <one-line summary>
         except (TimeoutError, FileNotFoundError):
             return ""
 
-    async def _run_diff_sanity_loop(
+    async def _run_skill(
         self,
+        skill: AgentSkill,
         issue: Task,
         worktree_path: Path,
         branch: str,
         worker_id: int,
     ) -> LoopResult:
-        """Run the diff sanity check skill.
+        """Run a registered post-implementation skill via the skill registry.
 
-        Returns a :class:`LoopResult`.  Non-blocking — failures are logged
-        as warnings but do not stop the pipeline.
+        Gets max_attempts from config via ``skill.config_key``.
+        Returns a :class:`LoopResult`.
         """
-        max_attempts = self._config.max_diff_sanity_attempts
+        max_attempts = getattr(self._config, skill.config_key, 0)
         if max_attempts <= 0:
-            return LoopResult(passed=True, summary="Diff sanity check disabled")
+            return LoopResult(passed=True, summary=f"{skill.name} disabled")
 
         commits = await self._count_commits(worktree_path, branch)
         if commits == 0:
@@ -1035,7 +1036,7 @@ SUMMARY: <one-line summary>
         if len(diff) > max_diff:
             diff = diff[:max_diff] + f"\n[Diff truncated at {max_diff:,} chars]"
 
-        prompt = build_diff_sanity_prompt(
+        prompt = skill.prompt_builder(
             issue_number=issue.id,
             issue_title=issue.title,
             diff=diff,
@@ -1050,69 +1051,15 @@ SUMMARY: <one-line summary>
                 worktree_path,
                 {"issue": issue.id, "source": "implementer"},
             )
-            passed, summary, findings = parse_diff_sanity_result(transcript)
+            passed, summary, findings = skill.result_parser(transcript)
             if passed:
                 return LoopResult(passed=True, summary=summary, attempts=attempt)
             if findings:
                 logger.info(
-                    "Diff sanity findings for #%d: %s",
+                    "%s findings for #%d: %s",
+                    skill.name,
                     issue.id,
                     "; ".join(findings[:5]),
-                )
-
-        return LoopResult(passed=False, summary=summary, attempts=max_attempts)
-
-    async def _run_test_adequacy_loop(
-        self,
-        issue: Task,
-        worktree_path: Path,
-        branch: str,
-        worker_id: int,
-    ) -> LoopResult:
-        """Run the test adequacy check skill.
-
-        Returns a :class:`LoopResult`.  Non-blocking — failures are logged
-        as warnings but do not stop the pipeline.
-        """
-        max_attempts = self._config.max_test_adequacy_attempts
-        if max_attempts <= 0:
-            return LoopResult(passed=True, summary="Test adequacy check disabled")
-
-        commits = await self._count_commits(worktree_path, branch)
-        if commits == 0:
-            return LoopResult(passed=True, summary="No commits to check")
-
-        diff = await self._get_branch_diff(worktree_path, branch)
-        if not diff.strip():
-            return LoopResult(passed=True, summary="Empty diff")
-
-        max_diff = self._config.max_review_diff_chars
-        if len(diff) > max_diff:
-            diff = diff[:max_diff] + f"\n[Diff truncated at {max_diff:,} chars]"
-
-        prompt = build_test_adequacy_prompt(
-            issue_number=issue.id,
-            issue_title=issue.title,
-            diff=diff,
-        )
-        cmd = self._build_pre_quality_review_command()
-        summary = ""
-
-        for attempt in range(1, max_attempts + 1):
-            transcript = await self._execute(
-                cmd,
-                prompt,
-                worktree_path,
-                {"issue": issue.id, "source": "implementer"},
-            )
-            passed, summary, gaps = parse_test_adequacy_result(transcript)
-            if passed:
-                return LoopResult(passed=True, summary=summary, attempts=attempt)
-            if gaps:
-                logger.info(
-                    "Test adequacy gaps for #%d: %s",
-                    issue.id,
-                    "; ".join(gaps[:5]),
                 )
 
         return LoopResult(passed=False, summary=summary, attempts=max_attempts)
