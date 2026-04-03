@@ -58,6 +58,11 @@ class BaseRunner:
         """Number of currently running subprocesses."""
         return len(self._active_procs)
 
+    @property
+    def hindsight(self) -> HindsightClient | None:
+        """Read-only access to the Hindsight client for shared prefix building."""
+        return self._hindsight
+
     def terminate(self) -> None:
         """Kill all active subprocesses."""
         terminate_processes(self._active_procs)
