@@ -109,7 +109,7 @@ const styles = {
   },
   activitySubtitle: {
     fontSize: 9,
-    color: theme.textSecondary,
+    color: theme.textMuted,
     maxWidth: 120,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
