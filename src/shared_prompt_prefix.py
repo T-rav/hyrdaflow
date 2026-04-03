@@ -93,7 +93,7 @@ class SharedPromptPrefix:
         """Load CLAUDE.md from repo root, using the cache when provided."""
         path = Path(self._config.repo_root) / "CLAUDE.md"
         if context_cache is not None:
-            content, _hit = context_cache.get_or_load(
+            content, _ = context_cache.get_or_load(
                 key="claude_md",
                 source_path=path,
                 loader=self._read_claude_md,
@@ -155,7 +155,7 @@ class SharedPromptPrefix:
 
         deduper = PromptDeduplicator()
         all_items: list[str] = []
-        for _heading, raw in raw_by_bank:
+        for _, raw in raw_by_bank:
             items = [f"- {chunk}" for chunk in raw.split("\n- ") if chunk.strip()]
             if items and items[0].startswith("- - "):
                 items[0] = items[0][2:]
