@@ -1984,6 +1984,31 @@ class TranscriptLinePayload(TypedDict, total=False):
     repo: str
 
 
+class ActivityType(StrEnum):
+    """Kind of agent activity detected from CLI output."""
+
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
+    THINKING = "thinking"
+    TEXT = "text"
+    ERROR = "error"
+
+
+class AgentActivityPayload(TypedDict, total=False):
+    """Payload for ``EventType.AGENT_ACTIVITY``.
+
+    Parsers return partial payloads (activity_type, tool_name, summary, detail);
+    the streaming function fills in issue/source from runner context.
+    """
+
+    issue: int
+    source: str
+    activity_type: str
+    tool_name: str | None
+    summary: str
+    detail: str | None
+
+
 class SystemAlertPayload(TypedDict, total=False):
     """Payload for ``EventType.SYSTEM_ALERT``."""
 
