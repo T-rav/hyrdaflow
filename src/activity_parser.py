@@ -198,3 +198,20 @@ class CodexActivityParser:
                 }
 
         return None
+
+
+class PiActivityParser:
+    """No-op stub for Pi CLI — returns None for all lines."""
+
+    def parse(self, raw_line: str) -> AgentActivityPayload | None:
+        return None
+
+
+def get_activity_parser(backend: str) -> ActivityParser:
+    """Return the activity parser for the given CLI backend."""
+    parsers: dict[str, ActivityParser] = {
+        "claude": ClaudeActivityParser(),
+        "codex": CodexActivityParser(),
+        "pi": PiActivityParser(),
+    }
+    return parsers.get(backend, PiActivityParser())

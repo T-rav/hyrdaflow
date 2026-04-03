@@ -2,7 +2,12 @@
 
 import json
 
-from activity_parser import ClaudeActivityParser, CodexActivityParser
+from activity_parser import (
+    ClaudeActivityParser,
+    CodexActivityParser,
+    PiActivityParser,
+    get_activity_parser,
+)
 
 
 class TestClaudeActivityParserToolCall:
@@ -281,3 +286,33 @@ class TestCodexActivityParserToolCall:
     def test_invalid_json_ignored(self):
         parser = CodexActivityParser()
         assert parser.parse("not valid json") is None
+
+
+class TestPiActivityParser:
+    """PiActivityParser is a no-op stub."""
+
+    def test_returns_none(self):
+        parser = PiActivityParser()
+        line = json.dumps(
+            {
+                "type": "message_update",
+                "assistantMessageEvent": {"type": "text_delta", "delta": "hello"},
+            }
+        )
+        assert parser.parse(line) is None
+
+
+class TestGetActivityParser:
+    """get_activity_parser returns the correct parser for each backend."""
+
+    def test_claude(self):
+        assert isinstance(get_activity_parser("claude"), ClaudeActivityParser)
+
+    def test_codex(self):
+        assert isinstance(get_activity_parser("codex"), CodexActivityParser)
+
+    def test_pi(self):
+        assert isinstance(get_activity_parser("pi"), PiActivityParser)
+
+    def test_unknown_returns_pi_stub(self):
+        assert isinstance(get_activity_parser("unknown"), PiActivityParser)
