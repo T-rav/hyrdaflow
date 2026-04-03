@@ -42,6 +42,7 @@ class PlannerRunner(BaseRunner):
         task: Task,
         worker_id: int = 0,
         research_context: str = "",
+        shared_prefix: str | None = None,
     ) -> PlanResult:
         """Run the planning agent for *task*.
 
@@ -70,7 +71,10 @@ class PlannerRunner(BaseRunner):
 
             cmd = self._build_command()
             prompt, prompt_stats = await self._build_prompt_with_stats(
-                task, scale=scale, research_context=research_context
+                task,
+                scale=scale,
+                research_context=research_context,
+                shared_prefix=shared_prefix,
             )
 
             def _check_plan_complete(accumulated: str) -> bool:
@@ -293,6 +297,7 @@ class PlannerRunner(BaseRunner):
         *,
         scale: PlanScale = "full",
         research_context: str = "",
+        shared_prefix: str | None = None,
     ) -> tuple[str, dict[str, object]]:
         """Build the planning prompt and pruning stats.
 
@@ -337,6 +342,7 @@ class PlannerRunner(BaseRunner):
 
         manifest_section, memory_section = await self._inject_manifest_and_memory(
             query_context=f"{issue.title}\n{(issue.body or '')[:200]}",
+            shared_prefix=shared_prefix,
         )
 
         find_label = self._config.find_label[0]
