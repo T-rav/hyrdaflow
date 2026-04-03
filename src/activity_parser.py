@@ -31,17 +31,26 @@ class ActivityParser(Protocol):
         ...
 
 
+_FILE_PATH_VERBS: dict[str, str] = {
+    "read": "Reading",
+    "edit": "Editing",
+    "write": "Writing",
+}
+
+
 def _summarize_tool(name: str, tool_input: dict[str, Any]) -> str:
     """Generate a human-readable summary for a tool call."""
     normalized = name.lower()
-    if normalized in ("read", "edit", "write"):
-        return f"{name}ing {tool_input.get('file_path', '?')}"
+    verb = _FILE_PATH_VERBS.get(normalized)
+    if verb:
+        return f"{verb} {tool_input.get('file_path', '?')}"
     if normalized == "bash":
         cmd = tool_input.get("command", "")
         return f"Running: {cmd[:60]}" if cmd else "Running command"
-    if normalized in ("glob", "grep"):
-        pattern = tool_input.get("pattern", "?")
-        return f"Searching for '{pattern}'"
+    if normalized == "glob":
+        return f"Searching for {tool_input.get('pattern', '?')}"
+    if normalized == "grep":
+        return f"Searching for '{tool_input.get('pattern', '?')}'"
     return name
 
 
@@ -204,6 +213,7 @@ class PiActivityParser:
     """No-op stub for Pi CLI — returns None for all lines."""
 
     def parse(self, raw_line: str) -> AgentActivityPayload | None:
+        del raw_line  # no-op stub
         return None
 
 
