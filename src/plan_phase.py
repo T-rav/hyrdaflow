@@ -438,7 +438,11 @@ class PlanPhase:
         return review
 
     async def _plan_one(
-        self, idx: int, issue: Task, semaphore: asyncio.Semaphore
+        self,
+        idx: int,
+        issue: Task,
+        semaphore: asyncio.Semaphore,
+        shared_prefix: str | None = None,
     ) -> PlanResult:
         """Plan a single issue (shared by standalone and epic flows)."""
         if self._stop_event.is_set():
@@ -481,7 +485,10 @@ class PlanPhase:
                             )
 
                     result = await self._planners.plan(
-                        issue, worker_id=idx, research_context=research_context
+                        issue,
+                        worker_id=idx,
+                        research_context=research_context,
+                        shared_prefix=shared_prefix,
                     )
 
                     already_handled = False
@@ -733,9 +740,30 @@ class PlanPhase:
                     finally:
                         release_batch_in_flight(self._store, {c.id for c in children})
 
+        # Build shared prefix once for batch when running multiple planners
+        shared_prefix: str | None = None
+        if self._config.max_planners > 1:
+            try:
+                builder = SharedPromptPrefix(self._config)
+                shared_prefix = await builder.build(
+                    hindsight=self._planners.hindsight,
+                )
+                logger.info(
+                    "Built shared prompt prefix (%d chars) for %d concurrent planners",
+                    builder.prefix_chars,
+                    self._config.max_planners,
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to build shared prefix, falling back", exc_info=True
+                )
+                shared_prefix = None
+
         async def _plan_worker(idx: int, issue: Task) -> PlanResult:
             try:
-                return await self._plan_one(idx, issue, semaphore)
+                return await self._plan_one(
+                    idx, issue, semaphore, shared_prefix=shared_prefix
+                )
             finally:
                 release_batch_in_flight(self._store, {issue.id})
 
