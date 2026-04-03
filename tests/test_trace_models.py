@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from models import (
+    LifetimeStats,
     TraceSkillProfile,
     TraceSpanStats,
     TraceSummary,
@@ -145,9 +146,6 @@ class TestTraceSummary:
         data = summary.model_dump()
         restored = TraceSummary.model_validate(data)
         assert restored == summary
-
-
-from models import LifetimeStats
 
 
 class TestLifetimeStatsTraceFields:
