@@ -1249,6 +1249,60 @@ class LifetimeStats(BaseModel):
     fired_thresholds: list[str] = Field(default_factory=list)
 
 
+# ---------------------------------------------------------------------------
+# Monocle trace mining models
+# ---------------------------------------------------------------------------
+
+
+class TraceSpanStats(BaseModel):
+    """Aggregated span counts from a trace file."""
+
+    total_spans: int
+    total_turns: int
+    total_inference_calls: int
+    duration_seconds: float
+
+
+class TraceTokenStats(BaseModel):
+    """Token usage aggregated from inference spans."""
+
+    prompt_tokens: int
+    completion_tokens: int
+    cache_read_tokens: int
+    cache_creation_tokens: int
+    cache_hit_rate: float
+
+
+class TraceToolProfile(BaseModel):
+    """Tool invocation profile from a trace."""
+
+    tool_counts: dict[str, int]
+    tool_errors: dict[str, int]
+    total_invocations: int
+
+
+class TraceSkillProfile(BaseModel):
+    """Skill and subagent invocation profile from a trace."""
+
+    skill_counts: dict[str, int]
+    subagent_counts: dict[str, int]
+    total_skills: int
+    total_subagents: int
+
+
+class TraceSummary(BaseModel):
+    """Parsed summary of Monocle trace files for one issue/phase."""
+
+    issue_number: int
+    phase: str
+    harvested_at: str
+    trace_ids: list[str]
+    spans: TraceSpanStats
+    tokens: TraceTokenStats
+    tools: TraceToolProfile
+    skills: TraceSkillProfile
+
+
 class HITLSummaryCacheEntry(BaseModel):
     """Cached LLM summary for a HITL issue."""
 
