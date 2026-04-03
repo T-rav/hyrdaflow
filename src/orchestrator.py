@@ -473,6 +473,8 @@ class HydraFlowOrchestrator:
         # Map stage keys to config worker caps
         stage_caps: dict[str, int] = {
             "triage": self._config.max_triagers,
+            "discover": self._config.max_triagers,
+            "shape": self._config.max_triagers,
             "plan": self._config.max_planners,
             "implement": self._config.max_workers,
             "review": self._config.max_reviewers,
@@ -491,6 +493,8 @@ class HydraFlowOrchestrator:
         # Map IssueStore stage names to our stage keys
         store_stage_map: dict[str, str] = {
             "find": "triage",
+            "discover": "discover",
+            "shape": "shape",
             "plan": "plan",
             "ready": "implement",
             "review": "review",
@@ -501,6 +505,8 @@ class HydraFlowOrchestrator:
         session_counters = self._state.get_session_counters()
         session_counter_map: dict[str, str] = {
             "triage": "triaged",
+            "discover": "discovered",
+            "shape": "shaped",
             "plan": "planned",
             "implement": "implemented",
             "review": "reviewed",
@@ -508,7 +514,15 @@ class HydraFlowOrchestrator:
         }
 
         stages: dict[str, StageStats] = {}
-        for stage_key in ("triage", "plan", "implement", "review", "hitl"):
+        for stage_key in (
+            "triage",
+            "discover",
+            "shape",
+            "plan",
+            "implement",
+            "review",
+            "hitl",
+        ):
             # Find the IssueStore stage name for queue/active lookups
             store_key = next(
                 (k for k, v in store_stage_map.items() if v == stage_key), stage_key
