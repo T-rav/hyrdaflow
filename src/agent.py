@@ -679,6 +679,7 @@ Run through this checklist before your final commit:
             )
         builder.record_context("Issue body", issue.body, body)
 
+        test_cmd = self._config.test_command  # noqa: F841 — used in f-string prompt
         tools_section = format_tools_for_prompt(discover_tools(self._config.repo_root))
         skills_section = format_skills_for_prompt(get_skills())
 
@@ -715,7 +716,7 @@ Run through this checklist before your final commit:
 - Follow the project's CLAUDE.md guidelines strictly.
 - NEVER delete or overwrite existing CLAUDE.md content. You may append new sections or
   modify existing sections, but you must preserve all information already present.
-- Write tests for all new code — tests are mandatory.
+- Write tests for all new code — tests are mandatory. Run tests with: `{test_cmd}`
 - Do NOT push to remote. Do NOT create pull requests.
 - Do NOT run `git push` or `gh pr create`.
 - Run `make quality-lite` (lint + typecheck + security, no tests) as a sense check.
