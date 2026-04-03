@@ -16,9 +16,22 @@ function countByRole(workers) {
   }
 }
 
+function latestActivityByRole(workers) {
+  const result = {}
+  for (const w of Object.values(workers)) {
+    if (!w.lastActivity || !w.role) continue
+    const prev = result[w.role]
+    if (!prev || w.lastActivity.timestamp > prev.timestamp) {
+      result[w.role] = w.lastActivity
+    }
+  }
+  return result
+}
+
 export function PipelineStatus({ phase, workers }) {
   const workerList = Object.values(workers)
   const counts = countByRole(workers)
+  const activities = latestActivityByRole(workers)
   // Don't render when idle with no history
   if (phase === 'idle' && workerList.length === 0) return null
 
@@ -40,6 +53,11 @@ export function PipelineStatus({ phase, workers }) {
                   <span style={styles.count}>{agentCount}</span>
                 )}
               </div>
+              {activities[stage.role] && agentCount > 0 && (
+                <span style={styles.activitySubtitle}>
+                  {activities[stage.role].summary}
+                </span>
+              )}
             </div>
           </React.Fragment>
         )
@@ -88,6 +106,15 @@ const styles = {
     padding: '1px 6px',
     fontSize: 10,
     fontWeight: 700,
+  },
+  activitySubtitle: {
+    fontSize: 9,
+    color: theme.textMuted,
+    maxWidth: 120,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    textAlign: 'center',
   },
 }
 

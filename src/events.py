@@ -89,6 +89,7 @@ class EventType(StrEnum):
     SHAPE_UPDATE = "shape_update"
     CRATE_ACTIVATED = "crate_activated"
     CRATE_COMPLETED = "crate_completed"
+    AGENT_ACTIVITY = "agent_activity"
 
 
 _T = TypeVar("_T")

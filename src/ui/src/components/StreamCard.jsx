@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { theme } from '../theme'
-import { PIPELINE_STAGES, PULSE_ANIMATION } from '../constants'
+import { PIPELINE_STAGES, PULSE_ANIMATION, ACTIVITY_TYPE_COLORS } from '../constants'
 import { formatDuration, STAGE_META, STAGE_KEYS } from '../hooks/useTimeline'
 import { TranscriptPreview } from './TranscriptPreview'
 import { WORKSTREAM_SIDE_INSET_PX } from '../styles/sectionStyles'
@@ -160,6 +160,19 @@ export function StreamCard({ issue, intent, defaultExpanded, onRequestChanges, t
           )}
           {totalDuration && <span style={styles.duration}>{totalDuration}</span>}
           <StatusDot status={issue.overallStatus} stageKey={stageKey} />
+          {issue.lastActivity && isActive && (
+            <span
+              style={{
+                ...styles.activityIndicator,
+                color: ACTIVITY_TYPE_COLORS[issue.lastActivity.activityType] || theme.textMuted,
+              }}
+              title={issue.lastActivity.detail || issue.lastActivity.summary}
+              data-testid={`activity-indicator-${issue.issueNumber}`}
+            >
+              <span style={styles.activityDot} />
+              {issue.lastActivity.summary}
+            </span>
+          )}
           {issue.pr && (
             <a
               style={styles.prLink}
@@ -543,6 +556,26 @@ const styles = {
     marginTop: 6,
     fontSize: 11,
     color: theme.red,
+  },
+  activityIndicator: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+    fontSize: 10,
+    maxWidth: 200,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    opacity: 0.85,
+    transition: 'opacity 0.3s ease',
+  },
+  activityDot: {
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    background: 'currentColor',
+    animation: PULSE_ANIMATION,
+    flexShrink: 0,
   },
 }
 

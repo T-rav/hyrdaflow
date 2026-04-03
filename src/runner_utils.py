@@ -10,6 +10,7 @@ import signal
 from collections.abc import Callable
 from pathlib import Path
 
+from activity_parser import get_activity_parser
 from events import EventBus, EventType, HydraFlowEvent
 from execution import SubprocessRunner, get_default_runner
 from models import TranscriptEventData, TranscriptLinePayload
@@ -132,6 +133,14 @@ async def stream_claude_process(
         stderr_task = asyncio.create_task(proc.stderr.read())
 
         parser = StreamParser()
+        # Determine CLI backend from command for activity parsing
+        _backend = "claude"
+        if len(cmd) >= 1:
+            if cmd[0] == "codex":
+                _backend = "codex"
+            elif cmd[0] == "pi":
+                _backend = "pi"
+        activity_parser = get_activity_parser(_backend)
         raw_lines: list[str] = []
         result_text = ""
         accumulated_text = ""
@@ -168,6 +177,21 @@ async def stream_claude_process(
                     early_killed = True
                     proc.kill()
                     break
+
+                # Emit structured activity event (additive — does not replace TRANSCRIPT_LINE)
+                try:
+                    activity = activity_parser.parse(line)
+                    if activity is not None:
+                        activity["issue"] = event_data.get("issue", 0)
+                        activity["source"] = event_data.get("source", "unknown")
+                        await event_bus.publish(
+                            HydraFlowEvent(
+                                type=EventType.AGENT_ACTIVITY,
+                                data=activity,
+                            )
+                        )
+                except Exception:
+                    logger.warning("Activity parsing failed", exc_info=True)
 
             stderr_bytes = await stderr_task
             await proc.wait()

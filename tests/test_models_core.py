@@ -1079,3 +1079,27 @@ class TestHITLItem:
         assert data["is_memory_suggestion"] is False
         assert data["llm_summary"] == ""
         assert data["llm_summary_updated_at"] is None
+
+
+def test_agent_activity_payload_keys():
+    """AgentActivityPayload has the expected keys."""
+    from models import ActivityType, AgentActivityPayload
+
+    # Verify enum values
+    assert ActivityType.TOOL_CALL == "tool_call"
+    assert ActivityType.TOOL_RESULT == "tool_result"
+    assert ActivityType.THINKING == "thinking"
+    assert ActivityType.TEXT == "text"
+    assert ActivityType.ERROR == "error"
+
+    # Verify TypedDict accepts all fields
+    payload: AgentActivityPayload = {
+        "issue": 42,
+        "source": "implementer",
+        "activity_type": ActivityType.TOOL_CALL,
+        "tool_name": "Read",
+        "summary": "Reading src/config.py",
+        "detail": "file_path: src/config.py",
+    }
+    assert payload["activity_type"] == "tool_call"
+    assert payload["tool_name"] == "Read"

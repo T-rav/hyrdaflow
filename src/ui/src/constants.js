@@ -83,6 +83,19 @@ export const EVENT_PROCESS_MAP = {
   ci_check: 'ci',
   issue_created: 'triage',
   background_worker_status: 'bg_worker',
+  agent_activity: 'agent',
+}
+
+/**
+ * Activity type color mapping for agent activity indicators.
+ * Uses theme tokens — no raw hex values.
+ */
+export const ACTIVITY_TYPE_COLORS = {
+  tool_call: theme.accent,
+  tool_result: theme.green,
+  thinking: theme.yellow,
+  text: theme.textMuted,
+  error: theme.red,
 }
 
 /**

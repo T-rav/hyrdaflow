@@ -91,6 +91,7 @@ class TestEventTypeEnum:
             "SHAPE_UPDATE",
             "CRATE_ACTIVATED",
             "CRATE_COMPLETED",
+            "AGENT_ACTIVITY",
         }
         actual = {member.name for member in EventType}
         assert expected == actual

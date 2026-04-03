@@ -204,6 +204,34 @@ export function reducer(state, action) {
       }
     }
 
+    case 'agent_activity': {
+      if (isDuplicate(state, action)) return state
+      const { source } = action.data
+      let actKey = action.data.issue || action.data.pr
+      if (source === 'triage') actKey = `triage-${action.data.issue}`
+      else if (source === 'planner') actKey = `plan-${action.data.issue}`
+      else if (source === 'reviewer') actKey = `review-${action.data.pr}`
+      if (!actKey) return addEvent(state, action)
+      const actWorker = state.workers[actKey]
+      if (!actWorker) return addEvent(state, action)
+      return {
+        ...addEvent(state, action),
+        workers: {
+          ...state.workers,
+          [actKey]: {
+            ...actWorker,
+            lastActivity: {
+              activityType: action.data.activity_type,
+              toolName: action.data.tool_name,
+              summary: action.data.summary,
+              detail: action.data.detail || null,
+              timestamp: action.timestamp,
+            },
+          },
+        },
+      }
+    }
+
     case 'pr_created': {
       const exists = state.prs.some(p => p.pr === action.data.pr)
       return {
