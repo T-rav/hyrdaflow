@@ -535,7 +535,7 @@ class TestWorktreePreservation:
         await phase.review_prs([pr], [issue])
 
         # Worktree SHOULD be cleaned up — merge completed, nothing to resume
-        phase._workspaces.post_work_cleanup.assert_awaited_once_with(42)
+        phase._workspaces.post_work_cleanup.assert_awaited_once_with(42, phase="review")
 
     @pytest.mark.asyncio
     async def test_review_phase_cleans_worktree_when_not_stopped(self, config) -> None:
@@ -566,7 +566,7 @@ class TestWorktreePreservation:
         await phase.review_prs([pr], [issue])
 
         # Worktree cleanup should be called normally
-        phase._workspaces.post_work_cleanup.assert_awaited_once_with(42)
+        phase._workspaces.post_work_cleanup.assert_awaited_once_with(42, phase="review")
 
 
 # ---------------------------------------------------------------------------
