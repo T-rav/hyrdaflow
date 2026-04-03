@@ -41,6 +41,7 @@ _INTERVAL_BOUNDS: dict[str, tuple[int, int]] = {
     "ci_monitor": (60, 86400),
     "security_patch": (300, 86400),
     "code_grooming": (3600, 604800),
+    "trace_mining": (30, 14400),
 }
 
 # Internal pipeline labels that must not be treated as epic names in the history panel.
