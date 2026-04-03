@@ -15,6 +15,7 @@ from agent import AgentRunner
 from base_runner import BaseRunner
 from events import EventBus
 from models import ReviewVerdict, Task
+from skill_registry import BUILTIN_SKILLS  # noqa: F401 — used in test methods
 from tests.helpers import ConfigFactory
 
 
@@ -851,8 +852,8 @@ class TestDiffSanityLoop:
     ) -> None:
         config.max_diff_sanity_attempts = 0
         runner = AgentRunner(config, event_bus)
-        result = await runner._run_diff_sanity_loop(
-            agent_task, tmp_path, "branch", worker_id=0
+        result = await runner._run_skill(
+            BUILTIN_SKILLS[0], agent_task, tmp_path, "branch", worker_id=0
         )
         assert result.passed is True
         assert "disabled" in result.summary
@@ -866,8 +867,8 @@ class TestDiffSanityLoop:
         with patch.object(
             runner, "_count_commits", new_callable=AsyncMock, return_value=0
         ):
-            result = await runner._run_diff_sanity_loop(
-                agent_task, tmp_path, "branch", worker_id=0
+            result = await runner._run_skill(
+                BUILTIN_SKILLS[0], agent_task, tmp_path, "branch", worker_id=0
             )
         assert result.passed is True
         assert "No commits" in result.summary
@@ -895,8 +896,8 @@ class TestDiffSanityLoop:
                 return_value="DIFF_SANITY_RESULT: OK\nSUMMARY: No issues found",
             ),
         ):
-            result = await runner._run_diff_sanity_loop(
-                agent_task, tmp_path, "branch", worker_id=0
+            result = await runner._run_skill(
+                BUILTIN_SKILLS[0], agent_task, tmp_path, "branch", worker_id=0
             )
         assert result.passed is True
 
@@ -923,8 +924,8 @@ class TestDiffSanityLoop:
                 return_value="DIFF_SANITY_RESULT: RETRY\nSUMMARY: debug code",
             ),
         ):
-            result = await runner._run_diff_sanity_loop(
-                agent_task, tmp_path, "branch", worker_id=0
+            result = await runner._run_skill(
+                BUILTIN_SKILLS[0], agent_task, tmp_path, "branch", worker_id=0
             )
         assert result.passed is False
         assert "debug code" in result.summary
@@ -962,7 +963,7 @@ class TestDiffSanityLoop:
             result = await runner.run(agent_task, tmp_path, "agent/issue-42")
 
         assert result.success is False
-        assert "Diff sanity" in (result.error or "")
+        assert "diff-sanity" in (result.error or "")
 
     @pytest.mark.asyncio
     async def test_recovers_on_second_attempt(
@@ -991,8 +992,8 @@ class TestDiffSanityLoop:
                 ],
             ),
         ):
-            result = await runner._run_diff_sanity_loop(
-                agent_task, tmp_path, "branch", worker_id=0
+            result = await runner._run_skill(
+                BUILTIN_SKILLS[0], agent_task, tmp_path, "branch", worker_id=0
             )
         assert result.passed is True
         assert result.attempts == 2
@@ -1007,8 +1008,8 @@ class TestTestAdequacyLoop:
     ) -> None:
         config.max_test_adequacy_attempts = 0
         runner = AgentRunner(config, event_bus)
-        result = await runner._run_test_adequacy_loop(
-            agent_task, tmp_path, "branch", worker_id=0
+        result = await runner._run_skill(
+            BUILTIN_SKILLS[1], agent_task, tmp_path, "branch", worker_id=0
         )
         assert result.passed is True
         assert "disabled" in result.summary
@@ -1022,8 +1023,8 @@ class TestTestAdequacyLoop:
         with patch.object(
             runner, "_count_commits", new_callable=AsyncMock, return_value=0
         ):
-            result = await runner._run_test_adequacy_loop(
-                agent_task, tmp_path, "branch", worker_id=0
+            result = await runner._run_skill(
+                BUILTIN_SKILLS[1], agent_task, tmp_path, "branch", worker_id=0
             )
         assert result.passed is True
         assert "No commits" in result.summary
@@ -1051,8 +1052,8 @@ class TestTestAdequacyLoop:
                 return_value="TEST_ADEQUACY_RESULT: OK\nSUMMARY: adequate",
             ),
         ):
-            result = await runner._run_test_adequacy_loop(
-                agent_task, tmp_path, "branch", worker_id=0
+            result = await runner._run_skill(
+                BUILTIN_SKILLS[1], agent_task, tmp_path, "branch", worker_id=0
             )
         assert result.passed is True
 
@@ -1079,8 +1080,8 @@ class TestTestAdequacyLoop:
                 return_value="TEST_ADEQUACY_RESULT: RETRY\nSUMMARY: missing tests",
             ),
         ):
-            result = await runner._run_test_adequacy_loop(
-                agent_task, tmp_path, "branch", worker_id=0
+            result = await runner._run_skill(
+                BUILTIN_SKILLS[1], agent_task, tmp_path, "branch", worker_id=0
             )
         assert result.passed is False
         assert "missing tests" in result.summary
@@ -1113,8 +1114,8 @@ class TestTestAdequacyLoop:
                 ],
             ),
         ):
-            result = await runner._run_test_adequacy_loop(
-                agent_task, tmp_path, "branch", worker_id=0
+            result = await runner._run_skill(
+                BUILTIN_SKILLS[1], agent_task, tmp_path, "branch", worker_id=0
             )
         assert result.passed is True
         assert result.attempts == 2
