@@ -135,3 +135,102 @@ class TestSkillResultParsers:
         )
         assert passed is False
         assert len(gaps) == 1
+
+
+# ---------------------------------------------------------------------------
+# Agent Tools — dynamic discovery from .claude/commands/hf.*.md
+# ---------------------------------------------------------------------------
+
+
+class TestDiscoverTools:
+    """discover_tools scans .claude/commands/ for hf.*.md files."""
+
+    def test_discovers_hf_commands(self, tmp_path):
+        from skill_registry import discover_tools
+
+        commands_dir = tmp_path / ".claude" / "commands"
+        commands_dir.mkdir(parents=True)
+        (commands_dir / "hf.quality-gate.md").write_text(
+            "# Quality Gate\n\nRun checks.\n"
+        )
+        (commands_dir / "hf.diff-sanity.md").write_text(
+            "# Diff Sanity Check\n\nReview diff.\n"
+        )
+        (commands_dir / "other-command.md").write_text("# Not an hf command\n")
+
+        tools = discover_tools(tmp_path)
+        assert len(tools) == 2
+        commands = {t.command for t in tools}
+        assert "/hf.diff-sanity" in commands
+        assert "/hf.quality-gate" in commands
+
+    def test_extracts_purpose_from_heading(self, tmp_path):
+        from skill_registry import discover_tools
+
+        commands_dir = tmp_path / ".claude" / "commands"
+        commands_dir.mkdir(parents=True)
+        (commands_dir / "hf.test-adequacy.md").write_text(
+            "# Test Adequacy Check\n\nDetails.\n"
+        )
+
+        tools = discover_tools(tmp_path)
+        assert len(tools) == 1
+        assert tools[0].purpose == "Test Adequacy Check"
+
+    def test_empty_dir_returns_empty(self, tmp_path):
+        from skill_registry import discover_tools
+
+        commands_dir = tmp_path / ".claude" / "commands"
+        commands_dir.mkdir(parents=True)
+        assert discover_tools(tmp_path) == []
+
+    def test_missing_dir_returns_empty(self, tmp_path):
+        from skill_registry import discover_tools
+
+        assert discover_tools(tmp_path) == []
+
+    def test_skips_files_without_heading(self, tmp_path):
+        from skill_registry import discover_tools
+
+        commands_dir = tmp_path / ".claude" / "commands"
+        commands_dir.mkdir(parents=True)
+        (commands_dir / "hf.empty.md").write_text("")
+        (commands_dir / "hf.good.md").write_text("# Good Command\n")
+
+        tools = discover_tools(tmp_path)
+        assert len(tools) == 1
+        assert tools[0].command == "/hf.good"
+
+    def test_discovers_real_repo_tools(self):
+        """Discover tools from the actual repo .claude/commands/ directory."""
+        from pathlib import Path
+
+        from skill_registry import discover_tools
+
+        repo_root = Path(__file__).parent.parent
+        tools = discover_tools(repo_root)
+        commands = {t.command for t in tools}
+        # These should exist in the actual repo
+        assert "/hf.quality-gate" in commands
+        assert "/hf.diff-sanity" in commands
+        assert "/hf.test-adequacy" in commands
+
+
+class TestFormatToolsForPrompt:
+    def test_includes_all_tools(self):
+        from skill_registry import AgentTool, format_tools_for_prompt
+
+        tools = [
+            AgentTool(command="/hf.quality-gate", purpose="Run quality checks"),
+            AgentTool(command="/hf.diff-sanity", purpose="Review diff"),
+        ]
+        result = format_tools_for_prompt(tools)
+        assert "/hf.quality-gate" in result
+        assert "/hf.diff-sanity" in result
+        assert "Run quality checks" in result
+        assert "## Available Tools" in result
+
+    def test_empty_returns_empty(self):
+        from skill_registry import format_tools_for_prompt
+
+        assert format_tools_for_prompt([]) == ""
