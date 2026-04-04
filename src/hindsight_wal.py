@@ -14,31 +14,22 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field
+from hindsight_types import WALEntry
 
 if TYPE_CHECKING:
     from hindsight import HindsightClient
 
 logger = logging.getLogger("hydraflow.hindsight_wal")
 
+# Re-export for backward compatibility
+__all__ = ["HindsightWAL", "WALEntry", "run_wal_replay_loop"]
+
 _DEFAULT_MAX_ENTRIES = 1000
 _DEFAULT_REPLAY_INTERVAL = 60  # seconds
 _DEFAULT_MAX_RETRIES = 5
-
-
-class WALEntry(BaseModel):
-    """A single pending retain operation."""
-
-    bank: str
-    content: str
-    context: str = ""
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
-    retries: int = 0
 
 
 class HindsightWAL:
