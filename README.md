@@ -51,6 +51,23 @@ See the full product walkthrough and visuals at [hydraflow.ai](https://hydraflow
 - Node.js 20.19+ or 22.12+ (dashboard only)
 - [Beads](https://www.npmjs.com/package/@beads/bd) (optional — auto-installed when needed for task decomposition)
 
+### Claude Authentication (Docker Mode)
+
+Agents run inside Docker containers that cannot access the host keychain.
+Generate a long-lived token and add it to `.env`:
+
+```bash
+claude setup-token
+```
+
+Copy the printed token into your `.env` file:
+
+```
+CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
+```
+
+This token is required for Docker mode. It can expire — re-run `claude setup-token` to refresh.
+
 ## Quick Start
 
 ```bash
