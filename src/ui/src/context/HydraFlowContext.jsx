@@ -558,7 +558,7 @@ export function reducer(state, action) {
 
     case 'PIPELINE_SNAPSHOT': {
       const incoming = action.data || {}
-      const allStages = ['triage', 'plan', 'implement', 'review', 'hitl', 'merged']
+      const allStages = ['triage', 'discover', 'shape', 'plan', 'implement', 'review', 'hitl', 'merged']
 
       const nextStages = Object.fromEntries(allStages.map((key) => {
         if (!Object.prototype.hasOwnProperty.call(incoming, key)) {
@@ -1502,6 +1502,7 @@ export function HydraFlowProvider({ children }) {
           fetchGithubMetrics()
           fetchMetricsHistory()
         }
+        if (event.type === 'queue_update') fetchPipeline()
         if (event.type === 'hitl_update' || event.type === 'hitl_escalation') fetchHitlItems()
         if (event.type === 'epic_update' || event.type === 'epic_ready' || event.type === 'epic_released') fetchEpics()
       } catch { /* ignore parse errors */ }
