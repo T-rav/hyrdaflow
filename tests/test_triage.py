@@ -188,7 +188,9 @@ class TestLLMEvaluation:
         mock_runner.create_streaming_process = make_streaming_proc(stdout=stdout)
 
         result = await runner.evaluate(issue)
-        assert result.ready is False
+        # Parse failures now default to ready=True (pass through to planner)
+        # rather than escalating to HITL — the issue isn't bad, the parse is.
+        assert result.ready is True
         assert any("parse" in r.lower() for r in result.reasons)
 
     @pytest.mark.asyncio
@@ -499,8 +501,12 @@ class TestStripSystemLines:
         text = "This is plain text\nAnother line"
         assert TriageRunner._strip_system_lines(text) == text
 
-    def test_preserves_non_system_json(self) -> None:
-        line = json.dumps({"type": "result", "data": "value"})
+    def test_strips_result_wrapper_extracts_content(self) -> None:
+        line = json.dumps({"type": "result", "result": '{"ready": true}'})
+        assert '{"ready": true}' in TriageRunner._strip_system_lines(line)
+
+    def test_preserves_non_stream_json(self) -> None:
+        line = json.dumps({"foo": "bar", "baz": 1})
         assert TriageRunner._strip_system_lines(line) == line
 
 
@@ -867,7 +873,7 @@ class TestTriageSentryBreadcrumbs:
         sentry_mock = MagicMock()
         with unittest.mock.patch.dict("sys.modules", {"sentry_sdk": sentry_mock}):
             result = await runner.evaluate(issue)
-            assert result.ready is False
+            assert result.ready is True  # Parse failures default to ready
             calls = sentry_mock.add_breadcrumb.call_args_list
             parse_calls = [
                 c for c in calls if c[1].get("category") == "triage.parse_failed"

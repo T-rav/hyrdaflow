@@ -52,6 +52,19 @@ class DiscoverRunner(BaseRunner):
             cmd = self._build_command()
             prompt = self._build_prompt(task)
 
+            # Inject memory context (prior learnings, ADRs, retrospectives)
+            _, memory_section = await self._inject_manifest_and_memory(
+                query_context=f"product discovery for {task.title} {(task.body or '')[:200]}",
+            )
+            if memory_section:
+                prompt += (
+                    f"\n\n## Existing System Knowledge\n\n"
+                    f"Prior learnings, architecture decisions, and retrospectives "
+                    f"relevant to this discovery. Use this to ground your research "
+                    f"in what the team already knows."
+                    f"{memory_section}"
+                )
+
             def _check_complete(accumulated: str) -> bool:
                 if _DISCOVER_END in accumulated:
                     logger.info(
@@ -103,17 +116,22 @@ class DiscoverRunner(BaseRunner):
         return result
 
     def _build_command(self, _worktree_path=None) -> list[str]:  # type: ignore[override]
-        """Construct the CLI invocation for product discovery."""
+        """Construct the CLI invocation for product discovery.
+
+        Uses the planner model (opus) for deep thinking — discovery
+        needs thorough reasoning, not fast classification.
+        """
         return build_agent_command(
             tool=self._config.planner_tool,
             model=self._config.planner_model,
-            # Discovery needs web search but no file editing
             disallowed_tools="Write,Edit,NotebookEdit",
+            effort="max",
         )
 
     def _build_prompt(self, task: Task) -> str:
-        """Build the product discovery prompt for *task*."""
-        return f"""You are a product discovery agent researching the problem space for a GitHub issue.
+        """Build the product discovery prompt with deep product thinking frameworks."""
+        return f"""You are a senior product strategist conducting deep discovery research.
+Think through the tradeoffs carefully before producing your analysis.
 
 ## Issue #{task.id}: {task.title}
 
@@ -121,68 +139,93 @@ class DiscoverRunner(BaseRunner):
 
 ## Your Mission
 
-This is a VAGUE or BROAD product request. Your job is NOT to plan implementation.
-Your job is to research the external product landscape and produce a structured
-brief that will inform product direction decisions.
+This is a BROAD product request. Your job is NOT to plan implementation.
+Your job is to produce a BEST-IN-CLASS product discovery brief — the kind
+a top PM at Stripe or Figma would produce before committing to a direction.
 
-## Research Strategy
+## Deep Discovery Framework
 
-1. **Understand the intent** — What is the user really asking for? What problem
-   are they trying to solve? Restate the core need.
+Work through each step with genuine depth. Don't just list things — analyze.
 
-2. **Competitive landscape** — Use web search to find existing products, tools,
-   and solutions in this space. For each competitor, note:
-   - Name and URL
-   - Key features and approach
-   - Strengths and weaknesses
-   - Pricing model (if relevant)
+### Step 1: Problem Decomposition (Jobs-to-be-Done)
 
-3. **User needs & pain points** — Research what users say about existing
-   solutions. Look for:
-   - Common complaints in reviews (G2, Capterra, Reddit, HN)
-   - Feature requests and wishlists
-   - Unserved or underserved user segments
+Before researching solutions, deeply understand the PROBLEM:
+- What is the core job the user is trying to get done?
+- What are the functional, emotional, and social dimensions?
+- What are the "struggling moments" — when does the current approach fail?
+- What would "perfect" look like from the user's perspective?
+- Who are the different user personas and how do their needs differ?
 
-4. **Market gaps & opportunities** — Based on your research, identify:
-   - What existing solutions do poorly
-   - User needs that aren't addressed
-   - Emerging trends or shifts in the space
-   - Differentiation opportunities
+### Step 2: Competitive Landscape (use WebSearch)
 
-5. **Technical landscape** — Note any relevant:
-   - Open source alternatives or building blocks
-   - APIs or services that could accelerate development
-   - Technical constraints or considerations
+Research existing solutions thoroughly. For each significant competitor:
+- **What they do well** — their core insight or innovation
+- **Where they fall short** — genuine weaknesses, not just "could be better"
+- **Their positioning** — who they serve and how they talk about it
+- **Business model** — how they monetize (impacts what they prioritize)
+- **User sentiment** — search for reviews on G2, Capterra, Reddit, HN, Twitter
+
+Don't just list competitors. Identify the **strategic gaps** — what is
+NOBODY doing well? Where is the market underserved?
+
+### Step 3: Design Thinking — User Journey Analysis
+
+Map the end-to-end user experience in this problem space:
+- What triggers the user to seek a solution?
+- What is their current workflow (even if manual/hacky)?
+- Where are the friction points and drop-off moments?
+- What delights them in existing solutions?
+- What would a 10x better experience look like?
+
+### Step 4: Market & Timing Analysis
+
+Think about WHY NOW:
+- What has changed that creates a new opportunity?
+- Technology shifts (new APIs, AI capabilities, platform changes)?
+- Market shifts (remote work, regulatory changes, user expectations)?
+- What's the window of opportunity?
+
+### Step 5: Technical Feasibility Scan
+
+Use Glob/Grep/Read to explore the CODEBASE for:
+- What existing infrastructure could be leveraged?
+- What patterns and conventions already exist?
+- What would be hard vs easy to build given the current architecture?
+
+### Step 6: Opportunity Synthesis
+
+Synthesize everything above into clear, actionable opportunities.
+Each opportunity should be:
+- **Specific** — not "make it better" but "solve group scheduling for teams of 5-15"
+- **Differentiated** — why this angle vs what exists
+- **Feasible** — grounded in what can actually be built
+- **Impactful** — addresses a real pain point with evidence
 
 ## Required Output
-
-Output your findings between these exact markers in a JSON code block:
 
 {_DISCOVER_START}
 
 ```json
 {{
   "issue_number": {task.id},
-  "research_brief": "A 2-3 paragraph executive summary of your findings",
-  "competitors": ["Competitor 1 — brief description", "Competitor 2 — brief description"],
-  "user_needs": ["Need 1 — evidence/source", "Need 2 — evidence/source"],
-  "opportunities": ["Opportunity 1 — why this is viable", "Opportunity 2 — why this is viable"]
+  "research_brief": "3-4 paragraph executive summary: problem insight, market landscape, key opportunities, and recommended focus areas",
+  "competitors": ["Competitor — what they do, their core strength, and their key weakness"],
+  "user_needs": ["Need — evidence from research, affected persona, severity"],
+  "opportunities": ["Opportunity — why viable, differentiation angle, feasibility assessment"]
 }}
 ```
 
 {_DISCOVER_END}
 
-## IMPORTANT — Research Quality
+## Research Quality Standards
 
 - FIRST, check if you have WebSearch and WebFetch tools available.
-  - If YES: Use them to gather REAL data. Cite sources.
-  - If NO: Explicitly state "NOTE: Web search tools unavailable. Analysis
-    below is based on general knowledge, not live research. Verify findings
-    before making product decisions." Then provide your best analysis from
-    training data, clearly marking it as unverified.
-- Focus on actionable insights, not exhaustive lists.
-- If the issue domain is too niche for web research, note that and focus on
-  what you CAN determine from the issue description and general knowledge.
+  - If YES: Use them extensively. Cite sources. Research at least 5 competitors.
+  - If NO: State "NOTE: Web search unavailable — analysis based on general knowledge.
+    Verify before making decisions." Still apply the frameworks above deeply.
+- Use Glob/Grep/Read to explore the codebase for technical feasibility.
+- Quality over quantity — 3 deep insights beat 10 shallow bullet points.
+- Challenge your own assumptions — what could you be wrong about?
 
 {MEMORY_SUGGESTION_PROMPT}
 """

@@ -333,6 +333,10 @@ def build_services(
         shape_runner=shape_runner,
         whatsapp_bridge=wa_bridge,
     )
+    # Wire expert council for auto-decision on directions
+    from expert_council import ExpertCouncil  # noqa: PLC0415
+
+    shape_phase._council = ExpertCouncil(config, event_bus)
     planner_phase = PlanPhase(
         config,
         state,
