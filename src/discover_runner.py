@@ -52,6 +52,19 @@ class DiscoverRunner(BaseRunner):
             cmd = self._build_command()
             prompt = self._build_prompt(task)
 
+            # Inject memory context (prior learnings, ADRs, retrospectives)
+            _, memory_section = await self._inject_manifest_and_memory(
+                query_context=f"product discovery for {task.title} {(task.body or '')[:200]}",
+            )
+            if memory_section:
+                prompt += (
+                    f"\n\n## Existing System Knowledge\n\n"
+                    f"Prior learnings, architecture decisions, and retrospectives "
+                    f"relevant to this discovery. Use this to ground your research "
+                    f"in what the team already knows."
+                    f"{memory_section}"
+                )
+
             def _check_complete(accumulated: str) -> bool:
                 if _DISCOVER_END in accumulated:
                     logger.info(
