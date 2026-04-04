@@ -71,7 +71,7 @@ class HindsightClient:
         except httpx.HTTPError:
             return False
 
-    # -- Retain ---------------------------------------------------------------
+    # -- Path helpers ---------------------------------------------------------
 
     @staticmethod
     def _bank_path(bank: Bank | str, suffix: str = "") -> str:
