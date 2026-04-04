@@ -1039,3 +1039,183 @@ class TestRecordOutcomeSentryBreadcrumb:
         assert len(lines) == 1
         data = json.loads(lines[0])
         assert data["issue_id"] == 5
+
+
+# ---------------------------------------------------------------------------
+# TestRecordMergeOutcome
+# ---------------------------------------------------------------------------
+
+
+class TestRecordMergeOutcome:
+    """Tests for MemoryScorer.record_merge_outcome."""
+
+    def test_clean_merge_records_success(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path)
+        scorer.record_merge_outcome(
+            issue_id=10,
+            digest_hash="abc123",
+            quality_fix_attempts=0,
+            review_attempts=0,
+            tags=["enhancement"],
+            issue_title="Add widget",
+        )
+        lines = scorer._outcomes_file.read_text().strip().splitlines()
+        assert len(lines) == 1
+        data = json.loads(lines[0])
+        assert data["outcome"] == "success"
+        assert data["score"] == 1.0
+        assert data["context"] == "feature"
+        assert data["summary"] == "Merged: Add widget"
+
+    def test_one_review_round_still_success(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path)
+        scorer.record_merge_outcome(
+            issue_id=11,
+            digest_hash="def456",
+            quality_fix_attempts=0,
+            review_attempts=1,
+            tags=["bug"],
+            issue_title="Fix crash",
+        )
+        data = json.loads(scorer._outcomes_file.read_text().strip())
+        assert data["outcome"] == "success"
+        assert data["score"] == 1.0
+        assert data["context"] == "bugfix"
+
+    def test_quality_fixes_records_partial(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path)
+        scorer.record_merge_outcome(
+            issue_id=12,
+            digest_hash="ghi789",
+            quality_fix_attempts=2,
+            review_attempts=0,
+            tags=["refactor"],
+            issue_title="Clean up module",
+        )
+        data = json.loads(scorer._outcomes_file.read_text().strip())
+        assert data["outcome"] == "partial"
+        assert data["score"] == 0.5
+        assert data["context"] == "refactor"
+
+    def test_multiple_review_rounds_records_partial(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path)
+        scorer.record_merge_outcome(
+            issue_id=13,
+            digest_hash="jkl012",
+            quality_fix_attempts=0,
+            review_attempts=3,
+            tags=[],
+            issue_title="",
+        )
+        data = json.loads(scorer._outcomes_file.read_text().strip())
+        assert data["outcome"] == "partial"
+        assert data["score"] == 0.5
+        assert data["summary"] == "Merged"
+
+    def test_empty_tags_defaults_to_feature(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path)
+        scorer.record_merge_outcome(
+            issue_id=14,
+            digest_hash="mno345",
+            quality_fix_attempts=0,
+            review_attempts=0,
+            tags=[],
+            issue_title="Something",
+        )
+        data = json.loads(scorer._outcomes_file.read_text().strip())
+        assert data["context"] == "feature"
+
+
+# ---------------------------------------------------------------------------
+# TestRecordHitlOutcome
+# ---------------------------------------------------------------------------
+
+
+class TestRecordHitlOutcome:
+    """Tests for MemoryScorer.record_hitl_outcome."""
+
+    def test_hitl_records_failure(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path)
+        scorer.record_hitl_outcome(
+            issue_id=20,
+            digest_hash="abc",
+            cause="ci_failure",
+            tags=["bug"],
+        )
+        data = json.loads(scorer._outcomes_file.read_text().strip())
+        assert data["outcome"] == "failure"
+        assert data["score"] == -1.0
+        assert data["failure_category"] == "ci_failure"
+        assert data["context"] == "bugfix"
+        assert "HITL escalation" in data["summary"]
+
+    def test_hitl_empty_cause_defaults(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path)
+        scorer.record_hitl_outcome(
+            issue_id=21,
+            digest_hash="def",
+            cause="",
+            tags=[],
+        )
+        data = json.loads(scorer._outcomes_file.read_text().strip())
+        assert data["failure_category"] == "hitl_escalation"
+
+    def test_hitl_empty_tags_defaults_to_feature(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path)
+        scorer.record_hitl_outcome(
+            issue_id=22,
+            digest_hash="ghi",
+            cause="timeout",
+            tags=[],
+        )
+        data = json.loads(scorer._outcomes_file.read_text().strip())
+        assert data["context"] == "feature"
+
+
+# ---------------------------------------------------------------------------
+# TestRecordFailureOutcome
+# ---------------------------------------------------------------------------
+
+
+class TestRecordFailureOutcome:
+    """Tests for MemoryScorer.record_failure_outcome."""
+
+    def test_failure_records_correctly(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path)
+        scorer.record_failure_outcome(
+            issue_id=30,
+            digest_hash="xyz",
+            failure_category="max_attempts_exceeded",
+            summary="Max attempts exceeded: Fix the widget",
+            tags=["enhancement"],
+        )
+        data = json.loads(scorer._outcomes_file.read_text().strip())
+        assert data["outcome"] == "failure"
+        assert data["score"] == -1.0
+        assert data["failure_category"] == "max_attempts_exceeded"
+        assert data["summary"] == "Max attempts exceeded: Fix the widget"
+        assert data["context"] == "feature"
+
+    def test_failure_with_bug_tags(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path)
+        scorer.record_failure_outcome(
+            issue_id=31,
+            digest_hash="abc",
+            failure_category="implementation_error",
+            summary="Failed to implement",
+            tags=["bug", "critical"],
+        )
+        data = json.loads(scorer._outcomes_file.read_text().strip())
+        assert data["context"] == "bugfix"
+
+    def test_failure_empty_tags(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path)
+        scorer.record_failure_outcome(
+            issue_id=32,
+            digest_hash="def",
+            failure_category="timeout",
+            summary="Timed out",
+            tags=[],
+        )
+        data = json.loads(scorer._outcomes_file.read_text().strip())
+        assert data["context"] == "feature"
