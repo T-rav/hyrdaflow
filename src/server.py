@@ -158,7 +158,7 @@ async def _run_with_dashboard(config: HydraFlowConfig) -> None:
             repo_cfg = load_runtime_config(
                 overrides={
                     "repo_root": str(repo_path),
-                    **({"repo": record.slug} if record.slug else {}),
+                    **({"repo": record.repo} if record.repo else {}),
                 }
             )
             await registry.register(repo_cfg)
