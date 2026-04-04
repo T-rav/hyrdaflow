@@ -149,6 +149,11 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("sentry_auth_token", "SENTRY_AUTH_TOKEN", ""),
     ("sentry_org", "SENTRY_ORG", ""),
     ("sentry_project_filter", "SENTRY_PROJECT_FILTER", ""),
+    ("whatsapp_phone_id", "HYDRAFLOW_WHATSAPP_PHONE_ID", ""),
+    ("whatsapp_token", "HYDRAFLOW_WHATSAPP_TOKEN", ""),
+    ("whatsapp_verify_token", "HYDRAFLOW_WHATSAPP_VERIFY_TOKEN", ""),
+    ("whatsapp_recipient", "HYDRAFLOW_WHATSAPP_RECIPIENT", ""),
+    ("dashboard_url", "HYDRAFLOW_DASHBOARD_URL", "http://localhost:5555"),
 ]
 
 _ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
@@ -194,6 +199,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ),
     ("screenshot_gist_public", "HYDRAFLOW_SCREENSHOT_GIST_PUBLIC", False),
     ("skip_preflight", "HYDRAFLOW_SKIP_PREFLIGHT", False),
+    ("whatsapp_enabled", "HYDRAFLOW_WHATSAPP_ENABLED", False),
 ]
 
 # Literal-typed env-var overrides.
@@ -583,6 +589,10 @@ class HydraFlowConfig(BaseModel):
     whatsapp_token: str = Field(
         default="",
         description="WhatsApp Business API access token",
+    )
+    whatsapp_verify_token: str = Field(
+        default="",
+        description="WhatsApp webhook verification token (you choose this, must match Meta app config)",
     )
     whatsapp_recipient: str = Field(
         default="",

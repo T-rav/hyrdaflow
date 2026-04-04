@@ -2044,7 +2044,7 @@ def create_router(
         token = request.query_params.get("hub.verify_token")
         challenge = request.query_params.get("hub.challenge", "")
         _cfg, _st, _bus, _get_orch = _resolve_runtime(None)
-        expected_token = _cfg.whatsapp_token
+        expected_token = _cfg.whatsapp_verify_token or _cfg.whatsapp_token
         if mode == "subscribe" and token == expected_token:
             return Response(content=challenge, media_type="text/plain")
         return Response(content="Forbidden", status_code=403)
