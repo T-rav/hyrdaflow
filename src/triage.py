@@ -285,10 +285,19 @@ or for truly insufficient issues:
                 pass
             return result
 
-        # Fallback: could not parse LLM response — include a transcript
-        # snippet so the failure reason is visible in HITL comments.
+        # Fallback: could not parse LLM response.  Rather than escalating
+        # to HITL (which is for genuinely bad issues, not infra failures),
+        # default to passing the issue through.  The triage prompt says
+        # "default to passing issues through" — a parse failure is an
+        # infrastructure problem, not an issue quality problem.
+        logger.warning(
+            "Issue #%d triage — could not parse LLM response, defaulting to "
+            "ready=True. Transcript snippet: %.200s",
+            issue.id,
+            transcript.strip(),
+        )
         try:
-            import sentry_sdk as _sentry
+            import sentry_sdk as _sentry  # noqa: PLC0415
 
             _sentry.add_breadcrumb(
                 category="triage.parse_failed",
@@ -298,11 +307,16 @@ or for truly insufficient issues:
             )
         except ImportError:
             pass
-        snippet = transcript.strip()[:200]
         return TriageResult(
             issue_number=issue.id,
-            ready=False,
-            reasons=[f"Could not parse LLM evaluation response: {snippet!r}"],
+            ready=True,
+            reasons=["Triage parse failed — defaulting to ready"],
+            enrichment=(
+                "## Triage Note\n\n"
+                "Triage evaluation could not parse the LLM response. "
+                "This issue was passed through to planning by default. "
+                "The planner should validate sufficient context."
+            ),
         )
 
     @staticmethod
@@ -336,13 +350,16 @@ or for truly insufficient issues:
 
     @staticmethod
     def _strip_system_lines(transcript: str) -> str:
-        """Remove Claude Code system/init JSON lines from the transcript.
+        """Remove Claude Code stream-json wrapper lines from the transcript.
 
-        The subprocess transcript may include session initialization lines
-        like ``{"type":"system","subtype":"init",...}`` before the actual
-        LLM response.  These confuse the JSON parsing strategies, so we
-        strip them out first.
+        The subprocess transcript includes session initialization, tool use,
+        and result wrapper lines like ``{"type":"system",...}``,
+        ``{"type":"result",...}``, etc.  These confuse the JSON parsing
+        strategies.  We strip all stream-json wrapper objects and also
+        extract the ``result`` field from result objects (which contains
+        the actual LLM response text).
         """
+        _STREAM_TYPES = {"system", "result", "assistant", "tool_use", "tool_result"}
         filtered: list[str] = []
         for line in transcript.splitlines():
             stripped = line.strip()
@@ -351,7 +368,12 @@ or for truly insufficient issues:
                 continue
             try:
                 obj = json.loads(stripped)
-                if isinstance(obj, dict) and obj.get("type") == "system":
+                if isinstance(obj, dict) and obj.get("type") in _STREAM_TYPES:
+                    # Extract the actual content from result objects
+                    if obj.get("type") == "result" and isinstance(
+                        obj.get("result"), str
+                    ):
+                        filtered.append(obj["result"])
                     continue
             except (json.JSONDecodeError, TypeError, ValueError):
                 pass
