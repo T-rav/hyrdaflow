@@ -9,53 +9,28 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from hindsight_wal import HindsightWAL
 
 import httpx
-from pydantic import BaseModel, Field
+
+from hindsight_types import Bank, HindsightMemory, WALEntry
 
 logger = logging.getLogger("hydraflow.hindsight")
 
-
-# ---------------------------------------------------------------------------
-# Bank IDs
-# ---------------------------------------------------------------------------
-
-
-class Bank(StrEnum):
-    """Hindsight memory bank identifiers."""
-
-    LEARNINGS = "hydraflow-learnings"
-    RETROSPECTIVES = "hydraflow-retrospectives"
-    REVIEW_INSIGHTS = "hydraflow-review-insights"
-    HARNESS_INSIGHTS = "hydraflow-harness-insights"
-    TROUBLESHOOTING = "hydraflow-troubleshooting"
-    TRACING_INSIGHTS = "hydraflow-tracing-insights"
-
-
-# ---------------------------------------------------------------------------
-# Data model
-# ---------------------------------------------------------------------------
-
-
-class HindsightMemory(BaseModel):
-    """A single memory item returned by Hindsight recall."""
-
-    content: str = ""
-    text: str = ""
-    context: str = ""
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    relevance_score: float = 0.0
-    timestamp: str = ""
-
-    @property
-    def display_text(self) -> str:
-        """Return the best available text (``text`` from API, or ``content``)."""
-        return self.text or self.content
+# Re-export for backward compatibility
+__all__ = [
+    "Bank",
+    "HindsightClient",
+    "HindsightMemory",
+    "WALEntry",
+    "format_memories_as_markdown",
+    "recall_safe",
+    "retain_safe",
+    "schedule_retain",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +71,7 @@ class HindsightClient:
         except httpx.HTTPError:
             return False
 
-    # -- Retain ---------------------------------------------------------------
+    # -- Path helpers ---------------------------------------------------------
 
     @staticmethod
     def _bank_path(bank: Bank | str, suffix: str = "") -> str:
@@ -207,8 +182,6 @@ async def retain_safe(
         except ImportError:
             pass
         if wal:
-            from hindsight_wal import WALEntry
-
             wal.append(
                 WALEntry(
                     bank=str(bank),
