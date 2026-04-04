@@ -243,6 +243,11 @@ class ScriptedImplementPhase:
         self._script = script
         self._workspaces = workspaces
         self._github = github
+        self._active_issues: set[int] = set()
+
+    @property
+    def active_issues(self) -> set[int]:
+        return self._active_issues
 
     async def run_batch(
         self,
@@ -306,6 +311,11 @@ class ScriptedReviewPhase:
     def __init__(self, script: PipelineScript, github: ScriptedGitHub) -> None:
         self._script = script
         self._github = github
+        self._active_issues: set[int] = set()
+
+    @property
+    def active_issues(self) -> set[int]:
+        return self._active_issues
 
     async def review_adrs(self, _issues: list[GitHubIssue]) -> list[ReviewResult]:
         return []
