@@ -60,7 +60,7 @@ class ShapeRunner(BaseRunner):
             cmd = self._build_command()
 
             # Inject compressed memory context (ADRs, learnings, retrospectives)
-            _, memory_section = await self._inject_manifest_and_memory(
+            memory_section = await self._inject_memory(
                 query_context=f"product shaping for {task.title} {(task.body or '')[:200]}",
             )
             if memory_section and not learned_preferences:
