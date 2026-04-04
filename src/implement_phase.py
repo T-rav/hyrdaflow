@@ -27,6 +27,7 @@ from phase_utils import (
     MemorySuggester,
     PipelineEscalator,
     _sentry_transaction,
+    log_exception_with_bug_classification,
     record_harness_failure,
     release_batch_in_flight,
     run_refilling_pool,
@@ -109,10 +110,11 @@ class ImplementPhase:
                     duration_seconds=result.duration_seconds,
                     log_file=self._impl_log_reference(result.issue_number),
                 )
-            except (RuntimeError, OSError):
-                logger.exception(
-                    "Failed to post transcript summary for issue #%d",
-                    result.issue_number,
+            except Exception as exc:
+                log_exception_with_bug_classification(
+                    logger,
+                    exc,
+                    f"Failed to post transcript summary for issue #{result.issue_number}",
                 )
 
     def _impl_log_reference(self, issue_number: int) -> str:
@@ -310,7 +312,12 @@ class ImplementPhase:
                 logger.debug("Run recording finalize failed", exc_info=True)
 
         is_retry = bool(review_feedback)
-        return await self._handle_implementation_result(issue, result, is_retry)
+        final_result = await self._handle_implementation_result(issue, result, is_retry)
+        await self._post_impl_transcript(
+            final_result,
+            status="success" if final_result.success else "failed",
+        )
+        return final_result
 
     def _read_plan_for_recording(self, issue_number: int) -> str:
         """Read the plan file for *issue_number*, returning empty string on failure."""

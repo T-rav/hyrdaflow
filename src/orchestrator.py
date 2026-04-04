@@ -1108,10 +1108,6 @@ class HydraFlowOrchestrator:
             did_work = True
             for result in results:
                 self._session_issue_results[result.issue_number] = result.success
-                await self._svc.implementer._post_impl_transcript(
-                    result,
-                    status="success" if result.success else "failed",
-                )
         return did_work
 
     async def _do_review_work(self) -> bool:
