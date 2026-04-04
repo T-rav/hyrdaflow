@@ -366,6 +366,7 @@ class HydraFlowOrchestrator:
         self._svc.implementer.active_issues.clear()
         self._svc.reviewer.active_issues.clear()
         self._hitl_ctrl.active_hitl_issues.clear()
+        self._sync_active_issue_numbers()
         self._state.clear_interrupted_issues()
 
     def try_clear_credit_pause(self) -> bool:

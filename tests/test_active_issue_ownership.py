@@ -307,6 +307,21 @@ class TestOrchestratorSoleWriter:
         assert len(orch._svc.reviewer.active_issues) == 0
         assert len(orch._svc.hitl_phase.active_hitl_issues) == 0
 
+    def test_reset_persists_empty_active_issue_numbers(self, tmp_path):
+        """reset() syncs the cleared sets to persisted state via _sync_active_issue_numbers."""
+        orch = self._make_orchestrator(tmp_path)
+
+        # Populate persisted state
+        orch._svc.implementer.active_issues.add(1)
+        orch._svc.reviewer.active_issues.add(2)
+        orch._sync_active_issue_numbers()
+        assert set(orch._state.get_active_issue_numbers()) == {1, 2}
+
+        # reset() must clear the persisted list too
+        orch.reset()
+
+        assert orch._state.get_active_issue_numbers() == []
+
     def test_phases_have_callback_wired(self, tmp_path):
         """Both ImplementPhase and ReviewPhase have the callback wired."""
         orch = self._make_orchestrator(tmp_path)
