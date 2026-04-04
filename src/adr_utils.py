@@ -17,6 +17,8 @@ from pathlib import Path
 __all__ = [
     "ADR_FILE_RE",
     "adr_validation_reasons",
+    "check_adr_duplicate",
+    "extract_adr_section",
     "is_adr_issue_title",
     "load_existing_adr_topics",
     "next_adr_number",
@@ -83,6 +85,29 @@ def load_existing_adr_topics(repo_root: Path) -> set[str]:
         if topic:
             topics.add(topic)
     return topics
+
+
+def check_adr_duplicate(title: str, repo_root: Path) -> str | None:
+    """Check if an ADR topic already exists in ``docs/adr/``.
+
+    Returns the normalized topic key if a duplicate is found, ``None`` otherwise.
+    """
+    topic_key = normalize_adr_topic(title)
+    if not topic_key:
+        return None
+    existing = load_existing_adr_topics(repo_root)
+    if topic_key in existing:
+        return topic_key
+    return None
+
+
+def extract_adr_section(body: str, heading: str) -> str:
+    """Extract a markdown section body by heading name (case-insensitive)."""
+    pattern = (
+        r"(?ims)^##\s+" + re.escape(heading) + r"\s*\n(?P<section>.*?)(?=^##\s+|\Z)"
+    )
+    match = re.search(pattern, body)
+    return match.group("section").strip() if match else ""
 
 
 def next_adr_number(

@@ -2,6 +2,7 @@
 
 import json
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -174,12 +175,12 @@ class TestChainHooks:
         hf_hook = target / "hf-pre-commit"
         assert hf_hook.exists()
         assert hf_hook.read_text() == "#!/bin/bash\necho hf\n"
-        assert os.access(hf_hook, os.X_OK)
+        assert hf_hook.stat().st_mode & stat.S_IXUSR
 
         dispatcher = target / "pre-commit"
         content = dispatcher.read_text()
         assert "hf-pre-commit" in content
-        assert os.access(dispatcher, os.X_OK)
+        assert dispatcher.stat().st_mode & stat.S_IXUSR
 
     def test_appends_chain_to_existing_hook(self, tmp_path):
         source = tmp_path / "source" / ".githooks"

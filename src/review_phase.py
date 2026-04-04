@@ -21,9 +21,9 @@ if TYPE_CHECKING:
 
 from adr_utils import (
     adr_validation_reasons,
+    check_adr_duplicate,
+    extract_adr_section,
     is_adr_issue_title,
-    load_existing_adr_topics,
-    normalize_adr_topic,
 )
 from baseline_policy import BaselinePolicy
 from comment_formatter import SelfReviewError
@@ -221,9 +221,8 @@ class ReviewPhase:
 
     async def _review_single_adr(self, issue: Task) -> ReviewResult:
         """Validate ADR quality and either finalize or escalate to HITL."""
-        topic_key = normalize_adr_topic(issue.title)
-        existing = load_existing_adr_topics(self._config.repo_root)
-        if topic_key and topic_key in existing:
+        topic_key = check_adr_duplicate(issue.title, self._config.repo_root)
+        if topic_key:
             await self._transitioner.post_comment(
                 issue.id,
                 f"## Closing as Duplicate\n\n"
@@ -245,7 +244,7 @@ class ReviewPhase:
                 merged=True,
             )
         reasons = adr_validation_reasons(issue.body)
-        decision_detail = self._extract_adr_section(issue.body, "decision")
+        decision_detail = extract_adr_section(issue.body, "decision")
         if len(decision_detail.strip()) < 60:
             reasons.append(
                 "Decision section lacks actionable detail (minimum 60 chars)"
@@ -294,15 +293,6 @@ class ReviewPhase:
             summary="ADR review approved",
             merged=True,
         )
-
-    @staticmethod
-    def _extract_adr_section(body: str, heading: str) -> str:
-        """Extract a markdown section body by heading name (case-insensitive)."""
-        pattern = (
-            r"(?ims)^##\s+" + re.escape(heading) + r"\s*\n(?P<section>.*?)(?=^##\s+|\Z)"
-        )
-        match = re.search(pattern, body)
-        return match.group("section").strip() if match else ""
 
     async def _prepare_review_worktree(
         self, pr: PRInfo, task: Task, idx: int

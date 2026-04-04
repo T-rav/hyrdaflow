@@ -67,6 +67,9 @@ class TestSentryLoopDoWork:
         from sentry_loop import SentryLoop
 
         config = ConfigFactory.create(repo_root=tmp_path)
+        # Ensure no credentials even if .env provides them
+        object.__setattr__(config, "sentry_auth_token", "")
+        object.__setattr__(config, "sentry_org", "")
         deps = _make_deps()
         prs = MagicMock()
 

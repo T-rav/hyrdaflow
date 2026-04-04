@@ -1551,7 +1551,10 @@ class TestEnsureClientLogging:
         # First ping fails, second (after retry) succeeds
         client.ping.side_effect = [ConnectionError("daemon down"), True]
 
-        with patch("docker_runner.logger") as mock_logger:
+        with (
+            patch("docker_runner.logger") as mock_logger,
+            patch("docker.from_env", return_value=client),
+        ):
             runner._ensure_client(max_retries=1, delay=0.01)
 
         # Should have logged initial failure at debug level

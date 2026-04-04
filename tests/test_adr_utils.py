@@ -13,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from adr_utils import (
     ADR_FILE_RE,
     adr_validation_reasons,
+    check_adr_duplicate,
+    extract_adr_section,
     is_adr_issue_title,
     load_existing_adr_topics,
     next_adr_number,
@@ -236,6 +238,76 @@ class TestAdrFileRe:
         assert ADR_FILE_RE.match("abc-title.md") is None
         assert ADR_FILE_RE.match("00-short.md") is None
         assert ADR_FILE_RE.match("023-title.md") is None
+
+
+# ---------------------------------------------------------------------------
+# check_adr_duplicate
+# ---------------------------------------------------------------------------
+
+
+class TestCheckAdrDuplicate:
+    def test_returns_topic_key_when_duplicate_exists(self, tmp_path: Path) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir.mkdir(parents=True)
+        (adr_dir / "0001-use-event-sourcing.md").write_text("# ADR\n")
+
+        result = check_adr_duplicate("[ADR] Use event sourcing", tmp_path)
+        assert result == "use event sourcing"
+
+    def test_returns_none_when_no_duplicate(self, tmp_path: Path) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir.mkdir(parents=True)
+        (adr_dir / "0001-use-event-sourcing.md").write_text("# ADR\n")
+
+        result = check_adr_duplicate("[ADR] Adopt pydantic", tmp_path)
+        assert result is None
+
+    def test_returns_none_for_empty_topic(self, tmp_path: Path) -> None:
+        result = check_adr_duplicate("[ADR]", tmp_path)
+        assert result is None
+
+    def test_returns_none_when_no_adr_dir(self, tmp_path: Path) -> None:
+        result = check_adr_duplicate("[ADR] Some topic", tmp_path)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# extract_adr_section
+# ---------------------------------------------------------------------------
+
+
+class TestExtractAdrSection:
+    def test_extracts_decision_section(self) -> None:
+        body = (
+            "## Context\n\nSome context.\n\n"
+            "## Decision\n\nWe will use X for Y reasons.\n\n"
+            "## Consequences\n\nThis means Z.\n"
+        )
+        result = extract_adr_section(body, "decision")
+        assert result == "We will use X for Y reasons."
+
+    def test_extracts_context_section(self) -> None:
+        body = "## Context\n\nBackground info here.\n\n## Decision\n\nWe decided.\n"
+        result = extract_adr_section(body, "context")
+        assert result == "Background info here."
+
+    def test_returns_empty_for_missing_section(self) -> None:
+        body = "## Context\n\nSome context.\n"
+        result = extract_adr_section(body, "decision")
+        assert result == ""
+
+    def test_case_insensitive_heading_match(self) -> None:
+        body = "## DECISION\n\nAll caps heading content.\n\n## Consequences\n\nEnd.\n"
+        result = extract_adr_section(body, "decision")
+        assert result == "All caps heading content."
+
+    def test_extracts_last_section_at_eof(self) -> None:
+        body = "## Context\n\nCtx.\n\n## Consequences\n\nFinal section content.\n"
+        result = extract_adr_section(body, "consequences")
+        assert result == "Final section content."
+
+    def test_empty_body(self) -> None:
+        assert extract_adr_section("", "decision") == ""
 
 
 # ---------------------------------------------------------------------------

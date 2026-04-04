@@ -8,9 +8,8 @@ from typing import TYPE_CHECKING
 
 from adr_utils import (
     adr_validation_reasons,
+    check_adr_duplicate,
     is_adr_issue_title,
-    load_existing_adr_topics,
-    normalize_adr_topic,
 )
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
@@ -106,9 +105,8 @@ class TriagePhase:
             if self._config.dry_run:
                 return 1
             # --- Duplicate detection: close if topic already exists ---
-            topic_key = normalize_adr_topic(issue.title)
-            existing = load_existing_adr_topics(self._config.repo_root)
-            if topic_key and topic_key in existing:
+            topic_key = check_adr_duplicate(issue.title, self._config.repo_root)
+            if topic_key:
                 await self._prs.post_comment(
                     issue.id,
                     f"## Closing as Duplicate\n\n"
