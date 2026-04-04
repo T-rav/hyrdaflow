@@ -10,6 +10,7 @@ from pathlib import Path
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
+from exception_classify import reraise_on_credit_or_bug
 from models import (
     EpicDecompResult,
     IssueType,
@@ -20,7 +21,6 @@ from models import (
     TriageStatus,
     TriageUpdatePayload,
 )
-from phase_utils import reraise_on_credit_or_bug
 from prompt_builder import PromptBuilder
 
 logger = logging.getLogger("hydraflow.triage")
@@ -219,23 +219,40 @@ Also classify the issue as one of:
 - **"bug"**: A defect report — something broken, incorrect, or failing
 - **"epic"**: A large, multi-step initiative that should be decomposed into smaller issues
 
+## Clarity Score
+
+Rate the issue's specificity on a 0-10 scale:
+- **8-10**: Clear, scoped, an engineer can start immediately (e.g. "add pagination to /api/users with limit/offset")
+- **5-7**: Intent is clear but needs some enrichment (e.g. "improve the onboarding flow")
+- **1-4**: Vague or broad — needs product research/discovery before planning (e.g. "build a better Calendly")
+
+Issues scoring below 7 will be routed to a product discovery track
+for competitive research and direction shaping before planning.
+
 ## Instructions
 
 - **Default to passing issues through.** Most issues have enough intent to begin planning.
 - Only return `"ready": false` if the issue is truly incomprehensible or has zero actionable content.
 - If the issue is informal, vague, or missing detail but the *intent* is clear, return `"ready": true` and provide an `"enrichment"` string that fills in the gaps (expected behavior, affected areas, acceptance criteria, etc.). The enrichment will be posted as a comment to help the planning agent.
 - If no enrichment is needed, set `"enrichment"` to an empty string.
+- Set `"needs_discovery": true` if the issue is a broad product idea that needs market research, competitive analysis, or product direction exploration before engineering can begin.
 
 Return ONLY a JSON object in this exact format, with no other text:
 
 ```json
-{{"ready": true, "reasons": [], "issue_type": "feature", "enrichment": "## Triage Enrichment\\n\\n**Interpreted intent:** ...\\n**Affected area:** ...\\n**Acceptance criteria:**\\n- ..."}}
+{{"ready": true, "reasons": [], "issue_type": "feature", "clarity_score": 9, "needs_discovery": false, "enrichment": "## Triage Enrichment\\n\\n**Interpreted intent:** ...\\n**Affected area:** ...\\n**Acceptance criteria:**\\n- ..."}}
+```
+
+or for vague product ideas needing discovery:
+
+```json
+{{"ready": true, "reasons": [], "issue_type": "feature", "clarity_score": 3, "needs_discovery": true, "enrichment": ""}}
 ```
 
 or for truly insufficient issues:
 
 ```json
-{{"ready": false, "reasons": ["Specific reason why this cannot proceed"], "issue_type": "bug", "enrichment": ""}}
+{{"ready": false, "reasons": ["Specific reason why this cannot proceed"], "issue_type": "bug", "clarity_score": 0, "needs_discovery": false, "enrichment": ""}}
 ```
 """
         stats = builder.build_stats()
@@ -250,7 +267,7 @@ or for truly insufficient issues:
         )
 
         # Inject memory context if available
-        _, memory_section = await self._inject_manifest_and_memory(
+        memory_section = await self._inject_memory(
             query_context=f"{issue.title} {(issue.body or '')[:200]}"
         )
         if memory_section:
@@ -285,10 +302,19 @@ or for truly insufficient issues:
                 pass
             return result
 
-        # Fallback: could not parse LLM response — include a transcript
-        # snippet so the failure reason is visible in HITL comments.
+        # Fallback: could not parse LLM response.  Rather than escalating
+        # to HITL (which is for genuinely bad issues, not infra failures),
+        # default to passing the issue through.  The triage prompt says
+        # "default to passing issues through" — a parse failure is an
+        # infrastructure problem, not an issue quality problem.
+        logger.warning(
+            "Issue #%d triage — could not parse LLM response, defaulting to "
+            "ready=True. Transcript snippet: %.200s",
+            issue.id,
+            transcript.strip(),
+        )
         try:
-            import sentry_sdk as _sentry
+            import sentry_sdk as _sentry  # noqa: PLC0415
 
             _sentry.add_breadcrumb(
                 category="triage.parse_failed",
@@ -298,11 +324,16 @@ or for truly insufficient issues:
             )
         except ImportError:
             pass
-        snippet = transcript.strip()[:200]
         return TriageResult(
             issue_number=issue.id,
-            ready=False,
-            reasons=[f"Could not parse LLM evaluation response: {snippet!r}"],
+            ready=True,
+            reasons=["Triage parse failed — defaulting to ready"],
+            enrichment=(
+                "## Triage Note\n\n"
+                "Triage evaluation could not parse the LLM response. "
+                "This issue was passed through to planning by default. "
+                "The planner should validate sufficient context."
+            ),
         )
 
     @staticmethod
@@ -325,6 +356,9 @@ or for truly insufficient issues:
             issue_type = IssueType.FEATURE
         enrichment_raw = data.get("enrichment", "")
         enrichment = str(enrichment_raw).strip() if enrichment_raw else ""
+        clarity_raw = data.get("clarity_score", 10)
+        clarity = int(clarity_raw) if isinstance(clarity_raw, int | float) else 10
+        needs_discovery = bool(data.get("needs_discovery", False))
         return TriageResult(
             issue_number=issue_number,
             ready=_coerce_ready(data["ready"]),
@@ -332,17 +366,22 @@ or for truly insufficient issues:
             complexity_score=max(0, min(score, 10)),
             issue_type=issue_type,
             enrichment=enrichment,
+            clarity_score=max(0, min(clarity, 10)),
+            needs_discovery=needs_discovery,
         )
 
     @staticmethod
     def _strip_system_lines(transcript: str) -> str:
-        """Remove Claude Code system/init JSON lines from the transcript.
+        """Remove Claude Code stream-json wrapper lines from the transcript.
 
-        The subprocess transcript may include session initialization lines
-        like ``{"type":"system","subtype":"init",...}`` before the actual
-        LLM response.  These confuse the JSON parsing strategies, so we
-        strip them out first.
+        The subprocess transcript includes session initialization, tool use,
+        and result wrapper lines like ``{"type":"system",...}``,
+        ``{"type":"result",...}``, etc.  These confuse the JSON parsing
+        strategies.  We strip all stream-json wrapper objects and also
+        extract the ``result`` field from result objects (which contains
+        the actual LLM response text).
         """
+        _STREAM_TYPES = {"system", "result", "assistant", "tool_use", "tool_result"}
         filtered: list[str] = []
         for line in transcript.splitlines():
             stripped = line.strip()
@@ -351,7 +390,12 @@ or for truly insufficient issues:
                 continue
             try:
                 obj = json.loads(stripped)
-                if isinstance(obj, dict) and obj.get("type") == "system":
+                if isinstance(obj, dict) and obj.get("type") in _STREAM_TYPES:
+                    # Extract the actual content from result objects
+                    if obj.get("type") == "result" and isinstance(
+                        obj.get("result"), str
+                    ):
+                        filtered.append(obj["result"])
                     continue
             except (json.JSONDecodeError, TypeError, ValueError):
                 pass

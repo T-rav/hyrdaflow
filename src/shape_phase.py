@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+from expert_council import CouncilResult, ExpertCouncil  # noqa: TCH001
 from issue_store import IssueStore
 from models import (
     ConversationTurn,
@@ -75,6 +76,7 @@ class ShapePhase:
         self._stop_event = stop_event
         self._runner = shape_runner
         self._whatsapp = whatsapp_bridge
+        self._council: ExpertCouncil | None = None
         self._suggest_memory = MemorySuggester(config, prs, state)
 
     async def shape_issues(self) -> bool:
@@ -201,7 +203,13 @@ class ShapePhase:
             self._state.set_shape_conversation(issue.id, conv)
             return 1
 
-        # Post agent turn and wait for response
+        # After first agent turn with directions, run expert council vote
+        if len(conv.turns) == 1 and self._council:
+            council_result = await self._run_council_vote(issue, conv, result.content)
+            if council_result:
+                return council_result
+
+        # No consensus or no council — post turn and wait for human
         await self._post_conversation_turn(issue, result.content, len(conv.turns), conv)
         self._store.enqueue_transition(issue, "shape")
 
@@ -216,6 +224,163 @@ class ShapePhase:
             )
         )
         return 1
+
+    async def _run_council_vote(
+        self, issue: Task, conv: ShapeConversation, directions_content: str
+    ) -> int | None:
+        """Run expert council vote with up to 2 rounds before human escalation.
+
+        Round 1: Each expert votes independently.
+        Round 2 (if split): Experts see each other's votes and reasoning,
+                then revote with the full context — often reaches consensus.
+        If still split after 2 rounds: escalate to human.
+
+        Returns 1 if consensus reached and issue transitioned to plan.
+        Returns None if no consensus after 2 rounds.
+        """
+        assert self._council is not None  # guaranteed by caller
+        max_rounds = 2
+        prev_result: CouncilResult | None = None
+
+        for round_num in range(1, max_rounds + 1):
+            if round_num == 1 or prev_result is None:
+                council_result = await self._council.vote(issue, directions_content)
+            else:
+                # Mediate: synthesize the disagreement before revoting
+                mediation = await self._council.mediate(
+                    issue, prev_result, directions_content
+                )
+                await self._transitioner.post_comment(
+                    issue.id,
+                    f"## Council Mediation (before Round {round_num})\n\n{mediation}",
+                )
+                await self._bus.publish(
+                    HydraFlowEvent(
+                        type=EventType.SHAPE_UPDATE,
+                        data={
+                            "issue": issue.id,
+                            "action": "council_mediation",
+                            "round": round_num,
+                            "mediation": mediation[:500],
+                        },
+                    )
+                )
+                learning = (
+                    "MEMORY_SUGGESTION_START\n"
+                    f"title: Council mediation for #{issue.id} round {round_num}\n"
+                    f"learning: Mediator synthesized split vote: {mediation[:200]}\n"
+                    f"context: Council mediation for issue #{issue.id}\n"
+                    "type: knowledge\n"
+                    "MEMORY_SUGGESTION_END"
+                )
+                await self._suggest_memory(
+                    learning, "shape-mediator", f"issue #{issue.id}"
+                )
+
+                # Round 2: experts see prior votes + mediation synthesis
+                enriched_directions = (
+                    f"{directions_content}\n\n"
+                    f"## Prior Council Vote (Round {round_num - 1})\n\n"
+                    f"{prev_result.format_summary()}\n\n"
+                    f"## Mediator's Synthesis\n\n"
+                    f"{mediation}\n\n"
+                    f"Consider the mediation above. You may change your vote "
+                    f"if the synthesis addresses your concerns, or hold firm "
+                    f"with stronger justification for why your perspective "
+                    f"should take priority."
+                )
+                council_result = await self._council.vote(issue, enriched_directions)
+
+            # Post vote summary
+            round_label = f" (Round {round_num})" if max_rounds > 1 else ""
+            await self._transitioner.post_comment(
+                issue.id, f"{council_result.format_summary()}\n*{round_label}*"
+            )
+
+            # Track the decision
+            await self._bus.publish(
+                HydraFlowEvent(
+                    type=EventType.SHAPE_UPDATE,
+                    data={
+                        "issue": issue.id,
+                        "action": "council_vote",
+                        "round": round_num,
+                        "decision": {
+                            "type": "council_auto"
+                            if council_result.has_consensus
+                            else "council_split",
+                            "votes": council_result.to_dict(),
+                        },
+                    },
+                )
+            )
+
+            if council_result.has_consensus:
+                winner = council_result.winning_direction
+                logger.info(
+                    "Issue #%d shape — council consensus on Direction %s "
+                    "in round %d (confidence %.1f) — auto-selecting",
+                    issue.id,
+                    winner,
+                    round_num,
+                    council_result.avg_confidence,
+                )
+                learning = (
+                    "MEMORY_SUGGESTION_START\n"
+                    f"title: Council auto-selected direction for #{issue.id}\n"
+                    f"learning: Expert council reached consensus on Direction {winner} "
+                    f"for '{issue.title}' in round {round_num} with avg confidence "
+                    f"{council_result.avg_confidence:.1f}/10. "
+                    f"Decision was automated (no human needed).\n"
+                    f"context: Expert council vote for issue #{issue.id}\n"
+                    "type: knowledge\n"
+                    "MEMORY_SUGGESTION_END"
+                )
+                await self._suggest_memory(
+                    learning, "shape-council", f"issue #{issue.id}"
+                )
+
+                conv.turns.append(
+                    ConversationTurn(
+                        role="agent",
+                        content=f"Council consensus (round {round_num}): Direction {winner}\n\n{council_result.format_summary()}",
+                        timestamp=datetime.now(UTC).isoformat(),
+                        signal="council_consensus",
+                    )
+                )
+                conv.status = "done"
+                self._state.set_shape_conversation(issue.id, conv)
+                await self._process_finalization(
+                    issue,
+                    conv,
+                    f"Direction {winner} selected by expert council consensus (round {round_num}).\n\n{directions_content}",
+                )
+                return 1
+
+            # Split — save for next round context
+            logger.info(
+                "Issue #%d shape — council split in round %d",
+                issue.id,
+                round_num,
+            )
+
+        # Exhausted all rounds — escalate to human
+        logger.info(
+            "Issue #%d shape — council split after %d rounds, escalating to human",
+            issue.id,
+            max_rounds,
+        )
+        learning = (
+            "MEMORY_SUGGESTION_START\n"
+            f"title: Council split for #{issue.id} after {max_rounds} rounds\n"
+            f"learning: Expert council could not reach consensus for '{issue.title}' "
+            f"after {max_rounds} voting rounds. Human tiebreaker needed.\n"
+            f"context: Expert council vote for issue #{issue.id}\n"
+            "type: knowledge\n"
+            "MEMORY_SUGGESTION_END"
+        )
+        await self._suggest_memory(learning, "shape-council", f"issue #{issue.id}")
+        return None
 
     async def _handle_waiting_state(
         self, issue: Task, conv: ShapeConversation

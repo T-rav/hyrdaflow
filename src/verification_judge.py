@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from agent_cli import build_agent_command
 from config import Credentials, HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+from exception_classify import reraise_on_credit_or_bug
 from execution import get_default_runner
 from models import (
     CriterionResult,
@@ -20,7 +21,6 @@ from models import (
     ParsedCriteria,
     VerificationJudgePayload,
 )
-from phase_utils import reraise_on_credit_or_bug
 from precheck import run_precheck_context
 from runner_utils import stream_claude_process, terminate_processes
 

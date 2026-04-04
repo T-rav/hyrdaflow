@@ -1109,7 +1109,7 @@ def make_implement_phase(
         return await _original_run(*bound.args, **bound.kwargs)
 
     mock_agents.run = _kwargs_absorbing_run
-    mock_agents.hindsight = None  # SharedPromptPrefix accesses this
+    mock_agents.hindsight = None
 
     # Mock IssueStore — get_implementable returns the supplied issues once
     mock_store = AsyncMock(spec=IssueStore)

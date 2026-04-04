@@ -281,19 +281,19 @@ class TestManifestDetection:
     """Integration tests for manifest.py detection functions on real directories."""
 
     def test_detect_languages_python(self, tmp_path: Path) -> None:
-        from manifest import detect_languages
+        from polyglot_prep import detect_languages
 
         (tmp_path / "pyproject.toml").write_text("[project]\n")
         assert "python" in detect_languages(tmp_path)
 
     def test_detect_languages_javascript(self, tmp_path: Path) -> None:
-        from manifest import detect_languages
+        from polyglot_prep import detect_languages
 
         (tmp_path / "package.json").write_text("{}\n")
         assert "javascript" in detect_languages(tmp_path)
 
     def test_detect_languages_multiple(self, tmp_path: Path) -> None:
-        from manifest import detect_languages
+        from polyglot_prep import detect_languages
 
         (tmp_path / "pyproject.toml").write_text("[project]\n")
         (tmp_path / "Cargo.toml").write_text("[package]\n")
@@ -302,24 +302,24 @@ class TestManifestDetection:
         assert "rust" in langs
 
     def test_detect_languages_empty_repo(self, tmp_path: Path) -> None:
-        from manifest import detect_languages
+        from polyglot_prep import detect_languages
 
         assert detect_languages(tmp_path) == []
 
     def test_detect_language_mixed(self, tmp_path: Path) -> None:
-        from manifest import detect_language
+        from polyglot_prep import detect_language
 
         (tmp_path / "pyproject.toml").write_text("[project]\n")
         (tmp_path / "package.json").write_text("{}\n")
         assert detect_language(tmp_path) == "mixed"
 
     def test_detect_language_unknown(self, tmp_path: Path) -> None:
-        from manifest import detect_language
+        from polyglot_prep import detect_language
 
         assert detect_language(tmp_path) == "unknown"
 
     def test_detect_build_systems(self, tmp_path: Path) -> None:
-        from manifest import detect_build_systems
+        from polyglot_prep import detect_build_systems
 
         (tmp_path / "Makefile").write_text("all:\n")
         (tmp_path / "pyproject.toml").write_text("[project]\n")
@@ -328,25 +328,25 @@ class TestManifestDetection:
         assert "pip" in systems
 
     def test_detect_test_frameworks_pytest_from_pyproject(self, tmp_path: Path) -> None:
-        from manifest import detect_test_frameworks
+        from polyglot_prep import detect_test_frameworks
 
         (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
         assert "pytest" in detect_test_frameworks(tmp_path)
 
     def test_detect_test_frameworks_pytest_from_conftest(self, tmp_path: Path) -> None:
-        from manifest import detect_test_frameworks
+        from polyglot_prep import detect_test_frameworks
 
         (tmp_path / "conftest.py").write_text("")
         assert "pytest" in detect_test_frameworks(tmp_path)
 
     def test_detect_test_frameworks_go(self, tmp_path: Path) -> None:
-        from manifest import detect_test_frameworks
+        from polyglot_prep import detect_test_frameworks
 
         (tmp_path / "go.mod").write_text("module example\n")
         assert "go-test" in detect_test_frameworks(tmp_path)
 
     def test_detect_ci_systems(self, tmp_path: Path) -> None:
-        from manifest import detect_ci_systems
+        from polyglot_prep import detect_ci_systems
 
         wf = tmp_path / ".github" / "workflows"
         wf.mkdir(parents=True)
@@ -354,7 +354,7 @@ class TestManifestDetection:
         assert "github-actions" in detect_ci_systems(tmp_path)
 
     def test_detect_key_docs(self, tmp_path: Path) -> None:
-        from manifest import detect_key_docs
+        from polyglot_prep import detect_key_docs
 
         (tmp_path / "README.md").write_text("# Hello\n")
         (tmp_path / "LICENSE").write_text("MIT\n")
@@ -363,7 +363,7 @@ class TestManifestDetection:
         assert "LICENSE" in docs
 
     def test_detect_sub_projects_npm_workspaces(self, tmp_path: Path) -> None:
-        from manifest import detect_sub_projects
+        from polyglot_prep import detect_sub_projects
 
         (tmp_path / "package.json").write_text(
             json.dumps({"workspaces": ["packages/a", "packages/b"]})
@@ -372,87 +372,3 @@ class TestManifestDetection:
         names = [s["name"] for s in subs]
         assert "packages/a" in names
         assert "packages/b" in names
-
-
-# ---------------------------------------------------------------------------
-# manifest.py — build_manifest_markdown
-# ---------------------------------------------------------------------------
-
-
-class TestBuildManifestMarkdown:
-    """Integration tests for build_manifest_markdown with real FS scanning."""
-
-    def test_produces_valid_markdown(self, tmp_path: Path) -> None:
-        from manifest import build_manifest_markdown
-
-        (tmp_path / "pyproject.toml").write_text("[project]\n")
-        (tmp_path / "Makefile").write_text("all:\n")
-        md = build_manifest_markdown(tmp_path)
-        assert "## Project Manifest" in md
-        assert "python" in md
-        assert "make" in md
-
-    def test_empty_repo_shows_unknown(self, tmp_path: Path) -> None:
-        from manifest import build_manifest_markdown
-
-        md = build_manifest_markdown(tmp_path)
-        assert "unknown" in md
-
-
-# ---------------------------------------------------------------------------
-# manifest.py — ProjectManifestManager
-# ---------------------------------------------------------------------------
-
-
-class TestProjectManifestManager:
-    """Integration tests for ProjectManifestManager with real disk I/O."""
-
-    def _make_manager(self, tmp_path: Path):
-        from manifest import ProjectManifestManager
-        from tests.helpers import ConfigFactory
-
-        config = ConfigFactory.create(repo_root=tmp_path)
-        return ProjectManifestManager(config)
-
-    def test_scan_write_read_roundtrip(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text("[project]\n")
-        mgr = self._make_manager(tmp_path)
-
-        content = mgr.scan()
-        digest_hash = mgr.write(content)
-        assert mgr.manifest_path.read_text() == content
-        assert len(digest_hash) == 16
-
-    def test_needs_refresh_when_missing(self, tmp_path: Path) -> None:
-        mgr = self._make_manager(tmp_path)
-        assert mgr.needs_refresh("any-hash") is True
-
-    def test_needs_refresh_same_hash(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text("[project]\n")
-        mgr = self._make_manager(tmp_path)
-        content = mgr.scan()
-        digest_hash = mgr.write(content)
-        assert mgr.needs_refresh(digest_hash) is False
-
-    def test_needs_refresh_different_hash(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text("[project]\n")
-        mgr = self._make_manager(tmp_path)
-        mgr.write(mgr.scan())
-        assert mgr.needs_refresh("wrong-hash") is True
-
-    def test_hash_stability(self, tmp_path: Path) -> None:
-        """Same content produces the same hash."""
-        (tmp_path / "pyproject.toml").write_text("[project]\n")
-        mgr = self._make_manager(tmp_path)
-        content = mgr.scan()
-        h1 = mgr.write(content)
-        h2 = mgr.write(content)
-        assert h1 == h2
-
-    def test_refresh_end_to_end(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text("[project]\n")
-        mgr = self._make_manager(tmp_path)
-        result = mgr.refresh()
-        assert "python" in result.content
-        assert len(result.digest_hash) == 16
-        assert mgr.manifest_path.read_text() == result.content

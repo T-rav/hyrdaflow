@@ -30,7 +30,7 @@ class BaseRunner:
     """Shared base for ``AgentRunner``, ``PlannerRunner``, ``ReviewRunner``, and ``HITLRunner``.
 
     Provides the common ``__init__``, ``terminate``, ``_execute``,
-    ``_save_transcript``, ``_inject_manifest_and_memory``, and
+    ``_save_transcript``, ``_inject_memory``, and
     ``_verify_quality`` implementations so each subclass only needs to
     implement its own prompt-building and run logic.
     """
@@ -184,52 +184,12 @@ class BaseRunner:
                 exc_info=True,
             )
 
-    async def _inject_manifest_and_memory(
-        self, *, query_context: str = "", shared_prefix: str | None = None
-    ) -> tuple[str, str]:
-        """Load the project manifest and memory digest.
+    async def _inject_memory(self, *, query_context: str = "") -> str:
+        """Load the memory digest via Hindsight semantic recall.
 
-        Returns ``(manifest_section, memory_section)`` where each is an
-        empty string when the corresponding file is missing.
-
-        Memory is populated exclusively via Hindsight semantic recall.  If
-        Hindsight is not configured, the memory section is empty and agents
-        operate without injected context.
-
-        When ``shared_prefix`` is provided the full manifest + 5-bank recall
-        is skipped.  Only a lightweight LEARNINGS top-up is performed and the
-        caller-supplied prefix is returned as the first element of the tuple.
+        Returns the memory section as a string, or an empty string when
+        Hindsight is not configured or recall produces no results.
         """
-        # --- Shared prefix mode: skip full recall, do issue-specific top-up ---
-        if shared_prefix is not None:
-            topup_section = ""
-            if self._hindsight is not None and query_context:
-                try:
-                    from hindsight import Bank, format_memories_as_markdown, recall_safe
-
-                    topup_cap = self._config.max_memory_prompt_chars // 4
-                    memories = await recall_safe(
-                        self._hindsight, Bank.LEARNINGS, query_context
-                    )
-                    raw = format_memories_as_markdown(memories)
-                    if raw:
-                        topup_section = (
-                            f"\n\n## Issue-Specific Context\n\n{raw[:topup_cap]}"
-                        )
-                except Exception:  # noqa: BLE001
-                    pass  # Must not interrupt pipeline
-            self._last_context_stats = {
-                "cache_hits": 1,
-                "cache_misses": 0,
-                "context_chars_before": len(shared_prefix) + len(topup_section),
-                "context_chars_after": len(shared_prefix) + len(topup_section),
-                "dedup_items_removed": 0,
-                "dedup_chars_saved": 0,
-            }
-            return shared_prefix, topup_section
-
-        manifest_section = ""
-
         memory_section = ""
         memory_raw = ""
         troubleshooting_raw = ""
@@ -401,12 +361,12 @@ class BaseRunner:
                 + len(review_insights_raw)
                 + len(harness_insights_raw)
             ),
-            "context_chars_after": len(manifest_section) + len(memory_section),
+            "context_chars_after": len(memory_section),
             "dedup_items_removed": dedup_items_removed,
             "dedup_chars_saved": dedup_chars_saved,
         }
 
-        return manifest_section, memory_section
+        return memory_section
 
     def _consume_context_stats(self) -> dict[str, int]:
         stats = dict(self._last_context_stats)

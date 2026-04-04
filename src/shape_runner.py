@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
+from exception_classify import reraise_on_credit_or_bug
 from models import ProductDirection, ShapeConversation, ShapeResult, ShapeTurnResult
-from phase_utils import reraise_on_credit_or_bug
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 
 if TYPE_CHECKING:
@@ -58,6 +58,15 @@ class ShapeRunner(BaseRunner):
 
         try:
             cmd = self._build_command()
+
+            # Inject compressed memory context (ADRs, learnings, retrospectives)
+            _, memory_section = await self._inject_manifest_and_memory(
+                query_context=f"product shaping for {task.title} {(task.body or '')[:200]}",
+            )
+            if memory_section and not learned_preferences:
+                # Memory section serves as learned preferences if none provided
+                learned_preferences = memory_section
+
             prompt = self._build_turn_prompt(
                 task, conversation, research_brief, learned_preferences
             )
@@ -132,6 +141,7 @@ class ShapeRunner(BaseRunner):
             tool=self._config.planner_tool,
             model=self._config.planner_model,
             disallowed_tools="Write,Edit,NotebookEdit",
+            effort="high",
         )
 
     def _build_turn_prompt(

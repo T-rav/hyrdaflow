@@ -21,7 +21,6 @@ from models import (
     OrchestratorStatusPayload,
     Phase,
     PipelineStats,
-    ReviewResult,
     SessionEndPayload,
     SessionLog,
     SessionStartPayload,
@@ -33,7 +32,6 @@ from models import (
     WorkFn,
 )
 from phase_utils import (
-    MemorySuggester,
     is_likely_bug,
     log_exception_with_bug_classification,
     release_batch_in_flight,
@@ -117,7 +115,6 @@ class HydraFlowOrchestrator:
 
         # Store the service registry directly — access via self._svc.<name>
         self._svc: ServiceRegistry = svc
-        self._suggest_memory = MemorySuggester(config, svc.prs, self._state)
 
         # Extracted component managers
         bg_loop_registry: dict[str, BaseBackgroundLoop] = {
@@ -1093,41 +1090,6 @@ class HydraFlowOrchestrator:
         """Continuously sync memory items from local JSONL and rebuild the digest."""
         await self._svc.memory_sync_bg.run()
 
-    async def _post_run_hooks(
-        self,
-        transcript: str,
-        source: str,
-        reference: str,
-        issue_number: int,
-        phase: str,
-        status: str,
-        duration_seconds: float,
-        log_file: str,
-    ) -> None:
-        """Run memory-suggestion filing and transcript summarization for a completed run."""
-        await self._suggest_memory(transcript, source, reference)
-        if issue_number > 0:
-            try:
-                await self._svc.summarizer.summarize_and_comment(
-                    transcript=transcript,
-                    issue_number=issue_number,
-                    phase=phase,
-                    status=status,
-                    duration_seconds=duration_seconds,
-                    log_file=log_file,
-                )
-            except Exception as exc:
-                log_exception_with_bug_classification(
-                    logger,
-                    exc,
-                    f"Failed to post transcript summary for issue #{issue_number}",
-                )
-
-    def _log_reference(self, filename: str) -> str:
-        """Return a repo- or data-relative log reference for display."""
-        path = self._config.log_dir / filename
-        return self._config.format_path_for_display(path)
-
     async def _do_implement_work(self) -> bool:
         """Work function for the implement loop."""
         did_work = False
@@ -1146,19 +1108,6 @@ class HydraFlowOrchestrator:
             did_work = True
             for result in results:
                 self._session_issue_results[result.issue_number] = result.success
-                if result.transcript:
-                    await self._post_run_hooks(
-                        transcript=result.transcript,
-                        source="implementer",
-                        reference=f"issue #{result.issue_number}",
-                        issue_number=result.issue_number,
-                        phase="implement",
-                        status="success" if result.success else "failed",
-                        duration_seconds=result.duration_seconds,
-                        log_file=self._log_reference(
-                            f"issue-{result.issue_number}.txt"
-                        ),
-                    )
         return did_work
 
     async def _do_review_work(self) -> bool:
@@ -1252,35 +1201,14 @@ class HydraFlowOrchestrator:
             review_results = await self._svc.reviewer.review_prs(
                 prs, [i.to_task() for i in gh_issues]
             )
-            await self._post_review_hooks(review_results)
+            await self._svc.reviewer.post_review_transcript_hooks(review_results)
+            if any(r.merged for r in review_results):
+                await asyncio.sleep(_POST_MERGE_DELAY)
+                await self._svc.prs.pull_main()
+                await self._svc.crate_manager.check_and_advance()
             return True
         finally:
             release_batch_in_flight(self._svc.store, {issue.id})
-
-    async def _post_review_hooks(self, review_results: list[ReviewResult]) -> None:
-        """Run post-run hooks and post-merge actions for completed reviews."""
-        for result in review_results:
-            if result.transcript:
-                if result.merged:
-                    review_status = "success"
-                elif result.ci_passed is False:
-                    review_status = "failed"
-                else:
-                    review_status = "completed"
-                await self._post_run_hooks(
-                    transcript=result.transcript,
-                    source="reviewer",
-                    reference=f"PR #{result.pr_number}",
-                    issue_number=result.issue_number,
-                    phase="review",
-                    status=review_status,
-                    duration_seconds=result.duration_seconds,
-                    log_file=self._log_reference(f"review-pr-{result.pr_number}.txt"),
-                )
-        if any(r.merged for r in review_results):
-            await asyncio.sleep(_POST_MERGE_DELAY)
-            await self._svc.prs.pull_main()
-            await self._svc.crate_manager.check_and_advance()
 
     async def _sleep_or_stop(self, seconds: int | float) -> None:
         """Sleep for *seconds*, waking early if stop is requested."""

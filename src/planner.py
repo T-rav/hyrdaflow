@@ -10,8 +10,8 @@ from pathlib import Path
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
+from exception_classify import reraise_on_credit_or_bug
 from models import NewIssueSpec, PlannerStatus, PlannerUpdatePayload, PlanResult, Task
-from phase_utils import reraise_on_credit_or_bug
 from plan_constants import (
     LITE_BODY_THRESHOLD,
     LITE_REQUIRED_SECTIONS,
@@ -42,7 +42,6 @@ class PlannerRunner(BaseRunner):
         task: Task,
         worker_id: int = 0,
         research_context: str = "",
-        shared_prefix: str | None = None,
     ) -> PlanResult:
         """Run the planning agent for *task*.
 
@@ -74,7 +73,6 @@ class PlannerRunner(BaseRunner):
                 task,
                 scale=scale,
                 research_context=research_context,
-                shared_prefix=shared_prefix,
             )
 
             def _check_plan_complete(accumulated: str) -> bool:
@@ -297,7 +295,6 @@ class PlannerRunner(BaseRunner):
         *,
         scale: PlanScale = "full",
         research_context: str = "",
-        shared_prefix: str | None = None,
     ) -> tuple[str, dict[str, object]]:
         """Build the planning prompt and pruning stats.
 
@@ -340,9 +337,8 @@ class PlannerRunner(BaseRunner):
                 "the surrounding text describes what they show."
             )
 
-        manifest_section, memory_section = await self._inject_manifest_and_memory(
+        memory_section = await self._inject_memory(
             query_context=f"{issue.title}\n{(issue.body or '')[:200]}",
-            shared_prefix=shared_prefix,
         )
 
         find_label = self._config.find_label[0]
@@ -417,7 +413,7 @@ class PlannerRunner(BaseRunner):
 
 ## Issue: {issue.title}
 
-{body}{image_note}{comments_section}{research_section}{manifest_section}{memory_section}
+{body}{image_note}{comments_section}{research_section}{memory_section}
 
 ## Instructions
 

@@ -28,3 +28,46 @@ LIKELY_BUG_EXCEPTIONS: tuple[type[BaseException], ...] = (
 def is_likely_bug(exc: BaseException) -> bool:
     """Return True if *exc* is likely a code bug rather than a transient failure."""
     return isinstance(exc, LIKELY_BUG_EXCEPTIONS)
+
+
+def capture_if_bug(exc: Exception, **context: object) -> None:
+    """Send to Sentry only if the exception looks like a real bug."""
+    try:
+        import sentry_sdk  # noqa: PLC0415
+
+        if is_likely_bug(exc):
+            sentry_sdk.capture_exception(exc)
+        else:
+            sentry_sdk.add_breadcrumb(
+                category="transient_error",
+                message=str(exc)[:500],
+                level="warning",
+                data=context,
+            )
+    except Exception:
+        pass  # Never let Sentry errors crash the application
+
+
+def reraise_on_credit_or_bug(exc: BaseException) -> None:
+    """Re-raise *exc* if it is a fatal infrastructure error or a likely bug.
+
+    Call this at the top of an ``except Exception`` handler to replace the
+    duplicated pattern::
+
+        except (AuthenticationError, CreditExhaustedError):
+            raise
+        except Exception as exc:
+            if is_likely_bug(exc):
+                raise
+
+    with the shorter::
+
+        except Exception as exc:
+            reraise_on_credit_or_bug(exc)
+    """
+    from subprocess_util import AuthenticationError, CreditExhaustedError
+
+    if isinstance(exc, AuthenticationError | CreditExhaustedError):
+        raise exc
+    if is_likely_bug(exc):
+        raise exc

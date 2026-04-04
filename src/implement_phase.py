@@ -27,6 +27,7 @@ from phase_utils import (
     MemorySuggester,
     PipelineEscalator,
     _sentry_transaction,
+    log_exception_with_bug_classification,
     record_harness_failure,
     release_batch_in_flight,
     run_refilling_pool,
@@ -34,9 +35,9 @@ from phase_utils import (
     store_lifecycle,
 )
 from run_recorder import RunRecorder
-from shared_prompt_prefix import SharedPromptPrefix
 from state import StateTracker
 from task_source import TaskTransitioner
+from transcript_summarizer import TranscriptSummarizer
 
 if TYPE_CHECKING:
     from ports import IssueStorePort, PRPort, WorkspacePort
@@ -60,6 +61,7 @@ class ImplementPhase:
         harness_insights: HarnessInsightStore | None = None,
         beads_manager: BeadsManager | None = None,
         active_issues_cb: Callable[[], None] | None = None,
+        transcript_summarizer: TranscriptSummarizer | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -73,6 +75,7 @@ class ImplementPhase:
         self._harness_insights = harness_insights
         self._beads_manager = beads_manager
         self._active_issues_cb = active_issues_cb
+        self._summarizer = transcript_summarizer
         self._active_issues: set[int] = set()
         self._active_issues_lock = asyncio.Lock()
         self._suggest_memory = MemorySuggester(config, prs, state)
@@ -90,6 +93,34 @@ class ImplementPhase:
     def active_issues(self) -> set[int]:
         """Return the set of currently active implementation issues."""
         return self._active_issues
+
+    async def _post_impl_transcript(self, result: WorkerResult, *, status: str) -> None:
+        """File memory suggestion and post transcript summary."""
+        if result.transcript:
+            await self._suggest_memory(
+                result.transcript, "implementer", f"issue #{result.issue_number}"
+            )
+        if self._summarizer and result.transcript and result.issue_number > 0:
+            try:
+                await self._summarizer.summarize_and_comment(
+                    transcript=result.transcript,
+                    issue_number=result.issue_number,
+                    phase="implement",
+                    status=status,
+                    duration_seconds=result.duration_seconds,
+                    log_file=self._impl_log_reference(result.issue_number),
+                )
+            except Exception as exc:
+                log_exception_with_bug_classification(
+                    logger,
+                    exc,
+                    f"Failed to post transcript summary for issue #{result.issue_number}",
+                )
+
+    def _impl_log_reference(self, issue_number: int) -> str:
+        """Return a display-friendly log path for implementer transcripts."""
+        log_path = self._config.log_dir / f"issue-{issue_number}.txt"
+        return self._config.format_path_for_display(log_path)
 
     def _hitl_cause(self, issue: Task, reason: str) -> str:
         """Build a HITL cause string, prefixing with epic context if applicable."""
@@ -135,25 +166,6 @@ class ImplementPhase:
                 issues.extend(batch)
                 return batch
 
-        # Build shared prefix once for batch when running multiple agents
-        shared_prefix: str | None = None
-        if self._config.max_workers > 1:
-            try:
-                builder = SharedPromptPrefix(self._config)
-                shared_prefix = await builder.build(
-                    hindsight=self._agents.hindsight,
-                )
-                logger.info(
-                    "Built shared prompt prefix (%d chars) for %d concurrent workers",
-                    builder.prefix_chars,
-                    self._config.max_workers,
-                )
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    "Failed to build shared prefix, falling back", exc_info=True
-                )
-                shared_prefix = None
-
         async def _worker(idx: int, issue: Task) -> WorkerResult:
             if self._stop_event.is_set():
                 return WorkerResult(
@@ -189,9 +201,7 @@ class ImplementPhase:
 
                     try:
                         return await run_with_fatal_guard(
-                            self._worker_inner(
-                                idx, issue, branch, shared_prefix=shared_prefix
-                            ),
+                            self._worker_inner(idx, issue, branch),
                             on_failure=_on_worker_failure,
                             context=f"Worker failed for issue #{issue.id}",
                             log=logger,
@@ -211,9 +221,7 @@ class ImplementPhase:
         )
         return all_results, issues
 
-    async def _worker_inner(
-        self, idx: int, issue: Task, branch: str, shared_prefix: str | None = None
-    ) -> WorkerResult:
+    async def _worker_inner(self, idx: int, issue: Task, branch: str) -> WorkerResult:
         """Core implementation logic — called inside the semaphore."""
         self._prepare_adr_plan(issue)
 
@@ -274,9 +282,7 @@ class ImplementPhase:
                 f"\n\n## Prior Reflections\n\n{prior_reflections}"
             )
 
-        result = await self._run_implementation(
-            issue, branch, idx, review_feedback, shared_prefix=shared_prefix
-        )
+        result = await self._run_implementation(issue, branch, idx, review_feedback)
 
         # Record a reflection for future cycles
         if result.error:
@@ -306,7 +312,12 @@ class ImplementPhase:
                 logger.debug("Run recording finalize failed", exc_info=True)
 
         is_retry = bool(review_feedback)
-        return await self._handle_implementation_result(issue, result, is_retry)
+        final_result = await self._handle_implementation_result(issue, result, is_retry)
+        await self._post_impl_transcript(
+            final_result,
+            status="success" if final_result.success else "failed",
+        )
+        return final_result
 
     def _read_plan_for_recording(self, issue_number: int) -> str:
         """Read the plan file for *issue_number*, returning empty string on failure."""
@@ -451,7 +462,6 @@ class ImplementPhase:
         branch: str,
         worker_id: int,
         review_feedback: str,
-        shared_prefix: str | None = None,
     ) -> WorkerResult:
         """Set up worktree, push branch, run agent, record metrics."""
         # Retrieve prior failure context for retry feedback
@@ -500,8 +510,6 @@ class ImplementPhase:
         }
         if bead_mapping:
             run_kwargs["bead_mapping"] = bead_mapping
-        if shared_prefix is not None:
-            run_kwargs["shared_prefix"] = shared_prefix
 
         result = await self._agents.run(
             issue,

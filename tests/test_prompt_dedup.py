@@ -66,7 +66,7 @@ def test_dedup_memories_short_words_ignored():
 
 
 def test_base_runner_inject_calls_dedup(monkeypatch):
-    """BaseRunner._inject_manifest_and_memory uses PromptDeduplicator.
+    """BaseRunner._inject_memory uses PromptDeduplicator.
 
     Agent and planner prompt builders delegate memory injection to the
     base runner, which already deduplicates across Hindsight banks.
@@ -75,19 +75,19 @@ def test_base_runner_inject_calls_dedup(monkeypatch):
     distinct content types that don't overlap with memory items.
     """
     # Read the source to confirm PromptDeduplicator is used in
-    # _inject_manifest_and_memory — a structural assertion that the
+    # _inject_memory — a structural assertion that the
     # dedup integration point exists and hasn't drifted.
     import inspect
 
     import base_runner as br_mod
 
-    source = inspect.getsource(br_mod.BaseRunner._inject_manifest_and_memory)
+    source = inspect.getsource(br_mod.BaseRunner._inject_memory)
     assert "PromptDeduplicator" in source
     assert "dedup_memories" in source
 
 
 def test_agent_prompt_delegates_memory_to_base(monkeypatch):
-    """AgentRunner._build_prompt_with_stats calls _inject_manifest_and_memory.
+    """AgentRunner._build_prompt_with_stats calls _inject_memory.
 
     This confirms the agent does not build its own memory section — it
     relies on the base runner's dedup-aware injection.
@@ -97,13 +97,13 @@ def test_agent_prompt_delegates_memory_to_base(monkeypatch):
     import agent as agent_mod
 
     source = inspect.getsource(agent_mod.AgentRunner._build_prompt_with_stats)
-    assert "_inject_manifest_and_memory" in source
+    assert "_inject_memory" in source
     # Agent should NOT import or instantiate its own PromptDeduplicator
     assert "PromptDeduplicator" not in source
 
 
 def test_planner_prompt_delegates_memory_to_base(monkeypatch):
-    """PlannerRunner._build_prompt_with_stats calls _inject_manifest_and_memory.
+    """PlannerRunner._build_prompt_with_stats calls _inject_memory.
 
     This confirms the planner does not build its own memory section — it
     relies on the base runner's dedup-aware injection.
@@ -113,6 +113,6 @@ def test_planner_prompt_delegates_memory_to_base(monkeypatch):
     import planner as planner_mod
 
     source = inspect.getsource(planner_mod.PlannerRunner._build_prompt_with_stats)
-    assert "_inject_manifest_and_memory" in source
+    assert "_inject_memory" in source
     # Planner should NOT import or instantiate its own PromptDeduplicator
     assert "PromptDeduplicator" not in source

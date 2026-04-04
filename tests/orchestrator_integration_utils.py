@@ -249,6 +249,9 @@ class ScriptedImplementPhase:
     def active_issues(self) -> set[int]:
         return self._active_issues
 
+    async def _post_impl_transcript(self, result: WorkerResult, *, status: str) -> None:
+        """No-op stub — integration tests don't exercise transcript hooks."""
+
     async def run_batch(
         self,
         issues: list[Task] | None = None,
@@ -316,6 +319,11 @@ class ScriptedReviewPhase:
     @property
     def active_issues(self) -> set[int]:
         return self._active_issues
+
+    async def post_review_transcript_hooks(
+        self, review_results: list[ReviewResult]
+    ) -> None:
+        """No-op stub — integration tests don't exercise transcript hooks."""
 
     async def review_adrs(self, _issues: list[GitHubIssue]) -> list[ReviewResult]:
         return []

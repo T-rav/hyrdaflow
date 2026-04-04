@@ -9,8 +9,10 @@ from __future__ import annotations
 import dataclasses
 from pathlib import Path
 
-from manifest import detect_language  # noqa: F401 - re-export for compatibility tests
-from polyglot_prep import detect_prep_stack
+from polyglot_prep import (
+    detect_language,  # noqa: F401 - re-export for compatibility tests
+    detect_prep_stack,
+)
 from prep_ignore import PREP_IGNORED_DIRS
 
 

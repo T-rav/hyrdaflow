@@ -10,7 +10,6 @@ additional context it needs via ``gh`` CLI.
 from __future__ import annotations
 
 from config import HydraFlowConfig
-from manifest import load_project_manifest
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 
 # Max characters of error output to include in conflict resolution prompts.
@@ -47,12 +46,6 @@ def build_conflict_prompt(
         f"- PR: {pr_url}\n\n"
         "Commit when done. Do not push."
     )
-
-    # --- Project manifest ---
-    if config is not None:
-        manifest = load_project_manifest(config)
-        if manifest:
-            sections.append(f"## Project Context\n\n{manifest}")
 
     # --- Previous attempt error ---
     if last_error and attempt > 1:
@@ -96,7 +89,7 @@ def build_rebuild_prompt(
     pr_diff:
         The diff of the original PR (truncated to ``max_review_diff_chars``).
     config:
-        Optional config for injecting project manifest and memory digest.
+        Optional config.
     """
     max_diff_chars = config.max_review_diff_chars if config is not None else 15_000
     truncated_diff = pr_diff[:max_diff_chars]
@@ -110,12 +103,6 @@ def build_rebuild_prompt(
         f"- Issue: {issue_url}\n"
         f"- PR: {pr_url}"
     )
-
-    # --- Project manifest ---
-    if config is not None:
-        manifest = load_project_manifest(config)
-        if manifest:
-            sections.append(f"## Project Context\n\n{manifest}")
 
     # --- Original PR diff ---
     sections.append(

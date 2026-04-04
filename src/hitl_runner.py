@@ -10,8 +10,8 @@ from typing import Literal
 
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
+from exception_classify import reraise_on_credit_or_bug
 from models import GitHubIssue, HITLResult, HITLUpdatePayload
-from phase_utils import reraise_on_credit_or_bug
 from prompt_builder import PromptBuilder
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 
@@ -191,7 +191,7 @@ class HITLRunner(BaseRunner):
             "Human guidance", correction or "", self._config.max_hitl_correction_chars
         )
 
-        manifest_section, memory_section = await self._inject_manifest_and_memory(
+        memory_section = await self._inject_memory(
             query_context=f"{issue.title}\n{(issue.body or '')[:200]}",
         )
 
@@ -199,7 +199,7 @@ class HITLRunner(BaseRunner):
 
 ## Issue: {issue.title}
 
-{issue_body}{manifest_section}{memory_section}
+{issue_body}{memory_section}
 
 ## Escalation Reason
 

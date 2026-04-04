@@ -333,6 +333,10 @@ def build_services(
         shape_runner=shape_runner,
         whatsapp_bridge=wa_bridge,
     )
+    # Wire expert council for auto-decision on directions
+    from expert_council import ExpertCouncil  # noqa: PLC0415
+
+    shape_phase._council = ExpertCouncil(config, event_bus)
     planner_phase = PlanPhase(
         config,
         state,
@@ -372,6 +376,7 @@ def build_services(
         harness_insights=harness_insights,
         beads_manager=beads_mgr,
         active_issues_cb=callbacks.sync_active_issue_numbers,
+        transcript_summarizer=summarizer,
     )
 
     from metrics_manager import MetricsManager
@@ -475,6 +480,7 @@ def build_services(
         dolt=dolt_backend,
         wal=hindsight_wal,
         active_issues_cb=callbacks.sync_active_issue_numbers,
+        transcript_summarizer=summarizer,
     )
 
     # Background loops — shared deps bundled into a single LoopDeps object

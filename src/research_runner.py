@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
+from exception_classify import reraise_on_credit_or_bug
 from models import ResearchResult
-from phase_utils import reraise_on_credit_or_bug
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 
 if TYPE_CHECKING:
@@ -108,7 +108,7 @@ class ResearchRunner(BaseRunner):
 
     async def _build_prompt(self, task: Task) -> str:
         """Build the research prompt for *task*."""
-        manifest_section, memory_section = await self._inject_manifest_and_memory(
+        memory_section = await self._inject_memory(
             query_context=f"{task.title}\n{(task.body or '')[:200]}",
         )
 
@@ -116,7 +116,7 @@ class ResearchRunner(BaseRunner):
 
 ## Issue: {task.title}
 
-{task.body}{manifest_section}{memory_section}
+{task.body}{memory_section}
 
 ## Instructions
 

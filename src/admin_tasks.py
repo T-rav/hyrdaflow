@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 from config import HydraFlowConfig
-from file_util import atomic_write
 
 logger = logging.getLogger("hydraflow.admin_tasks")
 
@@ -50,8 +49,7 @@ def _prep_stage_line(stage: str, detail: str, status: str) -> str:
 
 
 def _seed_context_assets(config: HydraFlowConfig) -> list[str]:
-    """Ensure manifest and metrics cache exist after prep."""
-    from manifest import ProjectManifestManager  # noqa: PLC0415
+    """Ensure metrics cache exists after prep."""
     from metrics_manager import get_metrics_cache_dir  # noqa: PLC0415
 
     log_lines: list[str] = []
@@ -59,17 +57,6 @@ def _seed_context_assets(config: HydraFlowConfig) -> list[str]:
     if config.dry_run:
         log_lines.append("- Context seed skipped: dry-run mode")
         return log_lines
-
-    manifest_manager = ProjectManifestManager(config)
-    manifest_result = manifest_manager.refresh()
-    manifest_rel = config.format_path_for_display(manifest_manager.manifest_path)
-    log_lines.append(
-        f"- Manifest seed: {manifest_rel} "
-        f"(hash={manifest_result.digest_hash}, chars={len(manifest_result.content)})"
-    )
-    legacy_manifest_path = config.data_path("memory", "manifest.md")
-    if not legacy_manifest_path.exists():
-        atomic_write(legacy_manifest_path, manifest_result.content)
 
     cache_dir = get_metrics_cache_dir(config)
     snapshots_file = cache_dir / "snapshots.jsonl"
@@ -453,7 +440,7 @@ async def run_prep(config: HydraFlowConfig) -> TaskResult:
     else:
         log.append(_prep_stage_line("audit", "all checks passing", "ok"))
 
-    log.append(_prep_stage_line("context", "seeding manifest/memory assets", "start"))
+    log.append(_prep_stage_line("context", "seeding context assets", "start"))
     log.extend(_seed_context_assets(config))
 
     return TaskResult(success=not result.failed, log=log, warnings=warnings)

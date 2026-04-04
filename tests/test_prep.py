@@ -1289,21 +1289,16 @@ class TestRunAudit:
 class TestContextSeed:
     """Tests for seeding local manifest/memory assets during prep."""
 
-    def test_seed_creates_manifest_digest_and_metrics_cache(
-        self, tmp_path: Path
-    ) -> None:
+    def test_seed_creates_metrics_cache(self, tmp_path: Path) -> None:
         state_file = tmp_path / ".hydraflow" / "state.json"
         config = ConfigFactory.create(repo_root=tmp_path, state_file=state_file)
 
-        log_lines = _seed_context_assets(config)
+        _seed_context_assets(config)
 
-        manifest_path = tmp_path / ".hydraflow" / "manifest" / "manifest.md"
         repo_slug = config.repo.replace("/", "-") if config.repo else "unknown"
         metrics_file = state_file.parent / "metrics" / repo_slug / "snapshots.jsonl"
 
-        assert manifest_path.is_file()
         assert metrics_file.is_file()
-        assert any("Manifest seed" in line for line in log_lines)
 
     def test_seed_skipped_in_dry_run(self, tmp_path: Path) -> None:
         state_file = tmp_path / ".hydraflow" / "state.json"

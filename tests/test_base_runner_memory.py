@@ -43,7 +43,7 @@ async def test_review_insights_recalled(base_runner):
         return memories.get(bank, [])
 
     with patch("hindsight.recall_safe", side_effect=mock_recall):
-        _, memory_section = await base_runner._inject_manifest_and_memory(
+        memory_section = await base_runner._inject_memory(
             query_context="add user endpoint"
         )
 
@@ -68,7 +68,7 @@ async def test_harness_insights_recalled(base_runner):
         return memories.get(bank, [])
 
     with patch("hindsight.recall_safe", side_effect=mock_recall):
-        _, memory_section = await base_runner._inject_manifest_and_memory(
+        memory_section = await base_runner._inject_memory(
             query_context="fix CI pipeline"
         )
 

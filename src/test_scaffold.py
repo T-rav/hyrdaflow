@@ -13,7 +13,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from manifest import detect_language
+from polyglot_prep import detect_language
 
 logger = logging.getLogger("hydraflow.test_scaffold")
 
