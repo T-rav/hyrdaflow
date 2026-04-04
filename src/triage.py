@@ -219,23 +219,40 @@ Also classify the issue as one of:
 - **"bug"**: A defect report — something broken, incorrect, or failing
 - **"epic"**: A large, multi-step initiative that should be decomposed into smaller issues
 
+## Clarity Score
+
+Rate the issue's specificity on a 0-10 scale:
+- **8-10**: Clear, scoped, an engineer can start immediately (e.g. "add pagination to /api/users with limit/offset")
+- **5-7**: Intent is clear but needs some enrichment (e.g. "improve the onboarding flow")
+- **1-4**: Vague or broad — needs product research/discovery before planning (e.g. "build a better Calendly")
+
+Issues scoring below 7 will be routed to a product discovery track
+for competitive research and direction shaping before planning.
+
 ## Instructions
 
 - **Default to passing issues through.** Most issues have enough intent to begin planning.
 - Only return `"ready": false` if the issue is truly incomprehensible or has zero actionable content.
 - If the issue is informal, vague, or missing detail but the *intent* is clear, return `"ready": true` and provide an `"enrichment"` string that fills in the gaps (expected behavior, affected areas, acceptance criteria, etc.). The enrichment will be posted as a comment to help the planning agent.
 - If no enrichment is needed, set `"enrichment"` to an empty string.
+- Set `"needs_discovery": true` if the issue is a broad product idea that needs market research, competitive analysis, or product direction exploration before engineering can begin.
 
 Return ONLY a JSON object in this exact format, with no other text:
 
 ```json
-{{"ready": true, "reasons": [], "issue_type": "feature", "enrichment": "## Triage Enrichment\\n\\n**Interpreted intent:** ...\\n**Affected area:** ...\\n**Acceptance criteria:**\\n- ..."}}
+{{"ready": true, "reasons": [], "issue_type": "feature", "clarity_score": 9, "needs_discovery": false, "enrichment": "## Triage Enrichment\\n\\n**Interpreted intent:** ...\\n**Affected area:** ...\\n**Acceptance criteria:**\\n- ..."}}
+```
+
+or for vague product ideas needing discovery:
+
+```json
+{{"ready": true, "reasons": [], "issue_type": "feature", "clarity_score": 3, "needs_discovery": true, "enrichment": ""}}
 ```
 
 or for truly insufficient issues:
 
 ```json
-{{"ready": false, "reasons": ["Specific reason why this cannot proceed"], "issue_type": "bug", "enrichment": ""}}
+{{"ready": false, "reasons": ["Specific reason why this cannot proceed"], "issue_type": "bug", "clarity_score": 0, "needs_discovery": false, "enrichment": ""}}
 ```
 """
         stats = builder.build_stats()
@@ -339,6 +356,9 @@ or for truly insufficient issues:
             issue_type = IssueType.FEATURE
         enrichment_raw = data.get("enrichment", "")
         enrichment = str(enrichment_raw).strip() if enrichment_raw else ""
+        clarity_raw = data.get("clarity_score", 10)
+        clarity = int(clarity_raw) if isinstance(clarity_raw, int | float) else 10
+        needs_discovery = bool(data.get("needs_discovery", False))
         return TriageResult(
             issue_number=issue_number,
             ready=_coerce_ready(data["ready"]),
@@ -346,6 +366,8 @@ or for truly insufficient issues:
             complexity_score=max(0, min(score, 10)),
             issue_type=issue_type,
             enrichment=enrichment,
+            clarity_score=max(0, min(clarity, 10)),
+            needs_discovery=needs_discovery,
         )
 
     @staticmethod
