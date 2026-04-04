@@ -172,6 +172,74 @@ class ExpertCouncil(BaseRunner):
 
         return CouncilResult(votes)
 
+    async def mediate(
+        self, task: Task, prior_result: CouncilResult, directions_text: str
+    ) -> str:
+        """Run a mediator agent to reconcile a split council vote.
+
+        Returns a mediation brief that identifies common ground, the core
+        tension, and a proposed synthesis — injected into the revote prompt
+        so experts can adjust their positions with full context.
+        """
+        vote_summary = prior_result.format_summary()
+        cmd = self._build_command()
+        prompt = f"""You are a neutral mediator reconciling a split product council vote.
+
+## Issue #{task.id}: {task.title}
+
+{task.body or "(No description)"}
+
+## Proposed Directions
+
+{directions_text}
+
+## Council Votes (Split — No Consensus)
+
+{vote_summary}
+
+## Your Task
+
+The council is split. Your job is NOT to pick a winner. Instead:
+
+1. **Identify common ground** — What do the experts agree on? Which aspects
+   of the problem do they see the same way?
+
+2. **Name the core tension** — What is the fundamental disagreement? Is it
+   about user needs, technical feasibility, or strategic priority?
+
+3. **Propose a synthesis** — Can the best elements of the preferred directions
+   be combined? Is there a hybrid that addresses each expert's concerns?
+
+4. **Reframe the choice** — Present the decision in a way that makes the
+   tradeoffs clearer. Sometimes a split means the options weren't framed well.
+
+Write your mediation brief in 3-4 paragraphs. Be specific and constructive.
+The experts will read this before revoting.
+"""
+
+        _MEDIATION_MARKER = "MEDIATION_END"
+
+        def _check(acc: str) -> bool:
+            return _MEDIATION_MARKER in acc or len(acc) > 3000
+
+        try:
+            transcript = await self._execute(
+                cmd,
+                prompt,
+                self._config.repo_root,
+                {"issue": task.id, "source": "council-mediator"},
+                on_output=_check,
+            )
+            # Extract the useful content (strip stream wrappers)
+            from triage import TriageRunner  # noqa: PLC0415
+
+            cleaned = TriageRunner._strip_system_lines(transcript)
+            return cleaned.strip() or "Mediation produced no output."
+        except Exception as exc:
+            reraise_on_credit_or_bug(exc)
+            logger.warning("Mediation failed for #%d: %s", task.id, exc)
+            return "Mediation failed — proceeding with raw revote."
+
     async def _run_expert(
         self,
         task: Task,

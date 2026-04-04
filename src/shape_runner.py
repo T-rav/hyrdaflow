@@ -132,6 +132,7 @@ class ShapeRunner(BaseRunner):
             tool=self._config.planner_tool,
             model=self._config.planner_model,
             disallowed_tools="Write,Edit,NotebookEdit",
+            effort="high",
         )
 
     def _build_turn_prompt(
