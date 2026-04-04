@@ -371,6 +371,7 @@ def build_services(
         run_recorder=run_recorder,
         harness_insights=harness_insights,
         beads_manager=beads_mgr,
+        active_issues_cb=callbacks.sync_active_issue_numbers,
     )
 
     from metrics_manager import MetricsManager
@@ -473,6 +474,7 @@ def build_services(
         hindsight=hindsight_client,
         dolt=dolt_backend,
         wal=hindsight_wal,
+        active_issues_cb=callbacks.sync_active_issue_numbers,
     )
 
     # Background loops — shared deps bundled into a single LoopDeps object

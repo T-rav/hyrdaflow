@@ -49,15 +49,14 @@ class TestImplementPhaseActiveIssuesLock:
         )
         state = StateTracker(tmp_path / "state.json")
 
-        # Track all values passed to set_active_issue_numbers
+        # Track callback invocations and the phase's active set at each call
         recorded_sets: list[list[int]] = []
-        original_set = state.set_active_issue_numbers
+        # phase reference populated after construction
+        phase_ref: list[ImplementPhase] = []
 
-        def recording_set(numbers: list[int]) -> None:
-            recorded_sets.append(sorted(numbers))
-            original_set(numbers)
-
-        state.set_active_issue_numbers = recording_set  # type: ignore[assignment]
+        def recording_cb() -> None:
+            if phase_ref:
+                recorded_sets.append(sorted(phase_ref[0].active_issues))
 
         mock_store = AsyncMock()
         mock_store.mark_active = MagicMock()
@@ -97,7 +96,9 @@ class TestImplementPhaseActiveIssuesLock:
             prs=mock_prs,
             store=mock_store,
             stop_event=asyncio.Event(),
+            active_issues_cb=recording_cb,
         )
+        phase_ref.append(phase)
 
         issues = [TaskFactory.create(id=i) for i in range(1, 4)]
 
@@ -246,8 +247,8 @@ class TestOrchestratorBuildInterruptedIssuesLock:
     @pytest.mark.asyncio
     async def test_build_interrupted_issues_is_async(self, tmp_path) -> None:
         orch = _make_orchestrator(tmp_path)
-        orch._active_impl_issues = {1, 2}
-        orch._active_review_issues = {3}
+        orch._svc.implementer.active_issues.update({1, 2})
+        orch._svc.reviewer.active_issues.add(3)
 
         result = await orch._build_interrupted_issues()
 
@@ -268,7 +269,7 @@ class TestOrchestratorBuildInterruptedIssuesLock:
     async def test_build_interrupted_issues_acquires_lock(self, tmp_path) -> None:
         """Verify that _build_interrupted_issues acquires the lock."""
         orch = _make_orchestrator(tmp_path)
-        orch._active_impl_issues = {10}
+        orch._svc.implementer.active_issues.add(10)
 
         lock_acquired = False
         original_acquire = orch._active_issues_lock.acquire
@@ -290,7 +291,7 @@ class TestOrchestratorBuildInterruptedIssuesLock:
         """Verify recovered issues cleanup acquires the lock."""
         orch = _make_orchestrator(tmp_path)
         orch._recovered_issues = {99}
-        orch._active_impl_issues = {99}
+        orch._svc.implementer.active_issues.add(99)
 
         # Mock the implementer to return no results
         orch._svc.implementer.run_batch = AsyncMock(return_value=([], []))

@@ -117,6 +117,7 @@ class ReviewPhase:
         hindsight: HindsightClient | None = None,
         dolt: DoltBackend | None = None,
         wal: HindsightWAL | None = None,
+        active_issues_cb: Callable[[], None] | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -134,6 +135,7 @@ class ReviewPhase:
             config.memory_dir, dolt=dolt, wal=wal
         )
         self._wal = wal
+        self._active_issues_cb = active_issues_cb
         self._active_issues: set[int] = set()
         self._active_issues_lock = asyncio.Lock()
         self._conflict_resolver = conflict_resolver
@@ -145,6 +147,11 @@ class ReviewPhase:
             from visual_validator import VisualValidator  # noqa: PLC0415
 
             self._visual_validator = VisualValidator(config)
+
+    @property
+    def active_issues(self) -> set[int]:
+        """Return the set of currently active review issues."""
+        return self._active_issues
 
     async def review_prs(
         self,
@@ -175,7 +182,8 @@ class ReviewPhase:
                     )
                 async with self._active_issues_lock:
                     self._active_issues.add(pr.issue_number)
-                    self._state.set_active_issue_numbers(list(self._active_issues))
+                    if self._active_issues_cb:
+                        self._active_issues_cb()
                 with _sentry_transaction("pipeline.review", f"review:PR#{pr.number}"):
                     async with store_lifecycle(self._store, pr.issue_number, "review"):
                         try:
@@ -193,9 +201,8 @@ class ReviewPhase:
                             await self._publish_review_status(pr, idx, "done")
                             async with self._active_issues_lock:
                                 self._active_issues.discard(pr.issue_number)
-                                self._state.set_active_issue_numbers(
-                                    list(self._active_issues)
-                                )
+                                if self._active_issues_cb:
+                                    self._active_issues_cb()
 
         try:
             return await run_concurrent_batch(prs, _review_one, self._stop_event)

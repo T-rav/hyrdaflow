@@ -44,7 +44,7 @@ class TestCrashRecoveryActiveIssues:
         assert recovered == {10, 20}
 
     def test_crash_recovery_skips_first_cycle(self, config: HydraFlowConfig) -> None:
-        """Recovered issues should be in _active_impl_issues for one cycle."""
+        """Recovered issues should be in implementer.active_issues for one cycle."""
         orch = HydraFlowOrchestrator(config)
         mock_fetcher_noop(orch)
         orch._state.set_active_issue_numbers([10, 20])
@@ -54,11 +54,11 @@ class TestCrashRecoveryActiveIssues:
         orch._running = True
         recovered = set(orch._state.get_active_issue_numbers())
         orch._recovered_issues = recovered
-        orch._active_impl_issues.update(recovered)
+        orch._svc.implementer.active_issues.update(recovered)
 
         # Before first cycle: recovered issues are in active set
-        assert 10 in orch._active_impl_issues
-        assert 20 in orch._active_impl_issues
+        assert 10 in orch._svc.implementer.active_issues
+        assert 20 in orch._svc.implementer.active_issues
 
     def test_crash_recovery_clears_after_cycle(self, config: HydraFlowConfig) -> None:
         """After one cycle, recovered issues should be cleared from active sets."""
@@ -69,15 +69,17 @@ class TestCrashRecoveryActiveIssues:
         # Simulate startup
         recovered = set(orch._state.get_active_issue_numbers())
         orch._recovered_issues = recovered
-        orch._active_impl_issues.update(recovered)
+        orch._svc.implementer.active_issues.update(recovered)
 
         # Simulate what _implement_loop does at the start of a cycle
         if orch._recovered_issues:
-            orch._active_impl_issues -= orch._recovered_issues
+            orch._svc.implementer.active_issues.difference_update(
+                orch._recovered_issues
+            )
             orch._recovered_issues.clear()
 
-        assert 10 not in orch._active_impl_issues
-        assert 20 not in orch._active_impl_issues
+        assert 10 not in orch._svc.implementer.active_issues
+        assert 20 not in orch._svc.implementer.active_issues
         assert len(orch._recovered_issues) == 0
 
 
@@ -1077,8 +1079,8 @@ class TestRestoreState:
 
         assert orch._bg_workers.worker_intervals.get("memory_sync") == 120
         assert orch._recovered_issues == {10, 20}
-        assert 10 in orch._active_impl_issues
-        assert 20 in orch._active_impl_issues
+        assert 10 in orch._svc.implementer.active_issues
+        assert 20 in orch._svc.implementer.active_issues
 
     def test_clears_interrupted_issues(self, config: HydraFlowConfig) -> None:
         """_restore_state should remove interrupted issues from all tracking sets."""
@@ -1087,7 +1089,7 @@ class TestRestoreState:
         orch._state.set_active_issue_numbers([10, 20])
         orch._state.set_interrupted_issues({10: "implement", 20: "review"})
         # Pre-populate review and HITL sets so the discard calls are actually exercised
-        orch._active_review_issues.update([10, 20])
+        orch._svc.reviewer.active_issues.update([10, 20])
         orch._svc.hitl_phase.active_hitl_issues.update([10, 20])
 
         orch._restore_state()
@@ -1095,10 +1097,10 @@ class TestRestoreState:
         # Interrupted issues removed from all four tracking sets
         assert 10 not in orch._recovered_issues
         assert 20 not in orch._recovered_issues
-        assert 10 not in orch._active_impl_issues
-        assert 20 not in orch._active_impl_issues
-        assert 10 not in orch._active_review_issues
-        assert 20 not in orch._active_review_issues
+        assert 10 not in orch._svc.implementer.active_issues
+        assert 20 not in orch._svc.implementer.active_issues
+        assert 10 not in orch._svc.reviewer.active_issues
+        assert 20 not in orch._svc.reviewer.active_issues
         assert 10 not in orch._svc.hitl_phase.active_hitl_issues
         assert 20 not in orch._svc.hitl_phase.active_hitl_issues
 
