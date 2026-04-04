@@ -787,3 +787,40 @@ class TestRunPrecheckContext:
         mock_stream.assert_called_once()
         assert mock_stream.call_args[1]["event_data"]["source"] == "ac_precheck_debug"
         assert mock_stream.call_args[1]["gh_token"] == gen._credentials.gh_token
+
+
+# ---------------------------------------------------------------------------
+# Credentials wiring
+# ---------------------------------------------------------------------------
+
+
+class TestAcceptanceCriteriaGeneratorCredentials:
+    """Verify that AcceptanceCriteriaGenerator correctly wires the credentials parameter."""
+
+    def test_default_credentials_constructed_when_none_passed(
+        self, tmp_path: Path
+    ) -> None:
+        """When no credentials are passed, a default Credentials() is used."""
+        from unittest.mock import AsyncMock
+
+        from config import Credentials
+        from events import EventBus
+
+        config = ConfigFactory.create(repo_root=tmp_path / "repo")
+        gen = AcceptanceCriteriaGenerator(config, AsyncMock(), EventBus())
+        assert isinstance(gen._credentials, Credentials)
+
+    def test_explicit_credentials_stored(self, tmp_path: Path) -> None:
+        """When credentials are provided, they are stored without modification."""
+        from unittest.mock import AsyncMock
+
+        from config import Credentials
+        from events import EventBus
+
+        creds = Credentials(gh_token="test-token-abc")
+        config = ConfigFactory.create(repo_root=tmp_path / "repo")
+        gen = AcceptanceCriteriaGenerator(
+            config, AsyncMock(), EventBus(), credentials=creds
+        )
+        assert gen._credentials is creds
+        assert gen._credentials.gh_token == "test-token-abc"

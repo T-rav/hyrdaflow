@@ -1002,6 +1002,7 @@ class TestCredentialsSeparation:
 
     _CREDENTIAL_FIELDS = {
         "gh_token",
+        "hindsight_url",
         "hindsight_api_key",
         "sentry_auth_token",
         "whatsapp_token",
