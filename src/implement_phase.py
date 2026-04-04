@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import logging
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -58,6 +59,7 @@ class ImplementPhase:
         run_recorder: RunRecorder | None = None,
         harness_insights: HarnessInsightStore | None = None,
         beads_manager: BeadsManager | None = None,
+        active_issues_cb: Callable[[], None] | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -70,6 +72,7 @@ class ImplementPhase:
         self._run_recorder = run_recorder
         self._harness_insights = harness_insights
         self._beads_manager = beads_manager
+        self._active_issues_cb = active_issues_cb
         self._active_issues: set[int] = set()
         self._active_issues_lock = asyncio.Lock()
         self._suggest_memory = MemorySuggester(config, prs, state)
@@ -82,6 +85,11 @@ class ImplementPhase:
             hitl_label=config.hitl_label[0],
             stage=PipelineStage.IMPLEMENT,
         )
+
+    @property
+    def active_issues(self) -> set[int]:
+        """Return the set of currently active implementation issues."""
+        return self._active_issues
 
     def _hitl_cause(self, issue: Task, reason: str) -> str:
         """Build a HITL cause string, prefixing with epic context if applicable."""
@@ -157,7 +165,8 @@ class ImplementPhase:
             branch = f"agent/issue-{issue.id}"
             async with self._active_issues_lock:
                 self._active_issues.add(issue.id)
-                self._state.set_active_issue_numbers(list(self._active_issues))
+                if self._active_issues_cb:
+                    self._active_issues_cb()
             with _sentry_transaction("pipeline.implement", f"implement:#{issue.id}"):
                 async with store_lifecycle(self._store, issue.id, "implement"):
                     self._state.mark_issue(issue.id, "in_progress")
@@ -190,9 +199,8 @@ class ImplementPhase:
                     finally:
                         async with self._active_issues_lock:
                             self._active_issues.discard(issue.id)
-                            self._state.set_active_issue_numbers(
-                                list(self._active_issues)
-                            )
+                            if self._active_issues_cb:
+                                self._active_issues_cb()
                         release_batch_in_flight(self._store, {issue.id})
 
         all_results = await run_refilling_pool(

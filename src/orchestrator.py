@@ -79,9 +79,6 @@ class HydraFlowOrchestrator:
         self._bus = event_bus or EventBus()
         self._state = state or build_state_tracker(config)
         self._dashboard: object | None = None
-        # In-memory tracking of active issues (avoids double-processing)
-        self._active_impl_issues: set[int] = set()
-        self._active_review_issues: set[int] = set()
         self._active_issues_lock = asyncio.Lock()
         # Issues recovered from persisted state on startup (one-cycle grace period)
         self._recovered_issues: set[int] = set()
@@ -338,10 +335,10 @@ class HydraFlowOrchestrator:
             for issue_number, stage in self._svc.store.get_active_issues().items():
                 interrupted[issue_number] = stage
             # Also check in-memory tracking sets for issues not yet in the store
-            for issue_number in self._active_impl_issues:
+            for issue_number in self._svc.implementer.active_issues:
                 if issue_number not in interrupted:
                     interrupted[issue_number] = "implement"
-            for issue_number in self._active_review_issues:
+            for issue_number in self._svc.reviewer.active_issues:
                 if issue_number not in interrupted:
                     interrupted[issue_number] = "review"
             for issue_number in self._hitl_ctrl.active_hitl_issues:
@@ -366,8 +363,8 @@ class HydraFlowOrchestrator:
         self._auth_failed = False
         self._credits_paused_until = None
         self._svc.store.clear_active()
-        self._active_impl_issues.clear()
-        self._active_review_issues.clear()
+        self._svc.implementer.active_issues.clear()
+        self._svc.reviewer.active_issues.clear()
         self._hitl_ctrl.active_hitl_issues.clear()
         self._state.clear_interrupted_issues()
 
@@ -395,6 +392,10 @@ class HydraFlowOrchestrator:
     def _sync_active_issue_numbers(self) -> None:
         """Persist the combined active issue set to state.
 
+        The orchestrator is the sole writer to ``set_active_issue_numbers``.
+        Phases maintain their own ``_active_issues`` sets and invoke this
+        callback when they change; the orchestrator merges all three sources.
+
         Safety: this method is synchronous with no ``await`` points, so the
         asyncio event loop cannot interleave it with coroutines that modify
         the active-issue sets.  The set union + list conversion runs
@@ -402,8 +403,8 @@ class HydraFlowOrchestrator:
         """
         self._state.set_active_issue_numbers(
             list(
-                self._active_impl_issues
-                | self._active_review_issues
+                self._svc.implementer.active_issues
+                | self._svc.reviewer.active_issues
                 | self._hitl_ctrl.active_hitl_issues
             )
         )
@@ -604,8 +605,8 @@ class HydraFlowOrchestrator:
         """Restore worker intervals, crash-recovered issues, interrupted issues, disabled workers, and background worker heartbeats."""
         self._state_restorer.restore_all(
             recovered_issues=self._recovered_issues,
-            active_impl_issues=self._active_impl_issues,
-            active_review_issues=self._active_review_issues,
+            active_impl_issues=self._svc.implementer.active_issues,
+            active_review_issues=self._svc.reviewer.active_issues,
             active_hitl_issues=self._hitl_ctrl.active_hitl_issues,
         )
 
@@ -1129,15 +1130,11 @@ class HydraFlowOrchestrator:
         # After one poll cycle, release crash-recovered issues
         if self._recovered_issues:
             async with self._active_issues_lock:
-                self._active_impl_issues -= self._recovered_issues
-                self._recovered_issues.clear()
-                self._state.set_active_issue_numbers(
-                    list(
-                        self._active_impl_issues
-                        | self._active_review_issues
-                        | self._active_hitl_issues
-                    )
+                self._svc.implementer.active_issues.difference_update(
+                    self._recovered_issues
                 )
+                self._recovered_issues.clear()
+                self._sync_active_issue_numbers()
         while not self._stop_event.is_set():
             results, issues = await self._svc.implementer.run_batch()
             if not issues:
