@@ -252,6 +252,9 @@ class ScriptedImplementPhase:
     async def _post_impl_transcript(self, result: WorkerResult, *, status: str) -> None:
         """No-op stub — integration tests don't exercise transcript hooks."""
 
+    async def post_impl_transcript_hooks(self, results: list[WorkerResult]) -> None:
+        """No-op stub — integration tests don't exercise transcript hooks."""
+
     async def run_batch(
         self,
         issues: list[Task] | None = None,
