@@ -77,7 +77,11 @@ class BaseBackgroundLoop(abc.ABC):
         self._stop_event = deps.stop_event
         self._status_cb = deps.status_cb
         self._enabled_cb = deps.enabled_cb
-        self._sleep_fn = deps.sleep_fn or _make_sleep_fn(deps.stop_event)
+        self._sleep_fn = (
+            deps.sleep_fn
+            if deps.sleep_fn is not None
+            else _make_sleep_fn(deps.stop_event)
+        )
         self._interval_cb = deps.interval_cb
         self._run_on_startup = run_on_startup
         self._trigger_event = asyncio.Event()

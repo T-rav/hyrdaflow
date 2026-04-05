@@ -323,11 +323,12 @@ class TestOrchestratorSoleWriter:
         assert orch._state.get_active_issue_numbers() == []
 
     def test_phases_have_callback_wired(self, tmp_path):
-        """Both ImplementPhase and ReviewPhase have the callback wired."""
+        """ImplementPhase, ReviewPhase, and HITLPhase all have the callback wired."""
         orch = self._make_orchestrator(tmp_path)
 
         assert orch._svc.implementer._active_issues_cb is not None
         assert orch._svc.reviewer._active_issues_cb is not None
+        assert orch._svc.hitl_phase._active_issues_cb is not None
 
     def test_callback_triggers_sync(self, tmp_path):
         """Invoking the callback persists the merged active set."""
