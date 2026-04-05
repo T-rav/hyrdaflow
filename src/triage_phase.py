@@ -13,10 +13,10 @@ from adr_utils import (
 )
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
-from models import HITLUpdatePayload, Task, TriageResult
+from models import Task, TriageResult
 from phase_utils import (
     _sentry_transaction,
-    escalate_to_hitl,
+    park_issue,
     release_batch_in_flight,
     run_refilling_pool,
     store_lifecycle,
@@ -99,46 +99,76 @@ class TriagePhase:
         )
         return sum(results)
 
+    async def _close_if_duplicate(self, issue: Task) -> bool:
+        """Close *issue* if an open issue with the same title already exists.
+
+        Returns True when the issue was closed as a duplicate.
+        """
+        if self._config.dry_run:
+            return False
+        existing = await self._prs.find_existing_issue(issue.title)
+        if not existing or existing == issue.id:
+            return False
+        await self._prs.post_comment(
+            issue.id,
+            f"## Closing as Duplicate\n\n"
+            f"An open issue with the same title already exists: #{existing}.\n\n"
+            f"Closing this as a duplicate.",
+        )
+        await self._transitioner.close_task(issue.id)
+        self._state.mark_issue(issue.id, "completed")
+        logger.info("Issue #%d closed as duplicate of #%d", issue.id, existing)
+        return True
+
+    async def _triage_adr(self, issue: Task) -> None:
+        """Handle ADR-specific triage: dedup, validate shape, route."""
+        topic_key = check_adr_duplicate(issue.title, self._config.repo_root)
+        if topic_key:
+            await self._prs.post_comment(
+                issue.id,
+                f"## Closing as Duplicate\n\n"
+                f"An ADR already exists for this topic in `docs/adr/`. "
+                f"Normalized topic: *{topic_key}*",
+            )
+            await self._transitioner.close_task(issue.id)
+            self._state.mark_issue(issue.id, "completed")
+            logger.info(
+                "Issue #%d ADR closed as duplicate — topic %r already in docs/adr/",
+                issue.id,
+                topic_key,
+            )
+            return
+        reasons = adr_validation_reasons(issue.body)
+        if reasons:
+            await park_issue(
+                self._prs,
+                issue_number=issue.id,
+                parked_label=self._config.parked_label[0],
+                reasons=reasons,
+            )
+            logger.info(
+                "Issue #%d ADR triage → parked (invalid ADR shape: %s)",
+                issue.id,
+                "; ".join(reasons),
+            )
+        else:
+            self._store.enqueue_transition(issue, "ready")
+            await self._transitioner.transition(issue.id, "ready")
+            self._state.increment_session_counter("triaged")
+            logger.info(
+                "Issue #%d ADR triage → %s (validated ADR shape)",
+                issue.id,
+                self._config.ready_label[0],
+            )
+
     async def _triage_single(self, issue: Task) -> int:
         """Core triage logic for a single issue."""
+        if await self._close_if_duplicate(issue):
+            return 1
+
         if is_adr_issue_title(issue.title):
-            if self._config.dry_run:
-                return 1
-            # --- Duplicate detection: close if topic already exists ---
-            topic_key = check_adr_duplicate(issue.title, self._config.repo_root)
-            if topic_key:
-                await self._prs.post_comment(
-                    issue.id,
-                    f"## Closing as Duplicate\n\n"
-                    f"An ADR already exists for this topic in `docs/adr/`. "
-                    f"Normalized topic: *{topic_key}*",
-                )
-                await self._transitioner.close_task(issue.id)
-                self._state.mark_issue(issue.id, "completed")
-                logger.info(
-                    "Issue #%d ADR closed as duplicate — topic %r already in docs/adr/",
-                    issue.id,
-                    topic_key,
-                )
-                return 1
-            reasons = adr_validation_reasons(issue.body)
-            if reasons:
-                await self._escalate_triage_issue(issue.id, reasons)
-                logger.info(
-                    "Issue #%d ADR triage → %s (invalid ADR shape: %s)",
-                    issue.id,
-                    self._config.hitl_label[0],
-                    "; ".join(reasons),
-                )
-            else:
-                self._store.enqueue_transition(issue, "ready")
-                await self._transitioner.transition(issue.id, "ready")
-                self._state.increment_session_counter("triaged")
-                logger.info(
-                    "Issue #%d ADR triage → %s (validated ADR shape)",
-                    issue.id,
-                    self._config.ready_label[0],
-                )
+            if not self._config.dry_run:
+                await self._triage_adr(issue)
             return 1
 
         try:
@@ -202,46 +232,30 @@ class TriagePhase:
                 "; ".join(result.reasons),
             )
         else:
-            await self._escalate_triage_issue(issue.id, result.reasons)
-            self._store.enqueue_transition(issue, "hitl")
+            # Park the issue instead of escalating to HITL — author needs
+            # to provide more detail before the system can act on it.
+            await park_issue(
+                self._prs,
+                issue_number=issue.id,
+                parked_label=self._config.parked_label[0],
+                reasons=result.reasons,
+            )
             await self._bus.publish(
                 HydraFlowEvent(
-                    type=EventType.HITL_UPDATE,
-                    data=HITLUpdatePayload(
-                        issue=issue.id,
-                        action="escalated",
-                    ),
+                    type=EventType.SYSTEM_REROUTE,
+                    data={
+                        "issue": issue.id,
+                        "action": "parked",
+                        "reasons": result.reasons,
+                    },
                 )
             )
             logger.info(
-                "Issue #%d triaged → %s (needs attention: %s)",
+                "Issue #%d triaged → parked (needs info: %s)",
                 issue.id,
-                self._config.hitl_label[0],
                 "; ".join(result.reasons),
             )
         return 1
-
-    async def _escalate_triage_issue(
-        self, issue_number: int, reasons: list[str]
-    ) -> None:
-        await escalate_to_hitl(
-            self._state,
-            self._prs,
-            issue_number,
-            cause="Insufficient issue detail for triage",
-            origin_label=self._config.find_label[0],
-            hitl_label=self._config.hitl_label[0],
-        )
-        note = (
-            "## Needs More Information\n\n"
-            "This issue was picked up by HydraFlow but doesn't have "
-            "enough detail to begin planning.\n\n"
-            "**Missing:**\n" + "\n".join(f"- {r}" for r in reasons) + "\n\n"
-            "Please update the issue with more context and re-apply "
-            f"the `{self._config.find_label[0]}` label when ready.\n\n"
-            "---\n*Generated by HydraFlow Triage*"
-        )
-        await self._transitioner.post_comment(issue_number, note)
 
     async def _maybe_decompose(self, issue: Task, result: object) -> bool:
         """Auto-decompose a complex issue into an epic + children.

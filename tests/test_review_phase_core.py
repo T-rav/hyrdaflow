@@ -2328,9 +2328,10 @@ class TestADRReviewPath:
         phase._prs.close_task.assert_awaited_once_with(710)
 
     @pytest.mark.asyncio
-    async def test_review_adrs_escalates_invalid_adr_to_hitl(
+    async def test_review_adrs_requeues_invalid_adr_to_plan(
         self, config: HydraFlowConfig
     ) -> None:
+        """Invalid ADR should re-queue to plan, not escalate to HITL."""
         phase = make_review_phase(config)
         issue = TaskFactory.create(
             id=711,
@@ -2342,7 +2343,7 @@ class TestADRReviewPath:
 
         assert len(results) == 1
         assert results[0].verdict == ReviewVerdict.REQUEST_CHANGES
-        phase._prs.transition.assert_awaited_once_with(711, "hitl", pr_number=None)
+        phase._prs.transition.assert_awaited_once_with(711, "plan")
 
     @pytest.mark.asyncio
     async def test_review_adrs_approved_calls_store_mark_merged(

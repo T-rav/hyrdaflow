@@ -907,6 +907,43 @@ class PRManager:
             error_log="Failed to fetch Dependabot alerts",
         )
 
+    async def find_existing_issue(self, title: str) -> int:
+        """Search for an open issue with an exact title match.
+
+        Returns the issue number of the first match, or 0 if none found.
+        """
+        self._assert_repo()
+        if self._config.dry_run:
+            return 0
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "search",
+                "issues",
+                "--repo",
+                self._repo,
+                "--state",
+                "open",
+                "--match",
+                "title",
+                "--json",
+                "number,title",
+                "--limit",
+                "5",
+                "--",
+                title,
+                cwd=self._config.repo_root,
+            )
+            import json as _json  # noqa: PLC0415
+
+            results = _json.loads(raw) if raw.strip() else []
+            for item in results:
+                if item.get("title") == title:
+                    return int(item["number"])
+            return 0
+        except (RuntimeError, ValueError):
+            return 0
+
     async def create_issue(
         self,
         title: str,
@@ -918,6 +955,15 @@ class PRManager:
         if self._config.dry_run:
             logger.info("[dry-run] Would create issue: %s", title)
             return 0
+
+        existing = await self.find_existing_issue(title)
+        if existing:
+            logger.info(
+                "Skipping duplicate issue creation — #%d already open with title %r",
+                existing,
+                title,
+            )
+            return existing
 
         cmd = [
             "gh",

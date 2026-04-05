@@ -203,6 +203,10 @@ class PRPort(Protocol):
         """Close GitHub issue *issue_number*."""
         ...
 
+    async def find_existing_issue(self, title: str) -> int:
+        """Search for an open issue with matching title. Returns issue number or 0."""
+        ...
+
     async def create_issue(
         self,
         title: str,

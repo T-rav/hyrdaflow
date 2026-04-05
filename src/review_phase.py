@@ -307,28 +307,33 @@ class ReviewPhase:
             )
 
         if reasons:
-            await self._escalate_to_hitl(
-                HitlEscalation(
-                    issue_number=issue.id,
-                    pr_number=None,
-                    cause="ADR review failed validation",
-                    origin_label=self._config.review_label[0],
-                    comment=(
-                        "## ADR Review Failed\n\n"
-                        "The ADR draft is not ready for finalization.\n\n"
-                        "**Required fixes:**\n"
-                        + "\n".join(f"- {reason}" for reason in reasons)
-                    ),
-                    post_on_pr=False,
-                    event_cause="adr_review_failed",
-                    task=issue,
+            # Re-queue for planning instead of HITL — ADR needs author fixes
+            await self._prs.post_comment(
+                issue.id,
+                "## ADR Review — Changes Needed\n\n"
+                "The ADR draft needs fixes before finalization.\n\n"
+                "**Required fixes:**\n"
+                + "\n".join(f"- {reason}" for reason in reasons)
+                + "\n\nUpdate the ADR and re-label to re-enter the pipeline.",
+            )
+            if issue is not None:
+                self._store.enqueue_transition(issue, "plan")
+            await self._transitioner.transition(issue.id, "plan")
+            await self._bus.publish(
+                HydraFlowEvent(
+                    type=EventType.SYSTEM_REROUTE,
+                    data={
+                        "issue": issue.id,
+                        "action": "requeued_to_plan",
+                        "reasons": reasons,
+                    },
                 )
             )
             return ReviewResult(
                 pr_number=0,
                 issue_number=issue.id,
                 verdict=ReviewVerdict.REQUEST_CHANGES,
-                summary="ADR review failed validation",
+                summary=f"ADR re-queued for fixes: {'; '.join(reasons)}",
             )
 
         await self._transitioner.post_comment(
