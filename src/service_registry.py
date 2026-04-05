@@ -593,6 +593,13 @@ def build_services(
         deps=loop_deps,
     )
     gh_cache_loop = GitHubCacheLoop(config, gh_cache, deps=loop_deps)  # noqa: F841
+    from dedup_store import DedupStore  # noqa: PLC0415
+
+    sentry_dedup = DedupStore(
+        "sentry_filed_ids",
+        config.data_root / "dedup" / "sentry_filed.json",
+        dolt=dolt_backend,
+    )
     sentry_loop = SentryLoop(
         config=config,
         prs=prs,
@@ -600,6 +607,7 @@ def build_services(
         store=store,
         runner=subprocess_runner,
         credentials=credentials,
+        dedup=sentry_dedup,
     )
     stale_issue_gc_loop = StaleIssueGCLoop(  # noqa: F841
         config=config,

@@ -18,6 +18,7 @@ import httpx
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import Credentials, HydraFlowConfig
+from dedup_store import DedupStore
 from exception_classify import reraise_on_credit_or_bug
 
 if TYPE_CHECKING:
@@ -42,6 +43,7 @@ class SentryLoop(BaseBackgroundLoop):
         store: IssueStore | None = None,
         runner: SubprocessRunner | None = None,
         credentials: Credentials | None = None,
+        dedup: DedupStore | None = None,
     ) -> None:
         super().__init__(
             worker_name="sentry_ingest",
@@ -54,7 +56,9 @@ class SentryLoop(BaseBackgroundLoop):
         self._runner = runner
         self._credentials = credentials or Credentials()
         self._active_procs: set[asyncio.subprocess.Process] = set()
-        self._filed: set[str] = set()  # Sentry issue IDs already filed
+        self._dedup = dedup
+        # In-memory hot cache seeded from persistent DedupStore
+        self._filed: set[str] = dedup.get() if dedup else set()
 
     def _get_default_interval(self) -> int:
         return self._config.sentry_poll_interval
@@ -68,6 +72,12 @@ class SentryLoop(BaseBackgroundLoop):
             return False
         marker = f"sentry:{sentry_id}"
         return any(marker in task.body for task in self._store._issue_cache.values())
+
+    def _mark_filed(self, sentry_id: str) -> None:
+        """Record a Sentry issue as filed in both hot cache and persistent store."""
+        self._filed.add(sentry_id)
+        if self._dedup:
+            self._dedup.add(sentry_id)
 
     async def _do_work(self) -> dict[str, Any] | None:
         if not self._credentials.sentry_auth_token or not self._config.sentry_org:
@@ -101,24 +111,24 @@ class SentryLoop(BaseBackgroundLoop):
                         sentry_id,
                         issue.get("title", "")[:60],
                     )
-                    self._filed.add(sentry_id)
+                    self._mark_filed(sentry_id)
                     total_skipped += 1
                     continue
 
                 if self._exists_in_local_cache(sentry_id):
-                    self._filed.add(sentry_id)
+                    self._mark_filed(sentry_id)
                     total_skipped += 1
                     continue
 
                 if await self._already_filed_on_github(sentry_id):
-                    self._filed.add(sentry_id)
+                    self._mark_filed(sentry_id)
                     total_skipped += 1
                     continue
 
                 created = await self._create_github_issue(issue, project["slug"])
                 if created:
                     await self._resolve_sentry_issue(sentry_id)
-                    self._filed.add(sentry_id)
+                    self._mark_filed(sentry_id)
                     total_created += 1
                 else:
                     total_skipped += 1
