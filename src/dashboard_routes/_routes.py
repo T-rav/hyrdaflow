@@ -1236,7 +1236,7 @@ def create_router(
             issue_store = getattr(orchestrator, "issue_store", None)
             if issue_store is not None and hasattr(issue_store, "get_queue_stats"):
                 qstats = issue_store.get_queue_stats()
-                queue_depths = dict(getattr(qstats, "queue_depth", {}).items())
+                queue_depths = dict(qstats.queue_depth)
 
         checks = {
             "orchestrator": {
