@@ -24,6 +24,7 @@ from runner_utils import (
 if TYPE_CHECKING:
     from execution import SubprocessRunner
     from hindsight import HindsightClient
+    from repo_wiki import RepoWikiStore  # noqa: TCH004
 
 
 class BaseRunner:
@@ -45,6 +46,7 @@ class BaseRunner:
         *,
         hindsight: HindsightClient | None = None,
         credentials: Credentials | None = None,
+        wiki_store: RepoWikiStore | None = None,
     ) -> None:
         self._config = config
         self._bus = event_bus
@@ -54,6 +56,7 @@ class BaseRunner:
         self._last_context_stats: dict[str, int] = {"cache_hits": 0, "cache_misses": 0}
         self._hindsight = hindsight
         self._credentials = credentials or Credentials()
+        self._wiki_store = wiki_store
 
     @property
     def active_count(self) -> int:
@@ -367,6 +370,33 @@ class BaseRunner:
         }
 
         return memory_section
+
+    def _inject_repo_wiki(self, *, query_context: str = "") -> str:
+        """Load compiled repo wiki context for the current target repo.
+
+        Returns a markdown string with relevant wiki pages, or empty
+        string if no wiki exists for this repo.
+        """
+        if self._wiki_store is None:
+            return ""
+
+        repo = self._config.repo
+        if not repo:
+            return ""
+
+        keywords = (
+            [w for w in query_context.split() if len(w) > 3][:10]
+            if query_context
+            else None
+        )
+        wiki_section = self._wiki_store.query(
+            repo,
+            keywords=keywords,
+            max_chars=self._config.max_repo_wiki_chars,
+        )
+        if wiki_section:
+            return f"\n\n{wiki_section}"
+        return ""
 
     def _consume_context_stats(self) -> dict[str, int]:
         stats = dict(self._last_context_stats)

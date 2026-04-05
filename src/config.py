@@ -164,6 +164,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("security_patch_interval", "HYDRAFLOW_SECURITY_PATCH_INTERVAL", 3600),
     ("code_grooming_interval", "HYDRAFLOW_CODE_GROOMING_INTERVAL", 86400),
     ("trace_mining_interval", "HYDRAFLOW_TRACE_MINING_INTERVAL", 3600),
+    ("repo_wiki_interval", "HYDRAFLOW_REPO_WIKI_INTERVAL", 3600),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -856,6 +857,20 @@ class HydraFlowConfig(BaseModel):
         ge=3600,
         le=604800,
         description="Seconds between code grooming audit cycles",
+    )
+
+    # Repo wiki
+    repo_wiki_interval: int = Field(
+        default=3600,
+        ge=300,
+        le=604800,
+        description="Seconds between repo wiki lint cycles",
+    )
+    max_repo_wiki_chars: int = Field(
+        default=15_000,
+        ge=1_000,
+        le=100_000,
+        description="Max characters for repo wiki context injected into agent prompts",
     )
 
     # Hindsight semantic memory

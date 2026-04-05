@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from execution import SubprocessRunner
     from hindsight import HindsightClient
     from hindsight_wal import HindsightWAL
+    from repo_wiki import RepoWikiStore
 
 logger = logging.getLogger("hydraflow.agent")
 
@@ -135,9 +136,15 @@ Run through this checklist before your final commit:
         dolt: DoltBackend | None = None,
         wal: HindsightWAL | None = None,
         credentials: Credentials | None = None,
+        wiki_store: RepoWikiStore | None = None,
     ) -> None:
         super().__init__(
-            config, event_bus, runner, hindsight=hindsight, credentials=credentials
+            config,
+            event_bus,
+            runner,
+            hindsight=hindsight,
+            credentials=credentials,
+            wiki_store=wiki_store,
         )
         self._insights = ReviewInsightStore(
             config.memory_dir, hindsight=hindsight, dolt=dolt, wal=wal

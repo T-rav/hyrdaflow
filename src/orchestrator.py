@@ -139,6 +139,7 @@ class HydraFlowOrchestrator:
             "security_patch": svc.security_patch_loop,
             "code_grooming": svc.code_grooming_loop,
             "trace_mining": svc.trace_mining_loop,
+            "repo_wiki": svc.repo_wiki_loop,
         }
         self._bg_workers = BGWorkerManager(config, self._state, bg_loop_registry)
         self._hitl_ctrl = HITLController(svc.hitl_phase, svc.fetcher, config.hitl_label)

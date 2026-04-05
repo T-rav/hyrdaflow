@@ -47,6 +47,8 @@ from post_merge_handler import PostMergeHandler
 from pr_manager import PRManager
 from pr_unsticker import PRUnsticker
 from pr_unsticker_loop import PRUnstickerLoop
+from repo_wiki import RepoWikiStore
+from repo_wiki_loop import RepoWikiLoop  # noqa: TCH001
 from report_issue_loop import ReportIssueLoop
 from research_runner import ResearchRunner
 from retrospective import RetrospectiveCollector
@@ -141,6 +143,8 @@ class ServiceRegistry:
     security_patch_loop: SecurityPatchLoop
     code_grooming_loop: CodeGroomingLoop
     trace_mining_loop: TraceMiningLoop
+    repo_wiki_store: RepoWikiStore
+    repo_wiki_loop: RepoWikiLoop
 
     # Optional integrations
     hindsight: HindsightClient | None = None
@@ -234,6 +238,9 @@ def build_services(
     # Core runners
     workspaces = WorkspaceManager(config, credentials=credentials)  # noqa: F841
     subprocess_runner = get_docker_runner(config, credentials=credentials)
+    repo_wiki_store = RepoWikiStore(
+        wiki_root=config.data_path("repo_wiki"),
+    )
     agents = AgentRunner(
         config,
         event_bus,
@@ -242,6 +249,7 @@ def build_services(
         dolt=dolt_backend,
         wal=hindsight_wal,
         credentials=credentials,
+        wiki_store=repo_wiki_store,
     )
     planners = PlannerRunner(
         config,
@@ -249,6 +257,7 @@ def build_services(
         runner=subprocess_runner,
         hindsight=hindsight_client,
         credentials=credentials,
+        wiki_store=repo_wiki_store,
     )
     researcher = ResearchRunner(
         config,
@@ -264,6 +273,7 @@ def build_services(
         runner=subprocess_runner,
         hindsight=hindsight_client,
         credentials=credentials,
+        wiki_store=repo_wiki_store,
     )
     hitl_runner = HITLRunner(
         config,
@@ -271,6 +281,7 @@ def build_services(
         runner=subprocess_runner,
         hindsight=hindsight_client,
         credentials=credentials,
+        wiki_store=repo_wiki_store,
     )
     triage = TriageRunner(
         config,
@@ -601,6 +612,11 @@ def build_services(
         hindsight=hindsight_client,
         deps=loop_deps,
     )
+    repo_wiki_loop = RepoWikiLoop(
+        config=config,
+        wiki_store=repo_wiki_store,
+        deps=loop_deps,
+    )
 
     return ServiceRegistry(
         workspaces=workspaces,
@@ -652,4 +668,6 @@ def build_services(
         security_patch_loop=security_patch_loop,
         code_grooming_loop=code_grooming_loop,
         trace_mining_loop=trace_mining_loop,
+        repo_wiki_store=repo_wiki_store,
+        repo_wiki_loop=repo_wiki_loop,
     )

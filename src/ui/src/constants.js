@@ -307,4 +307,5 @@ export const BACKGROUND_WORKERS = [
   { key: 'security_patch', label: 'Security Patch', description: 'Polls Dependabot alerts and files issues for fixable vulnerabilities.', color: theme.red },
   { key: 'code_grooming', label: 'Code Grooming', description: 'Runs periodic audit scans and files issues for critical findings.', color: theme.accent },
   { key: 'trace_mining', label: 'Trace Mining', description: 'Parses Monocle traces, aggregates tool/token stats, and syncs insights to Hindsight.', color: theme.accent },
+  { key: 'repo_wiki', label: 'Repo Wiki', description: 'Lints and maintains per-repo knowledge wikis compiled from plan/implement/review cycles.', color: theme.purple },
 ]
