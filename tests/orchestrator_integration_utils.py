@@ -481,6 +481,7 @@ def build_scripted_services(
     services.code_grooming_loop = FakeBackgroundLoop()
     services.trace_mining_loop = FakeBackgroundLoop()
     services.repo_wiki_loop = FakeBackgroundLoop()
+    services.diagnostic_loop = FakeBackgroundLoop()
     services.repo_wiki_store = SimpleNamespace()
     services.crate_manager = SimpleNamespace(
         active_crate_number=None,
