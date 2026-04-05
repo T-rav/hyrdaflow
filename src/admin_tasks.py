@@ -609,7 +609,7 @@ async def run_ensure_labels(config: HydraFlowConfig) -> TaskResult:
 
 async def run_clean(config: HydraFlowConfig) -> TaskResult:
     """Remove all worktrees and reset state."""
-    from state import build_state_tracker  # noqa: PLC0415
+    from service_registry import build_state_tracker  # noqa: PLC0415
     from workspace import WorkspaceManager  # noqa: PLC0415
 
     log = ["Cleaning up all HydraFlow worktrees and state..."]

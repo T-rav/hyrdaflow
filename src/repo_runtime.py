@@ -13,7 +13,8 @@ import logging
 from config import HydraFlowConfig
 from events import EventBus, EventLog
 from orchestrator import HydraFlowOrchestrator
-from state import StateTracker, build_state_tracker
+from service_registry import build_state_tracker
+from state import StateTracker
 
 logger = logging.getLogger("hydraflow.repo_runtime")
 

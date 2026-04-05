@@ -127,7 +127,7 @@ async def _run_with_dashboard(config: HydraFlowConfig) -> None:
     from models import Phase  # noqa: PLC0415
     from repo_runtime import RepoRuntimeRegistry  # noqa: PLC0415
     from repo_store import RepoRecord, RepoRegistryStore  # noqa: PLC0415
-    from state import build_state_tracker  # noqa: PLC0415
+    from service_registry import build_state_tracker  # noqa: PLC0415
 
     event_log = EventLog(config.event_log_path)
     bus = EventBus(event_log=event_log)

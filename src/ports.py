@@ -13,13 +13,15 @@ infrastructure (GitHub API, git CLI, agent subprocesses).
         ├─► PRPort                          (GitHub PR / label / CI operations)
         ├─► WorkspacePort                   (git workspace lifecycle)
         ├─► IssueStorePort                  (in-memory work queue operations)
-        └─► IssueFetcherPort                (GitHub issue fetching)
+        ├─► IssueFetcherPort                (GitHub issue fetching)
+        └─► StateBackendPort                (state persistence backend)
 
 Concrete adapters:
-  - PRPort          → pr_manager.PRManager
-  - WorkspacePort   → workspace.WorkspaceManager
-  - IssueStorePort  → issue_store.IssueStore
+  - PRPort           → pr_manager.PRManager
+  - WorkspacePort    → workspace.WorkspaceManager
+  - IssueStorePort   → issue_store.IssueStore
   - IssueFetcherPort → issue_fetcher.IssueFetcher
+  - StateBackendPort → dolt_backend.DoltBackend
 
 Both concrete classes satisfy their respective protocols via structural
 subtyping (typing.runtime_checkable).  No changes to the concrete classes
@@ -62,8 +64,33 @@ __all__ = [
     "IssueFetcherPort",
     "IssueStorePort",
     "PRPort",
+    "StateBackendPort",
     "WorkspacePort",
 ]
+
+
+@runtime_checkable
+class StateBackendPort(Protocol):
+    """Port for state persistence backends.
+
+    Implemented by: ``dolt_backend.DoltBackend``
+
+    Defines the three methods that ``StateTracker`` needs from a storage
+    backend so the concrete implementation can be injected rather than
+    imported at module level.
+    """
+
+    def load_state(self) -> dict | None:
+        """Load the state JSON document. Returns ``None`` if no state stored."""
+        ...
+
+    def save_state(self, data: str) -> None:
+        """Save the state JSON document."""
+        ...
+
+    def commit(self, message: str = "state update") -> None:
+        """Stage all changes and create a backend commit."""
+        ...
 
 
 @runtime_checkable

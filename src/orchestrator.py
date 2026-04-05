@@ -36,8 +36,13 @@ from phase_utils import (
     log_exception_with_bug_classification,
     release_batch_in_flight,
 )
-from service_registry import ServiceRegistry, WorkerRegistryCallbacks, build_services
-from state import StateTracker, build_state_tracker
+from service_registry import (
+    ServiceRegistry,
+    WorkerRegistryCallbacks,
+    build_services,
+    build_state_tracker,
+)
+from state import StateTracker
 from state_restorer import StateRestorer
 from subprocess_util import (
     AuthenticationError,
