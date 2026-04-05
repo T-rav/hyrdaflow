@@ -28,14 +28,6 @@ SRC = Path(__file__).resolve().parent.parent / "src"
 # are managed through a different mechanism (e.g. not dashboard-editable).
 # ---------------------------------------------------------------------------
 _INTERVAL_BOUNDS_SKIP: set[str] = {
-    "report_issue",
-    "epic_monitor",
-    "epic_sweeper",
-    "workspace_gc",
-    "runs_gc",
-    "health_monitor",
-    "bot_pr",
-    "sentry_ingest",
     "github_cache",
 }
 
