@@ -79,6 +79,7 @@ class ImplementPhase:
         self._active_issues: set[int] = set()
         self._active_issues_lock = asyncio.Lock()
         self._suggest_memory = MemorySuggester(config, prs, state)
+        self._zero_diff_memory_filed: set[int] = set()
         self._escalator = PipelineEscalator(
             state,
             prs,
@@ -95,7 +96,7 @@ class ImplementPhase:
         return self._active_issues
 
     async def _post_impl_transcript(self, result: WorkerResult, *, status: str) -> None:
-        """File memory suggestion and post transcript summary."""
+        """File memory suggestion and post transcript summary for a single result."""
         if result.transcript:
             await self._suggest_memory(
                 result.transcript, "implementer", f"issue #{result.issue_number}"
@@ -115,6 +116,40 @@ class ImplementPhase:
                     logger,
                     exc,
                     f"Failed to post transcript summary for issue #{result.issue_number}",
+                )
+
+    async def post_impl_transcript_hooks(self, results: list[WorkerResult]) -> None:
+        """File memory suggestions and post transcript summaries for completed runs.
+
+        Called by the orchestrator after :meth:`run_batch` returns.  Skips
+        memory filing for issues where the zero-diff escalation handler has
+        already filed a suggestion with a more specific source tag.
+        """
+        for result in results:
+            already_filed = result.issue_number in self._zero_diff_memory_filed
+            self._zero_diff_memory_filed.discard(result.issue_number)
+            if already_filed:
+                # Zero-diff handler filed memory with a specific source; skip
+                # memory filing here but still post the transcript summary.
+                if self._summarizer and result.transcript and result.issue_number > 0:
+                    try:
+                        await self._summarizer.summarize_and_comment(
+                            transcript=result.transcript,
+                            issue_number=result.issue_number,
+                            phase="implement",
+                            status="success" if result.success else "failed",
+                            duration_seconds=result.duration_seconds,
+                            log_file=self._impl_log_reference(result.issue_number),
+                        )
+                    except Exception as exc:
+                        log_exception_with_bug_classification(
+                            logger,
+                            exc,
+                            f"Failed to post transcript summary for issue #{result.issue_number}",
+                        )
+            else:
+                await self._post_impl_transcript(
+                    result, status="success" if result.success else "failed"
                 )
 
     def _impl_log_reference(self, issue_number: int) -> str:
@@ -313,10 +348,6 @@ class ImplementPhase:
 
         is_retry = bool(review_feedback)
         final_result = await self._handle_implementation_result(issue, result, is_retry)
-        await self._post_impl_transcript(
-            final_result,
-            status="success" if final_result.success else "failed",
-        )
         return final_result
 
     def _read_plan_for_recording(self, issue_number: int) -> str:
@@ -686,6 +717,7 @@ class ImplementPhase:
                 "implement_zero_diff",
                 f"issue #{issue.id}",
             )
+            self._zero_diff_memory_filed.add(issue.id)
         return result
 
     async def _handle_no_pr_fallback(

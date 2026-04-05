@@ -53,7 +53,7 @@ class DiscoverRunner(BaseRunner):
             prompt = self._build_prompt(task)
 
             # Inject memory context (prior learnings, ADRs, retrospectives)
-            _, memory_section = await self._inject_manifest_and_memory(
+            memory_section = await self._inject_memory(
                 query_context=f"product discovery for {task.title} {(task.body or '')[:200]}",
             )
             if memory_section:

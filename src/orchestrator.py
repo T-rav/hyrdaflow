@@ -1106,6 +1106,7 @@ class HydraFlowOrchestrator:
             if not issues:
                 break
             did_work = True
+            await self._svc.implementer.post_impl_transcript_hooks(results)
             for result in results:
                 self._session_issue_results[result.issue_number] = result.success
         return did_work

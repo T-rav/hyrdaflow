@@ -1,7 +1,7 @@
 """Live web dashboard for HydraFlow — FastAPI + WebSocket.
 
-Provides the ``HydraFlowDashboard`` class for embedding and a
-module-level :func:`serve` entry-point that replaces the former CLI.
+Provides the ``HydraFlowDashboard`` class for embedding into the
+HydraFlow server process.
 """
 
 from __future__ import annotations
@@ -188,14 +188,3 @@ class HydraFlowDashboard:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._server_task
         logger.info("Dashboard stopped")
-
-
-def serve() -> None:
-    """Module-level entry point that starts the HydraFlow server.
-
-    Reads configuration from environment variables and config files
-    (no CLI arguments), then delegates to :func:`server.main`.
-    """
-    from server import main  # noqa: PLC0415
-
-    main()
