@@ -188,7 +188,7 @@ def make_bg_loop_deps(
         stop_event=stop_event,
         status_cb=status_cb,
         enabled_cb=enabled_cb,
-        sleep_fn=sleep_fn,
+        sleep_fn=sleep_fn,  # override default stop_event-based sleep for tests
     )
 
     return BgLoopDeps(

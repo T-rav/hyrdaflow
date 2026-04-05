@@ -36,7 +36,7 @@ from phase_utils import (
     log_exception_with_bug_classification,
     release_batch_in_flight,
 )
-from service_registry import OrchestratorCallbacks, ServiceRegistry, build_services
+from service_registry import ServiceRegistry, WorkerRegistryCallbacks, build_services
 from state import StateTracker, build_state_tracker
 from state_restorer import StateRestorer
 from subprocess_util import (
@@ -104,13 +104,12 @@ class HydraFlowOrchestrator:
             self._bus,
             self._state,
             self._stop_event,
-            OrchestratorCallbacks(
-                sync_active_issue_numbers=self._sync_active_issue_numbers,
-                update_bg_worker_status=self.update_bg_worker_status,
-                is_bg_worker_enabled=self.is_bg_worker_enabled,
-                sleep_or_stop=self._sleep_or_stop,
-                get_bg_worker_interval=self.get_bg_worker_interval,
+            WorkerRegistryCallbacks(
+                update_status=self.update_bg_worker_status,
+                is_enabled=self.is_bg_worker_enabled,
+                get_interval=self.get_bg_worker_interval,
             ),
+            active_issues_cb=self._sync_active_issue_numbers,
         )
 
         # Store the service registry directly — access via self._svc.<name>

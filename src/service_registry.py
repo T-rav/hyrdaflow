@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from acceptance_criteria import AcceptanceCriteriaGenerator
 from adr_reviewer import ADRCouncilReviewer
@@ -145,15 +145,17 @@ class ServiceRegistry:
     hindsight_wal: HindsightWAL | None = None
 
 
-@dataclass
-class OrchestratorCallbacks:
-    """Callbacks from the orchestrator needed during service construction."""
+@dataclass(frozen=True)
+class WorkerRegistryCallbacks:
+    """Focused interface for background-worker management callbacks.
 
-    sync_active_issue_numbers: Callable[[], None]
-    update_bg_worker_status: StatusCallback
-    is_bg_worker_enabled: Callable[[str], bool]
-    sleep_or_stop: Callable[[int | float], Coroutine[Any, Any, None]]
-    get_bg_worker_interval: Callable[[str], int]
+    Replaces the former ``OrchestratorCallbacks`` god-object with only the
+    three callbacks that ``LoopDeps`` and status-reporting consumers need.
+    """
+
+    update_status: StatusCallback
+    is_enabled: Callable[[str], bool]
+    get_interval: Callable[[str], int]
 
 
 def build_services(
@@ -161,7 +163,8 @@ def build_services(
     event_bus: EventBus,
     state: StateTracker,
     stop_event: asyncio.Event,
-    callbacks: OrchestratorCallbacks,
+    callbacks: WorkerRegistryCallbacks,
+    active_issues_cb: Callable[[], None] | None = None,
     credentials: Credentials | None = None,
 ) -> ServiceRegistry:
     """Create all services wired together.
@@ -361,7 +364,7 @@ def build_services(
         prs,
         event_bus,
         stop_event,
-        active_issues_cb=callbacks.sync_active_issue_numbers,
+        active_issues_cb=active_issues_cb,
     )
     run_recorder = RunRecorder(config)
     implementer = ImplementPhase(
@@ -375,7 +378,7 @@ def build_services(
         run_recorder=run_recorder,
         harness_insights=harness_insights,
         beads_manager=beads_mgr,
-        active_issues_cb=callbacks.sync_active_issue_numbers,
+        active_issues_cb=active_issues_cb,
         transcript_summarizer=summarizer,
     )
 
@@ -447,7 +450,7 @@ def build_services(
         retrospective=retrospective,
         verification_judge=verification_judge,
         epic_checker=epic_checker,
-        update_bg_worker_status=callbacks.update_bg_worker_status,
+        update_bg_worker_status=callbacks.update_status,
         epic_manager=epic_manager,
         store=store,
     )
@@ -474,12 +477,12 @@ def build_services(
         event_bus=event_bus,
         harness_insights=harness_insights,
         review_insights=review_insights,
-        update_bg_worker_status=callbacks.update_bg_worker_status,
+        update_bg_worker_status=callbacks.update_status,
         baseline_policy=baseline_policy,
         hindsight=hindsight_client,
         dolt=dolt_backend,
         wal=hindsight_wal,
-        active_issues_cb=callbacks.sync_active_issue_numbers,
+        active_issues_cb=active_issues_cb,
         transcript_summarizer=summarizer,
     )
 
@@ -487,10 +490,9 @@ def build_services(
     loop_deps = LoopDeps(
         event_bus=event_bus,
         stop_event=stop_event,
-        status_cb=callbacks.update_bg_worker_status,
-        enabled_cb=callbacks.is_bg_worker_enabled,
-        sleep_fn=callbacks.sleep_or_stop,
-        interval_cb=callbacks.get_bg_worker_interval,
+        status_cb=callbacks.update_status,
+        enabled_cb=callbacks.is_enabled,
+        interval_cb=callbacks.get_interval,
     )
     memory_sync_bg = MemorySyncLoop(config, memory_sync, deps=loop_deps)
     pr_unsticker_loop = PRUnstickerLoop(config, pr_unsticker, prs, deps=loop_deps)

@@ -400,24 +400,48 @@ class TestLoopDeps:
     """Tests for the LoopDeps dataclass."""
 
     def test_creates_with_required_fields(self) -> None:
-        """LoopDeps should accept the 5 required fields."""
+        """LoopDeps should accept the 4 required fields (sleep_fn is optional)."""
         bus = EventBus()
         stop = asyncio.Event()
-
-        async def sleep_fn(_s: int | float) -> None:
-            pass
 
         deps = LoopDeps(
             event_bus=bus,
             stop_event=stop,
             status_cb=MagicMock(),
             enabled_cb=lambda _: True,
-            sleep_fn=sleep_fn,
         )
 
         assert deps.event_bus is bus
         assert deps.stop_event is stop
+        assert deps.sleep_fn is None
         assert deps.interval_cb is None
+
+    def test_sleep_fn_defaults_to_none(self) -> None:
+        """sleep_fn should default to None (derived from stop_event at runtime)."""
+        deps = LoopDeps(
+            event_bus=EventBus(),
+            stop_event=asyncio.Event(),
+            status_cb=MagicMock(),
+            enabled_cb=lambda _: True,
+        )
+
+        assert deps.sleep_fn is None
+
+    def test_sleep_fn_can_be_overridden(self) -> None:
+        """sleep_fn should be stored when explicitly provided (e.g. for tests)."""
+
+        async def custom_sleep(_s: int | float) -> None:
+            pass
+
+        deps = LoopDeps(
+            event_bus=EventBus(),
+            stop_event=asyncio.Event(),
+            status_cb=MagicMock(),
+            enabled_cb=lambda _: True,
+            sleep_fn=custom_sleep,
+        )
+
+        assert deps.sleep_fn is custom_sleep
 
     def test_interval_cb_defaults_to_none(self) -> None:
         """interval_cb should default to None when not provided."""
@@ -426,7 +450,6 @@ class TestLoopDeps:
             stop_event=asyncio.Event(),
             status_cb=MagicMock(),
             enabled_cb=lambda _: True,
-            sleep_fn=MagicMock(),
         )
 
         assert deps.interval_cb is None
@@ -442,7 +465,6 @@ class TestLoopDeps:
             stop_event=asyncio.Event(),
             status_cb=MagicMock(),
             enabled_cb=lambda _: True,
-            sleep_fn=MagicMock(),
             interval_cb=cb,
         )
 
@@ -455,7 +477,6 @@ class TestLoopDeps:
             stop_event=asyncio.Event(),
             status_cb=MagicMock(),
             enabled_cb=lambda _: True,
-            sleep_fn=MagicMock(),
         )
 
         with pytest.raises(AttributeError):
@@ -517,3 +538,100 @@ class TestMissedCycleCatchUp:
         assert ts_path.exists()
         content = ts_path.read_text().strip()
         assert "T" in content  # ISO format
+
+
+# ---------------------------------------------------------------------------
+# Derived sleep_fn from stop_event
+# ---------------------------------------------------------------------------
+
+
+class TestDerivedSleepFn:
+    """Tests for the stop_event-derived sleep when sleep_fn is not provided."""
+
+    @pytest.mark.asyncio
+    async def test_loop_works_without_explicit_sleep_fn(self, tmp_path: Path) -> None:
+        """When sleep_fn=None in LoopDeps, BaseBackgroundLoop derives one from stop_event."""
+        config = ConfigFactory.create(repo_root=tmp_path / "repo")
+        bus = EventBus()
+        stop_event = asyncio.Event()
+
+        deps = LoopDeps(
+            event_bus=bus,
+            stop_event=stop_event,
+            status_cb=MagicMock(),
+            enabled_cb=lambda _: True,
+            # sleep_fn omitted — should be derived from stop_event
+        )
+        loop = _StubLoop(
+            worker_name="test_derived_sleep",
+            config=config,
+            deps=deps,
+        )
+
+        # The derived sleep_fn should exist
+        assert loop._sleep_fn is not None
+
+        # Setting stop_event should make the derived sleep return immediately
+        stop_event.set()
+        await loop.run()
+
+        # Work ran at least for the startup check
+        loop._status_cb.assert_not_called()  # stop was set before work could run
+
+    @pytest.mark.asyncio
+    async def test_derived_sleep_wakes_on_stop(self, tmp_path: Path) -> None:
+        """The derived sleep function should wake immediately when stop_event is set."""
+        from base_background_loop import _make_sleep_fn
+
+        stop_event = asyncio.Event()
+        sleep_fn = _make_sleep_fn(stop_event)
+
+        # Schedule stop after a tiny delay
+        async def set_stop() -> None:
+            await asyncio.sleep(0.01)
+            stop_event.set()
+
+        asyncio.create_task(set_stop())
+
+        # Sleep for a long time — should wake early when stop fires
+        await asyncio.wait_for(sleep_fn(9999), timeout=2.0)
+
+    @pytest.mark.asyncio
+    async def test_derived_sleep_respects_timeout(self, tmp_path: Path) -> None:
+        """The derived sleep function completes after timeout when stop is not set."""
+        from base_background_loop import _make_sleep_fn
+
+        stop_event = asyncio.Event()
+        sleep_fn = _make_sleep_fn(stop_event)
+
+        # Very short timeout — should complete quickly
+        await asyncio.wait_for(sleep_fn(0.01), timeout=2.0)
+        assert not stop_event.is_set()  # stop was never requested
+
+    @pytest.mark.asyncio
+    async def test_explicit_sleep_fn_overrides_derived(self, tmp_path: Path) -> None:
+        """When sleep_fn is provided explicitly, it takes precedence."""
+        custom_called = False
+
+        async def custom_sleep(_s: int | float) -> None:
+            nonlocal custom_called
+            custom_called = True
+
+        config = ConfigFactory.create(repo_root=tmp_path / "repo")
+        stop_event = asyncio.Event()
+        deps = LoopDeps(
+            event_bus=EventBus(),
+            stop_event=stop_event,
+            status_cb=MagicMock(),
+            enabled_cb=lambda _: True,
+            sleep_fn=custom_sleep,
+        )
+        loop = _StubLoop(
+            worker_name="test_override",
+            config=config,
+            deps=deps,
+        )
+
+        # Call the stored sleep_fn directly
+        await loop._sleep_fn(1)
+        assert custom_called
