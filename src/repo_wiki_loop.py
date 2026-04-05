@@ -10,17 +10,21 @@ from config import HydraFlowConfig
 from repo_wiki import DEFAULT_TOPICS, RepoWikiStore
 
 if TYPE_CHECKING:
+    from state import StateTracker
     from wiki_compiler import WikiCompiler
 
 logger = logging.getLogger("hydraflow.repo_wiki_loop")
+
+# Terminal outcome types — issues with these outcomes are considered closed.
+_TERMINAL_OUTCOMES = frozenset({"merged", "hitl_closed", "failed", "manual_close"})
 
 
 class RepoWikiLoop(BaseBackgroundLoop):
     """Periodically lints and compiles all per-repo wikis.
 
     Each cycle:
-    1. **Active lint** — marks stale entries, prunes old stale entries,
-       removes orphans, rebuilds index.
+    1. **Active lint** — marks stale entries for closed issues, prunes
+       old stale entries, rebuilds index.
     2. **Compile** — if a WikiCompiler is available, runs LLM synthesis
        on any topic with 5+ entries to deduplicate and cross-reference.
     """
@@ -31,18 +35,29 @@ class RepoWikiLoop(BaseBackgroundLoop):
         wiki_store: RepoWikiStore,
         deps: LoopDeps,
         wiki_compiler: WikiCompiler | None = None,
+        state: StateTracker | None = None,
     ) -> None:
         super().__init__(worker_name="repo_wiki", config=config, deps=deps)
         self._wiki_store = wiki_store
         self._wiki_compiler = wiki_compiler
+        self._state = state
 
     def _get_default_interval(self) -> int:
         return self._config.repo_wiki_interval
+
+    def _get_closed_issues(self) -> set[int]:
+        """Derive closed issue numbers from StateTracker outcomes."""
+        if self._state is None:
+            return set()
+        outcomes = self._state.get_all_outcomes()
+        return {int(k) for k, v in outcomes.items() if v.outcome in _TERMINAL_OUTCOMES}
 
     async def _do_work(self) -> dict[str, Any] | None:
         repos = self._wiki_store.list_repos()
         if not repos:
             return {"repos": 0, "total_entries": 0}
+
+        closed_issues = self._get_closed_issues()
 
         total_stale = 0
         total_orphans = 0
@@ -54,7 +69,7 @@ class RepoWikiLoop(BaseBackgroundLoop):
 
         for slug in repos:
             # Phase 1: Active lint — self-healing pass
-            result = self._wiki_store.active_lint(slug)
+            result = self._wiki_store.active_lint(slug, closed_issues=closed_issues)
             total_stale += result.stale_entries
             total_orphans += result.orphan_entries
             total_entries += result.total_entries

@@ -70,3 +70,43 @@ class TestDoWork:
         assert result is not None
         assert result["repos"] == 1
         assert result["total_entries"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_passes_closed_issues_from_state(self, tmp_path: Path) -> None:
+        wiki_root = tmp_path / "wiki"
+        store = RepoWikiStore(wiki_root)
+        store.ingest(
+            "org/repo",
+            [
+                WikiEntry(
+                    title="Insight from issue 42",
+                    content="Learned something.",
+                    source_type="plan",
+                    source_issue=42,
+                ),
+            ],
+        )
+
+        config = MagicMock()
+        config.repo_wiki_interval = 3600
+        config.dry_run = False
+
+        # Mock StateTracker with a terminal outcome for issue 42
+        from models import IssueOutcome, IssueOutcomeType
+
+        state = MagicMock()
+        state.get_all_outcomes.return_value = {
+            "42": IssueOutcome(
+                outcome=IssueOutcomeType.MERGED,
+                reason="PR merged",
+                closed_at="2026-01-01T00:00:00Z",
+                phase="review",
+            ),
+        }
+
+        loop = RepoWikiLoop(
+            config=config, wiki_store=store, deps=_make_deps(), state=state
+        )
+        result = await loop._do_work()
+        assert result is not None
+        assert result["entries_marked_stale"] == 1

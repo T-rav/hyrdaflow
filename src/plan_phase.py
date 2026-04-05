@@ -228,7 +228,7 @@ class PlanPhase:
         await self._transitioner.post_comment(issue.id, analysis.format_comment())
 
         # Ingest plan knowledge into the per-repo wiki
-        self._wiki_ingest_plan(issue.id, result.plan)
+        await self._wiki_ingest_plan(issue.id, result.plan)
 
         # Activate eager-transition protection BEFORE the GitHub label swap
         # so that concurrent polling cannot re-queue the issue during the
@@ -261,20 +261,29 @@ class PlanPhase:
         self._state.increment_session_counter("planned")
         logger.info("Plan posted and labels swapped for issue #%d", issue.id)
 
-    def _wiki_ingest_plan(self, issue_number: int, plan_text: str) -> None:
+    async def _wiki_ingest_plan(self, issue_number: int, plan_text: str) -> None:
         """Ingest plan knowledge into the per-repo wiki.
 
-        Uses the LLM compiler if available for synthesis, otherwise falls
-        back to mechanical section extraction.  Never raises.
+        Uses the LLM compiler for synthesis when available, falling back
+        to mechanical section extraction.  Never raises.
         """
         if self._wiki_store is None or not self._config.repo:
             return
         try:
+            repo = self._config.repo
+            # Prefer LLM synthesis when compiler is available
+            if self._wiki_compiler is not None:
+                entries = await self._wiki_compiler.synthesize_ingest(
+                    repo, issue_number, "plan", plan_text
+                )
+                if entries:
+                    self._wiki_store.ingest(repo, entries)
+                    return
+
+            # Fallback: mechanical section extraction
             from repo_wiki_ingest import ingest_from_plan  # noqa: PLC0415
 
-            ingest_from_plan(
-                self._wiki_store, self._config.repo, issue_number, plan_text
-            )
+            ingest_from_plan(self._wiki_store, repo, issue_number, plan_text)
         except Exception:  # noqa: BLE001
             logger.warning(
                 "Wiki ingest failed for plan #%d", issue_number, exc_info=True

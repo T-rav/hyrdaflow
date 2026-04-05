@@ -302,7 +302,7 @@ class RepoWikiStore:
             return result
 
         closed = closed_issues or set()
-        modified = False
+        any_modified = False
         now = datetime.now(UTC)
         _STALE_PRUNE_DAYS = 90
 
@@ -314,6 +314,7 @@ class RepoWikiStore:
                 continue
 
             original_count = len(entries)
+            topic_modified = False
             new_entries: list[WikiEntry] = []
 
             for entry in entries:
@@ -330,7 +331,7 @@ class RepoWikiStore:
                         update={"stale": True, "updated_at": now.isoformat()}
                     )
                     result.entries_marked_stale += 1
-                    modified = True
+                    topic_modified = True
                 else:
                     current = entry
 
@@ -344,18 +345,19 @@ class RepoWikiStore:
                         age_days = 0
                     if age_days > _STALE_PRUNE_DAYS:
                         result.orphans_pruned += 1
-                        modified = True
+                        topic_modified = True
                         continue  # skip — don't keep this entry
 
                 new_entries.append(current)
 
             if len(new_entries) != original_count:
-                modified = True
+                topic_modified = True
 
-            if modified:
+            if topic_modified:
                 self._write_topic_page(topic_path, topic_name, new_entries)
+                any_modified = True
 
-        if modified:
+        if any_modified:
             self._rebuild_index(repo_slug)
             result.index_rebuilt = True
 
