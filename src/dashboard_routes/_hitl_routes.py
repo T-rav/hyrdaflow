@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 
 from dashboard_routes._routes import RouteContext
 from events import EventType, HydraFlowEvent
-from github_cache import GitHubDataCache
+from github_cache_loop import GitHubDataCache
 from models import (
     HITLCloseRequest,
     HITLSkipRequest,

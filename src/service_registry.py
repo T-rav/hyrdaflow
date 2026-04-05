@@ -29,7 +29,7 @@ from epic_monitor_loop import EpicMonitorLoop
 from epic_sweeper_loop import EpicSweeperLoop
 from events import EventBus
 from execution import SubprocessRunner
-from github_cache import GitHubCacheLoop, GitHubDataCache
+from github_cache_loop import GitHubCacheLoop, GitHubDataCache
 from harness_insights import HarnessInsightStore
 from health_monitor_loop import HealthMonitorLoop
 from hitl_phase import HITLPhase

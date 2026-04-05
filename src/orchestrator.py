@@ -52,7 +52,7 @@ from subprocess_util import (
 if TYPE_CHECKING:
     from base_background_loop import BaseBackgroundLoop
     from crate_manager import CrateManager
-    from github_cache import GitHubDataCache
+    from github_cache_loop import GitHubDataCache
     from issue_store import IssueStore
     from metrics_manager import MetricsManager
     from run_recorder import RunRecorder
