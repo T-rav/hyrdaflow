@@ -77,6 +77,7 @@ class PlanPhase:
             harness_insights,
             origin_label=config.planner_label[0],
             hitl_label=config.hitl_label[0],
+            diagnose_label=config.diagnose_label[0],
             stage=PipelineStage.PLAN,
         )
 
