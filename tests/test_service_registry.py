@@ -239,8 +239,10 @@ class TestWorkerRegistryCallbacks:
         registry = build_services(
             config, bus, state, stop_event, callbacks, active_issues_cb=track_active
         )
-        # Verify HITLPhase received the callback
+        # Verify all three consumers received the callback
         assert registry.hitl_phase._active_issues_cb is track_active
+        assert registry.implementer._active_issues_cb is track_active
+        assert registry.reviewer._active_issues_cb is track_active
 
     def test_build_services_without_active_issues_cb(
         self, config: HydraFlowConfig
