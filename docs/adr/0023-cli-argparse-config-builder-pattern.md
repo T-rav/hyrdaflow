@@ -1,6 +1,6 @@
 # ADR-0023: CLI Architecture — argparse with Config Builder Pattern
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-08
 
 ## Context
