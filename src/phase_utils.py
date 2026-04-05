@@ -34,7 +34,7 @@ from exception_classify import (  # noqa: F401
 )
 from harness_insights import FailureCategory, FailureRecord, HarnessInsightStore
 from memory import file_memory_suggestion
-from models import PipelineStage, PRInfo, ReviewUpdatePayload, Task
+from models import EscalationContext, PipelineStage, PRInfo, ReviewUpdatePayload, Task
 from ports import IssueStorePort, PRPort
 from state import StateTracker
 
@@ -193,6 +193,27 @@ async def escalate_to_hitl(
     state.set_hitl_cause(issue_number, cause)
     state.record_hitl_escalation()
     await prs.swap_pipeline_labels(issue_number, hitl_label)
+
+
+async def escalate_to_diagnostic(
+    state: StateTracker,
+    prs: PRPort,
+    issue_number: int,
+    *,
+    context: EscalationContext,
+    origin_label: str,
+    diagnose_label: str,
+) -> None:
+    """Route an issue to the diagnostic loop instead of HITL.
+
+    Stores full escalation context, records HITL origin/cause for
+    traceability, and swaps labels to *diagnose_label*.
+    """
+    state.set_escalation_context(issue_number, context)
+    state.set_hitl_origin(issue_number, origin_label)
+    state.set_hitl_cause(issue_number, context.cause)
+    state.record_hitl_escalation()
+    await prs.swap_pipeline_labels(issue_number, diagnose_label)
 
 
 async def park_issue(
@@ -428,6 +449,7 @@ class PipelineEscalator:
         "_harness_insights",
         "_origin_label",
         "_hitl_label",
+        "_diagnose_label",
         "_stage",
     )
 
@@ -440,6 +462,7 @@ class PipelineEscalator:
         *,
         origin_label: str,
         hitl_label: str,
+        diagnose_label: str = "",
         stage: PipelineStage,
     ) -> None:
         self._state = state
@@ -448,6 +471,7 @@ class PipelineEscalator:
         self._harness_insights = harness_insights
         self._origin_label = origin_label
         self._hitl_label = hitl_label
+        self._diagnose_label = diagnose_label
         self._stage = stage
 
     async def __call__(
@@ -457,21 +481,24 @@ class PipelineEscalator:
         cause: str,
         details: str,
         category: FailureCategory,
+        context: EscalationContext | None = None,
     ) -> None:
-        """Escalate *issue* to HITL, enqueue transition, and record failure."""
+        """Escalate *issue* to diagnostic (or HITL), enqueue transition, and record failure."""
         issue_number = issue.id
+        if context is None:
+            context = EscalationContext(cause=cause, origin_phase=self._stage.value)
         try:
-            await escalate_to_hitl(
+            await escalate_to_diagnostic(
                 self._state,
                 self._prs,
                 issue_number,
-                cause=cause,
+                context=context,
                 origin_label=self._origin_label,
-                hitl_label=self._hitl_label,
+                diagnose_label=self._diagnose_label,
             )
         except Exception:
             logger.error(
-                "Escalation to HITL failed for issue #%d — attempting direct label swap",
+                "Escalation to diagnostic failed for issue #%d — attempting direct label swap to HITL",
                 issue_number,
                 exc_info=True,
             )
@@ -485,7 +512,7 @@ class PipelineEscalator:
                     issue_number,
                     exc_info=True,
                 )
-        self._store.enqueue_transition(issue, "hitl")
+        self._store.enqueue_transition(issue, "diagnose")
         record_harness_failure(
             self._harness_insights,
             issue_number,
