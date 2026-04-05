@@ -1168,10 +1168,12 @@ class TestADRTriageIntegration:
 
         processed = await triage_phase.triage_issues()
         assert processed == 1
+        # Unclear issues are now parked instead of escalated to HITL
         prs.swap_pipeline_labels.assert_called_once_with(
-            654, reviewer._config.hitl_label[0]
+            654, reviewer._config.parked_label[0]
         )
-        assert state.get_hitl_origin(654) == reviewer._config.find_label[0]
+        # Parked issues should NOT have HITL origin set
+        assert state.get_hitl_origin(654) is None
 
 
 class TestClerkAmendment:

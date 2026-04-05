@@ -48,9 +48,10 @@ class TestTriagePhase:
         prs.post_comment.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_triage_escalates_unready_issue_to_hitl(
+    async def test_triage_parks_unready_issue_instead_of_hitl(
         self, config: HydraFlowConfig
     ) -> None:
+        """Unclear issues should be parked, not escalated to HITL."""
         phase, _state, triage, prs, store, _stop = make_triage_phase(config)
         issue = TaskFactory.create(id=2, title="Fix the bug please", body="")
 
@@ -65,17 +66,17 @@ class TestTriagePhase:
 
         await phase.triage_issues()
 
-        prs.swap_pipeline_labels.assert_called_once_with(2, config.hitl_label[0])
+        prs.swap_pipeline_labels.assert_called_once_with(2, config.parked_label[0])
         prs.post_comment.assert_called_once()
         comment = prs.post_comment.call_args.args[1]
         assert "Needs More Information" in comment
         assert "Body is too short" in comment
 
     @pytest.mark.asyncio
-    async def test_triage_escalation_records_hitl_origin(
+    async def test_triage_park_does_not_record_hitl_state(
         self, config: HydraFlowConfig
     ) -> None:
-        """Escalating an unready issue should record find_label as HITL origin."""
+        """Parked issues should NOT have HITL origin/cause set."""
         phase, state, triage, _prs, store, _stop = make_triage_phase(config)
         issue = TaskFactory.create(id=2, title="Fix the bug please", body="")
 
@@ -90,28 +91,26 @@ class TestTriagePhase:
 
         await phase.triage_issues()
 
-        assert state.get_hitl_origin(2) == "hydraflow-find"
+        assert state.get_hitl_origin(2) is None
+        assert state.get_hitl_cause(2) is None
 
     @pytest.mark.asyncio
-    async def test_triage_escalation_sets_hitl_cause(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """Escalating an unready issue should record cause in state."""
-        phase, state, triage, _prs, store, _stop = make_triage_phase(config)
-        issue = TaskFactory.create(id=2, title="Fix the bug please", body="")
+    async def test_triage_closes_duplicate_issue(self, config: HydraFlowConfig) -> None:
+        """When an open issue with the same title exists, close as duplicate."""
+        phase, state, triage, prs, store, _stop = make_triage_phase(config)
+        issue = TaskFactory.create(id=50, title="Fix login timeout", body="A" * 100)
 
-        triage.evaluate = AsyncMock(
-            return_value=TriageResultFactory.create(
-                issue_number=2,
-                ready=False,
-                reasons=["Body is too short or empty (minimum 50 characters)"],
-            )
-        )
+        prs.find_existing_issue = AsyncMock(return_value=30)
         store.get_triageable = supply_once([issue])
 
         await phase.triage_issues()
 
-        assert state.get_hitl_cause(2) == "Insufficient issue detail for triage"
+        # Should close without even evaluating triage
+        triage.evaluate.assert_not_called()
+        prs.post_comment.assert_called_once()
+        comment = prs.post_comment.call_args.args[1]
+        assert "Duplicate" in comment
+        assert "#30" in comment
 
     @pytest.mark.asyncio
     async def test_triage_stops_when_stop_event_set(
@@ -239,9 +238,10 @@ class TestTriagePhase:
         prs.post_comment.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_adr_issue_escalates_to_hitl_when_shape_invalid(
+    async def test_adr_issue_parked_when_shape_invalid(
         self, config: HydraFlowConfig
     ) -> None:
+        """Invalid ADR shape should park the issue, not escalate to HITL."""
         phase, _state, triage, prs, store, _stop = make_triage_phase(config)
         issue = TaskFactory.create(
             id=78,
@@ -253,7 +253,7 @@ class TestTriagePhase:
         await phase.triage_issues()
 
         triage.evaluate.assert_not_awaited()
-        prs.swap_pipeline_labels.assert_called_once_with(78, config.hitl_label[0])
+        prs.swap_pipeline_labels.assert_called_once_with(78, config.parked_label[0])
         prs.post_comment.assert_called_once()
         comment = prs.post_comment.call_args.args[1]
         assert "Needs More Information" in comment

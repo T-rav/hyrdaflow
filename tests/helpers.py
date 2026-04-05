@@ -799,6 +799,7 @@ class PipelineHarness:
         self.prs.create_task = AsyncMock(return_value=12345)
         self.prs.close_task = AsyncMock()
         self.prs.close_issue = AsyncMock()
+        self.prs.find_existing_issue = AsyncMock(return_value=0)
         self.prs.push_branch = AsyncMock(return_value=True)
         self.prs.create_pr = AsyncMock(side_effect=_make_pr)
         self.prs.find_open_pr_for_branch = AsyncMock(side_effect=_find_pr)
@@ -1317,6 +1318,7 @@ def make_triage_phase(config):
     prs.add_labels = AsyncMock()
     prs.swap_pipeline_labels = AsyncMock()
     prs.post_comment = AsyncMock()
+    prs.find_existing_issue = AsyncMock(return_value=0)
     stop_event = asyncio.Event()
     phase = TriagePhase(config, state, store, triage, prs, bus, stop_event)
     return phase, state, triage, prs, store, stop_event
@@ -1452,6 +1454,7 @@ def make_pr_manager_mock(**overrides: Any) -> AsyncMock:
     prs.submit_review = AsyncMock(return_value=True)
     prs.create_task = AsyncMock(return_value=99)
     prs.close_task = AsyncMock()
+    prs.find_existing_issue = AsyncMock(return_value=0)
     prs.add_pr_labels = AsyncMock()
     prs.remove_pr_label = AsyncMock()
     for k, v in overrides.items():

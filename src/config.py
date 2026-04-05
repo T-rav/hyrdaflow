@@ -292,6 +292,7 @@ _ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
     "HYDRAFLOW_LABEL_EPIC": ("epic_label", ["hydraflow-epic"]),
     "HYDRAFLOW_LABEL_EPIC_CHILD": ("epic_child_label", ["hydraflow-epic-child"]),
     "HYDRAFLOW_LABEL_VERIFY": ("verify_label", ["hydraflow-verify"]),
+    "HYDRAFLOW_LABEL_PARKED": ("parked_label", ["hydraflow-parked"]),
 }
 
 
@@ -467,6 +468,10 @@ class HydraFlowConfig(BaseModel):
     dup_label: list[str] = Field(
         default=["hydraflow-dup"],
         description="Labels applied when issue is already satisfied (no changes needed)",
+    )
+    parked_label: list[str] = Field(
+        default=["hydraflow-parked"],
+        description="Labels for issues parked awaiting author clarification (OR logic)",
     )
     epic_label: list[str] = Field(
         default=["hydraflow-epic"],
