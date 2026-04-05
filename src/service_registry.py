@@ -21,6 +21,8 @@ from ci_monitor_loop import CIMonitorLoop  # noqa: TCH001
 from code_grooming_loop import CodeGroomingLoop  # noqa: TCH001
 from config import Credentials, HydraFlowConfig
 from crate_manager import CrateManager
+from diagnostic_loop import DiagnosticLoop  # noqa: TCH001
+from diagnostic_runner import DiagnosticRunner
 from discover_phase import DiscoverPhase  # noqa: TCH001
 from discover_runner import DiscoverRunner
 from docker_runner import get_docker_runner
@@ -145,6 +147,7 @@ class ServiceRegistry:
     trace_mining_loop: TraceMiningLoop
     repo_wiki_store: RepoWikiStore
     repo_wiki_loop: RepoWikiLoop
+    diagnostic_loop: DiagnosticLoop
 
     # Optional integrations
     hindsight: HindsightClient | None = None
@@ -617,6 +620,14 @@ def build_services(
         wiki_store=repo_wiki_store,
         deps=loop_deps,
     )
+    diagnostic_runner = DiagnosticRunner(config=config, event_bus=event_bus)
+    diagnostic_loop = DiagnosticLoop(
+        config=config,
+        runner=diagnostic_runner,
+        prs=prs,
+        state=state,
+        deps=loop_deps,
+    )
 
     return ServiceRegistry(
         workspaces=workspaces,
@@ -670,4 +681,5 @@ def build_services(
         trace_mining_loop=trace_mining_loop,
         repo_wiki_store=repo_wiki_store,
         repo_wiki_loop=repo_wiki_loop,
+        diagnostic_loop=diagnostic_loop,
     )
