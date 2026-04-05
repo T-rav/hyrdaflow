@@ -1,6 +1,6 @@
 # ADR-0023: Tests Must Match Toggle State They Assert
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-08
 
 ## Context
