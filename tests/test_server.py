@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import sys
+import types
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# The dotenv package may not be installed in the test environment.  Ensure a
+# mock module is always available so that ``from dotenv import load_dotenv``
+# inside ``server.main()`` succeeds during tests.
+if "dotenv" not in sys.modules:
+    _fake_dotenv = types.ModuleType("dotenv")
+    _fake_dotenv.load_dotenv = lambda *a, **kw: None  # type: ignore[attr-defined]
+    sys.modules["dotenv"] = _fake_dotenv
 
 
 class TestServerMain:
