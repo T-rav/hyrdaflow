@@ -1564,6 +1564,7 @@ class StateData(BaseModel):
         default_factory=dict
     )
     diagnosis_severities: dict[str, str] = Field(default_factory=dict)
+    sentry_creation_attempts: dict[str, int] = Field(default_factory=dict)
     last_updated: str | None = None
 
 
