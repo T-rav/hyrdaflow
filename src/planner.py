@@ -413,6 +413,25 @@ class PlannerRunner(BaseRunner):
                 f"{research_context}"
             )
 
+        # --- Cross-section paragraph dedup ---
+        from prompt_dedup import PromptDeduplicator  # noqa: PLC0415
+
+        section_deduper = PromptDeduplicator()
+        deduped, section_chars_saved = section_deduper.dedup_sections(
+            ("Issue body", body),
+            ("Discussion", comments_section),
+            ("Pre-plan research", research_section),
+            ("Memory", memory_section),
+        )
+        dedup_map = dict(deduped)
+        body = dedup_map["Issue body"]
+        comments_section = dedup_map["Discussion"]
+        research_section = dedup_map["Pre-plan research"]
+        memory_section = dedup_map["Memory"]
+
+        if section_chars_saved:
+            self._last_context_stats["section_dedup_chars_saved"] = section_chars_saved
+
         prompt = f"""You are a planning agent for GitHub issue #{issue.id}.
 
 ## Issue: {issue.title}

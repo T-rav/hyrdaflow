@@ -72,6 +72,7 @@ from timeline import TimelineBuilder
 from transcript_summarizer import TranscriptSummarizer
 
 if TYPE_CHECKING:
+    from hindsight import HindsightClient
     from orchestrator import HydraFlowOrchestrator
 from repo_runtime import RepoRuntime, RepoRuntimeRegistry
 from repo_store import RepoRecord, RepoStore
@@ -327,6 +328,9 @@ class RouteContext:
     list_repos_cb: Callable[[], list[RepoRecord]] | None = None
     default_repo_slug: str | None = None
     allowed_repo_roots_fn: Callable[[], tuple[str, ...]] | None = None
+
+    # Hindsight integration
+    hindsight_client: HindsightClient | None = None
 
     # HITL summary tuning
     hitl_summary_cooldown_seconds: int = 300
@@ -597,6 +601,7 @@ def create_router(
     list_repos_cb: Callable[[], list[RepoRecord]] | None = None,
     default_repo_slug: str | None = None,
     allowed_repo_roots_fn: Callable[[], tuple[str, ...]] | None = None,
+    hindsight_client: HindsightClient | None = None,
 ) -> APIRouter:
     """Create an APIRouter with all dashboard route handlers.
 
@@ -624,6 +629,7 @@ def create_router(
         list_repos_cb=list_repos_cb,
         default_repo_slug=default_repo_slug,
         allowed_repo_roots_fn=allowed_repo_roots_fn,
+        hindsight_client=hindsight_client,
     )
 
     router = APIRouter()
@@ -1274,47 +1280,31 @@ def create_router(
     @router.get("/api/hindsight/health")
     async def hindsight_health() -> JSONResponse:
         """Check Hindsight server connectivity."""
-        if not config.hindsight_url:
+        if ctx.hindsight_client is None:
             return JSONResponse(
                 {"status": "disabled", "reachable": False, "url": ""},
             )
-        from hindsight import HindsightClient
-
-        client = HindsightClient(
-            config.hindsight_url,
-            api_key=config.hindsight_api_key,
-            timeout=min(config.hindsight_timeout, 5),
-        )
         try:
-            reachable = await client.health_check()
-        finally:
-            await client.close()
+            reachable = await ctx.hindsight_client.health_check()
+        except Exception:  # noqa: BLE001
+            reachable = False
         return JSONResponse(
             {
                 "status": "ok" if reachable else "unreachable",
                 "reachable": reachable,
-                "url": config.hindsight_url,
+                "url": config.hindsight_url or "",
             },
         )
 
     @router.post("/api/hindsight/audit")
     async def hindsight_audit() -> JSONResponse:
         """Run a memory quality audit across all Hindsight banks."""
-        if not config.hindsight_url:
+        if ctx.hindsight_client is None:
             return JSONResponse({"status": "disabled", "results": []})
-        from hindsight import HindsightClient  # noqa: PLC0415
         from memory_audit import MemoryAuditor  # noqa: PLC0415
 
-        client = HindsightClient(
-            config.hindsight_url,
-            api_key=config.hindsight_api_key,
-            timeout=min(config.hindsight_timeout, 30),
-        )
-        try:
-            auditor = MemoryAuditor(client, config)
-            results = await auditor.audit_all()
-        finally:
-            await client.close()
+        auditor = MemoryAuditor(ctx.hindsight_client, config)
+        results = await auditor.audit_all()
         return JSONResponse({"status": "ok", "results": results})
 
     @router.get("/api/hindsight/banks")
