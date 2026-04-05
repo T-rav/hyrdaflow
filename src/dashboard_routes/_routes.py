@@ -1232,11 +1232,11 @@ def create_router(
 
         # Queue depths
         queue_depths: dict[str, int] = {}
-        if orchestrator is not None and hasattr(orchestrator, "_svc"):
-            issue_store = getattr(orchestrator._svc, "store", None)
-            if issue_store is not None and hasattr(issue_store, "queue_stats"):
-                qstats = issue_store.queue_stats()
-                queue_depths = dict(getattr(qstats, "queue_depth", {}).items())
+        if orchestrator is not None:
+            issue_store = getattr(orchestrator, "issue_store", None)
+            if issue_store is not None and hasattr(issue_store, "get_queue_stats"):
+                qstats = issue_store.get_queue_stats()
+                queue_depths = dict(qstats.queue_depth)
 
         checks = {
             "orchestrator": {

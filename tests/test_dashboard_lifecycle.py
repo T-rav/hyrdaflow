@@ -291,6 +291,67 @@ class TestHealthRoute:
         assert payload["ready"] is False
         assert payload["checks"]["orchestrator"]["status"] == "missing"
 
+    def test_healthz_returns_queue_depths_from_issue_store(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        mock_stats = MagicMock()
+        mock_stats.queue_depth = {"plan": 3, "ready": 1, "review": 2}
+
+        mock_issue_store = MagicMock()
+        mock_issue_store.get_queue_stats.return_value = mock_stats
+
+        orch = make_orchestrator_mock(running=True)
+        orch.issue_store = mock_issue_store
+
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        payload = client.get("/healthz").json()
+
+        assert payload["checks"]["queue_depths"] == {"plan": 3, "ready": 1, "review": 2}
+
+    def test_healthz_returns_empty_queue_depths_when_orchestrator_none(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        dashboard = HydraFlowDashboard(config, event_bus, state)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        payload = client.get("/healthz").json()
+
+        assert payload["checks"]["queue_depths"] == {}
+
+    def test_healthz_returns_empty_queue_depths_when_no_get_queue_stats(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+
+        orch = make_orchestrator_mock(running=True)
+        # issue_store exists but has no get_queue_stats method
+        mock_store = object()
+        orch.issue_store = mock_store
+
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        payload = client.get("/healthz").json()
+
+        assert payload["checks"]["queue_depths"] == {}
+
 
 # ---------------------------------------------------------------------------
 # Accessibility
