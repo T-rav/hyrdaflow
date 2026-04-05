@@ -28,6 +28,7 @@ HYDRAFLOW_LABELS: tuple[tuple[str, str, str], ...] = (
     ("epic_child_label", "9b59b6", "Child issue linked to a HydraFlow epic"),
     ("verify_label", "c2e0c6", "Post-merge verification pending"),
     ("parked_label", "c5c5c5", "Issue parked — awaiting author clarification"),
+    ("diagnose_label", "1d76db", "Issue under diagnostic analysis before HITL"),
 )
 
 

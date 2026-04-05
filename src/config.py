@@ -165,6 +165,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("code_grooming_interval", "HYDRAFLOW_CODE_GROOMING_INTERVAL", 86400),
     ("trace_mining_interval", "HYDRAFLOW_TRACE_MINING_INTERVAL", 3600),
     ("repo_wiki_interval", "HYDRAFLOW_REPO_WIKI_INTERVAL", 3600),
+    ("diagnostic_interval", "HYDRAFLOW_DIAGNOSTIC_INTERVAL", 30),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -294,6 +295,7 @@ _ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
     "HYDRAFLOW_LABEL_EPIC_CHILD": ("epic_child_label", ["hydraflow-epic-child"]),
     "HYDRAFLOW_LABEL_VERIFY": ("verify_label", ["hydraflow-verify"]),
     "HYDRAFLOW_LABEL_PARKED": ("parked_label", ["hydraflow-parked"]),
+    "HYDRAFLOW_LABEL_DIAGNOSE": ("diagnose_label", ["hydraflow-diagnose"]),
 }
 
 
@@ -473,6 +475,22 @@ class HydraFlowConfig(BaseModel):
     parked_label: list[str] = Field(
         default=["hydraflow-parked"],
         description="Labels for issues parked awaiting author clarification (OR logic)",
+    )
+    diagnose_label: list[str] = Field(
+        default=["hydraflow-diagnose"],
+        description="Labels for issues in diagnostic analysis (OR logic)",
+    )
+    max_diagnosticians: int = Field(
+        default=1,
+        description="Max concurrent diagnostic workers",
+    )
+    diagnostic_interval: int = Field(
+        default=30,
+        description="Poll interval in seconds for diagnostic loop",
+    )
+    max_diagnostic_attempts: int = Field(
+        default=2,
+        description="Fix attempts before escalating to HITL",
     )
     epic_label: list[str] = Field(
         default=["hydraflow-epic"],
