@@ -158,10 +158,6 @@ class WorkerRegistryCallbacks:
     get_interval: Callable[[str], int]
 
 
-# Keep backward-compatible alias so existing callers can migrate gradually.
-OrchestratorCallbacks = WorkerRegistryCallbacks
-
-
 def build_services(
     config: HydraFlowConfig,
     event_bus: EventBus,
