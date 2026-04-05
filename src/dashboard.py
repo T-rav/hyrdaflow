@@ -22,6 +22,7 @@ from state import StateTracker
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
+    from hindsight import HindsightClient  # noqa: F811
     from orchestrator import HydraFlowOrchestrator
     from repo_runtime import RepoRuntimeRegistry
     from repo_store import RepoRecord, RepoStore
@@ -61,6 +62,7 @@ class HydraFlowDashboard:
         template_dir: Path | None = None,
         static_dir: Path | None = None,
         credentials: Credentials | None = None,
+        hindsight_client: HindsightClient | None = None,
     ) -> None:
         self._config = config
         self._credentials = credentials
@@ -73,6 +75,7 @@ class HydraFlowDashboard:
         self._remove_repo_cb = remove_repo_cb
         self._list_repos_cb = list_repos_cb
         self._default_repo_slug = default_repo_slug
+        self._hindsight_client = hindsight_client
         self._ui_dist_dir = ui_dist_dir if ui_dist_dir is not None else _UI_DIST_DIR
         self._template_dir = template_dir if template_dir is not None else _TEMPLATE_DIR
         self._static_dir = static_dir if static_dir is not None else _STATIC_DIR
@@ -133,6 +136,7 @@ class HydraFlowDashboard:
             remove_repo_cb=self._remove_repo_cb,
             list_repos_cb=self._list_repos_cb,
             default_repo_slug=self._default_repo_slug,
+            hindsight_client=self._hindsight_client,
         )
         app.include_router(router)
 

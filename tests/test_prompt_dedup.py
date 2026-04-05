@@ -1,6 +1,6 @@
 """Tests for PromptDeduplicator."""
 
-from prompt_dedup import PromptDeduplicator
+from prompt_dedup import PromptDeduplicator, _split_paragraphs
 
 
 def test_is_duplicate_first_seen():
@@ -60,19 +60,131 @@ def test_dedup_memories_short_words_ignored():
 
 
 # ------------------------------------------------------------------
-# Architectural coverage: dedup is applied in base_runner, not in
-# agent/planner prompt builders.  These tests verify the contract.
+# dedup_sections tests
+# ------------------------------------------------------------------
+
+
+def test_dedup_sections_no_overlap():
+    """Distinct sections are kept intact."""
+    d = PromptDeduplicator()
+    sections, chars_saved = d.dedup_sections(
+        (
+            "Issue body",
+            "This is a unique paragraph that describes the issue in detail and should not be deduplicated at all.",
+        ),
+        (
+            "Plan",
+            "This is the implementation plan with completely different content that does not overlap with other sections.",
+        ),
+    )
+    assert len(sections) == 2
+    assert chars_saved == 0
+    assert sections[0][0] == "Issue body"
+    assert sections[1][0] == "Plan"
+    # Content should be unchanged
+    assert "unique paragraph" in sections[0][1]
+    assert "implementation plan" in sections[1][1]
+
+
+def test_dedup_sections_duplicate_paragraph():
+    """A paragraph duplicated across sections is replaced with a back-reference."""
+    shared = "This is a long paragraph that appears in both the issue body and the plan section and should be deduplicated."
+    d = PromptDeduplicator()
+    sections, chars_saved = d.dedup_sections(
+        ("Issue body", shared),
+        ("Plan", f"Some unique intro.\n\n{shared}\n\nSome unique outro."),
+    )
+    assert chars_saved > 0
+    # The first section keeps the paragraph
+    assert "long paragraph" in sections[0][1]
+    # The second section has a back-reference instead
+    assert "Content already provided in Issue body" in sections[1][1]
+    # The unique parts of the second section are kept
+    assert "unique intro" in sections[1][1]
+    assert "unique outro" in sections[1][1]
+
+
+def test_dedup_sections_short_paragraphs_kept():
+    """Paragraphs shorter than the threshold are never deduplicated."""
+    short = "Short text."
+    d = PromptDeduplicator()
+    sections, chars_saved = d.dedup_sections(
+        ("A", short),
+        ("B", short),
+    )
+    assert chars_saved == 0
+    assert sections[0][1] == short
+    assert sections[1][1] == short
+
+
+def test_dedup_sections_empty_content():
+    """Empty sections pass through unchanged."""
+    d = PromptDeduplicator()
+    sections, chars_saved = d.dedup_sections(
+        ("A", ""),
+        (
+            "B",
+            "Some real content that is long enough to be considered for deduplication by the algorithm.",
+        ),
+    )
+    assert chars_saved == 0
+    assert sections[0][1] == ""
+    assert "real content" in sections[1][1]
+
+
+def test_dedup_sections_multiple_duplicates():
+    """Multiple paragraphs can be deduped across several sections."""
+    para1 = "First shared paragraph that is long enough to exceed the minimum character threshold for dedup processing."
+    para2 = "Second shared paragraph that is also long enough to be considered a duplicate when seen in another section."
+    d = PromptDeduplicator()
+    sections, chars_saved = d.dedup_sections(
+        ("Issue body", f"{para1}\n\n{para2}"),
+        ("Plan", f"{para1}\n\nUnique plan content here."),
+        ("Memory", f"{para2}\n\nUnique memory content here."),
+    )
+    assert chars_saved > 0
+    # Plan's copy of para1 should be a back-reference
+    assert "Content already provided in Issue body" in sections[1][1]
+    # Memory's copy of para2 should be a back-reference
+    assert "Content already provided in Issue body" in sections[2][1]
+    # Unique content preserved
+    assert "Unique plan content" in sections[1][1]
+    assert "Unique memory content" in sections[2][1]
+
+
+def test_dedup_sections_returns_chars_saved():
+    """chars_saved reflects the total characters replaced."""
+    shared = "A" * 100  # Exactly 100 chars, above the 80-char threshold
+    d = PromptDeduplicator()
+    _, chars_saved = d.dedup_sections(
+        ("A", shared),
+        ("B", shared),
+    )
+    assert chars_saved == 100
+
+
+def test_split_paragraphs():
+    """_split_paragraphs splits on blank lines and drops empties."""
+    text = "para one\n\npara two\n\n\npara three"
+    result = _split_paragraphs(text)
+    assert result == ["para one", "para two", "para three"]
+
+
+def test_split_paragraphs_empty():
+    assert _split_paragraphs("") == []
+    assert _split_paragraphs("\n\n\n") == []
+
+
+# ------------------------------------------------------------------
+# Architectural coverage: dedup is applied in base_runner for memory,
+# and in agent/planner for cross-section paragraph dedup.
 # ------------------------------------------------------------------
 
 
 def test_base_runner_inject_calls_dedup(monkeypatch):
     """BaseRunner._inject_memory uses PromptDeduplicator.
 
-    Agent and planner prompt builders delegate memory injection to the
-    base runner, which already deduplicates across Hindsight banks.
-    No additional dedup is needed in agent.py or planner.py because
-    their prompt sections (plan, review feedback, comments, etc.) are
-    distinct content types that don't overlap with memory items.
+    The base runner deduplicates memory items across Hindsight banks.
     """
     # Read the source to confirm PromptDeduplicator is used in
     # _inject_memory — a structural assertion that the
@@ -86,11 +198,11 @@ def test_base_runner_inject_calls_dedup(monkeypatch):
     assert "dedup_memories" in source
 
 
-def test_agent_prompt_delegates_memory_to_base(monkeypatch):
-    """AgentRunner._build_prompt_with_stats calls _inject_memory.
+def test_agent_prompt_uses_section_dedup(monkeypatch):
+    """AgentRunner._build_prompt_with_stats uses _inject_memory and cross-section dedup.
 
-    This confirms the agent does not build its own memory section — it
-    relies on the base runner's dedup-aware injection.
+    The agent deduplicates overlapping paragraphs across prompt sections
+    (issue body, plan, review feedback, comments, memory) before assembly.
     """
     import inspect
 
@@ -98,15 +210,14 @@ def test_agent_prompt_delegates_memory_to_base(monkeypatch):
 
     source = inspect.getsource(agent_mod.AgentRunner._build_prompt_with_stats)
     assert "_inject_memory" in source
-    # Agent should NOT import or instantiate its own PromptDeduplicator
-    assert "PromptDeduplicator" not in source
+    assert "dedup_sections" in source
 
 
-def test_planner_prompt_delegates_memory_to_base(monkeypatch):
-    """PlannerRunner._build_prompt_with_stats calls _inject_memory.
+def test_planner_prompt_uses_section_dedup(monkeypatch):
+    """PlannerRunner._build_prompt_with_stats uses _inject_memory and cross-section dedup.
 
-    This confirms the planner does not build its own memory section — it
-    relies on the base runner's dedup-aware injection.
+    The planner deduplicates overlapping paragraphs across prompt sections
+    (issue body, comments, research, memory) before assembly.
     """
     import inspect
 
@@ -114,5 +225,4 @@ def test_planner_prompt_delegates_memory_to_base(monkeypatch):
 
     source = inspect.getsource(planner_mod.PlannerRunner._build_prompt_with_stats)
     assert "_inject_memory" in source
-    # Planner should NOT import or instantiate its own PromptDeduplicator
-    assert "PromptDeduplicator" not in source
+    assert "dedup_sections" in source

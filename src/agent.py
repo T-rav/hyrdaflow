@@ -682,6 +682,29 @@ Run through this checklist before your final commit:
             )
         builder.record_context("Issue body", issue.body, body)
 
+        # --- Cross-section paragraph dedup ---
+        from prompt_dedup import PromptDeduplicator  # noqa: PLC0415
+
+        section_deduper = PromptDeduplicator()
+        deduped, section_chars_saved = section_deduper.dedup_sections(
+            ("Issue body", body),
+            ("Implementation plan", plan_section),
+            ("Review feedback", review_feedback_section),
+            ("Prior failure", prior_failure_section),
+            ("Discussion", comments_section),
+            ("Memory", memory_section),
+        )
+        dedup_map = dict(deduped)
+        body = dedup_map["Issue body"]
+        plan_section = dedup_map["Implementation plan"]
+        review_feedback_section = dedup_map["Review feedback"]
+        prior_failure_section = dedup_map["Prior failure"]
+        comments_section = dedup_map["Discussion"]
+        memory_section = dedup_map["Memory"]
+
+        if section_chars_saved:
+            self._last_context_stats["section_dedup_chars_saved"] = section_chars_saved
+
         test_cmd = self._config.test_command  # noqa: F841 — used in f-string prompt
         tools_section = format_tools_for_prompt(discover_tools(self._config.repo_root))
         skills_section = format_skills_for_prompt(get_skills())

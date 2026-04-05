@@ -223,6 +223,17 @@ async def _run_with_dashboard(config: HydraFlowConfig) -> None:
         return repo_store.remove(slug)
 
     credentials = build_credentials(config)
+
+    # Build shared Hindsight client for dashboard routes (if configured).
+    hindsight_client = None
+    if credentials.hindsight_url:
+        from hindsight import HindsightClient  # noqa: PLC0415
+
+        hindsight_client = HindsightClient(
+            credentials.hindsight_url,
+            api_key=credentials.hindsight_api_key,
+            timeout=config.hindsight_timeout,
+        )
     dashboard = HydraFlowDashboard(
         config=config,
         event_bus=bus,
@@ -233,6 +244,7 @@ async def _run_with_dashboard(config: HydraFlowConfig) -> None:
         remove_repo_cb=_remove_repo,
         list_repos_cb=repo_store.list,
         credentials=credentials,
+        hindsight_client=hindsight_client,
     )
     await dashboard.start()
 
