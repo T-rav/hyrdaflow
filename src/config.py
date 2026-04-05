@@ -166,6 +166,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("code_grooming_interval", "HYDRAFLOW_CODE_GROOMING_INTERVAL", 86400),
     ("trace_mining_interval", "HYDRAFLOW_TRACE_MINING_INTERVAL", 3600),
     ("repo_wiki_interval", "HYDRAFLOW_REPO_WIKI_INTERVAL", 3600),
+    ("max_repo_wiki_chars", "HYDRAFLOW_MAX_REPO_WIKI_CHARS", 15_000),
     ("diagnostic_interval", "HYDRAFLOW_DIAGNOSTIC_INTERVAL", 30),
 ]
 

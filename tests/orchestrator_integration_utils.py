@@ -482,7 +482,14 @@ def build_scripted_services(
     services.trace_mining_loop = FakeBackgroundLoop()
     services.repo_wiki_loop = FakeBackgroundLoop()
     services.diagnostic_loop = FakeBackgroundLoop()
-    services.repo_wiki_store = SimpleNamespace()
+    services.repo_wiki_store = SimpleNamespace(
+        is_ingested=MagicMock(return_value=False),
+        mark_ingested=MagicMock(),
+        ingest=MagicMock(),
+        query=MagicMock(return_value=""),
+        active_lint=MagicMock(),
+        list_repos=MagicMock(return_value=[]),
+    )
     services.crate_manager = SimpleNamespace(
         active_crate_number=None,
         check_and_advance=AsyncMock(),

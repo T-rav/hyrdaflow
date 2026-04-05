@@ -82,6 +82,8 @@ class RepoWikiLoop(BaseBackgroundLoop):
                 for topic in DEFAULT_TOPICS:
                     topic_path = self._wiki_store._repo_dir(slug) / f"{topic}.md"
                     entries = self._wiki_store._load_topic_entries(topic_path)
+                    # Compile at 5+ entries (not 2) to avoid burning LLM
+                    # calls on small topics where synthesis adds little value.
                     if len(entries) >= 5:
                         try:
                             after = await self._wiki_compiler.compile_topic(

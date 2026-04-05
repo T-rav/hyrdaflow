@@ -383,6 +383,47 @@ class TestActiveLint:
         assert index is not None
         assert index.last_lint is not None
 
+    def test_no_rebuild_when_unchanged(self, store: RepoWikiStore) -> None:
+        store.ingest(
+            REPO,
+            [WikiEntry(title="Stable", content="Not stale.", source_type="plan")],
+        )
+        result = store.active_lint(REPO)
+        assert result.index_rebuilt is False
+
+    def test_handles_unparseable_created_at(self, store: RepoWikiStore) -> None:
+        store.ingest(
+            REPO,
+            [
+                WikiEntry(
+                    title="Bad timestamp",
+                    content="Stale with bad date.",
+                    source_type="plan",
+                    stale=True,
+                    created_at="not-a-date",
+                ),
+            ],
+        )
+        # Should not raise — age_days falls back to 0, entry preserved
+        result = store.active_lint(REPO)
+        assert result.stale_entries == 1
+        assert result.orphans_pruned == 0
+
+    def test_closed_issues_none_default(self, store: RepoWikiStore) -> None:
+        store.ingest(
+            REPO,
+            [
+                WikiEntry(
+                    title="From issue",
+                    content="Something.",
+                    source_type="plan",
+                    source_issue=42,
+                ),
+            ],
+        )
+        result = store.active_lint(REPO, closed_issues=None)
+        assert result.entries_marked_stale == 0
+
 
 class TestDedupTracking:
     """Tests for ingest deduplication."""
