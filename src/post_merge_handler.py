@@ -269,31 +269,18 @@ class PostMergeHandler:
         if success:
             result.merged = True
             try:
-                from memory_scoring import (  # noqa: PLC0415
-                    MemoryScorer,
-                    OutcomeRecord,
-                    _classify_context,
-                )
+                from memory_scoring import MemoryScorer  # noqa: PLC0415
 
-                quality_rounds = getattr(result, "quality_fix_attempts", 0) or 0
-                review_rounds = getattr(result, "pre_quality_review_attempts", 0) or 0
-                if quality_rounds == 0 and review_rounds <= 1:
-                    merge_outcome, merge_score = "success", 1.0
-                else:
-                    merge_outcome, merge_score = "partial", 0.5
                 scorer = MemoryScorer(self._config.memory_dir)
-                issue_title = issue.title[:80] if issue else ""
-                context = _classify_context(list(issue.tags)) if issue else "feature"
-                scorer.record_outcome(
-                    OutcomeRecord(
-                        issue_id=pr.issue_number,
-                        outcome=merge_outcome,
-                        score=merge_score,
-                        digest_hash=self._state.get_digest_hash(pr.issue_number) or "",
-                        failure_category=None,
-                        summary=f"Merged: {issue_title}" if issue_title else "Merged",
-                        context=context,
-                    )
+                scorer.record_merge_outcome(
+                    issue_id=pr.issue_number,
+                    digest_hash=self._state.get_digest_hash(pr.issue_number) or "",
+                    quality_fix_attempts=getattr(result, "quality_fix_attempts", 0)
+                    or 0,
+                    review_attempts=getattr(result, "pre_quality_review_attempts", 0)
+                    or 0,
+                    tags=list(issue.tags) if issue else [],
+                    issue_title=issue.title if issue else "",
                 )
             except Exception:
                 logger.debug("Failed to record merge outcome", exc_info=True)

@@ -152,6 +152,84 @@ class MemoryScorer:
         except ImportError:
             pass
 
+    def record_merge_outcome(
+        self,
+        *,
+        issue_id: int,
+        digest_hash: str,
+        quality_fix_attempts: int,
+        review_attempts: int,
+        tags: list[str],
+        issue_title: str = "",
+    ) -> None:
+        """Record outcome for a successfully merged PR.
+
+        Encapsulates the scoring rule: clean merge (no quality fixes,
+        ≤1 review round) scores 1.0/success; otherwise 0.5/partial.
+        """
+        if quality_fix_attempts == 0 and review_attempts <= 1:
+            outcome, score = "success", 1.0
+        else:
+            outcome, score = "partial", 0.5
+        context = _classify_context(tags)
+        title_snippet = issue_title[:80] if issue_title else ""
+        self.record_outcome(
+            OutcomeRecord(
+                issue_id=issue_id,
+                outcome=outcome,
+                score=score,
+                digest_hash=digest_hash,
+                failure_category=None,
+                summary=f"Merged: {title_snippet}" if title_snippet else "Merged",
+                context=context,
+            )
+        )
+
+    def record_hitl_outcome(
+        self,
+        *,
+        issue_id: int,
+        digest_hash: str,
+        cause: str,
+        tags: list[str],
+    ) -> None:
+        """Record outcome for an issue escalated to HITL."""
+        context = _classify_context(tags)
+        self.record_outcome(
+            OutcomeRecord(
+                issue_id=issue_id,
+                outcome="failure",
+                score=-1.0,
+                digest_hash=digest_hash,
+                failure_category=cause or "hitl_escalation",
+                summary=f"HITL escalation: {cause}",
+                context=context,
+            )
+        )
+
+    def record_failure_outcome(
+        self,
+        *,
+        issue_id: int,
+        digest_hash: str,
+        failure_category: str,
+        summary: str,
+        tags: list[str],
+    ) -> None:
+        """Record outcome for a failed issue (e.g. max attempts exceeded)."""
+        context = _classify_context(tags)
+        self.record_outcome(
+            OutcomeRecord(
+                issue_id=issue_id,
+                outcome="failure",
+                score=-1.0,
+                digest_hash=digest_hash,
+                failure_category=failure_category,
+                summary=summary,
+                context=context,
+            )
+        )
+
     def update_scores(
         self,
         outcome: OutcomeRecord,
