@@ -772,6 +772,53 @@ class HitlEscalation:
     visual_evidence: VisualEvidence | None = None
 
 
+# --- Diagnostic Self-Healing ---
+
+
+class Severity(StrEnum):
+    """Priority classification for diagnostic escalations."""
+
+    P0_SECURITY = "P0"
+    P1_BLOCKING = "P1"
+    P2_FUNCTIONAL = "P2"
+    P3_WIRING = "P3"
+    P4_HOUSEKEEPING = "P4"
+
+
+class AttemptRecord(BaseModel):
+    """Record of a single diagnostic fix attempt."""
+
+    attempt_number: int
+    changes_made: bool
+    error_summary: str
+    timestamp: str
+
+
+class EscalationContext(BaseModel):
+    """Full context captured at escalation time for the diagnostic agent."""
+
+    cause: str
+    origin_phase: str
+    ci_logs: str | None = None
+    review_comments: list[str] = Field(default_factory=list)
+    pr_diff: str | None = None
+    pr_number: int | None = None
+    code_scanning_alerts: list[str] = Field(default_factory=list)
+    previous_attempts: list[AttemptRecord] = Field(default_factory=list)
+    agent_transcript: str | None = None
+
+
+class DiagnosisResult(BaseModel):
+    """Structured output from diagnostic agent Stage 1."""
+
+    root_cause: str
+    severity: Severity
+    fixable: bool
+    fix_plan: str
+    human_guidance: str
+    affected_files: list[str] = Field(default_factory=list)
+
+
 # --- Reviews ---
 
 
@@ -1512,6 +1559,11 @@ class StateData(BaseModel):
         default_factory=CodeGroomingSettings
     )
     code_grooming_filed: list[str] = Field(default_factory=list)
+    escalation_contexts: dict[str, dict[str, object]] = Field(default_factory=dict)
+    diagnostic_attempts: dict[str, list[dict[str, object]]] = Field(
+        default_factory=dict
+    )
+    diagnosis_severities: dict[str, str] = Field(default_factory=dict)
     last_updated: str | None = None
 
 

@@ -52,6 +52,8 @@ SKIP_LIST: set[str] = {
     "shape_update",
     # System reroute events are internal routing decisions (park, requeue), not dashboard state
     "system_reroute",
+    # Diagnostic events are internal loop state, not dashboard-dispatched
+    "diagnostic_update",
 }
 
 

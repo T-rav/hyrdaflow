@@ -131,25 +131,6 @@ class TestNormalizeIssuePayload:
 
 
 # ---------------------------------------------------------------------------
-# hitl_phase.py — attempt_auto_fixes type annotation
-# ---------------------------------------------------------------------------
-
-
-class TestHITLPhaseTypeAnnotation:
-    """Verify attempt_auto_fixes has correct type annotation."""
-
-    def test_parameter_annotation(self) -> None:
-        import inspect
-
-        from hitl_phase import HITLPhase
-
-        sig = inspect.signature(HITLPhase.attempt_auto_fixes)
-        param = sig.parameters["hitl_issues"]
-        annotation_str = str(param.annotation)
-        assert "GitHubIssue" in annotation_str
-
-
-# ---------------------------------------------------------------------------
 # docker_runner.py — ContainerLike protocol
 # ---------------------------------------------------------------------------
 

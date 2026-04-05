@@ -242,8 +242,8 @@ class TestWaitAndFixCI:
         assert len(ci_comments) == 1
         assert "Failed checks: ci" in ci_comments[0][1]
 
-        # Should swap label to hydraflow-hitl on both issue and PR
-        phase._prs.transition.assert_any_call(42, "hitl", pr_number=101)
+        # Should swap label to hydraflow-diagnose on both issue and PR
+        phase._prs.transition.assert_any_call(42, "diagnose", pr_number=101)
 
     @pytest.mark.asyncio
     async def test_ci_failure_sets_hitl_cause(self, config: HydraFlowConfig) -> None:

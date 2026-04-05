@@ -2039,6 +2039,7 @@ class PRManager:
             "ready": (self._config.ready_label or ["hydraflow-ready"])[0],
             "review": (self._config.review_label or ["hydraflow-review"])[0],
             "hitl": (self._config.hitl_label or ["hydraflow-hitl"])[0],
+            "diagnose": (self._config.diagnose_label or ["hydraflow-diagnose"])[0],
         }
         label = _STAGE_LABEL.get(new_stage, new_stage)
         await self.swap_pipeline_labels(issue_number, label, pr_number=pr_number)

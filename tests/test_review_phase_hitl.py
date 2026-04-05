@@ -91,7 +91,7 @@ class TestHITLEscalationEvents:
         data = escalation_events[0].data
         assert data["issue"] == 42
         assert data["pr"] == 101
-        assert data["status"] == "escalated"
+        assert data["status"] == "diagnostic"
         assert data["role"] == "reviewer"
         assert data["cause"] == "merge_conflict"
 
@@ -123,7 +123,7 @@ class TestHITLEscalationEvents:
         data = escalation_events[0].data
         assert data["issue"] == 42
         assert data["pr"] == 101
-        assert data["status"] == "escalated"
+        assert data["status"] == "diagnostic"
         assert data["role"] == "reviewer"
         assert data["cause"] == "merge_failed"
 
@@ -168,7 +168,7 @@ class TestHITLEscalationEvents:
         data = escalation_events[0].data
         assert data["issue"] == 42
         assert data["pr"] == 101
-        assert data["status"] == "escalated"
+        assert data["status"] == "diagnostic"
         assert data["role"] == "reviewer"
         assert data["cause"] == "ci_failed"
         assert data["ci_fix_attempts"] == 1
@@ -237,7 +237,7 @@ class TestHITLEscalationEvents:
         data = escalation_events[0].data
         assert data["issue"] == 42
         assert data["pr"] == 101
-        assert data["status"] == "escalated"
+        assert data["status"] == "diagnostic"
         assert data["role"] == "reviewer"
         assert data["cause"] == "review_fix_cap_exceeded"
 
@@ -329,7 +329,7 @@ class TestRequestChangesRetry:
     async def test_request_changes_at_cap_escalates_to_hitl(
         self, config: HydraFlowConfig
     ) -> None:
-        """REQUEST_CHANGES at cap should escalate to HITL."""
+        """REQUEST_CHANGES at cap should escalate to diagnostic loop."""
         phase, pr, issue = self._setup_phase_for_retry(config)
         # Set attempts to max
         phase._state.increment_review_attempts(42)
@@ -337,7 +337,7 @@ class TestRequestChangesRetry:
 
         await phase.review_prs([pr], [issue])
 
-        phase._prs.transition.assert_any_await(42, "hitl", pr_number=101)
+        phase._prs.transition.assert_any_await(42, "diagnose", pr_number=101)
 
     @pytest.mark.asyncio
     async def test_request_changes_at_cap_posts_escalation_comment(
@@ -696,7 +696,7 @@ class TestEscalateToHitl:
 
     @pytest.mark.asyncio
     async def test_swaps_labels_on_issue_and_pr(self, config: HydraFlowConfig) -> None:
-        """Should remove review labels and add HITL labels."""
+        """Should remove review labels and add diagnose labels."""
         phase = make_review_phase(config)
         _setup_escalate_to_hitl_mocks(phase)
 
@@ -710,7 +710,7 @@ class TestEscalateToHitl:
             )
         )
 
-        phase._prs.transition.assert_awaited_once_with(42, "hitl", pr_number=101)
+        phase._prs.transition.assert_awaited_once_with(42, "diagnose", pr_number=101)
 
     @pytest.mark.asyncio
     async def test_posts_comment_on_pr_by_default(
@@ -826,7 +826,7 @@ class TestEscalateToHitl:
             )
         )
 
-        phase._store.enqueue_transition.assert_called_once_with(issue, "hitl")
+        phase._store.enqueue_transition.assert_called_once_with(issue, "diagnose")
 
     @pytest.mark.asyncio
     async def test_enqueue_transition_not_called_when_no_task(
@@ -1043,7 +1043,7 @@ class TestHandleVisualFailure:
     async def test_escalation_transitions_to_hitl(
         self, config: HydraFlowConfig, event_bus
     ) -> None:
-        """Should transition the issue to HITL."""
+        """Should transition the issue to diagnostic loop."""
         # Arrange
         phase = _mock_visual_phase(config, event_bus)
 
@@ -1059,7 +1059,7 @@ class TestHandleVisualFailure:
         await phase._handle_visual_failure(pr, task, result, report, 0)
 
         # Assert
-        phase._prs.transition.assert_awaited_once_with(42, "hitl", pr_number=101)
+        phase._prs.transition.assert_awaited_once_with(42, "diagnose", pr_number=101)
 
 
 # ---------------------------------------------------------------------------

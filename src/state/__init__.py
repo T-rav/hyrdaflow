@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 from ._bot_pr import BotPRStateMixin
 from ._ci_monitor import CIMonitorStateMixin
 from ._code_grooming import CodeGroomingStateMixin
+from ._diagnostic import DiagnosticStateMixin
 from ._epic import EpicStateMixin
 from ._hitl import HITLStateMixin
 from ._issue import IssueStateMixin
@@ -64,6 +65,7 @@ class StateTracker(
     SecurityPatchStateMixin,
     CIMonitorStateMixin,
     CodeGroomingStateMixin,
+    DiagnosticStateMixin,
 ):
     """JSON-file backed state for crash recovery.
 

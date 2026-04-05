@@ -1477,6 +1477,16 @@ class ReviewPhase:
             stage=PipelineStage.REVIEW,
         )
         cause = f"CI failed after {ci_fix_attempts} fix attempt(s): {logs[:200]}"
+        # Pre-store richer context with full CI logs before routing to diagnostic loop
+        from models import EscalationContext  # noqa: PLC0415
+
+        context = EscalationContext(
+            cause=cause,
+            origin_phase="review",
+            ci_logs=logs,
+            pr_number=pr.number,
+        )
+        self._state.set_escalation_context(issue.id, context)
         await self._escalate_to_hitl(
             HitlEscalation(
                 issue_number=issue.id,
@@ -1669,7 +1679,19 @@ class ReviewPhase:
         await publish_review_status(self._bus, pr, worker_id, status)
 
     async def _escalate_to_hitl(self, esc: HitlEscalation) -> None:
-        """Record HITL escalation state, swap labels, post comment, publish event."""
+        """Route escalation through diagnostic loop instead of direct HITL."""
+        from models import EscalationContext  # noqa: PLC0415
+
+        # Build escalation context if not already stored by the call site
+        existing = self._state.get_escalation_context(esc.issue_number)
+        if existing is None:
+            context = EscalationContext(
+                cause=esc.cause,
+                origin_phase="review",
+                pr_number=esc.pr_number,
+            )
+            self._state.set_escalation_context(esc.issue_number, context)
+
         self._state.set_hitl_origin(esc.issue_number, esc.origin_label)
         self._state.set_hitl_cause(esc.issue_number, esc.cause)
         self._state.record_hitl_escalation()
@@ -1689,9 +1711,9 @@ class ReviewPhase:
             self._state.set_hitl_visual_evidence(esc.issue_number, esc.visual_evidence)
 
         if esc.task is not None:
-            self._store.enqueue_transition(esc.task, "hitl")
+            self._store.enqueue_transition(esc.task, "diagnose")
         await self._transitioner.transition(
-            esc.issue_number, "hitl", pr_number=esc.pr_number
+            esc.issue_number, "diagnose", pr_number=esc.pr_number
         )
 
         if esc.post_on_pr and esc.pr_number and esc.pr_number > 0:
@@ -1701,7 +1723,7 @@ class ReviewPhase:
 
         event_data: dict[str, object] = {
             "issue": esc.issue_number,
-            "status": "escalated",
+            "status": "diagnostic",
             "role": "reviewer",
             "cause": esc.event_cause or esc.cause,
         }
@@ -1920,11 +1942,22 @@ class ReviewPhase:
                 pr_number=pr.number,
             )
             await self._publish_review_status(pr, worker_id, "escalating")
+            # Pre-store richer context with agent transcript before routing to diagnostic loop
+            from models import EscalationContext  # noqa: PLC0415
+
+            cap_cause = f"Review fix cap exceeded after {max_attempts} attempt(s)"
+            cap_context = EscalationContext(
+                cause=cap_cause,
+                origin_phase="review",
+                pr_number=pr.number,
+                agent_transcript=result.transcript if result.transcript else None,
+            )
+            self._state.set_escalation_context(pr.issue_number, cap_context)
             await self._escalate_to_hitl(
                 HitlEscalation(
                     issue_number=pr.issue_number,
                     pr_number=pr.number,
-                    cause=f"Review fix cap exceeded after {max_attempts} attempt(s)",
+                    cause=cap_cause,
                     origin_label=self._config.review_label[0],
                     comment=(
                         f"**Review fix cap exceeded** — {max_attempts} review fix "

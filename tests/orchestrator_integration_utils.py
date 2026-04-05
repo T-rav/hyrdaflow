@@ -383,9 +383,6 @@ class ScriptedHITLPhase:
     def skip_issue(self, issue_number: int) -> None:
         self._corrections.pop(issue_number, None)
 
-    async def attempt_auto_fixes(self, hitl_issues: list) -> None:
-        pass
-
     async def process_corrections(self) -> None:
         pending = dict(self._corrections)
         self._corrections.clear()
@@ -484,6 +481,7 @@ def build_scripted_services(
     services.code_grooming_loop = FakeBackgroundLoop()
     services.trace_mining_loop = FakeBackgroundLoop()
     services.repo_wiki_loop = FakeBackgroundLoop()
+    services.diagnostic_loop = FakeBackgroundLoop()
     services.repo_wiki_store = SimpleNamespace()
     services.crate_manager = SimpleNamespace(
         active_crate_number=None,

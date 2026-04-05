@@ -1395,8 +1395,8 @@ class TestRetryCapEscalation:
         assert "attempt cap exceeded" in (results[0].error or "")
         assert not agent_called
 
-        # Labels should be swapped to HITL
-        mock_prs.swap_pipeline_labels.assert_any_call(42, "hydraflow-hitl")
+        # Labels should be swapped to diagnostic (routes through diagnostic loop)
+        mock_prs.swap_pipeline_labels.assert_any_call(42, "hydraflow-diagnose")
 
         # Comment should mention attempt cap
         comment_calls = [c.args for c in mock_prs.post_comment.call_args_list]
@@ -1610,7 +1610,7 @@ class TestCheckAttemptCap:
 
         await phase._check_attempt_cap(issue, "agent/issue-42")
 
-        mock_prs.swap_pipeline_labels.assert_any_call(42, "hydraflow-hitl")
+        mock_prs.swap_pipeline_labels.assert_any_call(42, "hydraflow-diagnose")
 
 
 class TestRunImplementation:

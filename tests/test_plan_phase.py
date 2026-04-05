@@ -620,7 +620,7 @@ class TestPlanPhaseAlreadySatisfied:
         # Should escalate to HITL (not swap to dup label)
         prs.swap_pipeline_labels.assert_awaited()
         swap_args = prs.swap_pipeline_labels.call_args.args
-        assert swap_args[1] == config.hitl_label[0]
+        assert swap_args[1] == config.diagnose_label[0]
 
 
 # ---------------------------------------------------------------------------
@@ -987,7 +987,7 @@ class TestPlanPhaseEvidenceValidation:
         # Should escalate to HITL
         prs.swap_pipeline_labels.assert_awaited()
         swap_args = prs.swap_pipeline_labels.call_args.args
-        assert swap_args[1] == config.hitl_label[0]
+        assert swap_args[1] == config.diagnose_label[0]
         assert state.get_hitl_origin(42) is not None
 
     @pytest.mark.asyncio

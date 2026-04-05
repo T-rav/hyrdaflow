@@ -17,7 +17,6 @@ def hitl_phase() -> MagicMock:
     phase.submit_correction = MagicMock()
     phase.get_status = MagicMock(return_value="pending")
     phase.skip_issue = MagicMock()
-    phase.attempt_auto_fixes = AsyncMock()
     phase.process_corrections = AsyncMock()
     return phase
 
@@ -103,22 +102,19 @@ class TestDoWork:
     async def test_fetches_and_processes(
         self, controller: HITLController, fetcher: MagicMock, hitl_phase: MagicMock
     ) -> None:
-        mock_issue = MagicMock()
-        fetcher.fetch_issues_by_labels.return_value = [mock_issue]
+        fetcher.fetch_issues_by_labels.return_value = [MagicMock()]
         await controller.do_work()
         fetcher.fetch_issues_by_labels.assert_awaited_once_with(
             ["hydraflow-hitl"], limit=50
         )
-        hitl_phase.attempt_auto_fixes.assert_awaited_once_with([mock_issue])
         hitl_phase.process_corrections.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_skips_auto_fix_when_no_issues(
+    async def test_processes_corrections_when_no_issues(
         self, controller: HITLController, fetcher: MagicMock, hitl_phase: MagicMock
     ) -> None:
         fetcher.fetch_issues_by_labels.return_value = []
         await controller.do_work()
-        hitl_phase.attempt_auto_fixes.assert_not_awaited()
         hitl_phase.process_corrections.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -129,14 +125,3 @@ class TestDoWork:
         with pytest.raises(RuntimeError, match="network error"):
             await controller.do_work()
         hitl_phase.process_corrections.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_process_corrections_runs_even_if_auto_fix_raises(
-        self, controller: HITLController, fetcher: MagicMock, hitl_phase: MagicMock
-    ) -> None:
-        mock_issue = MagicMock()
-        fetcher.fetch_issues_by_labels.return_value = [mock_issue]
-        hitl_phase.attempt_auto_fixes.side_effect = RuntimeError("boom")
-        with pytest.raises(RuntimeError, match="boom"):
-            await controller.do_work()
-        hitl_phase.process_corrections.assert_awaited_once()

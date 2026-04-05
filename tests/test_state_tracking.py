@@ -93,6 +93,9 @@ class TestInitialization:
             "worker_heartbeats",
             "worker_intervals",
             "worker_result_meta",
+            "escalation_contexts",
+            "diagnostic_attempts",
+            "diagnosis_severities",
         }
         assert set(d.keys()) == expected_keys
 

@@ -769,6 +769,7 @@ class TestPipelineEscalator:
         harness_insights: MagicMock | None = None,
         origin_label: str = "hydraflow-plan",
         hitl_label: str = "hydraflow-hitl",
+        diagnose_label: str = "hydraflow-diagnose",
         stage: PipelineStage = PipelineStage.PLAN,
     ) -> PipelineEscalator:
         return PipelineEscalator(
@@ -778,12 +779,13 @@ class TestPipelineEscalator:
             harness_insights=harness_insights,
             origin_label=origin_label,
             hitl_label=hitl_label,
+            diagnose_label=diagnose_label,
             stage=stage,
         )
 
     @pytest.mark.asyncio
-    async def test_calls_escalate_to_hitl(self) -> None:
-        """Should call escalate_to_hitl with the correct arguments."""
+    async def test_calls_escalate_to_diagnostic(self) -> None:
+        """Should call escalate_to_diagnostic with the correct arguments."""
         state = MagicMock()
         prs = AsyncMock()
         escalator = self._make_escalator(state=state, prs=prs)
@@ -796,14 +798,15 @@ class TestPipelineEscalator:
             category=FailureCategory.PLAN_VALIDATION,
         )
 
+        state.set_escalation_context.assert_called_once()
         state.set_hitl_origin.assert_called_once_with(42, "hydraflow-plan")
         state.set_hitl_cause.assert_called_once_with(42, "Plan failed")
         state.record_hitl_escalation.assert_called_once()
-        prs.swap_pipeline_labels.assert_awaited_once_with(42, "hydraflow-hitl")
+        prs.swap_pipeline_labels.assert_awaited_once_with(42, "hydraflow-diagnose")
 
     @pytest.mark.asyncio
     async def test_enqueues_transition(self) -> None:
-        """Should call store.enqueue_transition(issue, 'hitl')."""
+        """Should call store.enqueue_transition(issue, 'diagnose')."""
         store = MagicMock()
         issue = MagicMock(id=10)
         escalator = self._make_escalator(store=store)
@@ -815,7 +818,7 @@ class TestPipelineEscalator:
             category=FailureCategory.HITL_ESCALATION,
         )
 
-        store.enqueue_transition.assert_called_once_with(issue, "hitl")
+        store.enqueue_transition.assert_called_once_with(issue, "diagnose")
 
     @pytest.mark.asyncio
     async def test_records_harness_failure(self) -> None:
