@@ -273,14 +273,15 @@ class PostMergeHandler:
                     MemoryScorer,
                     OutcomeRecord,
                     _classify_context,
+                    classify_merge_outcome,
                 )
 
-                quality_rounds = getattr(result, "quality_fix_attempts", 0) or 0
-                review_rounds = getattr(result, "pre_quality_review_attempts", 0) or 0
-                if quality_rounds == 0 and review_rounds <= 1:
-                    merge_outcome, merge_score = "success", 1.0
-                else:
-                    merge_outcome, merge_score = "partial", 0.5
+                worker_meta = self._state.get_worker_result_meta(pr.issue_number)
+                quality_rounds = worker_meta.get("quality_fix_attempts", 0) or 0
+                review_rounds = worker_meta.get("pre_quality_review_attempts", 0) or 0
+                merge_outcome, merge_score = classify_merge_outcome(
+                    quality_rounds, review_rounds
+                )
                 scorer = MemoryScorer(self._config.memory_dir)
                 issue_title = issue.title[:80] if issue else ""
                 context = _classify_context(list(issue.tags)) if issue else "feature"

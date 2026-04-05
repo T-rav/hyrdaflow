@@ -12,11 +12,16 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from memory_scoring import (  # noqa: E402
+    _CLEAN_MERGE_MAX_QUALITY_ROUNDS,
+    _CLEAN_MERGE_MAX_REVIEW_ROUNDS,
+    _MERGE_PARTIAL_SCORE,
+    _MERGE_SUCCESS_SCORE,
     KnowledgeGap,
     MemoryScorer,
     OutcomeRecord,
     _failure_is_addressed,
     _word_overlap,
+    classify_merge_outcome,
     detect_knowledge_gaps,
 )
 
@@ -1039,3 +1044,77 @@ class TestRecordOutcomeSentryBreadcrumb:
         assert len(lines) == 1
         data = json.loads(lines[0])
         assert data["issue_id"] == 5
+
+
+# ---------------------------------------------------------------------------
+# TestClassifyMergeOutcome
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyMergeOutcome:
+    """Tests for the classify_merge_outcome domain function."""
+
+    def test_clean_merge_returns_success(self) -> None:
+        """Zero quality rounds and zero review rounds → success."""
+        outcome, score = classify_merge_outcome(0, 0)
+        assert outcome == "success"
+        assert score == _MERGE_SUCCESS_SCORE
+
+    def test_one_review_round_still_success(self) -> None:
+        """Zero quality rounds and one review round → success."""
+        outcome, score = classify_merge_outcome(0, 1)
+        assert outcome == "success"
+        assert score == _MERGE_SUCCESS_SCORE
+
+    def test_quality_rounds_triggers_partial(self) -> None:
+        """Any quality fix rounds → partial."""
+        outcome, score = classify_merge_outcome(1, 0)
+        assert outcome == "partial"
+        assert score == _MERGE_PARTIAL_SCORE
+
+    def test_many_review_rounds_triggers_partial(self) -> None:
+        """More than one review round → partial."""
+        outcome, score = classify_merge_outcome(0, 2)
+        assert outcome == "partial"
+        assert score == _MERGE_PARTIAL_SCORE
+
+    def test_both_high_triggers_partial(self) -> None:
+        """Both quality and review rounds high → partial."""
+        outcome, score = classify_merge_outcome(3, 5)
+        assert outcome == "partial"
+        assert score == _MERGE_PARTIAL_SCORE
+
+    def test_boundary_at_threshold(self) -> None:
+        """Exactly at the threshold boundaries → success."""
+        outcome, score = classify_merge_outcome(
+            _CLEAN_MERGE_MAX_QUALITY_ROUNDS,
+            _CLEAN_MERGE_MAX_REVIEW_ROUNDS,
+        )
+        assert outcome == "success"
+        assert score == _MERGE_SUCCESS_SCORE
+
+    def test_one_past_quality_threshold(self) -> None:
+        """One past quality threshold → partial."""
+        outcome, score = classify_merge_outcome(
+            _CLEAN_MERGE_MAX_QUALITY_ROUNDS + 1,
+            _CLEAN_MERGE_MAX_REVIEW_ROUNDS,
+        )
+        assert outcome == "partial"
+        assert score == _MERGE_PARTIAL_SCORE
+
+    def test_one_past_review_threshold(self) -> None:
+        """One past review threshold → partial."""
+        outcome, score = classify_merge_outcome(
+            _CLEAN_MERGE_MAX_QUALITY_ROUNDS,
+            _CLEAN_MERGE_MAX_REVIEW_ROUNDS + 1,
+        )
+        assert outcome == "partial"
+        assert score == _MERGE_PARTIAL_SCORE
+
+    def test_return_type(self) -> None:
+        """Return type is a tuple of (str, float)."""
+        result = classify_merge_outcome(0, 0)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        assert isinstance(result[0], str)
+        assert isinstance(result[1], float)

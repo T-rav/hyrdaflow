@@ -33,6 +33,17 @@ RELEVANCE_MATRIX: dict[str, list[str] | None] = {
     "knowledge": ["plan_validation", "review_rejection"],
 }
 
+# ---------------------------------------------------------------------------
+# Merge-outcome classification thresholds.
+# A merge is "success" (1.0) when the implementation required zero quality-fix
+# rounds AND at most one pre-quality review round.  Otherwise it is "partial"
+# (0.5).  These named constants make the policy visible and overridable.
+# ---------------------------------------------------------------------------
+_CLEAN_MERGE_MAX_QUALITY_ROUNDS: int = 0
+_CLEAN_MERGE_MAX_REVIEW_ROUNDS: int = 1
+_MERGE_SUCCESS_SCORE: float = 1.0
+_MERGE_PARTIAL_SCORE: float = 0.5
+
 _TRAIL_MAX = 10
 _SCORE_DEFAULT = 0.5
 _DELTA_SUCCESS = 0.1
@@ -104,6 +115,24 @@ def _classify_context(tags: list[str]) -> str:
     if "docs" in lower or "documentation" in lower:
         return "docs"
     return "feature"
+
+
+def classify_merge_outcome(
+    quality_fix_attempts: int,
+    pre_quality_review_attempts: int,
+) -> tuple[Literal["success", "partial"], float]:
+    """Classify a merge as *success* or *partial* based on fix/review rounds.
+
+    Returns:
+        A ``(outcome, score)`` tuple — ``("success", 1.0)`` for clean merges
+        and ``("partial", 0.5)`` otherwise.
+    """
+    if (
+        quality_fix_attempts <= _CLEAN_MERGE_MAX_QUALITY_ROUNDS
+        and pre_quality_review_attempts <= _CLEAN_MERGE_MAX_REVIEW_ROUNDS
+    ):
+        return "success", _MERGE_SUCCESS_SCORE
+    return "partial", _MERGE_PARTIAL_SCORE
 
 
 # ---------------------------------------------------------------------------
