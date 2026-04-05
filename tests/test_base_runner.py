@@ -184,7 +184,7 @@ class TestExecute:
             "cwd": tmp_path,
             "event_data": {"issue": 42},
             "on_output": None,
-            "gh_token": config.gh_token,
+            "gh_token": runner._credentials.gh_token,
         }
         assert {k: call_kwargs[k] for k in expected_kwargs} == expected_kwargs
 
@@ -262,21 +262,20 @@ class TestExecute:
 
 
 # ---------------------------------------------------------------------------
-# _inject_manifest_and_memory
+# _inject_memory
 # ---------------------------------------------------------------------------
 
 
-class TestInjectManifestAndMemory:
-    """Tests for BaseRunner._inject_manifest_and_memory."""
+class TestInjectMemory:
+    """Tests for BaseRunner._inject_memory."""
 
     @pytest.mark.asyncio
     async def test_inject_manifest_always_empty(
         self, config, event_bus: EventBus
     ) -> None:
-        """manifest_section is always empty — manifest loading is done by individual runners."""
+        """returns memory section — manifest loading is done by individual runners."""
         runner = _TestRunner(config, event_bus)
-        manifest_sec, memory_sec = await runner._inject_manifest_and_memory()
-        assert manifest_sec == ""
+        await runner._inject_memory()
 
     @pytest.mark.asyncio
     async def test_inject_memory_empty_without_hindsight(
@@ -284,10 +283,7 @@ class TestInjectManifestAndMemory:
     ) -> None:
         """Without a Hindsight client, memory section is always empty."""
         runner = _TestRunner(config, event_bus)  # no hindsight
-        manifest_sec, memory_sec = await runner._inject_manifest_and_memory(
-            query_context="Fix the widget"
-        )
-        assert manifest_sec == ""
+        memory_sec = await runner._inject_memory(query_context="Fix the widget")
         assert memory_sec == ""
 
     @pytest.mark.asyncio
@@ -295,8 +291,7 @@ class TestInjectManifestAndMemory:
         self, config, event_bus: EventBus
     ) -> None:
         runner = _TestRunner(config, event_bus)
-        manifest_sec, memory_sec = await runner._inject_manifest_and_memory()
-        assert manifest_sec == ""
+        memory_sec = await runner._inject_memory()
         assert memory_sec == ""
 
     @pytest.mark.asyncio
@@ -314,9 +309,7 @@ class TestInjectManifestAndMemory:
             new_callable=AsyncMock,
             return_value=memories,
         ):
-            manifest_sec, memory_sec = await runner._inject_manifest_and_memory(
-                query_context="Fix the widget"
-            )
+            memory_sec = await runner._inject_memory(query_context="Fix the widget")
 
         assert "## Accumulated Learnings" in memory_sec
         assert "Always run lint before committing" in memory_sec
@@ -334,9 +327,7 @@ class TestInjectManifestAndMemory:
             new_callable=AsyncMock,
             return_value=[],
         ):
-            _, memory_sec = await runner._inject_manifest_and_memory(
-                query_context="Fix the widget"
-            )
+            memory_sec = await runner._inject_memory(query_context="Fix the widget")
 
         assert memory_sec == ""
 
@@ -346,9 +337,7 @@ class TestInjectManifestAndMemory:
     ) -> None:
         """Without a Hindsight client, memory is always empty regardless of query."""
         runner = _TestRunner(config, event_bus)
-        _, memory_sec = await runner._inject_manifest_and_memory(
-            query_context="Fix the widget"
-        )
+        memory_sec = await runner._inject_memory(query_context="Fix the widget")
         assert memory_sec == ""
 
     @pytest.mark.asyncio
@@ -363,7 +352,7 @@ class TestInjectManifestAndMemory:
             "hindsight.recall_safe",
             new_callable=AsyncMock,
         ) as mock_recall:
-            _, memory_sec = await runner._inject_manifest_and_memory(query_context="")
+            memory_sec = await runner._inject_memory(query_context="")
 
         # Hindsight should not be called with an empty query
         mock_recall.assert_not_called()
@@ -391,9 +380,7 @@ class TestInjectManifestAndMemory:
             new_callable=AsyncMock,
             side_effect=_recall_side_effect,
         ):
-            _, memory_sec = await runner._inject_manifest_and_memory(
-                query_context="Fix import issue"
-            )
+            memory_sec = await runner._inject_memory(query_context="Fix import issue")
 
         assert "## Known Troubleshooting Patterns" in memory_sec
         assert "Check import paths first" in memory_sec
@@ -422,9 +409,7 @@ class TestInjectManifestAndMemory:
             new_callable=AsyncMock,
             side_effect=_recall_side_effect,
         ):
-            _, memory_sec = await runner._inject_manifest_and_memory(
-                query_context="CI failure"
-            )
+            memory_sec = await runner._inject_memory(query_context="CI failure")
 
         assert "## Past Retrospectives" in memory_sec
         assert "Sprint 5" in memory_sec
@@ -453,9 +438,7 @@ class TestInjectManifestAndMemory:
             new_callable=AsyncMock,
             side_effect=_recall_side_effect,
         ):
-            _, memory_sec = await runner._inject_manifest_and_memory(
-                query_context="issue context"
-            )
+            memory_sec = await runner._inject_memory(query_context="issue context")
 
         learnings_pos = memory_sec.index("LEARNING_ITEM")
         troubleshoot_pos = memory_sec.index("TROUBLESHOOT_ITEM")
@@ -483,9 +466,7 @@ class TestInjectManifestAndMemory:
             new_callable=AsyncMock,
             side_effect=_recall_side_effect,
         ):
-            _, memory_sec = await runner._inject_manifest_and_memory(
-                query_context="big query"
-            )
+            memory_sec = await runner._inject_memory(query_context="big query")
 
         # Leading "\n\n" prepended to combined, but the combined itself is capped
         # Total memory_section must not be vastly larger than max_chars + small overhead
@@ -514,9 +495,7 @@ class TestInjectManifestAndMemory:
 
         with patch("hindsight.recall_safe", side_effect=_flaky_recall):
             # Should not raise
-            _, memory_sec = await runner._inject_manifest_and_memory(
-                query_context="Fix something"
-            )
+            memory_sec = await runner._inject_memory(query_context="Fix something")
 
         # Learnings should still appear
         assert "## Accumulated Learnings" in memory_sec

@@ -11,7 +11,7 @@ The codebase has four layers. Dependencies MUST flow inward only (higher layers 
 ```
 Layer 4 — Infrastructure/Adapters (I/O, external systems)
   pr_manager.py, worktree.py, merge_conflict_resolver.py,
-  pr_unsticker.py, post_merge_handler.py, dashboard.py, dashboard_routes/
+  post_merge_handler.py, dashboard.py, dashboard_routes/
 
 Layer 3 — Runners (subprocess orchestration, agent invocation)
   base_runner.py, agent.py, planner.py, reviewer.py,
@@ -19,7 +19,8 @@ Layer 3 — Runners (subprocess orchestration, agent invocation)
 
 Layer 2 — Application (phase coordination, workflow orchestration)
   orchestrator.py, plan_phase.py, implement_phase.py, review_phase.py,
-  triage_phase.py, hitl_phase.py, phase_utils.py, base_background_loop.py,
+  triage_phase.py, hitl_phase.py, phase_utils.py, pr_unsticker.py,
+  base_background_loop.py,
   *_loop.py (background loops)
 
 Layer 1 — Domain (pure data, business rules, no I/O)
@@ -69,9 +70,9 @@ Assign each source file to a layer:
 | Layer | Files | Role |
 |-------|-------|------|
 | 1 — Domain | models.py, config.py | Pure data models, business rules, no I/O |
-| 2 — Application | orchestrator.py, *_phase.py, phase_utils.py, base_background_loop.py, *_loop.py | Workflow coordination, phase management |
+| 2 — Application | orchestrator.py, *_phase.py, phase_utils.py, pr_unsticker.py, base_background_loop.py, *_loop.py | Workflow coordination, phase management |
 | 3 — Runners | base_runner.py, agent.py, planner.py, reviewer.py, hitl_runner.py, triage_runner.py, runner_utils.py | Agent subprocess management |
-| 4 — Infrastructure | pr_manager.py, worktree.py, merge_conflict_resolver.py, pr_unsticker.py, post_merge_handler.py, dashboard.py, dashboard_routes/ | I/O, external tools, HTTP endpoints |
+| 4 — Infrastructure | pr_manager.py, worktree.py, merge_conflict_resolver.py, post_merge_handler.py, dashboard.py, dashboard_routes/ | I/O, external tools, HTTP endpoints |
 | X — Cross-cutting | events.py, state/, service_registry.py | Shared infrastructure (imports only from Layer 1) |
 
 ## Steps

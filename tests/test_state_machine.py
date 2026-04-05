@@ -99,7 +99,6 @@ def _make_config(labels: list[str] | None = None) -> MagicMock:
     config.hitl_active_label = ["hydraflow-hitl-active"]
     config.fixed_label = ["hydraflow-fixed"]
     config.repo = "org/repo"
-    config.gh_token = None
     config.dry_run = False
     return config
 

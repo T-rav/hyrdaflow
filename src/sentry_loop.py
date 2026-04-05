@@ -17,7 +17,7 @@ from urllib.parse import quote
 import httpx
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
-from config import HydraFlowConfig
+from config import Credentials, HydraFlowConfig
 
 if TYPE_CHECKING:
     from execution import SubprocessRunner
@@ -40,6 +40,7 @@ class SentryLoop(BaseBackgroundLoop):
         deps: LoopDeps,
         store: IssueStore | None = None,
         runner: SubprocessRunner | None = None,
+        credentials: Credentials | None = None,
     ) -> None:
         super().__init__(
             worker_name="sentry_ingest",
@@ -50,6 +51,7 @@ class SentryLoop(BaseBackgroundLoop):
         self._prs = prs
         self._store = store
         self._runner = runner
+        self._credentials = credentials or Credentials()
         self._active_procs: set[asyncio.subprocess.Process] = set()
         self._filed: set[str] = set()  # Sentry issue IDs already filed
 
@@ -57,7 +59,7 @@ class SentryLoop(BaseBackgroundLoop):
         return self._config.sentry_poll_interval
 
     def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self._config.sentry_auth_token}"}
+        return {"Authorization": f"Bearer {self._credentials.sentry_auth_token}"}
 
     def _exists_in_local_cache(self, sentry_id: str) -> bool:
         """Check the local issue store for an existing issue with this Sentry ID."""
@@ -67,7 +69,7 @@ class SentryLoop(BaseBackgroundLoop):
         return any(marker in task.body for task in self._store._issue_cache.values())
 
     async def _do_work(self) -> dict[str, Any] | None:
-        if not self._config.sentry_auth_token or not self._config.sentry_org:
+        if not self._credentials.sentry_auth_token or not self._config.sentry_org:
             return {"skipped": True, "reason": "no credentials"}
 
         projects = await self._list_projects()
@@ -312,7 +314,7 @@ class SentryLoop(BaseBackgroundLoop):
                 event_data=event_data,
                 logger=logger,
                 runner=self._runner,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             match = _ISSUE_URL_RE.search(transcript)
             if match:

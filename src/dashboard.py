@@ -1,7 +1,7 @@
 """Live web dashboard for HydraFlow — FastAPI + WebSocket.
 
-Provides the ``HydraFlowDashboard`` class for embedding and a
-module-level :func:`serve` entry-point that replaces the former CLI.
+Provides the ``HydraFlowDashboard`` class for embedding into the
+HydraFlow server process.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app_version import get_app_version
-from config import HydraFlowConfig
+from config import Credentials, HydraFlowConfig
 from events import EventBus
 from pr_manager import PRManager
 from state import StateTracker
@@ -22,6 +22,7 @@ from state import StateTracker
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
+    from hindsight import HindsightClient  # noqa: F811
     from orchestrator import HydraFlowOrchestrator
     from repo_runtime import RepoRuntimeRegistry
     from repo_store import RepoRecord, RepoStore
@@ -60,8 +61,11 @@ class HydraFlowDashboard:
         ui_dist_dir: Path | None = None,
         template_dir: Path | None = None,
         static_dir: Path | None = None,
+        credentials: Credentials | None = None,
+        hindsight_client: HindsightClient | None = None,
     ) -> None:
         self._config = config
+        self._credentials = credentials
         self._bus = event_bus
         self._state = state
         self._orchestrator = orchestrator
@@ -71,6 +75,7 @@ class HydraFlowDashboard:
         self._remove_repo_cb = remove_repo_cb
         self._list_repos_cb = list_repos_cb
         self._default_repo_slug = default_repo_slug
+        self._hindsight_client = hindsight_client
         self._ui_dist_dir = ui_dist_dir if ui_dist_dir is not None else _UI_DIST_DIR
         self._template_dir = template_dir if template_dir is not None else _TEMPLATE_DIR
         self._static_dir = static_dir if static_dir is not None else _STATIC_DIR
@@ -113,7 +118,7 @@ class HydraFlowDashboard:
                 name="static",
             )
 
-        pr_mgr = PRManager(self._config, self._bus)
+        pr_mgr = PRManager(self._config, self._bus, credentials=self._credentials)
         router = create_router(
             config=self._config,
             event_bus=self._bus,
@@ -124,12 +129,14 @@ class HydraFlowDashboard:
             set_run_task=self._set_run_task,
             ui_dist_dir=ui_dist_dir,
             template_dir=self._template_dir,
+            credentials=self._credentials,
             registry=self._registry,
             repo_store=self._repo_store,
             register_repo_cb=self._register_repo_cb,
             remove_repo_cb=self._remove_repo_cb,
             list_repos_cb=self._list_repos_cb,
             default_repo_slug=self._default_repo_slug,
+            hindsight_client=self._hindsight_client,
         )
         app.include_router(router)
 
@@ -185,14 +192,3 @@ class HydraFlowDashboard:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._server_task
         logger.info("Dashboard stopped")
-
-
-def serve() -> None:
-    """Module-level entry point that starts the HydraFlow server.
-
-    Reads configuration from environment variables and config files
-    (no CLI arguments), then delegates to :func:`server.main`.
-    """
-    from server import main  # noqa: PLC0415
-
-    main()

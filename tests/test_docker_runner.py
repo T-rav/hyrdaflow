@@ -12,7 +12,7 @@ import pytest
 
 docker = pytest.importorskip("docker", reason="docker package not installed")
 
-from config import HydraFlowConfig
+from config import Credentials, HydraFlowConfig
 from docker_runner import (
     DockerProcess,
     DockerRunner,
@@ -1085,9 +1085,12 @@ class TestGetDockerRunner:
             docker_image="hydra:latest",
         ).resolve_defaults()
 
+        creds = Credentials(gh_token="ghp_bot_token")
         mock_client = _make_mock_docker_client()
         with patch("docker.from_env", return_value=mock_client):
-            runner = get_docker_runner(cfg, docker_checker=lambda: True)
+            runner = get_docker_runner(
+                cfg, docker_checker=lambda: True, credentials=creds
+            )
             assert isinstance(runner, DockerRunner)
             await runner.create_streaming_process(["claude", "-p"], cwd=str(repo_root))
 
@@ -1551,7 +1554,10 @@ class TestEnsureClientLogging:
         # First ping fails, second (after retry) succeeds
         client.ping.side_effect = [ConnectionError("daemon down"), True]
 
-        with patch("docker_runner.logger") as mock_logger:
+        with (
+            patch("docker_runner.logger") as mock_logger,
+            patch("docker.from_env", return_value=client),
+        ):
             runner._ensure_client(max_retries=1, delay=0.01)
 
         # Should have logged initial failure at debug level

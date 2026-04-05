@@ -357,36 +357,6 @@ class TestMemoryState:
 # --- Manifest State ---
 
 
-class TestManifestState:
-    """Tests for get_manifest_state / update_manifest_state."""
-
-    def test_get_manifest_state_defaults(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        manifest_hash, last_updated = tracker.get_manifest_state()
-        assert manifest_hash == ""
-        assert last_updated is None
-
-    def test_update_manifest_state_persists(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        tracker.update_manifest_state("hash123")
-        manifest_hash, last_updated = tracker.get_manifest_state()
-        assert manifest_hash == "hash123"
-
-    def test_update_manifest_state_sets_timestamp(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        tracker.update_manifest_state("hash")
-        _, last_updated = tracker.get_manifest_state()
-        assert last_updated is not None
-        assert "T" in last_updated
-
-    def test_update_manifest_state_overwrites(self, tmp_path: Path) -> None:
-        tracker = make_tracker(tmp_path)
-        tracker.update_manifest_state("first")
-        tracker.update_manifest_state("second")
-        manifest_hash, _ = tracker.get_manifest_state()
-        assert manifest_hash == "second"
-
-
 # --- Interrupted Issues ---
 
 

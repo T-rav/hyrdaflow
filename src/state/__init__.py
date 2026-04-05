@@ -23,7 +23,7 @@ from file_util import atomic_write, rotate_backups
 from models import IssueOutcomeType, StateData, ThresholdProposal
 
 if TYPE_CHECKING:
-    from dolt_backend import DoltBackend
+    from ports import StateBackendPort
 
 from ._bot_pr import BotPRStateMixin
 from ._ci_monitor import CIMonitorStateMixin
@@ -45,7 +45,7 @@ logger = logging.getLogger("hydraflow.state")
 
 _V = TypeVar("_V")
 
-__all__ = ["StateTracker", "build_state_tracker"]
+__all__ = ["StateTracker"]
 
 
 class StateTracker(
@@ -98,7 +98,7 @@ class StateTracker(
         self,
         state_file: Path,
         *,
-        dolt: DoltBackend | None = None,
+        dolt: StateBackendPort | None = None,
         backup_interval: int = 300,
         backup_count: int = 3,
     ) -> None:
@@ -119,7 +119,7 @@ class StateTracker(
         the most recent ``.bak`` file before falling back to an empty
         :class:`StateData`.
         """
-        if self._dolt:
+        if self._dolt is not None:
             try:
                 loaded = self._dolt.load_state()
                 if loaded and isinstance(loaded, dict):
@@ -196,14 +196,14 @@ class StateTracker(
             self.backup()
         self._data.last_updated = datetime.now(UTC).isoformat()
         data = self._data.model_dump_json(indent=2)
-        if self._dolt:
+        if self._dolt is not None:
             self._dolt.save_state(data)
         else:
             atomic_write(self._path, data)
 
     def commit_state(self, message: str = "state update") -> None:
         """Create a Dolt version commit (no-op when using file backend)."""
-        if self._dolt:
+        if self._dolt is not None:
             self._dolt.commit(message)
 
     # --- reset ---
@@ -263,23 +263,3 @@ class StateTracker(
         self.reset_issue_attempts(issue_number)
         self.clear_review_feedback(issue_number)
         return proposals
-
-
-def build_state_tracker(config: Any) -> StateTracker:
-    """Construct a ``StateTracker`` with the best available backend.
-
-    Uses embedded Dolt when the ``dolt`` CLI is installed, otherwise
-    falls back to JSON-file persistence.
-    """
-    dolt_backend = None
-    try:
-        from dolt_backend import DoltBackend
-
-        dolt_dir = Path(str(config.state_file)).parent / "dolt"
-        dolt_backend = DoltBackend(dolt_dir)
-        logger.info("Dolt state backend enabled at %s", dolt_dir)
-    except FileNotFoundError:
-        logger.info("dolt CLI not found — using file-based state")
-    except Exception:
-        logger.warning("Dolt init failed — using file-based state", exc_info=True)
-    return StateTracker(config.state_file, dolt=dolt_backend)

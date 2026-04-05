@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -44,7 +44,7 @@ class TestCrashRecoveryActiveIssues:
         assert recovered == {10, 20}
 
     def test_crash_recovery_skips_first_cycle(self, config: HydraFlowConfig) -> None:
-        """Recovered issues should be in _active_impl_issues for one cycle."""
+        """Recovered issues should be in implementer.active_issues for one cycle."""
         orch = HydraFlowOrchestrator(config)
         mock_fetcher_noop(orch)
         orch._state.set_active_issue_numbers([10, 20])
@@ -54,11 +54,11 @@ class TestCrashRecoveryActiveIssues:
         orch._running = True
         recovered = set(orch._state.get_active_issue_numbers())
         orch._recovered_issues = recovered
-        orch._active_impl_issues.update(recovered)
+        orch._svc.implementer.active_issues.update(recovered)
 
         # Before first cycle: recovered issues are in active set
-        assert 10 in orch._active_impl_issues
-        assert 20 in orch._active_impl_issues
+        assert 10 in orch._svc.implementer.active_issues
+        assert 20 in orch._svc.implementer.active_issues
 
     def test_crash_recovery_clears_after_cycle(self, config: HydraFlowConfig) -> None:
         """After one cycle, recovered issues should be cleared from active sets."""
@@ -69,15 +69,17 @@ class TestCrashRecoveryActiveIssues:
         # Simulate startup
         recovered = set(orch._state.get_active_issue_numbers())
         orch._recovered_issues = recovered
-        orch._active_impl_issues.update(recovered)
+        orch._svc.implementer.active_issues.update(recovered)
 
         # Simulate what _implement_loop does at the start of a cycle
         if orch._recovered_issues:
-            orch._active_impl_issues -= orch._recovered_issues
+            orch._svc.implementer.active_issues.difference_update(
+                orch._recovered_issues
+            )
             orch._recovered_issues.clear()
 
-        assert 10 not in orch._active_impl_issues
-        assert 20 not in orch._active_impl_issues
+        assert 10 not in orch._svc.implementer.active_issues
+        assert 20 not in orch._svc.implementer.active_issues
         assert len(orch._recovered_issues) == 0
 
 
@@ -795,163 +797,6 @@ class TestTranscriptSummaryFiling:
 
 
 # ---------------------------------------------------------------------------
-# _post_run_hooks — deduplicated memory + summary helper
-# ---------------------------------------------------------------------------
-
-
-class TestPostRunHooks:
-    """Tests for the extracted _post_run_hooks helper."""
-
-    @pytest.mark.asyncio
-    async def test_calls_memory_suggestion_and_summarize(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """Happy path: both memory suggestion and summarize are called."""
-        orch = HydraFlowOrchestrator(config)
-        orch._svc.summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
-
-        with patch(
-            "phase_utils.file_memory_suggestion", new_callable=AsyncMock
-        ) as mock_mem:
-            await orch._post_run_hooks(
-                transcript="some transcript",
-                source="implementer",
-                reference="issue #42",
-                issue_number=42,
-                phase="implement",
-                status="success",
-                duration_seconds=10.0,
-                log_file=".hydraflow/logs/issue-42.txt",
-            )
-            mock_mem.assert_awaited_once()
-        orch._svc.summarizer.summarize_and_comment.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_memory_suggestion_failure_does_not_block_summarize(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """Exception in memory suggestion must not prevent summarize."""
-        orch = HydraFlowOrchestrator(config)
-        orch._svc.summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
-
-        with patch(
-            "phase_utils.file_memory_suggestion",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("boom"),
-        ):
-            await orch._post_run_hooks(
-                transcript="transcript",
-                source="implementer",
-                reference="issue #1",
-                issue_number=1,
-                phase="implement",
-                status="success",
-                duration_seconds=5.0,
-                log_file="log.txt",
-            )
-        orch._svc.summarizer.summarize_and_comment.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_summarize_failure_does_not_propagate(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """Exception in summarize must not propagate to caller."""
-        orch = HydraFlowOrchestrator(config)
-        orch._svc.summarizer.summarize_and_comment = AsyncMock(  # type: ignore[method-assign]
-            side_effect=RuntimeError("summarize failed")
-        )
-
-        with patch("phase_utils.file_memory_suggestion", new_callable=AsyncMock):
-            # Should not raise
-            await orch._post_run_hooks(
-                transcript="transcript",
-                source="reviewer",
-                reference="PR #99",
-                issue_number=99,
-                phase="review",
-                status="completed",
-                duration_seconds=2.0,
-                log_file="log.txt",
-            )
-        orch._svc.summarizer.summarize_and_comment.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_skips_summarize_when_issue_number_zero(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """When issue_number is 0 (review edge case), summarize is skipped."""
-        orch = HydraFlowOrchestrator(config)
-        orch._svc.summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
-
-        with patch(
-            "phase_utils.file_memory_suggestion", new_callable=AsyncMock
-        ) as mock_mem:
-            await orch._post_run_hooks(
-                transcript="transcript",
-                source="reviewer",
-                reference="PR #50",
-                issue_number=0,
-                phase="review",
-                status="completed",
-                duration_seconds=1.0,
-                log_file="log.txt",
-            )
-            mock_mem.assert_awaited_once()
-        orch._svc.summarizer.summarize_and_comment.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_passes_correct_args_to_memory_suggestion(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """Verify argument forwarding to file_memory_suggestion."""
-        orch = HydraFlowOrchestrator(config)
-        orch._svc.summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
-
-        with patch(
-            "phase_utils.file_memory_suggestion", new_callable=AsyncMock
-        ) as mock_mem:
-            await orch._post_run_hooks(
-                transcript="tx",
-                source="implementer",
-                reference="issue #7",
-                issue_number=7,
-                phase="implement",
-                status="failed",
-                duration_seconds=3.5,
-                log_file="logs/issue-7.txt",
-            )
-            mock_mem.assert_awaited_once_with("tx", "implementer", "issue #7", ANY)
-
-    @pytest.mark.asyncio
-    async def test_passes_correct_args_to_summarize(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """Verify argument forwarding to summarize_and_comment."""
-        orch = HydraFlowOrchestrator(config)
-        orch._svc.summarizer.summarize_and_comment = AsyncMock()  # type: ignore[method-assign]
-
-        with patch("phase_utils.file_memory_suggestion", new_callable=AsyncMock):
-            await orch._post_run_hooks(
-                transcript="tx",
-                source="implementer",
-                reference="issue #7",
-                issue_number=7,
-                phase="implement",
-                status="failed",
-                duration_seconds=3.5,
-                log_file="logs/issue-7.txt",
-            )
-        orch._svc.summarizer.summarize_and_comment.assert_awaited_once_with(
-            transcript="tx",
-            issue_number=7,
-            phase="implement",
-            status="failed",
-            duration_seconds=3.5,
-            log_file="logs/issue-7.txt",
-        )
-
-
-# ---------------------------------------------------------------------------
 # _start_session / _end_session / _restore_state — extracted from run()
 # ---------------------------------------------------------------------------
 
@@ -1077,8 +922,8 @@ class TestRestoreState:
 
         assert orch._bg_workers.worker_intervals.get("memory_sync") == 120
         assert orch._recovered_issues == {10, 20}
-        assert 10 in orch._active_impl_issues
-        assert 20 in orch._active_impl_issues
+        assert 10 in orch._svc.implementer.active_issues
+        assert 20 in orch._svc.implementer.active_issues
 
     def test_clears_interrupted_issues(self, config: HydraFlowConfig) -> None:
         """_restore_state should remove interrupted issues from all tracking sets."""
@@ -1087,7 +932,7 @@ class TestRestoreState:
         orch._state.set_active_issue_numbers([10, 20])
         orch._state.set_interrupted_issues({10: "implement", 20: "review"})
         # Pre-populate review and HITL sets so the discard calls are actually exercised
-        orch._active_review_issues.update([10, 20])
+        orch._svc.reviewer.active_issues.update([10, 20])
         orch._svc.hitl_phase.active_hitl_issues.update([10, 20])
 
         orch._restore_state()
@@ -1095,10 +940,10 @@ class TestRestoreState:
         # Interrupted issues removed from all four tracking sets
         assert 10 not in orch._recovered_issues
         assert 20 not in orch._recovered_issues
-        assert 10 not in orch._active_impl_issues
-        assert 20 not in orch._active_impl_issues
-        assert 10 not in orch._active_review_issues
-        assert 20 not in orch._active_review_issues
+        assert 10 not in orch._svc.implementer.active_issues
+        assert 20 not in orch._svc.implementer.active_issues
+        assert 10 not in orch._svc.reviewer.active_issues
+        assert 20 not in orch._svc.reviewer.active_issues
         assert 10 not in orch._svc.hitl_phase.active_hitl_issues
         assert 20 not in orch._svc.hitl_phase.active_hitl_issues
 

@@ -545,7 +545,7 @@ class TestGenerate:
                 issue_number=42, pr_number=101, issue=issue, diff=SAMPLE_DIFF
             )
 
-        assert mock_stream.call_args[1]["gh_token"] == config.gh_token
+        assert mock_stream.call_args[1]["gh_token"] == gen._credentials.gh_token
         mock_prs.post_comment.assert_awaited_once()
         call_args = mock_prs.post_comment.call_args
         assert call_args[0][0] == 42  # issue number
@@ -746,7 +746,7 @@ class TestRunPrecheckContext:
         assert call_kwargs["cmd"] == ["cmd"]
         assert call_kwargs["prompt"] == "prompt"
         assert call_kwargs["event_data"]["source"] == "ac_precheck"
-        assert call_kwargs["gh_token"] == cfg.gh_token
+        assert call_kwargs["gh_token"] == gen._credentials.gh_token
 
     @pytest.mark.asyncio
     async def test_execute_debug_closure_uses_ac_precheck_debug_source(
@@ -786,4 +786,41 @@ class TestRunPrecheckContext:
 
         mock_stream.assert_called_once()
         assert mock_stream.call_args[1]["event_data"]["source"] == "ac_precheck_debug"
-        assert mock_stream.call_args[1]["gh_token"] == cfg.gh_token
+        assert mock_stream.call_args[1]["gh_token"] == gen._credentials.gh_token
+
+
+# ---------------------------------------------------------------------------
+# Credentials wiring
+# ---------------------------------------------------------------------------
+
+
+class TestAcceptanceCriteriaGeneratorCredentials:
+    """Verify that AcceptanceCriteriaGenerator correctly wires the credentials parameter."""
+
+    def test_default_credentials_constructed_when_none_passed(
+        self, tmp_path: Path
+    ) -> None:
+        """When no credentials are passed, a default Credentials() is used."""
+        from unittest.mock import AsyncMock
+
+        from config import Credentials
+        from events import EventBus
+
+        config = ConfigFactory.create(repo_root=tmp_path / "repo")
+        gen = AcceptanceCriteriaGenerator(config, AsyncMock(), EventBus())
+        assert isinstance(gen._credentials, Credentials)
+
+    def test_explicit_credentials_stored(self, tmp_path: Path) -> None:
+        """When credentials are provided, they are stored without modification."""
+        from unittest.mock import AsyncMock
+
+        from config import Credentials
+        from events import EventBus
+
+        creds = Credentials(gh_token="test-token-abc")
+        config = ConfigFactory.create(repo_root=tmp_path / "repo")
+        gen = AcceptanceCriteriaGenerator(
+            config, AsyncMock(), EventBus(), credentials=creds
+        )
+        assert gen._credentials is creds
+        assert gen._credentials.gh_token == "test-token-abc"

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from config import HydraFlowConfig
+from config import Credentials, HydraFlowConfig
 from dashboard_routes import RouteContext
 from events import EventBus
 from state import StateTracker
@@ -20,6 +20,7 @@ def _make_ctx(
     state: StateTracker,
     tmp_path: Path,
     *,
+    credentials: Credentials | None = None,
     registry: object | None = None,
     repo_store: object | None = None,
     register_repo_cb: object | None = None,
@@ -34,6 +35,7 @@ def _make_ctx(
     pr_mgr = PRManager(config, event_bus)
     return RouteContext(
         config=config,
+        credentials=credentials or Credentials(),
         event_bus=event_bus,
         state=state,
         pr_manager=pr_mgr,
@@ -325,6 +327,7 @@ class TestRouteContextServeSpaIndex:
 
         ctx = RouteContext(
             config=config,
+            credentials=Credentials(),
             event_bus=event_bus,
             state=state,
             pr_manager=PRManager(config, event_bus),
@@ -354,6 +357,7 @@ class TestRouteContextServeSpaIndex:
 
         ctx = RouteContext(
             config=config,
+            credentials=Credentials(),
             event_bus=event_bus,
             state=state,
             pr_manager=PRManager(config, event_bus),
@@ -460,6 +464,7 @@ class TestRouteContextHitlSummaryRetryDue:
         # Use a very long cooldown — a recent failure should block retry.
         ctx = RouteContext(
             config=config,
+            credentials=Credentials(),
             event_bus=event_bus,
             state=state,
             pr_manager=PRManager(config, event_bus),
@@ -578,8 +583,8 @@ class TestRouteContextComputeHitlSummary:
     ) -> None:
         config.transcript_summarization_enabled = True
         config.dry_run = False
-        config.gh_token = "tok"
-        ctx = _make_ctx(config, event_bus, state, tmp_path)
+        creds = Credentials(gh_token="tok")
+        ctx = _make_ctx(config, event_bus, state, tmp_path, credentials=creds)
         ctx.issue_fetcher = MagicMock()
         ctx.issue_fetcher.fetch_issue_by_number = AsyncMock(return_value=None)
 
@@ -599,8 +604,8 @@ class TestRouteContextComputeHitlSummary:
     ) -> None:
         config.transcript_summarization_enabled = True
         config.dry_run = False
-        config.gh_token = "tok"
-        ctx = _make_ctx(config, event_bus, state, tmp_path)
+        creds = Credentials(gh_token="tok")
+        ctx = _make_ctx(config, event_bus, state, tmp_path, credentials=creds)
         issue = MagicMock()
         issue.number = 42
         issue.title = "Test issue"
@@ -628,8 +633,8 @@ class TestRouteContextComputeHitlSummary:
     ) -> None:
         config.transcript_summarization_enabled = True
         config.dry_run = False
-        config.gh_token = "tok"
-        ctx = _make_ctx(config, event_bus, state, tmp_path)
+        creds = Credentials(gh_token="tok")
+        ctx = _make_ctx(config, event_bus, state, tmp_path, credentials=creds)
         issue = MagicMock()
         issue.number = 10
         issue.title = "Test"
@@ -656,8 +661,8 @@ class TestRouteContextComputeHitlSummary:
     ) -> None:
         config.transcript_summarization_enabled = True
         config.dry_run = False
-        config.gh_token = "tok"
-        ctx = _make_ctx(config, event_bus, state, tmp_path)
+        creds = Credentials(gh_token="tok")
+        ctx = _make_ctx(config, event_bus, state, tmp_path, credentials=creds)
         issue = MagicMock()
         issue.number = 11
         issue.title = "Test"

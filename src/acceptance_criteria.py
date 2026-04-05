@@ -15,7 +15,7 @@ from precheck import run_precheck_context
 from runner_utils import stream_claude_process, terminate_processes
 
 if TYPE_CHECKING:
-    from config import HydraFlowConfig
+    from config import Credentials, HydraFlowConfig
     from events import EventBus
     from execution import SubprocessRunner
     from models import GitHubIssue
@@ -38,8 +38,12 @@ class AcceptanceCriteriaGenerator:
         prs: PRManager,
         event_bus: EventBus,
         runner: SubprocessRunner | None = None,
+        credentials: Credentials | None = None,
     ) -> None:
+        from config import Credentials
+
         self._config = config
+        self._credentials = credentials or Credentials()
         self._prs = prs
         self._bus = event_bus
         self._active_procs: set[asyncio.subprocess.Process] = set()
@@ -94,7 +98,7 @@ class AcceptanceCriteriaGenerator:
             logger=logger,
             timeout=self._config.agent_timeout,
             runner=self._runner,
-            gh_token=self._config.gh_token,
+            gh_token=self._credentials.gh_token,
         )
 
         criteria = self._extract_criteria(transcript, issue_number, pr_number)
@@ -222,7 +226,7 @@ Diff summary:
                 logger=logger,
                 timeout=self._config.agent_timeout,
                 runner=self._runner,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
 
         async def execute_debug(cmd: list[str], p: str) -> str:
@@ -240,7 +244,7 @@ Diff summary:
                 logger=logger,
                 timeout=self._config.agent_timeout,
                 runner=self._runner,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
 
         return await run_precheck_context(

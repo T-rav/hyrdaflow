@@ -8,7 +8,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
-from config import HydraFlowConfig
+from config import Credentials, HydraFlowConfig
 from state import StateTracker
 from subprocess_util import run_subprocess
 
@@ -36,8 +36,10 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
         state: StateTracker,
         deps: LoopDeps,
         is_in_pipeline_cb: Callable[[int], bool] | None = None,
+        credentials: Credentials | None = None,
     ) -> None:
         super().__init__(worker_name="workspace_gc", config=config, deps=deps)
+        self._credentials = credentials or Credentials()
         self._workspaces = workspaces
         self._prs = prs
         self._state = state
@@ -171,7 +173,7 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
                 "--jq",
                 ".labels[].name",
                 cwd=self._config.repo_root,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
         except Exception:
             logger.debug(
@@ -192,7 +194,7 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
             "--jq",
             ".state",
             cwd=self._config.repo_root,
-            gh_token=self._config.gh_token,
+            gh_token=self._credentials.gh_token,
         )
         return output.strip()
 
@@ -213,7 +215,7 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
                 "--jq",
                 "length",
                 cwd=self._config.repo_root,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             return int(output.strip() or "0") > 0
         except (RuntimeError, ValueError):
@@ -271,7 +273,7 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
                 "--list",
                 "agent/issue-*",
                 cwd=self._config.repo_root,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
         except RuntimeError:
             logger.warning("GC: could not list local branches", exc_info=True)
@@ -302,7 +304,7 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
                     "-D",
                     branch,
                     cwd=self._config.repo_root,
-                    gh_token=self._config.gh_token,
+                    gh_token=self._credentials.gh_token,
                 )
                 self._state.remove_branch(issue_number)
                 collected += 1

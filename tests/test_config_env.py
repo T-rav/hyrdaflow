@@ -479,13 +479,20 @@ class TestDotenvLoading:
 
     def test_server_main_invokes_load_dotenv(self) -> None:
         """server.main() should call load_dotenv before config resolution."""
+        import sys
+        import types
         from unittest.mock import MagicMock, patch
 
         mock_config = MagicMock()
         mock_config.dashboard_enabled = False
 
+        # The dotenv package may not be installed in the test environment.
+        # Ensure a mock module is available so the local import inside main() succeeds.
+        fake_dotenv = types.ModuleType("dotenv")
+        fake_dotenv.load_dotenv = MagicMock()  # type: ignore[attr-defined]
+
         with (
-            patch("dotenv.load_dotenv") as mock_dotenv,
+            patch.dict(sys.modules, {"dotenv": fake_dotenv}),
             patch("server.load_runtime_config", return_value=mock_config),
             patch("server.asyncio.run"),
             patch("server.setup_logging"),
@@ -494,4 +501,4 @@ class TestDotenvLoading:
             from server import main
 
             main()
-            mock_dotenv.assert_called_once()
+            fake_dotenv.load_dotenv.assert_called_once()

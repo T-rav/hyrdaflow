@@ -166,7 +166,6 @@ class TestPRManagerTransitionerConformance:
 
         config = MagicMock()
         config.repo = "org/repo"
-        config.gh_token = None
         config.dry_run = False
         event_bus = MagicMock()
         return PRManager(config, event_bus)
@@ -206,7 +205,6 @@ class TestPRManagerTransitionerDelegation:
 
         config = MagicMock()
         config.repo = "org/repo"
-        config.gh_token = None
         config.dry_run = False
         config.find_label = ["hydraflow-find"]
         config.planner_label = ["hydraflow-plan"]

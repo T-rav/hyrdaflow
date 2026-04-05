@@ -10,7 +10,7 @@ from config import HydraFlowConfig
 from models import ReviewVerdict
 
 if TYPE_CHECKING:
-    from github_cache import GitHubDataCache
+    from github_cache_loop import GitHubDataCache
     from ports import PRPort
     from state import StateTracker
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from manifest import PYTHON_MARKERS
+from polyglot_prep import PYTHON_MARKERS
 
 # ---------------------------------------------------------------------------
 # Language detection

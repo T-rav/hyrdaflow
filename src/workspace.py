@@ -17,7 +17,7 @@ import shutil
 import stat
 from pathlib import Path
 
-from config import HydraFlowConfig
+from config import Credentials, HydraFlowConfig
 from subprocess_util import run_subprocess
 
 logger = logging.getLogger("hydraflow.workspace")
@@ -38,8 +38,11 @@ class WorkspaceManager:
     - Pre-commit hooks installed (symlinked path in host mode, copied files in docker mode)
     """
 
-    def __init__(self, config: HydraFlowConfig) -> None:
+    def __init__(
+        self, config: HydraFlowConfig, credentials: Credentials | None = None
+    ) -> None:
         self._config = config
+        self._credentials = credentials or Credentials()
         self._repo_root = config.repo_root
         self._base = config.workspace_base
         self._ui_dirs = self._detect_ui_dirs()
@@ -100,7 +103,7 @@ class WorkspaceManager:
                 "get-url",
                 "origin",
                 cwd=self._repo_root,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             url = output.strip()
             match = self._ORIGIN_HTTPS_RE.search(url) or self._ORIGIN_SSH_RE.search(url)
@@ -136,7 +139,7 @@ class WorkspaceManager:
                         "origin",
                         *refs,
                         cwd=cwd,
-                        gh_token=self._config.gh_token,
+                        gh_token=self._credentials.gh_token,
                     )
                     return
                 except RuntimeError as exc:
@@ -163,7 +166,7 @@ class WorkspaceManager:
                 "-D",
                 branch,
                 cwd=self._repo_root,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
 
     async def _remote_branch_exists(self, branch: str) -> bool:
@@ -176,7 +179,7 @@ class WorkspaceManager:
                 "origin",
                 branch,
                 cwd=self._repo_root,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             return bool(output.strip())
         except RuntimeError:
@@ -195,7 +198,7 @@ class WorkspaceManager:
         """
         repo = self._repo_root
         main = self._config.main_branch
-        gh = self._config.gh_token
+        gh = self._credentials.gh_token
 
         # Fetch latest main for worktree creation
         await self._fetch_origin_with_retry(repo, main)
@@ -245,7 +248,7 @@ class WorkspaceManager:
         if not wt_path.exists():
             return
 
-        gh = self._config.gh_token
+        gh = self._credentials.gh_token
         branch = self._config.branch_for_issue(issue_number)
 
         # Check for uncommitted changes
@@ -343,7 +346,7 @@ class WorkspaceManager:
             "get-url",
             "origin",
             cwd=self._repo_root,
-            gh_token=self._config.gh_token,
+            gh_token=self._credentials.gh_token,
         )
         return output.strip()
 
@@ -400,7 +403,7 @@ class WorkspaceManager:
                 str(self._repo_root),
                 str(wt_path),
                 cwd=self._repo_root,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
 
             # Point origin at the real remote (GitHub), not the local repo
@@ -411,7 +414,7 @@ class WorkspaceManager:
                 "origin",
                 origin_url,
                 cwd=wt_path,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
 
             # Fetch latest state from real remote
@@ -430,14 +433,14 @@ class WorkspaceManager:
                     "origin",
                     f"+refs/heads/{branch}:refs/heads/{branch}",
                     cwd=wt_path,
-                    gh_token=self._config.gh_token,
+                    gh_token=self._credentials.gh_token,
                 )
                 await run_subprocess(
                     "git",
                     "checkout",
                     branch,
                     cwd=wt_path,
-                    gh_token=self._config.gh_token,
+                    gh_token=self._credentials.gh_token,
                 )
             else:
                 # Create a fresh branch from main
@@ -448,7 +451,7 @@ class WorkspaceManager:
                     branch,
                     f"origin/{self._config.main_branch}",
                     cwd=wt_path,
-                    gh_token=self._config.gh_token,
+                    gh_token=self._credentials.gh_token,
                 )
 
             # Set up the environment inside the workspace
@@ -528,7 +531,7 @@ class WorkspaceManager:
             "--ff-only",
             f"origin/{branch}",
             cwd=worktree_path,
-            gh_token=self._config.gh_token,
+            gh_token=self._credentials.gh_token,
         )
         await run_subprocess(
             "git",
@@ -536,7 +539,7 @@ class WorkspaceManager:
             f"origin/{self._config.main_branch}",
             "--no-edit",
             cwd=worktree_path,
-            gh_token=self._config.gh_token,
+            gh_token=self._credentials.gh_token,
         )
         return True
 
@@ -553,14 +556,14 @@ class WorkspaceManager:
             "--hard",
             f"origin/{self._config.main_branch}",
             cwd=worktree_path,
-            gh_token=self._config.gh_token,
+            gh_token=self._credentials.gh_token,
         )
         await run_subprocess(
             "git",
             "clean",
             "-fd",
             cwd=worktree_path,
-            gh_token=self._config.gh_token,
+            gh_token=self._credentials.gh_token,
         )
         logger.info(
             "Reset worktree %s to origin/%s", worktree_path, self._config.main_branch
@@ -584,7 +587,7 @@ class WorkspaceManager:
                     "merge",
                     "--abort",
                     cwd=worktree_path,
-                    gh_token=self._config.gh_token,
+                    gh_token=self._credentials.gh_token,
                 )
             return False
 
@@ -611,7 +614,7 @@ class WorkspaceManager:
                 "merge",
                 "--abort",
                 cwd=worktree_path,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
 
     async def get_conflicting_files(self, worktree_path: Path) -> list[str]:
@@ -627,7 +630,7 @@ class WorkspaceManager:
                 "--name-only",
                 "--diff-filter=U",
                 cwd=worktree_path,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             return [f.strip() for f in output.strip().splitlines() if f.strip()]
         except RuntimeError:
@@ -656,7 +659,7 @@ class WorkspaceManager:
                 "HEAD",
                 f"origin/{self._config.main_branch}",
                 cwd=worktree_path,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             base_sha = merge_base.strip()
             if not base_sha:
@@ -669,7 +672,7 @@ class WorkspaceManager:
                 "--",
                 *files,
                 cwd=worktree_path,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             result = diff_output.strip()
             if len(result) > max_chars:
@@ -695,7 +698,7 @@ class WorkspaceManager:
                 f"HEAD..origin/{self._config.main_branch}",
                 "-30",
                 cwd=worktree_path,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             return output.strip()
         except RuntimeError:
@@ -716,7 +719,7 @@ class WorkspaceManager:
                 "rerere.enabled",
                 "true",
                 cwd=self._repo_root,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             logger.info("git rerere enabled")
         except (RuntimeError, FileNotFoundError):
@@ -824,7 +827,7 @@ class WorkspaceManager:
                     "user.name",
                     self._config.git_user_name,
                     cwd=wt_path,
-                    gh_token=self._config.gh_token,
+                    gh_token=self._credentials.gh_token,
                 )
             if self._config.git_user_email:
                 await run_subprocess(
@@ -833,7 +836,7 @@ class WorkspaceManager:
                     "user.email",
                     self._config.git_user_email,
                     cwd=wt_path,
-                    gh_token=self._config.gh_token,
+                    gh_token=self._credentials.gh_token,
                 )
         except RuntimeError as exc:
             logger.warning("git identity config failed in %s: %s", wt_path, exc)
@@ -842,7 +845,7 @@ class WorkspaceManager:
         """Create an independent venv in the worktree via ``uv sync``."""
         try:
             await run_subprocess(
-                "uv", "sync", cwd=wt_path, gh_token=self._config.gh_token
+                "uv", "sync", cwd=wt_path, gh_token=self._credentials.gh_token
             )
         except (RuntimeError, FileNotFoundError) as exc:
             logger.warning("uv sync failed in %s: %s", wt_path, exc)
@@ -864,7 +867,7 @@ class WorkspaceManager:
                     "core.hooksPath",
                     ".githooks",
                     cwd=wt_path,
-                    gh_token=self._config.gh_token,
+                    gh_token=self._credentials.gh_token,
                 )
             except RuntimeError as exc:
                 logger.warning("git hooks setup failed: %s", exc)
@@ -884,7 +887,7 @@ class WorkspaceManager:
                 "--git-path",
                 "hooks",
                 cwd=wt_path,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             hooks_dir = Path(hooks_dir_str.strip())
             if not hooks_dir.is_absolute():

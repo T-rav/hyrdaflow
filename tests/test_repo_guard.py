@@ -224,7 +224,6 @@ class TestWorktreeOriginValidation:
         config.repo_slug = repo.replace("/", "-") if repo else ""
         config.workspace_base = Path("/tmp/worktrees")  # noqa: S108
         config.main_branch = "main"
-        config.gh_token = ""
         config.dry_run = False
         config.ui_dirs = []
         # Prevent auto-detection from scanning filesystem

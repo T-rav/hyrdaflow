@@ -466,23 +466,46 @@ class TestRegistryForwarding:
 
 
 # ---------------------------------------------------------------------------
-# serve() module-level entry point
+# Circular import guard (issue #5958)
 # ---------------------------------------------------------------------------
 
 
-class TestServeEntryPoint:
-    """Tests for the module-level serve() function."""
+class TestNoCircularImport:
+    """Verify server.py and dashboard.py have no circular import dependency."""
 
-    def test_serve_delegates_to_server_main(self) -> None:
-        """serve() should call server.main() with no arguments."""
-        with patch("server.main") as mock_main:
-            from dashboard import serve
+    def test_serve_not_importable_from_dashboard(self) -> None:
+        """serve() was removed to break the circular import cycle."""
+        import importlib
 
-            serve()
-            mock_main.assert_called_once_with()
+        mod = importlib.import_module("dashboard")
+        assert not hasattr(mod, "serve")
 
-    def test_serve_is_importable(self) -> None:
-        """serve() should be importable from the dashboard module."""
-        from dashboard import serve
+    def test_dashboard_does_not_import_server_at_module_level(self) -> None:
+        """dashboard module must not import server at module scope."""
+        import importlib
+        import sys
 
-        assert callable(serve)
+        # Remove cached modules so the import runs fresh
+        sys.modules.pop("dashboard", None)
+        sys.modules.pop("server", None)
+
+        importlib.import_module("dashboard")
+
+        assert "server" not in sys.modules, (
+            "dashboard.py imports 'server' at module level, creating a circular dependency"
+        )
+
+    def test_server_does_not_import_dashboard_at_module_level(self) -> None:
+        """server module must not import dashboard at module scope."""
+        import importlib
+        import sys
+
+        # Remove cached modules so the import runs fresh
+        sys.modules.pop("dashboard", None)
+        sys.modules.pop("server", None)
+
+        importlib.import_module("server")
+
+        assert "dashboard" not in sys.modules, (
+            "server.py imports 'dashboard' at module level, creating a circular dependency"
+        )

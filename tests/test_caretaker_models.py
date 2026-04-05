@@ -26,7 +26,7 @@ class TestStaleIssueSettings:
             StaleIssueSettings(staleness_days=1)
 
     def test_state_roundtrip(self, tmp_path: object) -> None:
-        config = HydraFlowConfig(repo_root=str(tmp_path), gh_token="fake")
+        config = HydraFlowConfig(repo_root=str(tmp_path))
         state = StateTracker(config.state_file)
         state.set_stale_issue_settings(
             StaleIssueSettings(staleness_days=60, excluded_labels=["keep"])
@@ -36,7 +36,7 @@ class TestStaleIssueSettings:
         assert loaded.excluded_labels == ["keep"]
 
     def test_closed_tracking(self, tmp_path: object) -> None:
-        config = HydraFlowConfig(repo_root=str(tmp_path), gh_token="fake")
+        config = HydraFlowConfig(repo_root=str(tmp_path))
         state = StateTracker(config.state_file)
         state.add_stale_issue_closed(42)
         state.add_stale_issue_closed(99)
@@ -53,7 +53,7 @@ class TestSecurityPatchSettings:
         assert s.severity_levels == ["critical"]
 
     def test_state_roundtrip(self, tmp_path: object) -> None:
-        config = HydraFlowConfig(repo_root=str(tmp_path), gh_token="fake")
+        config = HydraFlowConfig(repo_root=str(tmp_path))
         state = StateTracker(config.state_file)
         state.set_security_patch_settings(
             SecurityPatchSettings(severity_levels=["critical", "high", "medium"])
@@ -62,7 +62,7 @@ class TestSecurityPatchSettings:
         assert "medium" in loaded.severity_levels
 
     def test_processed_tracking(self, tmp_path: object) -> None:
-        config = HydraFlowConfig(repo_root=str(tmp_path), gh_token="fake")
+        config = HydraFlowConfig(repo_root=str(tmp_path))
         state = StateTracker(config.state_file)
         state.add_security_patch_processed("alert-123")
         assert "alert-123" in state.get_security_patch_processed()
@@ -82,14 +82,14 @@ class TestCIMonitorSettings:
         assert s.branch == "develop"
 
     def test_state_roundtrip(self, tmp_path: object) -> None:
-        config = HydraFlowConfig(repo_root=str(tmp_path), gh_token="fake")
+        config = HydraFlowConfig(repo_root=str(tmp_path))
         state = StateTracker(config.state_file)
         state.set_ci_monitor_settings(CIMonitorSettings(branch="develop"))
         loaded = state.get_ci_monitor_settings()
         assert loaded.branch == "develop"
 
     def test_tracked_failures(self, tmp_path: object) -> None:
-        config = HydraFlowConfig(repo_root=str(tmp_path), gh_token="fake")
+        config = HydraFlowConfig(repo_root=str(tmp_path))
         state = StateTracker(config.state_file)
         state.set_ci_monitor_tracked_failures({"CI": "run-123"})
         assert state.get_ci_monitor_tracked_failures() == {"CI": "run-123"}
@@ -120,7 +120,7 @@ class TestCodeGroomingSettings:
         assert s.min_priority == "P0"
 
     def test_state_roundtrip(self, tmp_path: object) -> None:
-        config = HydraFlowConfig(repo_root=str(tmp_path), gh_token="fake")
+        config = HydraFlowConfig(repo_root=str(tmp_path))
         state = StateTracker(config.state_file)
         state.set_code_grooming_settings(
             CodeGroomingSettings(max_issues_per_cycle=3, min_priority="P0")
@@ -130,7 +130,7 @@ class TestCodeGroomingSettings:
         assert loaded.min_priority == "P0"
 
     def test_filed_tracking(self, tmp_path: object) -> None:
-        config = HydraFlowConfig(repo_root=str(tmp_path), gh_token="fake")
+        config = HydraFlowConfig(repo_root=str(tmp_path))
         state = StateTracker(config.state_file)
         state.add_code_grooming_filed("lint:some-finding")
         state.add_code_grooming_filed("complexity:another")

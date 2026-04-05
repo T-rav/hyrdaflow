@@ -17,7 +17,7 @@ from models import ADRCouncilResult, CouncilVerdict, CouncilVote
 from subprocess_util import make_clean_env, run_subprocess
 
 if TYPE_CHECKING:
-    from config import HydraFlowConfig
+    from config import Credentials, HydraFlowConfig
     from events import EventBus
     from execution import SubprocessRunner
     from pr_manager import PRManager
@@ -59,8 +59,12 @@ class ADRCouncilReviewer:
         event_bus: EventBus,
         pr_manager: PRManager,
         runner: SubprocessRunner,
+        credentials: Credentials | None = None,
     ) -> None:
+        from config import Credentials
+
         self._config = config
+        self._credentials = credentials or Credentials()
         self._bus = event_bus
         self._runner = runner
         self._pre_validator = ADRPreValidator()
@@ -449,7 +453,7 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
             tool=tool, model=model, prompt=prompt
         )
 
-        env = make_clean_env(self._config.gh_token)
+        env = make_clean_env(self._credentials.gh_token)
         try:
             result = await self._runner.run_simple(
                 cmd,
@@ -824,7 +828,7 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
                 branch,
                 str(worktree_path),
                 cwd=repo_root,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
 
             # Copy updated files into the worktree
@@ -838,7 +842,7 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
                 "add",
                 str(wt_adr_path.relative_to(worktree_path)),
                 cwd=worktree_path,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
 
             if readme_path.exists():
@@ -852,7 +856,7 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
                     "add",
                     str(wt_readme.relative_to(worktree_path)),
                     cwd=worktree_path,
-                    gh_token=self._config.gh_token,
+                    gh_token=self._credentials.gh_token,
                 )
 
             minority = (
@@ -870,7 +874,7 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
                 "-m",
                 message,
                 cwd=worktree_path,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             await run_subprocess(
                 "git",
@@ -879,7 +883,7 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
                 "origin",
                 branch,
                 cwd=worktree_path,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
         except RuntimeError:
             logger.exception("Failed to commit ADR-%04d acceptance", result.adr_number)
@@ -894,7 +898,7 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
                     str(worktree_path),
                     "--force",
                     cwd=repo_root,
-                    gh_token=self._config.gh_token,
+                    gh_token=self._credentials.gh_token,
                 )
             except RuntimeError:
                 logger.debug("Worktree cleanup failed for %s", worktree_path)
@@ -926,7 +930,7 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
                 "--head",
                 branch,
                 cwd=repo_root,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
         except RuntimeError:
             logger.exception("Failed to create PR for ADR-%04d", result.adr_number)

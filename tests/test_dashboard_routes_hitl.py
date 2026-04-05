@@ -11,6 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from config import Credentials
 from events import EventBus, EventType
 from models import HITLItem
 from tests.conftest import make_orchestrator_mock, make_state
@@ -85,11 +86,13 @@ class TestHITLEndpointCause:
         """Recent summary failures should suppress warm task creation until cooldown."""
         config.transcript_summarization_enabled = True
         config.dry_run = False
-        config.gh_token = "test-token"
+        creds = Credentials(gh_token="test-token")
 
         state.set_hitl_summary_failure(42, "model timeout")
 
-        router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
+        router, pr_mgr = make_dashboard_router(
+            config, event_bus, state, tmp_path, credentials=creds
+        )
 
         hitl_item = HITLItem(issue=42, title="Needs context", pr=0)
         pr_mgr.list_hitl_items = AsyncMock(return_value=[hitl_item])  # type: ignore[method-assign]
@@ -915,7 +918,7 @@ class TestBuildHitlContextNoneBody:
         from tests.conftest import IssueFactory
 
         config.transcript_summarization_enabled = True
-        config.gh_token = "fake-token"
+        creds = Credentials(gh_token="fake-token")
 
         # Build a GitHubIssue and force body to None
         issue = IssueFactory.create(number=99, title="Test issue")
@@ -945,7 +948,9 @@ class TestBuildHitlContextNoneBody:
             ),
         ):
             # Re-create router to pick up the patched classes
-            router2, _ = make_dashboard_router(config, event_bus, state, tmp_path)
+            router2, _ = make_dashboard_router(
+                config, event_bus, state, tmp_path, credentials=creds
+            )
 
             # Find the HITL summary endpoint
             endpoint = find_endpoint(router2, "/api/hitl/{issue_number}/summary")

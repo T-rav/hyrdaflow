@@ -15,7 +15,7 @@ from prompt_stats import build_prompt_stats, truncate_with_notice
 
 if TYPE_CHECKING:
     from agent import AgentRunner
-    from config import HydraFlowConfig
+    from config import Credentials, HydraFlowConfig
     from events import EventBus
     from hitl_runner import HITLRunner
     from issue_store import IssueStore
@@ -111,7 +111,10 @@ class PRUnsticker:
         resolver: MergeConflictResolver | None = None,
         troubleshooting_store: TroubleshootingPatternStore | None = None,
         store: IssueStore | None = None,
+        credentials: Credentials | None = None,
     ) -> None:
+        from config import Credentials as _Credentials  # noqa: PLC0415
+
         self._config = config
         self._state = state
         self._bus = event_bus
@@ -124,6 +127,7 @@ class PRUnsticker:
         self._resolver = resolver
         self._troubleshooting_store = troubleshooting_store
         self._store = store
+        self._credentials = credentials or _Credentials()
         self._suggest_memory = MemorySuggester(config, pr_manager, state)
 
     async def unstick(self, hitl_items: list[HITLItem]) -> UnstickResult:
@@ -764,7 +768,7 @@ If nothing novel, output exactly: NO_NEW_PATTERN"""
             tool=tool, model=model, prompt=prompt
         )
 
-        env = make_clean_env(self._config.gh_token)
+        env = make_clean_env(self._credentials.gh_token)
 
         try:
             result = await self._agents._runner.run_simple(

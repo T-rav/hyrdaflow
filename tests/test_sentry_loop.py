@@ -38,12 +38,13 @@ def _make_sentry_issue(
 
 
 def _make_loop(config, prs, deps):
+    from config import Credentials
     from sentry_loop import SentryLoop
 
-    object.__setattr__(config, "sentry_auth_token", "sntryu_test")
     object.__setattr__(config, "sentry_org", "test-org")
     object.__setattr__(config, "sentry_project_filter", "")
-    return SentryLoop(config=config, prs=prs, deps=deps)
+    creds = Credentials(sentry_auth_token="sntryu_test")
+    return SentryLoop(config=config, prs=prs, deps=deps, credentials=creds)
 
 
 def _make_deps():
@@ -64,13 +65,17 @@ class TestSentryLoopDoWork:
 
     @pytest.mark.asyncio
     async def test_skips_when_no_credentials(self, tmp_path: Path) -> None:
+        from config import Credentials
         from sentry_loop import SentryLoop
 
         config = ConfigFactory.create(repo_root=tmp_path)
+        # Ensure no credentials even if .env provides them
+        object.__setattr__(config, "sentry_org", "")
         deps = _make_deps()
         prs = MagicMock()
+        creds = Credentials(sentry_auth_token="")
 
-        loop = SentryLoop(config=config, prs=prs, deps=deps)
+        loop = SentryLoop(config=config, prs=prs, deps=deps, credentials=creds)
         result = await loop._do_work()
 
         assert result is not None

@@ -1479,8 +1479,6 @@ class StateData(BaseModel):
     memory_issue_ids: list[int] = Field(default_factory=list)
     memory_digest_hash: str = ""
     memory_last_synced: str | None = None
-    manifest_hash: str = ""
-    manifest_last_updated: str | None = None
     metrics_last_snapshot_hash: str = ""
     metrics_last_synced: str | None = None
     worker_intervals: dict[str, int] = Field(default_factory=dict)
@@ -2382,13 +2380,6 @@ class PRInfoExtract(NamedTuple):
     pr_number: int | None
     url: str
     branch: str
-
-
-class ManifestRefreshResult(NamedTuple):
-    """Result of a manifest refresh."""
-
-    content: str
-    digest_hash: str
 
 
 class InstructionsQualityResult(NamedTuple):

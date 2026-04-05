@@ -109,8 +109,7 @@ class TestCaptureIfBug:
 
     def test_captures_type_error(self) -> None:
         """TypeError should be sent to Sentry."""
-        sys.modules.pop("phase_utils", None)
-        from phase_utils import capture_if_bug
+        from exception_classify import capture_if_bug
 
         _mock_sentry.capture_exception.reset_mock()
         capture_if_bug(TypeError("bad arg"))
@@ -118,8 +117,7 @@ class TestCaptureIfBug:
 
     def test_skips_runtime_error(self) -> None:
         """RuntimeError (transient) should become a breadcrumb, not a capture."""
-        sys.modules.pop("phase_utils", None)
-        from phase_utils import capture_if_bug
+        from exception_classify import capture_if_bug
 
         _mock_sentry.capture_exception.reset_mock()
         _mock_sentry.add_breadcrumb.reset_mock()

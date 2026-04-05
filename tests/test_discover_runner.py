@@ -83,4 +83,4 @@ class TestBuildPrompt:
         assert "DISCOVER_START" in prompt
         assert "DISCOVER_END" in prompt
         assert "competitors" in prompt.lower()
-        assert "user needs" in prompt.lower()
+        assert "user_needs" in prompt.lower()

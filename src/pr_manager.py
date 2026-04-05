@@ -17,7 +17,7 @@ from typing import Any, Literal, TypeVar
 from urllib.parse import quote
 
 from comment_formatter import CommentFormatter, SelfReviewError
-from config import HydraFlowConfig
+from config import Credentials, HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from models import (
     CICheckPayload,
@@ -66,9 +66,15 @@ class PRManager:
 
     _REPO_SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 
-    def __init__(self, config: HydraFlowConfig, event_bus: EventBus) -> None:
+    def __init__(
+        self,
+        config: HydraFlowConfig,
+        event_bus: EventBus,
+        credentials: Credentials | None = None,
+    ) -> None:
         self._config = config
         self._bus = event_bus
+        self._credentials = credentials or Credentials()
         self._repo = config.repo
         self._repo_owner = config.repo.split("/", 1)[0] if "/" in config.repo else ""
         self._max_retries = config.gh_max_retries
@@ -86,7 +92,7 @@ class PRManager:
         return await run_subprocess_with_retry(
             *cmd,
             cwd=cwd or self._config.repo_root,
-            gh_token=self._config.gh_token,
+            gh_token=self._credentials.gh_token,
             max_retries=self._max_retries,
         )
 
@@ -163,7 +169,7 @@ class PRManager:
             await run_subprocess(
                 *cmd,
                 cwd=worktree_path,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             action = "Force-pushed" if force else "Pushed"
             logger.info("%s branch %s to origin", action, branch)
@@ -420,7 +426,7 @@ class PRManager:
                 "--squash",
                 "--delete-branch",
                 cwd=self._config.repo_root,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
 
             payload = MergeUpdatePayload(pr=pr_number, status="merged")
@@ -1964,7 +1970,7 @@ class PRManager:
                 file_flag,
                 tmp_path,
                 cwd=cwd or self._config.repo_root,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
                 max_retries=self._max_retries,
             )
         finally:

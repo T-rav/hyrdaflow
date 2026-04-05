@@ -21,7 +21,6 @@ from models import (
     OrchestratorStatusPayload,
     Phase,
     PipelineStats,
-    ReviewResult,
     SessionEndPayload,
     SessionLog,
     SessionStartPayload,
@@ -33,13 +32,17 @@ from models import (
     WorkFn,
 )
 from phase_utils import (
-    MemorySuggester,
     is_likely_bug,
     log_exception_with_bug_classification,
     release_batch_in_flight,
 )
-from service_registry import OrchestratorCallbacks, ServiceRegistry, build_services
-from state import StateTracker, build_state_tracker
+from service_registry import (
+    ServiceRegistry,
+    WorkerRegistryCallbacks,
+    build_services,
+    build_state_tracker,
+)
+from state import StateTracker
 from state_restorer import StateRestorer
 from subprocess_util import (
     AuthenticationError,
@@ -49,7 +52,7 @@ from subprocess_util import (
 if TYPE_CHECKING:
     from base_background_loop import BaseBackgroundLoop
     from crate_manager import CrateManager
-    from github_cache import GitHubDataCache
+    from github_cache_loop import GitHubDataCache
     from issue_store import IssueStore
     from metrics_manager import MetricsManager
     from run_recorder import RunRecorder
@@ -79,9 +82,6 @@ class HydraFlowOrchestrator:
         self._bus = event_bus or EventBus()
         self._state = state or build_state_tracker(config)
         self._dashboard: object | None = None
-        # In-memory tracking of active issues (avoids double-processing)
-        self._active_impl_issues: set[int] = set()
-        self._active_review_issues: set[int] = set()
         self._active_issues_lock = asyncio.Lock()
         # Issues recovered from persisted state on startup (one-cycle grace period)
         self._recovered_issues: set[int] = set()
@@ -109,18 +109,16 @@ class HydraFlowOrchestrator:
             self._bus,
             self._state,
             self._stop_event,
-            OrchestratorCallbacks(
-                sync_active_issue_numbers=self._sync_active_issue_numbers,
-                update_bg_worker_status=self.update_bg_worker_status,
-                is_bg_worker_enabled=self.is_bg_worker_enabled,
-                sleep_or_stop=self._sleep_or_stop,
-                get_bg_worker_interval=self.get_bg_worker_interval,
+            WorkerRegistryCallbacks(
+                update_status=self.update_bg_worker_status,
+                is_enabled=self.is_bg_worker_enabled,
+                get_interval=self.get_bg_worker_interval,
             ),
+            active_issues_cb=self._sync_active_issue_numbers,
         )
 
         # Store the service registry directly — access via self._svc.<name>
         self._svc: ServiceRegistry = svc
-        self._suggest_memory = MemorySuggester(config, svc.prs, self._state)
 
         # Extracted component managers
         bg_loop_registry: dict[str, BaseBackgroundLoop] = {
@@ -328,9 +326,12 @@ class HydraFlowOrchestrator:
     async def _build_interrupted_issues(self) -> dict[int, str]:
         """Build a mapping of issue_number → phase for all in-flight issues.
 
-        Acquires ``_active_issues_lock`` to ensure a consistent snapshot of the
-        in-memory tracking sets, preventing races with concurrent workers that
-        add/remove issues across ``await`` points.
+        Called during shutdown after ``stop_event`` is set.  Phase workers
+        check ``stop_event`` before modifying their ``_active_issues`` sets,
+        so no new additions occur once shutdown begins — iteration is safe
+        without holding the per-phase locks.  ``_active_issues_lock`` (the
+        orchestrator-level lock) guards against concurrent calls to this
+        method itself, not against phase-worker modifications.
         """
         async with self._active_issues_lock:
             interrupted: dict[int, str] = {}
@@ -338,10 +339,10 @@ class HydraFlowOrchestrator:
             for issue_number, stage in self._svc.store.get_active_issues().items():
                 interrupted[issue_number] = stage
             # Also check in-memory tracking sets for issues not yet in the store
-            for issue_number in self._active_impl_issues:
+            for issue_number in self._svc.implementer.active_issues:
                 if issue_number not in interrupted:
                     interrupted[issue_number] = "implement"
-            for issue_number in self._active_review_issues:
+            for issue_number in self._svc.reviewer.active_issues:
                 if issue_number not in interrupted:
                     interrupted[issue_number] = "review"
             for issue_number in self._hitl_ctrl.active_hitl_issues:
@@ -366,9 +367,10 @@ class HydraFlowOrchestrator:
         self._auth_failed = False
         self._credits_paused_until = None
         self._svc.store.clear_active()
-        self._active_impl_issues.clear()
-        self._active_review_issues.clear()
+        self._svc.implementer.active_issues.clear()
+        self._svc.reviewer.active_issues.clear()
         self._hitl_ctrl.active_hitl_issues.clear()
+        self._sync_active_issue_numbers()
         self._state.clear_interrupted_issues()
 
     def try_clear_credit_pause(self) -> bool:
@@ -395,6 +397,10 @@ class HydraFlowOrchestrator:
     def _sync_active_issue_numbers(self) -> None:
         """Persist the combined active issue set to state.
 
+        The orchestrator is the sole writer to ``set_active_issue_numbers``.
+        Phases maintain their own ``_active_issues`` sets and invoke this
+        callback when they change; the orchestrator merges all three sources.
+
         Safety: this method is synchronous with no ``await`` points, so the
         asyncio event loop cannot interleave it with coroutines that modify
         the active-issue sets.  The set union + list conversion runs
@@ -402,8 +408,8 @@ class HydraFlowOrchestrator:
         """
         self._state.set_active_issue_numbers(
             list(
-                self._active_impl_issues
-                | self._active_review_issues
+                self._svc.implementer.active_issues
+                | self._svc.reviewer.active_issues
                 | self._hitl_ctrl.active_hitl_issues
             )
         )
@@ -604,8 +610,8 @@ class HydraFlowOrchestrator:
         """Restore worker intervals, crash-recovered issues, interrupted issues, disabled workers, and background worker heartbeats."""
         self._state_restorer.restore_all(
             recovered_issues=self._recovered_issues,
-            active_impl_issues=self._active_impl_issues,
-            active_review_issues=self._active_review_issues,
+            active_impl_issues=self._svc.implementer.active_issues,
+            active_review_issues=self._svc.reviewer.active_issues,
             active_hitl_issues=self._hitl_ctrl.active_hitl_issues,
         )
 
@@ -1088,76 +1094,25 @@ class HydraFlowOrchestrator:
         """Continuously sync memory items from local JSONL and rebuild the digest."""
         await self._svc.memory_sync_bg.run()
 
-    async def _post_run_hooks(
-        self,
-        transcript: str,
-        source: str,
-        reference: str,
-        issue_number: int,
-        phase: str,
-        status: str,
-        duration_seconds: float,
-        log_file: str,
-    ) -> None:
-        """Run memory-suggestion filing and transcript summarization for a completed run."""
-        await self._suggest_memory(transcript, source, reference)
-        if issue_number > 0:
-            try:
-                await self._svc.summarizer.summarize_and_comment(
-                    transcript=transcript,
-                    issue_number=issue_number,
-                    phase=phase,
-                    status=status,
-                    duration_seconds=duration_seconds,
-                    log_file=log_file,
-                )
-            except Exception as exc:
-                log_exception_with_bug_classification(
-                    logger,
-                    exc,
-                    f"Failed to post transcript summary for issue #{issue_number}",
-                )
-
-    def _log_reference(self, filename: str) -> str:
-        """Return a repo- or data-relative log reference for display."""
-        path = self._config.log_dir / filename
-        return self._config.format_path_for_display(path)
-
     async def _do_implement_work(self) -> bool:
         """Work function for the implement loop."""
         did_work = False
         # After one poll cycle, release crash-recovered issues
         if self._recovered_issues:
             async with self._active_issues_lock:
-                self._active_impl_issues -= self._recovered_issues
-                self._recovered_issues.clear()
-                self._state.set_active_issue_numbers(
-                    list(
-                        self._active_impl_issues
-                        | self._active_review_issues
-                        | self._active_hitl_issues
-                    )
+                self._svc.implementer.active_issues.difference_update(
+                    self._recovered_issues
                 )
+                self._recovered_issues.clear()
+                self._sync_active_issue_numbers()
         while not self._stop_event.is_set():
             results, issues = await self._svc.implementer.run_batch()
             if not issues:
                 break
             did_work = True
+            await self._svc.implementer.post_impl_transcript_hooks(results)
             for result in results:
                 self._session_issue_results[result.issue_number] = result.success
-                if result.transcript:
-                    await self._post_run_hooks(
-                        transcript=result.transcript,
-                        source="implementer",
-                        reference=f"issue #{result.issue_number}",
-                        issue_number=result.issue_number,
-                        phase="implement",
-                        status="success" if result.success else "failed",
-                        duration_seconds=result.duration_seconds,
-                        log_file=self._log_reference(
-                            f"issue-{result.issue_number}.txt"
-                        ),
-                    )
         return did_work
 
     async def _do_review_work(self) -> bool:
@@ -1251,35 +1206,14 @@ class HydraFlowOrchestrator:
             review_results = await self._svc.reviewer.review_prs(
                 prs, [i.to_task() for i in gh_issues]
             )
-            await self._post_review_hooks(review_results)
+            await self._svc.reviewer.post_review_transcript_hooks(review_results)
+            if any(r.merged for r in review_results):
+                await asyncio.sleep(_POST_MERGE_DELAY)
+                await self._svc.prs.pull_main()
+                await self._svc.crate_manager.check_and_advance()
             return True
         finally:
             release_batch_in_flight(self._svc.store, {issue.id})
-
-    async def _post_review_hooks(self, review_results: list[ReviewResult]) -> None:
-        """Run post-run hooks and post-merge actions for completed reviews."""
-        for result in review_results:
-            if result.transcript:
-                if result.merged:
-                    review_status = "success"
-                elif result.ci_passed is False:
-                    review_status = "failed"
-                else:
-                    review_status = "completed"
-                await self._post_run_hooks(
-                    transcript=result.transcript,
-                    source="reviewer",
-                    reference=f"PR #{result.pr_number}",
-                    issue_number=result.issue_number,
-                    phase="review",
-                    status=review_status,
-                    duration_seconds=result.duration_seconds,
-                    log_file=self._log_reference(f"review-pr-{result.pr_number}.txt"),
-                )
-        if any(r.merged for r in review_results):
-            await asyncio.sleep(_POST_MERGE_DELAY)
-            await self._svc.prs.pull_main()
-            await self._svc.crate_manager.check_and_advance()
 
     async def _sleep_or_stop(self, seconds: int | float) -> None:
         """Sleep for *seconds*, waking early if stop is requested."""

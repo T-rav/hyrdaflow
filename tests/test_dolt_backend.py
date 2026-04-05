@@ -214,8 +214,8 @@ class TestDoltStateTrackerIntegration:
 
         cfg = ConfigFactory.create()
         # Patch the dolt_dir to use our temp dir
-        with patch("state.Path", return_value=dolt_dir):
-            from state import build_state_tracker
+        with patch("service_registry.Path", return_value=dolt_dir):
+            from service_registry import build_state_tracker
 
             tracker = build_state_tracker(cfg)
             assert tracker._dolt is not None
@@ -225,7 +225,7 @@ class TestDoltStateTrackerIntegration:
 
         cfg = ConfigFactory.create()
         with patch("shutil.which", return_value=None):
-            from state import build_state_tracker
+            from service_registry import build_state_tracker
 
             tracker = build_state_tracker(cfg)
             # Falls back to file-based — no Dolt backend

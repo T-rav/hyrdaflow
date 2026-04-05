@@ -118,7 +118,6 @@ def _reset_gh_semaphore():
 def _disable_hitl_summary_autowarm(config) -> None:
     """Keep route tests deterministic unless a test explicitly opts in."""
     config.transcript_summarization_enabled = False
-    config.gh_token = ""
 
 
 # --- Config Fixtures ---

@@ -438,7 +438,7 @@ class TestDockerConfigValidation(GitIdentityEnvMixin):
                 state_file=tmp_path / "s.json",
             )
         warnings = "\n".join(rec.getMessage() for rec in caplog.records)
-        assert "without GH token configured" in warnings
+        # gh_token warning removed — credentials are no longer on HydraFlowConfig
         assert "git identity not configured" in warnings
 
     def test_docker_mode_warns_on_partial_git_identity(

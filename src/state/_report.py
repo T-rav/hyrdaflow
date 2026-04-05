@@ -1,4 +1,4 @@
-"""Reports, metrics, manifest, memory, and baseline audit state."""
+"""Reports, metrics, memory, and baseline audit state."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 class ReportStateMixin:
-    """Methods for pending/tracked reports, metrics, manifest, memory, and baseline audit."""
+    """Methods for pending/tracked reports, metrics, memory, and baseline audit."""
 
     _data: StateData
 
@@ -163,21 +163,6 @@ class ReportStateMixin:
         self._data.metrics_last_snapshot_hash = snapshot_hash
         self._data.metrics_last_synced = datetime.now(UTC).isoformat()
         self.save()
-
-    # --- manifest state ---
-
-    def update_manifest_state(self, manifest_hash: str) -> None:
-        """Update manifest tracking fields and persist."""
-        self._data.manifest_hash = manifest_hash
-        self._data.manifest_last_updated = datetime.now(UTC).isoformat()
-        self.save()
-
-    def get_manifest_state(self) -> tuple[str, str | None]:
-        """Return ``(manifest_hash, last_updated)``."""
-        return (
-            self._data.manifest_hash,
-            self._data.manifest_last_updated,
-        )
 
     # --- memory state ---
 

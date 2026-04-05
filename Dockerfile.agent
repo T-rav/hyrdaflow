@@ -54,8 +54,8 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
 # ---------------------------------------------------------------------------
 FROM base AS tools
 
-# Install agent CLIs globally via npm (Claude, Codex, Pi)
-RUN npm install -g @anthropic-ai/claude-code @openai/codex @mariozechner/pi-coding-agent --no-fund --no-audit
+# Install agent CLIs globally via npm (Claude, Codex, Pi, Beads)
+RUN npm install -g @anthropic-ai/claude-code @openai/codex @mariozechner/pi-coding-agent @beads/bd --no-fund --no-audit
 
 # Pre-install Python quality tools into a venv
 COPY pyproject.toml uv.lock ./

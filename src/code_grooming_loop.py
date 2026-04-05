@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from agent_cli import build_agent_command
 from base_background_loop import BaseBackgroundLoop, LoopDeps
-from config import HydraFlowConfig
+from config import Credentials, HydraFlowConfig
 from dedup_store import DedupStore
 from runner_utils import stream_claude_process
 
@@ -41,9 +41,11 @@ class CodeGroomingLoop(BaseBackgroundLoop):
         config: HydraFlowConfig,
         pr_manager: PRPort,
         deps: LoopDeps,
+        credentials: Credentials | None = None,
     ) -> None:
         super().__init__(worker_name="code_grooming", config=config, deps=deps)
         self._pr_manager = pr_manager
+        self._credentials = credentials or Credentials()
         self._dedup = DedupStore(
             "code_grooming_findings",
             config.data_root / "memory" / "code_grooming_dedup.json",
@@ -74,7 +76,7 @@ class CodeGroomingLoop(BaseBackgroundLoop):
             event_bus=self._bus,
             event_data={"source": "code_grooming"},
             logger=logger,
-            gh_token=self._config.gh_token,
+            gh_token=self._credentials.gh_token,
         )
 
         return self._parse_findings(transcript)

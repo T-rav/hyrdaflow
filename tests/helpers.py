@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from config import Credentials
+
 if TYPE_CHECKING:
     from events import HydraFlowEvent
     from models import QueueStats, Task
@@ -186,7 +188,7 @@ def make_bg_loop_deps(
         stop_event=stop_event,
         status_cb=status_cb,
         enabled_cb=enabled_cb,
-        sleep_fn=sleep_fn,
+        sleep_fn=sleep_fn,  # override default stop_event-based sleep for tests
     )
 
     return BgLoopDeps(
@@ -248,7 +250,6 @@ class ConfigFactory:
         lite_plan_labels: list[str] | None = None,
         repo: str = "test-org/test-repo",
         dry_run: bool = False,
-        gh_token: str = "",
         git_user_name: str = "",
         git_user_email: str = "",
         dashboard_enabled: bool = False,
@@ -380,8 +381,6 @@ class ConfigFactory:
         max_ci_log_prompt_chars: int = 6_000,
         max_unsticker_cause_chars: int = 3_000,
         max_verification_instructions_chars: int = 50_000,
-        hindsight_url: str = "",
-        hindsight_api_key: str = "",
         hindsight_timeout: int = 30,
         security_patch_interval: int = 3600,
         security_patch_severity_threshold: str = "high",
@@ -456,7 +455,6 @@ class ConfigFactory:
                 else ["bug", "typo", "docs"],
                 repo=repo,
                 dry_run=dry_run,
-                gh_token=gh_token,
                 git_user_name=git_user_name,
                 git_user_email=git_user_email,
                 dashboard_enabled=dashboard_enabled,
@@ -602,13 +600,39 @@ class ConfigFactory:
                 max_ci_log_prompt_chars=max_ci_log_prompt_chars,
                 max_unsticker_cause_chars=max_unsticker_cause_chars,
                 max_verification_instructions_chars=max_verification_instructions_chars,
-                hindsight_url=hindsight_url,
-                hindsight_api_key=hindsight_api_key,
                 hindsight_timeout=hindsight_timeout,
                 security_patch_interval=security_patch_interval,
                 security_patch_severity_threshold=security_patch_severity_threshold,
                 code_grooming_interval=code_grooming_interval,
             )
+
+
+class CredentialsFactory:
+    """Factory for Credentials instances in tests."""
+
+    @staticmethod
+    def create(
+        *,
+        gh_token: str = "",
+        hindsight_url: str = "",
+        hindsight_api_key: str = "",
+        sentry_auth_token: str = "",
+        whatsapp_token: str = "",
+        whatsapp_phone_id: str = "",
+        whatsapp_recipient: str = "",
+        whatsapp_verify_token: str = "",
+    ) -> Credentials:
+        """Create a Credentials with test-friendly defaults."""
+        return Credentials(
+            gh_token=gh_token,
+            hindsight_url=hindsight_url,
+            hindsight_api_key=hindsight_api_key,
+            sentry_auth_token=sentry_auth_token,
+            whatsapp_token=whatsapp_token,
+            whatsapp_phone_id=whatsapp_phone_id,
+            whatsapp_recipient=whatsapp_recipient,
+            whatsapp_verify_token=whatsapp_verify_token,
+        )
 
 
 class PipelineHarness:
@@ -1085,7 +1109,7 @@ def make_implement_phase(
         return await _original_run(*bound.args, **bound.kwargs)
 
     mock_agents.run = _kwargs_absorbing_run
-    mock_agents.hindsight = None  # SharedPromptPrefix accesses this
+    mock_agents.hindsight = None
 
     # Mock IssueStore — get_implementable returns the supplied issues once
     mock_store = AsyncMock(spec=IssueStore)
@@ -1337,6 +1361,7 @@ def make_dashboard_router(
     repo_store=None,
     default_repo_slug=None,
     allowed_repo_roots_fn=None,
+    credentials=None,
 ):
     """Create a dashboard router with test-friendly defaults.
 
@@ -1360,6 +1385,8 @@ def make_dashboard_router(
         Optional default repo slug for multi-repo routing.
     allowed_repo_roots_fn:
         Optional callable returning allowed filesystem roots.
+    credentials:
+        Optional ``Credentials`` instance for route context.
     """
     from dashboard_routes import create_router
     from pr_manager import PRManager
@@ -1375,6 +1402,7 @@ def make_dashboard_router(
         set_run_task=lambda t: None,
         ui_dist_dir=ui_dist_dir or (tmp_path / "no-dist"),
         template_dir=template_dir or (tmp_path / "no-templates"),
+        credentials=credentials,
         registry=registry,
         register_repo_cb=register_repo_cb,
         remove_repo_cb=remove_repo_cb,

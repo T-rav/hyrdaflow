@@ -243,6 +243,17 @@ class ScriptedImplementPhase:
         self._script = script
         self._workspaces = workspaces
         self._github = github
+        self._active_issues: set[int] = set()
+
+    @property
+    def active_issues(self) -> set[int]:
+        return self._active_issues
+
+    async def _post_impl_transcript(self, result: WorkerResult, *, status: str) -> None:
+        """No-op stub — integration tests don't exercise transcript hooks."""
+
+    async def post_impl_transcript_hooks(self, results: list[WorkerResult]) -> None:
+        """No-op stub — integration tests don't exercise transcript hooks."""
 
     async def run_batch(
         self,
@@ -306,6 +317,16 @@ class ScriptedReviewPhase:
     def __init__(self, script: PipelineScript, github: ScriptedGitHub) -> None:
         self._script = script
         self._github = github
+        self._active_issues: set[int] = set()
+
+    @property
+    def active_issues(self) -> set[int]:
+        return self._active_issues
+
+    async def post_review_transcript_hooks(
+        self, review_results: list[ReviewResult]
+    ) -> None:
+        """No-op stub — integration tests don't exercise transcript hooks."""
 
     async def review_adrs(self, _issues: list[GitHubIssue]) -> list[ReviewResult]:
         return []

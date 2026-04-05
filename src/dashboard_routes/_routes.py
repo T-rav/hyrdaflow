@@ -30,7 +30,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from admin_tasks import TaskResult
 from app_version import get_app_version
-from config import HydraFlowConfig
+from config import Credentials, HydraFlowConfig
 from dashboard_routes._common import (
     _EPIC_INTERNAL_LABELS,
     _FRONTEND_STAGE_TO_LABEL_FIELD,
@@ -44,7 +44,7 @@ from dashboard_routes._common import (
     _status_sort_key,
 )
 from events import EventBus, EventType, HydraFlowEvent
-from github_cache import GitHubDataCache
+from github_cache_loop import GitHubDataCache
 from issue_fetcher import IssueFetcher
 from models import (
     BGWorkerHealth,
@@ -72,6 +72,7 @@ from timeline import TimelineBuilder
 from transcript_summarizer import TranscriptSummarizer
 
 if TYPE_CHECKING:
+    from hindsight import HindsightClient
     from orchestrator import HydraFlowOrchestrator
 from repo_runtime import RepoRuntime, RepoRuntimeRegistry
 from repo_store import RepoRecord, RepoStore
@@ -303,6 +304,7 @@ class RouteContext:
 
     # Core services
     config: HydraFlowConfig
+    credentials: Credentials
     event_bus: EventBus
     state: StateTracker
     pr_manager: PRManager
@@ -328,6 +330,9 @@ class RouteContext:
     default_repo_slug: str | None = None
     allowed_repo_roots_fn: Callable[[], tuple[str, ...]] | None = None
 
+    # Hindsight integration
+    hindsight_client: HindsightClient | None = None
+
     # HITL summary tuning
     hitl_summary_cooldown_seconds: int = 300
 
@@ -338,12 +343,13 @@ class RouteContext:
     hitl_summary_slots: asyncio.Semaphore = field(init=False)
 
     def __post_init__(self) -> None:
-        self.issue_fetcher = IssueFetcher(self.config)
+        self.issue_fetcher = IssueFetcher(self.config, credentials=self.credentials)
         self.hitl_summarizer = TranscriptSummarizer(
             self.config,
             self.pr_manager,
             self.event_bus,
             self.state,
+            credentials=self.credentials,
         )
         self.hitl_summary_inflight = set()
         self.hitl_summary_slots = asyncio.Semaphore(3)
@@ -505,7 +511,7 @@ class RouteContext:
         if (
             not self.config.transcript_summarization_enabled
             or self.config.dry_run
-            or not self.config.gh_token
+            or not self.credentials.gh_token
         ):
             return None
         issue = await self.issue_fetcher.fetch_issue_by_number(issue_number)
@@ -587,6 +593,7 @@ def create_router(
     ui_dist_dir: Path,
     template_dir: Path,
     *,
+    credentials: Credentials | None = None,
     registry: RepoRuntimeRegistry | None = None,
     repo_store: RepoStore | None = None,
     register_repo_cb: Callable[
@@ -597,6 +604,7 @@ def create_router(
     list_repos_cb: Callable[[], list[RepoRecord]] | None = None,
     default_repo_slug: str | None = None,
     allowed_repo_roots_fn: Callable[[], tuple[str, ...]] | None = None,
+    hindsight_client: HindsightClient | None = None,
 ) -> APIRouter:
     """Create an APIRouter with all dashboard route handlers.
 
@@ -607,8 +615,10 @@ def create_router(
     backward compatibility.
     """
     # Build the shared RouteContext that bundles all dependencies.
+    _creds = credentials or Credentials()
     ctx = RouteContext(
         config=config,
+        credentials=_creds,
         event_bus=event_bus,
         state=state,
         pr_manager=pr_manager,
@@ -624,6 +634,7 @@ def create_router(
         list_repos_cb=list_repos_cb,
         default_repo_slug=default_repo_slug,
         allowed_repo_roots_fn=allowed_repo_roots_fn,
+        hindsight_client=hindsight_client,
     )
 
     router = APIRouter()
@@ -1084,7 +1095,7 @@ def create_router(
         if not entries:
             return
 
-        fetcher = IssueFetcher(config)
+        fetcher = IssueFetcher(config, credentials=_creds)
         issue_numbers = sorted(entries.keys(), reverse=True)[:limit]
         sem = asyncio.Semaphore(6)
 
@@ -1221,11 +1232,11 @@ def create_router(
 
         # Queue depths
         queue_depths: dict[str, int] = {}
-        if orchestrator is not None and hasattr(orchestrator, "_svc"):
-            issue_store = getattr(orchestrator._svc, "store", None)
-            if issue_store is not None and hasattr(issue_store, "queue_stats"):
-                qstats = issue_store.queue_stats()
-                queue_depths = dict(getattr(qstats, "queue_depth", {}).items())
+        if orchestrator is not None:
+            issue_store = getattr(orchestrator, "issue_store", None)
+            if issue_store is not None and hasattr(issue_store, "get_queue_stats"):
+                qstats = issue_store.get_queue_stats()
+                queue_depths = dict(qstats.queue_depth)
 
         checks = {
             "orchestrator": {
@@ -1245,8 +1256,8 @@ def create_router(
                 "public": dashboard_public,
             },
             "hindsight": {
-                "status": "ok" if config.hindsight_url else "disabled",
-                "configured": bool(config.hindsight_url),
+                "status": "ok" if _creds.hindsight_url else "disabled",
+                "configured": bool(_creds.hindsight_url),
             },
             "github_cache": github_cache_health,
             "queue_depths": queue_depths,
@@ -1274,53 +1285,37 @@ def create_router(
     @router.get("/api/hindsight/health")
     async def hindsight_health() -> JSONResponse:
         """Check Hindsight server connectivity."""
-        if not config.hindsight_url:
+        if ctx.hindsight_client is None:
             return JSONResponse(
                 {"status": "disabled", "reachable": False, "url": ""},
             )
-        from hindsight import HindsightClient
-
-        client = HindsightClient(
-            config.hindsight_url,
-            api_key=config.hindsight_api_key,
-            timeout=min(config.hindsight_timeout, 5),
-        )
         try:
-            reachable = await client.health_check()
-        finally:
-            await client.close()
+            reachable = await ctx.hindsight_client.health_check()
+        except Exception:  # noqa: BLE001
+            reachable = False
         return JSONResponse(
             {
                 "status": "ok" if reachable else "unreachable",
                 "reachable": reachable,
-                "url": config.hindsight_url,
+                "url": _creds.hindsight_url,
             },
         )
 
     @router.post("/api/hindsight/audit")
     async def hindsight_audit() -> JSONResponse:
         """Run a memory quality audit across all Hindsight banks."""
-        if not config.hindsight_url:
+        if ctx.hindsight_client is None:
             return JSONResponse({"status": "disabled", "results": []})
-        from hindsight import HindsightClient  # noqa: PLC0415
         from memory_audit import MemoryAuditor  # noqa: PLC0415
 
-        client = HindsightClient(
-            config.hindsight_url,
-            api_key=config.hindsight_api_key,
-            timeout=min(config.hindsight_timeout, 30),
-        )
-        try:
-            auditor = MemoryAuditor(client, config)
-            results = await auditor.audit_all()
-        finally:
-            await client.close()
+        auditor = MemoryAuditor(ctx.hindsight_client, config)
+        results = await auditor.audit_all()
         return JSONResponse({"status": "ok", "results": results})
 
     @router.get("/api/hindsight/banks")
     async def hindsight_banks() -> JSONResponse:
         """List Hindsight memory banks with stats."""
-        if not config.hindsight_url:
+        if not _creds.hindsight_url:
             return JSONResponse({"status": "disabled", "banks": []})
         from hindsight import Bank  # noqa: PLC0415
 
@@ -2044,7 +2039,9 @@ def create_router(
         token = request.query_params.get("hub.verify_token")
         challenge = request.query_params.get("hub.challenge", "")
         _cfg, _st, _bus, _get_orch = _resolve_runtime(None)
-        expected_token = _cfg.whatsapp_token
+        expected_token = (
+            ctx.credentials.whatsapp_verify_token or ctx.credentials.whatsapp_token
+        )
         if mode == "subscribe" and token == expected_token:
             return Response(content=challenge, media_type="text/plain")
         return Response(content="Forbidden", status_code=403)

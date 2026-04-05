@@ -95,7 +95,7 @@ class TestReportIssueLoopDoWork:
         assert result["issue_number"] == 77
         mock_stream.assert_awaited_once()
         _pr.create_issue.assert_not_awaited()
-        assert mock_stream.call_args[1]["gh_token"] == loop._config.gh_token
+        assert mock_stream.call_args[1]["gh_token"] == loop._credentials.gh_token
         # Queue should be empty after successful processing
         assert state.peek_report() is None
 

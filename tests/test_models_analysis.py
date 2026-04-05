@@ -8,7 +8,6 @@ from models import (
     ConflictResolutionResult,
     InstructionsQuality,
     InstructionsQualityResult,
-    ManifestRefreshResult,
     ParsedCriteria,
     PlanAccuracyResult,
     PrecheckResult,
@@ -397,15 +396,6 @@ class TestPRInfoExtract:
     def test_none_pr_number(self) -> None:
         result = PRInfoExtract(pr_number=None, url="", branch="")
         assert result.pr_number is None
-
-
-class TestManifestRefreshResult:
-    """Tests for the ManifestRefreshResult NamedTuple."""
-
-    def test_supports_positional_unpacking(self) -> None:
-        content, digest_hash = ManifestRefreshResult("content", "abc123")
-        assert content == "content"
-        assert digest_hash == "abc123"
 
 
 class TestInstructionsQualityResult:

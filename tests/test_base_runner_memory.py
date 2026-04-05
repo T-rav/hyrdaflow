@@ -19,7 +19,7 @@ def _make_memory(text: str, score: float = 0.8):
 
 @pytest.fixture
 def base_runner():
-    config = HydraFlowConfig(repo_root="/tmp/test", gh_token="fake")
+    config = HydraFlowConfig(repo_root="/tmp/test")
     bus = EventBus()
     hindsight = AsyncMock()
     runner = BaseRunner(config, bus, hindsight=hindsight)
@@ -43,7 +43,7 @@ async def test_review_insights_recalled(base_runner):
         return memories.get(bank, [])
 
     with patch("hindsight.recall_safe", side_effect=mock_recall):
-        _, memory_section = await base_runner._inject_manifest_and_memory(
+        memory_section = await base_runner._inject_memory(
             query_context="add user endpoint"
         )
 
@@ -68,7 +68,7 @@ async def test_harness_insights_recalled(base_runner):
         return memories.get(bank, [])
 
     with patch("hindsight.recall_safe", side_effect=mock_recall):
-        _, memory_section = await base_runner._inject_manifest_and_memory(
+        memory_section = await base_runner._inject_memory(
             query_context="fix CI pipeline"
         )
 

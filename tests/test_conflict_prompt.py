@@ -61,20 +61,6 @@ class TestBuildConflictPrompt:
         assert "MEMORY_SUGGESTION_END" in prompt
         assert "## Optional: Memory Suggestion" in prompt
 
-    def test_includes_project_context_when_config_provided(
-        self, tmp_path: Path
-    ) -> None:
-        """When config is provided and manifest exists, prompt includes project context."""
-        config = ConfigFactory.create(repo_root=tmp_path / "repo")
-        config.repo_root.mkdir(parents=True, exist_ok=True)
-        manifest_path = config.repo_root / ".hydraflow" / "manifest" / "manifest.md"
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_text("## Project Manifest\npython, make, pytest")
-
-        prompt = build_conflict_prompt(ISSUE_URL, PR_URL, None, 1, config=config)
-        assert "## Project Context" in prompt
-        assert "python, make, pytest" in prompt
-
     def test_no_accumulated_learnings_section(self, tmp_path: Path) -> None:
         """Digest.md was removed — conflict prompt no longer includes learnings."""
         config = ConfigFactory.create(repo_root=tmp_path / "repo")
@@ -177,21 +163,6 @@ class TestBuildRebuildPrompt:
         )
         diff_section = prompt.split("## Original PR Diff")[1].split("## Optional:")[0]
         assert diff_section.count("Q") <= 2000
-
-    def test_includes_project_context_when_config_provided(
-        self, tmp_path: Path
-    ) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path / "repo")
-        config.repo_root.mkdir(parents=True, exist_ok=True)
-        manifest_path = config.repo_root / ".hydraflow" / "manifest" / "manifest.md"
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_text("## Project Manifest\npython, make, pytest")
-
-        prompt = build_rebuild_prompt(
-            ISSUE_URL, PR_URL, issue_number=42, pr_diff=PR_DIFF, config=config
-        )
-        assert "## Project Context" in prompt
-        assert "python, make, pytest" in prompt
 
     def test_omits_project_context_when_no_config(self) -> None:
         prompt = build_rebuild_prompt(

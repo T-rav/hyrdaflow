@@ -23,7 +23,6 @@ from events import EventBus, EventType, HydraFlowEvent
 @pytest.fixture(autouse=True)
 def _disable_hitl_summary(config) -> None:
     config.transcript_summarization_enabled = False
-    config.gh_token = ""
 
 
 def _make_router(config, event_bus, state, tmp_path):

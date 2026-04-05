@@ -567,13 +567,6 @@ class TestReportStateMixin:
         assert snap_hash == "hash123"
         assert synced is not None
 
-    def test_manifest_state(self, tmp_path: Path) -> None:
-        t = make_tracker(tmp_path)
-        t.update_manifest_state("mhash")
-        mhash, updated = t.get_manifest_state()
-        assert mhash == "mhash"
-        assert updated is not None
-
     def test_memory_state(self, tmp_path: Path) -> None:
         t = make_tracker(tmp_path)
         t.update_memory_state([1, 2, 3], "digest")

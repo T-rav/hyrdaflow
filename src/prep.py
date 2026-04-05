@@ -8,7 +8,7 @@ import re
 import tomllib
 from dataclasses import dataclass, field
 
-from config import HydraFlowConfig
+from config import Credentials, HydraFlowConfig
 from models import AuditCheck, AuditCheckStatus, AuditResult
 from subprocess_util import run_subprocess, run_subprocess_with_retry
 
@@ -49,8 +49,13 @@ class PrepResult:
         return "".join(parts)
 
 
-async def _list_existing_labels(config: HydraFlowConfig) -> set[str]:
+async def _list_existing_labels(
+    config: HydraFlowConfig,
+    credentials: Credentials | None = None,
+) -> set[str]:
     """Query the repo for existing label names."""
+    if credentials is None:
+        credentials = Credentials()
     try:
         raw = await run_subprocess_with_retry(
             "gh",
@@ -63,7 +68,7 @@ async def _list_existing_labels(config: HydraFlowConfig) -> set[str]:
             "--limit",
             "1000",  # well above any realistic HydraFlow-managed label count
             cwd=config.repo_root,
-            gh_token=config.gh_token,
+            gh_token=credentials.gh_token,
             max_retries=config.gh_max_retries,
         )
         return {entry["name"] for entry in json.loads(raw)}
@@ -72,12 +77,17 @@ async def _list_existing_labels(config: HydraFlowConfig) -> set[str]:
         return set()
 
 
-async def ensure_labels(config: HydraFlowConfig) -> PrepResult:
+async def ensure_labels(
+    config: HydraFlowConfig,
+    credentials: Credentials | None = None,
+) -> PrepResult:
     """Create all HydraFlow lifecycle labels on the target repo.
 
     Uses ``gh label create --force`` which creates or updates each label.
     Returns a :class:`PrepResult` with created/existed/failed lists.
     """
+    if credentials is None:
+        credentials = Credentials()
     result = PrepResult()
 
     if config.dry_run:
@@ -87,7 +97,7 @@ async def ensure_labels(config: HydraFlowConfig) -> PrepResult:
         logger.info("[dry-run] Would create labels: %s", result.created)
         return result
 
-    existing = await _list_existing_labels(config)
+    existing = await _list_existing_labels(config, credentials=credentials)
 
     for cfg_field, color, description in HYDRAFLOW_LABELS:
         label_names: list[str] = getattr(config, cfg_field)
@@ -106,7 +116,7 @@ async def ensure_labels(config: HydraFlowConfig) -> PrepResult:
                     description,
                     "--force",
                     cwd=config.repo_root,
-                    gh_token=config.gh_token,
+                    gh_token=credentials.gh_token,
                     max_retries=config.gh_max_retries,
                 )
                 if label_name in existing:
@@ -169,8 +179,13 @@ _LABEL_FIELDS: tuple[str, ...] = (
 class RepoAuditor:
     """Scans a repository for infrastructure HydraFlow depends on."""
 
-    def __init__(self, config: HydraFlowConfig) -> None:
+    def __init__(
+        self,
+        config: HydraFlowConfig,
+        credentials: Credentials | None = None,
+    ) -> None:
         self._config = config
+        self._credentials = credentials or Credentials()
         self._root = config.repo_root
 
     async def run_audit(self) -> AuditResult:
@@ -674,7 +689,9 @@ class RepoAuditor:
     async def _check_gh_cli(self) -> AuditCheck:
         """Check gh CLI authentication and repo access."""
         try:
-            await run_subprocess("gh", "auth", "status", gh_token=self._config.gh_token)
+            await run_subprocess(
+                "gh", "auth", "status", gh_token=self._credentials.gh_token
+            )
         except RuntimeError as exc:
             return AuditCheck(
                 name="gh CLI",
@@ -693,7 +710,7 @@ class RepoAuditor:
                 "viewerPermission",
                 "--jq",
                 ".viewerPermission",
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             permission = permission.strip().upper()
             if permission in ("WRITE", "ADMIN"):
@@ -732,7 +749,7 @@ class RepoAuditor:
                 "name",
                 "--jq",
                 ".[].name",
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             existing = {line.strip() for line in output.splitlines() if line.strip()}
         except RuntimeError:

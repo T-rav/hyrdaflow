@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from agent_cli import build_agent_command
 from base_background_loop import BaseBackgroundLoop, LoopDeps
-from config import HydraFlowConfig
+from config import Credentials, HydraFlowConfig
 from execution import SubprocessRunner
 from models import PendingReport, TranscriptEventData
 from runner_utils import AuthenticationRetryError, stream_claude_process
@@ -49,6 +49,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
         pr_manager: PRManager,
         deps: LoopDeps,
         runner: SubprocessRunner | None = None,
+        credentials: Credentials | None = None,
     ) -> None:
         super().__init__(
             worker_name="report_issue",
@@ -59,6 +60,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
         self._state = state
         self._pr_manager = pr_manager
         self._runner = runner
+        self._credentials = credentials or Credentials()
         self._active_procs: set[asyncio.subprocess.Process] = set()
 
     async def _emit_report_event(
@@ -317,7 +319,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 event_data=event_data,
                 logger=logger,
                 runner=self._runner,
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             issue_number = self._extract_issue_number_from_transcript(transcript)
         except AuthenticationRetryError:

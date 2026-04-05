@@ -19,7 +19,7 @@ from models import (
     JudgeVerdict,
 )
 from tests.conftest import PRInfoFactory, ReviewResultFactory, TaskFactory
-from tests.helpers import ConfigFactory
+from tests.helpers import ConfigFactory, CredentialsFactory
 from verification_judge import VerificationJudge
 
 # ---------------------------------------------------------------------------
@@ -1377,8 +1377,9 @@ class TestExecuteGhToken:
     @pytest.mark.asyncio
     async def test_execute_passes_gh_token_to_stream(self, tmp_path, event_bus):
         """_execute should pass config.gh_token to stream_claude_process."""
-        cfg = ConfigFactory.create(repo_root=tmp_path, gh_token="ghp_bot_judge")
-        judge = VerificationJudge(cfg, event_bus)
+        cfg = ConfigFactory.create(repo_root=tmp_path)
+        creds = CredentialsFactory.create(gh_token="ghp_bot_judge")
+        judge = VerificationJudge(cfg, event_bus, credentials=creds)
 
         with patch(
             "verification_judge.stream_claude_process",

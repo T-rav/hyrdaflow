@@ -22,7 +22,6 @@ from trace_mining_loop import TraceMiningLoop
 
 def _make_config(tmp_path: Path) -> HydraFlowConfig:
     return HydraFlowConfig(
-        gh_token="fake",
         repo="owner/repo",
         data_root=str(tmp_path / "data"),
     )

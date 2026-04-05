@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import sys
+import types
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# The dotenv package may not be installed in the test environment.  Ensure a
+# mock module is always available so that ``from dotenv import load_dotenv``
+# inside ``server.main()`` succeeds during tests.
+if "dotenv" not in sys.modules:
+    _fake_dotenv = types.ModuleType("dotenv")
+    _fake_dotenv.load_dotenv = lambda *a, **kw: None  # type: ignore[attr-defined]
+    sys.modules["dotenv"] = _fake_dotenv
 
 
 class TestServerMain:
@@ -23,6 +32,8 @@ class TestServerMain:
             patch("server.setup_logging") as mock_logging,
             patch("server.load_runtime_config", return_value=mock_config),
             patch("server.asyncio.run") as mock_run,
+            patch("server._init_sentry"),
+            patch.dict("sys.modules", {"dotenv": MagicMock()}),
             patch.dict("os.environ", {}, clear=False),
         ):
             from server import main
@@ -42,6 +53,8 @@ class TestServerMain:
             patch("server.setup_logging") as mock_logging,
             patch("server.load_runtime_config", return_value=mock_config),
             patch("server.asyncio.run"),
+            patch("server._init_sentry"),
+            patch.dict("sys.modules", {"dotenv": MagicMock()}),
             patch.dict("os.environ", {"HYDRAFLOW_VERBOSE_LOGS": "1"}, clear=False),
         ):
             from server import main

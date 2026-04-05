@@ -20,7 +20,7 @@ def _make_memory(text: str, score: float = 0.8):
 
 @pytest.fixture
 def _config():
-    return HydraFlowConfig(repo_root="/tmp/test", gh_token="fake")
+    return HydraFlowConfig(repo_root="/tmp/test")
 
 
 @pytest.fixture

@@ -32,7 +32,7 @@ def scripted_orchestrator(
 ) -> Iterator[HydraFlowOrchestrator]:
     """Patch build_services so HydraFlowOrchestrator uses scripted phases."""
 
-    def _build_services(cfg, bus, state, stop_event, callbacks):
+    def _build_services(cfg, bus, state, stop_event, callbacks, **kwargs):
         return build_scripted_services(
             cfg, bus, state, stop_event, callbacks, script=script
         )

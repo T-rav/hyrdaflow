@@ -2440,3 +2440,30 @@ class TestReviewProposedADRsPerItemGuard:
         # second ADR also got reviewed + routed successfully
         assert route_call_count == 2
         assert stats["reviewed"] == 2
+
+
+class TestADRCouncilReviewerCredentials:
+    """Verify that ADRCouncilReviewer correctly wires the credentials parameter."""
+
+    def test_default_credentials_constructed_when_none_passed(
+        self, tmp_path: Path
+    ) -> None:
+        """When no credentials are passed, a default Credentials() is used."""
+        from config import Credentials
+
+        reviewer = _make_reviewer(tmp_path)
+        assert isinstance(reviewer._credentials, Credentials)
+
+    def test_explicit_credentials_stored(self, tmp_path: Path) -> None:
+        """When credentials are provided, they are stored without modification."""
+        from config import Credentials
+        from events import EventBus
+
+        creds = Credentials(gh_token="test-token-xyz")
+        config = ConfigFactory.create(repo_root=tmp_path / "repo")
+        bus = EventBus()
+        reviewer = ADRCouncilReviewer(
+            config, bus, MagicMock(), MagicMock(), credentials=creds
+        )
+        assert reviewer._credentials is creds
+        assert reviewer._credentials.gh_token == "test-token-xyz"

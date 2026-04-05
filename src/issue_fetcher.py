@@ -9,7 +9,7 @@ import random
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from config import HydraFlowConfig
+from config import Credentials, HydraFlowConfig
 from models import GitHubIssue, PRInfo, Task
 from subprocess_util import run_subprocess
 
@@ -23,8 +23,11 @@ class IncompleteIssueFetchError(RuntimeError):
 class IssueFetcher:
     """Fetches GitHub issues and PRs via the ``gh`` CLI."""
 
-    def __init__(self, config: HydraFlowConfig) -> None:
+    def __init__(
+        self, config: HydraFlowConfig, credentials: Credentials | None = None
+    ) -> None:
         self._config = config
+        self._credentials = credentials or Credentials()
         self._repo_owner = config.repo.split("/", 1)[0] if "/" in config.repo else ""
         self._rate_limited_until: datetime | None = None
         self._rate_limit_recovery_attempts = 0
@@ -119,7 +122,7 @@ class IssueFetcher:
                 "--paginate",
                 "--jq",
                 ".[].login",
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             logins = {line.strip() for line in raw.strip().splitlines() if line.strip()}
             self._collaborators = logins
@@ -210,7 +213,9 @@ class IssueFetcher:
                 if label is not None:
                     cmd += ["--field", f"labels={label}"]
                 try:
-                    raw = await run_subprocess(*cmd, gh_token=self._config.gh_token)
+                    raw = await run_subprocess(
+                        *cmd, gh_token=self._credentials.gh_token
+                    )
                     self._note_success_after_rate_limit()
                     items = json.loads(raw)
                     if not isinstance(items, list):
@@ -319,7 +324,7 @@ class IssueFetcher:
                 "rate_limit",
                 "--jq",
                 ".resources.core.reset",
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             reset_epoch = int(raw.strip())
             return datetime.fromtimestamp(reset_epoch, tz=UTC)
@@ -390,7 +395,7 @@ class IssueFetcher:
             "graphql",
             "-f",
             f"query={query}",
-            gh_token=self._config.gh_token,
+            gh_token=self._credentials.gh_token,
         )
         data = json.loads(raw)
 
@@ -429,7 +434,7 @@ class IssueFetcher:
                 f"repos/{self._config.repo}/issues/{issue_number}",
                 "--jq",
                 '{number, title, body, labels, url: .html_url, state, created_at: .created_at, author: (.user.login // "")}',
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             data = json.loads(raw)
             if isinstance(data, dict):
@@ -497,7 +502,7 @@ class IssueFetcher:
             "state=open",
             "--field",
             "per_page=100",
-            gh_token=self._config.gh_token,
+            gh_token=self._credentials.gh_token,
         )
         all_prs = json.loads(raw)
 
@@ -595,7 +600,7 @@ class IssueFetcher:
                 f"repos/{self._config.repo}/issues/{issue_number}/comments",
                 "--jq",
                 "[.[] | .body]",
-                gh_token=self._config.gh_token,
+                gh_token=self._credentials.gh_token,
             )
             data = json.loads(raw)
             if not isinstance(data, list):

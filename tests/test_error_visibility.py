@@ -123,7 +123,6 @@ class TestHitlSummaryFailureMessage:
         # Enable the summarisation path so _warm_hitl_summary is triggered.
         config.transcript_summarization_enabled = True
         config.dry_run = False
-        config.gh_token = "test-token"
 
         calls: list[tuple[int, str]] = []
         original_set = state.set_hitl_summary_failure
@@ -133,6 +132,10 @@ class TestHitlSummaryFailureMessage:
             return original_set(issue_number, message)
 
         state.set_hitl_summary_failure = tracking_set
+
+        from config import Credentials
+
+        creds = Credentials(gh_token="test-token")
 
         with patch("dashboard_routes._routes.IssueFetcher") as mock_fetcher_cls:
             mock_fetcher = MagicMock()
@@ -157,6 +160,7 @@ class TestHitlSummaryFailureMessage:
                 set_run_task=lambda t: None,
                 ui_dist_dir=tmp_path / "no-dist",
                 template_dir=tmp_path / "no-templates",
+                credentials=creds,
             )
 
             get_hitl = None

@@ -196,7 +196,7 @@ class TestContainerLikeProtocol:
 # ---------------------------------------------------------------------------
 
 
-def _make_router(config, event_bus, state, tmp_path):
+def _make_router(config, event_bus, state, tmp_path, *, credentials=None):
     """Build a dashboard router backed by test doubles."""
     from dashboard_routes import create_router
     from pr_manager import PRManager
@@ -212,6 +212,7 @@ def _make_router(config, event_bus, state, tmp_path):
         set_run_task=lambda t: None,
         ui_dist_dir=tmp_path / "no-dist",
         template_dir=tmp_path / "no-templates",
+        credentials=credentials,
     )
 
 
@@ -330,10 +331,11 @@ class TestDashboardRouteAnnotations:
         """Hindsight check reports ok when enabled + configured."""
         import json
 
-        cfg = ConfigFactory.create(
-            hindsight_url="http://localhost:8080",
-        )
-        router = _make_router(cfg, event_bus, state, tmp_path)
+        from config import Credentials
+
+        cfg = ConfigFactory.create()
+        creds = Credentials(hindsight_url="http://localhost:8080")
+        router = _make_router(cfg, event_bus, state, tmp_path, credentials=creds)
         get_health = _find_endpoint(router, "/healthz")
         assert get_health is not None
         response = get_health()

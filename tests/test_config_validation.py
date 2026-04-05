@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 # conftest.py already inserts the hydraflow package directory into sys.path
-from config import HydraFlowConfig
+from config import HydraFlowConfig, build_credentials
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -149,8 +149,8 @@ class TestHydraFlowConfigValidationConstraints:
 # ---------------------------------------------------------------------------
 
 
-class TestHydraFlowConfigGhToken:
-    """Tests for the gh_token field and HYDRAFLOW_GH_TOKEN env var resolution."""
+class TestBuildCredentialsGhToken:
+    """Tests for gh_token resolution via build_credentials()."""
 
     def test_gh_token_default_is_empty(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -163,16 +163,7 @@ class TestHydraFlowConfigGhToken:
             workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.gh_token == ""
-
-    def test_gh_token_explicit_value_preserved(self, tmp_path: Path) -> None:
-        cfg = HydraFlowConfig(
-            gh_token="ghp_explicit123",
-            repo_root=tmp_path,
-            workspace_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.gh_token == "ghp_explicit123"
+        assert build_credentials(cfg).gh_token == ""
 
     def test_gh_token_picks_up_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -183,19 +174,7 @@ class TestHydraFlowConfigGhToken:
             workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.gh_token == "ghp_from_env"
-
-    def test_gh_token_explicit_overrides_env_var(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_GH_TOKEN", "ghp_from_env")
-        cfg = HydraFlowConfig(
-            gh_token="ghp_explicit",
-            repo_root=tmp_path,
-            workspace_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.gh_token == "ghp_explicit"
+        assert build_credentials(cfg).gh_token == "ghp_from_env"
 
     def test_gh_token_picks_up_dotenv_fallback(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -209,7 +188,7 @@ class TestHydraFlowConfigGhToken:
             workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.gh_token == "ghp_from_dotenv"
+        assert build_credentials(cfg).gh_token == "ghp_from_dotenv"
 
     def test_gh_token_dotenv_ignores_inline_comment(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -225,7 +204,7 @@ class TestHydraFlowConfigGhToken:
             workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
         )
-        assert cfg.gh_token == "ghp_from_dotenv"
+        assert build_credentials(cfg).gh_token == "ghp_from_dotenv"
 
 
 # ---------------------------------------------------------------------------

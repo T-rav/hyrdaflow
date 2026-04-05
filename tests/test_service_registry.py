@@ -6,7 +6,6 @@ import asyncio
 import sys
 from operator import attrgetter
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -18,19 +17,17 @@ if TYPE_CHECKING:
 from unittest.mock import patch
 
 from events import EventBus, EventType, HydraFlowEvent
-from service_registry import OrchestratorCallbacks, ServiceRegistry, build_services
+from service_registry import ServiceRegistry, WorkerRegistryCallbacks, build_services
 from state import StateTracker
 from workspace import WorkspaceManager
 
 
-def _make_callbacks() -> OrchestratorCallbacks:
-    """Create a stub OrchestratorCallbacks."""
-    return OrchestratorCallbacks(
-        sync_active_issue_numbers=lambda: None,
-        update_bg_worker_status=lambda *args, **kwargs: None,
-        is_bg_worker_enabled=lambda name: True,
-        sleep_or_stop=AsyncMock(),
-        get_bg_worker_interval=lambda name: 60,
+def _make_callbacks() -> WorkerRegistryCallbacks:
+    """Create a stub WorkerRegistryCallbacks."""
+    return WorkerRegistryCallbacks(
+        update_status=lambda *args, **kwargs: None,
+        is_enabled=lambda name: True,
+        get_interval=lambda name: 60,
     )
 
 
@@ -110,7 +107,10 @@ class TestBuildServices:
             mock_factory.return_value = get_default_runner()
             build_services(config, bus, state, stop_event, callbacks)
 
-        mock_factory.assert_called_once_with(config)
+        mock_factory.assert_called_once()
+        call_args = mock_factory.call_args
+        assert call_args[0][0] is config  # positional: config
+        assert "credentials" in call_args[1]  # keyword: credentials
 
 
 class TestServiceRegistryWiring:
@@ -200,3 +200,58 @@ class TestServiceRegistryWiring:
                 assert received is event, f"{label} did not publish via shared EventBus"
         finally:
             bus.unsubscribe(queue)
+
+
+class TestWorkerRegistryCallbacks:
+    """Tests for the focused WorkerRegistryCallbacks interface."""
+
+    def test_has_three_fields_only(self) -> None:
+        """WorkerRegistryCallbacks should expose exactly 3 focused callbacks."""
+        fields = set(WorkerRegistryCallbacks.__dataclass_fields__)
+        assert fields == {"update_status", "is_enabled", "get_interval"}
+
+    def test_is_frozen(self) -> None:
+        """WorkerRegistryCallbacks should be immutable."""
+        import pytest
+
+        cb = WorkerRegistryCallbacks(
+            update_status=lambda *a, **kw: None,
+            is_enabled=lambda _: True,
+            get_interval=lambda _: 60,
+        )
+        with pytest.raises(AttributeError):
+            cb.update_status = lambda *a, **kw: None  # type: ignore[misc]
+
+    def test_build_services_accepts_active_issues_cb(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """build_services should accept active_issues_cb as a separate parameter."""
+        bus = EventBus()
+        state = StateTracker(config.state_file)
+        stop_event = asyncio.Event()
+        callbacks = _make_callbacks()
+        called = False
+
+        def track_active() -> None:
+            nonlocal called
+            called = True
+
+        registry = build_services(
+            config, bus, state, stop_event, callbacks, active_issues_cb=track_active
+        )
+        # Verify all three consumers received the callback
+        assert registry.hitl_phase._active_issues_cb is track_active
+        assert registry.implementer._active_issues_cb is track_active
+        assert registry.reviewer._active_issues_cb is track_active
+
+    def test_build_services_without_active_issues_cb(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """build_services should work when active_issues_cb is None (default)."""
+        bus = EventBus()
+        state = StateTracker(config.state_file)
+        stop_event = asyncio.Event()
+        callbacks = _make_callbacks()
+
+        registry = build_services(config, bus, state, stop_event, callbacks)
+        assert isinstance(registry, ServiceRegistry)

@@ -13,8 +13,13 @@ def build_agent_command(
     model: str,
     disallowed_tools: str | None = None,
     max_turns: int | None = None,
+    effort: str | None = None,
 ) -> list[str]:
-    """Build a non-interactive command for an agent stage."""
+    """Build a non-interactive command for an agent stage.
+
+    *effort* sets the reasoning effort level (``"low"``, ``"medium"``,
+    ``"high"``, ``"max"``).  When ``None``, the CLI default is used.
+    """
     if tool == "codex":
         return _build_codex_command(model=model)
     if tool == "pi":
@@ -39,6 +44,8 @@ def build_agent_command(
         cmd.extend(["--disallowedTools", disallowed_tools])
     if max_turns is not None:
         cmd.extend(["--max-turns", str(max_turns)])
+    if effort is not None:
+        cmd.extend(["--effort", effort])
     return cmd
 
 

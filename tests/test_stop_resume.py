@@ -122,6 +122,7 @@ def _make_orchestrator(tmp_path: Path) -> HydraFlowOrchestrator:
         svc.hitl_phase.active_hitl_issues = set()
         svc.run_recorder = MagicMock()
         svc.implementer = MagicMock()
+        svc.implementer.active_issues = set()
         svc.metrics_manager = MagicMock()
         svc.pr_unsticker = MagicMock()
         svc.memory_sync = MagicMock()
@@ -130,6 +131,7 @@ def _make_orchestrator(tmp_path: Path) -> HydraFlowOrchestrator:
         svc.verification_judge = MagicMock()
         svc.epic_checker = MagicMock()
         svc.reviewer = MagicMock()
+        svc.reviewer.active_issues = set()
         svc.memory_sync_bg = MagicMock()
         svc.pr_unsticker_loop = MagicMock()
         svc.fetcher = MagicMock()
@@ -217,7 +219,7 @@ class TestOrchestratorStop:
         """Issues tracked in _active_impl_issues but not in store are included."""
         orch = _make_orchestrator(tmp_path)
         orch._svc.store.get_active_issues.return_value = {}
-        orch._active_impl_issues = {55}
+        orch._svc.implementer.active_issues.update({55})
 
         await orch.stop()
 
@@ -229,7 +231,7 @@ class TestOrchestratorStop:
         """Issues tracked in _active_review_issues are included."""
         orch = _make_orchestrator(tmp_path)
         orch._svc.store.get_active_issues.return_value = {}
-        orch._active_review_issues = {77}
+        orch._svc.reviewer.active_issues.update({77})
 
         await orch.stop()
 
@@ -304,7 +306,7 @@ class TestOrchestratorResume:
             await orch.run()
 
         # Issue should be cleared from active tracking so IssueStore can re-route
-        assert 42 not in orch._active_impl_issues
+        assert 42 not in orch._svc.implementer.active_issues
         assert 42 not in orch._recovered_issues
         assert orch._state.get_interrupted_issues() == {}
 
@@ -321,7 +323,7 @@ class TestOrchestratorResume:
         with patch.object(orch, "_supervise_loops", new_callable=AsyncMock):
             await orch.run()
 
-        assert 10 not in orch._active_impl_issues
+        assert 10 not in orch._svc.implementer.active_issues
         assert 10 not in orch._recovered_issues
         assert orch._state.get_interrupted_issues() == {}
 
@@ -338,8 +340,8 @@ class TestOrchestratorResume:
         with patch.object(orch, "_supervise_loops", new_callable=AsyncMock):
             await orch.run()
 
-        assert 99 not in orch._active_impl_issues
-        assert 99 not in orch._active_review_issues
+        assert 99 not in orch._svc.implementer.active_issues
+        assert 99 not in orch._svc.reviewer.active_issues
         assert 99 not in orch._recovered_issues
         assert orch._state.get_interrupted_issues() == {}
 
@@ -356,7 +358,7 @@ class TestOrchestratorResume:
         with patch.object(orch, "_supervise_loops", new_callable=AsyncMock):
             await orch.run()
 
-        assert 33 not in orch._active_impl_issues
+        assert 33 not in orch._svc.implementer.active_issues
         assert 33 not in orch._svc.hitl_phase.active_hitl_issues
         assert orch._state.get_interrupted_issues() == {}
 
@@ -374,8 +376,8 @@ class TestOrchestratorResume:
             await orch.run()
 
         # All interrupted issues must be removed from active tracking
-        assert not orch._active_impl_issues & {1, 2, 3}
-        assert not orch._active_review_issues & {1, 2, 3}
+        assert not orch._svc.implementer.active_issues & {1, 2, 3}
+        assert not orch._svc.reviewer.active_issues & {1, 2, 3}
         assert not orch._recovered_issues & {1, 2, 3}
         assert orch._state.get_interrupted_issues() == {}
 
@@ -394,8 +396,8 @@ class TestOrchestratorResume:
             await orch.run()
 
         # Issue 42 unblocked; issue 77 still in grace period
-        assert 42 not in orch._active_impl_issues
-        assert 77 in orch._active_impl_issues
+        assert 42 not in orch._svc.implementer.active_issues
+        assert 77 in orch._svc.implementer.active_issues
 
 
 # ---------------------------------------------------------------------------
@@ -638,7 +640,7 @@ class TestBuildInterruptedIssues:
         """Merges IssueStore active + in-memory tracking sets."""
         orch = _make_orchestrator(tmp_path)
         orch._svc.store.get_active_issues.return_value = {42: "implement"}
-        orch._active_review_issues = {99}
+        orch._svc.reviewer.active_issues.update({99})
 
         result = await orch._build_interrupted_issues()
 
@@ -649,7 +651,7 @@ class TestBuildInterruptedIssues:
         """If an issue is in both store and memory, store value is used."""
         orch = _make_orchestrator(tmp_path)
         orch._svc.store.get_active_issues.return_value = {42: "review"}
-        orch._active_impl_issues = {42}  # Also tracked here
+        orch._svc.implementer.active_issues.update({42})  # Also tracked here
 
         result = await orch._build_interrupted_issues()
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
@@ -24,6 +25,18 @@ from subprocess_util import AuthenticationError, CreditExhaustedError
 logger = logging.getLogger("hydraflow.base_background_loop")
 
 
+def _make_sleep_fn(
+    stop_event: asyncio.Event,
+) -> Callable[[int | float], Coroutine[Any, Any, None]]:
+    """Create a sleep function that wakes early when *stop_event* is set."""
+
+    async def _sleep_or_stop(seconds: int | float) -> None:
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop_event.wait(), timeout=seconds)
+
+    return _sleep_or_stop
+
+
 @dataclass(frozen=True)
 class LoopDeps:
     """Shared dependencies passed to every background loop.
@@ -37,7 +50,7 @@ class LoopDeps:
     stop_event: asyncio.Event
     status_cb: StatusCallback
     enabled_cb: Callable[[str], bool]
-    sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]]
+    sleep_fn: Callable[[int | float], Coroutine[Any, Any, None]] | None = None
     interval_cb: Callable[[str], int] | None = None
 
 
@@ -64,7 +77,11 @@ class BaseBackgroundLoop(abc.ABC):
         self._stop_event = deps.stop_event
         self._status_cb = deps.status_cb
         self._enabled_cb = deps.enabled_cb
-        self._sleep_fn = deps.sleep_fn
+        self._sleep_fn = (
+            deps.sleep_fn
+            if deps.sleep_fn is not None
+            else _make_sleep_fn(deps.stop_event)
+        )
         self._interval_cb = deps.interval_cb
         self._run_on_startup = run_on_startup
         self._trigger_event = asyncio.Event()

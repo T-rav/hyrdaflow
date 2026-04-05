@@ -8,8 +8,9 @@ import re
 from typing import TYPE_CHECKING
 
 from agent_cli import build_agent_command
-from config import HydraFlowConfig
+from config import Credentials, HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+from exception_classify import reraise_on_credit_or_bug
 from execution import get_default_runner
 from models import (
     CriterionResult,
@@ -20,7 +21,6 @@ from models import (
     ParsedCriteria,
     VerificationJudgePayload,
 )
-from phase_utils import reraise_on_credit_or_bug
 from precheck import run_precheck_context
 from runner_utils import stream_claude_process, terminate_processes
 
@@ -43,11 +43,13 @@ class VerificationJudge:
         config: HydraFlowConfig,
         event_bus: EventBus,
         runner: SubprocessRunner | None = None,
+        credentials: Credentials | None = None,
     ) -> None:
         self._config = config
         self._bus = event_bus
         self._active_procs: set[asyncio.subprocess.Process] = set()
         self._runner = runner or get_default_runner()
+        self._credentials = credentials or Credentials()
 
     async def judge(
         self,
@@ -559,7 +561,7 @@ Diff excerpt:
             logger=logger,
             timeout=self._config.agent_timeout,
             runner=self._runner,
-            gh_token=self._config.gh_token,
+            gh_token=self._credentials.gh_token,
         )
 
     def terminate(self) -> None:

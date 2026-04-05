@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from events import EventBus, EventType, HydraFlowEvent
+from exception_classify import is_likely_bug, reraise_on_credit_or_bug
 from models import LoopResult, Task, WorkerResult, WorkerStatus, WorkerUpdatePayload
-from phase_utils import is_likely_bug, reraise_on_credit_or_bug
 from prompt_builder import PromptBuilder
 from review_insights import (
     ReviewInsightStore,
@@ -31,7 +31,7 @@ from skill_registry import (  # noqa: F401
 from task_graph import extract_phases, has_task_graph, topological_sort
 
 if TYPE_CHECKING:
-    from config import HydraFlowConfig
+    from config import Credentials, HydraFlowConfig
     from dolt_backend import DoltBackend
     from execution import SubprocessRunner
     from hindsight import HindsightClient
@@ -134,8 +134,11 @@ Run through this checklist before your final commit:
         hindsight: HindsightClient | None = None,
         dolt: DoltBackend | None = None,
         wal: HindsightWAL | None = None,
+        credentials: Credentials | None = None,
     ) -> None:
-        super().__init__(config, event_bus, runner, hindsight=hindsight)
+        super().__init__(
+            config, event_bus, runner, hindsight=hindsight, credentials=credentials
+        )
         self._insights = ReviewInsightStore(
             config.memory_dir, hindsight=hindsight, dolt=dolt, wal=wal
         )
@@ -152,7 +155,6 @@ Run through this checklist before your final commit:
         review_feedback: str = "",
         prior_failure: str = "",
         bead_mapping: dict[str, str] | None = None,
-        shared_prefix: str | None = None,
     ) -> WorkerResult:
         """Run the implementation agent for *task*.
 
@@ -185,7 +187,6 @@ Run through this checklist before your final commit:
                 review_feedback=review_feedback,
                 prior_failure=prior_failure,
                 bead_mapping=bead_mapping,
-                shared_prefix=shared_prefix,
             )
             transcript = await self._execute(
                 cmd,
@@ -552,7 +553,6 @@ Run through this checklist before your final commit:
         review_feedback: str = "",
         prior_failure: str = "",
         bead_mapping: dict[str, str] | None = None,
-        shared_prefix: str | None = None,
     ) -> tuple[str, dict[str, object]]:
         """Build the implementation prompt and pruning stats."""
         builder = PromptBuilder()
@@ -660,9 +660,8 @@ Run through this checklist before your final commit:
                 "Escalations", escalation_section, escalation_section
             )
 
-        manifest_section, memory_section = await self._inject_manifest_and_memory(
+        memory_section = await self._inject_memory(
             query_context=f"{issue.title}\n{(issue.body or '')[:200]}",
-            shared_prefix=shared_prefix,
         )
 
         # Runtime log injection
@@ -683,6 +682,29 @@ Run through this checklist before your final commit:
             )
         builder.record_context("Issue body", issue.body, body)
 
+        # --- Cross-section paragraph dedup ---
+        from prompt_dedup import PromptDeduplicator  # noqa: PLC0415
+
+        section_deduper = PromptDeduplicator()
+        deduped, section_chars_saved = section_deduper.dedup_sections(
+            ("Issue body", body),
+            ("Implementation plan", plan_section),
+            ("Review feedback", review_feedback_section),
+            ("Prior failure", prior_failure_section),
+            ("Discussion", comments_section),
+            ("Memory", memory_section),
+        )
+        dedup_map = dict(deduped)
+        body = dedup_map["Issue body"]
+        plan_section = dedup_map["Implementation plan"]
+        review_feedback_section = dedup_map["Review feedback"]
+        prior_failure_section = dedup_map["Prior failure"]
+        comments_section = dedup_map["Discussion"]
+        memory_section = dedup_map["Memory"]
+
+        if section_chars_saved:
+            self._last_context_stats["section_dedup_chars_saved"] = section_chars_saved
+
         test_cmd = self._config.test_command  # noqa: F841 — used in f-string prompt
         tools_section = format_tools_for_prompt(discover_tools(self._config.repo_root))
         skills_section = format_skills_for_prompt(get_skills())
@@ -691,7 +713,7 @@ Run through this checklist before your final commit:
 
 ## Issue: {issue.title}
 
-{body}{plan_section}{review_feedback_section}{prior_failure_section}{comments_section}{manifest_section}{memory_section}{log_section}
+{body}{plan_section}{review_feedback_section}{prior_failure_section}{comments_section}{memory_section}{log_section}
 
 ## Instructions
 

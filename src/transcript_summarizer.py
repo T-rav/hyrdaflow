@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from agent_cli import build_lightweight_command
-from config import HydraFlowConfig
+from config import Credentials, HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 from execution import SubprocessRunner, get_default_runner
 from models import TranscriptSummaryPayload
@@ -125,12 +125,14 @@ class TranscriptSummarizer:
         event_bus: EventBus,
         state: StateTracker,
         runner: SubprocessRunner | None = None,
+        credentials: Credentials | None = None,
     ) -> None:
         self._config = config
         self._prs = pr_manager
         self._bus = event_bus
         self._state = state
         self._runner = runner or get_default_runner()
+        self._credentials = credentials or Credentials()
 
     # --- Shared summary generation ---
 
@@ -343,7 +345,7 @@ class TranscriptSummarizer:
         cmd, cmd_input = build_lightweight_command(
             tool=tool, model=model, prompt=prompt
         )
-        env = make_clean_env(self._config.gh_token)
+        env = make_clean_env(self._credentials.gh_token)
 
         try:
             result = await self._runner.run_simple(

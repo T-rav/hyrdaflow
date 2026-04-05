@@ -68,6 +68,32 @@ CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...
 
 This token is required for Docker mode. It can expire — re-run `claude setup-token` to refresh.
 
+### WhatsApp Notifications (Optional)
+
+Get notified on your phone when Shape needs product direction input.
+Reply directly from WhatsApp — no computer needed.
+
+**Setup:**
+
+1. Create a [Meta Developer](https://developers.facebook.com/) account
+2. Create an app, add the WhatsApp product, get a test phone number
+3. Note the **Phone number ID** and **Temporary access token** from the WhatsApp settings
+4. Choose a custom verify token (any string you pick)
+5. Add to `.env`:
+   ```
+   HYDRAFLOW_WHATSAPP_ENABLED=true
+   HYDRAFLOW_WHATSAPP_PHONE_ID=<phone number ID>
+   HYDRAFLOW_WHATSAPP_TOKEN=<access token>
+   HYDRAFLOW_WHATSAPP_VERIFY_TOKEN=<your custom verify string>
+   HYDRAFLOW_WHATSAPP_RECIPIENT=<your phone, e.g. 27821234567>
+   HYDRAFLOW_DASHBOARD_URL=<public URL of your dashboard>
+   ```
+6. Expose the webhook publicly (e.g. `ngrok http 5555`)
+7. In Meta Developer Console → WhatsApp → Configuration:
+   - **Callback URL:** `https://<ngrok-url>/api/webhooks/whatsapp`
+   - **Verify token:** same string as `HYDRAFLOW_WHATSAPP_VERIFY_TOKEN`
+   - Subscribe to **messages**
+
 ## Quick Start
 
 ```bash

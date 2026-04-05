@@ -9,6 +9,7 @@ import pytest
 
 # conftest.py already inserts the hydraflow package directory into sys.path
 from config import (
+    Credentials,
     HydraFlowConfig,
     _detect_repo_slug,
     _find_repo_root,
@@ -989,3 +990,48 @@ class TestADR0021PersistenceLayout:
         HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
 
         assert call_order == step_names
+
+
+# ---------------------------------------------------------------------------
+# Credentials separation invariant
+# ---------------------------------------------------------------------------
+
+
+class TestCredentialsSeparation:
+    """Verify that HydraFlowConfig.model_dump() contains no credential fields."""
+
+    _CREDENTIAL_FIELDS = {
+        "gh_token",
+        "hindsight_url",
+        "hindsight_api_key",
+        "sentry_auth_token",
+        "whatsapp_token",
+        "whatsapp_phone_id",
+        "whatsapp_recipient",
+        "whatsapp_verify_token",
+    }
+
+    def test_hydraflow_config_model_dump_excludes_credential_fields(
+        self, tmp_path: Path
+    ) -> None:
+        """HydraFlowConfig serialization must not leak credential fields."""
+        config = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")
+        dump_keys = set(config.model_dump().keys())
+        leaked = self._CREDENTIAL_FIELDS & dump_keys
+        assert not leaked, (
+            f"Credential fields leaked into HydraFlowConfig.model_dump(): {leaked}"
+        )
+
+    def test_credentials_model_contains_all_secret_fields(self) -> None:
+        """Credentials must define all expected secret fields."""
+        creds = Credentials(gh_token="tok", hindsight_api_key="key")
+        assert creds.gh_token == "tok"
+        assert creds.hindsight_api_key == "key"
+
+    def test_credentials_is_frozen(self) -> None:
+        """Credentials must be immutable to prevent accidental mutation."""
+        from pydantic import ValidationError
+
+        creds = Credentials(gh_token="tok")
+        with pytest.raises((ValidationError, TypeError)):
+            creds.gh_token = "other"  # type: ignore[misc]

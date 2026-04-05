@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 from execution import SimpleResult, SubprocessRunner, get_default_runner
 
 if TYPE_CHECKING:
-    from config import HydraFlowConfig
+    from config import Credentials, HydraFlowConfig
 
 
 class DockerSocket(Protocol):
@@ -693,6 +693,7 @@ def get_docker_runner(
     config: HydraFlowConfig,
     *,
     docker_checker: Callable[[], bool] | None = None,
+    credentials: Credentials | None = None,
 ) -> SubprocessRunner:
     """Factory: returns a :class:`SubprocessRunner` for agent execution.
 
@@ -725,12 +726,15 @@ def get_docker_runner(
         logger.warning("Docker daemon not available; falling back to host runner")
         return get_default_runner()
 
+    from config import Credentials as _Credentials  # noqa: PLC0415
+
+    _creds = credentials or _Credentials()
     log_dir = config.log_dir
     return DockerRunner(
         image=config.docker_image,
         repo_root=config.repo_root,
         log_dir=log_dir,
-        gh_token=config.gh_token,
+        gh_token=_creds.gh_token,
         git_user_name=config.git_user_name,
         git_user_email=config.git_user_email,
         spawn_delay=config.docker_spawn_delay,

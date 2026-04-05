@@ -37,7 +37,7 @@ def test_bot_pr_settings_validates_review_mode():
 
 
 def test_state_tracker_bot_pr_settings_roundtrip(tmp_path):
-    config = HydraFlowConfig(repo_root=str(tmp_path), gh_token="fake")
+    config = HydraFlowConfig(repo_root=str(tmp_path))
     state = StateTracker(config.state_file)
 
     settings = state.get_bot_pr_settings()
@@ -56,7 +56,7 @@ def test_state_tracker_bot_pr_settings_roundtrip(tmp_path):
 
 
 def test_state_tracker_bot_pr_processed(tmp_path):
-    config = HydraFlowConfig(repo_root=str(tmp_path), gh_token="fake")
+    config = HydraFlowConfig(repo_root=str(tmp_path))
     state = StateTracker(config.state_file)
 
     assert state.get_bot_pr_processed() == set()

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from acceptance_criteria import AcceptanceCriteriaGenerator
 from adr_reviewer import ADRCouncilReviewer
@@ -19,7 +19,7 @@ from beads_manager import BeadsManager
 from bot_pr_loop import BotPRLoop
 from ci_monitor_loop import CIMonitorLoop  # noqa: TCH001
 from code_grooming_loop import CodeGroomingLoop  # noqa: TCH001
-from config import HydraFlowConfig
+from config import Credentials, HydraFlowConfig
 from crate_manager import CrateManager
 from discover_phase import DiscoverPhase  # noqa: TCH001
 from discover_runner import DiscoverRunner
@@ -29,7 +29,7 @@ from epic_monitor_loop import EpicMonitorLoop
 from epic_sweeper_loop import EpicSweeperLoop
 from events import EventBus
 from execution import SubprocessRunner
-from github_cache import GitHubCacheLoop, GitHubDataCache
+from github_cache_loop import GitHubCacheLoop, GitHubDataCache
 from harness_insights import HarnessInsightStore
 from health_monitor_loop import HealthMonitorLoop
 from hitl_phase import HITLPhase
@@ -75,6 +75,8 @@ if TYPE_CHECKING:
     from hindsight import HindsightClient
     from hindsight_wal import HindsightWAL
     from metrics_manager import MetricsManager
+
+logger = logging.getLogger("hydraflow.service_registry")
 
 
 @dataclass
@@ -145,15 +147,37 @@ class ServiceRegistry:
     hindsight_wal: HindsightWAL | None = None
 
 
-@dataclass
-class OrchestratorCallbacks:
-    """Callbacks from the orchestrator needed during service construction."""
+@dataclass(frozen=True)
+class WorkerRegistryCallbacks:
+    """Focused interface for background-worker management callbacks.
 
-    sync_active_issue_numbers: Callable[[], None]
-    update_bg_worker_status: StatusCallback
-    is_bg_worker_enabled: Callable[[str], bool]
-    sleep_or_stop: Callable[[int | float], Coroutine[Any, Any, None]]
-    get_bg_worker_interval: Callable[[str], int]
+    Replaces the former ``OrchestratorCallbacks`` god-object with only the
+    three callbacks that ``LoopDeps`` and status-reporting consumers need.
+    """
+
+    update_status: StatusCallback
+    is_enabled: Callable[[str], bool]
+    get_interval: Callable[[str], int]
+
+
+def build_state_tracker(config: HydraFlowConfig) -> StateTracker:
+    """Construct a ``StateTracker`` with the best available backend.
+
+    Uses embedded Dolt when the ``dolt`` CLI is installed, otherwise
+    falls back to JSON-file persistence.
+    """
+    from dolt_backend import DoltBackend
+
+    dolt: DoltBackend | None = None
+    try:
+        dolt_dir = Path(str(config.state_file)).parent / "dolt"
+        dolt = DoltBackend(dolt_dir)
+        logger.info("Dolt state backend enabled at %s", dolt_dir)
+    except FileNotFoundError:
+        logger.info("dolt CLI not found — using file-based state")
+    except Exception:
+        logger.warning("Dolt init failed — using file-based state", exc_info=True)
+    return StateTracker(config.state_file, dolt=dolt)
 
 
 def build_services(
@@ -161,12 +185,20 @@ def build_services(
     event_bus: EventBus,
     state: StateTracker,
     stop_event: asyncio.Event,
-    callbacks: OrchestratorCallbacks,
+    callbacks: WorkerRegistryCallbacks,
+    active_issues_cb: Callable[[], None] | None = None,
+    credentials: Credentials | None = None,
 ) -> ServiceRegistry:
     """Create all services wired together.
 
     This replaces the 170-line orchestrator constructor body.
     """
+    # Build credentials from env if not supplied by caller.
+    if credentials is None:
+        from config import build_credentials
+
+        credentials = build_credentials(config)
+
     # Configure global GitHub API concurrency limiter (startup config
     # belongs in the composition root, not the orchestrator).
     from subprocess_util import configure_gh_concurrency
@@ -176,13 +208,13 @@ def build_services(
     # Hindsight semantic memory (optional)
     hindsight_client = None
     hindsight_wal: HindsightWAL | None = None
-    if config.hindsight_url:
+    if credentials.hindsight_url:
         from hindsight import HindsightClient
         from hindsight_wal import HindsightWAL
 
         hindsight_client = HindsightClient(
-            config.hindsight_url,
-            api_key=config.hindsight_api_key,
+            credentials.hindsight_url,
+            api_key=credentials.hindsight_api_key,
             timeout=config.hindsight_timeout,
         )
         hindsight_wal = HindsightWAL(config.data_path("memory", "hindsight_wal.jsonl"))
@@ -195,18 +227,13 @@ def build_services(
         dolt_dir = Path(str(config.state_file)).parent / "dolt"
         dolt_backend = DoltBackend(dolt_dir)
     except FileNotFoundError:
-        logging.getLogger("hydraflow.service_registry").info(
-            "dolt CLI not found — stores will use file-based fallback",
-        )
+        logger.info("dolt CLI not found — stores will use file-based fallback")
     except Exception:
-        logging.getLogger("hydraflow.service_registry").warning(
-            "Dolt init failed",
-            exc_info=True,
-        )
+        logger.warning("Dolt init failed", exc_info=True)
 
     # Core runners
-    workspaces = WorkspaceManager(config)  # noqa: F841
-    subprocess_runner = get_docker_runner(config)
+    workspaces = WorkspaceManager(config, credentials=credentials)  # noqa: F841
+    subprocess_runner = get_docker_runner(config, credentials=credentials)
     agents = AgentRunner(
         config,
         event_bus,
@@ -214,29 +241,50 @@ def build_services(
         hindsight=hindsight_client,
         dolt=dolt_backend,
         wal=hindsight_wal,
+        credentials=credentials,
     )
     planners = PlannerRunner(
-        config, event_bus, runner=subprocess_runner, hindsight=hindsight_client
+        config,
+        event_bus,
+        runner=subprocess_runner,
+        hindsight=hindsight_client,
+        credentials=credentials,
     )
     researcher = ResearchRunner(
-        config, event_bus, runner=subprocess_runner, hindsight=hindsight_client
+        config,
+        event_bus,
+        runner=subprocess_runner,
+        hindsight=hindsight_client,
+        credentials=credentials,
     )
-    prs = PRManager(config, event_bus)
+    prs = PRManager(config, event_bus, credentials=credentials)
     reviewers = ReviewRunner(
-        config, event_bus, runner=subprocess_runner, hindsight=hindsight_client
+        config,
+        event_bus,
+        runner=subprocess_runner,
+        hindsight=hindsight_client,
+        credentials=credentials,
     )
     hitl_runner = HITLRunner(
-        config, event_bus, runner=subprocess_runner, hindsight=hindsight_client
+        config,
+        event_bus,
+        runner=subprocess_runner,
+        hindsight=hindsight_client,
+        credentials=credentials,
     )
     triage = TriageRunner(
-        config, event_bus, runner=subprocess_runner, hindsight=hindsight_client
+        config,
+        event_bus,
+        runner=subprocess_runner,
+        hindsight=hindsight_client,
+        credentials=credentials,
     )
     summarizer = TranscriptSummarizer(
-        config, prs, event_bus, state, runner=subprocess_runner
+        config, prs, event_bus, state, runner=subprocess_runner, credentials=credentials
     )
 
     # Data layer
-    fetcher = IssueFetcher(config)
+    fetcher = IssueFetcher(config, credentials=credentials)
     gh_cache = GitHubDataCache(config, prs, fetcher)  # noqa: F841
     store = IssueStore(config, GitHubTaskFetcher(fetcher), event_bus)
 
@@ -291,9 +339,9 @@ def build_services(
         from whatsapp_bridge import WhatsAppBridge  # noqa: PLC0415
 
         wa_bridge = WhatsAppBridge(
-            phone_id=config.whatsapp_phone_id,
-            token=config.whatsapp_token,
-            recipient=config.whatsapp_recipient,
+            phone_id=credentials.whatsapp_phone_id,
+            token=credentials.whatsapp_token,
+            recipient=credentials.whatsapp_recipient,
         )
     shape_phase = ShapePhase(  # noqa: F841
         config,
@@ -305,6 +353,10 @@ def build_services(
         shape_runner=shape_runner,
         whatsapp_bridge=wa_bridge,
     )
+    # Wire expert council for auto-decision on directions
+    from expert_council import ExpertCouncil  # noqa: PLC0415
+
+    shape_phase._council = ExpertCouncil(config, event_bus)
     planner_phase = PlanPhase(
         config,
         state,
@@ -329,7 +381,7 @@ def build_services(
         prs,
         event_bus,
         stop_event,
-        active_issues_cb=callbacks.sync_active_issue_numbers,
+        active_issues_cb=active_issues_cb,
     )
     run_recorder = RunRecorder(config)
     implementer = ImplementPhase(
@@ -343,6 +395,8 @@ def build_services(
         run_recorder=run_recorder,
         harness_insights=harness_insights,
         beads_manager=beads_mgr,
+        active_issues_cb=active_issues_cb,
+        transcript_summarizer=summarizer,
     )
 
     from metrics_manager import MetricsManager
@@ -373,6 +427,7 @@ def build_services(
         resolver=conflict_resolver,
         troubleshooting_store=troubleshooting_store,
         store=store,
+        credentials=credentials,
     )
     memory_sync = MemorySyncWorker(
         config,
@@ -393,9 +448,11 @@ def build_services(
         wal=hindsight_wal,
     )
     ac_generator = AcceptanceCriteriaGenerator(
-        config, prs, event_bus, runner=subprocess_runner
+        config, prs, event_bus, runner=subprocess_runner, credentials=credentials
     )
-    verification_judge = VerificationJudge(config, event_bus, runner=subprocess_runner)
+    verification_judge = VerificationJudge(
+        config, event_bus, runner=subprocess_runner, credentials=credentials
+    )
     baseline_policy = BaselinePolicy(
         config=config,
         state=state,
@@ -410,7 +467,7 @@ def build_services(
         retrospective=retrospective,
         verification_judge=verification_judge,
         epic_checker=epic_checker,
-        update_bg_worker_status=callbacks.update_bg_worker_status,
+        update_bg_worker_status=callbacks.update_status,
         epic_manager=epic_manager,
         store=store,
     )
@@ -437,21 +494,22 @@ def build_services(
         event_bus=event_bus,
         harness_insights=harness_insights,
         review_insights=review_insights,
-        update_bg_worker_status=callbacks.update_bg_worker_status,
+        update_bg_worker_status=callbacks.update_status,
         baseline_policy=baseline_policy,
         hindsight=hindsight_client,
         dolt=dolt_backend,
         wal=hindsight_wal,
+        active_issues_cb=active_issues_cb,
+        transcript_summarizer=summarizer,
     )
 
     # Background loops — shared deps bundled into a single LoopDeps object
     loop_deps = LoopDeps(
         event_bus=event_bus,
         stop_event=stop_event,
-        status_cb=callbacks.update_bg_worker_status,
-        enabled_cb=callbacks.is_bg_worker_enabled,
-        sleep_fn=callbacks.sleep_or_stop,
-        interval_cb=callbacks.get_bg_worker_interval,
+        status_cb=callbacks.update_status,
+        enabled_cb=callbacks.is_enabled,
+        interval_cb=callbacks.get_interval,
     )
     memory_sync_bg = MemorySyncLoop(config, memory_sync, deps=loop_deps)
     pr_unsticker_loop = PRUnstickerLoop(config, pr_unsticker, prs, deps=loop_deps)
@@ -461,6 +519,7 @@ def build_services(
         pr_manager=prs,
         deps=loop_deps,
         runner=subprocess_runner,
+        credentials=credentials,
     )
     epic_monitor_loop = EpicMonitorLoop(
         config=config, epic_manager=epic_manager, deps=loop_deps
@@ -479,9 +538,12 @@ def build_services(
         state=state,
         deps=loop_deps,
         is_in_pipeline_cb=store.is_in_pipeline,
+        credentials=credentials,
     )
     runs_gc_loop = RunsGCLoop(config=config, run_recorder=run_recorder, deps=loop_deps)
-    adr_reviewer = ADRCouncilReviewer(config, event_bus, prs, subprocess_runner)
+    adr_reviewer = ADRCouncilReviewer(
+        config, event_bus, prs, subprocess_runner, credentials=credentials
+    )
     adr_reviewer_loop = ADRReviewerLoop(
         config=config, adr_reviewer=adr_reviewer, deps=loop_deps
     )
@@ -510,6 +572,7 @@ def build_services(
         deps=loop_deps,
         store=store,
         runner=subprocess_runner,
+        credentials=credentials,
     )
     stale_issue_gc_loop = StaleIssueGCLoop(  # noqa: F841
         config=config,
@@ -530,6 +593,7 @@ def build_services(
         config=config,
         pr_manager=prs,
         deps=loop_deps,
+        credentials=credentials,
     )
     trace_mining_loop = TraceMiningLoop(
         config=config,

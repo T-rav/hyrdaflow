@@ -362,7 +362,9 @@ class TestRunCleanTask:
             return inst
 
         monkeypatch.setattr("workspace.WorkspaceManager", fake_worktree_manager)
-        monkeypatch.setattr("state.build_state_tracker", fake_build_state_tracker)
+        monkeypatch.setattr(
+            "service_registry.build_state_tracker", fake_build_state_tracker
+        )
 
         result = await run_clean(config)
 

@@ -23,6 +23,51 @@ import file_util
 
 logger = logging.getLogger("hydraflow.config")
 
+
+class Credentials(BaseModel):
+    """Infrastructure credentials — separated from domain config.
+
+    Holds raw secrets and connection strings that should never appear in
+    domain-model serialization.  Built from environment variables at startup
+    via ``build_credentials()``.
+    """
+
+    model_config = {"frozen": True}
+
+    gh_token: str = Field(
+        default="",
+        description="GitHub token for gh CLI auth",
+    )
+    hindsight_url: str = Field(
+        default="",
+        description="Base URL for the Hindsight REST API",
+    )
+    hindsight_api_key: str = Field(
+        default="",
+        description="API key for Hindsight authentication",
+    )
+    sentry_auth_token: str = Field(
+        default="",
+        description="Sentry API auth token for reading issues",
+    )
+    whatsapp_token: str = Field(
+        default="",
+        description="WhatsApp Business API access token",
+    )
+    whatsapp_phone_id: str = Field(
+        default="",
+        description="WhatsApp Business API phone number ID",
+    )
+    whatsapp_recipient: str = Field(
+        default="",
+        description="WhatsApp recipient phone number (with country code)",
+    )
+    whatsapp_verify_token: str = Field(
+        default="",
+        description="WhatsApp webhook verification token",
+    )
+
+
 # Data-driven env-var override tables.
 # Each tuple: (field_name, env_var_key, default_value)
 _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
@@ -144,11 +189,9 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("release_tag_prefix", "HYDRAFLOW_RELEASE_TAG_PREFIX", "v"),
     ("main_branch", "HYDRAFLOW_MAIN_BRANCH", "main"),
     ("repos_workspace_dir", "HYDRAFLOW_REPOS_WORKSPACE_DIR", "~/.hydra/repos"),
-    ("hindsight_url", "HYDRAFLOW_HINDSIGHT_URL", ""),
-    ("hindsight_api_key", "HYDRAFLOW_HINDSIGHT_API_KEY", ""),
-    ("sentry_auth_token", "SENTRY_AUTH_TOKEN", ""),
     ("sentry_org", "SENTRY_ORG", ""),
     ("sentry_project_filter", "SENTRY_PROJECT_FILTER", ""),
+    ("dashboard_url", "HYDRAFLOW_DASHBOARD_URL", "http://localhost:5555"),
 ]
 
 _ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
@@ -194,6 +237,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ),
     ("screenshot_gist_public", "HYDRAFLOW_SCREENSHOT_GIST_PUBLIC", False),
     ("skip_preflight", "HYDRAFLOW_SKIP_PREFLIGHT", False),
+    ("whatsapp_enabled", "HYDRAFLOW_WHATSAPP_ENABLED", False),
 ]
 
 # Literal-typed env-var overrides.
@@ -576,20 +620,8 @@ class HydraFlowConfig(BaseModel):
         default=False,
         description="Enable WhatsApp notifications for shape conversations",
     )
-    whatsapp_phone_id: str = Field(
-        default="",
-        description="WhatsApp Business API phone number ID",
-    )
-    whatsapp_token: str = Field(
-        default="",
-        description="WhatsApp Business API access token",
-    )
-    whatsapp_recipient: str = Field(
-        default="",
-        description="WhatsApp recipient phone number (with country code)",
-    )
     dashboard_url: str = Field(
-        default="http://localhost:8000",
+        default="http://localhost:5555",
         description="Public URL of the dashboard for artifact links",
     )
     planner_label: list[str] = Field(
@@ -786,10 +818,6 @@ class HydraFlowConfig(BaseModel):
     )
 
     # Sentry error ingestion
-    sentry_auth_token: str = Field(
-        default="",
-        description="Sentry API auth token for reading issues (PAT or internal integration)",
-    )
     sentry_org: str = Field(
         default="",
         description="Sentry organization slug",
@@ -831,14 +859,6 @@ class HydraFlowConfig(BaseModel):
     )
 
     # Hindsight semantic memory
-    hindsight_url: str = Field(
-        default="",
-        description="Base URL for the Hindsight REST API",
-    )
-    hindsight_api_key: str = Field(
-        default="",
-        description="API key for Hindsight authentication",
-    )
     hindsight_timeout: int = Field(
         default=30,
         ge=5,
@@ -1416,12 +1436,6 @@ class HydraFlowConfig(BaseModel):
         description="Maximum baseline audit records to retain per issue",
     )
 
-    # GitHub authentication
-    gh_token: str = Field(
-        default="",
-        description="GitHub token for gh CLI auth (overrides shell GH_TOKEN)",
-    )
-
     @field_validator(
         "ready_label",
         "review_label",
@@ -1544,7 +1558,7 @@ class HydraFlowConfig(BaseModel):
 
         Resolution order (seven steps):
           1. ``_resolve_base_paths`` — repo_root, workspace_base, data_root
-          2. ``_resolve_repo_and_identity`` — repo slug, gh_token, git identity
+          2. ``_resolve_repo_and_identity`` — repo slug, git identity
           3. ``_resolve_repo_scoped_paths`` — state_file, event_log_path, config_file
           4. ``_apply_env_overrides`` — env-var overrides for labels, tokens, etc.
           5. ``_apply_profile_overrides`` — grouped tool/model defaults for profiles
@@ -1557,7 +1571,6 @@ class HydraFlowConfig(BaseModel):
         Environment variables (checked when no explicit CLI value is given):
             HYDRAFLOW_GITHUB_REPO       → repo
             HYDRAFLOW_GITHUB_ASSIGNEE   → (used by slash commands only)
-            HYDRAFLOW_GH_TOKEN          → gh_token
             HYDRAFLOW_GIT_USER_NAME     → git_user_name
             HYDRAFLOW_GIT_USER_EMAIL    → git_user_email
             HYDRAFLOW_MIN_PLAN_WORDS    → min_plan_words
@@ -1582,6 +1595,38 @@ class HydraFlowConfig(BaseModel):
         _harmonize_tool_model_defaults(self)
         _validate_docker(self)
         return self
+
+
+def build_credentials(config: HydraFlowConfig) -> Credentials:
+    """Build a ``Credentials`` instance from environment variables and .env files.
+
+    Resolution priority for ``gh_token``:
+      1. ``HYDRAFLOW_GH_TOKEN`` env var
+      2. ``GH_TOKEN`` env var
+      3. ``GITHUB_TOKEN`` env var
+      4. ``.env`` file in ``config.repo_root``
+
+    Other credential fields are read from their canonical env vars with
+    empty-string defaults (matching the old ``_ENV_STR_OVERRIDES`` behaviour).
+    """
+    gh_token = (
+        os.environ.get("HYDRAFLOW_GH_TOKEN", "")
+        or os.environ.get("GH_TOKEN", "")
+        or os.environ.get("GITHUB_TOKEN", "")
+        or _dotenv_lookup(
+            config.repo_root, "HYDRAFLOW_GH_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"
+        )
+    )
+    return Credentials(
+        gh_token=gh_token,
+        hindsight_url=os.environ.get("HYDRAFLOW_HINDSIGHT_URL", ""),
+        hindsight_api_key=os.environ.get("HYDRAFLOW_HINDSIGHT_API_KEY", ""),
+        sentry_auth_token=os.environ.get("SENTRY_AUTH_TOKEN", ""),
+        whatsapp_token=os.environ.get("HYDRAFLOW_WHATSAPP_TOKEN", ""),
+        whatsapp_phone_id=os.environ.get("HYDRAFLOW_WHATSAPP_PHONE_ID", ""),
+        whatsapp_recipient=os.environ.get("HYDRAFLOW_WHATSAPP_RECIPIENT", ""),
+        whatsapp_verify_token=os.environ.get("HYDRAFLOW_WHATSAPP_VERIFY_TOKEN", ""),
+    )
 
 
 def _apply_profile_overrides(config: HydraFlowConfig) -> None:
@@ -1691,7 +1736,7 @@ def _validate_repo_format(repo: str) -> None:
 
 
 def _resolve_repo_and_identity(config: HydraFlowConfig) -> None:
-    """Resolve repo slug, GitHub token, and git identity from env vars."""
+    """Resolve repo slug and git identity from env vars."""
     # Repo slug: env var → git remote → empty
     if not config.repo:
         config.repo = os.environ.get("HYDRAFLOW_GITHUB_REPO", "") or _detect_repo_slug(
@@ -1700,21 +1745,6 @@ def _resolve_repo_and_identity(config: HydraFlowConfig) -> None:
 
     if config.repo:
         _validate_repo_format(config.repo)
-
-    # GitHub token:
-    # explicit value → HYDRAFLOW_GH_TOKEN env var → GH_TOKEN/GITHUB_TOKEN env vars
-    # → .env fallback
-    if not config.gh_token:
-        env_token = (
-            os.environ.get("HYDRAFLOW_GH_TOKEN", "")
-            or os.environ.get("GH_TOKEN", "")
-            or os.environ.get("GITHUB_TOKEN", "")
-            or _dotenv_lookup(
-                config.repo_root, "HYDRAFLOW_GH_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"
-            )
-        )
-        if env_token:
-            object.__setattr__(config, "gh_token", env_token)
 
     # Git identity:
     # explicit value → HYDRAFLOW_GIT_USER_NAME/EMAIL env vars
@@ -2148,11 +2178,6 @@ def _validate_docker(config: HydraFlowConfig) -> None:
         )
         raise ValueError(msg)
 
-    if not config.gh_token:
-        logger.warning(
-            "Docker mode without GH token configured; container actions may use the local gh auth context "
-            "(set HYDRAFLOW_GH_TOKEN/GH_TOKEN/GITHUB_TOKEN, e.g. in .env)."
-        )
     if bool(config.git_user_name) ^ bool(config.git_user_email):
         logger.warning(
             "Docker mode git identity is incomplete (name=%r email=%r); commits may fall back to host identity.",

@@ -67,8 +67,6 @@ class TestInitialization:
             "last_reviewed_shas",
             "last_updated",
             "lifetime_stats",
-            "manifest_hash",
-            "manifest_last_updated",
             "memory_digest_hash",
             "memory_issue_ids",
             "memory_last_synced",
