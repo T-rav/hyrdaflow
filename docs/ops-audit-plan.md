@@ -61,7 +61,7 @@ Fix concurrency bugs, add resilience patterns, improve observability.
 | `src/log.py` | Add `ContextLoggerAdapter` class wrapping `logging.LoggerAdapter` with `issue`, `pr`, `repo`, `phase`, `worker` context. |
 | `src/orchestrator.py` | Use `ContextLoggerAdapter` in loop bodies with phase context. |
 | `src/pr_manager.py` | Inject issue/PR context in all log calls. Add success-path logging for push, create_pr, merge. |
-| `src/github_cache.py` | Add repo slug to cache poll failure logs. |
+| `src/github_cache_loop.py` | Add repo slug to cache poll failure logs. |
 | `src/events.py:50` | Fix `exc_info=exc` → `exc_info=True`. |
 | `src/docker_runner.py:343` | Add `logger.warning("Docker reconnect failed", exc_info=True)` instead of bare continue. |
 | `src/issue_store.py:228-233` | Downgrade dedup log from WARNING to DEBUG. |
@@ -116,7 +116,7 @@ Fix concurrency bugs, add resilience patterns, improve observability.
 | File | Change |
 |------|--------|
 | New: `src/circuit_breaker.py` | Simple circuit breaker: `max_failures` threshold → open state → `reset_timeout` → half-open probe → close. ~50 lines. |
-| `src/github_cache.py` | Wrap poll() in circuit breaker. Add `cache_age_seconds` to return values so callers know staleness. |
+| `src/github_cache_loop.py` | Wrap poll() in circuit breaker. Add `cache_age_seconds` to return values so callers know staleness. |
 | `src/base_background_loop.py` | Add consecutive failure counter. After N consecutive failures (configurable, default 10), pause loop for backoff period and emit SYSTEM_ALERT. |
 | `src/orchestrator.py:760-775` | Add circuit breaker to loop restart logic. After 5 consecutive restarts within 5 minutes, stop the loop and emit SYSTEM_ALERT. |
 | `src/subprocess_util.py:56-78` | Replace flat 60s cooldown with exponential backoff: 60s → 120s → 240s → 480s cap. |
@@ -154,7 +154,7 @@ Fix concurrency bugs, add resilience patterns, improve observability.
 | `src/dashboard_routes/_routes.py` | Extend `/healthz` with: GitHub cache age, state file writable, queue depths per stage, HITL backlog count/oldest age, worker pool utilization. Add `?verbose=true` for full dump. |
 | `src/orchestrator.py` | Add stall detection: track HITL escalation rate over sliding window. If >50% of completed issues in last 30 minutes escalated, emit SYSTEM_ALERT. |
 | `src/issue_store.py` | Add method to report queue ages (oldest item per stage). |
-| `src/github_cache.py` | Expose `last_successful_poll` timestamp. |
+| `src/github_cache_loop.py` | Expose `last_successful_poll` timestamp. |
 
 **Tests:** Test healthz returns enriched fields. Test stall detection threshold. Test queue age reporting.
 

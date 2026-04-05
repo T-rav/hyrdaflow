@@ -56,7 +56,7 @@ Extends `BaseBackgroundLoop` with `worker_name="bot_pr"`.
 
 Add `author: str = ""` to `PRListItem`. This is populated during the regular `GitHubCacheLoop` poll cycle, making bot PR discovery a pure local filter.
 
-### 3. `src/github_cache.py` — Enrich PR Fetch
+### 3. `src/github_cache_loop.py` — Enrich PR Fetch
 
 Update the `gh pr list` query in the cache poll to include `author` in the JSON fields. Map `author.login` to `PRListItem.author`.
 
@@ -224,7 +224,7 @@ BotPRLoop (new, polls every 1hr default)
 |------|--------|------|
 | `src/bot_pr_loop.py` | Create | New background loop |
 | `src/models.py` | Modify | Add `author` to `PRListItem` |
-| `src/github_cache.py` | Modify | Include `author` in PR fetch |
+| `src/github_cache_loop.py` | Modify | Include `author` in PR fetch |
 | `src/config.py` | Modify | Add `bot_pr_interval`, `bot_pr_enabled` |
 | `src/state.py` | Modify | Add `bot_pr_settings`, `bot_pr_processed` |
 | `src/service_registry.py` | Modify | Wire `BotPRLoop` |

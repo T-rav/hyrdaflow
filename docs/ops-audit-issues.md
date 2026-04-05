@@ -18,7 +18,7 @@ The operational audit identified two logging issues that should be fixed togethe
 
 2. **Structured logging underutilized** — `src/log.py:13-30` has a JSONFormatter supporting `issue`, `worker`, `pr`, `phase`, `batch`, `repo`, `session` fields, but only 1 call site (`src/planner.py:~110`) actually injects context via `extra={}`. All phase loops, runners, and PR operations should inject operational identifiers.
 
-3. **Missing context in log messages** — `src/pr_manager.py`, `src/orchestrator.py`, `src/github_cache.py`, `src/events.py`, `src/post_merge_handler.py` log without issue/PR/repo context, making production tracing difficult.
+3. **Missing context in log messages** — `src/pr_manager.py`, `src/orchestrator.py`, `src/github_cache_loop.py`, `src/events.py`, `src/post_merge_handler.py` log without issue/PR/repo context, making production tracing difficult.
 
 4. **Log level misuse** — `src/issue_store.py:228-233` logs normal dedup at WARNING; `src/docker_runner.py:331-336` logs transient retries at WARNING.
 
@@ -38,7 +38,7 @@ The operational audit identified two logging issues that should be fixed togethe
 - `src/log.py`
 - `src/orchestrator.py`
 - `src/pr_manager.py`
-- `src/github_cache.py`
+- `src/github_cache_loop.py`
 - `src/events.py`
 - `src/post_merge_handler.py`
 - `src/issue_store.py`
@@ -184,7 +184,7 @@ Critical error handling gaps that can cause stuck issues:
 
 Several components lack circuit breaker patterns and can fail indefinitely:
 
-1. **GitHub cache** — `src/github_cache.py:132-163` has no circuit breaker. If GitHub is down, poller hammers API forever. `get_open_prs()` returns empty list on failure (indistinguishable from "no PRs").
+1. **GitHub cache** — `src/github_cache_loop.py:132-163` has no circuit breaker. If GitHub is down, poller hammers API forever. `get_open_prs()` returns empty list on failure (indistinguishable from "no PRs").
 
 2. **Background loops** — `src/base_background_loop.py:106-150` catches `Exception` and keeps looping forever. No circuit breaker for fundamentally broken loops.
 
@@ -204,7 +204,7 @@ Several components lack circuit breaker patterns and can fail indefinitely:
 
 ### Files
 
-- `src/github_cache.py`
+- `src/github_cache_loop.py`
 - `src/base_background_loop.py`
 - `src/orchestrator.py`
 - `src/subprocess_util.py`
@@ -280,7 +280,7 @@ Gaps:
 - `src/dashboard_routes/_routes.py`
 - `src/orchestrator.py`
 - `src/issue_store.py`
-- `src/github_cache.py`
+- `src/github_cache_loop.py`
 
 ---
 

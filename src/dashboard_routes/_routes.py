@@ -44,7 +44,7 @@ from dashboard_routes._common import (
     _status_sort_key,
 )
 from events import EventBus, EventType, HydraFlowEvent
-from github_cache import GitHubDataCache
+from github_cache_loop import GitHubDataCache
 from issue_fetcher import IssueFetcher
 from models import (
     BGWorkerHealth,

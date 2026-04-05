@@ -16,7 +16,7 @@
 |------|--------|----------------|
 | `src/models.py` | Modify | Add `author` to `PRListItem`, add `BotPRSettings` model, add fields to `StateData` |
 | `src/pr_manager.py` | Modify | Include `author` in PR fetch query |
-| `src/github_cache.py` | Modify | Pass `author` through to `PRListItem` |
+| `src/github_cache_loop.py` | Modify | Pass `author` through to `PRListItem` |
 | `src/config.py` | Modify | Add `bot_pr_interval` config field |
 | `src/bot_pr_loop.py` | Create | Background worker loop |
 | `src/state/_bot_pr.py` | Create | State accessors for bot PR settings + processed set |
