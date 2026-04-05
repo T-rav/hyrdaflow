@@ -36,6 +36,7 @@ from ._lifetime import LifetimeStatsMixin
 from ._report import ReportStateMixin
 from ._review import ReviewStateMixin
 from ._security_patch import SecurityPatchStateMixin
+from ._sentry import SentryStateMixin
 from ._session import SessionStateMixin
 from ._shape import ShapeStateMixin
 from ._stale_issue import StaleIssueStateMixin
@@ -66,6 +67,7 @@ class StateTracker(
     CIMonitorStateMixin,
     CodeGroomingStateMixin,
     DiagnosticStateMixin,
+    SentryStateMixin,
 ):
     """JSON-file backed state for crash recovery.
 

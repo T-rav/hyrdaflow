@@ -18,11 +18,14 @@ import httpx
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import Credentials, HydraFlowConfig
+from dedup_store import DedupStore
+from exception_classify import reraise_on_credit_or_bug
 
 if TYPE_CHECKING:
     from execution import SubprocessRunner
     from issue_store import IssueStore  # noqa: TCH004 — used in __init__ signature
     from pr_manager import PRManager
+    from state import StateTracker  # noqa: TCH004 — used in __init__ signature
 
 logger = logging.getLogger("hydraflow.sentry_loop")
 
@@ -41,6 +44,8 @@ class SentryLoop(BaseBackgroundLoop):
         store: IssueStore | None = None,
         runner: SubprocessRunner | None = None,
         credentials: Credentials | None = None,
+        dedup: DedupStore | None = None,
+        state: StateTracker | None = None,
     ) -> None:
         super().__init__(
             worker_name="sentry_ingest",
@@ -53,7 +58,10 @@ class SentryLoop(BaseBackgroundLoop):
         self._runner = runner
         self._credentials = credentials or Credentials()
         self._active_procs: set[asyncio.subprocess.Process] = set()
-        self._filed: set[str] = set()  # Sentry issue IDs already filed
+        self._dedup = dedup
+        # In-memory hot cache seeded from persistent DedupStore
+        self._filed: set[str] = dedup.get() if dedup else set()
+        self._state = state
 
     def _get_default_interval(self) -> int:
         return self._config.sentry_poll_interval
@@ -67,6 +75,12 @@ class SentryLoop(BaseBackgroundLoop):
             return False
         marker = f"sentry:{sentry_id}"
         return any(marker in task.body for task in self._store._issue_cache.values())
+
+    def _mark_filed(self, sentry_id: str) -> None:
+        """Record a Sentry issue as filed in both hot cache and persistent store."""
+        self._filed.add(sentry_id)
+        if self._dedup:
+            self._dedup.add(sentry_id)
 
     async def _do_work(self) -> dict[str, Any] | None:
         if not self._credentials.sentry_auth_token or not self._config.sentry_org:
@@ -100,26 +114,43 @@ class SentryLoop(BaseBackgroundLoop):
                         sentry_id,
                         issue.get("title", "")[:60],
                     )
-                    self._filed.add(sentry_id)
+                    self._mark_filed(sentry_id)
                     total_skipped += 1
                     continue
 
                 if self._exists_in_local_cache(sentry_id):
-                    self._filed.add(sentry_id)
+                    self._mark_filed(sentry_id)
                     total_skipped += 1
                     continue
 
                 if await self._already_filed_on_github(sentry_id):
-                    self._filed.add(sentry_id)
+                    self._mark_filed(sentry_id)
                     total_skipped += 1
                     continue
+
+                # Check attempt budget — park after too many failures
+                if self._state:
+                    attempts = self._state.get_sentry_creation_attempts(sentry_id)
+                    if attempts >= self._config.sentry_max_creation_attempts:
+                        logger.warning(
+                            "Parking Sentry %s after %d failed creation attempts",
+                            sentry_id,
+                            attempts,
+                        )
+                        self._mark_filed(sentry_id)
+                        total_skipped += 1
+                        continue
 
                 created = await self._create_github_issue(issue, project["slug"])
                 if created:
                     await self._resolve_sentry_issue(sentry_id)
-                    self._filed.add(sentry_id)
+                    self._mark_filed(sentry_id)
+                    if self._state:
+                        self._state.clear_sentry_creation_attempts(sentry_id)
                     total_created += 1
                 else:
+                    if self._state:
+                        self._state.fail_sentry_creation(sentry_id)
                     total_skipped += 1
 
         return {
@@ -173,7 +204,8 @@ class SentryLoop(BaseBackgroundLoop):
                 )
                 resp.raise_for_status()
                 logger.debug("Resolved Sentry issue %s", issue_id)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             logger.warning("Failed to resolve Sentry issue %s", issue_id, exc_info=True)
 
     async def _already_filed_on_github(self, sentry_id: str) -> bool:
@@ -193,7 +225,8 @@ class SentryLoop(BaseBackgroundLoop):
                 ".total_count",
             )
             return int(raw.strip() or "0") > 0
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             logger.debug("GitHub search failed for sentry:%s", sentry_id, exc_info=True)
             return False
 
@@ -206,7 +239,8 @@ class SentryLoop(BaseBackgroundLoop):
                 resp.raise_for_status()
                 result: dict[str, Any] = resp.json()
                 return result
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             logger.debug("Failed to fetch latest event for %s", issue_id, exc_info=True)
             return None
 
@@ -247,7 +281,7 @@ class SentryLoop(BaseBackgroundLoop):
         permalink = sentry_issue.get("permalink", "")
         short_id = sentry_issue.get("shortId", sentry_id)
 
-        _plan_lbl = (  # noqa: F841
+        plan_lbl = (
             self._config.planner_label[0]
             if self._config.planner_label
             else "hydraflow-plan"
@@ -265,7 +299,7 @@ class SentryLoop(BaseBackgroundLoop):
             parts.append(f"\nStack trace:\n```\n{stacktrace}\n```")
 
         parts.append(
-            f"\nIMPORTANT: Use the label `{_plan_lbl}` instead of "
+            f"\nIMPORTANT: Use the label `{plan_lbl}` instead of "
             f"`hydraflow-find` for this issue."
         )
         parts.append(
@@ -331,6 +365,7 @@ class SentryLoop(BaseBackgroundLoop):
                 short_id,
             )
             return False
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             logger.exception("Agent failed for Sentry %s", sentry_id)
             return False

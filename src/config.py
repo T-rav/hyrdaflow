@@ -162,6 +162,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("stale_issue_interval", "HYDRAFLOW_STALE_ISSUE_INTERVAL", 86400),
     ("sentry_poll_interval", "SENTRY_POLL_INTERVAL", 600),
     ("sentry_min_events", "SENTRY_MIN_EVENTS", 2),
+    ("sentry_max_creation_attempts", "SENTRY_MAX_CREATION_ATTEMPTS", 3),
     ("security_patch_interval", "HYDRAFLOW_SECURITY_PATCH_INTERVAL", 3600),
     ("code_grooming_interval", "HYDRAFLOW_CODE_GROOMING_INTERVAL", 86400),
     ("trace_mining_interval", "HYDRAFLOW_TRACE_MINING_INTERVAL", 3600),
@@ -865,6 +866,12 @@ class HydraFlowConfig(BaseModel):
         ge=1,
         le=1000,
         description="Minimum Sentry event count before filing a GitHub issue",
+    )
+    sentry_max_creation_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Max times to retry filing a GitHub issue for a Sentry error before parking",
     )
 
     # Security patch monitoring
