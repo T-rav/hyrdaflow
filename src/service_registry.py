@@ -168,16 +168,16 @@ def build_state_tracker(config: HydraFlowConfig) -> StateTracker:
     """
     from dolt_backend import DoltBackend
 
-    dolt_backend: DoltBackend | None = None
+    dolt: DoltBackend | None = None
     try:
         dolt_dir = Path(str(config.state_file)).parent / "dolt"
-        dolt_backend = DoltBackend(dolt_dir)
+        dolt = DoltBackend(dolt_dir)
         logger.info("Dolt state backend enabled at %s", dolt_dir)
     except FileNotFoundError:
         logger.info("dolt CLI not found — using file-based state")
     except Exception:
         logger.warning("Dolt init failed — using file-based state", exc_info=True)
-    return StateTracker(config.state_file, dolt=dolt_backend)
+    return StateTracker(config.state_file, dolt=dolt)
 
 
 def build_services(
