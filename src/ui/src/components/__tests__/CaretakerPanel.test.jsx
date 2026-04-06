@@ -35,7 +35,7 @@ describe('CaretakerPanel', () => {
     render(<CaretakerPanel />)
     expect(screen.getByText('Stale Issue GC')).toBeTruthy()
     expect(screen.getByText('CI Monitor')).toBeTruthy()
-    expect(screen.getByText('Bot PR Manager')).toBeTruthy()
+    expect(screen.getByText('Dependabot Merge')).toBeTruthy()
   })
 
   it('shows enabled/disabled state with toggle buttons', () => {

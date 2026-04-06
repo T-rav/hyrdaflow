@@ -93,9 +93,9 @@ describe('SystemPanel', () => {
       }
     })
 
-    it('renders Bot PR Manager worker card', () => {
+    it('renders Dependabot Merge worker card', () => {
       render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
-      expect(screen.getByText('Bot PR Manager')).toBeInTheDocument()
+      expect(screen.getByText('Dependabot Merge')).toBeInTheDocument()
     })
 
     it('shows correct status dot color for ok workers when orchestrator running', () => {
