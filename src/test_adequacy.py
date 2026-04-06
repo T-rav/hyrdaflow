@@ -11,7 +11,7 @@ import re
 
 
 def build_test_adequacy_prompt(
-    *, issue_number: int, issue_title: str, diff: str
+    *, issue_number: int, issue_title: str, diff: str, **_kwargs: object
 ) -> str:
     """Build a prompt that asks an agent to assess test coverage of a diff."""
     return f"""You are running the Test Adequacy skill for issue #{issue_number}: {issue_title}.

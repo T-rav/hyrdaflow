@@ -755,6 +755,18 @@ Then a brief summary on the next line starting with "SUMMARY: ".
 
         issue_body = self._summarize_issue_body(issue.body)
 
+        # Plan compliance section — inject structured plan for scope comparison
+        plan_section = ""
+        plan_text = self._load_plan_for_review(issue)
+        if plan_text:
+            plan_section = (
+                "\n\n## Implementation Plan (for scope comparison)\n\n"
+                "Use this plan to verify that the PR implements what was planned. "
+                "Flag files modified that aren't in the plan (scope creep) and "
+                "planned files that are missing from the diff (incomplete).\n\n"
+                f"{plan_text}"
+            )
+
         # Spec-match section for product-track issues
         spec_section = ""
         if any(
@@ -769,7 +781,7 @@ Then a brief summary on the next line starting with "SUMMARY: ".
 
 ## Issue: {issue.title}
 
-{issue_body}{memory_section}{log_section}{scanning_section}{bead_section}{spec_section}
+{issue_body}{plan_section}{memory_section}{log_section}{scanning_section}{bead_section}{spec_section}
 
 ## Precheck Context
 
@@ -782,7 +794,7 @@ Then a brief summary on the next line starting with "SUMMARY: ".
 ## Review Instructions
 
 1. Evaluate four dimensions: **scope**, correctness, completeness, and quality.
-2. **Scope check (mandatory first step):** Compare every changed file against the issue title and description. Flag any file or change that is unrelated to the stated goal. Unrelated test files, docs, or config changes are scope creep — reject them. Follow CLAUDE.md rules strictly (e.g., never add tests for ADR markdown content).
+2. **Scope check (mandatory first step):** Compare every changed file against the issue title, description, and the implementation plan (if provided above). Flag any file or change that is unrelated to the stated goal or not in the plan. Unrelated test files, docs, or config changes are scope creep — reject them. Follow CLAUDE.md rules strictly (e.g., never add tests for ADR markdown content).
 3. Look for edge cases, missing error handling, security risks, test gaps, and style violations.
 4. You MUST find at least {min_findings} issues across all categories. If you find fewer, re-examine the code more carefully.
 5. If you genuinely find fewer than {min_findings} issues, include THOROUGH_REVIEW_COMPLETE:
@@ -886,6 +898,25 @@ Diff snippet:
             debug_message="DEBUG MODE: Focus on root causes and concrete risky files.",
             logger=logger,
         )
+
+    def _load_plan_for_review(self, issue: Task) -> str:
+        """Load the implementation plan for scope comparison during review.
+
+        Checks issue comments for ``## Implementation Plan``, then falls
+        back to the saved plan file at ``.hydraflow/plans/issue-N.md``.
+        Returns the plan text or empty string if not found.
+        """
+        # Check issue comments first
+        for comment in issue.comments or []:
+            if "## Implementation Plan" in comment:
+                return comment
+
+        # Fallback to saved plan file
+        plan_path = self._config.plans_dir / f"issue-{issue.id}.md"
+        if plan_path.is_file():
+            return plan_path.read_text(encoding="utf-8").strip()
+
+        return ""
 
     def _parse_verdict(self, transcript: str) -> ReviewVerdict:
         """Extract the verdict from the reviewer transcript."""

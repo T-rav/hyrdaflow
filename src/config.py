@@ -80,6 +80,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ),
     ("max_diff_sanity_attempts", "HYDRAFLOW_MAX_DIFF_SANITY_ATTEMPTS", 1),
     ("max_test_adequacy_attempts", "HYDRAFLOW_MAX_TEST_ADEQUACY_ATTEMPTS", 1),
+    ("max_plan_compliance_attempts", "HYDRAFLOW_MAX_PLAN_COMPLIANCE_ATTEMPTS", 1),
     ("max_review_fix_attempts", "HYDRAFLOW_MAX_REVIEW_FIX_ATTEMPTS", 2),
     ("min_review_findings", "HYDRAFLOW_MIN_REVIEW_FINDINGS", 3),
     ("max_issue_body_chars", "HYDRAFLOW_MAX_ISSUE_BODY_CHARS", 10_000),
@@ -398,6 +399,12 @@ class HydraFlowConfig(BaseModel):
         ge=0,
         le=3,
         description="Max test adequacy check passes (0 = disabled)",
+    )
+    max_plan_compliance_attempts: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        description="Max plan compliance check passes (0 = disabled)",
     )
     max_review_fix_attempts: int = Field(
         default=2,

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from diff_sanity import build_diff_sanity_prompt, parse_diff_sanity_result
+from plan_compliance import build_plan_compliance_prompt, parse_plan_compliance_result
 from test_adequacy import build_test_adequacy_prompt, parse_test_adequacy_result
 
 if TYPE_CHECKING:
@@ -67,6 +68,14 @@ BUILTIN_SKILLS: list[AgentSkill] = [
         blocking=True,
         prompt_builder=build_diff_sanity_prompt,
         result_parser=parse_diff_sanity_result,
+    ),
+    AgentSkill(
+        name="plan-compliance",
+        purpose="Verify implementation matches the planner's file deltas, task graph, and behavioral test specs",
+        config_key="max_plan_compliance_attempts",
+        blocking=False,
+        prompt_builder=build_plan_compliance_prompt,
+        result_parser=parse_plan_compliance_result,
     ),
     AgentSkill(
         name="test-adequacy",

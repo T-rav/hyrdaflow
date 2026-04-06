@@ -210,10 +210,20 @@ Run through this checklist before your final commit:
             # Force-commit any uncommitted work the agent left behind
             await self._force_commit_uncommitted(task, worktree_path)
 
+            # Load plan text for skills that need it (e.g. plan-compliance)
+            skill_plan_text, _ = self._extract_plan_comment(task.comments)
+            if not skill_plan_text:
+                skill_plan_text = self._load_plan_fallback(task.id)
+
             # Run registered post-implementation skills (diff-sanity, test-adequacy, etc.)
             for skill in get_skills():
                 skill_result = await self._run_skill(
-                    skill, task, worktree_path, branch, worker_id
+                    skill,
+                    task,
+                    worktree_path,
+                    branch,
+                    worker_id,
+                    plan_text=skill_plan_text,
                 )
                 if not skill_result.passed and skill.blocking:
                     logger.warning(
@@ -1056,6 +1066,7 @@ SUMMARY: <one-line summary>
         worktree_path: Path,
         branch: str,
         worker_id: int,
+        plan_text: str = "",
     ) -> LoopResult:
         """Run a registered post-implementation skill via the skill registry.
 
@@ -1082,7 +1093,11 @@ SUMMARY: <one-line summary>
             issue_number=issue.id,
             issue_title=issue.title,
             diff=diff,
+            plan_text=plan_text,
         )
+        if not prompt.strip():
+            return LoopResult(passed=True, summary=f"{skill.name}: no input data")
+
         cmd = self._build_pre_quality_review_command()
         summary = ""
 
