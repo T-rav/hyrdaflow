@@ -221,6 +221,65 @@ class TestNextAdrNumber:
         result = next_adr_number(local, primary_adr_dir=primary)
         assert result == 11
 
+    def test_persists_numbers_to_dotfile(self, tmp_path: Path) -> None:
+        """Assigned numbers are saved to .adr_assigned_numbers.json."""
+        import json
+
+        (tmp_path / "0005-existing.md").touch()
+        next_adr_number(tmp_path)
+
+        dotfile = tmp_path / ".adr_assigned_numbers.json"
+        assert dotfile.is_file()
+        data = json.loads(dotfile.read_text())
+        assert 6 in data
+
+    def test_survives_restart_via_dotfile(self, tmp_path: Path) -> None:
+        """After clearing in-memory set, persisted numbers prevent reuse."""
+
+        import adr_utils
+
+        (tmp_path / "0005-existing.md").touch()
+        result1 = next_adr_number(tmp_path)
+        assert result1 == 6
+
+        # Simulate restart: clear in-memory set
+        adr_utils._assigned_adr_numbers.clear()
+
+        # Next call should read dotfile and not reissue 6
+        result2 = next_adr_number(tmp_path)
+        assert result2 == 7
+
+    def test_corrupted_dotfile_is_ignored(self, tmp_path: Path) -> None:
+        """Corrupted dotfile should not crash — falls back to directory scan."""
+        dotfile = tmp_path / ".adr_assigned_numbers.json"
+        dotfile.write_text("NOT VALID JSON")
+        (tmp_path / "0003-existing.md").touch()
+
+        result = next_adr_number(tmp_path)
+        assert result == 4
+
+    def test_empty_dotfile_is_ignored(self, tmp_path: Path) -> None:
+        """Empty dotfile should not crash."""
+        dotfile = tmp_path / ".adr_assigned_numbers.json"
+        dotfile.write_text("")
+
+        result = next_adr_number(tmp_path)
+        assert result == 1
+
+    def test_persists_to_primary_dir_when_available(self, tmp_path: Path) -> None:
+        """When primary_adr_dir is provided, dotfile is written there."""
+        local = tmp_path / "worktree"
+        local.mkdir()
+        primary = tmp_path / "primary"
+        primary.mkdir()
+        (primary / "0003-existing.md").touch()
+
+        next_adr_number(local, primary_adr_dir=primary)
+
+        assert (primary / ".adr_assigned_numbers.json").is_file()
+        # Local dir should not get the dotfile
+        assert not (local / ".adr_assigned_numbers.json").is_file()
+
 
 # ---------------------------------------------------------------------------
 # ADR_FILE_RE

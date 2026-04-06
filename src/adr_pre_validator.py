@@ -106,6 +106,7 @@ class ADRPreValidator:
         self._check_status_field(content, result)
         self._check_required_sections(content, result)
         self._check_empty_sections(content, result)
+        self._check_number_collision(content, all_adrs or [], result)
         self._check_supersession(content, all_adrs or [], result)
         self._check_volatile_line_citations(content, result)
         self._check_stale_amending_notes(content, all_adrs or [], result)
@@ -161,6 +162,49 @@ class ADRPreValidator:
                             fixable=False,
                         )
                     )
+
+    def _check_number_collision(
+        self,
+        content: str,
+        all_adrs: list[tuple[int, str, str, str]],
+        result: ADRValidationResult,
+    ) -> None:
+        """Detect ADR number collisions — multiple ADRs sharing the same number."""
+        if not all_adrs:
+            return
+
+        heading_match = re.search(r"^#\s+ADR[- ](\d{4})", content, re.MULTILINE)
+        if not heading_match:
+            return
+
+        self_number = int(heading_match.group(1))
+        same_number = [
+            (num, title, fname)
+            for num, title, _content, fname in all_adrs
+            if num == self_number
+        ]
+        if len(same_number) > 1:
+            other_titles = [
+                title
+                for _num, title, fname in same_number
+                if fname not in content  # rough heuristic: skip self
+            ]
+            result.issues.append(
+                ADRValidationIssue(
+                    code="number_collision",
+                    message=(
+                        f"ADR-{self_number:04d} number collision: "
+                        f"{len(same_number)} ADRs share this number. "
+                        f"Other ADRs: {', '.join(other_titles[:3])}"
+                        + (
+                            f" (+{len(other_titles) - 3} more)"
+                            if len(other_titles) > 3
+                            else ""
+                        )
+                    ),
+                    fixable=False,
+                )
+            )
 
     def _check_volatile_line_citations(
         self, content: str, result: ADRValidationResult

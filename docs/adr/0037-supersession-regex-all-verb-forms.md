@@ -1,4 +1,4 @@
-# ADR-0023: Supersession Regex Must Include All Verb Forms
+# ADR-0037: Supersession Regex Must Include All Verb Forms
 
 **Status:** Accepted
 **Date:** 2026-03-08
