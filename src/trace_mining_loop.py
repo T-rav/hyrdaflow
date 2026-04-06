@@ -1,4 +1,14 @@
-"""Background worker loop — Monocle trace mining."""
+"""Background worker loop — in-process trace mining.
+
+Walks the `<data_root>/traces/<issue>/<phase>/run-N/` layout produced
+by `trace_rollup.write_phase_rollup`, aggregates each run's summary
+into LifetimeStats, syncs insights to Hindsight, and finalizes any
+orphan runs left behind by HydraFlow crashes.
+
+This loop previously consumed Monocle-era files via `trace_parser`.
+That stage has been removed — `write_phase_rollup` now writes
+`summary.json` directly.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +19,6 @@ from typing import TYPE_CHECKING, Any
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
 from models import TraceSummary
-from trace_parser import parse_traces
 
 if TYPE_CHECKING:
     from hindsight import HindsightClient
@@ -17,9 +26,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("hydraflow.trace_mining_loop")
 
+_KNOWN_PHASES = {"plan", "implement", "review", "triage", "hitl"}
+
 
 class TraceMiningLoop(BaseBackgroundLoop):
-    """Parse, aggregate, and sync Monocle trace data in staged cycles."""
+    """Aggregate and sync in-process trace data in staged cycles."""
 
     def __init__(
         self,
@@ -38,34 +49,79 @@ class TraceMiningLoop(BaseBackgroundLoop):
     async def _do_work(self) -> dict[str, Any] | None:
         traces_root = self._config.data_root / "traces"
         if not traces_root.is_dir():
-            return {"parsed": 0, "aggregated": 0, "synced": 0}
+            return {"finalized": 0, "aggregated": 0, "synced": 0}
 
-        parsed = self._stage_parse(traces_root)
+        finalized = self._stage_finalize_orphans(traces_root)
         aggregated = self._stage_aggregate(traces_root)
         synced = await self._stage_insights(traces_root)
 
-        return {"parsed": parsed, "aggregated": aggregated, "synced": synced}
+        return {
+            "finalized": finalized,
+            "aggregated": aggregated,
+            "synced": synced,
+        }
 
     # ------------------------------------------------------------------
-    # Stage 1: Parse raw traces into summaries
+    # Stage 1: Finalize orphan runs (crashed before rollup)
     # ------------------------------------------------------------------
 
-    def _stage_parse(self, traces_root: Path) -> int:
+    def _stage_finalize_orphans(self, traces_root: Path) -> int:
+        """Detect run-N/ directories with subprocess files but no summary.json
+        AND no entry in state['trace_runs']['active']. Synthesize a
+        crashed-marker summary and touch `.finalized_orphan`.
+        """
+        try:
+            active_keys = {
+                (issue, phase, run_id)
+                for issue, phase, run_id in self._state.list_active_trace_runs()
+            }
+        except Exception:
+            logger.warning("list_active_trace_runs failed", exc_info=True)
+            active_keys = set()
+
         count = 0
-        for phase_dir in self._iter_phase_dirs(traces_root):
-            if (phase_dir / ".parsed").exists():
+        for run_dir in self._iter_run_dirs(traces_root):
+            if (run_dir / "summary.json").exists():
                 continue
-            raw_dir = phase_dir / "raw"
-            if not raw_dir.is_dir():
+            if (run_dir / ".finalized_orphan").exists():
+                continue
+            issue_number, phase, run_id = self._parse_dir_parts(run_dir)
+            if (issue_number, phase, run_id) in active_keys:
+                # Still in flight — leave alone
                 continue
 
-            issue_number, phase = self._parse_dir_parts(phase_dir)
-            summary = parse_traces(phase_dir, issue_number=issue_number, phase=phase)
-            (phase_dir / "summary.json").write_text(summary.model_dump_json(indent=2))
-            (phase_dir / ".parsed").touch()
+            subprocess_files = list(run_dir.glob("subprocess-*.json"))
+            if not subprocess_files:
+                continue
+
+            try:
+                from trace_rollup import write_phase_rollup  # noqa: PLC0415
+
+                summary = write_phase_rollup(
+                    config=self._config,
+                    issue_number=issue_number,
+                    phase=phase,
+                    run_id=run_id,
+                )
+                if summary is not None:
+                    # Mark as crashed since the run never called end_trace_run
+                    crashed_summary = summary.model_copy(update={"crashed": True})
+                    summary_path = run_dir / "summary.json"
+                    summary_path.write_text(crashed_summary.model_dump_json(indent=2))
+            except Exception:
+                logger.warning(
+                    "Failed to finalize orphan run %s", run_dir, exc_info=True
+                )
+                continue
+
+            (run_dir / ".finalized_orphan").touch()
             count += 1
-            logger.info("Parsed traces for issue #%d (%s)", issue_number, phase)
-
+            logger.info(
+                "Finalized orphan run-%d for issue #%d (%s)",
+                run_id,
+                issue_number,
+                phase,
+            )
         return count
 
     # ------------------------------------------------------------------
@@ -74,24 +130,31 @@ class TraceMiningLoop(BaseBackgroundLoop):
 
     def _stage_aggregate(self, traces_root: Path) -> int:
         count = 0
-        for phase_dir in self._iter_phase_dirs(traces_root):
-            if not (phase_dir / ".parsed").exists():
-                continue
-            if (phase_dir / ".aggregated").exists():
+        for run_dir in self._iter_run_dirs(traces_root):
+            if (run_dir / ".aggregated").exists():
                 continue
 
-            summary_path = phase_dir / "summary.json"
+            summary_path = run_dir / "summary.json"
             if not summary_path.exists():
                 continue
 
-            summary = TraceSummary.model_validate_json(summary_path.read_text())
+            try:
+                summary = TraceSummary.model_validate_json(summary_path.read_text())
+            except Exception:
+                logger.warning(
+                    "Skipping malformed summary at %s", summary_path, exc_info=True
+                )
+                continue
+
             self._roll_into_stats(summary)
-            (phase_dir / ".aggregated").touch()
+            (run_dir / ".aggregated").touch()
             count += 1
+            issue_number, phase, run_id = self._parse_dir_parts(run_dir)
             logger.info(
-                "Aggregated traces for issue #%d (%s)",
-                summary.issue_number,
-                summary.phase,
+                "Aggregated trace run-%d for issue #%d (%s)",
+                run_id,
+                issue_number,
+                phase,
             )
 
         return count
@@ -133,30 +196,38 @@ class TraceMiningLoop(BaseBackgroundLoop):
 
     async def _stage_insights(self, traces_root: Path) -> int:
         count = 0
-        for phase_dir in self._iter_phase_dirs(traces_root):
-            if not (phase_dir / ".aggregated").exists():
+        for run_dir in self._iter_run_dirs(traces_root):
+            if not (run_dir / ".aggregated").exists():
                 continue
-            if (phase_dir / ".synced").exists():
+            if (run_dir / ".synced").exists():
                 continue
 
-            summary_path = phase_dir / "summary.json"
+            summary_path = run_dir / "summary.json"
             if not summary_path.exists():
-                (phase_dir / ".synced").touch()
+                (run_dir / ".synced").touch()
                 count += 1
                 continue
 
-            summary = TraceSummary.model_validate_json(summary_path.read_text())
+            try:
+                summary = TraceSummary.model_validate_json(summary_path.read_text())
+            except Exception:
+                logger.warning(
+                    "Skipping malformed summary at %s", summary_path, exc_info=True
+                )
+                (run_dir / ".synced").touch()
+                continue
 
             if self._hindsight is not None:
                 await self._retain_retrospective(summary)
                 await self._retain_tracing_insights(summary)
 
-            (phase_dir / ".synced").touch()
+            (run_dir / ".synced").touch()
             count += 1
             logger.info(
-                "Synced trace insights for issue #%d (%s)",
+                "Synced trace insights for issue #%d (%s) run-%d",
                 summary.issue_number,
                 summary.phase,
+                summary.run_id,
             )
 
         return count
@@ -171,6 +242,7 @@ class TraceMiningLoop(BaseBackgroundLoop):
             tags={
                 "issue": str(summary.issue_number),
                 "phase": summary.phase,
+                "run_id": str(summary.run_id),
                 "source": "trace_mining",
             },
         )
@@ -185,6 +257,7 @@ class TraceMiningLoop(BaseBackgroundLoop):
             tags={
                 "issue": str(summary.issue_number),
                 "phase": summary.phase,
+                "run_id": str(summary.run_id),
                 "source": "trace_mining",
             },
         )
@@ -201,9 +274,11 @@ class TraceMiningLoop(BaseBackgroundLoop):
             f"{name}({cnt})" for name, cnt in s.skills.subagent_counts.items()
         )
         mins = s.spans.duration_seconds / 60
+        crash_note = " [CRASHED]" if s.crashed else ""
 
         lines = [
-            f"Issue #{s.issue_number} ({s.phase} phase): {s.spans.total_turns} turns, "
+            f"Issue #{s.issue_number} ({s.phase} phase run-{s.run_id}){crash_note}: "
+            f"{s.spans.total_turns} turns, "
             f"{s.spans.total_inference_calls} inference calls,",
             f"{s.tokens.prompt_tokens:,} prompt tokens, {s.tokens.completion_tokens:,} completion tokens "
             f"({s.tokens.cache_hit_rate:.0%} cache hit rate).",
@@ -218,7 +293,7 @@ class TraceMiningLoop(BaseBackgroundLoop):
 
     def _format_tracing_insight(self, s: TraceSummary) -> str:
         return (
-            f"Trace data for issue #{s.issue_number} ({s.phase}): "
+            f"Trace data for issue #{s.issue_number} ({s.phase} run-{s.run_id}): "
             f"{s.spans.total_spans} spans, "
             f"{s.tokens.prompt_tokens + s.tokens.completion_tokens} total tokens, "
             f"{s.tools.total_invocations} tool calls, "
@@ -230,23 +305,25 @@ class TraceMiningLoop(BaseBackgroundLoop):
     # Helpers
     # ------------------------------------------------------------------
 
-    def _iter_phase_dirs(self, traces_root: Path) -> list[Path]:
-        """Return all issue/phase directories under traces_root."""
+    def _iter_run_dirs(self, traces_root: Path) -> list[Path]:
+        """Return all <issue>/<phase>/run-N/ directories under traces_root."""
         dirs = []
         for issue_dir in sorted(traces_root.iterdir()):
             if not issue_dir.is_dir() or not issue_dir.name.isdigit():
                 continue
             for phase_dir in sorted(issue_dir.iterdir()):
-                if phase_dir.is_dir() and phase_dir.name in (
-                    "plan",
-                    "implement",
-                    "review",
-                ):
-                    dirs.append(phase_dir)
+                if not phase_dir.is_dir():
+                    continue
+                if phase_dir.name not in _KNOWN_PHASES:
+                    continue
+                for run_dir in sorted(phase_dir.iterdir()):
+                    if run_dir.is_dir() and run_dir.name.startswith("run-"):
+                        dirs.append(run_dir)
         return dirs
 
-    def _parse_dir_parts(self, phase_dir: Path) -> tuple[int, str]:
-        """Extract (issue_number, phase) from a phase directory path."""
-        phase = phase_dir.name
-        issue_number = int(phase_dir.parent.name)
-        return issue_number, phase
+    def _parse_dir_parts(self, run_dir: Path) -> tuple[int, str, int]:
+        """Extract (issue_number, phase, run_id) from a run-N directory path."""
+        run_id = int(run_dir.name.removeprefix("run-"))
+        phase = run_dir.parent.name
+        issue_number = int(run_dir.parent.parent.name)
+        return issue_number, phase, run_id
