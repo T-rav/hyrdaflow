@@ -20,6 +20,7 @@ from runner_utils import (
     stream_claude_process,
     terminate_processes,
 )
+from tracing_context import TracingContext
 
 if TYPE_CHECKING:
     from execution import SubprocessRunner
@@ -55,6 +56,10 @@ class BaseRunner:
         self._prompt_telemetry = PromptTelemetry(config)
         self._last_context_stats: dict[str, int] = {"cache_hits": 0, "cache_misses": 0}
         self._hindsight = hindsight
+        # Per-phase-run tracing state, set by phase coordinators before
+        # invoking runner.run() and cleared after. None when tracing is
+        # not active (e.g. dry-run, background loops).
+        self._tracing_ctx: TracingContext | None = None
         self._credentials = credentials or Credentials()
         self._wiki_store = wiki_store
 
@@ -67,6 +72,19 @@ class BaseRunner:
     def hindsight(self) -> HindsightClient | None:
         """Read-only access to the Hindsight client for shared prefix building."""
         return self._hindsight
+
+    @property
+    def tracing_context(self) -> TracingContext | None:
+        """Read-only access to the active tracing context."""
+        return self._tracing_ctx
+
+    def set_tracing_context(self, ctx: TracingContext) -> None:
+        """Set the per-phase-run tracing context. Called by phase coordinators."""
+        self._tracing_ctx = ctx
+
+    def clear_tracing_context(self) -> None:
+        """Clear the tracing context. Called after the phase run completes."""
+        self._tracing_ctx = None
 
     def terminate(self) -> None:
         """Kill all active subprocesses."""
