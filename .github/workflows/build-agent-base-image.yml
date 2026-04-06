@@ -51,6 +51,7 @@ jobs:
             gh --version
             node --version
             claude --version
+            bd --version
             uv --version
             python --version
             ruff --version
