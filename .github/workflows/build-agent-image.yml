@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - "Dockerfile.agent"
+      - "Dockerfile.agent-base"
       - "scripts/docker-smoke-test.sh"
   pull_request:
     branches: [main]
     paths:
       - "Dockerfile.agent"
+      - "Dockerfile.agent-base"
       - "scripts/docker-smoke-test.sh"
   workflow_run:
     workflows: ["Build Agent Base Image"]
@@ -39,11 +41,32 @@ jobs:
 
       # Dockerfile.agent is self-contained (builds from scratch via inline
       # stages) unless BASE_IMAGE is overridden to a pre-built image.
-      # Only pass the override when the base image is actually pullable.
+      # Only pass the override when the base image is actually pullable
+      # AND the base Dockerfile hasn't changed in this PR (otherwise the
+      # cached GHCR image is stale and we must do a full build).
+      - name: Check if base Dockerfile changed
+        id: base-changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CHANGED=false
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Use GitHub API — reliable regardless of clone depth
+            FILES=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --jq '.[].filename')
+            if echo "$FILES" | grep -q '^Dockerfile.agent-base$'; then
+              CHANGED=true
+            fi
+          fi
+          echo "changed=${CHANGED}" >> "$GITHUB_OUTPUT"
+          [ "$CHANGED" = "true" ] && echo "Dockerfile.agent-base changed — forcing full build" || true
+
       - name: Check if base image is available
         id: base-check
         run: |
-          if docker pull "$BASE_IMAGE" 2>/dev/null; then
+          if [ "${{ steps.base-changed.outputs.changed }}" = "true" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Base Dockerfile changed — skipping cached base image"
+          elif docker pull "$BASE_IMAGE" 2>/dev/null; then
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"

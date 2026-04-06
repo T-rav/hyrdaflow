@@ -27,7 +27,7 @@ async def test_ensure_installed_already_available(manager):
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
         mock_run.return_value = ""
         await manager.ensure_installed()
-        mock_run.assert_called_once_with("bd", "status", timeout=10.0)
+        mock_run.assert_called_once_with("bd", "--version", timeout=10.0)
 
 
 @pytest.mark.asyncio()
@@ -42,13 +42,13 @@ async def test_ensure_installed_auto_installs(manager):
             raise FileNotFoundError("bd not found")
         if cmd[0] == "npm":
             return "installed"
-        return ""  # second bd status call succeeds
+        return ""  # second bd --version call succeeds
 
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run_fn:
         mock_run_fn.side_effect = mock_run
         await manager.ensure_installed()
 
-    # Should have called: bd status (fail), npm install, bd status (success)
+    # Should have called: bd --version (fail), npm install, bd --version (success)
     assert call_count == 3
 
 
@@ -98,7 +98,9 @@ async def test_init_success(manager):
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
         mock_run.return_value = "Initialized"
         await manager.init(Path("/repo"))
-        mock_run.assert_called_once_with("bd", "init", cwd=Path("/repo"), timeout=30.0)
+        mock_run.assert_called_once_with(
+            "bd", "init", "--mode", "server", cwd=Path("/repo"), timeout=30.0
+        )
 
 
 @pytest.mark.asyncio()

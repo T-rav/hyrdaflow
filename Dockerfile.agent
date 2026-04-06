@@ -30,6 +30,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
+# Install ICU runtime for bd CLI (native binary links against libicu 74).
+# The package name is version-specific (libicu72, libicu76, …) and varies
+# by Debian release, so detect it dynamically then create .so.74 compat
+# symlinks to whichever version is installed.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        $(apt-cache search --names-only '^libicu[0-9]+$' | awk '{print $1}' | head -1) \
+    && rm -rf /var/lib/apt/lists/* \
+    && ICU_DIR=$(dirname $(find /usr/lib -name 'libicui18n.so.*' | head -1)) \
+    && for lib in libicui18n libicuuc libicudata; do \
+        src=$(find ${ICU_DIR} -maxdepth 1 -name "${lib}.so.*" | head -1); \
+        [ -n "$src" ] && ln -sf "$src" "${ICU_DIR}/${lib}.so.74"; \
+    done
+
 # Install Node.js 20.x via NodeSource
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
@@ -54,8 +68,12 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
 # ---------------------------------------------------------------------------
 FROM base AS tools
 
-# Install agent CLIs globally via npm (Claude, Codex, Pi, Beads)
-RUN npm install -g @anthropic-ai/claude-code @openai/codex @mariozechner/pi-coding-agent @beads/bd --no-fund --no-audit
+# Install agent CLIs globally via npm (Claude, Codex, Pi)
+RUN npm install -g @anthropic-ai/claude-code @openai/codex @mariozechner/pi-coding-agent --no-fund --no-audit
+
+# Install bd (beads) separately — its postinstall downloads a native binary
+# that needs the ICU compat symlinks from the base stage.
+RUN npm install -g @beads/bd --no-fund --no-audit
 
 # Pre-install Python quality tools into a venv
 COPY pyproject.toml uv.lock ./
@@ -71,7 +89,8 @@ FROM base AS default-base
 COPY --from=tools /usr/lib/node_modules /usr/lib/node_modules
 COPY --from=tools /usr/bin/claude /usr/bin/claude
 RUN ln -s ../lib/node_modules/@openai/codex/bin/codex.js /usr/bin/codex \
-    && ln -s ../lib/node_modules/@mariozechner/pi-coding-agent/dist/cli.js /usr/bin/pi
+    && ln -s ../lib/node_modules/@mariozechner/pi-coding-agent/dist/cli.js /usr/bin/pi \
+    && ln -s ../lib/node_modules/@beads/bd/bin/bd /usr/bin/bd
 
 # Copy Python venv with quality tools
 COPY --from=tools /opt/hydraflow-venv /opt/hydraflow-venv

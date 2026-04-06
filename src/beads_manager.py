@@ -66,9 +66,15 @@ class BeadsManager:
     """
 
     async def ensure_installed(self) -> None:
-        """Ensure ``bd`` is installed, auto-installing via npm if missing."""
+        """Ensure ``bd`` is installed, auto-installing via npm if missing.
+
+        Uses ``bd --version`` (not ``bd status``) so the check succeeds even
+        when no beads project is initialised yet — ``bd status`` requires a
+        working Dolt database and will fail with a CGO/server-mode error in
+        environments that lack the embedded Dolt binary.
+        """
         try:
-            await run_subprocess("bd", "status", timeout=10.0)
+            await run_subprocess("bd", "--version", timeout=10.0)
             return
         except (FileNotFoundError, OSError, RuntimeError):
             pass
@@ -84,15 +90,22 @@ class BeadsManager:
 
         # Verify it worked
         try:
-            await run_subprocess("bd", "status", timeout=10.0)
+            await run_subprocess("bd", "--version", timeout=10.0)
             logger.info("bd CLI installed successfully")
         except (FileNotFoundError, OSError, RuntimeError) as exc:
             raise BeadsNotInstalledError() from exc
 
     async def init(self, cwd: Path) -> None:
-        """Initialize a beads project in *cwd* (idempotent)."""
+        """Initialize a beads project in *cwd* (idempotent).
+
+        Uses ``--mode server`` to avoid the embedded Dolt CGO requirement.
+        Server mode uses a Dolt SQL server backend which works in all
+        environments including Docker containers built without CGO.
+        """
         try:
-            await run_subprocess("bd", "init", cwd=cwd, timeout=30.0)
+            await run_subprocess(
+                "bd", "init", "--mode", "server", cwd=cwd, timeout=30.0
+            )
         except FileNotFoundError as exc:
             raise BeadsNotInstalledError() from exc
 
