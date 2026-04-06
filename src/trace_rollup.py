@@ -82,6 +82,12 @@ def write_phase_rollup(
     latest_tmp.write_text(f"run-{run_id}\n")
     latest_tmp.replace(latest_path)
 
+    # Append to factory_metrics.jsonl for the diagnostics dashboard
+    try:
+        _append_factory_metric(config, summary, traces)
+    except Exception:
+        logger.warning("Failed to append factory metric", exc_info=True)
+
     return summary
 
 
@@ -179,3 +185,44 @@ def _duration_seconds(started_at: str, ended_at: str) -> float:
         return max(0.0, (end - start).total_seconds())
     except (ValueError, TypeError):
         return 0.0
+
+
+def _append_factory_metric(
+    config: HydraFlowConfig,
+    summary: TraceSummary,
+    traces: list[SubprocessTrace],
+) -> None:
+    """Append one event to factory_metrics.jsonl describing this phase run."""
+    import json  # noqa: PLC0415
+
+    metrics_path = config.factory_metrics_path
+    metrics_path.parent.mkdir(parents=True, exist_ok=True)
+
+    event = {
+        "timestamp": summary.harvested_at,
+        "issue": summary.issue_number,
+        "phase": summary.phase,
+        "run_id": summary.run_id,
+        "tokens": {
+            "input": summary.tokens.prompt_tokens,
+            "output": summary.tokens.completion_tokens,
+            "cache_read": summary.tokens.cache_read_tokens,
+            "cache_creation": summary.tokens.cache_creation_tokens,
+        },
+        "tools": dict(summary.tools.tool_counts),
+        "skills": [
+            {
+                "name": sr.skill_name,
+                "passed": sr.passed,
+                "attempts": sr.attempts,
+            }
+            for t in traces
+            for sr in t.skill_results
+        ],
+        "subagents": dict(summary.skills.subagent_counts),
+        "duration_seconds": summary.spans.duration_seconds,
+        "crashed": summary.crashed,
+    }
+
+    with open(metrics_path, "a") as f:
+        f.write(json.dumps(event) + "\n")

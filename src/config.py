@@ -1600,6 +1600,16 @@ class HydraFlowConfig(BaseModel):
         """Return the directory for visual validation reports."""
         return self.data_root / "visual-reports"
 
+    @property
+    def diagnostics_dir(self) -> Path:
+        """Directory for factory diagnostics data."""
+        return self.data_root / "diagnostics"
+
+    @property
+    def factory_metrics_path(self) -> Path:
+        """Path to the factory metrics JSONL store."""
+        return self.diagnostics_dir / "factory_metrics.jsonl"
+
     def data_path(self, *parts: str | os.PathLike[str]) -> Path:
         """Return an absolute path inside the HydraFlow data_root."""
         return self.data_root.joinpath(*parts)
