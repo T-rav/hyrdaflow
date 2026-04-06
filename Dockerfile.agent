@@ -20,8 +20,7 @@ FROM python:3.11-slim AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system packages (ripgrep is needed by Claude CLI's Grep tool,
-# libicu72 provides ICU libs required by the bd/beads native binary)
+# Install system packages (ripgrep is needed by Claude CLI's Grep tool)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         make \
@@ -29,15 +28,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gnupg \
         ca-certificates \
         ripgrep \
-        libicu72 \
     && rm -rf /var/lib/apt/lists/*
 
-# bd binary is compiled against ICU 74 but bookworm ships ICU 72.
-# Create compat symlinks (ICU 72→74 ABI is stable for bd's usage).
-RUN ICU_DIR=$(dirname $(find /usr/lib -name 'libicui18n.so.72' 2>/dev/null | head -1)) \
-    && ln -sf ${ICU_DIR}/libicui18n.so.72 ${ICU_DIR}/libicui18n.so.74 \
-    && ln -sf ${ICU_DIR}/libicuuc.so.72 ${ICU_DIR}/libicuuc.so.74 \
-    && ln -sf ${ICU_DIR}/libicudata.so.72 ${ICU_DIR}/libicudata.so.74
+# Install ICU runtime for bd CLI (native binary links against libicu 74).
+# The package name is version-specific (libicu72, libicu76, …) and varies
+# by Debian release, so detect it dynamically then create .so.74 compat
+# symlinks to whichever version is installed.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        $(apt-cache search --names-only '^libicu[0-9]+$' | awk '{print $1}' | head -1) \
+    && rm -rf /var/lib/apt/lists/* \
+    && ICU_DIR=$(dirname $(find /usr/lib -name 'libicui18n.so.*' | head -1)) \
+    && for lib in libicui18n libicuuc libicudata; do \
+        src=$(find ${ICU_DIR} -maxdepth 1 -name "${lib}.so.*" | head -1); \
+        [ -n "$src" ] && ln -sf "$src" "${ICU_DIR}/${lib}.so.74"; \
+    done
 
 # Install Node.js 20.x via NodeSource
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
