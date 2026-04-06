@@ -70,7 +70,9 @@ def parse_plan_compliance_result(transcript: str) -> tuple[bool, str, list[str]]
 
     Returns ``(passed, summary, findings)``.
     """
-    # If the transcript is empty (auto-pass from empty plan), treat as pass.
+    # Defensive: if transcript is empty treat as pass. In production this path
+    # is pre-empted by the empty-prompt early return in _run_skill(), but the
+    # function is public and direct callers should still receive a safe result.
     if not transcript.strip():
         return True, "No plan available — skipped compliance check", []
 
