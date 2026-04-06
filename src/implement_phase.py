@@ -514,6 +514,19 @@ class ImplementPhase:
                 digest_hash = hashlib.sha256(items_path.read_bytes()).hexdigest()[:16]
         self._state.set_digest_hash(issue.id, digest_hash)
 
+        # Copy architecture diagrams from /tmp into the worktree so the
+        # implementer agent has full architectural context on disk.
+        from planner import PlannerRunner  # noqa: PLC0415
+
+        n_diagrams = PlannerRunner.copy_diagrams_to_workspace(issue.id, wt_path)
+        if n_diagrams:
+            logger.info(
+                "Copied %d diagram file(s) into workspace for #%d",
+                n_diagrams,
+                issue.id,
+            )
+            PlannerRunner.cleanup_diagrams(issue.id)
+
         # Enrich the task with comments so the agent can find the plan
         # comment posted by the planner.  The IssueStore bulk fetch
         # does not include comment bodies.

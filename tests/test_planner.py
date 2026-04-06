@@ -118,15 +118,15 @@ def test_build_command_includes_verbose(config):
     assert "--verbose" in cmd
 
 
-def test_build_command_disallows_write_tools(config):
-    """All file-mutation tools should be blocked — planner is READ-ONLY."""
+def test_build_command_disallows_edit_but_allows_write(config):
+    """Write is allowed for /tmp diagram files; Edit and NotebookEdit are blocked."""
     runner = _make_runner(config, None)
     cmd = runner._build_command()
 
     assert "--disallowedTools" in cmd
     idx = cmd.index("--disallowedTools")
     blocked = cmd[idx + 1]
-    assert "Write" in blocked
+    assert "Write" not in blocked
     assert "Edit" in blocked
     assert "NotebookEdit" in blocked
 
@@ -177,19 +177,19 @@ async def test_build_prompt_includes_read_only_instructions(config, event_bus, i
     prompt, _ = await runner._build_prompt_with_stats(task)
 
     assert "READ-ONLY" in prompt
-    assert "Do NOT create, modify, or delete any files" in prompt
+    assert "Do NOT modify any repository files" in prompt
 
 
 @pytest.mark.asyncio
-async def test_build_prompt_includes_inline_diagram_instruction(
-    config, event_bus, issue
-):
-    """Planner should be told to include a Mermaid diagram inline in the plan."""
+async def test_build_prompt_includes_diagram_instructions(config, event_bus, issue):
+    """Planner should be told to write diagrams to /tmp and include inline Mermaid."""
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
     prompt, _ = await runner._build_prompt_with_stats(task)
 
+    assert "/tmp/hydraflow-diagrams/" in prompt
     assert "Code Topology" in prompt
+    assert "mermaid" in prompt
     assert "Mermaid" in prompt
 
 
@@ -2288,3 +2288,70 @@ class TestValidateAlreadySatisfiedEvidence:
             summary, issue_body=issue_body, repo_root=tmp_path
         )
         assert any("do not exist" in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# Diagram artifact helpers
+# ---------------------------------------------------------------------------
+
+
+class TestDiagramHelpers:
+    """Tests for diagram temp-file helpers on PlannerRunner."""
+
+    def test_diagram_dir_for_issue(self) -> None:
+        d = PlannerRunner.diagram_dir_for_issue(42)
+        assert d == Path("/tmp/hydraflow-diagrams/issue-42")
+
+    def test_collect_diagram_attachments_empty_when_no_dir(self) -> None:
+        result = PlannerRunner.collect_diagram_attachments(999999)
+        assert result == ""
+
+    def test_collect_diagram_attachments_likec4(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr(PlannerRunner, "DIAGRAM_TMP_ROOT", tmp_path)
+        d = tmp_path / "issue-1"
+        d.mkdir()
+        (d / "system.likec4").write_text("model { }")
+
+        result = PlannerRunner.collect_diagram_attachments(1)
+        assert "system.likec4" in result
+        assert "```likec4" in result
+        assert "model { }" in result
+
+    def test_collect_diagram_attachments_markdown(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr(PlannerRunner, "DIAGRAM_TMP_ROOT", tmp_path)
+        d = tmp_path / "issue-2"
+        d.mkdir()
+        (d / "flow.md").write_text("```mermaid\ngraph LR\n  A-->B\n```")
+
+        result = PlannerRunner.collect_diagram_attachments(2)
+        assert "```mermaid" in result
+
+    def test_copy_diagrams_to_workspace(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr(PlannerRunner, "DIAGRAM_TMP_ROOT", tmp_path / "diag")
+        src = tmp_path / "diag" / "issue-5"
+        src.mkdir(parents=True)
+        (src / "arch.likec4").write_text("model { }")
+
+        ws = tmp_path / "workspace"
+        ws.mkdir()
+        count = PlannerRunner.copy_diagrams_to_workspace(5, ws)
+
+        assert count == 1
+        assert (ws / "docs" / "architecture" / "arch.likec4").read_text() == "model { }"
+
+    def test_copy_diagrams_returns_zero_when_no_dir(self, tmp_path) -> None:
+        count = PlannerRunner.copy_diagrams_to_workspace(999999, tmp_path)
+        assert count == 0
+
+    def test_cleanup_diagrams(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr(PlannerRunner, "DIAGRAM_TMP_ROOT", tmp_path)
+        d = tmp_path / "issue-10"
+        d.mkdir()
+        (d / "file.likec4").write_text("x")
+
+        PlannerRunner.cleanup_diagrams(10)
+        assert not d.exists()
+
+    def test_cleanup_diagrams_noop_when_missing(self) -> None:
+        """Should not raise when directory doesn't exist."""
+        PlannerRunner.cleanup_diagrams(999999)

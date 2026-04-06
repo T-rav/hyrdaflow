@@ -213,9 +213,16 @@ class PlanPhase:
                 f"**Actionability score:** {result.actionability_score}/100 "
                 f"({result.actionability_rank})\n"
             )
+        # Collect any architecture diagrams the planner wrote to /tmp
+        diagram_attachments = PlannerRunner.collect_diagram_attachments(issue.id)
+        diagram_section = ""
+        if diagram_attachments:
+            diagram_section = f"\n\n## Architecture Diagrams\n\n{diagram_attachments}\n"
+
         comment_body = (
             f"## Implementation Plan\n\n"
             f"{result.plan}\n\n"
+            f"{diagram_section}"
             f"**Branch:** `{branch}`\n\n"
             f"---\n"
             f"{score_line}"
