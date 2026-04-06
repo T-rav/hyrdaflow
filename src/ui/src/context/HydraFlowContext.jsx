@@ -1389,6 +1389,7 @@ export function HydraFlowProvider({ children }) {
   const startOrchestrator = useCallback(async () => {
     if (state.selectedRepoSlug) {
       const result = await startRuntime(state.selectedRepoSlug)
+      if (result.ok) await refreshControlStatus()
       return result.ok
     }
     try {
@@ -1404,6 +1405,7 @@ export function HydraFlowProvider({ children }) {
   const stopOrchestrator = useCallback(async () => {
     if (state.selectedRepoSlug) {
       const result = await stopRuntime(state.selectedRepoSlug)
+      if (result.ok) await refreshControlStatus()
       return result.ok
     }
     try {
