@@ -1661,7 +1661,6 @@ class MemoryHarness:
 
     Composes with ``ConfigFactory`` and ``EventBus`` to provide:
     - A mock ``HindsightClient`` with configurable per-bank recall responses
-    - A real ``HindsightWAL`` backed by ``tmp_path``
     - A concrete ``BaseRunner`` subclass wired with the mock client
     """
 
@@ -1675,7 +1674,6 @@ class MemoryHarness:
 
         from base_runner import BaseRunner
         from events import EventBus
-        from hindsight_wal import HindsightWAL
 
         self.config = ConfigFactory.create(
             repo_root=tmp_path / "repo",
@@ -1684,7 +1682,6 @@ class MemoryHarness:
 
         self.bus = EventBus()
         self.mock_client = MagicMock()
-        self.wal = HindsightWAL(tmp_path / "wal" / "hindsight.jsonl")
         self._bank_responses: dict[str, list[Any]] = bank_responses or {}
 
         class _MemoryTestRunner(BaseRunner):

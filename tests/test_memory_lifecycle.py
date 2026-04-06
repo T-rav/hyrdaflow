@@ -230,15 +230,12 @@ class TestCrossPhaseMemoryThreading:
         stored = json.loads(items_path.read_text().strip())
         assert stored["learning"] == "Always validate config before starting workers"
 
-        # Phase 2: Implementer recalls the memory
+        # Phase 2: Implementer recalls the memory — seed mock from Phase 1's stored
+        # output so the test verifies the storage→recall connection end-to-end.
         harness = MemoryHarness(tmp_path)
         harness.set_bank_responses(
             {
-                str(Bank.LEARNINGS): [
-                    HindsightMemory(
-                        text="Always validate config before starting workers"
-                    )
-                ],
+                str(Bank.LEARNINGS): [HindsightMemory(text=stored["learning"])],
             }
         )
 
