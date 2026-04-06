@@ -100,6 +100,15 @@ class PlannerRunner(BaseRunner):
             )
             result.transcript = transcript
 
+            # Guard: revert any writes outside docs/architecture/
+            stray = await self._check_stray_writes(task.id)
+            if stray:
+                result.success = False
+                result.error = f"Planner wrote to disallowed paths: {', '.join(stray)}"
+                await self._emit_status(task.id, worker_id, PlannerStatus.FAILED)
+                result.duration_seconds = time.monotonic() - start
+                return result
+
             # Check for already-satisfied before plan extraction
             satisfied_explanation = self._extract_already_satisfied(transcript)
             if satisfied_explanation:
@@ -165,6 +174,18 @@ class PlannerRunner(BaseRunner):
                         telemetry_stats=retry_stats,
                     )
                     result.transcript += "\n\n--- RETRY ---\n\n" + retry_transcript
+
+                    # Guard: revert any writes outside docs/architecture/
+                    retry_stray = await self._check_stray_writes(task.id)
+                    if retry_stray:
+                        result.success = False
+                        result.error = f"Planner wrote to disallowed paths: {', '.join(retry_stray)}"
+                        result.retry_attempted = True
+                        await self._emit_status(
+                            task.id, worker_id, PlannerStatus.FAILED
+                        )
+                        result.duration_seconds = time.monotonic() - start
+                        return result
 
                     retry_plan = self._extract_plan(retry_transcript)
                     if retry_plan:
@@ -571,6 +592,71 @@ This closes the issue automatically. False positives waste significant human tim
     def _run_phase_minus_one_gates(self, plan: str) -> tuple[list[str], list[str]]:
         """Delegate to :func:`plan_validation.run_phase_gates`."""
         return run_phase_gates(plan, self._config)
+
+    # Paths the planner is allowed to write (diagram artifacts).
+    _ALLOWED_WRITE_PREFIXES = ("docs/architecture/",)
+
+    async def _check_stray_writes(self, issue_id: int) -> list[str]:
+        """Detect and revert any files the planner wrote outside allowed paths.
+
+        Returns a list of disallowed paths that were reverted, or an empty
+        list if all writes were within allowed directories.
+        """
+        import asyncio as _aio  # noqa: PLC0415
+
+        repo = self._config.repo_root
+        try:
+            proc = await _aio.create_subprocess_exec(
+                "git",
+                "status",
+                "--porcelain",
+                cwd=str(repo),
+                stdout=_aio.subprocess.PIPE,
+                stderr=_aio.subprocess.PIPE,
+            )
+            stdout, _ = await proc.communicate()
+        except (OSError, FileNotFoundError):
+            # repo_root doesn't exist or isn't a git repo — nothing to check
+            return []
+        if not stdout:
+            return []
+
+        stray: list[str] = []
+        for line in stdout.decode().splitlines():
+            # porcelain format: "XY path" or "XY path -> renamed"
+            path = line[3:].split(" -> ")[0].strip()
+            if not any(path.startswith(p) for p in self._ALLOWED_WRITE_PREFIXES):
+                stray.append(path)
+
+        if stray:
+            logger.warning(
+                "Planner for #%d wrote to disallowed paths — reverting: %s",
+                issue_id,
+                stray,
+            )
+            # Revert stray files: restore tracked, remove untracked
+            checkout_paths = []
+            clean_paths = []
+            for line in stdout.decode().splitlines():
+                path = line[3:].split(" -> ")[0].strip()
+                if any(path.startswith(p) for p in self._ALLOWED_WRITE_PREFIXES):
+                    continue
+                status = line[:2]
+                if status.strip() == "??":
+                    clean_paths.append(path)
+                else:
+                    checkout_paths.append(path)
+
+            if checkout_paths:
+                await (
+                    await _aio.create_subprocess_exec(
+                        "git", "checkout", "--", *checkout_paths, cwd=str(repo)
+                    )
+                ).wait()
+            for cp in clean_paths:
+                (repo / cp).unlink(missing_ok=True)
+
+        return stray
 
     def _extract_plan(self, transcript: str) -> str:
         """Extract the plan from between PLAN_START/PLAN_END markers.

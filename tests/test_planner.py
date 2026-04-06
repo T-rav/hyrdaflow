@@ -2276,3 +2276,121 @@ class TestValidateAlreadySatisfiedEvidence:
             summary, issue_body=issue_body, repo_root=tmp_path
         )
         assert any("do not exist" in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# Stray-write detection
+# ---------------------------------------------------------------------------
+
+
+class TestCheckStrayWrites:
+    """Tests for _check_stray_writes — guards planner against unauthorized file writes."""
+
+    @pytest.mark.asyncio
+    async def test_no_changes_returns_empty(self, config, event_bus) -> None:
+        """No git changes means no stray writes."""
+        runner = PlannerRunner(config, event_bus)
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            proc = AsyncMock()
+            proc.communicate.return_value = (b"", b"")
+            mock_exec.return_value = proc
+            result = await runner._check_stray_writes(1)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_allowed_path_not_flagged(self, config, event_bus) -> None:
+        """Writes under docs/architecture/ should not be flagged."""
+        runner = PlannerRunner(config, event_bus)
+        git_output = b"?? docs/architecture/system.likec4\n"
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            proc = AsyncMock()
+            proc.communicate.return_value = (git_output, b"")
+            mock_exec.return_value = proc
+            result = await runner._check_stray_writes(1)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_disallowed_path_flagged_and_reverted(
+        self, config, event_bus, tmp_path
+    ) -> None:
+        """Writes outside docs/architecture/ should be flagged and reverted."""
+        config.repo_root = tmp_path
+        stray_file = tmp_path / "src" / "models.py"
+        stray_file.parent.mkdir(parents=True)
+        stray_file.write_text("bad write")
+
+        runner = PlannerRunner(config, event_bus)
+        git_output = b"?? src/models.py\n"
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            proc = AsyncMock()
+            if call_count == 1:
+                proc.communicate.return_value = (git_output, b"")
+            else:
+                proc.wait.return_value = 0
+            return proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            result = await runner._check_stray_writes(1)
+
+        assert result == ["src/models.py"]
+        assert not stray_file.exists()
+
+    @pytest.mark.asyncio
+    async def test_mixed_allowed_and_disallowed(
+        self, config, event_bus, tmp_path
+    ) -> None:
+        """Only disallowed paths should be returned."""
+        config.repo_root = tmp_path
+        stray_file = tmp_path / "README.md"
+        stray_file.write_text("bad")
+
+        runner = PlannerRunner(config, event_bus)
+        git_output = b"?? docs/architecture/flow.likec4\n?? README.md\n"
+
+        call_count = 0
+
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            proc = AsyncMock()
+            if call_count == 1:
+                proc.communicate.return_value = (git_output, b"")
+            else:
+                proc.wait.return_value = 0
+            return proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            result = await runner._check_stray_writes(1)
+
+        assert result == ["README.md"]
+
+    @pytest.mark.asyncio
+    async def test_tracked_file_modification_reverted_via_checkout(
+        self, config, event_bus, tmp_path
+    ) -> None:
+        """Modified tracked files should be reverted with git checkout."""
+        config.repo_root = tmp_path
+        runner = PlannerRunner(config, event_bus)
+        git_output = b" M src/config.py\n"
+
+        calls: list[tuple] = []
+
+        async def fake_exec(*args, **kwargs):
+            calls.append(args)
+            proc = AsyncMock()
+            if len(calls) == 1:
+                proc.communicate.return_value = (git_output, b"")
+            else:
+                proc.wait.return_value = 0
+            return proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            result = await runner._check_stray_writes(1)
+
+        assert result == ["src/config.py"]
+        assert "checkout" in calls[1]
