@@ -247,7 +247,7 @@ class PlannerRunner(BaseRunner):
         return build_agent_command(
             tool=self._config.planner_tool,
             model=self._config.planner_model,
-            disallowed_tools="Write,Edit,NotebookEdit",
+            disallowed_tools="Edit,NotebookEdit",
         )
 
     # Comment/line char limits are now configurable via HydraFlowConfig:
@@ -436,10 +436,12 @@ class PlannerRunner(BaseRunner):
 
 ## Instructions
 
-{mode_note}You are in READ-ONLY mode. Do NOT create, modify, or delete any files.
-Do NOT run any commands that change state (no git commit, no file writes, no installs).
+{mode_note}You are in PLAN-ONLY mode. Do NOT create or modify source code files.
+Do NOT run any commands that change state (no git commit, no installs).
+You MAY write architecture diagram artifacts under `docs/architecture/` using
+the `/diagram` skill — these help the implementer understand code topology.
 
-Your job: explore code and produce a concrete implementation plan.
+Your job: explore code, map the relevant architecture, and produce a concrete implementation plan.
 
 ## Exploration Strategy — USE SEMANTIC TOOLS
 
@@ -460,10 +462,12 @@ Use semantic tools first (before grep):
 
 1. Restate the issue in your own words.
 2. Explore relevant code with semantic tools.
-3. Identify concrete file-level deltas.
-4. Build a Task Graph with dependency-ordered phases (full plans only).
-5. Write behavioral test specs for each phase — describe observable outcomes, not test code.
-6. For UI work, call out reusable components/shared modules (`constants.js`, `types.js`, `theme.js`).
+3. Generate an architecture diagram with `/diagram` — map the code topology around the
+   change area (components, call flows, data paths). Write it to `docs/architecture/`.
+4. Identify concrete file-level deltas.
+5. Build a Task Graph with dependency-ordered phases (full plans only).
+6. Write behavioral test specs for each phase — describe observable outcomes, not test code.
+7. For UI work, call out reusable components/shared modules (`constants.js`, `types.js`, `theme.js`).
 
 ## Required Output
 

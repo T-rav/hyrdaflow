@@ -118,14 +118,15 @@ def test_build_command_includes_verbose(config):
     assert "--verbose" in cmd
 
 
-def test_build_command_disallows_write_tools(config):
+def test_build_command_disallows_edit_tools_but_allows_write(config):
+    """Write is allowed so the planner can produce architecture diagrams via /diagram."""
     runner = _make_runner(config, None)
     cmd = runner._build_command()
 
     assert "--disallowedTools" in cmd
     idx = cmd.index("--disallowedTools")
     blocked = cmd[idx + 1]
-    assert "Write" in blocked
+    assert "Write" not in blocked
     assert "Edit" in blocked
     assert "NotebookEdit" in blocked
 
@@ -175,8 +176,9 @@ async def test_build_prompt_includes_read_only_instructions(config, event_bus, i
     task = issue.to_task()
     prompt, _ = await runner._build_prompt_with_stats(task)
 
-    assert "READ-ONLY" in prompt
-    assert "Do NOT create, modify, or delete any files" in prompt
+    assert "PLAN-ONLY" in prompt
+    assert "Do NOT create or modify source code files" in prompt
+    assert "docs/architecture/" in prompt
 
 
 @pytest.mark.asyncio
