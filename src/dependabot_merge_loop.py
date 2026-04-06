@@ -1,4 +1,4 @@
-"""Background worker loop — auto-merge bot-authored PRs after CI passes."""
+"""Background worker loop — auto-merge Dependabot and other configured bot PRs after CI passes."""
 
 from __future__ import annotations
 
@@ -14,11 +14,11 @@ if TYPE_CHECKING:
     from ports import PRPort
     from state import StateTracker
 
-logger = logging.getLogger("hydraflow.bot_pr_loop")
+logger = logging.getLogger("hydraflow.dependabot_merge_loop")
 
 
-class BotPRLoop(BaseBackgroundLoop):
-    """Polls open PRs and auto-merges those authored by known bots."""
+class DependabotMergeLoop(BaseBackgroundLoop):
+    """Polls open PRs and auto-merges those authored by Dependabot and other configured bots."""
 
     def __init__(
         self,
@@ -28,18 +28,18 @@ class BotPRLoop(BaseBackgroundLoop):
         state: StateTracker,
         deps: LoopDeps,
     ) -> None:
-        super().__init__(worker_name="bot_pr", config=config, deps=deps)
+        super().__init__(worker_name="dependabot_merge", config=config, deps=deps)
         self._cache = cache
         self._prs = prs
         self._state = state
 
     def _get_default_interval(self) -> int:
-        return self._config.bot_pr_interval
+        return self._config.dependabot_merge_interval
 
     async def _do_work(self) -> dict[str, Any] | None:
         """Check bot PRs and auto-merge if CI passes."""
-        settings = self._state.get_bot_pr_settings()
-        processed = self._state.get_bot_pr_processed()
+        settings = self._state.get_dependabot_merge_settings()
+        processed = self._state.get_dependabot_merge_processed()
         bot_authors = {a.lower() for a in settings.authors}
 
         open_prs = self._cache.get_open_prs()
@@ -72,7 +72,7 @@ class BotPRLoop(BaseBackgroundLoop):
                 merge_ok = await self._prs.merge_pr(pr.pr)
                 if merge_ok:
                     merged += 1
-                    self._state.add_bot_pr_processed(pr.pr)
+                    self._state.add_dependabot_merge_processed(pr.pr)
                     logger.info("Auto-merged bot PR #%d (%s)", pr.pr, pr.title)
                 else:
                     failed += 1
@@ -101,7 +101,7 @@ class BotPRLoop(BaseBackgroundLoop):
                     pr.pr,
                     f"CI failed on bot PR — escalating to HITL.\n\n{summary}",
                 )
-                self._state.add_bot_pr_processed(pr.pr)
+                self._state.add_dependabot_merge_processed(pr.pr)
                 failed += 1
                 logger.info("Bot PR #%d CI failed — escalated to HITL", pr.pr)
             elif strategy == "close":
@@ -110,7 +110,7 @@ class BotPRLoop(BaseBackgroundLoop):
                     f"CI failed on bot PR — closing per configured strategy.\n\n{summary}",
                 )
                 await self._prs.close_issue(pr.pr)
-                self._state.add_bot_pr_processed(pr.pr)
+                self._state.add_dependabot_merge_processed(pr.pr)
                 failed += 1
                 logger.info("Bot PR #%d CI failed — closed", pr.pr)
 
