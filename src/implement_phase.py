@@ -534,12 +534,44 @@ class ImplementPhase:
         if bead_mapping:
             run_kwargs["bead_mapping"] = bead_mapping
 
-        result = await self._agents.run(
-            issue,
-            wt_path,
-            branch,
-            **run_kwargs,  # type: ignore[arg-type]
+        # Allocate a trace run id and set the tracing context on the agent
+        # runner so its _execute calls build a TraceCollector.
+        from trace_rollup import write_phase_rollup  # noqa: PLC0415
+        from tracing_context import TracingContext, source_to_phase  # noqa: PLC0415
+
+        phase = source_to_phase("implementer")
+        run_id = self._state.begin_trace_run(issue.id, phase)
+        self._agents.set_tracing_context(
+            TracingContext(
+                issue_number=issue.id,
+                phase=phase,
+                source="implementer",
+                run_id=run_id,
+            )
         )
+
+        try:
+            result = await self._agents.run(
+                issue,
+                wt_path,
+                branch,
+                **run_kwargs,  # type: ignore[arg-type]
+            )
+        finally:
+            self._agents.clear_tracing_context()
+            # Roll up the subprocess traces whether the run succeeded or failed.
+            try:
+                write_phase_rollup(
+                    config=self._config,
+                    issue_number=issue.id,
+                    phase=phase,
+                    run_id=run_id,
+                )
+            except Exception:
+                logger.warning(
+                    "Phase rollup failed for issue #%d", issue.id, exc_info=True
+                )
+            self._state.end_trace_run(issue.id, phase)
 
         await self._record_impl_metrics(issue, result, review_feedback)
 

@@ -1111,6 +1111,13 @@ def make_implement_phase(
 
     mock_agents.run = _kwargs_absorbing_run
     mock_agents.hindsight = None
+    # set_tracing_context / clear_tracing_context are synchronous on the real
+    # runner; override the auto-generated async mocks with plain MagicMocks so
+    # callers don't get "coroutine was never awaited" warnings.
+    from unittest.mock import MagicMock  # noqa: PLC0415
+
+    mock_agents.set_tracing_context = MagicMock()
+    mock_agents.clear_tracing_context = MagicMock()
 
     # Mock IssueStore — get_implementable returns the supplied issues once
     mock_store = AsyncMock(spec=IssueStore)
