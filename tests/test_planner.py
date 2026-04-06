@@ -118,15 +118,15 @@ def test_build_command_includes_verbose(config):
     assert "--verbose" in cmd
 
 
-def test_build_command_disallows_edit_tools_but_allows_write(config):
-    """Write is allowed so the planner can produce architecture diagrams via /diagram."""
+def test_build_command_disallows_write_tools(config):
+    """All file-mutation tools should be blocked — planner is READ-ONLY."""
     runner = _make_runner(config, None)
     cmd = runner._build_command()
 
     assert "--disallowedTools" in cmd
     idx = cmd.index("--disallowedTools")
     blocked = cmd[idx + 1]
-    assert "Write" not in blocked
+    assert "Write" in blocked
     assert "Edit" in blocked
     assert "NotebookEdit" in blocked
 
@@ -176,9 +176,21 @@ async def test_build_prompt_includes_read_only_instructions(config, event_bus, i
     task = issue.to_task()
     prompt, _ = await runner._build_prompt_with_stats(task)
 
-    assert "PLAN-ONLY" in prompt
-    assert "Do NOT create or modify source code files" in prompt
-    assert "docs/architecture/" in prompt
+    assert "READ-ONLY" in prompt
+    assert "Do NOT create, modify, or delete any files" in prompt
+
+
+@pytest.mark.asyncio
+async def test_build_prompt_includes_inline_diagram_instruction(
+    config, event_bus, issue
+):
+    """Planner should be told to include a Mermaid diagram inline in the plan."""
+    runner = _make_runner(config, event_bus)
+    task = issue.to_task()
+    prompt, _ = await runner._build_prompt_with_stats(task)
+
+    assert "Code Topology" in prompt
+    assert "Mermaid" in prompt
 
 
 @pytest.mark.asyncio
@@ -2276,159 +2288,3 @@ class TestValidateAlreadySatisfiedEvidence:
             summary, issue_body=issue_body, repo_root=tmp_path
         )
         assert any("do not exist" in e for e in errors)
-
-
-# ---------------------------------------------------------------------------
-# Stray-write detection
-# ---------------------------------------------------------------------------
-
-
-class TestCheckStrayWrites:
-    """Tests for _check_stray_writes — guards planner against unauthorized file writes."""
-
-    @pytest.mark.asyncio
-    async def test_no_changes_returns_empty(self, config, event_bus) -> None:
-        """No git changes means no stray writes."""
-        runner = PlannerRunner(config, event_bus)
-        with patch("asyncio.create_subprocess_exec") as mock_exec:
-            proc = AsyncMock()
-            proc.communicate.return_value = (b"", b"")
-            mock_exec.return_value = proc
-            result = await runner._check_stray_writes(1)
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_allowed_path_not_flagged(self, config, event_bus) -> None:
-        """Writes under docs/architecture/ should not be flagged."""
-        runner = PlannerRunner(config, event_bus)
-        git_output = b"?? docs/architecture/system.likec4\n"
-        with patch("asyncio.create_subprocess_exec") as mock_exec:
-            proc = AsyncMock()
-            proc.communicate.return_value = (git_output, b"")
-            mock_exec.return_value = proc
-            result = await runner._check_stray_writes(1)
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_disallowed_path_flagged_and_reverted(
-        self, config, event_bus, tmp_path
-    ) -> None:
-        """Writes outside docs/architecture/ should be flagged and reverted."""
-        config.repo_root = tmp_path
-        stray_file = tmp_path / "src" / "models.py"
-        stray_file.parent.mkdir(parents=True)
-        stray_file.write_text("bad write")
-
-        runner = PlannerRunner(config, event_bus)
-        git_output = b"?? src/models.py\n"
-
-        call_count = 0
-
-        async def fake_exec(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            proc = AsyncMock()
-            if call_count == 1:
-                proc.communicate.return_value = (git_output, b"")
-            else:
-                proc.wait.return_value = 0
-            return proc
-
-        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
-            result = await runner._check_stray_writes(1)
-
-        assert result == ["src/models.py"]
-        assert not stray_file.exists()
-
-    @pytest.mark.asyncio
-    async def test_mixed_allowed_and_disallowed(
-        self, config, event_bus, tmp_path
-    ) -> None:
-        """Only disallowed paths should be returned."""
-        config.repo_root = tmp_path
-        stray_file = tmp_path / "README.md"
-        stray_file.write_text("bad")
-
-        runner = PlannerRunner(config, event_bus)
-        git_output = b"?? docs/architecture/flow.likec4\n?? README.md\n"
-
-        call_count = 0
-
-        async def fake_exec(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            proc = AsyncMock()
-            if call_count == 1:
-                proc.communicate.return_value = (git_output, b"")
-            else:
-                proc.wait.return_value = 0
-            return proc
-
-        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
-            result = await runner._check_stray_writes(1)
-
-        assert result == ["README.md"]
-
-    @pytest.mark.asyncio
-    async def test_tracked_file_modification_reverted_via_checkout(
-        self, config, event_bus, tmp_path
-    ) -> None:
-        """Modified tracked files should be reverted with git checkout."""
-        config.repo_root = tmp_path
-        runner = PlannerRunner(config, event_bus)
-        git_output = b" M src/config.py\n"
-
-        calls: list[tuple] = []
-
-        async def fake_exec(*args, **kwargs):
-            calls.append(args)
-            proc = AsyncMock()
-            if len(calls) == 1:
-                proc.communicate.return_value = (git_output, b"")
-            else:
-                proc.wait.return_value = 0
-            return proc
-
-        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
-            result = await runner._check_stray_writes(1)
-
-        assert result == ["src/config.py"]
-        assert "checkout" in calls[1]
-
-
-class TestParsePorcelainPath:
-    """Tests for _parse_porcelain_path — extracts file paths from git status output."""
-
-    def test_simple_untracked(self) -> None:
-        assert PlannerRunner._parse_porcelain_path("?? src/new.py") == "src/new.py"
-
-    def test_modified_tracked(self) -> None:
-        assert (
-            PlannerRunner._parse_porcelain_path(" M src/config.py") == "src/config.py"
-        )
-
-    def test_added_staged(self) -> None:
-        assert PlannerRunner._parse_porcelain_path("A  src/new.py") == "src/new.py"
-
-    def test_quoted_path_with_spaces(self) -> None:
-        assert (
-            PlannerRunner._parse_porcelain_path(
-                '?? "docs/architecture/my diagram.likec4"'
-            )
-            == "docs/architecture/my diagram.likec4"
-        )
-
-    def test_rename_takes_destination(self) -> None:
-        assert (
-            PlannerRunner._parse_porcelain_path("R  old.py -> src/new.py")
-            == "src/new.py"
-        )
-
-    def test_rename_with_quoted_destination(self) -> None:
-        assert (
-            PlannerRunner._parse_porcelain_path('R  old.py -> "src/new file.py"')
-            == "src/new file.py"
-        )
-
-    def test_empty_path(self) -> None:
-        assert PlannerRunner._parse_porcelain_path("??") == ""

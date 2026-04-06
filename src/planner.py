@@ -101,15 +101,6 @@ class PlannerRunner(BaseRunner):
             )
             result.transcript = transcript
 
-            # Guard: revert any writes outside docs/architecture/
-            stray = await self._check_stray_writes(task.id)
-            if stray:
-                result.success = False
-                result.error = f"Planner wrote to disallowed paths: {', '.join(stray)}"
-                await self._emit_status(task.id, worker_id, PlannerStatus.FAILED)
-                result.duration_seconds = time.monotonic() - start
-                return result
-
             # Check for already-satisfied before plan extraction
             satisfied_explanation = self._extract_already_satisfied(transcript)
             if satisfied_explanation:
@@ -175,18 +166,6 @@ class PlannerRunner(BaseRunner):
                         telemetry_stats=retry_stats,
                     )
                     result.transcript += "\n\n--- RETRY ---\n\n" + retry_transcript
-
-                    # Guard: revert any writes outside docs/architecture/
-                    retry_stray = await self._check_stray_writes(task.id)
-                    if retry_stray:
-                        result.success = False
-                        result.error = f"Planner wrote to disallowed paths: {', '.join(retry_stray)}"
-                        result.retry_attempted = True
-                        await self._emit_status(
-                            task.id, worker_id, PlannerStatus.FAILED
-                        )
-                        result.duration_seconds = time.monotonic() - start
-                        return result
 
                     retry_plan = self._extract_plan(retry_transcript)
                     if retry_plan:
@@ -269,7 +248,7 @@ class PlannerRunner(BaseRunner):
         return build_agent_command(
             tool=self._config.planner_tool,
             model=self._config.planner_model,
-            disallowed_tools="Edit,NotebookEdit",
+            disallowed_tools="Write,Edit,NotebookEdit",
         )
 
     # Comment/line char limits are now configurable via HydraFlowConfig:
@@ -458,12 +437,8 @@ class PlannerRunner(BaseRunner):
 
 ## Instructions
 
-{mode_note}You are in PLAN-ONLY mode. Do NOT create or modify source code files.
-Do NOT run any commands that change state (no git commit, no installs).
-You MAY write architecture diagram artifacts under `docs/architecture/` using
-the `/diagram` skill — these help the implementer understand code topology.
-Do NOT use the Write tool on any path outside `docs/architecture/`. Writes
-to other paths will be automatically reverted and the plan will be rejected.
+{mode_note}You are in READ-ONLY mode. Do NOT create, modify, or delete any files.
+Do NOT run any commands that change state (no git commit, no file writes, no installs).
 
 Your job: explore code, map the relevant architecture, and produce a concrete implementation plan.
 
@@ -486,8 +461,11 @@ Use semantic tools first (before grep):
 
 1. Restate the issue in your own words.
 2. Explore relevant code with semantic tools.
-3. Generate an architecture diagram with `/diagram` — map the code topology around the
-   change area (components, call flows, data paths). Write it to `docs/architecture/`.
+3. Map the code topology around the change area — trace call graphs, data flows, and
+   component boundaries. Include a `## Code Topology` section in your plan with a
+   Mermaid diagram (```mermaid code block) showing the relevant components and their
+   relationships. This diagram is posted on the issue and helps the implementer
+   understand the architecture.
 4. Identify concrete file-level deltas.
 5. Build a Task Graph with dependency-ordered phases (full plans only).
 6. Write behavioral test specs for each phase — describe observable outcomes, not test code.
@@ -595,91 +573,6 @@ This closes the issue automatically. False positives waste significant human tim
     def _run_phase_minus_one_gates(self, plan: str) -> tuple[list[str], list[str]]:
         """Delegate to :func:`plan_validation.run_phase_gates`."""
         return run_phase_gates(plan, self._config)
-
-    # Paths the planner is allowed to write (diagram artifacts).
-    _ALLOWED_WRITE_PREFIXES = ("docs/architecture/",)
-
-    async def _check_stray_writes(self, issue_id: int) -> list[str]:
-        """Detect and revert any files the planner wrote outside allowed paths.
-
-        Returns a list of disallowed paths that were reverted, or an empty
-        list if all writes were within allowed directories.
-        """
-        import asyncio as _aio  # noqa: PLC0415
-
-        repo = self._config.repo_root
-        try:
-            proc = await _aio.create_subprocess_exec(
-                "git",
-                "status",
-                "--porcelain",
-                cwd=str(repo),
-                stdout=_aio.subprocess.PIPE,
-                stderr=_aio.subprocess.PIPE,
-            )
-            stdout, _ = await proc.communicate()
-        except (OSError, FileNotFoundError):
-            # repo_root doesn't exist or isn't a git repo — nothing to check
-            return []
-        if not stdout:
-            return []
-
-        stray: list[str] = []
-        for line in stdout.decode().splitlines():
-            path = self._parse_porcelain_path(line)
-            if not path:
-                continue
-            if not any(path.startswith(p) for p in self._ALLOWED_WRITE_PREFIXES):
-                stray.append(path)
-
-        if stray:
-            logger.warning(
-                "Planner for #%d wrote to disallowed paths — reverting: %s",
-                issue_id,
-                stray,
-            )
-            # Revert stray files: restore tracked, remove untracked
-            checkout_paths = []
-            clean_paths = []
-            for line in stdout.decode().splitlines():
-                path = self._parse_porcelain_path(line)
-                if not path:
-                    continue
-                if any(path.startswith(p) for p in self._ALLOWED_WRITE_PREFIXES):
-                    continue
-                status = line[:2]
-                if status.strip() == "??":
-                    clean_paths.append(path)
-                else:
-                    checkout_paths.append(path)
-
-            if checkout_paths:
-                await (
-                    await _aio.create_subprocess_exec(
-                        "git", "checkout", "--", *checkout_paths, cwd=str(repo)
-                    )
-                ).wait()
-            for cp in clean_paths:
-                (repo / cp).unlink(missing_ok=True)
-
-        return stray
-
-    @staticmethod
-    def _parse_porcelain_path(line: str) -> str:
-        """Extract the file path from a ``git status --porcelain`` line.
-
-        Handles quoted paths (spaces/special chars) and renames (``->``).
-        Returns the destination path for renames, or the sole path otherwise.
-        """
-        raw = line[3:]
-        # For renames ("old -> new"), take the destination (new) path
-        if " -> " in raw:
-            raw = raw.split(" -> ", 1)[1]
-        path = raw.strip()
-        # Git quotes paths containing spaces or special characters
-        if path.startswith('"') and path.endswith('"'):
-            path = path[1:-1]
-        return path
 
     def _extract_plan(self, transcript: str) -> str:
         """Extract the plan from between PLAN_START/PLAN_END markers.
