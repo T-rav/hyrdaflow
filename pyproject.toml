@@ -46,6 +46,12 @@ dev = [
 docker = [
     "docker>=7.0.0",
 ]
+# Tracing extra — installed in agent Docker images so the Monocle stop hook
+# (.claude/hooks/monocle_hook.py) can emit OpenTelemetry spans to Okahu and
+# write JSONL traces to <worktree>/.monocle/ for trace_mining_loop ingestion.
+tracing = [
+    "monocle-apptrace>=0.7.6",
+]
 
 [dependency-groups]
 dev = [
