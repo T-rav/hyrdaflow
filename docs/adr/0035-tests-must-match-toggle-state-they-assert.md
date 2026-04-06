@@ -1,4 +1,4 @@
-# ADR-0023: Tests Must Match Toggle State They Assert
+# ADR-0035: Tests Must Match Toggle State They Assert
 
 **Status:** Accepted
 **Date:** 2026-03-08

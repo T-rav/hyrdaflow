@@ -164,7 +164,8 @@ make lint           # Auto-fix linting
 make lint-check     # Check linting (no fix)
 make typecheck      # Run Pyright type checks
 make security       # Run Bandit security scan
-make quality        # Lint + typecheck + security + test (parallel)
+make layer-check    # Static import-direction checker (layer boundaries)
+make quality        # Lint + typecheck + security + test + layer-check (parallel)
 make quality-lite   # Lint + typecheck + security (no tests)
 make setup          # Install hooks, assets, config, labels
 make prep           # Sync agent assets + run full repo prep (labels, audit, CI/tests)

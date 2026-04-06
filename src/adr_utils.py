@@ -10,6 +10,7 @@ top level instead of using a deferred import from ``phase_utils``.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from pathlib import Path
@@ -35,6 +36,9 @@ _ADR_REQUIRED_HEADINGS = ("## Context", "## Decision", "## Consequences")
 _assigned_adr_numbers: set[int] = set()
 
 ADR_FILE_RE = re.compile(r"^(\d{4})-.*\.md$")
+
+# Dotfile in the ADR directory that persists assigned numbers across restarts.
+_ASSIGNED_NUMBERS_FILE = ".adr_assigned_numbers.json"
 
 
 def is_adr_issue_title(title: str) -> bool:
@@ -110,6 +114,30 @@ def extract_adr_section(body: str, heading: str) -> str:
     return match.group("section").strip() if match else ""
 
 
+def _load_persisted_numbers(adr_dir: Path) -> set[int]:
+    """Load previously assigned ADR numbers from the persistent dotfile."""
+    path = adr_dir / _ASSIGNED_NUMBERS_FILE
+    if not path.is_file():
+        return set()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return {int(n) for n in data}
+    except (OSError, json.JSONDecodeError, ValueError):
+        logger.warning("Failed to read %s — ignoring", path)
+    return set()
+
+
+def _save_persisted_numbers(adr_dir: Path, numbers: set[int]) -> None:
+    """Persist assigned ADR numbers to the dotfile."""
+    path = adr_dir / _ASSIGNED_NUMBERS_FILE
+    try:
+        adr_dir.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(sorted(numbers), indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        logger.warning("Failed to write %s — number may be reused on restart", path)
+
+
 def next_adr_number(
     adr_dir: Path,
     *,
@@ -120,12 +148,19 @@ def next_adr_number(
     Scans both the local *adr_dir* **and** the *primary_adr_dir* (the
     primary repo checkout, not a worktree copy) to find the highest
     existing number.  Also considers numbers already handed out via
-    ``_assigned_adr_numbers`` so that concurrent workers in the same
-    process each receive a distinct number.
+    ``_assigned_adr_numbers`` (in-memory) and the persistent dotfile
+    ``.adr_assigned_numbers.json`` so that numbers survive process
+    restarts.
 
-    The returned number is recorded in ``_assigned_adr_numbers`` so
-    subsequent calls will never return the same value.
+    The returned number is recorded in both the in-memory set and the
+    persistent dotfile so subsequent calls — even after restart — will
+    never return the same value.
     """
+    # Merge persisted numbers from both directories into the in-memory set
+    for d in (adr_dir, primary_adr_dir):
+        if d is not None and d.is_dir():
+            _assigned_adr_numbers.update(_load_persisted_numbers(d))
+
     highest = 0
     for d in (adr_dir, primary_adr_dir):
         if d is not None and d.is_dir():
@@ -139,4 +174,11 @@ def next_adr_number(
 
     number = highest + 1
     _assigned_adr_numbers.add(number)
+
+    # Persist to the primary ADR directory (or the local one if no primary)
+    persist_dir = (
+        primary_adr_dir if primary_adr_dir and primary_adr_dir.is_dir() else adr_dir
+    )
+    _save_persisted_numbers(persist_dir, _assigned_adr_numbers)
+
     return number

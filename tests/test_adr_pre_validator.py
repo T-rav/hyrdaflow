@@ -1433,3 +1433,68 @@ class TestMultipleIssues:
         assert "missing_status" in codes
         assert "missing_section_context" in codes
         assert "missing_section_consequences" in codes
+
+
+class TestNumberCollision:
+    def test_detects_collision(self, validator: ADRPreValidator) -> None:
+        """Two ADRs sharing the same number should be flagged."""
+        content = _valid_adr()
+        all_adrs = [
+            (1, "Test ADR", content, "0001-test-adr.md"),
+            (1, "Other ADR", _valid_adr(), "0001-other-adr.md"),
+        ]
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "number_collision" in codes
+
+    def test_no_collision_when_unique(self, validator: ADRPreValidator) -> None:
+        """Unique numbers should not trigger collision check."""
+        content = _valid_adr()
+        all_adrs = [
+            (1, "Test ADR", content, "0001-test-adr.md"),
+            (2, "Other ADR", _valid_adr(), "0002-other-adr.md"),
+        ]
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "number_collision" not in codes
+
+    def test_no_collision_without_all_adrs(self, validator: ADRPreValidator) -> None:
+        """When all_adrs is not provided, collision check is skipped."""
+        content = _valid_adr()
+        result = validator.validate(content)
+        codes = [i.code for i in result.issues]
+        assert "number_collision" not in codes
+
+    def test_collision_not_fixable(self, validator: ADRPreValidator) -> None:
+        """Number collision is not auto-fixable."""
+        content = _valid_adr()
+        all_adrs = [
+            (1, "Test ADR", content, "0001-test-adr.md"),
+            (1, "Other ADR", _valid_adr(), "0001-other-adr.md"),
+        ]
+        result = validator.validate(content, all_adrs)
+        collision = next(i for i in result.issues if i.code == "number_collision")
+        assert collision.fixable is False
+
+    def test_collision_message_includes_count(self, validator: ADRPreValidator) -> None:
+        """Collision message should state how many ADRs share the number."""
+        content = _valid_adr()
+        all_adrs = [
+            (1, "Test ADR", content, "0001-test-adr.md"),
+            (1, "Second", _valid_adr(), "0001-second.md"),
+            (1, "Third", _valid_adr(), "0001-third.md"),
+        ]
+        result = validator.validate(content, all_adrs)
+        collision = next(i for i in result.issues if i.code == "number_collision")
+        assert "3 ADRs share this number" in collision.message
+
+    def test_no_heading_skips_collision(self, validator: ADRPreValidator) -> None:
+        """ADR without heading number skips collision check gracefully."""
+        content = "# Some Title\n\n**Status:** Proposed\n\n## Context\nctx\n## Decision\ndec\n## Consequences\ncon\n"
+        all_adrs = [
+            (1, "Test", content, "0001-test.md"),
+            (1, "Other", _valid_adr(), "0001-other.md"),
+        ]
+        result = validator.validate(content, all_adrs)
+        codes = [i.code for i in result.issues]
+        assert "number_collision" not in codes
