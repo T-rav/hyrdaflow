@@ -47,7 +47,10 @@ jobs:
       - name: Check if base Dockerfile changed
         id: base-changed
         run: |
-          if git diff --name-only origin/main...HEAD 2>/dev/null | grep -q '^Dockerfile.agent-base$'; then
+          # Fetch base ref so diff works in shallow clones
+          git fetch origin "${{ github.base_ref || 'main' }}" --depth=1 2>/dev/null || true
+          BASE_REF="origin/${{ github.base_ref || 'main' }}"
+          if git diff --name-only "${BASE_REF}...HEAD" 2>/dev/null | grep -q '^Dockerfile.agent-base$'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
             echo "Dockerfile.agent-base changed — forcing full build"
           else
