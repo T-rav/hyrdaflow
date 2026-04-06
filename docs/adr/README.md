@@ -44,14 +44,16 @@ Consequences), use `module:function_or_class` format (e.g. `src/config.py:HydraF
 | [0028](0028-event-driven-report-pipeline.md) | Event-Driven Report Pipeline with Extractable Widget | Accepted |
 | [0029](0029-caretaker-loop-pattern.md) | Caretaker Background Loop Pattern | Accepted |
 | [0030](0030-routes-domain-decomposition.md) | Dashboard Routes Domain Decomposition | Accepted |
-| [0031](0031-stats-counter-placement-in-delegating-helpers.md) | Stats Counter Placement in Delegating Helpers | Rejected |
-| [0032](0032-adr-reviewer-proposed-only-filter.md) | ADR Reviewer Proposed-Only Filter and Validator Scope | Rejected |
+| [0031](0031-product-track-architecture.md) | Product Track Architecture — Discover and Shape Phases | Proposed |
+| [0032](0032-per-repo-wiki-knowledge-base.md) | Per-Repo Wiki Knowledge Base (Karpathy Pattern) | Accepted |
 | [0033](0033-gate-triage-call-not-hitl-fallback.md) | Gate Triage Call on Config Toggle, Not Just HITL Fallback | Superseded |
 | [0034](0034-auto-triage-toggle-must-gate-routing.md) | Auto-Triage Toggle Must Gate Routing, Not Just Stat Tracking | Accepted |
 | [0035](0035-tests-must-match-toggle-state-they-assert.md) | Tests Must Match Toggle State They Assert | Proposed |
 | [0036](0036-cli-argparse-config-builder-pattern.md) | CLI Architecture — argparse with Config Builder Pattern | Proposed |
 | [0037](0037-supersession-regex-all-verb-forms.md) | Supersession Regex Must Include All Verb Forms | Accepted |
 | [0038](0038-multi-repo-architecture-wiring-pattern.md) | Multi-Repo Architecture Wiring Pattern | Proposed |
+| [0039](0039-stats-counter-placement-in-delegating-helpers.md) | Stats Counter Placement in Delegating Helpers | Rejected |
+| [0040](0040-adr-reviewer-proposed-only-filter.md) | ADR Reviewer Proposed-Only Filter and Validator Scope | Rejected |
 
 ## Adding a new ADR
 
