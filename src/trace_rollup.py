@@ -52,7 +52,26 @@ def write_phase_rollup(
     if not traces:
         return None
 
-    summary = _aggregate(traces, issue_number=issue_number, phase=phase, run_id=run_id)
+    # Also read skill_results.json if the agent._run_skill hook wrote one.
+    skill_results: list[dict] = []
+    skill_results_path = run_dir / "skill_results.json"
+    if skill_results_path.exists():
+        try:
+            import json  # noqa: PLC0415
+
+            loaded = json.loads(skill_results_path.read_text())
+            if isinstance(loaded, list):
+                skill_results = loaded
+        except Exception:
+            logger.warning("Failed to read %s", skill_results_path, exc_info=True)
+
+    summary = _aggregate(
+        traces,
+        issue_number=issue_number,
+        phase=phase,
+        run_id=run_id,
+        skill_results=skill_results,
+    )
 
     summary_path = run_dir / "summary.json"
     summary_path.write_text(summary.model_dump_json(indent=2))
@@ -72,6 +91,7 @@ def _aggregate(
     issue_number: int,
     phase: str,
     run_id: int,
+    skill_results: list[dict] | None = None,
 ) -> TraceSummary:
     prompt_total = sum(t.tokens.prompt_tokens for t in traces)
     completion_total = sum(t.tokens.completion_tokens for t in traces)
@@ -94,6 +114,10 @@ def _aggregate(
     for t in traces:
         for sr in t.skill_results:
             skill_counts[sr.skill_name] = skill_counts.get(sr.skill_name, 0) + 1
+    # Merge in skill results from skill_results.json (written by agent._run_skill)
+    for sr_dict in skill_results or []:
+        name = str(sr_dict.get("skill_name", "unknown"))
+        skill_counts[name] = skill_counts.get(name, 0) + 1
     total_skills = sum(skill_counts.values())
 
     inference_total = sum(t.inference_count for t in traces)

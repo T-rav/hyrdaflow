@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from hindsight import HindsightClient
     from hindsight_wal import HindsightWAL
     from repo_wiki import RepoWikiStore
+    from tracing_context import TracingContext
 
 logger = logging.getLogger("hydraflow.agent")
 
@@ -1100,26 +1101,100 @@ SUMMARY: <one-line summary>
 
         cmd = self._build_pre_quality_review_command()
         summary = ""
+        skill_started = time.monotonic()
 
-        for attempt in range(1, max_attempts + 1):
-            transcript = await self._execute(
-                cmd,
-                prompt,
-                worktree_path,
-                {"issue": issue.id, "source": "implementer"},
-            )
-            passed, summary, findings = skill.result_parser(transcript)
-            if passed:
-                return LoopResult(passed=True, summary=summary, attempts=attempt)
-            if findings:
-                logger.info(
-                    "%s findings for #%d: %s",
-                    skill.name,
-                    issue.id,
-                    "; ".join(findings[:5]),
+        # Bump subprocess_idx for each skill subprocess so it gets its own
+        # subprocess-<idx>.json file inside the same run-N/ directory.
+        parent_ctx = self._tracing_ctx
+        try:
+            for attempt in range(1, max_attempts + 1):
+                if parent_ctx is not None:
+                    self._tracing_ctx = parent_ctx.next_subprocess()
+                transcript = await self._execute(
+                    cmd,
+                    prompt,
+                    worktree_path,
+                    {"issue": issue.id, "source": "implementer"},
                 )
+                passed, summary, findings = skill.result_parser(transcript)
+                if passed:
+                    result = LoopResult(passed=True, summary=summary, attempts=attempt)
+                    break
+                if findings:
+                    logger.info(
+                        "%s findings for #%d: %s",
+                        skill.name,
+                        issue.id,
+                        "; ".join(findings[:5]),
+                    )
+            else:
+                result = LoopResult(
+                    passed=False, summary=summary, attempts=max_attempts
+                )
+        finally:
+            self._tracing_ctx = parent_ctx
 
-        return LoopResult(passed=False, summary=summary, attempts=max_attempts)
+        # Append the skill result to run-N/skill_results.json alongside
+        # the parent run. This is the source of truth for skill-effectiveness
+        # scoring in trace_rollup.
+        if parent_ctx is not None:
+            self._append_skill_result(
+                parent_ctx,
+                skill_name=skill.name,
+                passed=result.passed,
+                attempts=result.attempts,
+                duration_seconds=time.monotonic() - skill_started,
+                blocking=skill.blocking,
+            )
+
+        return result
+
+    def _append_skill_result(
+        self,
+        ctx: TracingContext,
+        *,
+        skill_name: str,
+        passed: bool,
+        attempts: int,
+        duration_seconds: float,
+        blocking: bool,
+    ) -> None:
+        """Append a skill result to <run-N>/skill_results.json.
+
+        Never raises — tracing must not crash the agent run.
+        """
+        try:
+            import json as _json  # noqa: PLC0415
+
+            run_dir = (
+                self._config.data_root
+                / "traces"
+                / str(ctx.issue_number)
+                / ctx.phase
+                / f"run-{ctx.run_id}"
+            )
+            run_dir.mkdir(parents=True, exist_ok=True)
+            results_path = run_dir / "skill_results.json"
+            existing: list[dict] = []
+            if results_path.exists():
+                try:
+                    existing = _json.loads(results_path.read_text())
+                except (ValueError, OSError):
+                    existing = []
+            existing.append(
+                {
+                    "skill_name": skill_name,
+                    "passed": passed,
+                    "attempts": attempts,
+                    "duration_seconds": round(duration_seconds, 3),
+                    "blocking": blocking,
+                }
+            )
+            results_path.write_text(_json.dumps(existing, indent=2))
+        except Exception:
+            logger.warning(
+                "Failed to append skill result for %s", skill_name, exc_info=True
+            )
 
     async def _run_quality_fix_loop(
         self,
