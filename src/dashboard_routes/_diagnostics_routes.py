@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Query
@@ -32,6 +33,21 @@ if TYPE_CHECKING:
     from config import HydraFlowConfig
 
 logger = logging.getLogger("hydraflow.dashboard.diagnostics")
+
+
+def _safe_traces_subdir(data_root: Path, *parts: str | int) -> Path | None:
+    """Resolve a path under ``<data_root>/traces`` and reject traversal.
+
+    Returns the resolved ``Path`` on success, or ``None`` if the resulting
+    path escapes the traces directory (e.g. via ``..`` segments).
+    """
+    safe_root = (data_root / "traces").resolve()
+    candidate = (data_root / "traces").joinpath(*[str(p) for p in parts]).resolve()
+    try:
+        candidate.relative_to(safe_root)
+    except ValueError:
+        return None
+    return candidate
 
 
 def _sort_issues(rows: list[dict[str, Any]], sort: str) -> list[dict[str, Any]]:
@@ -149,6 +165,10 @@ def build_diagnostics_router(config: HydraFlowConfig) -> APIRouter:
         top_n: int = Query(10, ge=1, le=100),
     ) -> list[dict[str, Any]]:
         events = _load(range)
+        # aggregate_top_subagents returns list[tuple[str, int]] — currently
+        # always [] until per-subagent name attribution lands in the
+        # collector. The wrapping below assumes the tuple shape and will
+        # need to be revisited if the upstream signature changes.
         return [
             {"name": name, "count": count}
             for name, count in aggregate_top_subagents(events, top_n=top_n)
@@ -170,8 +190,8 @@ def build_diagnostics_router(config: HydraFlowConfig) -> APIRouter:
 
     @router.get("/issue/{issue}/{phase}")
     def issue_phase(issue: int, phase: str) -> list[dict[str, Any]]:
-        phase_dir = config.data_root / "traces" / str(issue) / phase
-        if not phase_dir.exists():
+        phase_dir = _safe_traces_subdir(config.data_root, issue, phase)
+        if phase_dir is None or not phase_dir.is_dir():
             return []
         summaries: list[dict[str, Any]] = []
         for run_dir in sorted(phase_dir.iterdir()):
@@ -187,8 +207,8 @@ def build_diagnostics_router(config: HydraFlowConfig) -> APIRouter:
 
     @router.get("/issue/{issue}/{phase}/{run_id}")
     def issue_phase_run(issue: int, phase: str, run_id: int) -> dict[str, Any]:
-        run_dir = config.data_root / "traces" / str(issue) / phase / f"run-{run_id}"
-        if not run_dir.exists():
+        run_dir = _safe_traces_subdir(config.data_root, issue, phase, f"run-{run_id}")
+        if run_dir is None or not run_dir.is_dir():
             return {"error": "not found"}
         summary_path = run_dir / "summary.json"
         if not summary_path.exists():

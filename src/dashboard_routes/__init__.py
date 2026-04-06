@@ -26,9 +26,6 @@ from dashboard_routes._common import (
     _status_sort_key,
 )
 
-# Re-export the diagnostics router factory
-from dashboard_routes._diagnostics_routes import build_diagnostics_router
-
 # Re-export route-level symbols from _routes
 from dashboard_routes._routes import (
     RouteContext,
@@ -57,8 +54,6 @@ __all__ = [
     "_parse_iso_or_none",
     "_status_rank",
     "_status_sort_key",
-    # _diagnostics_routes
-    "build_diagnostics_router",
     # _routes
     "RouteContext",
     "_extract_issue_number",

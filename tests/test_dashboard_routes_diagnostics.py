@@ -10,9 +10,10 @@ from unittest.mock import MagicMock
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import pytest  # noqa: E402
-from dashboard_routes._diagnostics_routes import build_diagnostics_router  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+
+from dashboard_routes._diagnostics_routes import build_diagnostics_router  # noqa: E402
 
 
 def _write_metrics(path: Path, events: list[dict]) -> None:
@@ -157,6 +158,41 @@ class TestDiagnosticsIssueDrillEndpoints:
         response = client.get("/api/diagnostics/issue/999/implement/1")
         assert response.status_code == 200
         assert response.json() == {"error": "not found"}
+
+
+class TestPathTraversalProtection:
+    def test_safe_traces_subdir_rejects_parent_traversal(self, tmp_path: Path) -> None:
+        from dashboard_routes._diagnostics_routes import _safe_traces_subdir
+
+        assert _safe_traces_subdir(tmp_path, 42, "../../etc") is None
+        assert _safe_traces_subdir(tmp_path, 42, "..", "..", "etc") is None
+
+    def test_safe_traces_subdir_accepts_normal_paths(self, tmp_path: Path) -> None:
+        from dashboard_routes._diagnostics_routes import _safe_traces_subdir
+
+        result = _safe_traces_subdir(tmp_path, 42, "implement")
+        assert result is not None
+        assert result == (tmp_path / "traces" / "42" / "implement").resolve()
+
+    def test_phase_traversal_blocked_at_router_level(self, app: FastAPI) -> None:
+        """FastAPI/starlette normalizes ``..`` before routing, so a traversal
+        attempt never reaches the handler — any non-2xx or empty response is
+        acceptable; what matters is that no file outside the traces root is
+        read.
+        """
+        client = TestClient(app)
+        response = client.get("/api/diagnostics/issue/42/..%2F..%2Fetc")
+        # Router rejects it (404) OR handler rejects it (200 + empty list)
+        assert response.status_code in (200, 404)
+        if response.status_code == 200:
+            assert response.json() == []
+
+    def test_phase_run_traversal_blocked_at_router_level(self, app: FastAPI) -> None:
+        client = TestClient(app)
+        response = client.get("/api/diagnostics/issue/42/..%2F..%2Fetc/1")
+        assert response.status_code in (200, 404)
+        if response.status_code == 200:
+            assert response.json() == {"error": "not found"}
 
 
 class TestDiagnosticsCacheEndpoint:
