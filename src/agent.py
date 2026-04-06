@@ -378,6 +378,20 @@ Run through this checklist before your final commit:
 
         return content.strip()
 
+    def _load_plan_for_skill(self, issue_number: int) -> str:
+        """Load the plan text for skill prompt builders.
+
+        Tries the saved plan file first; returns empty string on failure
+        so skills can gracefully degrade.
+        """
+        plan_path = self._config.plans_dir / f"issue-{issue_number}.md"
+        try:
+            if plan_path.is_file():
+                return plan_path.read_text()
+        except OSError:
+            pass
+        return ""
+
     def _get_review_feedback_section(self) -> str:
         """Build a common review feedback section from recent review data.
 
@@ -1078,10 +1092,12 @@ SUMMARY: <one-line summary>
         if len(diff) > max_diff:
             diff = diff[:max_diff] + f"\n[Diff truncated at {max_diff:,} chars]"
 
+        plan_text = self._load_plan_for_skill(issue.id)
         prompt = skill.prompt_builder(
             issue_number=issue.id,
             issue_title=issue.title,
             diff=diff,
+            plan_text=plan_text,
         )
         cmd = self._build_pre_quality_review_command()
         summary = ""

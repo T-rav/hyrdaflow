@@ -10,7 +10,9 @@ from __future__ import annotations
 import re
 
 
-def build_diff_sanity_prompt(*, issue_number: int, issue_title: str, diff: str) -> str:
+def build_diff_sanity_prompt(
+    *, issue_number: int, issue_title: str, diff: str, **_kwargs: object
+) -> str:
     """Build a prompt that asks an agent to review a diff for common mistakes."""
     return f"""You are running the Diff Sanity Check skill for issue #{issue_number}: {issue_title}.
 
