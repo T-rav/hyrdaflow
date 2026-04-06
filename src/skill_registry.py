@@ -17,15 +17,11 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from diff_sanity import build_diff_sanity_prompt, parse_diff_sanity_result
 from plan_compliance import build_plan_compliance_prompt, parse_plan_compliance_result
 from scope_check import build_scope_check_prompt, parse_scope_check_result
 from test_adequacy import build_test_adequacy_prompt, parse_test_adequacy_result
-
-if TYPE_CHECKING:
-    pass
 
 
 @dataclass(frozen=True)

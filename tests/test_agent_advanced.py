@@ -299,45 +299,6 @@ class TestLoadPlanFallback:
 
 
 # ---------------------------------------------------------------------------
-# AgentRunner._load_plan_for_skill
-# ---------------------------------------------------------------------------
-
-
-class TestLoadPlanForSkill:
-    """Tests for AgentRunner._load_plan_for_skill."""
-
-    def test_returns_empty_when_file_missing(self, config, event_bus: EventBus) -> None:
-        runner = AgentRunner(config, event_bus)
-        result = runner._load_plan_for_skill(999)
-        assert result == ""
-
-    def test_returns_raw_plan_content(self, config, event_bus: EventBus) -> None:
-        plan_dir = config.plans_dir
-        plan_dir.mkdir(parents=True, exist_ok=True)
-        plan_file = plan_dir / "issue-42.md"
-        plan_file.write_text(
-            "# Plan for Issue #42\n\n## File Delta\nMODIFIED: src/foo.py\n"
-        )
-
-        runner = AgentRunner(config, event_bus)
-        result = runner._load_plan_for_skill(42)
-        assert "## File Delta" in result
-        assert "src/foo.py" in result
-        # Unlike _load_plan_fallback, header is NOT stripped
-        assert "# Plan for Issue #42" in result
-
-    def test_returns_empty_on_os_error(self, config, event_bus: EventBus) -> None:
-        plan_dir = config.plans_dir
-        plan_dir.mkdir(parents=True, exist_ok=True)
-        (plan_dir / "issue-7.md").write_text("plan content")
-
-        runner = AgentRunner(config, event_bus)
-        with patch("pathlib.Path.read_text", side_effect=OSError("disk error")):
-            result = runner._load_plan_for_skill(7)
-        assert result == ""
-
-
-# ---------------------------------------------------------------------------
 # AgentRunner._build_prompt_with_stats — fallback and truncation
 # ---------------------------------------------------------------------------
 
