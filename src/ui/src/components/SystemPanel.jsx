@@ -321,7 +321,7 @@ const KNOWN_BOTS = [
 
 const FAILURE_STRATEGIES = [
   { value: 'skip', label: 'Skip' },
-  { value: 'escalate', label: 'Escalate to HITL' },
+  { value: 'hitl', label: 'Escalate to HITL' },
   { value: 'close', label: 'Close PR' },
 ]
 
@@ -359,26 +359,26 @@ function DependabotMergeSettingsPanel() {
 
   const toggleBot = useCallback((username) => {
     if (!settings) return
-    const bots = settings.allowed_bots || []
+    const bots = settings.authors || []
     const next = bots.includes(username)
       ? bots.filter(b => b !== username)
       : [...bots, username]
-    saveSettings({ ...settings, allowed_bots: next })
+    saveSettings({ ...settings, authors: next })
   }, [settings, saveSettings])
 
   const addCustomBot = useCallback(() => {
     const trimmed = customBot.trim()
     if (!trimmed || !settings) return
-    const bots = settings.allowed_bots || []
+    const bots = settings.authors || []
     if (!bots.includes(trimmed)) {
-      saveSettings({ ...settings, allowed_bots: [...bots, trimmed] })
+      saveSettings({ ...settings, authors: [...bots, trimmed] })
     }
     setCustomBot('')
   }, [customBot, settings, saveSettings])
 
   if (!settings) return null
 
-  const allowedBots = settings.allowed_bots || []
+  const allowedBots = settings.authors || []
 
   return (
     <div style={styles.depMergePanel} data-testid="dependabot-merge-settings">
