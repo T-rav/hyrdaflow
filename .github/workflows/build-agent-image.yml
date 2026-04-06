@@ -46,16 +46,19 @@ jobs:
       # cached GHCR image is stale and we must do a full build).
       - name: Check if base Dockerfile changed
         id: base-changed
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # Fetch base ref so diff works in shallow clones
-          git fetch origin "${{ github.base_ref || 'main' }}" --depth=1 2>/dev/null || true
-          BASE_REF="origin/${{ github.base_ref || 'main' }}"
-          if git diff --name-only "${BASE_REF}...HEAD" 2>/dev/null | grep -q '^Dockerfile.agent-base$'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Dockerfile.agent-base changed — forcing full build"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
+          CHANGED=false
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Use GitHub API — reliable regardless of clone depth
+            FILES=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --jq '.[].filename')
+            if echo "$FILES" | grep -q '^Dockerfile.agent-base$'; then
+              CHANGED=true
+            fi
           fi
+          echo "changed=${CHANGED}" >> "$GITHUB_OUTPUT"
+          [ "$CHANGED" = "true" ] && echo "Dockerfile.agent-base changed — forcing full build" || true
 
       - name: Check if base image is available
         id: base-check
