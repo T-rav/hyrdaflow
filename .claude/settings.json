@@ -180,6 +180,10 @@
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hf.cleanup-code-change-marker.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'set -a && source \"$CLAUDE_PROJECT_DIR\"/.env && set +a && python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/monocle_hook.py'"
           }
         ]
       }
