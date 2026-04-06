@@ -2394,3 +2394,41 @@ class TestCheckStrayWrites:
 
         assert result == ["src/config.py"]
         assert "checkout" in calls[1]
+
+
+class TestParsePorcelainPath:
+    """Tests for _parse_porcelain_path — extracts file paths from git status output."""
+
+    def test_simple_untracked(self) -> None:
+        assert PlannerRunner._parse_porcelain_path("?? src/new.py") == "src/new.py"
+
+    def test_modified_tracked(self) -> None:
+        assert (
+            PlannerRunner._parse_porcelain_path(" M src/config.py") == "src/config.py"
+        )
+
+    def test_added_staged(self) -> None:
+        assert PlannerRunner._parse_porcelain_path("A  src/new.py") == "src/new.py"
+
+    def test_quoted_path_with_spaces(self) -> None:
+        assert (
+            PlannerRunner._parse_porcelain_path(
+                '?? "docs/architecture/my diagram.likec4"'
+            )
+            == "docs/architecture/my diagram.likec4"
+        )
+
+    def test_rename_takes_destination(self) -> None:
+        assert (
+            PlannerRunner._parse_porcelain_path("R  old.py -> src/new.py")
+            == "src/new.py"
+        )
+
+    def test_rename_with_quoted_destination(self) -> None:
+        assert (
+            PlannerRunner._parse_porcelain_path('R  old.py -> "src/new file.py"')
+            == "src/new file.py"
+        )
+
+    def test_empty_path(self) -> None:
+        assert PlannerRunner._parse_porcelain_path("??") == ""

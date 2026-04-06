@@ -75,10 +75,11 @@ RUN npm install -g @anthropic-ai/claude-code @openai/codex @mariozechner/pi-codi
 # that needs the ICU compat symlinks from the base stage.
 RUN npm install -g @beads/bd --no-fund --no-audit
 
-# Pre-clone Claude Code plugins into /opt/plugins/
+# Pre-clone Claude Code plugins into /opt/plugins/ (strip .git to save image space)
 RUN git clone --depth 1 https://github.com/anthropics/claude-plugins-official.git /opt/plugins/claude-plugins-official \
     && git clone --depth 1 https://github.com/obra/superpowers.git /opt/plugins/superpowers \
-    && git clone --depth 1 https://github.com/8thlight/lightfactory.git /opt/plugins/lightfactory
+    && git clone --depth 1 https://github.com/8thlight/lightfactory.git /opt/plugins/lightfactory \
+    && rm -rf /opt/plugins/*/.git
 
 # Pre-install Python quality tools into a venv
 COPY pyproject.toml uv.lock ./
@@ -100,7 +101,7 @@ RUN ln -s ../lib/node_modules/@openai/codex/bin/codex.js /usr/bin/codex \
 # Copy Python venv with quality tools
 COPY --from=tools /opt/hydraflow-venv /opt/hydraflow-venv
 
-# Copy pre-cloned Claude Code plugins
+# Copy pre-cloned Claude Code plugins (readable by non-root user)
 COPY --from=tools /opt/plugins /opt/plugins
 
 # Create non-root user

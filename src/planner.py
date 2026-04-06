@@ -462,6 +462,8 @@ class PlannerRunner(BaseRunner):
 Do NOT run any commands that change state (no git commit, no installs).
 You MAY write architecture diagram artifacts under `docs/architecture/` using
 the `/diagram` skill — these help the implementer understand code topology.
+Do NOT use the Write tool on any path outside `docs/architecture/`. Writes
+to other paths will be automatically reverted and the plan will be rejected.
 
 Your job: explore code, map the relevant architecture, and produce a concrete implementation plan.
 
@@ -624,8 +626,9 @@ This closes the issue automatically. False positives waste significant human tim
 
         stray: list[str] = []
         for line in stdout.decode().splitlines():
-            # porcelain format: "XY path" or "XY path -> renamed"
-            path = line[3:].split(" -> ")[0].strip()
+            path = self._parse_porcelain_path(line)
+            if not path:
+                continue
             if not any(path.startswith(p) for p in self._ALLOWED_WRITE_PREFIXES):
                 stray.append(path)
 
@@ -639,7 +642,9 @@ This closes the issue automatically. False positives waste significant human tim
             checkout_paths = []
             clean_paths = []
             for line in stdout.decode().splitlines():
-                path = line[3:].split(" -> ")[0].strip()
+                path = self._parse_porcelain_path(line)
+                if not path:
+                    continue
                 if any(path.startswith(p) for p in self._ALLOWED_WRITE_PREFIXES):
                     continue
                 status = line[:2]
@@ -658,6 +663,23 @@ This closes the issue automatically. False positives waste significant human tim
                 (repo / cp).unlink(missing_ok=True)
 
         return stray
+
+    @staticmethod
+    def _parse_porcelain_path(line: str) -> str:
+        """Extract the file path from a ``git status --porcelain`` line.
+
+        Handles quoted paths (spaces/special chars) and renames (``->``).
+        Returns the destination path for renames, or the sole path otherwise.
+        """
+        raw = line[3:]
+        # For renames ("old -> new"), take the destination (new) path
+        if " -> " in raw:
+            raw = raw.split(" -> ", 1)[1]
+        path = raw.strip()
+        # Git quotes paths containing spaces or special characters
+        if path.startswith('"') and path.endswith('"'):
+            path = path[1:-1]
+        return path
 
     def _extract_plan(self, transcript: str) -> str:
         """Extract the plan from between PLAN_START/PLAN_END markers.
