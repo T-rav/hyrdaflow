@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ACTIVE_STATUSES, PIPELINE_STAGES, PIPELINE_LOOPS, INTERVAL_PRESETS, EDITABLE_INTERVAL_WORKERS, REPORT_ISSUE_PRESETS, WORKER_PRESETS, PIPELINE_POLLER_PRESETS, ADR_REVIEWER_PRESETS, DEPENDABOT_MERGE_PRESETS, BACKGROUND_WORKERS } from '../../constants'
+import { ACTIVE_STATUSES, PIPELINE_STAGES, PIPELINE_LOOPS, INTERVAL_PRESETS, EDITABLE_INTERVAL_WORKERS, REPORT_ISSUE_PRESETS, WORKER_PRESETS, PIPELINE_POLLER_PRESETS, ADR_REVIEWER_PRESETS, DEPENDABOT_MERGE_PRESETS, BACKGROUND_WORKERS, WORKER_GROUPS } from '../../constants'
 import { theme } from '../../theme'
 
 describe('ACTIVE_STATUSES', () => {
@@ -246,5 +246,34 @@ describe('WORKER_PRESETS', () => {
 
   it('maps report_issue to REPORT_ISSUE_PRESETS', () => {
     expect(WORKER_PRESETS.report_issue).toBe(REPORT_ISSUE_PRESETS)
+  })
+})
+
+describe('WORKER_GROUPS', () => {
+  it('has 4 groups', () => {
+    expect(WORKER_GROUPS).toHaveLength(4)
+  })
+
+  it('every group has key, label, color, and tags', () => {
+    for (const g of WORKER_GROUPS) {
+      expect(g).toHaveProperty('key')
+      expect(g).toHaveProperty('label')
+      expect(g).toHaveProperty('color')
+      expect(g).toHaveProperty('tags')
+      expect(g.tags.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('every BACKGROUND_WORKERS entry has a valid group', () => {
+    const groupKeys = new Set(WORKER_GROUPS.map(g => g.key))
+    for (const w of BACKGROUND_WORKERS) {
+      expect(groupKeys).toContain(w.group)
+    }
+  })
+
+  it('every BACKGROUND_WORKERS entry has at least one tag', () => {
+    for (const w of BACKGROUND_WORKERS) {
+      expect(w.tags.length).toBeGreaterThan(0)
+    }
   })
 })

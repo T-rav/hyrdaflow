@@ -289,24 +289,36 @@ export const CRATE_STATUSES = ['open', 'closed']
  * Workers with `system: true` are internal services shown with a "system" badge.
  */
 export const BACKGROUND_WORKERS = [
-  { key: 'retrospective',   label: 'Retrospective',  description: 'Captures post-merge outcomes and recurring delivery patterns.', color: theme.purple },
-  { key: 'review_insights', label: 'Review Insights', description: 'Aggregates recurring review feedback into improvement opportunities.', color: theme.orange },
-  { key: 'pipeline_poller', label: 'Pipeline Poller', description: 'Refreshes live pipeline snapshots for queue and status visibility.', color: theme.textMuted, system: true },
-  { key: 'memory_sync',     label: 'Memory Manager', description: 'Ingests memory and transcript issues into durable learnings.', color: theme.accent, system: true },
-  { key: 'pr_unsticker',    label: 'PR Unsticker',   description: 'Requeues stalled HITL PRs once requirements are actionable.', color: theme.orange, system: true },
-  { key: 'report_issue',   label: 'Report Issue',   description: 'Processes queued bug reports into GitHub issues.', color: theme.red },
-  { key: 'workspace_gc',   label: 'Workspace GC',   description: 'Garbage-collects stale workspaces and orphaned branches.', color: theme.textMuted, system: true },
-  { key: 'adr_reviewer',   label: 'ADR Reviewer',   description: 'Reviews proposed ADRs via a 3-judge council and routes to accept, reject, or escalate.', color: theme.accent },
-  { key: 'epic_sweeper',    label: 'Epic Sweeper',    description: 'Periodically sweeps open epics and auto-closes those with all sub-issues resolved.', color: theme.purple, system: true },
-  { key: 'dependabot_merge', label: 'Dependabot Merge', description: 'Auto-merges dependency update PRs from configured bots after CI passes.', color: theme.green },
-  { key: 'health_monitor', label: 'Health Monitor', description: 'Analyzes pipeline trends, auto-tunes parameters, detects knowledge gaps, and ingests log patterns.', color: theme.green, system: true },
-  { key: 'stale_issue', label: 'Stale Issue Cleanup', description: 'Auto-closes issues with no activity after configurable period.', color: theme.orange },
-  { key: 'sentry_ingest', label: 'Sentry Ingest', description: 'Polls Sentry for unresolved errors and files them as GitHub issues for the pipeline.', color: theme.red },
-  { key: 'stale_issue_gc', label: 'Stale Issue GC', description: 'Auto-closes HITL issues with no activity beyond the configured threshold.', color: theme.textMuted },
-  { key: 'ci_monitor', label: 'CI Monitor', description: 'Detects failing CI on main and files/auto-closes issues.', color: theme.yellow },
-  { key: 'security_patch', label: 'Security Patch', description: 'Polls Dependabot alerts and files issues for fixable vulnerabilities.', color: theme.red },
-  { key: 'code_grooming', label: 'Code Grooming', description: 'Runs periodic audit scans and files issues for critical findings.', color: theme.accent },
-  { key: 'trace_mining', label: 'Trace Mining', description: 'Parses Monocle traces, aggregates tool/token stats, and syncs insights to Hindsight.', color: theme.accent },
-  { key: 'repo_wiki', label: 'Repo Wiki', description: 'Lints and maintains per-repo knowledge wikis compiled from plan/implement/review cycles.', color: theme.purple },
-  { key: 'diagnostic', label: 'Diagnostic Agent', description: 'Analyzes escalated issues, classifies severity, and attempts targeted fixes before HITL.', color: theme.blue, system: true },
+  { key: 'retrospective',   label: 'Retrospective',  description: 'Captures post-merge outcomes and recurring delivery patterns.', color: theme.purple, group: 'learning', tags: ['insights'] },
+  { key: 'review_insights', label: 'Review Insights', description: 'Aggregates recurring review feedback into improvement opportunities.', color: theme.orange, group: 'learning', tags: ['insights'] },
+  { key: 'pipeline_poller', label: 'Pipeline Poller', description: 'Refreshes live pipeline snapshots for queue and status visibility.', color: theme.textMuted, system: true, group: 'operations', tags: ['infra'] },
+  { key: 'memory_sync',     label: 'Memory Manager', description: 'Ingests memory and transcript issues into durable learnings.', color: theme.accent, system: true, group: 'intake', tags: ['memory'] },
+  { key: 'pr_unsticker',    label: 'PR Unsticker',   description: 'Requeues stalled HITL PRs once requirements are actionable.', color: theme.orange, system: true, group: 'operations', tags: ['recovery'] },
+  { key: 'report_issue',   label: 'Report Issue',   description: 'Processes queued bug reports into GitHub issues.', color: theme.red, group: 'intake', tags: ['issues'] },
+  { key: 'workspace_gc',   label: 'Workspace GC',   description: 'Garbage-collects stale workspaces and orphaned branches.', color: theme.textMuted, system: true, group: 'repo_health', tags: ['hygiene'] },
+  { key: 'adr_reviewer',   label: 'ADR Reviewer',   description: 'Reviews proposed ADRs via a 3-judge council and routes to accept, reject, or escalate.', color: theme.accent, group: 'intake', tags: ['review'] },
+  { key: 'epic_sweeper',    label: 'Epic Sweeper',    description: 'Periodically sweeps open epics and auto-closes those with all sub-issues resolved.', color: theme.purple, system: true, group: 'operations', tags: ['lifecycle'] },
+  { key: 'dependabot_merge', label: 'Dependabot Merge', description: 'Auto-merges dependency update PRs from configured bots after CI passes.', color: theme.green, group: 'repo_health', tags: ['security'] },
+  { key: 'health_monitor', label: 'Health Monitor', description: 'Analyzes pipeline trends, auto-tunes parameters, detects knowledge gaps, and ingests log patterns.', color: theme.green, system: true, group: 'operations', tags: ['monitoring'] },
+  { key: 'stale_issue', label: 'Stale Issue Cleanup', description: 'Auto-closes issues with no activity after configurable period.', color: theme.orange, group: 'repo_health', tags: ['hygiene'] },
+  { key: 'sentry_ingest', label: 'Sentry Ingest', description: 'Polls Sentry for unresolved errors and files them as GitHub issues for the pipeline.', color: theme.red, group: 'intake', tags: ['errors'] },
+  { key: 'stale_issue_gc', label: 'Stale Issue GC', description: 'Auto-closes HITL issues with no activity beyond the configured threshold.', color: theme.textMuted, group: 'repo_health', tags: ['hygiene'] },
+  { key: 'ci_monitor', label: 'CI Monitor', description: 'Detects failing CI on main and files/auto-closes issues.', color: theme.yellow, group: 'repo_health', tags: ['quality'] },
+  { key: 'security_patch', label: 'Security Patch', description: 'Polls Dependabot alerts and files issues for fixable vulnerabilities.', color: theme.red, group: 'repo_health', tags: ['security'] },
+  { key: 'code_grooming', label: 'Code Grooming', description: 'Runs periodic audit scans and files issues for critical findings.', color: theme.accent, group: 'repo_health', tags: ['quality'] },
+  { key: 'trace_mining', label: 'Trace Mining', description: 'Parses Monocle traces, aggregates tool/token stats, and syncs insights to Hindsight.', color: theme.accent, group: 'learning', tags: ['observability'] },
+  { key: 'repo_wiki', label: 'Repo Wiki', description: 'Lints and maintains per-repo knowledge wikis compiled from plan/implement/review cycles.', color: theme.purple, group: 'learning', tags: ['knowledge'] },
+  { key: 'diagnostic', label: 'Diagnostic Agent', description: 'Analyzes escalated issues, classifies severity, and attempts targeted fixes before HITL.', color: theme.blue, system: true, group: 'operations', tags: ['recovery'] },
+]
+
+/**
+ * Functional groupings for background workers.
+ * Each group has a display label, theme color, and ordered list of sub-category tags.
+ * Workers are assigned to groups via their `group` field in BACKGROUND_WORKERS.
+ */
+export const WORKER_GROUPS = [
+  { key: 'repo_health', label: 'Repo Health',         color: theme.green,  tags: ['security', 'quality', 'hygiene'] },
+  { key: 'learning',    label: 'Learning & Insights',  color: theme.purple, tags: ['insights', 'observability', 'knowledge'] },
+  { key: 'operations',  label: 'Operations',           color: theme.orange, tags: ['infra', 'recovery', 'monitoring', 'lifecycle'] },
+  { key: 'intake',      label: 'Intake',               color: theme.cyan,   tags: ['issues', 'errors', 'review', 'memory'] },
 ]
