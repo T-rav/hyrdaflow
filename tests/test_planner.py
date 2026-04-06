@@ -182,15 +182,14 @@ async def test_build_prompt_includes_read_only_instructions(config, event_bus, i
 
 @pytest.mark.asyncio
 async def test_build_prompt_includes_diagram_instructions(config, event_bus, issue):
-    """Planner should be told to write diagrams to /tmp and include inline Mermaid."""
+    """Planner should be told to write LikeC4 diagrams to /tmp."""
     runner = _make_runner(config, event_bus)
     task = issue.to_task()
     prompt, _ = await runner._build_prompt_with_stats(task)
 
     assert "/tmp/hydraflow-diagrams/" in prompt
-    assert "Code Topology" in prompt
-    assert "mermaid" in prompt
-    assert "Mermaid" in prompt
+    assert "LikeC4" in prompt
+    assert ".likec4" in prompt
 
 
 @pytest.mark.asyncio
@@ -2317,14 +2316,17 @@ class TestDiagramHelpers:
         assert "```likec4" in result
         assert "model { }" in result
 
-    def test_collect_diagram_attachments_markdown(self, tmp_path, monkeypatch) -> None:
+    def test_collect_diagram_attachments_markdown_passthrough(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """Markdown files are included raw (no wrapping code fence)."""
         monkeypatch.setattr(PlannerRunner, "DIAGRAM_TMP_ROOT", tmp_path)
         d = tmp_path / "issue-2"
         d.mkdir()
-        (d / "flow.md").write_text("```mermaid\ngraph LR\n  A-->B\n```")
+        (d / "notes.md").write_text("# Architecture Notes\nSome context.")
 
         result = PlannerRunner.collect_diagram_attachments(2)
-        assert "```mermaid" in result
+        assert "# Architecture Notes" in result
 
     def test_copy_diagrams_to_workspace(self, tmp_path, monkeypatch) -> None:
         monkeypatch.setattr(PlannerRunner, "DIAGRAM_TMP_ROOT", tmp_path / "diag")

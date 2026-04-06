@@ -441,11 +441,11 @@ class PlannerRunner(BaseRunner):
 Do NOT run any commands that change state (no git commit, no installs).
 
 You MAY write architecture diagram files to `/tmp/hydraflow-diagrams/issue-{issue.id}/`
-using the Write tool. Use LikeC4 (.likec4) or Mermaid (.md) format to capture the code
-topology around the change area. These files will be copied into the implementation
+using the Write tool. Use LikeC4 (.likec4) format to capture the code topology around
+the change area — C4 structural diagrams (context, container, component) and dynamic
+views for request/data flows. These files will be copied into the implementation
 worktree and attached to the issue comment so the implementer has full architectural
-context. Also include the diagram inline in your plan as a ```mermaid code block so it
-renders on GitHub.
+context.
 
 Your job: explore code, map the relevant architecture, and produce a concrete implementation plan.
 
@@ -469,9 +469,8 @@ Use semantic tools first (before grep):
 1. Restate the issue in your own words.
 2. Explore relevant code with semantic tools.
 3. Map the code topology — trace call graphs, data flows, and component boundaries.
-   Write diagram files to `/tmp/hydraflow-diagrams/issue-{issue.id}/` (LikeC4 or Mermaid).
-   Also include a `## Code Topology` section in your plan with a ```mermaid code block
-   showing the relevant components and relationships (this renders on GitHub).
+   Write LikeC4 diagram files (.likec4) to `/tmp/hydraflow-diagrams/issue-{issue.id}/`
+   capturing the C4 model (specification, model, views) for the change area.
 4. Identify concrete file-level deltas.
 5. Build a Task Graph with dependency-ordered phases (full plans only).
 6. Write behavioral test specs for each phase — describe observable outcomes, not test code.
