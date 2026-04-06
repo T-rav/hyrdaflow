@@ -2279,67 +2279,118 @@ class TestValidateAlreadySatisfiedEvidence:
 
 
 # ---------------------------------------------------------------------------
-# Diagram artifact helpers
+# Stray-write detection
 # ---------------------------------------------------------------------------
 
 
-class TestDiagramHelpers:
-    """Tests for diagram temp-file helpers on PlannerRunner."""
+class TestCheckStrayWrites:
+    """Tests for _check_stray_writes — guards planner against unauthorized file writes."""
 
-    def test_diagram_dir_for_issue(self) -> None:
-        d = PlannerRunner.diagram_dir_for_issue(42)
-        assert d == Path("/tmp/hydraflow-diagrams/issue-42")
+    @pytest.mark.asyncio
+    async def test_no_changes_returns_empty(self, config, event_bus) -> None:
+        """No git changes means no stray writes."""
+        runner = PlannerRunner(config, event_bus)
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            proc = AsyncMock()
+            proc.communicate.return_value = (b"", b"")
+            mock_exec.return_value = proc
+            result = await runner._check_stray_writes(1)
+        assert result == []
 
-    def test_collect_diagram_attachments_empty_when_no_dir(self) -> None:
-        result = PlannerRunner.collect_diagram_attachments(999999)
-        assert result == ""
+    @pytest.mark.asyncio
+    async def test_allowed_path_not_flagged(self, config, event_bus) -> None:
+        """Writes under docs/architecture/ should not be flagged."""
+        runner = PlannerRunner(config, event_bus)
+        git_output = b"?? docs/architecture/system.likec4\n"
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            proc = AsyncMock()
+            proc.communicate.return_value = (git_output, b"")
+            mock_exec.return_value = proc
+            result = await runner._check_stray_writes(1)
+        assert result == []
 
-    def test_collect_diagram_attachments_likec4(self, tmp_path, monkeypatch) -> None:
-        monkeypatch.setattr(PlannerRunner, "DIAGRAM_TMP_ROOT", tmp_path)
-        d = tmp_path / "issue-1"
-        d.mkdir()
-        (d / "system.likec4").write_text("model { }")
+    @pytest.mark.asyncio
+    async def test_disallowed_path_flagged_and_reverted(
+        self, config, event_bus, tmp_path
+    ) -> None:
+        """Writes outside docs/architecture/ should be flagged and reverted."""
+        config.repo_root = tmp_path
+        stray_file = tmp_path / "src" / "models.py"
+        stray_file.parent.mkdir(parents=True)
+        stray_file.write_text("bad write")
 
-        result = PlannerRunner.collect_diagram_attachments(1)
-        assert "system.likec4" in result
-        assert "```likec4" in result
-        assert "model { }" in result
+        runner = PlannerRunner(config, event_bus)
+        git_output = b"?? src/models.py\n"
 
-    def test_collect_diagram_attachments_markdown(self, tmp_path, monkeypatch) -> None:
-        monkeypatch.setattr(PlannerRunner, "DIAGRAM_TMP_ROOT", tmp_path)
-        d = tmp_path / "issue-2"
-        d.mkdir()
-        (d / "flow.md").write_text("```mermaid\ngraph LR\n  A-->B\n```")
+        call_count = 0
 
-        result = PlannerRunner.collect_diagram_attachments(2)
-        assert "```mermaid" in result
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            proc = AsyncMock()
+            if call_count == 1:
+                proc.communicate.return_value = (git_output, b"")
+            else:
+                proc.wait.return_value = 0
+            return proc
 
-    def test_copy_diagrams_to_workspace(self, tmp_path, monkeypatch) -> None:
-        monkeypatch.setattr(PlannerRunner, "DIAGRAM_TMP_ROOT", tmp_path / "diag")
-        src = tmp_path / "diag" / "issue-5"
-        src.mkdir(parents=True)
-        (src / "arch.likec4").write_text("model { }")
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            result = await runner._check_stray_writes(1)
 
-        ws = tmp_path / "workspace"
-        ws.mkdir()
-        count = PlannerRunner.copy_diagrams_to_workspace(5, ws)
+        assert result == ["src/models.py"]
+        assert not stray_file.exists()
 
-        assert count == 1
-        assert (ws / "docs" / "architecture" / "arch.likec4").read_text() == "model { }"
+    @pytest.mark.asyncio
+    async def test_mixed_allowed_and_disallowed(
+        self, config, event_bus, tmp_path
+    ) -> None:
+        """Only disallowed paths should be returned."""
+        config.repo_root = tmp_path
+        stray_file = tmp_path / "README.md"
+        stray_file.write_text("bad")
 
-    def test_copy_diagrams_returns_zero_when_no_dir(self, tmp_path) -> None:
-        count = PlannerRunner.copy_diagrams_to_workspace(999999, tmp_path)
-        assert count == 0
+        runner = PlannerRunner(config, event_bus)
+        git_output = b"?? docs/architecture/flow.likec4\n?? README.md\n"
 
-    def test_cleanup_diagrams(self, tmp_path, monkeypatch) -> None:
-        monkeypatch.setattr(PlannerRunner, "DIAGRAM_TMP_ROOT", tmp_path)
-        d = tmp_path / "issue-10"
-        d.mkdir()
-        (d / "file.likec4").write_text("x")
+        call_count = 0
 
-        PlannerRunner.cleanup_diagrams(10)
-        assert not d.exists()
+        async def fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            proc = AsyncMock()
+            if call_count == 1:
+                proc.communicate.return_value = (git_output, b"")
+            else:
+                proc.wait.return_value = 0
+            return proc
 
-    def test_cleanup_diagrams_noop_when_missing(self) -> None:
-        """Should not raise when directory doesn't exist."""
-        PlannerRunner.cleanup_diagrams(999999)
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            result = await runner._check_stray_writes(1)
+
+        assert result == ["README.md"]
+
+    @pytest.mark.asyncio
+    async def test_tracked_file_modification_reverted_via_checkout(
+        self, config, event_bus, tmp_path
+    ) -> None:
+        """Modified tracked files should be reverted with git checkout."""
+        config.repo_root = tmp_path
+        runner = PlannerRunner(config, event_bus)
+        git_output = b" M src/config.py\n"
+
+        calls: list[tuple] = []
+
+        async def fake_exec(*args, **kwargs):
+            calls.append(args)
+            proc = AsyncMock()
+            if len(calls) == 1:
+                proc.communicate.return_value = (git_output, b"")
+            else:
+                proc.wait.return_value = 0
+            return proc
+
+        with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+            result = await runner._check_stray_writes(1)
+
+        assert result == ["src/config.py"]
+        assert "checkout" in calls[1]

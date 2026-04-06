@@ -101,6 +101,15 @@ class PlannerRunner(BaseRunner):
             )
             result.transcript = transcript
 
+            # Guard: revert any writes outside docs/architecture/
+            stray = await self._check_stray_writes(task.id)
+            if stray:
+                result.success = False
+                result.error = f"Planner wrote to disallowed paths: {', '.join(stray)}"
+                await self._emit_status(task.id, worker_id, PlannerStatus.FAILED)
+                result.duration_seconds = time.monotonic() - start
+                return result
+
             # Check for already-satisfied before plan extraction
             satisfied_explanation = self._extract_already_satisfied(transcript)
             if satisfied_explanation:
@@ -166,6 +175,18 @@ class PlannerRunner(BaseRunner):
                         telemetry_stats=retry_stats,
                     )
                     result.transcript += "\n\n--- RETRY ---\n\n" + retry_transcript
+
+                    # Guard: revert any writes outside docs/architecture/
+                    retry_stray = await self._check_stray_writes(task.id)
+                    if retry_stray:
+                        result.success = False
+                        result.error = f"Planner wrote to disallowed paths: {', '.join(retry_stray)}"
+                        result.retry_attempted = True
+                        await self._emit_status(
+                            task.id, worker_id, PlannerStatus.FAILED
+                        )
+                        result.duration_seconds = time.monotonic() - start
+                        return result
 
                     retry_plan = self._extract_plan(retry_transcript)
                     if retry_plan:
@@ -573,70 +594,70 @@ This closes the issue automatically. False positives waste significant human tim
         """Delegate to :func:`plan_validation.run_phase_gates`."""
         return run_phase_gates(plan, self._config)
 
-    # ------------------------------------------------------------------
-    # Diagram artifact helpers
-    # ------------------------------------------------------------------
+    # Paths the planner is allowed to write (diagram artifacts).
+    _ALLOWED_WRITE_PREFIXES = ("docs/architecture/",)
 
-    DIAGRAM_TMP_ROOT = Path("/tmp/hydraflow-diagrams")  # nosec B108
+    async def _check_stray_writes(self, issue_id: int) -> list[str]:
+        """Detect and revert any files the planner wrote outside allowed paths.
 
-    @classmethod
-    def diagram_dir_for_issue(cls, issue_id: int) -> Path:
-        """Return the temp directory where the planner writes diagram files."""
-        return cls.DIAGRAM_TMP_ROOT / f"issue-{issue_id}"
-
-    @classmethod
-    def collect_diagram_attachments(cls, issue_id: int) -> str:
-        """Read diagram files from the temp dir and format as markdown code blocks.
-
-        Returns an empty string if no diagram files exist.
+        Returns a list of disallowed paths that were reverted, or an empty
+        list if all writes were within allowed directories.
         """
-        diagram_dir = cls.diagram_dir_for_issue(issue_id)
-        if not diagram_dir.is_dir():
-            return ""
+        import asyncio as _aio  # noqa: PLC0415
 
-        blocks: list[str] = []
-        for f in sorted(diagram_dir.iterdir()):
-            if not f.is_file():
-                continue
-            suffix = f.suffix.lower()
-            if suffix == ".likec4":
-                lang = "likec4"
-            elif suffix == ".md":
-                # Already markdown — include raw
-                blocks.append(f.read_text())
-                continue
-            else:
-                lang = ""
-            content = f.read_text()
-            blocks.append(f"**{f.name}**\n```{lang}\n{content}\n```")
+        repo = self._config.repo_root
+        try:
+            proc = await _aio.create_subprocess_exec(
+                "git",
+                "status",
+                "--porcelain",
+                cwd=str(repo),
+                stdout=_aio.subprocess.PIPE,
+                stderr=_aio.subprocess.PIPE,
+            )
+            stdout, _ = await proc.communicate()
+        except (OSError, FileNotFoundError):
+            # repo_root doesn't exist or isn't a git repo — nothing to check
+            return []
+        if not stdout:
+            return []
 
-        return "\n\n".join(blocks)
+        stray: list[str] = []
+        for line in stdout.decode().splitlines():
+            # porcelain format: "XY path" or "XY path -> renamed"
+            path = line[3:].split(" -> ")[0].strip()
+            if not any(path.startswith(p) for p in self._ALLOWED_WRITE_PREFIXES):
+                stray.append(path)
 
-    @classmethod
-    def copy_diagrams_to_workspace(cls, issue_id: int, workspace: Path) -> int:
-        """Copy diagram files from /tmp into the workspace.
+        if stray:
+            logger.warning(
+                "Planner for #%d wrote to disallowed paths — reverting: %s",
+                issue_id,
+                stray,
+            )
+            # Revert stray files: restore tracked, remove untracked
+            checkout_paths = []
+            clean_paths = []
+            for line in stdout.decode().splitlines():
+                path = line[3:].split(" -> ")[0].strip()
+                if any(path.startswith(p) for p in self._ALLOWED_WRITE_PREFIXES):
+                    continue
+                status = line[:2]
+                if status.strip() == "??":
+                    clean_paths.append(path)
+                else:
+                    checkout_paths.append(path)
 
-        Returns the number of files copied.
-        """
-        src = cls.diagram_dir_for_issue(issue_id)
-        if not src.is_dir():
-            return 0
+            if checkout_paths:
+                await (
+                    await _aio.create_subprocess_exec(
+                        "git", "checkout", "--", *checkout_paths, cwd=str(repo)
+                    )
+                ).wait()
+            for cp in clean_paths:
+                (repo / cp).unlink(missing_ok=True)
 
-        dst = workspace / "docs" / "architecture"
-        dst.mkdir(parents=True, exist_ok=True)
-        count = 0
-        for f in src.iterdir():
-            if f.is_file():
-                shutil.copy2(f, dst / f.name)
-                count += 1
-        return count
-
-    @classmethod
-    def cleanup_diagrams(cls, issue_id: int) -> None:
-        """Remove the temp diagram directory for an issue."""
-        d = cls.diagram_dir_for_issue(issue_id)
-        if d.is_dir():
-            shutil.rmtree(d, ignore_errors=True)
+        return stray
 
     def _extract_plan(self, transcript: str) -> str:
         """Extract the plan from between PLAN_START/PLAN_END markers.
