@@ -110,6 +110,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
             logger.warning(
                 "memory_for_issue: recall failed for issue #%d",
                 issue_number,
+                exc_info=True,
             )
             return JSONResponse(MemoryContextResponse(query=query).model_dump())
 
@@ -155,6 +156,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
             logger.warning(
                 "memory_for_hitl: recall failed for issue #%d",
                 issue_number,
+                exc_info=True,
             )
             return JSONResponse(MemoryContextResponse(query=query).model_dump())
 
