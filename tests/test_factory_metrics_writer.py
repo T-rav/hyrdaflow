@@ -19,7 +19,14 @@ from models import (  # noqa: E402
 from trace_rollup import write_phase_rollup  # noqa: E402
 
 
-def _write_subprocess(tmp_path: Path, *, issue: int, run_id: int) -> None:
+def _write_subprocess(
+    tmp_path: Path,
+    *,
+    issue: int,
+    run_id: int,
+    tool_counts: dict[str, int] | None = None,
+) -> None:
+    tc = tool_counts if tool_counts is not None else {"Read": 5}
     trace = SubprocessTrace(
         issue_number=issue,
         phase="implement",
@@ -38,7 +45,7 @@ def _write_subprocess(tmp_path: Path, *, issue: int, run_id: int) -> None:
             cache_hit_rate=0.0,
         ),
         tools=TraceToolProfile(
-            tool_counts={"Read": 5}, tool_errors={}, total_invocations=5
+            tool_counts=tc, tool_errors={}, total_invocations=sum(tc.values())
         ),
         tool_calls=[],
         skill_results=[],
@@ -88,3 +95,48 @@ class TestFactoryMetricsWriter:
             if line.strip()
         ]
         assert len(events) == 2
+
+    def test_skills_payload_includes_external_skill_results(
+        self, config: MagicMock, tmp_path: Path
+    ):
+        _write_subprocess(tmp_path, issue=42, run_id=1)
+        run_dir = tmp_path / "traces" / "42" / "implement" / "run-1"
+        (run_dir / "skill_results.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "skill_name": "diff-sanity",
+                        "passed": True,
+                        "attempts": 1,
+                        "duration_seconds": 5.0,
+                        "blocking": True,
+                    }
+                ]
+            )
+        )
+        write_phase_rollup(config=config, issue_number=42, phase="implement", run_id=1)
+
+        events = [
+            json.loads(line)
+            for line in config.factory_metrics_path.read_text().splitlines()
+            if line.strip()
+        ]
+        assert len(events) == 1
+        skills = events[0]["skills"]
+        matching = [s for s in skills if s["name"] == "diff-sanity"]
+        assert len(matching) == 1
+        assert matching[0]["passed"] is True
+        assert matching[0]["attempts"] == 1
+
+    def test_subagents_is_integer_count(self, config: MagicMock, tmp_path: Path):
+        _write_subprocess(
+            tmp_path, issue=42, run_id=1, tool_counts={"Task": 3, "Read": 5}
+        )
+        write_phase_rollup(config=config, issue_number=42, phase="implement", run_id=1)
+
+        events = [
+            json.loads(line)
+            for line in config.factory_metrics_path.read_text().splitlines()
+            if line.strip()
+        ]
+        assert events[0]["subagents"] == 3
