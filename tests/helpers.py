@@ -1294,6 +1294,8 @@ def make_hitl_phase(config):
     workspaces.create = AsyncMock(return_value=config.workspace_base / "issue-42")
     workspaces.destroy = AsyncMock()
     hitl_runner = AsyncMock()
+    hitl_runner.set_tracing_context = MagicMock()
+    hitl_runner.clear_tracing_context = MagicMock()
     prs = AsyncMock()
     prs.remove_label = AsyncMock()
     prs.add_labels = AsyncMock()
