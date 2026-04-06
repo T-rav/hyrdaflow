@@ -1378,6 +1378,10 @@ class ToolCallSpan(BaseModel):
     input_summary: str  # human-readable preview from _summarize_tool
     succeeded: bool
     error: str | None = None
+    # Stream-level tool invocation id (Claude tool_use_id, codex function_call
+    # id, pi invocationId). Used to match tool_result events back to the
+    # right span when multiple tools are in flight concurrently.
+    tool_use_id: str | None = None
 
 
 class SkillResultRecord(BaseModel):

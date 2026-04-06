@@ -34,41 +34,26 @@ class TestSourceToPhase:
 
 
 class TestTracingContext:
-    def test_construction_defaults_subprocess_to_zero(self):
+    def test_construction_stores_fields(self):
         ctx = TracingContext(
             issue_number=42,
             phase="implement",
             source="implementer",
             run_id=1,
         )
-        assert ctx.subprocess_idx == 0
+        assert ctx.issue_number == 42
+        assert ctx.phase == "implement"
+        assert ctx.source == "implementer"
+        assert ctx.run_id == 1
 
-    def test_next_subprocess_increments_idx(self):
+    def test_context_is_frozen(self):
         ctx = TracingContext(
             issue_number=42,
             phase="implement",
             source="implementer",
             run_id=1,
         )
-        next_ctx = ctx.next_subprocess()
-        assert next_ctx.subprocess_idx == 1
-        assert next_ctx.issue_number == 42
-        assert next_ctx.phase == "implement"
-        assert next_ctx.run_id == 1
+        import dataclasses
 
-    def test_next_subprocess_does_not_mutate_original(self):
-        ctx = TracingContext(
-            issue_number=42,
-            phase="implement",
-            source="implementer",
-            run_id=1,
-        )
-        ctx.next_subprocess()
-        assert ctx.subprocess_idx == 0
-
-    def test_chained_next_subprocess(self):
-        ctx = TracingContext(
-            issue_number=1, phase="implement", source="implementer", run_id=1
-        )
-        chained = ctx.next_subprocess().next_subprocess().next_subprocess()
-        assert chained.subprocess_idx == 3
+        with __import__("pytest").raises(dataclasses.FrozenInstanceError):
+            ctx.run_id = 999  # type: ignore[misc]

@@ -270,6 +270,64 @@ class TestTraceMiningLoopOrphanJanitor:
         assert result is not None
         assert result["finalized"] == 0
 
+    @pytest.mark.asyncio
+    async def test_purges_stale_active_runs_before_finalizing(
+        self, tmp_path: Path
+    ) -> None:
+        """A crashed run whose active entry was never cleared (because the
+        process was killed) must still be discoverable as an orphan. The
+        mining loop calls purge_stale_trace_runs before computing the
+        active set, so a long-stale entry is evicted and the orphan
+        directory gets finalized on the next cycle.
+        """
+        config = _make_config(tmp_path)
+        trace = _make_subprocess_trace()
+        run_dir = _write_run(config.data_root, subprocess_trace=trace)
+
+        state = _make_mock_state()
+
+        # Simulate the purge actually clearing the active entry
+        def fake_purge(_max_age: float) -> list[tuple[int, str, int]]:
+            state.list_active_trace_runs.return_value = []
+            return [(42, "implement", 1)]
+
+        state.purge_stale_trace_runs.side_effect = fake_purge
+        # Before purge, the entry is "active"
+        state.list_active_trace_runs.return_value = [(42, "implement", 1)]
+
+        loop = TraceMiningLoop(
+            config=config, state=state, hindsight=None, deps=_make_loop_deps()
+        )
+
+        result = await loop._do_work()
+
+        # Purge was invoked
+        state.purge_stale_trace_runs.assert_called_once()
+        # And the orphan was finalized
+        assert (run_dir / "summary.json").exists()
+        assert (run_dir / ".finalized_orphan").exists()
+        assert result is not None
+        assert result["finalized"] == 1
+
+    @pytest.mark.asyncio
+    async def test_purge_failure_does_not_crash_loop(self, tmp_path: Path) -> None:
+        """A failure in purge_stale_trace_runs must not stop the rest of
+        the orphan janitor stage from running."""
+        config = _make_config(tmp_path)
+        trace = _make_subprocess_trace()
+        run_dir = _write_run(config.data_root, subprocess_trace=trace)
+
+        state = _make_mock_state()
+        state.purge_stale_trace_runs.side_effect = RuntimeError("boom")
+
+        loop = TraceMiningLoop(
+            config=config, state=state, hindsight=None, deps=_make_loop_deps()
+        )
+        result = await loop._do_work()
+        assert result is not None
+        assert result["finalized"] == 1
+        assert (run_dir / "summary.json").exists()
+
 
 class TestTraceMiningLoopRestartSafety:
     @pytest.mark.asyncio

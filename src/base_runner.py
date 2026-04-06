@@ -60,6 +60,12 @@ class BaseRunner:
         # invoking runner.run() and cleared after. None when tracing is
         # not active (e.g. dry-run, background loops).
         self._tracing_ctx: TracingContext | None = None
+        # Monotonic counter that allocates a unique ``subprocess_idx`` for
+        # every ``_execute`` call within a phase run. Reset whenever the
+        # tracing context is set or cleared. Without this, skills,
+        # pre-quality review loops, and quality fix loops would overwrite
+        # each other's ``subprocess-N.json`` files.
+        self._trace_subprocess_counter: int = 0
         self._credentials = credentials or Credentials()
         self._wiki_store = wiki_store
 
@@ -81,10 +87,18 @@ class BaseRunner:
     def set_tracing_context(self, ctx: TracingContext) -> None:
         """Set the per-phase-run tracing context. Called by phase coordinators."""
         self._tracing_ctx = ctx
+        self._trace_subprocess_counter = 0
 
     def clear_tracing_context(self) -> None:
         """Clear the tracing context. Called after the phase run completes."""
         self._tracing_ctx = None
+        self._trace_subprocess_counter = 0
+
+    def _allocate_trace_subprocess_idx(self) -> int:
+        """Allocate the next unique subprocess index for this phase run."""
+        idx = self._trace_subprocess_counter
+        self._trace_subprocess_counter += 1
+        return idx
 
     def terminate(self) -> None:
         """Kill all active subprocesses."""
@@ -125,7 +139,7 @@ class BaseRunner:
                 issue_number=ctx.issue_number,
                 phase=ctx.phase,
                 source=ctx.source,
-                subprocess_idx=ctx.subprocess_idx,
+                subprocess_idx=self._allocate_trace_subprocess_idx(),
                 run_id=ctx.run_id,
                 config=self._config,
                 event_bus=self._bus,
@@ -186,8 +200,6 @@ class BaseRunner:
                             self._AUTH_RETRY_MAX,
                             exc,
                         )
-            if trace_collector is not None:
-                trace_collector.finalize(success=False)
             raise last_auth_error  # type: ignore[misc]
         except Exception:
             if trace_collector is not None:

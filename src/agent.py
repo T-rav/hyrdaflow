@@ -1103,43 +1103,37 @@ SUMMARY: <one-line summary>
         summary = ""
         skill_started = time.monotonic()
 
-        # Bump subprocess_idx for each skill subprocess so it gets its own
-        # subprocess-<idx>.json file inside the same run-N/ directory.
-        parent_ctx = self._tracing_ctx
-        try:
-            for attempt in range(1, max_attempts + 1):
-                if parent_ctx is not None:
-                    self._tracing_ctx = parent_ctx.next_subprocess()
-                transcript = await self._execute(
-                    cmd,
-                    prompt,
-                    worktree_path,
-                    {"issue": issue.id, "source": "implementer"},
+        # Each iteration's _execute call allocates its own subprocess_idx
+        # from BaseRunner's monotonic counter, so retries and back-to-back
+        # skills never overwrite each other's subprocess-N.json files.
+        for attempt in range(1, max_attempts + 1):
+            transcript = await self._execute(
+                cmd,
+                prompt,
+                worktree_path,
+                {"issue": issue.id, "source": "implementer"},
+            )
+            passed, summary, findings = skill.result_parser(transcript)
+            if passed:
+                result = LoopResult(passed=True, summary=summary, attempts=attempt)
+                break
+            if findings:
+                logger.info(
+                    "%s findings for #%d: %s",
+                    skill.name,
+                    issue.id,
+                    "; ".join(findings[:5]),
                 )
-                passed, summary, findings = skill.result_parser(transcript)
-                if passed:
-                    result = LoopResult(passed=True, summary=summary, attempts=attempt)
-                    break
-                if findings:
-                    logger.info(
-                        "%s findings for #%d: %s",
-                        skill.name,
-                        issue.id,
-                        "; ".join(findings[:5]),
-                    )
-            else:
-                result = LoopResult(
-                    passed=False, summary=summary, attempts=max_attempts
-                )
-        finally:
-            self._tracing_ctx = parent_ctx
+        else:
+            result = LoopResult(passed=False, summary=summary, attempts=max_attempts)
 
         # Append the skill result to run-N/skill_results.json alongside
         # the parent run. This is the source of truth for skill-effectiveness
         # scoring in trace_rollup.
-        if parent_ctx is not None:
+        ctx = self._tracing_ctx
+        if ctx is not None:
             self._append_skill_result(
-                parent_ctx,
+                ctx,
                 skill_name=skill.name,
                 passed=result.passed,
                 attempts=result.attempts,

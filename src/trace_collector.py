@@ -73,6 +73,10 @@ class TraceCollector:
 
         # Track open tool_use → tool_result by id, value is monotonic start time
         self._open_tool_starts: dict[str, float] = {}
+        # Idempotency guard for finalize() — protects against double-finalize
+        # on auth-retry exhaustion + outer except, or any other accidental
+        # double-call from the runner lifecycle.
+        self._finalized: bool = False
 
     def record(self, raw_line: str) -> None:
         """Record one parsed JSON line. Never raises."""
@@ -147,10 +151,12 @@ class TraceCollector:
                 if tool_use_id and tool_use_id in self._open_tool_starts:
                     started = self._open_tool_starts.pop(tool_use_id)
                     duration_ms = max(0, int((time.monotonic() - started) * 1000))
-                    # Find the most recent pending tool call matching no error
+                    # Match by tool_use_id so out-of-order results from
+                    # concurrent tool calls are attributed to the correct
+                    # span instead of the most-recent pending one.
                     for idx in range(len(self.tool_calls) - 1, -1, -1):
                         span = self.tool_calls[idx]
-                        if not span.succeeded and span.error is None:
+                        if span.tool_use_id == tool_use_id and not span.succeeded:
                             self.tool_calls[idx] = span.model_copy(
                                 update={"duration_ms": duration_ms, "succeeded": True}
                             )
@@ -200,9 +206,9 @@ class TraceCollector:
         if invocation_id in self._open_tool_starts:
             started = self._open_tool_starts.pop(invocation_id)
             duration_ms = max(0, int((time.monotonic() - started) * 1000))
-            tool_name = event.get("toolName")
-            for idx, span in enumerate(self.tool_calls):
-                if span.tool_name == tool_name and not span.succeeded:
+            for idx in range(len(self.tool_calls) - 1, -1, -1):
+                span = self.tool_calls[idx]
+                if span.tool_use_id == invocation_id and not span.succeeded:
                     self.tool_calls[idx] = span.model_copy(
                         update={"duration_ms": duration_ms, "succeeded": True}
                     )
@@ -225,6 +231,7 @@ class TraceCollector:
             duration_ms=0,
             input_summary=summary,
             succeeded=False,
+            tool_use_id=tool_id or None,
         )
         self.tool_calls.append(span)
         self.tool_counts[name] = self.tool_counts.get(name, 0) + 1
@@ -292,8 +299,15 @@ class TraceCollector:
     def finalize(self, *, success: bool) -> SubprocessTrace | None:
         """Write the subprocess trace file. Returns the trace or None on failure.
 
+        Idempotent: subsequent calls after the first are no-ops. This guards
+        against double-finalize when, e.g., an auth-retry path and an outer
+        ``except`` both attempt to finalize the same collector.
+
         Never raises.
         """
+        if self._finalized:
+            return None
+        self._finalized = True
         try:
             return self._finalize_inner(success=success)
         except Exception:

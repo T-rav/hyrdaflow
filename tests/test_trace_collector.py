@@ -222,6 +222,116 @@ class TestTraceCollectorFinalize:
         assert result is None
 
 
+class TestFinalizeIdempotency:
+    def test_double_finalize_writes_file_only_once(self, tmp_path: Path):
+        """finalize() must be idempotent — second call should be a no-op.
+
+        Guards against double-finalize on auth-retry exhaustion + outer
+        except in BaseRunner._execute, or any other accidental double-call.
+        """
+        c = _make_collector(tmp_path)
+        c.record(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "id": "m1",
+                        "content": [{"type": "text", "text": "hi"}],
+                    },
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                }
+            )
+        )
+        first = c.finalize(success=True)
+        assert first is not None
+
+        # Mutate the file so we can detect a second write
+        out_path = (
+            tmp_path / "traces" / "42" / "implement" / "run-1" / "subprocess-0.json"
+        )
+        out_path.write_text('{"sentinel": true}')
+
+        second = c.finalize(success=False)
+        assert second is None
+        # File should NOT have been overwritten
+        assert json.loads(out_path.read_text()) == {"sentinel": True}
+
+
+class TestToolUseIdMatching:
+    def test_concurrent_tools_attribute_results_correctly(self, tmp_path: Path):
+        """When two tool_use blocks are in flight, results matched by id."""
+        c = _make_collector(tmp_path)
+        # Two tool_use blocks in one assistant message
+        c.record(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "id": "m1",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": "alpha",
+                                "name": "Read",
+                                "input": {"file_path": "a.py"},
+                            },
+                            {
+                                "type": "tool_use",
+                                "id": "beta",
+                                "name": "Read",
+                                "input": {"file_path": "b.py"},
+                            },
+                        ],
+                    },
+                }
+            )
+        )
+        # Result for the SECOND tool arrives first
+        c.record(
+            json.dumps(
+                {
+                    "type": "user",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": "beta",
+                                "content": "ok",
+                            }
+                        ]
+                    },
+                }
+            )
+        )
+        # The span with id 'beta' must be the one marked succeeded
+        beta_span = next(s for s in c.tool_calls if s.tool_use_id == "beta")
+        alpha_span = next(s for s in c.tool_calls if s.tool_use_id == "alpha")
+        assert beta_span.succeeded is True
+        assert alpha_span.succeeded is False
+
+    def test_tool_use_id_persisted_on_span(self, tmp_path: Path):
+        c = _make_collector(tmp_path)
+        c.record(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "id": "m1",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": "abc-123",
+                                "name": "Bash",
+                                "input": {"command": "ls"},
+                            }
+                        ],
+                    },
+                }
+            )
+        )
+        assert c.tool_calls[0].tool_use_id == "abc-123"
+
+
 class TestBackendDetection:
     def test_claude_backend_detected_from_assistant_event(self, tmp_path: Path):
         c = _make_collector(tmp_path)

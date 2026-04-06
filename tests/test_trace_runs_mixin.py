@@ -80,3 +80,68 @@ class TestTraceRunsMixin:
         assert (42, "implement", 1) in active
         assert (99, "plan", 1) in active
         assert len(active) == 2
+
+
+class TestPurgeStaleTraceRuns:
+    def _backdate_active(
+        self,
+        tracker: StateTracker,
+        issue: int,
+        phase: str,
+        seconds_ago: float,
+    ) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        key = f"{issue}:{phase}"
+        active = tracker._data.trace_runs["active"]  # type: ignore[index]
+        backdated = datetime.now(UTC) - timedelta(seconds=seconds_ago)
+        active[key]["started_at"] = backdated.isoformat()  # type: ignore[index]
+        tracker.save()
+
+    def test_purge_evicts_stale_entries(self, tracker: StateTracker):
+        tracker.begin_trace_run(42, "implement")
+        self._backdate_active(tracker, 42, "implement", seconds_ago=3600)
+
+        evicted = tracker.purge_stale_trace_runs(max_age_seconds=600.0)
+
+        assert evicted == [(42, "implement", 1)]
+        assert tracker.get_active_trace_run(42, "implement") is None
+
+    def test_purge_preserves_fresh_entries(self, tracker: StateTracker):
+        tracker.begin_trace_run(42, "implement")
+        # Started just now — well under any reasonable max age
+        evicted = tracker.purge_stale_trace_runs(max_age_seconds=600.0)
+        assert evicted == []
+        assert tracker.get_active_trace_run(42, "implement") == 1
+
+    def test_purge_evicts_only_stale_subset(self, tracker: StateTracker):
+        tracker.begin_trace_run(42, "implement")
+        tracker.begin_trace_run(99, "plan")
+        self._backdate_active(tracker, 42, "implement", seconds_ago=7200)
+
+        evicted = tracker.purge_stale_trace_runs(max_age_seconds=600.0)
+
+        assert evicted == [(42, "implement", 1)]
+        assert tracker.get_active_trace_run(42, "implement") is None
+        assert tracker.get_active_trace_run(99, "plan") == 1
+
+    def test_purge_persists_to_state_file(self, tmp_path: Path):
+        state_file = tmp_path / "state.json"
+        tracker_1 = StateTracker(state_file=state_file)
+        tracker_1.begin_trace_run(42, "implement")
+        self._backdate_active(tracker_1, 42, "implement", seconds_ago=7200)
+        tracker_1.purge_stale_trace_runs(max_age_seconds=600.0)
+
+        # Reload and verify the stale entry stayed evicted
+        tracker_2 = StateTracker(state_file=state_file)
+        assert tracker_2.get_active_trace_run(42, "implement") is None
+
+    def test_purge_drops_malformed_entry(self, tracker: StateTracker):
+        tracker.begin_trace_run(42, "implement")
+        # Corrupt the started_at field
+        active = tracker._data.trace_runs["active"]  # type: ignore[index]
+        active["42:implement"]["started_at"] = "not-a-date"  # type: ignore[index]
+        tracker.save()
+
+        tracker.purge_stale_trace_runs(max_age_seconds=600.0)
+        assert tracker.get_active_trace_run(42, "implement") is None

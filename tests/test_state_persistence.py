@@ -222,6 +222,7 @@ class TestStateDataModel:
         assert data.issue_attempts == {}
         assert data.active_issue_numbers == []
         assert data.lifetime_stats == LifetimeStats()
+        assert data.trace_runs == {"active": {}, "next_run_id": {}}
         assert data.last_updated is None
 
     def test_validates_correct_data(self) -> None:

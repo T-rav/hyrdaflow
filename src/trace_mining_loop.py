@@ -69,7 +69,18 @@ class TraceMiningLoop(BaseBackgroundLoop):
         """Detect run-N/ directories with subprocess files but no summary.json
         AND no entry in state['trace_runs']['active']. Synthesize a
         crashed-marker summary and touch `.finalized_orphan`.
+
+        First, purge any active entries whose ``started_at`` is older than
+        ``2 * agent_timeout`` — these belong to runs killed by a crash and
+        would otherwise hide their orphan directories from this stage
+        forever.
         """
+        try:
+            stale_window = max(float(self._config.agent_timeout) * 2.0, 600.0)
+            self._state.purge_stale_trace_runs(stale_window)
+        except Exception:
+            logger.warning("purge_stale_trace_runs failed", exc_info=True)
+
         try:
             active_keys = {
                 (issue, phase, run_id)

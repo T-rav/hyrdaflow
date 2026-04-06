@@ -81,3 +81,54 @@ class TraceRunsMixin:
             except (ValueError, KeyError, TypeError):
                 logger.warning("Skipping malformed trace_runs key: %r", key)
         return out
+
+    def purge_stale_trace_runs(
+        self, max_age_seconds: float
+    ) -> list[tuple[int, str, int]]:
+        """Remove active entries older than *max_age_seconds*.
+
+        Used by the trace mining loop to recover from HydraFlow crashes
+        that killed an agent mid-phase: the active entry is never removed
+        by ``end_trace_run`` and would otherwise hide the orphaned
+        ``run-N/`` directory from the orphan janitor forever. Returns the
+        list of evicted ``(issue, phase, run_id)`` tuples.
+        """
+        active = self._data.trace_runs.setdefault("active", {})
+        now = datetime.now(UTC)
+        evicted: list[tuple[int, str, int]] = []
+        stale_keys: list[str] = []
+        for key, entry in active.items():
+            if not isinstance(entry, dict):
+                stale_keys.append(key)
+                continue
+            started_raw = entry.get("started_at")
+            if not isinstance(started_raw, str):
+                stale_keys.append(key)
+                continue
+            try:
+                started = datetime.fromisoformat(started_raw)
+            except ValueError:
+                stale_keys.append(key)
+                continue
+            age_seconds = (now - started).total_seconds()
+            if age_seconds < max_age_seconds:
+                continue
+            try:
+                issue_str, phase = key.split(":", 1)
+                issue_number = int(issue_str)
+                run_id = int(entry["run_id"])
+                evicted.append((issue_number, phase, run_id))
+            except (ValueError, KeyError, TypeError):
+                pass
+            stale_keys.append(key)
+
+        if stale_keys:
+            for key in stale_keys:
+                active.pop(key, None)
+            self.save()
+            logger.info(
+                "Purged %d stale active trace runs (age >= %.0fs)",
+                len(stale_keys),
+                max_age_seconds,
+            )
+        return evicted
