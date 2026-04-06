@@ -522,29 +522,29 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
             {"status": "ok", "name": name, "interval_seconds": interval}
         )
 
-    @router.get("/api/bot-pr/settings")
-    async def get_bot_pr_settings() -> JSONResponse:
-        """Return current bot PR auto-merge settings."""
-        settings = ctx.state.get_bot_pr_settings()
+    @router.get("/api/dependabot-merge/settings")
+    async def get_dependabot_merge_settings() -> JSONResponse:
+        """Return current Dependabot merge settings."""
+        settings = ctx.state.get_dependabot_merge_settings()
         return JSONResponse(settings.model_dump())
 
-    @router.post("/api/bot-pr/settings")
-    async def set_bot_pr_settings(body: dict[str, Any]) -> JSONResponse:
-        """Update bot PR auto-merge settings."""
-        current = ctx.state.get_bot_pr_settings()
+    @router.post("/api/dependabot-merge/settings")
+    async def set_dependabot_merge_settings(body: dict[str, Any]) -> JSONResponse:
+        """Update Dependabot merge settings."""
+        current = ctx.state.get_dependabot_merge_settings()
         update = current.model_dump()
         for key in ("authors", "failure_strategy", "review_mode"):
             if key in body:
                 update[key] = body[key]
 
         try:
-            from models import BotPRSettings  # noqa: PLC0415
+            from models import DependabotMergeSettings  # noqa: PLC0415
 
-            new_settings = BotPRSettings(**update)
+            new_settings = DependabotMergeSettings(**update)
         except (ValueError, ValidationError) as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
 
-        ctx.state.set_bot_pr_settings(new_settings)
+        ctx.state.set_dependabot_merge_settings(new_settings)
         return JSONResponse({"status": "ok", **new_settings.model_dump()})
 
     # --- Stale Issue Settings ---

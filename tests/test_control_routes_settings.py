@@ -16,9 +16,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from events import EventBus
 from models import (
-    BotPRSettings,
     CIMonitorSettings,
     CodeGroomingSettings,
+    DependabotMergeSettings,
     SecurityPatchSettings,
     StaleIssueSettings,
 )
@@ -39,33 +39,37 @@ def _router_no_orch(config, event_bus: EventBus, state, tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# Bot PR Settings
+# Dependabot Merge Settings
 # ---------------------------------------------------------------------------
 
 
-class TestBotPRSettingsEndpoints:
-    """GET/POST /api/bot-pr/settings use ctx.state, not orch.state."""
+class TestDependabotMergeSettingsEndpoints:
+    """GET/POST /api/dependabot-merge/settings use ctx.state, not orch.state."""
 
     @pytest.mark.asyncio
-    async def test_get_bot_pr_settings_without_orchestrator(self, _router_no_orch):
+    async def test_get_dependabot_merge_settings_without_orchestrator(
+        self, _router_no_orch
+    ):
         router, state = _router_no_orch
-        handler = find_endpoint(router, "/api/bot-pr/settings", method="GET")
+        handler = find_endpoint(router, "/api/dependabot-merge/settings", method="GET")
         assert handler is not None
         response = await handler()
         data = json.loads(response.body)
-        assert data == BotPRSettings().model_dump()
+        assert data == DependabotMergeSettings().model_dump()
 
     @pytest.mark.asyncio
-    async def test_post_bot_pr_settings_without_orchestrator(self, _router_no_orch):
+    async def test_post_dependabot_merge_settings_without_orchestrator(
+        self, _router_no_orch
+    ):
         router, state = _router_no_orch
-        handler = find_endpoint(router, "/api/bot-pr/settings", method="POST")
+        handler = find_endpoint(router, "/api/dependabot-merge/settings", method="POST")
         assert handler is not None
         response = await handler(body={"failure_strategy": "hitl"})
         data = json.loads(response.body)
         assert data["status"] == "ok"
         assert data["failure_strategy"] == "hitl"
         # Verify state was updated
-        assert state.get_bot_pr_settings().failure_strategy == "hitl"
+        assert state.get_dependabot_merge_settings().failure_strategy == "hitl"
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +220,7 @@ class TestNoOrchStateInSettings:
 
         source = inspect.getsource(_control_routes)
         for name in (
-            "bot_pr",
+            "dependabot_merge",
             "stale_issue",
             "security_patch",
             "ci_monitor",

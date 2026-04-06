@@ -25,7 +25,7 @@ SRC = Path(__file__).resolve().parent.parent / "src"
 _INTERVAL_BOUNDS_SKIP: set[str] = {
     "data_poll_interval",
     "state_backup_interval",
-    "bot_pr_interval",
+    "dependabot_merge_interval",
     "report_issue_interval",
     "epic_monitor_interval",
     "epic_sweep_interval",

@@ -25,9 +25,9 @@ from models import IssueOutcomeType, StateData, ThresholdProposal
 if TYPE_CHECKING:
     from ports import StateBackendPort
 
-from ._bot_pr import BotPRStateMixin
 from ._ci_monitor import CIMonitorStateMixin
 from ._code_grooming import CodeGroomingStateMixin
+from ._dependabot_merge import DependabotMergeStateMixin
 from ._diagnostic import DiagnosticStateMixin
 from ._epic import EpicStateMixin
 from ._hitl import HITLStateMixin
@@ -61,7 +61,7 @@ class StateTracker(
     WorkerStateMixin,
     ReportStateMixin,
     ShapeStateMixin,
-    BotPRStateMixin,
+    DependabotMergeStateMixin,
     StaleIssueStateMixin,
     SecurityPatchStateMixin,
     CIMonitorStateMixin,

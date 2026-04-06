@@ -1442,8 +1442,8 @@ class Release(BaseModel):
     tag: str = ""
 
 
-class BotPRSettings(BaseModel):
-    """Configuration for the bot PR auto-merge worker."""
+class DependabotMergeSettings(BaseModel):
+    """Configuration for the Dependabot merge auto-merge worker."""
 
     authors: list[str] = Field(default_factory=lambda: ["dependabot[bot]"])
     failure_strategy: Literal["skip", "hitl", "close"] = "skip"
@@ -1543,8 +1543,10 @@ class StateData(BaseModel):
     bead_mappings: dict[str, dict[str, str]] = Field(default_factory=dict)
     completed_timelines: dict[str, CompletedTimeline] = Field(default_factory=dict)
     digest_hashes: dict[str, str] = Field(default_factory=dict)
-    bot_pr_settings: BotPRSettings = Field(default_factory=BotPRSettings)
-    bot_pr_processed: list[int] = Field(default_factory=list)
+    dependabot_merge_settings: DependabotMergeSettings = Field(
+        default_factory=DependabotMergeSettings
+    )
+    dependabot_merge_processed: list[int] = Field(default_factory=list)
     shape_conversations: dict[str, ShapeConversation] = Field(default_factory=dict)
     shape_responses: dict[str, str] = Field(default_factory=dict)
     stale_issue_settings: StaleIssueSettings = Field(default_factory=StaleIssueSettings)

@@ -16,11 +16,11 @@ from agent import AgentRunner
 from base_background_loop import LoopDeps
 from baseline_policy import BaselinePolicy
 from beads_manager import BeadsManager
-from bot_pr_loop import BotPRLoop
 from ci_monitor_loop import CIMonitorLoop  # noqa: TCH001
 from code_grooming_loop import CodeGroomingLoop  # noqa: TCH001
 from config import Credentials, HydraFlowConfig
 from crate_manager import CrateManager
+from dependabot_merge_loop import DependabotMergeLoop
 from diagnostic_loop import DiagnosticLoop  # noqa: TCH001
 from diagnostic_runner import DiagnosticRunner
 from discover_phase import DiscoverPhase  # noqa: TCH001
@@ -137,7 +137,7 @@ class ServiceRegistry:
     runs_gc_loop: RunsGCLoop
     adr_reviewer_loop: ADRReviewerLoop
     health_monitor_loop: HealthMonitorLoop
-    bot_pr_loop: BotPRLoop
+    dependabot_merge_loop: DependabotMergeLoop
     stale_issue_loop: StaleIssueLoop
     sentry_loop: SentryLoop
     stale_issue_gc_loop: StaleIssueGCLoop
@@ -579,7 +579,7 @@ def build_services(
         deps=loop_deps,
         prs=prs,
     )
-    bot_pr_loop = BotPRLoop(
+    dependabot_merge_loop = DependabotMergeLoop(  # noqa: F841
         config=config,
         cache=gh_cache,
         prs=prs,
@@ -691,7 +691,7 @@ def build_services(
         runs_gc_loop=runs_gc_loop,
         adr_reviewer_loop=adr_reviewer_loop,
         health_monitor_loop=health_monitor_loop,
-        bot_pr_loop=bot_pr_loop,
+        dependabot_merge_loop=dependabot_merge_loop,
         stale_issue_loop=stale_issue_loop,
         hindsight=hindsight_client,
         hindsight_wal=hindsight_wal,

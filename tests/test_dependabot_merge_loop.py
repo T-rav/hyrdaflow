@@ -1,4 +1,4 @@
-"""Tests for the BotPRLoop background worker."""
+"""Tests for the DependabotMergeLoop background worker."""
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from bot_pr_loop import BotPRLoop
+from dependabot_merge_loop import DependabotMergeLoop
 from events import EventType
-from models import BotPRSettings, PRListItem
+from models import DependabotMergeSettings, PRListItem
 from tests.helpers import make_bg_loop_deps
 
 
@@ -37,12 +37,12 @@ def _make_state(
 ) -> MagicMock:
     """Build a mock StateTracker with bot PR methods."""
     state = MagicMock()
-    settings = BotPRSettings(
+    settings = DependabotMergeSettings(
         authors=authors or ["dependabot[bot]"],
         failure_strategy=failure_strategy,
     )
-    state.get_bot_pr_settings.return_value = settings
-    state.get_bot_pr_processed.return_value = processed or set()
+    state.get_dependabot_merge_settings.return_value = settings
+    state.get_dependabot_merge_processed.return_value = processed or set()
     return state
 
 
@@ -57,12 +57,14 @@ def _make_loop(
     failure_strategy: str = "skip",
     processed: set[int] | None = None,
     authors: list[str] | None = None,
-) -> tuple[BotPRLoop, asyncio.Event, MagicMock, MagicMock, MagicMock]:
-    """Build a BotPRLoop with test-friendly defaults.
+) -> tuple[DependabotMergeLoop, asyncio.Event, MagicMock, MagicMock, MagicMock]:
+    """Build a DependabotMergeLoop with test-friendly defaults.
 
     Returns (loop, stop_event, cache_mock, prs_mock, state_mock).
     """
-    deps = make_bg_loop_deps(tmp_path, enabled=enabled, bot_pr_interval=interval)
+    deps = make_bg_loop_deps(
+        tmp_path, enabled=enabled, dependabot_merge_interval=interval
+    )
 
     cache = MagicMock()
     cache.get_open_prs.return_value = open_prs or []
@@ -81,7 +83,7 @@ def _make_loop(
         processed=processed,
     )
 
-    loop = BotPRLoop(
+    loop = DependabotMergeLoop(
         config=deps.config,
         cache=cache,
         prs=prs,
@@ -91,16 +93,16 @@ def _make_loop(
     return loop, deps.stop_event, cache, prs, state
 
 
-class TestBotPRLoopInterval:
+class TestDependabotMergeLoopInterval:
     """Tests for interval configuration."""
 
     def test_default_interval_uses_config(self, tmp_path: Path) -> None:
-        """_get_default_interval returns config.bot_pr_interval."""
+        """_get_default_interval returns config.dependabot_merge_interval."""
         loop, *_ = _make_loop(tmp_path, interval=120)
         assert loop._get_default_interval() == 120
 
 
-class TestBotPRLoopDoWork:
+class TestDependabotMergeLoopDoWork:
     """Tests for _do_work — the core auto-merge logic."""
 
     @pytest.mark.asyncio
@@ -147,7 +149,7 @@ class TestBotPRLoopDoWork:
         assert result["merged"] == 1
         prs.submit_review.assert_awaited_once()
         prs.merge_pr.assert_awaited_once_with(10)
-        state.add_bot_pr_processed.assert_called_once_with(10)
+        state.add_dependabot_merge_processed.assert_called_once_with(10)
 
     @pytest.mark.asyncio
     async def test_ci_green_merge_fails(self, tmp_path: Path) -> None:
@@ -163,7 +165,7 @@ class TestBotPRLoopDoWork:
 
         assert result["failed"] == 1
         assert result["merged"] == 0
-        state.add_bot_pr_processed.assert_not_called()
+        state.add_dependabot_merge_processed.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_ci_pending_skips(self, tmp_path: Path) -> None:
@@ -179,7 +181,7 @@ class TestBotPRLoopDoWork:
         assert result["skipped"] == 1
         assert result["merged"] == 0
         prs.merge_pr.assert_not_awaited()
-        state.add_bot_pr_processed.assert_not_called()
+        state.add_dependabot_merge_processed.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_ci_failed_strategy_skip(self, tmp_path: Path) -> None:
@@ -195,7 +197,7 @@ class TestBotPRLoopDoWork:
 
         assert result["skipped"] == 1
         prs.merge_pr.assert_not_awaited()
-        state.add_bot_pr_processed.assert_not_called()
+        state.add_dependabot_merge_processed.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_ci_failed_strategy_hitl(self, tmp_path: Path) -> None:
@@ -212,7 +214,7 @@ class TestBotPRLoopDoWork:
         assert result["failed"] == 1
         prs.add_labels.assert_awaited_once()
         prs.post_comment.assert_awaited_once()
-        state.add_bot_pr_processed.assert_called_once_with(10)
+        state.add_dependabot_merge_processed.assert_called_once_with(10)
 
     @pytest.mark.asyncio
     async def test_ci_failed_strategy_close(self, tmp_path: Path) -> None:
@@ -229,7 +231,7 @@ class TestBotPRLoopDoWork:
         assert result["failed"] == 1
         prs.post_comment.assert_awaited_once()
         prs.close_issue.assert_awaited_once_with(10)
-        state.add_bot_pr_processed.assert_called_once_with(10)
+        state.add_dependabot_merge_processed.assert_called_once_with(10)
 
     @pytest.mark.asyncio
     async def test_multiple_bot_prs_processed(self, tmp_path: Path) -> None:
@@ -279,7 +281,7 @@ class TestBotPRLoopDoWork:
         prs.merge_pr.assert_awaited_once_with(1)
 
 
-class TestBotPRLoopRun:
+class TestDependabotMergeLoopRun:
     """Tests for the full run() lifecycle (via BaseBackgroundLoop)."""
 
     @pytest.mark.asyncio
@@ -296,7 +298,7 @@ class TestBotPRLoopRun:
         ]
         assert len(events) >= 1
         data = events[0].data
-        assert data["worker"] == "bot_pr"
+        assert data["worker"] == "dependabot_merge"
         assert data["status"] == "ok"
 
     @pytest.mark.asyncio

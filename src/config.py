@@ -94,7 +94,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("max_sessions_per_repo", "HYDRAFLOW_MAX_SESSIONS_PER_REPO", 10),
     ("max_transcript_summary_chars", "HYDRAFLOW_MAX_TRANSCRIPT_SUMMARY_CHARS", 50_000),
     ("pr_unstick_interval", "HYDRAFLOW_PR_UNSTICK_INTERVAL", 3600),
-    ("bot_pr_interval", "HYDRAFLOW_BOT_PR_INTERVAL", 3600),
+    ("dependabot_merge_interval", "HYDRAFLOW_DEPENDABOT_MERGE_INTERVAL", 3600),
     ("report_issue_interval", "HYDRAFLOW_REPORT_ISSUE_INTERVAL", 30),
     ("stale_report_threshold_hours", "HYDRAFLOW_STALE_REPORT_THRESHOLD_HOURS", 6),
     ("epic_monitor_interval", "HYDRAFLOW_EPIC_MONITOR_INTERVAL", 1800),
@@ -1300,11 +1300,11 @@ class HydraFlowConfig(BaseModel):
         le=86400,
         description="Seconds between PR unsticker polls",
     )
-    bot_pr_interval: int = Field(
+    dependabot_merge_interval: int = Field(
         default=3600,
         ge=60,
         le=86400,
-        description="Seconds between bot PR auto-merge polls",
+        description="Seconds between Dependabot merge auto-merge polls",
     )
     pr_unstick_batch_size: int = Field(
         default=10,
