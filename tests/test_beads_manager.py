@@ -98,7 +98,9 @@ async def test_init_success(manager):
     with patch("beads_manager.run_subprocess", new_callable=AsyncMock) as mock_run:
         mock_run.return_value = "Initialized"
         await manager.init(Path("/repo"))
-        mock_run.assert_called_once_with("bd", "init", cwd=Path("/repo"), timeout=30.0)
+        mock_run.assert_called_once_with(
+            "bd", "init", "--mode", "server", cwd=Path("/repo"), timeout=30.0
+        )
 
 
 @pytest.mark.asyncio()

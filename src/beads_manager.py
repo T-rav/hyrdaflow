@@ -96,9 +96,16 @@ class BeadsManager:
             raise BeadsNotInstalledError() from exc
 
     async def init(self, cwd: Path) -> None:
-        """Initialize a beads project in *cwd* (idempotent)."""
+        """Initialize a beads project in *cwd* (idempotent).
+
+        Uses ``--mode server`` to avoid the embedded Dolt CGO requirement.
+        Server mode uses a Dolt SQL server backend which works in all
+        environments including Docker containers built without CGO.
+        """
         try:
-            await run_subprocess("bd", "init", cwd=cwd, timeout=30.0)
+            await run_subprocess(
+                "bd", "init", "--mode", "server", cwd=cwd, timeout=30.0
+            )
         except FileNotFoundError as exc:
             raise BeadsNotInstalledError() from exc
 
