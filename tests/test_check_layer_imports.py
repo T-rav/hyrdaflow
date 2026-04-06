@@ -391,6 +391,17 @@ class TestRunCheck:
         result = run_check(tmp_path)
         assert result == []
 
+    def test_excludes_venv_directory(self, tmp_path: Path):
+        """Files under .venv/ or venv/ are excluded from scanning."""
+        for venv_dir in (".venv", "venv"):
+            venv = tmp_path / venv_dir
+            venv.mkdir()
+            # A classified module name inside venv must not be scanned
+            (venv / "models.py").write_text("from orchestrator import x\n")
+        (tmp_path / "orchestrator.py").write_text("x = 1\n")
+        result = run_check(tmp_path)
+        assert result == []
+
 
 # ---------------------------------------------------------------------------
 # main() smoke test

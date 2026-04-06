@@ -89,8 +89,11 @@ ALLOWLIST: set[str] = {
 
 # Per-file import allowlist: {source_module: {allowed_target_module, ...}}
 # These are known architectural exceptions documented for tracking.
-# L2 phases currently import L3 runners directly; port-based decoupling
-# is tracked in separate issues (e.g. #6049).
+# L2 phases currently import L3 runners directly (e.g. plan_phase → planner)
+# and some also reach L4 infrastructure (e.g. discover_phase → pr_manager).
+# Port-based decoupling for L2→L3 violations is tracked in issue #6049;
+# L2→L4 violations (discover_phase, shape_phase, review_phase) need their
+# own tracking issues.
 FILE_ALLOWLIST: dict[str, set[str]] = {
     "implement_phase": {"agent"},
     "plan_phase": {"planner", "research_runner"},
@@ -220,7 +223,7 @@ def extract_imports(source: str) -> list[ImportInfo]:
 
 
 def check_violations(
-    source_module: str,
+    source_file: str,
     source_layer: int | str,
     imports: list[ImportInfo],
     allowed_targets: set[str] | None = None,
@@ -243,7 +246,7 @@ def check_violations(
             if target_layer not in {1, "cross-cutting"}:
                 violations.append(
                     Violation(
-                        file=source_module,
+                        file=source_file,
                         line=imp.line,
                         import_name=imp.raw,
                         source_layer=source_layer,
@@ -265,7 +268,7 @@ def check_violations(
         ):
             violations.append(
                 Violation(
-                    file=source_module,
+                    file=source_file,
                     line=imp.line,
                     import_name=imp.raw,
                     source_layer=source_layer,
