@@ -78,12 +78,17 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-# Plugin checks
+# Plugin checks — verify dirs exist, contain expected files, and are readable
 echo ""
 echo "--- Claude Code Plugins ---"
-check "claude-plugins-official" test -d /opt/plugins/claude-plugins-official
-check "superpowers"             test -d /opt/plugins/superpowers
-check "lightfactory"            test -d /opt/plugins/lightfactory
+check "claude-plugins-official"         test -d /opt/plugins/claude-plugins-official
+check "claude-plugins-official content" test -f /opt/plugins/claude-plugins-official/README.md
+check "superpowers"                     test -d /opt/plugins/superpowers
+check "superpowers content"             test -d /opt/plugins/superpowers/hooks
+check "lightfactory"                    test -d /opt/plugins/lightfactory
+check "lightfactory content"            test -d /opt/plugins/lightfactory/plugins/praxis
+check "plugins readable"               test -r /opt/plugins/lightfactory
+check "no .git dirs in plugins"         test ! -d /opt/plugins/lightfactory/.git
 
 # Directory checks
 if [ -d /workspace ]; then
