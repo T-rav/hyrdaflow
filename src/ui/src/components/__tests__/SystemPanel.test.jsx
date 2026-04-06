@@ -41,7 +41,7 @@ const mockBgWorkers = [
   { name: 'retrospective', status: 'error', enabled: true, last_run: '2026-02-20T10:28:00Z', details: { last_issue: 42 } },
   { name: 'health_monitor', status: 'ok', enabled: true, last_run: '2026-02-20T10:25:00Z', details: {} },
   { name: 'review_insights', status: 'disabled', enabled: false, last_run: null, details: {} },
-  { name: 'bot_pr', status: 'ok', enabled: false, last_run: null, details: {} },
+  { name: 'dependabot_merge', status: 'ok', enabled: false, last_run: null, details: {} },
 ]
 
 describe('SystemPanel', () => {

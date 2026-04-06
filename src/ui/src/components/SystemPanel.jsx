@@ -332,13 +332,13 @@ const REVIEW_MODES = [
   { value: 'llm_review', label: 'LLM Review' },
 ]
 
-function BotPRSettingsPanel() {
+function DependabotMergeSettingsPanel() {
   const [settings, setSettings] = useState(null)
   const [customBot, setCustomBot] = useState('')
 
   const fetchSettings = useCallback(async () => {
     try {
-      const resp = await fetch('/api/bot-pr/settings')
+      const resp = await fetch('/api/dependabot-merge/settings')
       if (resp.ok) {
         const data = await resp.json()
         setSettings(data)
@@ -351,7 +351,7 @@ function BotPRSettingsPanel() {
   const saveSettings = useCallback(async (updated) => {
     setSettings(updated)
     try {
-      await fetch('/api/bot-pr/settings', {
+      await fetch('/api/dependabot-merge/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updated),
@@ -383,68 +383,68 @@ function BotPRSettingsPanel() {
   const allowedBots = settings.allowed_bots || []
 
   return (
-    <div style={styles.botPrPanel} data-testid="bot-pr-settings">
-      <div style={styles.botPrSection}>
-        <div style={styles.botPrSectionLabel}>Allowed Bots</div>
+    <div style={styles.depMergePanel} data-testid="dependabot-merge-settings">
+      <div style={styles.depMergeSection}>
+        <div style={styles.depMergeSectionLabel}>Allowed Bots</div>
         {KNOWN_BOTS.map(bot => (
-          <label key={bot.username} style={styles.botPrCheckbox}>
+          <label key={bot.username} style={styles.depMergeCheckbox}>
             <input
               type="checkbox"
               checked={allowedBots.includes(bot.username)}
               onChange={() => toggleBot(bot.username)}
               data-testid={`bot-checkbox-${bot.username}`}
             />
-            <span style={styles.botPrCheckboxLabel}>{bot.label}</span>
+            <span style={styles.depMergeCheckboxLabel}>{bot.label}</span>
           </label>
         ))}
-        <div style={styles.botPrAddRow}>
+        <div style={styles.depMergeAddRow}>
           <input
             type="text"
             value={customBot}
             onChange={e => setCustomBot(e.target.value)}
             placeholder="Custom bot username"
-            style={styles.botPrInput}
-            data-testid="bot-pr-custom-input"
+            style={styles.depMergeInput}
+            data-testid="dependabot-merge-custom-input"
             onKeyDown={e => { if (e.key === 'Enter') addCustomBot() }}
           />
           <button
             onClick={addCustomBot}
-            style={styles.botPrAddBtn}
-            data-testid="bot-pr-add-btn"
+            style={styles.depMergeAddBtn}
+            data-testid="dependabot-merge-add-btn"
           >
             Add
           </button>
         </div>
       </div>
-      <div style={styles.botPrSection}>
-        <div style={styles.botPrSectionLabel}>Failure Strategy</div>
+      <div style={styles.depMergeSection}>
+        <div style={styles.depMergeSectionLabel}>Failure Strategy</div>
         {FAILURE_STRATEGIES.map(opt => (
-          <label key={opt.value} style={styles.botPrRadio}>
+          <label key={opt.value} style={styles.depMergeRadio}>
             <input
               type="radio"
-              name="bot-pr-failure-strategy"
+              name="dependabot-merge-failure-strategy"
               value={opt.value}
               checked={settings.failure_strategy === opt.value}
               onChange={() => saveSettings({ ...settings, failure_strategy: opt.value })}
               data-testid={`failure-strategy-${opt.value}`}
             />
-            <span style={styles.botPrRadioLabel}>{opt.label}</span>
+            <span style={styles.depMergeRadioLabel}>{opt.label}</span>
           </label>
         ))}
       </div>
-      <div style={styles.botPrSection}>
-        <div style={styles.botPrSectionLabel}>Review Mode</div>
+      <div style={styles.depMergeSection}>
+        <div style={styles.depMergeSectionLabel}>Review Mode</div>
         {REVIEW_MODES.map(opt => (
-          <label key={opt.value} style={styles.botPrRadio}>
+          <label key={opt.value} style={styles.depMergeRadio}>
             <input
               type="radio"
-              name="bot-pr-review-mode"
+              name="dependabot-merge-review-mode"
               value={opt.value}
               checked={settings.review_mode === opt.value}
               onChange={() => saveSettings({ ...settings, review_mode: opt.value })}
               data-testid={`review-mode-${opt.value}`}
             />
-            <span style={styles.botPrRadioLabel}>{opt.label}</span>
+            <span style={styles.depMergeRadioLabel}>{opt.label}</span>
           </label>
         ))}
       </div>
@@ -492,7 +492,7 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onTriggerBgWo
                     onUpdateInterval={onUpdateInterval}
                     events={events}
                     extraContent={
-                      def.key === 'bot_pr' ? <BotPRSettingsPanel /> :
+                      def.key === 'dependabot_merge' ? <DependabotMergeSettingsPanel /> :
                       undefined
                     }
                   />
@@ -836,7 +836,7 @@ const styles = {
     cursor: 'pointer',
     outline: 'none',
   },
-  botPrPanel: {
+  depMergePanel: {
     borderTop: `1px solid ${theme.border}`,
     paddingTop: 8,
     marginTop: 8,
@@ -844,12 +844,12 @@ const styles = {
     flexDirection: 'column',
     gap: 8,
   },
-  botPrSection: {
+  depMergeSection: {
     display: 'flex',
     flexDirection: 'column',
     gap: 4,
   },
-  botPrSectionLabel: {
+  depMergeSectionLabel: {
     fontSize: 11,
     fontWeight: 600,
     color: theme.textMuted,
@@ -857,32 +857,32 @@ const styles = {
     letterSpacing: '0.3px',
     marginBottom: 2,
   },
-  botPrCheckbox: {
+  depMergeCheckbox: {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
     cursor: 'pointer',
   },
-  botPrCheckboxLabel: {
+  depMergeCheckboxLabel: {
     fontSize: 12,
     color: theme.text,
   },
-  botPrRadio: {
+  depMergeRadio: {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
     cursor: 'pointer',
   },
-  botPrRadioLabel: {
+  depMergeRadioLabel: {
     fontSize: 12,
     color: theme.text,
   },
-  botPrAddRow: {
+  depMergeAddRow: {
     display: 'flex',
     gap: 4,
     marginTop: 4,
   },
-  botPrInput: {
+  depMergeInput: {
     flex: 1,
     padding: '4px 8px',
     fontSize: 12,
@@ -892,7 +892,7 @@ const styles = {
     color: theme.text,
     outline: 'none',
   },
-  botPrAddBtn: {
+  depMergeAddBtn: {
     padding: '4px 12px',
     fontSize: 11,
     fontWeight: 600,

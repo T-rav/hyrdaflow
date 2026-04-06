@@ -172,10 +172,10 @@ export const REPORT_ISSUE_PRESETS = [
 ]
 
 /**
- * Preset interval options for the bot_pr worker.
+ * Preset interval options for the dependabot_merge worker.
  * Longer cadence — bot PR merges are checked on a relaxed schedule.
  */
-export const BOT_PR_PRESETS = [
+export const DEPENDABOT_MERGE_PRESETS = [
   { label: '1h', seconds: 3600 },
   { label: '2h', seconds: 7200 },
   { label: '6h', seconds: 21600 },
@@ -238,7 +238,7 @@ export const WORKER_PRESETS = {
   pipeline_poller: PIPELINE_POLLER_PRESETS,
   adr_reviewer: ADR_REVIEWER_PRESETS,
   report_issue: REPORT_ISSUE_PRESETS,
-  bot_pr: BOT_PR_PRESETS,
+  dependabot_merge: DEPENDABOT_MERGE_PRESETS,
   stale_issue: STALE_ISSUE_PRESETS,
   security_patch: SECURITY_PATCH_PRESETS,
   ci_monitor: CI_MONITOR_PRESETS,
@@ -249,7 +249,7 @@ export const WORKER_PRESETS = {
 /**
  * Workers whose interval can be edited from the UI.
  */
-export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'pr_unsticker', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer', 'epic_sweeper', 'bot_pr', 'stale_issue', 'security_patch', 'ci_monitor', 'code_grooming', 'sentry_ingest'])
+export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'pr_unsticker', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer', 'epic_sweeper', 'dependabot_merge', 'stale_issue', 'security_patch', 'ci_monitor', 'code_grooming', 'sentry_ingest'])
 
 /**
  * Default intervals (in seconds) for system workers.
@@ -264,7 +264,7 @@ export const SYSTEM_WORKER_INTERVALS = {
   worktree_gc: 1800,
   adr_reviewer: 86400,
   epic_sweeper: 3600,
-  bot_pr: 3600,
+  dependabot_merge: 3600,
   stale_issue: 86400,
   security_patch: 21600,
   ci_monitor: 1800,
@@ -298,7 +298,7 @@ export const BACKGROUND_WORKERS = [
   { key: 'workspace_gc',   label: 'Workspace GC',   description: 'Garbage-collects stale workspaces and orphaned branches.', color: theme.textMuted, system: true },
   { key: 'adr_reviewer',   label: 'ADR Reviewer',   description: 'Reviews proposed ADRs via a 3-judge council and routes to accept, reject, or escalate.', color: theme.accent },
   { key: 'epic_sweeper',    label: 'Epic Sweeper',    description: 'Periodically sweeps open epics and auto-closes those with all sub-issues resolved.', color: theme.purple, system: true },
-  { key: 'bot_pr', label: 'Bot PR Manager', description: 'Auto-merges dependency update PRs from configured bots after CI passes.', color: theme.green },
+  { key: 'dependabot_merge', label: 'Dependabot Merge', description: 'Auto-merges dependency update PRs from configured bots after CI passes.', color: theme.green },
   { key: 'health_monitor', label: 'Health Monitor', description: 'Analyzes pipeline trends, auto-tunes parameters, detects knowledge gaps, and ingests log patterns.', color: theme.green, system: true },
   { key: 'stale_issue', label: 'Stale Issue Cleanup', description: 'Auto-closes issues with no activity after configurable period.', color: theme.orange },
   { key: 'sentry_ingest', label: 'Sentry Ingest', description: 'Polls Sentry for unresolved errors and files them as GitHub issues for the pipeline.', color: theme.red },

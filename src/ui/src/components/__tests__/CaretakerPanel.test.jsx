@@ -15,7 +15,7 @@ function defaultContext(overrides = {}) {
     backgroundWorkers: [
       { name: 'stale_issue_gc', status: 'ok', enabled: true, last_run: '2026-03-28T12:00:00Z', details: {} },
       { name: 'ci_monitor', status: 'ok', enabled: true, last_run: '2026-03-28T12:00:00Z', details: {} },
-      { name: 'bot_pr', status: 'ok', enabled: false, last_run: null, details: {} },
+      { name: 'dependabot_merge', status: 'ok', enabled: false, last_run: null, details: {} },
       { name: 'worktree_gc', status: 'ok', enabled: true, last_run: '2026-03-28T11:00:00Z', details: {} },
       { name: 'health_monitor', status: 'error', enabled: true, last_run: '2026-03-28T10:00:00Z', details: {} },
       { name: 'epic_sweeper', status: 'ok', enabled: true, last_run: null, details: {} },
@@ -48,9 +48,9 @@ describe('CaretakerPanel', () => {
     const ctx = defaultContext()
     mockUseHydraFlow.mockReturnValue(ctx)
     render(<CaretakerPanel />)
-    const toggle = screen.getByTestId('caretaker-toggle-bot_pr')
+    const toggle = screen.getByTestId('caretaker-toggle-dependabot_merge')
     fireEvent.click(toggle)
-    expect(ctx.toggleBgWorker).toHaveBeenCalledWith('bot_pr')
+    expect(ctx.toggleBgWorker).toHaveBeenCalledWith('dependabot_merge')
   })
 
   it('shows status indicator (green for ok, red for error)', () => {

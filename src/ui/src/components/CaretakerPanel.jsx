@@ -8,7 +8,7 @@ import { useHydraFlow } from '../context/HydraFlowContext'
  * Descriptions and labels come from BACKGROUND_WORKERS in constants.js (DRY).
  */
 const CARETAKER_KEYS = new Set([
-  'stale_issue_gc', 'ci_monitor', 'bot_pr', 'worktree_gc',
+  'stale_issue_gc', 'ci_monitor', 'dependabot_merge', 'worktree_gc',
   'health_monitor', 'epic_sweeper', 'security_patch', 'code_grooming',
 ])
 
