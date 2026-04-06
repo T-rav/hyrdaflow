@@ -1009,7 +1009,7 @@ class TestTestAdequacyLoop:
         config.max_test_adequacy_attempts = 0
         runner = AgentRunner(config, event_bus)
         result = await runner._run_skill(
-            BUILTIN_SKILLS[1], agent_task, tmp_path, "branch", worker_id=0
+            BUILTIN_SKILLS[2], agent_task, tmp_path, "branch", worker_id=0
         )
         assert result.passed is True
         assert "disabled" in result.summary
@@ -1024,7 +1024,7 @@ class TestTestAdequacyLoop:
             runner, "_count_commits", new_callable=AsyncMock, return_value=0
         ):
             result = await runner._run_skill(
-                BUILTIN_SKILLS[1], agent_task, tmp_path, "branch", worker_id=0
+                BUILTIN_SKILLS[2], agent_task, tmp_path, "branch", worker_id=0
             )
         assert result.passed is True
         assert "No commits" in result.summary
@@ -1053,7 +1053,7 @@ class TestTestAdequacyLoop:
             ),
         ):
             result = await runner._run_skill(
-                BUILTIN_SKILLS[1], agent_task, tmp_path, "branch", worker_id=0
+                BUILTIN_SKILLS[2], agent_task, tmp_path, "branch", worker_id=0
             )
         assert result.passed is True
 
@@ -1081,7 +1081,7 @@ class TestTestAdequacyLoop:
             ),
         ):
             result = await runner._run_skill(
-                BUILTIN_SKILLS[1], agent_task, tmp_path, "branch", worker_id=0
+                BUILTIN_SKILLS[2], agent_task, tmp_path, "branch", worker_id=0
             )
         assert result.passed is False
         assert "missing tests" in result.summary
@@ -1115,7 +1115,7 @@ class TestTestAdequacyLoop:
             ),
         ):
             result = await runner._run_skill(
-                BUILTIN_SKILLS[1], agent_task, tmp_path, "branch", worker_id=0
+                BUILTIN_SKILLS[2], agent_task, tmp_path, "branch", worker_id=0
             )
         assert result.passed is True
         assert result.attempts == 2
