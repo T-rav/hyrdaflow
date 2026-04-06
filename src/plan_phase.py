@@ -532,11 +532,44 @@ class PlanPhase:
                                 research_result.error,
                             )
 
-                    result = await self._planners.plan(
-                        issue,
-                        worker_id=idx,
-                        research_context=research_context,
+                    from trace_rollup import write_phase_rollup  # noqa: PLC0415
+                    from tracing_context import (  # noqa: PLC0415
+                        TracingContext,
+                        source_to_phase,
                     )
+
+                    trace_phase = source_to_phase("planner")
+                    run_id = self._state.begin_trace_run(issue.id, trace_phase)
+                    self._planners.set_tracing_context(
+                        TracingContext(
+                            issue_number=issue.id,
+                            phase=trace_phase,
+                            source="planner",
+                            run_id=run_id,
+                        )
+                    )
+                    try:
+                        result = await self._planners.plan(
+                            issue,
+                            worker_id=idx,
+                            research_context=research_context,
+                        )
+                    finally:
+                        self._planners.clear_tracing_context()
+                        try:
+                            write_phase_rollup(
+                                config=self._config,
+                                issue_number=issue.id,
+                                phase=trace_phase,
+                                run_id=run_id,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "Phase rollup failed for issue #%d",
+                                issue.id,
+                                exc_info=True,
+                            )
+                        self._state.end_trace_run(issue.id, trace_phase)
 
                     already_handled = False
                     ts_status = "failed"
