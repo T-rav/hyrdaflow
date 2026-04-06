@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - "Dockerfile.agent"
-      - "Dockerfile.agent-base"
       - "scripts/docker-smoke-test.sh"
   pull_request:
     branches: [main]
