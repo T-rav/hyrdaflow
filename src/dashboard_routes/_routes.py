@@ -1532,6 +1532,11 @@ def create_router(
 
     router.include_router(build_diagnostics_router(config))
 
+    # --- Factory health routes (longitudinal retrospective analysis) ---
+    from dashboard_routes._factory_health_routes import build_factory_health_router
+
+    router.include_router(build_factory_health_router(config))
+
     # --- Issue history cache ---
     # Cache the aggregated issue_rows + pr_to_issue for the unfiltered case.
     # Persisted to disk so the first request after restart is fast.
