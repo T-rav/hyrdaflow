@@ -3576,3 +3576,65 @@ async def test_fix_review_findings_skips_commit_stat_when_no_fixes(
 
     commit_stat_mock.assert_not_called()
     assert result.commit_stat == ""
+
+
+# ---------------------------------------------------------------------------
+# _load_plan_for_review
+# ---------------------------------------------------------------------------
+
+
+def test_load_plan_for_review_returns_matching_comment(event_bus, tmp_path):
+    """Returns the first comment containing '## Implementation Plan'."""
+    from tests.conftest import TaskFactory
+
+    cfg = ConfigFactory.create(repo_root=tmp_path)
+    runner = _make_runner(cfg, event_bus)
+    plan_comment = "## Implementation Plan\n\nStep 1: do the thing."
+    task = TaskFactory.create(comments=["unrelated comment", plan_comment])
+
+    result = runner._load_plan_for_review(task)
+
+    assert result == plan_comment
+
+
+def test_load_plan_for_review_falls_back_to_plan_file(event_bus, tmp_path):
+    """Falls back to reading the plan file when no matching comment exists."""
+    from tests.conftest import TaskFactory
+
+    cfg = ConfigFactory.create(repo_root=tmp_path)
+    runner = _make_runner(cfg, event_bus)
+    plan_content = "## Implementation Plan\n\nFile Delta: src/foo.py"
+    plans_dir = cfg.plans_dir
+    plans_dir.mkdir(parents=True, exist_ok=True)
+    (plans_dir / "issue-42.md").write_text(plan_content)
+    task = TaskFactory.create(id=42, comments=[])
+
+    result = runner._load_plan_for_review(task)
+
+    assert result == plan_content
+
+
+def test_load_plan_for_review_returns_empty_when_no_plan(event_bus, tmp_path):
+    """Returns empty string when no comment matches and no plan file exists."""
+    from tests.conftest import TaskFactory
+
+    cfg = ConfigFactory.create(repo_root=tmp_path)
+    runner = _make_runner(cfg, event_bus)
+    task = TaskFactory.create(id=99, comments=["just a comment", "another comment"])
+
+    result = runner._load_plan_for_review(task)
+
+    assert result == ""
+
+
+def test_load_plan_for_review_handles_none_comments(event_bus, tmp_path):
+    """Handles task with None comments gracefully."""
+    from tests.conftest import TaskFactory
+
+    cfg = ConfigFactory.create(repo_root=tmp_path)
+    runner = _make_runner(cfg, event_bus)
+    task = TaskFactory.create(id=55, comments=None)
+
+    result = runner._load_plan_for_review(task)
+
+    assert result == ""
