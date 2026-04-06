@@ -110,6 +110,11 @@ class TraceRunsMixin:
             except ValueError:
                 stale_keys.append(key)
                 continue
+            # Tolerate naive datetimes from older state files / hand edits:
+            # without this, the aware - naive subtraction below raises
+            # TypeError and aborts the loop, leaking remaining keys.
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=UTC)
             age_seconds = (now - started).total_seconds()
             if age_seconds < max_age_seconds:
                 continue

@@ -145,3 +145,28 @@ class TestPurgeStaleTraceRuns:
 
         tracker.purge_stale_trace_runs(max_age_seconds=600.0)
         assert tracker.get_active_trace_run(42, "implement") is None
+
+    def test_purge_tolerates_naive_datetime(self, tracker: StateTracker):
+        """Hand-edited or migrated state files may carry a naive ISO string.
+        Subtracting an aware ``now`` from a naive ``started`` raises
+        TypeError; the purge must coerce naive → UTC instead of crashing
+        and leaking remaining keys.
+        """
+        from datetime import datetime, timedelta
+
+        tracker.begin_trace_run(42, "implement")
+        tracker.begin_trace_run(99, "plan")  # second key must still be processed
+
+        active = tracker._data.trace_runs["active"]  # type: ignore[index]
+        # Naive datetime, well past any stale window
+        naive_old = datetime.now() - timedelta(hours=24)  # noqa: DTZ005
+        active["42:implement"]["started_at"] = naive_old.isoformat()  # type: ignore[index]
+        tracker.save()
+
+        evicted = tracker.purge_stale_trace_runs(max_age_seconds=600.0)
+
+        assert (42, "implement", 1) in evicted
+        assert tracker.get_active_trace_run(42, "implement") is None
+        # The fresh second entry must survive — proves the loop did not
+        # abort partway through.
+        assert tracker.get_active_trace_run(99, "plan") == 1

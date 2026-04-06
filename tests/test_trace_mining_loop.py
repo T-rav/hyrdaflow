@@ -275,35 +275,42 @@ class TestTraceMiningLoopOrphanJanitor:
         self, tmp_path: Path
     ) -> None:
         """A crashed run whose active entry was never cleared (because the
-        process was killed) must still be discoverable as an orphan. The
-        mining loop calls purge_stale_trace_runs before computing the
-        active set, so a long-stale entry is evicted and the orphan
-        directory gets finalized on the next cycle.
+        process was killed) must still be discoverable as an orphan.
+
+        Uses a real StateTracker with a backdated active entry so that the
+        ordering guarantee — purge runs BEFORE list_active reads — is
+        actually exercised end-to-end, rather than relying on a mock
+        side-effect to model what the real method would do.
         """
+        from datetime import UTC, datetime, timedelta
+
+        from state import StateTracker
+
         config = _make_config(tmp_path)
         trace = _make_subprocess_trace()
         run_dir = _write_run(config.data_root, subprocess_trace=trace)
 
-        state = _make_mock_state()
+        state_file = tmp_path / "state.json"
+        real_state = StateTracker(state_file=state_file)
+        real_state.begin_trace_run(42, "implement")
+        # Backdate the started_at far beyond the stale window
+        # (max(2 * agent_timeout, 600))
+        active = real_state._data.trace_runs["active"]  # type: ignore[index]
+        backdated = datetime.now(UTC) - timedelta(hours=24)
+        active["42:implement"]["started_at"] = backdated.isoformat()  # type: ignore[index]
+        real_state.save()
 
-        # Simulate the purge actually clearing the active entry
-        def fake_purge(_max_age: float) -> list[tuple[int, str, int]]:
-            state.list_active_trace_runs.return_value = []
-            return [(42, "implement", 1)]
-
-        state.purge_stale_trace_runs.side_effect = fake_purge
-        # Before purge, the entry is "active"
-        state.list_active_trace_runs.return_value = [(42, "implement", 1)]
+        # Sanity: the entry exists before the loop runs
+        assert real_state.get_active_trace_run(42, "implement") == 1
 
         loop = TraceMiningLoop(
-            config=config, state=state, hindsight=None, deps=_make_loop_deps()
+            config=config, state=real_state, hindsight=None, deps=_make_loop_deps()
         )
 
         result = await loop._do_work()
 
-        # Purge was invoked
-        state.purge_stale_trace_runs.assert_called_once()
-        # And the orphan was finalized
+        # The stale entry was purged and the orphan was finalized
+        assert real_state.get_active_trace_run(42, "implement") is None
         assert (run_dir / "summary.json").exists()
         assert (run_dir / ".finalized_orphan").exists()
         assert result is not None
