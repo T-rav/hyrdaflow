@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from factory_metrics import (
     aggregate_top_skills,
@@ -33,6 +34,8 @@ if TYPE_CHECKING:
     from config import HydraFlowConfig
 
 logger = logging.getLogger("hydraflow.dashboard.diagnostics")
+
+_PHASE_PATTERN = re.compile(r"^[a-z_-]+$")
 
 
 def _safe_traces_subdir(data_root: Path, *parts: str | int) -> Path | None:
@@ -190,6 +193,8 @@ def build_diagnostics_router(config: HydraFlowConfig) -> APIRouter:
 
     @router.get("/issue/{issue}/{phase}")
     def issue_phase(issue: int, phase: str) -> list[dict[str, Any]]:
+        if not _PHASE_PATTERN.fullmatch(phase):
+            return []
         phase_dir = _safe_traces_subdir(config.data_root, issue, phase)
         if phase_dir is None or not phase_dir.is_dir():
             return []
@@ -207,15 +212,17 @@ def build_diagnostics_router(config: HydraFlowConfig) -> APIRouter:
 
     @router.get("/issue/{issue}/{phase}/{run_id}")
     def issue_phase_run(issue: int, phase: str, run_id: int) -> dict[str, Any]:
+        if not _PHASE_PATTERN.fullmatch(phase):
+            raise HTTPException(status_code=404, detail="not found")
         run_dir = _safe_traces_subdir(config.data_root, issue, phase, f"run-{run_id}")
         if run_dir is None or not run_dir.is_dir():
-            return {"error": "not found"}
+            raise HTTPException(status_code=404, detail="not found")
         summary_path = run_dir / "summary.json"
         if not summary_path.exists():
-            return {"error": "not found"}
+            raise HTTPException(status_code=404, detail="not found")
         summary = _load_json_file(summary_path)
         if summary is None:
-            return {"error": "not found"}
+            raise HTTPException(status_code=404, detail="not found")
         subprocesses: list[dict[str, Any]] = []
         for sub_path in sorted(run_dir.glob("subprocess-*.json")):
             data = _load_json_file(sub_path)

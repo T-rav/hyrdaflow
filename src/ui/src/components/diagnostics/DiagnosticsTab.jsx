@@ -19,39 +19,58 @@ export function DiagnosticsTab() {
   const [loading, setLoading] = useState(false)
   const [selectedRun, setSelectedRun] = useState(null)
 
-  const fetchAll = useCallback(async () => {
+  useEffect(() => {
+    let cancelled = false
+    const params = `?range=${encodeURIComponent(range)}`
     setLoading(true)
-    try {
-      const params = `?range=${encodeURIComponent(range)}`
-      const [ov, tl, sk, sa, cbp, ch, is] = await Promise.all([
-        fetch(`/api/diagnostics/overview${params}`).then((r) => r.json()),
-        fetch(`/api/diagnostics/tools${params}`).then((r) => r.json()),
-        fetch(`/api/diagnostics/skills${params}`).then((r) => r.json()),
-        fetch(`/api/diagnostics/subagents${params}`).then((r) => r.json()),
-        fetch(`/api/diagnostics/cost-by-phase${params}`).then((r) => r.json()),
-        fetch(`/api/diagnostics/cache${params}`).then((r) => r.json()),
-        fetch(`/api/diagnostics/issues${params}`).then((r) => r.json()),
-      ])
-      setOverview(ov)
-      setTools(tl)
-      setSkills(sk)
-      setSubagents(sa)
-      setCostByPhase(cbp)
-      setCache(ch)
-      setIssues(is)
-    } finally {
-      setLoading(false)
+    Promise.all([
+      fetch(`/api/diagnostics/overview${params}`).then((r) => r.json()),
+      fetch(`/api/diagnostics/tools${params}`).then((r) => r.json()),
+      fetch(`/api/diagnostics/skills${params}`).then((r) => r.json()),
+      fetch(`/api/diagnostics/subagents${params}`).then((r) => r.json()),
+      fetch(`/api/diagnostics/cost-by-phase${params}`).then((r) => r.json()),
+      fetch(`/api/diagnostics/cache${params}`).then((r) => r.json()),
+      fetch(`/api/diagnostics/issues${params}`).then((r) => r.json()),
+    ])
+      .then(([ov, tl, sk, sa, cbp, ch, is]) => {
+        if (cancelled) return
+        setOverview(ov)
+        setTools(tl)
+        setSkills(sk)
+        setSubagents(sa)
+        setCostByPhase(cbp)
+        setCache(ch)
+        setIssues(is)
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.error('diagnostics fetch failed', err)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
     }
   }, [range])
 
-  useEffect(() => {
-    fetchAll()
-  }, [fetchAll])
-
   const handleRowClick = useCallback(async (row) => {
     const url = `/api/diagnostics/issue/${row.issue}/${row.phase}/${row.run_id}`
-    const data = await fetch(url).then((r) => r.json())
-    setSelectedRun(data)
+    try {
+      const r = await fetch(url)
+      if (!r.ok) {
+        setSelectedRun({
+          summary: null,
+          subprocesses: [],
+          error: `Failed to load run (${r.status})`,
+        })
+        return
+      }
+      setSelectedRun(await r.json())
+    } catch (err) {
+      setSelectedRun({ summary: null, subprocesses: [], error: String(err) })
+    }
   }, [])
 
   return (

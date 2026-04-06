@@ -153,11 +153,22 @@ class TestDiagnosticsIssueDrillEndpoints:
         assert body["summary"] == {"run_id": 1}
         assert body["subprocesses"] == [{"name": "a"}]
 
-    def test_issue_phase_run_missing_returns_error(self, app: FastAPI) -> None:
+    def test_issue_phase_run_missing_returns_404(self, app: FastAPI) -> None:
         client = TestClient(app)
         response = client.get("/api/diagnostics/issue/999/implement/1")
+        assert response.status_code == 404
+
+    def test_issue_phase_rejects_non_canonical_phase(self, app: FastAPI) -> None:
+        client = TestClient(app)
+        # Uppercase / space is not in the [a-z_-]+ pattern
+        response = client.get("/api/diagnostics/issue/42/Plan%20A")
         assert response.status_code == 200
-        assert response.json() == {"error": "not found"}
+        assert response.json() == []
+
+    def test_issue_phase_run_rejects_non_canonical_phase(self, app: FastAPI) -> None:
+        client = TestClient(app)
+        response = client.get("/api/diagnostics/issue/42/Plan%20A/1")
+        assert response.status_code == 404
 
 
 class TestPathTraversalProtection:
@@ -190,9 +201,7 @@ class TestPathTraversalProtection:
     def test_phase_run_traversal_blocked_at_router_level(self, app: FastAPI) -> None:
         client = TestClient(app)
         response = client.get("/api/diagnostics/issue/42/..%2F..%2Fetc/1")
-        assert response.status_code in (200, 404)
-        if response.status_code == 200:
-            assert response.json() == {"error": "not found"}
+        assert response.status_code == 404
 
 
 class TestDiagnosticsCacheEndpoint:

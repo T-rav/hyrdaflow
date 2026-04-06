@@ -17,6 +17,14 @@ export function DrillDownPane({ runData, onClose }) {
     )
   }
 
+  if (runData.error) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.empty}>{runData.error}</div>
+      </div>
+    )
+  }
+
   const summary = runData.summary || {}
   const subprocesses = runData.subprocesses || []
 
@@ -92,14 +100,13 @@ function buildGanttOption(subprocesses) {
   const rows = []
   subprocesses.forEach((sp, idx) => {
     (sp.tool_calls || []).forEach((tc) => {
+      const start = new Date(tc.started_at)
+      if (isNaN(start.getTime())) return
+      const startMs = start.getTime()
+      const duration = Number(tc.duration_ms) || 0
       rows.push({
         name: `sub-${idx}`,
-        value: [
-          idx,
-          new Date(tc.started_at).getTime(),
-          new Date(tc.started_at).getTime() + tc.duration_ms,
-          tc.tool_name,
-        ],
+        value: [idx, startMs, startMs + duration, tc.tool_name],
         itemStyle: { color: tc.succeeded ? theme.accent : theme.red },
       })
     })
