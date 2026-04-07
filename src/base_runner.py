@@ -269,9 +269,18 @@ class BaseRunner:
             # All banks wrapped in try/except — recall failures must never
             # interrupt the pipeline.  Priority order determines prompt
             # assembly; each bank is independently capped at max_chars.
+            from recall_tracker import log_recall  # noqa: PLC0415
+
             try:
                 memories = await recall_safe(
                     self._hindsight, Bank.TRIBAL, query_context
+                )
+                log_recall(
+                    self._config,
+                    bank=str(Bank.TRIBAL),
+                    query=query_context,
+                    memories=memories,
+                    source="base_runner",
                 )
                 memory_raw = format_memories_as_markdown(memories)
                 if memory_raw:
@@ -284,6 +293,13 @@ class BaseRunner:
                 ts_memories = await recall_safe(
                     self._hindsight, Bank.TROUBLESHOOTING, query_context
                 )
+                log_recall(
+                    self._config,
+                    bank=str(Bank.TROUBLESHOOTING),
+                    query=query_context,
+                    memories=ts_memories,
+                    source="base_runner",
+                )
                 troubleshooting_raw = format_memories_as_markdown(ts_memories)
                 if troubleshooting_raw:
                     troubleshooting_raw = troubleshooting_raw[:max_chars]
@@ -294,6 +310,13 @@ class BaseRunner:
             try:
                 retro_memories = await recall_safe(
                     self._hindsight, Bank.RETROSPECTIVES, query_context
+                )
+                log_recall(
+                    self._config,
+                    bank=str(Bank.RETROSPECTIVES),
+                    query=query_context,
+                    memories=retro_memories,
+                    source="base_runner",
                 )
                 retrospectives_raw = format_memories_as_markdown(retro_memories)
                 if retrospectives_raw:
@@ -306,6 +329,13 @@ class BaseRunner:
                 ri_memories = await recall_safe(
                     self._hindsight, Bank.REVIEW_INSIGHTS, query_context
                 )
+                log_recall(
+                    self._config,
+                    bank=str(Bank.REVIEW_INSIGHTS),
+                    query=query_context,
+                    memories=ri_memories,
+                    source="base_runner",
+                )
                 review_insights_raw = format_memories_as_markdown(ri_memories)
                 if review_insights_raw:
                     review_insights_raw = review_insights_raw[:max_chars]
@@ -316,6 +346,13 @@ class BaseRunner:
             try:
                 hi_memories = await recall_safe(
                     self._hindsight, Bank.HARNESS_INSIGHTS, query_context
+                )
+                log_recall(
+                    self._config,
+                    bank=str(Bank.HARNESS_INSIGHTS),
+                    query=query_context,
+                    memories=hi_memories,
+                    source="base_runner",
                 )
                 harness_insights_raw = format_memories_as_markdown(hi_memories)
                 if harness_insights_raw:

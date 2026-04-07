@@ -724,6 +724,15 @@ class ShapePhase:
             if not hindsight:
                 return ""
             memories = await recall_safe(hindsight, Bank.TRIBAL, query, limit=5)
+            from recall_tracker import log_recall  # noqa: PLC0415
+
+            log_recall(
+                self._config,
+                bank=str(Bank.TRIBAL),
+                query=query,
+                memories=memories,
+                source="shape_phase",
+            )
             if memories:
                 return format_memories_as_markdown(memories)
         except Exception:
