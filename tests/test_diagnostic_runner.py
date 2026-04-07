@@ -174,6 +174,14 @@ class TestMaxDiagnosticAttemptsValidation:
         with pytest.raises(ValidationError, match="max_diagnostic_attempts"):
             HydraFlowConfig(max_diagnostic_attempts=-1)
 
+    def test_rejects_above_max(self) -> None:
+        from pydantic import ValidationError
+
+        from config import HydraFlowConfig
+
+        with pytest.raises(ValidationError, match="max_diagnostic_attempts"):
+            HydraFlowConfig(max_diagnostic_attempts=11)
+
     def test_accepts_valid_value(self) -> None:
         from config import HydraFlowConfig
 

@@ -480,9 +480,9 @@ class TestWorkspaceCreation:
         runner.fix.side_effect = RuntimeError("boom")
         assert ws is not None
 
-        with pytest.raises(RuntimeError, match="boom"):
-            await loop._process_issue(42, "Title", "Body")
+        outcome = await loop._process_issue(42, "Title", "Body")
 
+        assert outcome == "escalated"
         ws.destroy.assert_awaited_once_with(42)
 
     @pytest.mark.asyncio
@@ -638,3 +638,80 @@ class TestRetryEventPublishing:
         ]
         statuses = [e.data.get("status") for e in events]
         assert "retry" in statuses
+
+
+class TestEscalateToHitlErrorHandling:
+    """_escalate_to_hitl handles API errors without crashing the cycle."""
+
+    @pytest.mark.asyncio
+    async def test_post_comment_failure_still_swaps_labels(
+        self, tmp_path: Path
+    ) -> None:
+        """If post_comment fails, label swap is still attempted."""
+        loop, runner, prs, state, _ = _make_loop(tmp_path)
+        state.get_escalation_context.return_value = None
+        prs.post_comment.side_effect = RuntimeError("API down")
+
+        outcome = await loop._process_issue(42, "Title", "Body")
+
+        assert outcome == "escalated"
+        prs.swap_pipeline_labels.assert_awaited_once_with(
+            42, loop._config.hitl_label[0]
+        )
+
+    @pytest.mark.asyncio
+    async def test_label_swap_failure_in_escalation_does_not_crash(
+        self, tmp_path: Path
+    ) -> None:
+        """If swap_pipeline_labels fails during escalation, cycle continues."""
+        loop, runner, prs, state, _ = _make_loop(tmp_path)
+        state.get_escalation_context.return_value = None
+        prs.swap_pipeline_labels.side_effect = RuntimeError("API down")
+
+        outcome = await loop._process_issue(42, "Title", "Body")
+
+        assert outcome == "escalated"
+        prs.post_comment.assert_awaited_once()
+
+
+class TestRunnerCrashRecordsAttempt:
+    """When runner.fix() crashes, an attempt is still recorded."""
+
+    @pytest.mark.asyncio
+    async def test_records_failed_attempt_on_runner_crash(self, tmp_path: Path) -> None:
+        """A crash in runner.fix() records a failed AttemptRecord."""
+        loop, runner, _, state, _ = _make_loop(tmp_path)
+        runner.fix.side_effect = RuntimeError("kaboom")
+
+        await loop._process_issue(42, "Title", "Body")
+
+        state.add_diagnostic_attempt.assert_called_once()
+        record: AttemptRecord = state.add_diagnostic_attempt.call_args[0][1]
+        assert record.changes_made is False
+        assert "crashed" in record.error_summary
+
+
+class TestMultipleIssuesInCycle:
+    """_do_work correctly counts mixed outcomes across multiple issues."""
+
+    @pytest.mark.asyncio
+    async def test_mixed_outcomes_counted_correctly(self, tmp_path: Path) -> None:
+        """One fixed + one escalated gives correct counts."""
+        loop, runner, prs, state, _ = _make_loop(tmp_path)
+        prs.list_issues_by_label.return_value = [
+            {"number": 1, "title": "A", "body": "a"},
+            {"number": 2, "title": "B", "body": "b"},
+        ]
+        # First issue: fixable → fixed; second issue: not fixable → escalated
+        runner.diagnose.side_effect = [
+            _make_diagnosis(fixable=True),
+            _make_diagnosis(fixable=False),
+        ]
+        runner.fix.return_value = (True, "Fixed!")
+
+        result = await loop._do_work()
+
+        assert result is not None
+        assert result["processed"] == 2
+        assert result["fixed"] == 1
+        assert result["escalated"] == 1

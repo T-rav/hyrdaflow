@@ -220,6 +220,11 @@ class DiagnosticLoop(BaseBackgroundLoop):
             success, transcript = await self._runner.fix(
                 issue_number, issue_title, issue_body, diagnosis, str(wt_path)
             )
+        except Exception:
+            logger.exception(
+                "Diagnostic: runner.fix() crashed for issue #%d", issue_number
+            )
+            success, transcript = False, "runner.fix() crashed"
         finally:
             if self._workspaces is not None:
                 try:
@@ -291,8 +296,25 @@ class DiagnosticLoop(BaseBackgroundLoop):
 
     async def _escalate_to_hitl(self, issue_number: int, *, comment: str) -> None:
         """Post the diagnosis comment and swap labels to HITL."""
-        await self._prs.post_comment(issue_number, comment)
-        await self._prs.swap_pipeline_labels(issue_number, self._config.hitl_label[0])
+        try:
+            await self._prs.post_comment(issue_number, comment)
+        except Exception:
+            logger.warning(
+                "Diagnostic: failed to post comment for issue #%d",
+                issue_number,
+                exc_info=True,
+            )
+        try:
+            await self._prs.swap_pipeline_labels(
+                issue_number, self._config.hitl_label[0]
+            )
+        except Exception:
+            logger.warning(
+                "Diagnostic: label swap to HITL failed for issue #%d "
+                "— issue may need manual label update",
+                issue_number,
+                exc_info=True,
+            )
         await self._publish_update(issue_number, "escalated")
 
     async def _publish_update(self, issue_number: int, status: str) -> None:

@@ -697,7 +697,7 @@ class PRManager:
                 "--state",
                 "open",
                 "--json",
-                "number,title,updatedAt",
+                "number,title,body,updatedAt",
                 "--limit",
                 "100",
             )
@@ -706,6 +706,7 @@ class PRManager:
                 {
                     "number": item.get("number", 0),
                     "title": item.get("title", ""),
+                    "body": item.get("body", ""),
                     "updated_at": item.get("updatedAt", ""),
                 }
                 for item in items
