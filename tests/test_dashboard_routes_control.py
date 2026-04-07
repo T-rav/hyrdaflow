@@ -389,7 +389,7 @@ class TestBgWorkerIntervalEndpoint:
     @pytest.mark.asyncio
     async def test_interval_rejects_non_editable_worker(self, _endpoint) -> None:
         endpoint, _ = _endpoint
-        response = await endpoint({"name": "retrospective", "interval_seconds": 3600})
+        response = await endpoint({"name": "triage", "interval_seconds": 3600})
         data = json.loads(response.body)
         assert response.status_code == 400
         assert "not editable" in data["error"]

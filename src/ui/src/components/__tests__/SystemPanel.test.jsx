@@ -40,7 +40,6 @@ const mockBgWorkers = [
   { name: 'memory_sync', status: 'ok', enabled: true, last_run: new Date().toISOString(), details: { item_count: 12, digest_chars: 2400 } },
   { name: 'retrospective', status: 'error', enabled: true, last_run: '2026-02-20T10:28:00Z', details: { last_issue: 42 } },
   { name: 'health_monitor', status: 'ok', enabled: true, last_run: '2026-02-20T10:25:00Z', details: {} },
-  { name: 'review_insights', status: 'disabled', enabled: false, last_run: null, details: {} },
   { name: 'dependabot_merge', status: 'ok', enabled: false, last_run: null, details: {} },
 ]
 
@@ -140,7 +139,7 @@ describe('SystemPanel', () => {
       expect(okDot.style.background).toBe('var(--green)')
       const errDot = screen.getByTestId('dot-retrospective')
       expect(errDot.style.background).toBe('var(--red)')
-      const offDot = screen.getByTestId('dot-review_insights')
+      const offDot = screen.getByTestId('dot-dependabot_merge')
       expect(offDot.style.background).toBe('var(--red)')
     })
 
@@ -283,9 +282,9 @@ describe('SystemPanel', () => {
       const onToggle = vi.fn()
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ orchestratorStatus: 'running', backgroundWorkers: mockBgWorkers }))
       render(<SystemPanel backgroundWorkers={mockBgWorkers} onToggleBgWorker={onToggle} />)
-      const reviewInsightsCard = screen.getByTestId('worker-card-review_insights')
-      fireEvent.click(within(reviewInsightsCard).getByText('Off'))
-      expect(onToggle).toHaveBeenCalledWith('review_insights', true)
+      const dependabotCard = screen.getByTestId('worker-card-dependabot_merge')
+      fireEvent.click(within(dependabotCard).getByText('Off'))
+      expect(onToggle).toHaveBeenCalledWith('dependabot_merge', true)
     })
 
     it('non-system workers show On when orchestrator running and no state reported', () => {
@@ -311,13 +310,12 @@ describe('SystemPanel', () => {
       const onToggle = vi.fn()
       const disabledWorkers = [
         { name: 'retrospective', status: 'ok', enabled: false, last_run: null, details: {} },
-        { name: 'review_insights', status: 'ok', enabled: false, last_run: null, details: {} },
       ]
       mockUseHydraFlow.mockReturnValue(defaultMockContext({ backgroundWorkers: disabledWorkers }))
       render(<SystemPanel backgroundWorkers={disabledWorkers} onToggleBgWorker={onToggle} />)
       const offButtons = screen.getAllByText('Off')
-      // 2 explicitly disabled workers
-      expect(offButtons.length).toBe(2)
+      // 1 explicitly disabled worker (review_insights merged into retrospective)
+      expect(offButtons.length).toBe(1)
     })
   })
 
@@ -638,12 +636,12 @@ describe('BackgroundWorkerCard schedule display', () => {
     expect(screen.getByTestId('schedule-memory_sync').textContent).toMatch(/Runs every 1h/)
   })
 
-  it('does not show schedule when interval_seconds is null', () => {
+  it('does not show schedule when interval_seconds is null for non-editable worker', () => {
     const bgWorkers = [
-      { name: 'retrospective', status: 'ok', enabled: true, last_run: null, details: {} },
+      { name: 'health_monitor', status: 'ok', enabled: true, last_run: null, details: {} },
     ]
     render(<SystemPanel backgroundWorkers={bgWorkers} />)
-    expect(screen.queryByTestId('schedule-retrospective')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('schedule-health_monitor')).not.toBeInTheDocument()
   })
 
   it('shows edit link for editable workers', () => {

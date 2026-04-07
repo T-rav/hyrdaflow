@@ -175,8 +175,8 @@ describe('EDITABLE_INTERVAL_WORKERS', () => {
   })
 
   it('does not include non-editable workers', () => {
-    expect(EDITABLE_INTERVAL_WORKERS.has('retrospective')).toBe(false)
     expect(EDITABLE_INTERVAL_WORKERS.has('triage')).toBe(false)
+    expect(EDITABLE_INTERVAL_WORKERS.has('health_monitor')).toBe(false)
   })
 })
 
