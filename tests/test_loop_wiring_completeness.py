@@ -185,9 +185,7 @@ class TestIntervalBounds:
 # ---------------------------------------------------------------------------
 # Loops that are intentionally absent from loop_factories (started separately).
 # ---------------------------------------------------------------------------
-_LOOP_FACTORIES_SKIP: set[str] = {
-    "github_cache",
-}
+_LOOP_FACTORIES_SKIP: set[str] = set()
 
 
 def _parse_loop_factories() -> set[str]:

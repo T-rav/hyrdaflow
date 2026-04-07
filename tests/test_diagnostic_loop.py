@@ -113,6 +113,16 @@ class TestDiagnosticLoopDoWork:
         assert result == {"processed": 0, "fixed": 0, "escalated": 0}
 
     @pytest.mark.asyncio
+    async def test_returns_zero_counts_on_fetch_error(self, tmp_path: Path) -> None:
+        """When list_issues_by_label raises, _do_work returns zeroed stats."""
+        loop, _, prs, _, _ = _make_loop(tmp_path)
+        prs.list_issues_by_label.side_effect = RuntimeError("auth failed")
+
+        result = await loop._do_work()
+
+        assert result == {"processed": 0, "fixed": 0, "escalated": 0}
+
+    @pytest.mark.asyncio
     async def test_fetches_issues_using_diagnose_label(self, tmp_path: Path) -> None:
         """_do_work fetches issues using the first element of diagnose_label."""
         loop, _, prs, _, _ = _make_loop(tmp_path)

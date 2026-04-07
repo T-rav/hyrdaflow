@@ -88,7 +88,13 @@ class DiagnosticLoop(BaseBackgroundLoop):
 
     async def _do_work(self) -> dict[str, Any] | None:
         """Poll for diagnosed issues and run the diagnostic pipeline."""
-        issues = await self._prs.list_issues_by_label(self._config.diagnose_label[0])
+        try:
+            issues = await self._prs.list_issues_by_label(
+                self._config.diagnose_label[0]
+            )
+        except Exception:
+            logger.warning("Failed to fetch issues for diagnostic check", exc_info=True)
+            return {"processed": 0, "fixed": 0, "escalated": 0}
 
         processed = 0
         escalated = 0
