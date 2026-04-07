@@ -127,6 +127,27 @@ class TestComputeRollingAverages:
         # 2 out of 3 approved on first pass
         assert pts[0]["value"] == pytest.approx(2.0 / 3.0, rel=1e-3)
 
+    def test_first_pass_rate_excludes_reviewer_fixes(self):
+        """Approved review with reviewer_fixes_made=True should NOT count as first pass."""
+        from factory_health import compute_rolling_averages
+
+        entries = [
+            _make_entry(review_verdict="approve", reviewer_fixes_made=False),
+            _make_entry(review_verdict="approve", reviewer_fixes_made=True),
+        ]
+        result = compute_rolling_averages(entries, window_size=2)
+        pts = result["first_pass_rate"]
+        assert len(pts) == 1
+        # Only 1 of 2 is a clean first pass
+        assert pts[0]["value"] == pytest.approx(0.5, rel=1e-3)
+
+    def test_first_pass_rate_missing_verdict_excluded(self):
+        """Entries without review_verdict should be excluded (return None, not 0.0)."""
+        from factory_health import _extract_metric
+
+        entry_no_verdict = {"issue_number": 1}
+        assert _extract_metric(entry_no_verdict, "first_pass_rate") is None
+
 
 # ---------------------------------------------------------------------------
 # compute_cohorts

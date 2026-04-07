@@ -31,8 +31,11 @@ _NUMERIC_METRICS: tuple[str, ...] = (
 def _extract_metric(entry: dict[str, Any], metric: str) -> float | None:
     """Extract a numeric metric value from a retrospective entry dict."""
     if metric == "first_pass_rate":
-        verdict = entry.get("review_verdict", "")
-        return 1.0 if verdict == "approve" else 0.0
+        verdict = entry.get("review_verdict")
+        if verdict is None:
+            return None
+        fixes_made = entry.get("reviewer_fixes_made", False)
+        return 1.0 if (verdict == "approve" and not fixes_made) else 0.0
     val = entry.get(metric)
     if isinstance(val, int | float):
         return float(val)
