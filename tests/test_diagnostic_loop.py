@@ -547,14 +547,64 @@ class TestRetryWithPreviousAttempts:
 
 
 class TestLabelSwapFailure:
-    """Label swap failure after successful fix should not silently succeed."""
+    """Label swap failure after successful fix is handled gracefully."""
 
     @pytest.mark.asyncio
-    async def test_label_swap_error_propagates(self, tmp_path: Path) -> None:
-        """If swap_pipeline_labels raises after fix, the error propagates."""
+    async def test_label_swap_error_returns_fixed(self, tmp_path: Path) -> None:
+        """If swap_pipeline_labels raises after fix, outcome is still 'fixed'."""
         loop, runner, prs, _, _ = _make_loop(tmp_path)
         runner.fix.return_value = (True, "Fixed!")
         prs.swap_pipeline_labels.side_effect = RuntimeError("API error")
 
-        with pytest.raises(RuntimeError, match="API error"):
-            await loop._process_issue(42, "Title", "Body")
+        outcome = await loop._process_issue(42, "Title", "Body")
+
+        assert outcome == "fixed"
+
+    @pytest.mark.asyncio
+    async def test_label_swap_error_still_publishes_fixed_event(
+        self, tmp_path: Path
+    ) -> None:
+        """Even if label swap fails, the fixed event is published."""
+        loop, runner, prs, _, _ = _make_loop(tmp_path)
+        runner.fix.return_value = (True, "Fixed!")
+        prs.swap_pipeline_labels.side_effect = RuntimeError("API error")
+
+        await loop._process_issue(42, "Title", "Body")
+
+        events = [
+            e for e in loop._bus.get_history() if e.type == EventType.DIAGNOSTIC_UPDATE
+        ]
+        assert any(e.data.get("status") == "fixed" for e in events)
+
+
+class TestRetryEventPublishing:
+    """Verify the retry event is published when fix fails but retries remain."""
+
+    @pytest.mark.asyncio
+    async def test_publishes_retry_event_on_failed_fix_with_retries(
+        self, tmp_path: Path
+    ) -> None:
+        """A DIAGNOSTIC_UPDATE 'retry' event is published when fix fails but retries remain."""
+        loop, runner, _, state, _ = _make_loop(tmp_path)
+        runner.fix.return_value = (False, "Could not fix")
+        # No prior attempts, max is 2, so after recording 1 attempt there's still 1 left
+        state.get_diagnostic_attempts.side_effect = [
+            [],  # enrich context call
+            [],  # check limit call
+            [  # post-recording call
+                AttemptRecord(
+                    attempt_number=1,
+                    changes_made=False,
+                    error_summary="failed",
+                    timestamp="2026-01-01T00:00:00+00:00",
+                )
+            ],
+        ]
+
+        await loop._process_issue(42, "Title", "Body")
+
+        events = [
+            e for e in loop._bus.get_history() if e.type == EventType.DIAGNOSTIC_UPDATE
+        ]
+        statuses = [e.data.get("status") for e in events]
+        assert "retry" in statuses

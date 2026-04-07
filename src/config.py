@@ -509,6 +509,8 @@ class HydraFlowConfig(BaseModel):
     )
     max_diagnostic_attempts: int = Field(
         default=2,
+        ge=1,
+        le=10,
         description="Fix attempts before escalating to HITL",
     )
     epic_label: list[str] = Field(

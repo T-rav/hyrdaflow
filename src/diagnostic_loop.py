@@ -251,9 +251,17 @@ class DiagnosticLoop(BaseBackgroundLoop):
                     f"{diagnosis_comment}"
                 ),
             )
-            await self._prs.swap_pipeline_labels(
-                issue_number, self._config.review_label[0]
-            )
+            try:
+                await self._prs.swap_pipeline_labels(
+                    issue_number, self._config.review_label[0]
+                )
+            except Exception:
+                logger.warning(
+                    "Diagnostic: label swap to review failed for issue #%d "
+                    "— fix was applied but issue may need manual label update",
+                    issue_number,
+                    exc_info=True,
+                )
             await self._publish_update(issue_number, "fixed")
             return "fixed"
 
