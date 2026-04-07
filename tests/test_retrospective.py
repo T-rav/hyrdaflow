@@ -1066,3 +1066,47 @@ class TestRetrospectiveSentryBreadcrumbs:
             kw = sentry_mock.add_breadcrumb.call_args[1]
             assert kw["category"] == "retrospective.stored"
             assert kw["data"]["issue_number"] == 42
+
+
+class TestRetrospectiveQueueEnqueue:
+    """Verify record() enqueues RETRO_PATTERNS when queue is wired."""
+
+    @pytest.mark.asyncio
+    async def test_record_enqueues_retro_patterns(
+        self, config: HydraFlowConfig
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        from retrospective_queue import QueueKind
+
+        state = StateTracker(config.state_file)
+        mock_prs = AsyncMock()
+        mock_prs.get_pr_diff_names = AsyncMock(return_value=["src/foo.py"])
+        mock_queue = MagicMock()
+
+        collector = RetrospectiveCollector(config, state, mock_prs, queue=mock_queue)
+        _write_plan(config, 42, "## Files\n- src/foo.py\n")
+        review = ReviewResultFactory.create()
+
+        await collector.record(42, 101, review)
+
+        mock_queue.append.assert_called_once()
+        item = mock_queue.append.call_args[0][0]
+        assert item.kind == QueueKind.RETRO_PATTERNS
+        assert item.issue_number == 42
+
+    @pytest.mark.asyncio
+    async def test_record_falls_back_to_inline_when_no_queue(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Without a queue, record() calls _detect_patterns inline."""
+        state = StateTracker(config.state_file)
+        mock_prs = AsyncMock()
+        mock_prs.get_pr_diff_names = AsyncMock(return_value=["src/foo.py"])
+
+        collector = RetrospectiveCollector(config, state, mock_prs)
+        _write_plan(config, 42, "## Files\n- src/foo.py\n")
+        review = ReviewResultFactory.create()
+
+        # Should not raise — falls back to inline _detect_patterns
+        await collector.record(42, 101, review)
