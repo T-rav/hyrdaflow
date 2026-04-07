@@ -203,11 +203,13 @@ class TestWorkerResultMeta:
     def test_all_fields(self) -> None:
         meta: WorkerResultMeta = {
             "quality_fix_attempts": 2,
+            "pre_quality_review_attempts": 1,
             "duration_seconds": 120.5,
             "error": None,
             "commits": 3,
         }
         assert meta["quality_fix_attempts"] == 2
+        assert meta["pre_quality_review_attempts"] == 1
         assert meta["duration_seconds"] == 120.5
         assert meta["error"] is None
         assert meta["commits"] == 3

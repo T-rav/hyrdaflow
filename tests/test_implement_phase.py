@@ -986,6 +986,7 @@ class TestWorkerResultMetaPersistence:
                 success=True,
                 workspace_path=str(wt_path),
                 quality_fix_attempts=2,
+                pre_quality_review_attempts=3,
                 duration_seconds=150.5,
             )
 
@@ -997,6 +998,7 @@ class TestWorkerResultMetaPersistence:
 
         meta = phase._state.get_worker_result_meta(42)
         assert meta["quality_fix_attempts"] == 2
+        assert meta["pre_quality_review_attempts"] == 3
         assert meta["duration_seconds"] == 150.5
         assert meta["error"] is None
 

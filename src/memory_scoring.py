@@ -196,10 +196,7 @@ class MemoryScorer:
         Encapsulates the scoring rule: clean merge (no quality fixes,
         ≤1 review round) scores 1.0/success; otherwise 0.5/partial.
         """
-        if quality_fix_attempts == 0 and review_attempts <= 1:
-            outcome, score = "success", 1.0
-        else:
-            outcome, score = "partial", 0.5
+        outcome, score = classify_merge_outcome(quality_fix_attempts, review_attempts)
         context = _classify_context(tags)
         title_snippet = issue_title[:80] if issue_title else ""
         self.record_outcome(
