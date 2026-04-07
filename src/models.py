@@ -1248,6 +1248,8 @@ class SessionCounters(BaseModel):
     """Per-session completion counts, persisted to state.json."""
 
     triaged: int = 0
+    discovered: int = 0
+    shaped: int = 0
     planned: int = 0
     implemented: int = 0
     reviewed: int = 0

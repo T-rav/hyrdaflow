@@ -452,12 +452,16 @@ class TestSessionCounters:
         tracker.reset_session_counters("2026-01-01T00:00:00+00:00")
         tracker.increment_session_counter("triaged")
         tracker.increment_session_counter("triaged")
+        tracker.increment_session_counter("discovered")
+        tracker.increment_session_counter("shaped")
         tracker.increment_session_counter("planned")
         tracker.increment_session_counter("implemented")
         tracker.increment_session_counter("reviewed")
         tracker.increment_session_counter("merged")
         counters = tracker.get_session_counters()
         assert counters.triaged == 2
+        assert counters.discovered == 1
+        assert counters.shaped == 1
         assert counters.planned == 1
         assert counters.implemented == 1
         assert counters.reviewed == 1
@@ -553,10 +557,49 @@ class TestSessionCounters:
         tracker = make_tracker(tmp_path)
         throughput = tracker.compute_session_throughput()
         assert throughput["triaged"] == 0.0
+        assert throughput["discovered"] == 0.0
+        assert throughput["shaped"] == 0.0
         assert throughput["planned"] == 0.0
         assert throughput["implemented"] == 0.0
         assert throughput["reviewed"] == 0.0
         assert throughput["merged"] == 0.0
+
+    def test_increment_session_counter_discovered(self, tmp_path: Path) -> None:
+        """Incrementing 'discovered' should update only that counter."""
+        tracker = make_tracker(tmp_path)
+        tracker.reset_session_counters("2026-01-01T00:00:00+00:00")
+        tracker.increment_session_counter("discovered")
+        counters = tracker.get_session_counters()
+        assert counters.discovered == 1
+        assert counters.triaged == 0
+        assert counters.shaped == 0
+        assert counters.planned == 0
+        assert counters.implemented == 0
+        assert counters.reviewed == 0
+        assert counters.merged == 0
+
+    def test_increment_session_counter_shaped(self, tmp_path: Path) -> None:
+        """Incrementing 'shaped' should update only that counter."""
+        tracker = make_tracker(tmp_path)
+        tracker.reset_session_counters("2026-01-01T00:00:00+00:00")
+        tracker.increment_session_counter("shaped")
+        counters = tracker.get_session_counters()
+        assert counters.shaped == 1
+        assert counters.triaged == 0
+        assert counters.discovered == 0
+        assert counters.planned == 0
+        assert counters.implemented == 0
+        assert counters.reviewed == 0
+        assert counters.merged == 0
+
+    def test_compute_throughput_includes_discovered_and_shaped(
+        self, tmp_path: Path
+    ) -> None:
+        """Throughput should include discovered and shaped keys."""
+        tracker = make_tracker(tmp_path)
+        throughput = tracker.compute_session_throughput()
+        assert "discovered" in throughput
+        assert "shaped" in throughput
 
     def test_compute_throughput_very_short_session(self, tmp_path: Path) -> None:
         """Throughput with very short uptime should not divide by zero."""
