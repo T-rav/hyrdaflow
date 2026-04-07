@@ -357,14 +357,14 @@ class TestSafeFileMemorySuggestion:
                 "planner",
                 "issue #42",
                 config,
+                hindsight=None,
+                judge=None,
             )
 
     @pytest.mark.asyncio
     async def test_swallows_exception(self) -> None:
         """Should not raise when file_memory_suggestion fails."""
         config = MagicMock()
-        prs = AsyncMock()
-        state = MagicMock()
 
         with patch(
             "phase_utils.file_memory_suggestion",
@@ -373,7 +373,7 @@ class TestSafeFileMemorySuggestion:
         ) as mock_suggest:
             # Should not raise
             await safe_file_memory_suggestion(
-                "transcript", "planner", "issue #42", config, prs, state
+                "transcript", "planner", "issue #42", config
             )
         mock_suggest.assert_awaited_once()  # confirms RuntimeError was caught and swallowed
 
@@ -381,8 +381,6 @@ class TestSafeFileMemorySuggestion:
     async def test_logs_error_on_exception(self) -> None:
         """Should call logger.exception on failure."""
         config = MagicMock()
-        prs = AsyncMock()
-        state = MagicMock()
 
         with (
             patch(
@@ -393,7 +391,7 @@ class TestSafeFileMemorySuggestion:
             patch("phase_utils.logger") as mock_logger,
         ):
             await safe_file_memory_suggestion(
-                "transcript", "planner", "issue #42", config, prs, state
+                "transcript", "planner", "issue #42", config
             )
 
             mock_logger.exception.assert_called_once()
@@ -730,7 +728,12 @@ class TestMemorySuggester:
             await suggest("transcript text", "planner", "issue #42")
 
             mock_sfms.assert_awaited_once_with(
-                "transcript text", "planner", "issue #42", config
+                "transcript text",
+                "planner",
+                "issue #42",
+                config,
+                hindsight=None,
+                judge=None,
             )
 
     @pytest.mark.asyncio

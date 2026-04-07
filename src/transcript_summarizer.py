@@ -245,74 +245,13 @@ class TranscriptSummarizer:
             phase,
         )
 
-        await self._extract_and_file_memory_items(summary_content, issue_number, phase)
+        # Tribal-memory filing was removed in the tribal-memory rollout
+        # (2026-04-07). Transcript-summary bullets routinely produced
+        # implementation-detail noise below the tribal bar; the explicit
+        # tribal_recorder tool is the new way to deliberately preserve
+        # hard-won facts. See docs/superpowers/plans/2026-04-07-tribal-memory.md.
 
         return True
-
-    async def _extract_and_file_memory_items(
-        self,
-        summary_content: str,
-        issue_number: int,
-        phase: str,
-    ) -> None:
-        """Parse 'Patterns Discovered' and 'Codebase Insights' from summary_content.
-
-        For each non-trivial item (>20 chars), file a [Memory] issue with type
-        ``knowledge``.  At most 3 items are filed per transcript.
-        Never raises — failures are logged and swallowed.
-        """
-        import re  # noqa: PLC0415
-
-        try:
-            from phase_utils import safe_file_memory_suggestion  # noqa: PLC0415
-
-            _INSIGHT_SECTION_RE = re.compile(
-                r"###\s+(?:Patterns Discovered|Codebase Insights)\s*\n(.*?)(?=\n###|\Z)",
-                re.DOTALL | re.IGNORECASE,
-            )
-            _BULLET_RE = re.compile(r"^\s*[-*]\s+(.+)", re.MULTILINE)
-
-            items: list[str] = []
-            for section_match in _INSIGHT_SECTION_RE.finditer(summary_content):
-                section_body = section_match.group(1)
-                for bullet in _BULLET_RE.finditer(section_body):
-                    text = bullet.group(1).strip()
-                    if len(text) > 20:
-                        items.append(text)
-
-            filed = 0
-            for item in items:
-                if filed >= 3:
-                    break
-                pseudo_transcript = (
-                    f"MEMORY_SUGGESTION_START\n"
-                    f"title: Codebase insight from {phase} phase (issue #{issue_number})\n"
-                    f"learning: {item}\n"
-                    f"context: Extracted from transcript summary of issue #{issue_number} ({phase} phase)\n"
-                    f"type: knowledge\n"
-                    f"MEMORY_SUGGESTION_END"
-                )
-                await safe_file_memory_suggestion(
-                    pseudo_transcript,
-                    f"transcript_summarizer/{phase}",
-                    f"issue #{issue_number}",
-                    self._config,
-                )
-                filed += 1
-
-            if filed:
-                logger.info(
-                    "Filed %d memory item(s) from transcript summary for issue #%d (%s phase)",
-                    filed,
-                    issue_number,
-                    phase,
-                )
-        except Exception:
-            logger.exception(
-                "Failed to extract memory items from transcript summary for issue #%d (%s phase)",
-                issue_number,
-                phase,
-            )
 
     # --- Issue-based summaries (legacy, configurable) ---
 

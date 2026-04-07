@@ -5,7 +5,7 @@ Usage:
     PYTHONPATH=src uv run python scripts/migrate-memory-to-hindsight.py [--memory-dir PATH] [--url URL] [--dry-run]
 
 Migrates:
-  - Learning items (items/*.md) → Bank.LEARNINGS
+  - Learning items (items/*.md) → Bank.TRIBAL
   - Retrospectives (retrospectives.jsonl) → Bank.RETROSPECTIVES
   - Review insights (reviews.jsonl) → Bank.REVIEW_INSIGHTS
   - Harness failures (harness_failures.jsonl) → Bank.HARNESS_INSIGHTS
@@ -43,7 +43,7 @@ async def migrate_learnings(
             print(f"  [DRY] Would retain learning #{issue_num} ({len(content)} chars)")
         else:
             await client.retain(
-                Bank.LEARNINGS,
+                Bank.TRIBAL,
                 content,
                 context=context,
                 metadata={"issue_number": issue_num, "source": "migration"},

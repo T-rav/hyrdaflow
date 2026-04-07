@@ -277,11 +277,13 @@ class GitHubIssue(BaseModel):
 
     @field_validator("state", mode="before")
     @classmethod
-    def _normalise_state(cls, value: GitHubIssueState | str) -> GitHubIssueState | str:
-        """Allow case-insensitive GitHub API values."""
-        if isinstance(value, str):
-            return value.lower()
-        return value
+    def _normalise_state(cls, value: GitHubIssueState | str) -> str:
+        """Allow case-insensitive GitHub API values.
+
+        ``GitHubIssueState`` is a :class:`StrEnum`, so every incoming value is
+        already a ``str`` and lowercasing is safe.
+        """
+        return str(value).lower()
 
     def to_task(self) -> Task:
         """Convert to a source-agnostic :class:`Task`."""
@@ -2411,6 +2413,29 @@ class MemorySyncResult(TypedDict):
     digest_chars: int
     pruned: NotRequired[int]
     issues_closed: NotRequired[int]
+
+
+class TribalMemory(BaseModel):
+    """ADR-quality, durable knowledge worth remembering across years.
+
+    Stored in Bank.TRIBAL. Each field is required and non-empty — the
+    LLM judge (Task 3) will enforce semantic quality, this model
+    enforces structural completeness.
+    """
+
+    principle: str = Field(min_length=10, description="The durable rule or invariant")
+    rationale: str = Field(
+        min_length=10,
+        description="Why — historical incident, design constraint, or hard-won lesson",
+    )
+    failure_mode: str = Field(
+        min_length=10, description="What breaks if this is ignored"
+    )
+    scope: str = Field(min_length=1, description="Subsystem, file glob, or 'all'")
+    schema_version: int = Field(default=1)
+    id: str = Field(default="")
+    source: str = Field(default="")
+    created_at: str = Field(default="")
 
 
 class UnstickResult(TypedDict):

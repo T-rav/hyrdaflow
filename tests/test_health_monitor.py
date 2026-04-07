@@ -1190,14 +1190,21 @@ class TestHarnessSuggestionIngestion:
             raw = suggestions_path.read_text(encoding="utf-8").strip().splitlines()
             for line in raw:
                 rec_parsed = _json.loads(line)
+                principle = rec_parsed.get("suggestion", rec_parsed.get("title", ""))
+                rationale = (
+                    f"Detected from {rec_parsed.get('occurrences', 0)} pipeline"
+                    f" failures in category {rec_parsed.get('category', 'unknown')}"
+                )
+                failure_mode = (
+                    f"Pipeline failure pattern: {rec_parsed.get('title', 'Unknown')}"
+                )
                 transcript = (
-                    f"MEMORY_SUGGESTION_START\n"
-                    f"title: Harness insight: {rec_parsed.get('title', 'Unknown')}\n"
-                    f"type: instruction\n"
-                    f"learning: {rec_parsed.get('suggestion', rec_parsed.get('title', ''))}\n"
-                    f"context: Detected from {rec_parsed.get('occurrences', 0)} pipeline"
-                    f" failures in category {rec_parsed.get('category', 'unknown')}\n"
-                    f"MEMORY_SUGGESTION_END"
+                    "MEMORY_SUGGESTION_START\n"
+                    f"principle: {principle}\n"
+                    f"rationale: {rationale}\n"
+                    f"failure_mode: {failure_mode}\n"
+                    "scope: hydraflow\n"
+                    "MEMORY_SUGGESTION_END"
                 )
                 await _fake_file_memory(
                     transcript, "harness_insight", "health_monitor", loop._config
@@ -1208,8 +1215,10 @@ class TestHarnessSuggestionIngestion:
         item = filed_items[0]
         assert item["source"] == "harness_insight"
         assert item["reference"] == "health_monitor"
-        assert "Flaky test in CI" in item["title"]
-        assert item["learning"] == "Increase test timeout to prevent spurious failures."
+        assert (
+            item["principle"] == "Increase test timeout to prevent spurious failures."
+        )
+        assert "Flaky test in CI" in item["failure_mode"]
         # File should be cleared after ingestion
         assert suggestions_path.read_text(encoding="utf-8") == ""
 

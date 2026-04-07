@@ -30,6 +30,8 @@ from transcript_summarizer import TranscriptSummarizer
 if TYPE_CHECKING:
     from beads_manager import BeadsManager
     from epic import EpicManager
+    from hindsight import HindsightClient
+    from memory_judge import MemoryJudge  # noqa: TCH004
     from ports import IssueStorePort, PRPort
     from repo_wiki import RepoWikiStore  # noqa: TCH004
     from wiki_compiler import WikiCompiler  # noqa: TCH004
@@ -59,6 +61,8 @@ class PlanPhase:
         beads_manager: BeadsManager | None = None,
         wiki_store: RepoWikiStore | None = None,
         wiki_compiler: WikiCompiler | None = None,
+        hindsight: HindsightClient | None = None,
+        judge: MemoryJudge | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -75,7 +79,7 @@ class PlanPhase:
         self._beads_manager = beads_manager
         self._wiki_store = wiki_store
         self._wiki_compiler = wiki_compiler
-        self._suggest_memory = MemorySuggester(config, prs, state)
+        self._suggest_memory = MemorySuggester(config, hindsight=hindsight, judge=judge)
         self._escalator = PipelineEscalator(
             state,
             prs,

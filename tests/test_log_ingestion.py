@@ -464,22 +464,19 @@ class TestFileLogPatterns:
         )
 
     @pytest.mark.asyncio
-    async def test_files_novel_pattern(self) -> None:
-        """Novel patterns are written to local JSONL via file_memory_suggestion."""
-        from unittest.mock import AsyncMock as _AsyncMock
-        from unittest.mock import patch
+    async def test_tracks_novel_pattern_for_dedup(self) -> None:
+        """Novel patterns are recorded in known_patterns for dedup.
 
+        Tribal-memory filing was removed in the tribal-memory rollout
+        (2026-04-07); novel log patterns no longer call file_memory_suggestion
+        but are still tracked so the same pattern is not re-detected forever.
+        """
         config = _make_config()
         known: dict[str, KnownLogPattern] = {}
         pattern = self._make_pattern()
 
-        mock_file_mem = _AsyncMock()
-        with patch("memory.file_memory_suggestion", mock_file_mem):
-            result = await file_log_patterns([pattern], known, config)
+        result = await file_log_patterns([pattern], known, config)
 
-        mock_file_mem.assert_called_once()
-        _source = mock_file_mem.call_args[0][1]
-        assert _source == "log_ingestion"
         assert result.filed == 1
         assert result.escalated == 0
         assert result.total_patterns == 1
@@ -551,41 +548,11 @@ class TestFileLogPatterns:
         await file_log_patterns([pattern], known, config)
         assert known[key].last_count == 8
 
-    @pytest.mark.asyncio
-    async def test_handles_memory_filing_failure_gracefully(self) -> None:
-        """When file_memory_suggestion raises, novel pattern is not persisted."""
-        from unittest.mock import patch
-
-        config = _make_config()
-        known: dict[str, KnownLogPattern] = {}
-        pattern = self._make_pattern()
-
-        with patch(
-            "memory.file_memory_suggestion",
-            side_effect=RuntimeError("disk full"),
-        ):
-            result = await file_log_patterns([pattern], known, config)
-
-        assert result.filed == 0
-        assert known == {}
-
-    @pytest.mark.asyncio
-    async def test_novel_pattern_filed_without_prs(self) -> None:
-        """Novel patterns are filed to JSONL — no prs needed."""
-        from unittest.mock import AsyncMock as _AsyncMock
-        from unittest.mock import patch
-
-        config = _make_config()
-        known: dict[str, KnownLogPattern] = {}
-        pattern = self._make_pattern()
-
-        mock_file_mem = _AsyncMock()
-        with patch("memory.file_memory_suggestion", mock_file_mem):
-            result = await file_log_patterns([pattern], known, config)
-
-        mock_file_mem.assert_called_once()
-        assert result.filed == 1
-        assert "hydraflow.test:Score failed for item <N>" in known
+    # Note: test_handles_memory_filing_failure_gracefully and
+    # test_novel_pattern_filed_without_prs were removed in the tribal-memory
+    # rollout (2026-04-07) — file_log_patterns no longer calls file_memory_suggestion,
+    # so there is no filing failure path to test. Dedup tracking is covered by
+    # test_tracks_novel_pattern_for_dedup above.
 
     @pytest.mark.asyncio
     async def test_total_patterns_always_set(self) -> None:

@@ -32,10 +32,10 @@ async def test_audit_bank_calls_reflect(
     auditor: MemoryAuditor, mock_client: AsyncMock
 ) -> None:
     """audit_bank calls reflect with the correct bank and query."""
-    result = await auditor.audit_bank(Bank.LEARNINGS)
+    result = await auditor.audit_bank(Bank.TRIBAL)
 
-    mock_client.reflect.assert_awaited_once_with(Bank.LEARNINGS, _AUDIT_PROMPT)
-    assert result["bank"] == str(Bank.LEARNINGS)
+    mock_client.reflect.assert_awaited_once_with(Bank.TRIBAL, _AUDIT_PROMPT)
+    assert result["bank"] == str(Bank.TRIBAL)
     assert result["reflection"] == "reflection text"
     assert "timestamp" in result
 

@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections.abc import Callable, Coroutine, Generator
 from contextlib import asynccontextmanager, contextmanager
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 # ADR utilities — canonical home is ``adr_utils``; re-exported here for
 # backward compatibility so existing consumers don't break.
@@ -21,6 +21,10 @@ from adr_utils import (  # noqa: F401
 )
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+
+if TYPE_CHECKING:
+    from hindsight import HindsightClient
+    from memory_judge import MemoryJudge  # noqa: TCH004
 
 # Exception classification — canonical definitions live in
 # ``exception_classify`` (cross-cutting); re-exported here for backward
@@ -247,8 +251,9 @@ async def safe_file_memory_suggestion(
     source: str,
     reference: str,
     config: HydraFlowConfig,
-    prs: PRPort | None = None,  # deprecated, ignored
-    state: StateTracker | None = None,  # deprecated, ignored
+    *,
+    hindsight: HindsightClient | None = None,
+    judge: MemoryJudge | None = None,
 ) -> None:
     """File a memory suggestion, swallowing and logging exceptions."""
     try:
@@ -257,6 +262,8 @@ async def safe_file_memory_suggestion(
             source,
             reference,
             config,
+            hindsight=hindsight,
+            judge=judge,
         )
     except Exception:
         logger.exception(
@@ -398,30 +405,37 @@ async def run_with_fatal_guard(
 class MemorySuggester:
     """Pre-bound callable for :func:`safe_file_memory_suggestion`.
 
-    Stores the config so call sites only need to pass
-    ``(transcript, source, reference)``.  The ``prs`` and ``state``
-    parameters are accepted for backward compatibility but ignored.
+    Stores config + hindsight client + judge so call sites only need to pass
+    (transcript, source, reference).
 
     Usage::
 
-        suggest = MemorySuggester(config, prs, state)
+        suggest = MemorySuggester(config, hindsight=hindsight_client, judge=judge)
         await suggest(transcript, "planner", f"issue #{issue.id}")
     """
 
-    __slots__ = ("_config", "_prs", "_state")
+    __slots__ = ("_config", "_hindsight", "_judge")
 
     def __init__(
         self,
         config: HydraFlowConfig,
-        prs: PRPort | None = None,
-        state: StateTracker | None = None,
+        *,
+        hindsight: HindsightClient | None = None,
+        judge: MemoryJudge | None = None,
     ) -> None:
         self._config = config
-        self._prs = prs
-        self._state = state
+        self._hindsight = hindsight
+        self._judge = judge
 
     async def __call__(self, transcript: str, source: str, reference: str) -> None:
-        await safe_file_memory_suggestion(transcript, source, reference, self._config)
+        await safe_file_memory_suggestion(
+            transcript,
+            source,
+            reference,
+            self._config,
+            hindsight=self._hindsight,
+            judge=self._judge,
+        )
 
 
 class PipelineEscalator:

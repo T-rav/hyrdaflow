@@ -291,30 +291,6 @@ class LogIngestionResult(BaseModel):
     total_patterns: int = 0
 
 
-def _build_log_memory_body(pattern: LogPattern) -> str:
-    """Format memory suggestion body text for a novel log pattern."""
-    samples = "\n".join(f"- `{m}`" for m in pattern.sample_messages)
-    affected = pattern.sample_issues if pattern.sample_issues else "N/A"
-    body = (
-        f"**Type:** instruction\n"
-        f"**Learning:** Recurring {pattern.level} in `{pattern.source_module}`: "
-        f"{pattern.fingerprint}\n\n"
-        f"**Context:** Detected {pattern.count} occurrences between "
-        f"{pattern.first_seen} and {pattern.last_seen}.\n\n"
-        f"**Sample messages:**\n"
-        f"{samples}\n\n"
-        f"**Affected issues:** {affected}\n\n"
-    )
-    if pattern.phase_context:
-        body += "**Phase context:**\n"
-        body += "\n".join(f"- {ctx}" for ctx in pattern.phase_context)
-        body += "\n\n"
-    body += (
-        "**Action needed:** Investigate root cause and add handling or prevention.\n"
-    )
-    return body
-
-
 def _build_escalation_body(
     pattern: LogPattern,
     known: KnownLogPattern,
@@ -384,16 +360,18 @@ async def file_log_patterns(
     known_patterns: dict[str, KnownLogPattern],
     config: HydraFlowConfig,
 ) -> LogIngestionResult:
-    """File novel patterns as memory items; escalate patterns with 3x frequency increase.
+    """Track novel log patterns for dedup and escalate frequency spikes.
 
     Mutates *known_patterns* in-place — callers must persist it afterwards via
-    :func:`save_known_patterns`.
+    :func:`save_known_patterns`. Escalating patterns (3x frequency increase) are
+    written to ``hitl_recommendations.jsonl``.
 
-    Novel patterns are written directly to local JSONL via :func:`file_memory_suggestion`.
-    Escalating patterns are written to ``hitl_recommendations.jsonl``.
+    Tribal-memory filing was removed in the tribal-memory rollout (2026-04-07).
+    Novel log patterns are noise below the tribal bar; this function now only
+    maintains the dedup state and Sentry breadcrumbs. Use the explicit
+    tribal_recorder tool to deliberately preserve hard-won facts. See
+    docs/superpowers/plans/2026-04-07-tribal-memory.md.
     """
-    from memory import file_memory_suggestion  # noqa: PLC0415
-
     filed = 0
     escalated = 0
 
@@ -401,46 +379,16 @@ async def file_log_patterns(
         key = f"{pattern.source_module}:{pattern.fingerprint}"
 
         if key not in known_patterns:
-            # Novel pattern — write to local JSONL memory store
-            title = f"Log pattern: {pattern.fingerprint[:60]}"
-            learning = (
-                f"Recurring {pattern.level} in `{pattern.source_module}`: "
-                f"{pattern.fingerprint}"
+            # Novel pattern — record for dedup but do NOT file as tribal memory.
+            known_patterns[key] = KnownLogPattern(
+                fingerprint=pattern.fingerprint,
+                source_module=pattern.source_module,
+                filed_at=datetime.now(UTC).isoformat(),
+                issue_number=0,
+                last_count=pattern.count,
+                filed_count=pattern.count,
             )
-            context = (
-                f"Detected {pattern.count} occurrences between "
-                f"{pattern.first_seen} and {pattern.last_seen}. "
-                f"Sample: {pattern.sample_messages[0] if pattern.sample_messages else ''}"
-            )
-            pseudo_transcript = (
-                f"MEMORY_SUGGESTION_START\n"
-                f"title: {title}\n"
-                f"learning: {learning}\n"
-                f"context: {context}\n"
-                f"type: instruction\n"
-                f"MEMORY_SUGGESTION_END"
-            )
-            try:
-                await file_memory_suggestion(
-                    pseudo_transcript,
-                    "log_ingestion",
-                    f"{pattern.source_module}:{pattern.fingerprint}",
-                    config,
-                )
-                known_patterns[key] = KnownLogPattern(
-                    fingerprint=pattern.fingerprint,
-                    source_module=pattern.source_module,
-                    filed_at=datetime.now(UTC).isoformat(),
-                    issue_number=0,
-                    last_count=pattern.count,
-                    filed_count=pattern.count,
-                )
-                filed += 1
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    "Failed to file memory item for pattern: %s",
-                    pattern.fingerprint,
-                )
+            filed += 1
 
             try:
                 import sentry_sdk  # noqa: PLC0415

@@ -20,6 +20,8 @@ from state import StateTracker
 from subprocess_util import AuthenticationError, CreditExhaustedError
 
 if TYPE_CHECKING:
+    from hindsight import HindsightClient
+    from memory_judge import MemoryJudge  # noqa: TCH004
     from ports import IssueFetcherPort, IssueStorePort, PRPort, WorkspacePort
 
 logger = logging.getLogger("hydraflow.hitl_phase")
@@ -47,6 +49,8 @@ class HITLPhase:
         event_bus: EventBus,
         stop_event: asyncio.Event,
         active_issues_cb: Callable[[], None] | None = None,
+        hindsight: HindsightClient | None = None,
+        judge: MemoryJudge | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -58,7 +62,7 @@ class HITLPhase:
         self._bus = event_bus
         self._stop_event = stop_event
         self._active_issues_cb = active_issues_cb
-        self._suggest_memory = MemorySuggester(config, prs, state)
+        self._suggest_memory = MemorySuggester(config, hindsight=hindsight, judge=judge)
         # HITL corrections: {issue_number: correction_text}
         self._hitl_corrections: dict[int, str] = {}
         # In-memory tracking of active HITL issues
@@ -232,18 +236,18 @@ class HITLPhase:
                         # Auto-file a [Memory] lesson so the pipeline learns
                         # from this human correction (type: instruction — highest trust).
                         try:
-                            lesson_title = f"HITL lesson: {issue.title[:60]}"
-                            lesson_learning = (
+                            lesson_principle = (
                                 f"Human correction applied for issue #{issue_number}. "
                                 f"Correction: {correction[:300]}"
                             )
-                            lesson_context = f"Escalation cause: {cause}"
+                            lesson_rationale = f"Escalation cause: {cause}"
+                            lesson_failure_mode = f"Pipeline needed human intervention: {issue.title[:60]}"
                             lesson_transcript = (
                                 "MEMORY_SUGGESTION_START\n"
-                                f"title: {lesson_title}\n"
-                                f"learning: {lesson_learning}\n"
-                                f"context: {lesson_context}\n"
-                                "type: instruction\n"
+                                f"principle: {lesson_principle}\n"
+                                f"rationale: {lesson_rationale}\n"
+                                f"failure_mode: {lesson_failure_mode}\n"
+                                "scope: hydraflow\n"
                                 "MEMORY_SUGGESTION_END"
                             )
                             from phase_utils import (  # noqa: PLC0415

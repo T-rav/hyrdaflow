@@ -9,14 +9,14 @@ class TestBank:
     """Bank enum tests."""
 
     def test_bank_values(self) -> None:
-        assert Bank.LEARNINGS == "hydraflow-learnings"
+        assert Bank.TRIBAL == "hydraflow-tribal"
         assert Bank.RETROSPECTIVES == "hydraflow-retrospectives"
         assert Bank.REVIEW_INSIGHTS == "hydraflow-review-insights"
         assert Bank.HARNESS_INSIGHTS == "hydraflow-harness-insights"
         assert Bank.TROUBLESHOOTING == "hydraflow-troubleshooting"
 
     def test_bank_is_str(self) -> None:
-        assert isinstance(Bank.LEARNINGS, str)
+        assert isinstance(Bank.TRIBAL, str)
 
 
 class TestHindsightMemory:

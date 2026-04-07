@@ -387,19 +387,21 @@ class RetrospectiveCollector:
         from memory import file_memory_suggestion  # noqa: PLC0415
 
         clean_title = title.removeprefix("[Memory] ").strip()
+        # Map retrospective pattern → tribal-memory schema fields.
         pseudo_transcript = (
-            f"MEMORY_SUGGESTION_START\n"
-            f"title: {clean_title}\n"
-            f"learning: {body}\n"
-            f"context: Auto-detected by HydraFlow Retrospective\n"
-            f"type: knowledge\n"
-            f"MEMORY_SUGGESTION_END"
+            "MEMORY_SUGGESTION_START\n"
+            f"principle: {clean_title}\n"
+            f"rationale: {body}\n"
+            "failure_mode: Auto-detected regression pattern during retrospective\n"
+            "scope: hydraflow\n"
+            "MEMORY_SUGGESTION_END"
         )
         await file_memory_suggestion(
             pseudo_transcript,
             "retrospective",
             clean_title,
             self._config,
+            hindsight=self._hindsight,
         )
 
     def _load_filed_patterns(self) -> set[str]:
