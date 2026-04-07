@@ -285,12 +285,12 @@ class TranscriptSummarizer:
                 if filed >= 3:
                     break
                 pseudo_transcript = (
-                    f"MEMORY_SUGGESTION_START\n"
-                    f"title: Codebase insight from {phase} phase (issue #{issue_number})\n"
-                    f"learning: {item}\n"
-                    f"context: Extracted from transcript summary of issue #{issue_number} ({phase} phase)\n"
-                    f"type: knowledge\n"
-                    f"MEMORY_SUGGESTION_END"
+                    "MEMORY_SUGGESTION_START\n"
+                    f"principle: {item}\n"
+                    f"rationale: Extracted from transcript summary of issue #{issue_number} ({phase} phase)\n"
+                    f"failure_mode: Without capturing this insight, the {phase} phase would repeat the discovery\n"
+                    f"scope: hydraflow/{phase}\n"
+                    "MEMORY_SUGGESTION_END"
                 )
                 await safe_file_memory_suggestion(
                     pseudo_transcript,

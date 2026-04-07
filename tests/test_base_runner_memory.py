@@ -32,7 +32,7 @@ async def test_review_insights_recalled(base_runner):
     from hindsight import Bank
 
     memories = {
-        Bank.LEARNINGS: [_make_memory("learning-1")],
+        Bank.TRIBAL: [_make_memory("learning-1")],
         Bank.TROUBLESHOOTING: [],
         Bank.RETROSPECTIVES: [],
         Bank.REVIEW_INSIGHTS: [_make_memory("missing tests flagged 5 times")],
@@ -57,7 +57,7 @@ async def test_harness_insights_recalled(base_runner):
     from hindsight import Bank
 
     memories = {
-        Bank.LEARNINGS: [],
+        Bank.TRIBAL: [],
         Bank.TROUBLESHOOTING: [],
         Bank.RETROSPECTIVES: [],
         Bank.REVIEW_INSIGHTS: [],

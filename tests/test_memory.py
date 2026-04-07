@@ -23,28 +23,38 @@ from tests.helpers import ConfigFactory
 # --- parse_memory_suggestion tests ---
 
 
+def _tribal_block(
+    principle: str = "Always run make lint before make test",
+    rationale: str = "lint auto-fixes formatting; running tests first wastes time",
+    failure_mode: str = "formatting errors surface after a long test run",
+    scope: str = "hydraflow",
+) -> str:
+    return (
+        "MEMORY_SUGGESTION_START\n"
+        f"principle: {principle}\n"
+        f"rationale: {rationale}\n"
+        f"failure_mode: {failure_mode}\n"
+        f"scope: {scope}\n"
+        "MEMORY_SUGGESTION_END\n"
+    )
+
+
 class TestParseMemorySuggestion:
     """Tests for parsing MEMORY_SUGGESTION blocks from transcripts."""
 
-    def test_valid_block_extracts_title_and_learning(self) -> None:
-        transcript = (
-            "Some output here\n"
-            "MEMORY_SUGGESTION_START\n"
-            "title: Always run make lint before make test\n"
-            "learning: Running make lint first catches formatting issues.\n"
-            "context: Discovered during implementation of issue #42.\n"
-            "MEMORY_SUGGESTION_END\n"
-            "More output"
-        )
+    def test_valid_block_extracts_tribal_fields(self) -> None:
+        transcript = "Some output here\n" + _tribal_block() + "More output"
         result = parse_memory_suggestion(transcript)
         assert result is not None
-        assert result["title"] == "Always run make lint before make test"
+        assert result["principle"] == "Always run make lint before make test"
         assert (
-            result["learning"] == "Running make lint first catches formatting issues."
+            result["rationale"]
+            == "lint auto-fixes formatting; running tests first wastes time"
         )
-        assert result["context"] == "Discovered during implementation of issue #42."
-        # Default type when missing
-        assert result["type"] == "knowledge"
+        assert (
+            result["failure_mode"] == "formatting errors surface after a long test run"
+        )
+        assert result["scope"] == "hydraflow"
 
     def test_no_block_returns_none(self) -> None:
         transcript = "Just regular output with no suggestion"
@@ -52,37 +62,52 @@ class TestParseMemorySuggestion:
         assert result is None
 
     def test_multiple_blocks_returns_first(self) -> None:
-        transcript = (
-            "MEMORY_SUGGESTION_START\n"
-            "title: First suggestion\n"
-            "learning: First learning\n"
-            "context: First context\n"
-            "MEMORY_SUGGESTION_END\n"
-            "MEMORY_SUGGESTION_START\n"
-            "title: Second suggestion\n"
-            "learning: Second learning\n"
-            "context: Second context\n"
-            "MEMORY_SUGGESTION_END\n"
+        transcript = _tribal_block(principle="First principle") + _tribal_block(
+            principle="Second principle"
         )
         result = parse_memory_suggestion(transcript)
         assert result is not None
-        assert result["title"] == "First suggestion"
+        assert result["principle"] == "First principle"
 
-    def test_missing_title_returns_none(self) -> None:
+    def test_missing_principle_returns_none(self) -> None:
         transcript = (
             "MEMORY_SUGGESTION_START\n"
-            "learning: Some learning\n"
-            "context: Some context\n"
+            "rationale: some rationale\n"
+            "failure_mode: some failure\n"
+            "scope: hydraflow\n"
             "MEMORY_SUGGESTION_END\n"
         )
         result = parse_memory_suggestion(transcript)
         assert result is None
 
-    def test_missing_learning_returns_none(self) -> None:
+    def test_missing_rationale_returns_none(self) -> None:
         transcript = (
             "MEMORY_SUGGESTION_START\n"
-            "title: Some title\n"
-            "context: Some context\n"
+            "principle: some principle\n"
+            "failure_mode: some failure\n"
+            "scope: hydraflow\n"
+            "MEMORY_SUGGESTION_END\n"
+        )
+        result = parse_memory_suggestion(transcript)
+        assert result is None
+
+    def test_missing_failure_mode_returns_none(self) -> None:
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            "principle: some principle\n"
+            "rationale: some rationale\n"
+            "scope: hydraflow\n"
+            "MEMORY_SUGGESTION_END\n"
+        )
+        result = parse_memory_suggestion(transcript)
+        assert result is None
+
+    def test_missing_scope_returns_none(self) -> None:
+        transcript = (
+            "MEMORY_SUGGESTION_START\n"
+            "principle: some principle\n"
+            "rationale: some rationale\n"
+            "failure_mode: some failure\n"
             "MEMORY_SUGGESTION_END\n"
         )
         result = parse_memory_suggestion(transcript)
@@ -91,25 +116,25 @@ class TestParseMemorySuggestion:
     def test_empty_fields_returns_none(self) -> None:
         transcript = (
             "MEMORY_SUGGESTION_START\n"
-            "title: \n"
-            "learning: \n"
-            "context: \n"
+            "principle: \n"
+            "rationale: \n"
+            "failure_mode: \n"
+            "scope: \n"
             "MEMORY_SUGGESTION_END\n"
         )
         result = parse_memory_suggestion(transcript)
         assert result is None
 
-    def test_empty_context_still_valid(self) -> None:
+    def test_legacy_format_returns_none(self) -> None:
+        """Old title/learning/context blocks are dropped at the parser."""
         transcript = (
             "MEMORY_SUGGESTION_START\n"
-            "title: Some title\n"
-            "learning: Some learning\n"
-            "context: \n"
+            "title: legacy title\n"
+            "learning: legacy learning\n"
+            "context: legacy context\n"
             "MEMORY_SUGGESTION_END\n"
         )
-        result = parse_memory_suggestion(transcript)
-        assert result is not None
-        assert result["context"] == ""
+        assert parse_memory_suggestion(transcript) is None
 
 
 # --- Memory type parsing tests ---
@@ -136,34 +161,10 @@ def test_parse_memory_type(raw: str, expected: MemoryType) -> None:
     assert _parse_memory_type(raw) == expected
 
 
-def _make_suggestion_transcript(type_line: str | None) -> str:
-    lines = ["MEMORY_SUGGESTION_START", "title: Test"]
-    if type_line is not None:
-        lines.append(type_line)
-    lines += ["learning: A learning", "context: ctx", "MEMORY_SUGGESTION_END", ""]
-    return "\n".join(lines)
-
-
-@pytest.mark.parametrize(
-    ("type_line", "expected_type"),
-    [
-        ("type: knowledge", "knowledge"),
-        ("type: config", "config"),
-        ("type: instruction", "instruction"),
-        ("type: code", "code"),
-        (None, "knowledge"),
-        ("type: banana", "knowledge"),
-        ("type: ", "knowledge"),
-    ],
-)
-def test_parse_memory_suggestion_type(
-    type_line: str | None, expected_type: str
-) -> None:
-    """parse_memory_suggestion resolves the type field to the expected value."""
-    transcript = _make_suggestion_transcript(type_line)
-    result = parse_memory_suggestion(transcript)
-    assert result is not None
-    assert result["type"] == expected_type
+# Note: the tribal schema has no ``type:`` field — memory type classification
+# was removed when the MEMORY_SUGGESTION format collapsed to
+# principle/rationale/failure_mode/scope. ``_parse_memory_type`` remains for
+# legacy issue-body parsing only (see TestExtractMemoryType below).
 
 
 class TestMemoryTypeEnum:
@@ -308,22 +309,22 @@ class TestMemorySyncWorkerSync:
         items = [
             {
                 "id": "mem-aaa",
-                "title": "Test learning",
-                "learning": "Always test first",
-                "context": "Found in testing",
-                "memory_type": "knowledge",
+                "principle": "Always test first",
+                "rationale": "Found in testing",
+                "failure_mode": "Missing failure mode captured from legacy item Test learning",
+                "scope": "hydraflow",
+                "schema_version": 1,
                 "source": "implementer",
-                "reference": "#10",
                 "created_at": "2024-06-01T00:00:00Z",
             },
             {
                 "id": "mem-bbb",
-                "title": "Another learning",
-                "learning": "Use type hints",
-                "context": "Code review",
-                "memory_type": "knowledge",
+                "principle": "Use type hints",
+                "rationale": "Code review",
+                "failure_mode": "Missing failure mode captured from legacy item Another learning",
+                "scope": "hydraflow",
+                "schema_version": 1,
                 "source": "reviewer",
-                "reference": "#20",
                 "created_at": "2024-05-01T00:00:00Z",
             },
         ]
@@ -354,22 +355,22 @@ class TestMemorySyncWorkerSync:
         items = [
             {
                 "id": "mem-aaa",
-                "title": "Item A",
-                "learning": "First learning",
-                "context": "",
-                "memory_type": "knowledge",
+                "principle": "First learning",
+                "rationale": "Legacy memory item (context absent)",
+                "failure_mode": "Missing failure mode captured from legacy item Item A",
+                "scope": "hydraflow",
+                "schema_version": 1,
                 "source": "implementer",
-                "reference": "#10",
                 "created_at": "2024-06-01T00:00:00Z",
             },
             {
                 "id": "mem-bbb",
-                "title": "Item B",
-                "learning": "Second learning",
-                "context": "",
-                "memory_type": "knowledge",
+                "principle": "Second learning",
+                "rationale": "Legacy memory item (context absent)",
+                "failure_mode": "Missing failure mode captured from legacy item Item B",
+                "scope": "hydraflow",
+                "schema_version": 1,
                 "source": "implementer",
-                "reference": "#20",
                 "created_at": "2024-05-01T00:00:00Z",
             },
         ]
@@ -397,12 +398,12 @@ class TestMemorySyncWorkerSync:
 
         item_a = {
             "id": "mem-aaa",
-            "title": "Old item",
-            "learning": "Old thing",
-            "context": "",
-            "memory_type": "knowledge",
+            "principle": "Old thing",
+            "rationale": "Legacy memory item (context absent)",
+            "failure_mode": "Missing failure mode captured from legacy item Old item",
+            "scope": "hydraflow",
+            "schema_version": 1,
             "source": "implementer",
-            "reference": "#10",
             "created_at": "2024-05-01T00:00:00Z",
         }
         with items_path.open("w") as f:
@@ -415,12 +416,12 @@ class TestMemorySyncWorkerSync:
         # Add a second item and sync again
         item_b = {
             "id": "mem-bbb",
-            "title": "New item",
-            "learning": "New thing",
-            "context": "",
-            "memory_type": "knowledge",
+            "principle": "New thing",
+            "rationale": "Legacy memory item (context absent)",
+            "failure_mode": "Missing failure mode captured from legacy item New item",
+            "scope": "hydraflow",
+            "schema_version": 1,
             "source": "implementer",
-            "reference": "#30",
             "created_at": "2024-06-01T00:00:00Z",
         }
         with items_path.open("a") as f:
@@ -444,12 +445,12 @@ class TestMemorySyncWorkerSync:
         items_path.parent.mkdir(parents=True, exist_ok=True)
         item = {
             "id": "mem-abc12345",
-            "title": "T",
-            "learning": "Something",
-            "context": "",
-            "memory_type": "knowledge",
+            "principle": "Something",
+            "rationale": "Legacy memory item (context absent)",
+            "failure_mode": "Missing failure mode captured from legacy item T",
+            "scope": "hydraflow",
+            "schema_version": 1,
             "source": "implementer",
-            "reference": "#5",
             "created_at": "2024-06-01T00:00:00Z",
         }
         with items_path.open("w") as f:
@@ -478,12 +479,12 @@ class TestMemorySyncWorkerSync:
         items_path.parent.mkdir(parents=True, exist_ok=True)
         item = {
             "id": "mem-arch01",
-            "title": "Shift to event-driven architecture",
-            "learning": "We shifted service boundaries and queue topology.",
-            "context": "Runtime scaling bottleneck.",
-            "memory_type": "knowledge",
+            "principle": "We shifted service boundaries and queue topology.",
+            "rationale": "Runtime scaling bottleneck.",
+            "failure_mode": "Missing failure mode captured from legacy item Shift to event-driven architecture",
+            "scope": "hydraflow",
+            "schema_version": 1,
             "source": "implementer",
-            "reference": "#5",
             "created_at": "2024-06-01T00:00:00Z",
         }
         with items_path.open("w") as f:
@@ -518,12 +519,12 @@ class TestMemorySyncWorkerSync:
         items_path.parent.mkdir(parents=True, exist_ok=True)
         item = {
             "id": "mem-arch05",
-            "title": "Architecture update",
-            "learning": "Architecture decision changed worker topology.",
-            "context": "",
-            "memory_type": "knowledge",
+            "principle": "Architecture decision changed worker topology.",
+            "rationale": "Legacy memory item (context absent)",
+            "failure_mode": "Missing failure mode captured from legacy item Architecture update",
+            "scope": "hydraflow",
+            "schema_version": 1,
             "source": "implementer",
-            "reference": "#5",
             "created_at": "2024-06-01T00:00:00Z",
         }
         with items_path.open("w") as f:
@@ -564,12 +565,12 @@ class TestMemorySyncWorkerSync:
         items_path.parent.mkdir(parents=True, exist_ok=True)
         item = {
             "id": "mem-arch06",
-            "title": "Architecture update",
-            "learning": "Architecture decision changed worker topology.",
-            "context": "",
-            "memory_type": "knowledge",
+            "principle": "Architecture decision changed worker topology.",
+            "rationale": "Legacy memory item (context absent)",
+            "failure_mode": "Missing failure mode captured from legacy item Architecture update",
+            "scope": "hydraflow",
+            "schema_version": 1,
             "source": "implementer",
-            "reference": "#5",
             "created_at": "2024-06-01T00:00:00Z",
         }
         with items_path.open("w") as f:
@@ -603,22 +604,22 @@ class TestMemorySyncWorkerSync:
         items = [
             {
                 "id": "mem-adr10",
-                "title": "ADR test policy — only structural tests allowed",
-                "learning": "Architecture decision: ADR tests structural only.",
-                "context": "",
-                "memory_type": "knowledge",
+                "principle": "Architecture decision: ADR tests structural only.",
+                "rationale": "Legacy memory item (context absent)",
+                "failure_mode": "Missing failure mode captured from legacy item ADR test policy — only structural tests allowed",
+                "scope": "hydraflow",
+                "schema_version": 1,
                 "source": "implementer",
-                "reference": "#10",
                 "created_at": "2024-06-01T00:00:00Z",
             },
             {
                 "id": "mem-adr11",
-                "title": "ADR test policy — only structural tests allowed",
-                "learning": "Architecture decision: ADR tests structural only.",
-                "context": "",
-                "memory_type": "knowledge",
+                "principle": "Architecture decision: ADR tests structural only.",
+                "rationale": "Legacy memory item (context absent)",
+                "failure_mode": "Missing failure mode captured from legacy item ADR test policy — only structural tests allowed",
+                "scope": "hydraflow",
+                "schema_version": 1,
                 "source": "implementer",
-                "reference": "#11",
                 "created_at": "2024-06-02T00:00:00Z",
             },
         ]
@@ -657,12 +658,14 @@ class TestMemorySyncWorkerSync:
         items_path.parent.mkdir(parents=True, exist_ok=True)
         item = {
             "id": "mem-wt20",
-            "title": "Worker topology",
-            "learning": "Architecture decision about worker topology.",
-            "context": "",
-            "memory_type": "knowledge",
+            # The first-sentence title-proxy must normalize to "worker topology"
+            # so it collides with the existing 0001-worker-topology.md ADR file.
+            "principle": "Worker topology. This is an architecture change that reshapes workers.",
+            "rationale": "runtime bottleneck required restructuring worker boundaries",
+            "failure_mode": "workers queued behind each other under load",
+            "scope": "hydraflow",
+            "schema_version": 1,
             "source": "implementer",
-            "reference": "#20",
             "created_at": "2024-06-01T00:00:00Z",
         }
         with items_path.open("w") as f:
@@ -743,22 +746,22 @@ class TestMemorySyncWorkerSync:
         items = [
             {
                 "id": "mem-con01",
-                "title": "First",
-                "learning": "First learning",
-                "context": "",
-                "memory_type": "knowledge",
+                "principle": "First learning",
+                "rationale": "Legacy memory item (context absent)",
+                "failure_mode": "Missing failure mode captured from legacy item First",
+                "scope": "hydraflow",
+                "schema_version": 1,
                 "source": "implementer",
-                "reference": "#10",
                 "created_at": "2024-06-01T00:00:00Z",
             },
             {
                 "id": "mem-con02",
-                "title": "Second",
-                "learning": "Second learning",
-                "context": "",
-                "memory_type": "knowledge",
+                "principle": "Second learning",
+                "rationale": "Legacy memory item (context absent)",
+                "failure_mode": "Missing failure mode captured from legacy item Second",
+                "scope": "hydraflow",
+                "schema_version": 1,
                 "source": "implementer",
-                "reference": "#20",
                 "created_at": "2024-06-02T00:00:00Z",
             },
         ]
@@ -952,30 +955,39 @@ class TestExtractMemoryType:
 
 
 class TestFileMemorySuggestionLocal:
-    """Tests for the local JSONL-based memory suggestion filing."""
+    """Tests for the local JSONL-based tribal-memory suggestion filing."""
+
+    @staticmethod
+    def _transcript(
+        principle: str = "Always test before shipping",
+        rationale: str = "tests catch regressions early",
+        failure_mode: str = "bugs escape to production",
+        scope: str = "hydraflow",
+    ) -> str:
+        return (
+            "MEMORY_SUGGESTION_START\n"
+            f"principle: {principle}\n"
+            f"rationale: {rationale}\n"
+            f"failure_mode: {failure_mode}\n"
+            f"scope: {scope}\n"
+            "MEMORY_SUGGESTION_END"
+        )
 
     @pytest.mark.asyncio
     async def test_writes_item_to_jsonl(self, tmp_path: Path) -> None:
         import json
 
         config = ConfigFactory.create(repo_root=tmp_path)
-        transcript = (
-            "MEMORY_SUGGESTION_START\n"
-            "title: Test\n"
-            "type: knowledge\n"
-            "learning: Always test\n"
-            "context: Testing\n"
-            "MEMORY_SUGGESTION_END"
-        )
-        await file_memory_suggestion(transcript, "implementer", "#42", config)
+        await file_memory_suggestion(self._transcript(), "implementer", "#42", config)
         items_path = config.data_path("memory", "items.jsonl")
         assert items_path.exists()
         items = [
             json.loads(line) for line in items_path.read_text().strip().splitlines()
         ]
         assert len(items) == 1
-        assert items[0]["learning"] == "Always test"
-        assert items[0]["memory_type"] == "knowledge"
+        assert items[0]["principle"] == "Always test before shipping"
+        assert items[0]["scope"] == "hydraflow"
+        assert items[0]["schema_version"] == 1
 
     @pytest.mark.asyncio
     async def test_no_suggestion_no_write(self, tmp_path: Path) -> None:
@@ -990,15 +1002,12 @@ class TestFileMemorySuggestionLocal:
 
         config = ConfigFactory.create(repo_root=tmp_path)
         for i in range(3):
-            transcript = (
-                f"MEMORY_SUGGESTION_START\n"
-                f"title: Item {i}\n"
-                f"type: knowledge\n"
-                f"learning: Learn {i}\n"
-                f"context: ctx\n"
-                f"MEMORY_SUGGESTION_END"
+            await file_memory_suggestion(
+                self._transcript(principle=f"Principle {i}"),
+                "implementer",
+                f"#{i}",
+                config,
             )
-            await file_memory_suggestion(transcript, "implementer", f"#{i}", config)
         items_path = config.data_path("memory", "items.jsonl")
         items = [
             json.loads(line) for line in items_path.read_text().strip().splitlines()
@@ -1010,23 +1019,27 @@ class TestFileMemorySuggestionLocal:
         import json
 
         config = ConfigFactory.create(repo_root=tmp_path)
-        transcript = (
-            "MEMORY_SUGGESTION_START\n"
-            "title: Field check\n"
-            "type: config\n"
-            "learning: Check all fields\n"
-            "context: During testing\n"
-            "MEMORY_SUGGESTION_END"
+        await file_memory_suggestion(
+            self._transcript(
+                principle="Check all fields",
+                rationale="field coverage matters",
+                failure_mode="fields silently drop",
+                scope="hydraflow/memory",
+            ),
+            "reviewer",
+            "#99",
+            config,
         )
-        await file_memory_suggestion(transcript, "reviewer", "#99", config)
         items_path = config.data_path("memory", "items.jsonl")
         item = json.loads(items_path.read_text().strip())
-        assert item["title"] == "Field check"
-        assert item["memory_type"] == "config"
+        assert item["principle"] == "Check all fields"
+        assert item["rationale"] == "field coverage matters"
+        assert item["failure_mode"] == "fields silently drop"
+        assert item["scope"] == "hydraflow/memory"
         assert item["source"] == "reviewer"
-        assert item["reference"] == "#99"
         assert "id" in item
         assert "created_at" in item
+        assert item["schema_version"] == 1
 
 
 class TestSyncWithTypedIssues:
@@ -1049,22 +1062,22 @@ class TestSyncWithTypedIssues:
         items = [
             {
                 "id": "mem-cfg10",
-                "title": "Config change",
-                "learning": "Increase timeout",
-                "context": "CI failures",
-                "memory_type": "config",
+                "principle": "Increase timeout",
+                "rationale": "CI failures",
+                "failure_mode": "Missing failure mode captured from legacy item Config change",
+                "scope": "hydraflow",
+                "schema_version": 1,
                 "source": "implementer",
-                "reference": "#10",
                 "created_at": "2024-06-01T00:00:00Z",
             },
             {
                 "id": "mem-kno20",
-                "title": "Knowledge item",
-                "learning": "Use type hints",
-                "context": "Code review",
-                "memory_type": "knowledge",
+                "principle": "Use type hints",
+                "rationale": "Code review",
+                "failure_mode": "Missing failure mode captured from legacy item Knowledge item",
+                "scope": "hydraflow",
+                "schema_version": 1,
                 "source": "reviewer",
-                "reference": "#20",
                 "created_at": "2024-05-01T00:00:00Z",
             },
         ]
@@ -1080,10 +1093,15 @@ class TestSyncWithTypedIssues:
         assert not config.data_path("memory", "digest.md").exists()
 
     @pytest.mark.asyncio
-    async def test_sync__untyped_items_default_to_knowledge(
+    async def test_sync__legacy_items_still_count_but_skipped_from_hindsight(
         self, tmp_path: Path
     ) -> None:
-        """Items without a memory_type field should be treated as knowledge type."""
+        """Pre-tribal v0 items (no principle field) are loaded but Hindsight-skipped.
+
+        Task 6 (prune-memory admin) will garbage-collect these entries.
+        ``sync()`` intentionally reports them in ``item_count`` so operators
+        can see there is legacy residue in items.jsonl.
+        """
         import json
 
         config = ConfigFactory.create(repo_root=tmp_path)
@@ -1096,9 +1114,8 @@ class TestSyncWithTypedIssues:
         item = {
             "id": "mem-leg10",
             "title": "Legacy item",
-            "learning": "Old learning without type",
-            "context": "Before types existed",
-            # no memory_type field — should default to knowledge
+            "learning": "Old learning without a principle field",
+            "context": "Before the tribal schema existed",
             "source": "implementer",
             "reference": "#10",
             "created_at": "2024-01-01T00:00:00Z",
@@ -1110,7 +1127,6 @@ class TestSyncWithTypedIssues:
         stats = await worker.sync()
 
         assert stats["item_count"] == 1
-        # digest.md should NOT exist
         assert not config.data_path("memory", "digest.md").exists()
 
 
@@ -1154,12 +1170,12 @@ class TestSyncPerItemIsolation:
         items_path.parent.mkdir(parents=True, exist_ok=True)
         good_item = {
             "id": "mem-good01",
-            "title": "Good issue",
-            "learning": "Always test first",
-            "context": "",
-            "memory_type": "knowledge",
+            "principle": "Always test first",
+            "rationale": "Legacy memory item (context absent)",
+            "failure_mode": "Missing failure mode captured from legacy item Good issue",
+            "scope": "hydraflow",
+            "schema_version": 1,
             "source": "implementer",
-            "reference": "#20",
             "created_at": "2024-05-01T00:00:00Z",
         }
         with items_path.open("w") as f:
@@ -1260,22 +1276,22 @@ class TestMemorySyncHindsightDualWrite:
         items = [
             {
                 "id": "mem-hw01",
-                "title": "Learn A",
-                "learning": "First insight",
-                "context": "",
-                "memory_type": "knowledge",
+                "principle": "First insight",
+                "rationale": "Legacy memory item (context absent)",
+                "failure_mode": "Missing failure mode captured from legacy item Learn A",
+                "scope": "hydraflow",
+                "schema_version": 1,
                 "source": "implementer",
-                "reference": "#1",
                 "created_at": "2024-01-01T00:00:00Z",
             },
             {
                 "id": "mem-hw02",
-                "title": "Learn B",
-                "learning": "Second insight",
-                "context": "",
-                "memory_type": "config",
+                "principle": "Second insight",
+                "rationale": "Legacy memory item (context absent)",
+                "failure_mode": "Missing failure mode captured from legacy item Learn B",
+                "scope": "hydraflow",
+                "schema_version": 1,
                 "source": "implementer",
-                "reference": "#2",
                 "created_at": "2024-01-02T00:00:00Z",
             },
         ]
@@ -1305,12 +1321,12 @@ class TestMemorySyncHindsightDualWrite:
         items_path.parent.mkdir(parents=True, exist_ok=True)
         item = {
             "id": "mem-fw01",
-            "title": "Test",
-            "learning": "Something",
-            "context": "",
-            "memory_type": "knowledge",
+            "principle": "Something",
+            "rationale": "Legacy memory item (context absent)",
+            "failure_mode": "Missing failure mode captured from legacy item Test",
+            "scope": "hydraflow",
+            "schema_version": 1,
             "source": "implementer",
-            "reference": "#1",
             "created_at": "2024-01-01T00:00:00Z",
         }
         with items_path.open("w") as f:
@@ -1342,12 +1358,12 @@ class TestMemorySyncHindsightDualWrite:
         items_path.parent.mkdir(parents=True, exist_ok=True)
         item = {
             "id": "mem-dw07",
-            "title": "Config tip",
-            "learning": "Use env vars",
-            "context": "",
-            "memory_type": "config",
+            "principle": "Use env vars",
+            "rationale": "Legacy memory item (context absent)",
+            "failure_mode": "Missing failure mode captured from legacy item Config tip",
+            "scope": "hydraflow",
+            "schema_version": 1,
             "source": "implementer",
-            "reference": "#7",
             "created_at": "2024-03-15T00:00:00Z",
         }
         with items_path.open("w") as f:
@@ -1357,10 +1373,12 @@ class TestMemorySyncHindsightDualWrite:
             await worker.sync()
             mock_retain.assert_called_once()
             call_kw = mock_retain.call_args
-            assert call_kw.args[1] == Bank.LEARNINGS
-            assert call_kw.args[2] == "Use env vars"
-            assert call_kw.kwargs["metadata"]["item_id"] is not None
-            assert call_kw.kwargs["metadata"]["memory_type"] == "config"
+            assert call_kw.args[1] == Bank.TRIBAL
+            # Content is principle/rationale/failure_mode combined
+            assert "Use env vars" in call_kw.args[2]
+            assert call_kw.kwargs["metadata"]["schema_version"] == "1"
+            assert call_kw.kwargs["metadata"]["scope"] == "hydraflow"
+            assert call_kw.kwargs["metadata"]["source"] == "implementer"
 
     @pytest.mark.asyncio
     async def test_no_digest_file_when_hindsight_configured(
@@ -1380,12 +1398,12 @@ class TestMemorySyncHindsightDualWrite:
         items_path.parent.mkdir(parents=True, exist_ok=True)
         item = {
             "id": "mem-sk01",
-            "title": "Learn A",
-            "learning": "First insight",
-            "context": "",
-            "memory_type": "knowledge",
+            "principle": "First insight",
+            "rationale": "Legacy memory item (context absent)",
+            "failure_mode": "Missing failure mode captured from legacy item Learn A",
+            "scope": "hydraflow",
+            "schema_version": 1,
             "source": "implementer",
-            "reference": "#1",
             "created_at": "2024-01-01T00:00:00Z",
         }
         with items_path.open("w") as f:

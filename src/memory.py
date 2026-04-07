@@ -58,14 +58,12 @@ def _parse_memory_type(raw: str) -> MemoryType:
 
 
 def parse_memory_suggestion(transcript: str) -> dict[str, str] | None:
-    """Parse a MEMORY_SUGGESTION block from an agent transcript.
+    """Parse a MEMORY_SUGGESTION block in tribal format.
 
-    Returns a dict with ``title``, ``learning``, ``context``, and ``type``
-    keys, or ``None`` if no block is found.  Only the first block is
-    returned (cap at 1 suggestion per agent run).
-
-    The ``type`` field defaults to ``"knowledge"`` when absent or
-    unrecognised.
+    Returns a dict with ``principle``, ``rationale``, ``failure_mode``,
+    and ``scope`` keys, or ``None`` if the block is missing or any
+    required field is empty. Old-format blocks (title/learning) return None
+    so they are dropped at the parser, not the schema.
     """
     pattern = r"MEMORY_SUGGESTION_START\s*\n(.*?)\nMEMORY_SUGGESTION_END"
     match = re.search(pattern, transcript, re.DOTALL)
@@ -73,25 +71,19 @@ def parse_memory_suggestion(transcript: str) -> dict[str, str] | None:
         return None
 
     block = match.group(1)
-    result: dict[str, str] = {"title": "", "learning": "", "context": "", "type": ""}
+    fields = ("principle", "rationale", "failure_mode", "scope")
+    result: dict[str, str] = dict.fromkeys(fields, "")
 
     for line in block.splitlines():
         stripped = line.strip()
-        if stripped.startswith("title:"):
-            result["title"] = stripped[len("title:") :].strip()
-        elif stripped.startswith("learning:"):
-            result["learning"] = stripped[len("learning:") :].strip()
-        elif stripped.startswith("context:"):
-            result["context"] = stripped[len("context:") :].strip()
-        elif stripped.startswith("type:"):
-            result["type"] = stripped[len("type:") :].strip()
+        for key in fields:
+            prefix = f"{key}:"
+            if stripped.startswith(prefix):
+                result[key] = stripped[len(prefix) :].strip()
+                break
 
-    if not result["title"] or not result["learning"]:
+    if not all(result[k] for k in fields):
         return None
-
-    # Normalise type — default to knowledge when missing or invalid
-    result["type"] = _parse_memory_type(result["type"]).value
-
     return result
 
 
@@ -127,64 +119,62 @@ async def file_memory_suggestion(
     *,
     hindsight: HindsightClient | None = None,
 ) -> None:
-    """Parse and store a memory suggestion from an agent transcript.
+    """Parse and store a tribal-memory suggestion from an agent transcript.
 
     Writes directly to local JSONL storage and Hindsight vector store.
     No GitHub issues are created.
     """
-    import json as _json  # noqa: PLC0415
 
-    suggestion = parse_memory_suggestion(transcript)
-    if not suggestion:
+    parsed = parse_memory_suggestion(transcript)
+    if not parsed:
         return
 
-    memory_type = MemoryType(suggestion.get("type", "knowledge"))
-    item = {
-        "id": _next_item_id(),
-        "title": suggestion["title"],
-        "learning": suggestion["learning"],
-        "context": suggestion.get("context", ""),
-        "memory_type": memory_type.value,
-        "source": source,
-        "reference": reference,
-        "created_at": datetime.now(UTC).isoformat(),
-    }
+    from models import TribalMemory  # noqa: PLC0415
 
-    # Write to JSONL
+    try:
+        mem = TribalMemory(
+            principle=parsed["principle"],
+            rationale=parsed["rationale"],
+            failure_mode=parsed["failure_mode"],
+            scope=parsed["scope"],
+            id=_next_item_id(),
+            source=source,
+            created_at=datetime.now(UTC).isoformat(),
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("Tribal memory failed schema validation: %s", reference)
+        return
+
     try:
         items_path = config.data_path("memory", "items.jsonl")
         items_path.parent.mkdir(parents=True, exist_ok=True)
         with items_path.open("a") as f:
-            f.write(_json.dumps(item) + "\n")
+            f.write(mem.model_dump_json() + "\n")
     except OSError:
-        logger.exception("Failed to write memory item to JSONL")
+        logger.exception("Failed to write tribal memory to JSONL")
         return
 
-    # Write to Hindsight if available
     try:
         from hindsight import Bank, schedule_retain  # noqa: PLC0415
 
+        # Inject as principle + rationale + failure_mode so recall surfaces all three.
+        content = f"{mem.principle}\n\nWhy: {mem.rationale}\n\nFailure mode: {mem.failure_mode}"
         schedule_retain(
             hindsight,
-            Bank.LEARNINGS,
-            item["learning"],
+            Bank.TRIBAL,
+            content,
             metadata={
+                "schema_version": str(mem.schema_version),
+                "scope": mem.scope,
                 "source": source,
-                "type": memory_type.value,
-                "title": item["title"],
             },
         )
     except ImportError:
         pass
     except Exception:  # noqa: BLE001
-        logger.debug("Hindsight retain failed for memory item %s", item["id"])
+        logger.debug("Hindsight retain failed for tribal memory %s", mem.id)
 
-    logger.info(
-        "Stored memory item %s: %s (%s)",
-        item["id"],
-        item["title"],
-        memory_type.value,
-    )
+    logger.info("Stored tribal memory %s scope=%s", mem.id, mem.scope)
 
 
 class MemorySyncWorker:
@@ -255,37 +245,17 @@ class MemorySyncWorker:
                 "digest_chars": 0,
             }
 
-        # Write items to Hindsight
+        # Write items to Hindsight (tribal schema only; skip legacy v0 items)
         if self._hindsight is not None:
-            from hindsight import Bank, retain_safe  # noqa: PLC0415
-
             for item in local_items:
-                learning_text = str(item.get("learning", ""))
-                if not learning_text:
-                    continue
-                item_id = str(item.get("id", ""))
-                memory_type = _parse_memory_type(
-                    str(item.get("memory_type", "knowledge"))
-                )
-                await retain_safe(
-                    self._hindsight,
-                    Bank.LEARNINGS,
-                    learning_text,
-                    context=f"Item {item_id} ({memory_type.value})",
-                    metadata={
-                        "item_id": item_id,
-                        "memory_type": memory_type.value,
-                        "created_at": str(item.get("created_at", "")),
-                    },
-                    wal=self._wal,
-                )
+                await self._sync_one_item(item)
 
         # Update state
         item_ids = sorted(
             abs(hash(str(item.get("id", "")))) % (10**9) for item in local_items
         )
         items_hash = hashlib.sha256(
-            "".join(str(item.get("learning", "")) for item in local_items).encode()
+            "".join(str(item.get("principle", "")) for item in local_items).encode()
         ).hexdigest()[:16]
         self._state.update_memory_state(item_ids, items_hash)
 
@@ -300,30 +270,75 @@ class MemorySyncWorker:
             "digest_chars": 0,
         }
 
+    async def _sync_one_item(self, item: dict[str, object]) -> None:
+        """Write a single tribal-memory item to Hindsight.
+
+        Legacy v0 items (missing ``principle``) are skipped with a debug log.
+        Task 6 (prune-memory admin) will handle them properly.
+        """
+        principle = str(item.get("principle", ""))
+        if not principle:
+            logger.debug(
+                "Skipping legacy (pre-tribal) memory item id=%s — no principle field",
+                item.get("id", "?"),
+            )
+            return
+
+        rationale = str(item.get("rationale", ""))
+        failure_mode = str(item.get("failure_mode", ""))
+        content = f"{principle}\n\nWhy: {rationale}\n\nFailure mode: {failure_mode}"
+        metadata = {
+            "schema_version": str(item.get("schema_version", 1)),
+            "scope": str(item.get("scope", "")),
+            "source": str(item.get("source", "")),
+        }
+
+        from hindsight import Bank, retain_safe  # noqa: PLC0415
+
+        await retain_safe(
+            self._hindsight,
+            Bank.TRIBAL,
+            content,
+            context=f"Item {item.get('id', '')}",
+            metadata=metadata,
+            wal=self._wal,
+        )
+
     @staticmethod
     def _local_items_to_issue_dicts(
         items: list[dict[str, object]],
     ) -> list[MemoryIssueData]:
-        """Convert local JSONL items to MemoryIssueData dicts for ADR routing."""
+        """Convert local JSONL items to MemoryIssueData dicts for ADR routing.
+
+        Derives a pseudo-title from the tribal ``principle`` field so existing
+        ADR-routing heuristics keep working against the new schema. Legacy v0
+        items without a ``principle`` are skipped.
+        """
         result: list[MemoryIssueData] = []
         for item in items:
+            principle = str(item.get("principle", ""))
+            if not principle:
+                continue
             item_id = str(item.get("id", ""))
             num = abs(hash(item_id)) % (10**9) if item_id else 0
-            learning = str(item.get("learning", ""))
-            context = str(item.get("context", ""))
-            memory_type = str(item.get("memory_type", "knowledge"))
+            rationale = str(item.get("rationale", ""))
+            failure_mode = str(item.get("failure_mode", ""))
+            scope = str(item.get("scope", ""))
             source = str(item.get("source", ""))
+            # Use first sentence / 80 chars of principle as a title proxy.
+            title_proxy = principle.split(".", maxsplit=1)[0].strip()[:80]
             body = (
                 f"## Memory Suggestion\n\n"
-                f"**Type:** {memory_type}\n\n"
-                f"**Learning:** {learning}\n\n"
-                f"**Context:** {context}\n\n"
+                f"**Scope:** {scope}\n\n"
+                f"**Learning:** {principle}\n\n"
+                f"**Why:** {rationale}\n\n"
+                f"**Failure mode:** {failure_mode}\n\n"
                 f"**Source:** {source}\n"
             )
             result.append(
                 MemoryIssueData(
                     number=num,
-                    title=f"[Memory] {item.get('title', '')}",
+                    title=f"[Memory] {title_proxy}",
                     body=body,
                     createdAt=str(item.get("created_at", "")),
                     labels=[],

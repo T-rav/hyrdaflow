@@ -55,7 +55,7 @@ class TestEvaluateWithLlmMemoryInjection:
         issue = Task(id=42, title="Add caching layer", body="Speed up API responses")
 
         memories = {
-            Bank.LEARNINGS: [_make_memory("caching requires invalidation strategy")],
+            Bank.TRIBAL: [_make_memory("caching requires invalidation strategy")],
             Bank.TROUBLESHOOTING: [],
             Bank.RETROSPECTIVES: [],
             Bank.REVIEW_INSIGHTS: [],

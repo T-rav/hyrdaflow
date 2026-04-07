@@ -540,8 +540,10 @@ class TestHITLMemorySuggestionFiling:
             # Only the HITL lesson auto-file is called (no transcript block)
             mock_mem.assert_awaited_once()
             lesson_transcript = mock_mem.call_args[0][0]
-            assert "HITL lesson" in lesson_transcript
-            assert "type: instruction" in lesson_transcript
+            # Tribal-schema HITL lesson — principle carries the correction
+            assert "principle:" in lesson_transcript
+            assert "Human correction applied" in lesson_transcript
+            assert "scope: hydraflow" in lesson_transcript
 
     @pytest.mark.asyncio
     async def test_hitl_memory_suggestion_error_does_not_break_processing(
@@ -599,14 +601,17 @@ class TestHITLMemorySuggestionFiling:
 
             mock_mem.assert_awaited_once()
             lesson_transcript = mock_mem.call_args[0][0]
-            # Lesson contains issue title snippet
+            # Lesson contains issue title snippet (inside failure_mode)
             assert "Fix the login page" in lesson_transcript
-            # Lesson contains correction text
+            # Lesson contains correction text (inside principle)
             assert "Add missing assertions" in lesson_transcript
-            # Lesson contains escalation cause
+            # Lesson contains escalation cause (inside rationale)
             assert "Tests were failing" in lesson_transcript
-            # Lesson is type instruction (highest trust)
-            assert "type: instruction" in lesson_transcript
+            # Tribal schema fields present
+            assert "principle:" in lesson_transcript
+            assert "rationale:" in lesson_transcript
+            assert "failure_mode:" in lesson_transcript
+            assert "scope:" in lesson_transcript
 
     @pytest.mark.asyncio
     async def test_hitl_lesson_not_filed_on_failure(

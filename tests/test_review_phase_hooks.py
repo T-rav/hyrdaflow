@@ -193,7 +193,9 @@ class TestPostReviewTranscript:
             "phase_utils.file_memory_suggestion", new_callable=AsyncMock
         ) as mock_mem:
             await phase._post_review_transcript(result, status="completed")
-            mock_mem.assert_awaited_once_with("tx", "reviewer", "PR #50", ANY)
+            mock_mem.assert_awaited_once_with(
+                "tx", "reviewer", "PR #50", ANY, hindsight=None
+            )
 
     @pytest.mark.asyncio
     async def test_passes_correct_args_to_summarize(

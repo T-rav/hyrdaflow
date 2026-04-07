@@ -17,9 +17,10 @@ async def test_file_memory_suggestion_passes_real_client(tmp_path):
     fake_client = MagicMock(name="HindsightClient")
     transcript = (
         "MEMORY_SUGGESTION_START\n"
-        "title: test\n"
-        "learning: a meaningful thing\n"
-        "context: irrelevant\n"
+        "principle: a meaningful thing\n"
+        "rationale: because it matters\n"
+        "failure_mode: things break without it\n"
+        "scope: hydraflow\n"
         "MEMORY_SUGGESTION_END\n"
     )
 

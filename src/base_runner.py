@@ -271,7 +271,7 @@ class BaseRunner:
             # assembly; each bank is independently capped at max_chars.
             try:
                 memories = await recall_safe(
-                    self._hindsight, Bank.LEARNINGS, query_context
+                    self._hindsight, Bank.TRIBAL, query_context
                 )
                 memory_raw = format_memories_as_markdown(memories)
                 if memory_raw:

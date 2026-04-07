@@ -402,23 +402,23 @@ async def file_log_patterns(
 
         if key not in known_patterns:
             # Novel pattern — write to local JSONL memory store
-            title = f"Log pattern: {pattern.fingerprint[:60]}"
-            learning = (
+            principle = (
                 f"Recurring {pattern.level} in `{pattern.source_module}`: "
                 f"{pattern.fingerprint}"
             )
-            context = (
+            rationale = (
                 f"Detected {pattern.count} occurrences between "
                 f"{pattern.first_seen} and {pattern.last_seen}. "
                 f"Sample: {pattern.sample_messages[0] if pattern.sample_messages else ''}"
             )
+            failure_mode = f"Log pattern recurs uncaught: {pattern.fingerprint[:60]}"
             pseudo_transcript = (
-                f"MEMORY_SUGGESTION_START\n"
-                f"title: {title}\n"
-                f"learning: {learning}\n"
-                f"context: {context}\n"
-                f"type: instruction\n"
-                f"MEMORY_SUGGESTION_END"
+                "MEMORY_SUGGESTION_START\n"
+                f"principle: {principle}\n"
+                f"rationale: {rationale}\n"
+                f"failure_mode: {failure_mode}\n"
+                f"scope: {pattern.source_module}\n"
+                "MEMORY_SUGGESTION_END"
             )
             try:
                 await file_memory_suggestion(

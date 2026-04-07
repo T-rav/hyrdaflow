@@ -272,10 +272,10 @@ class ShapePhase:
                 )
                 learning = (
                     "MEMORY_SUGGESTION_START\n"
-                    f"title: Council mediation for #{issue.id} round {round_num}\n"
-                    f"learning: Mediator synthesized split vote: {mediation[:200]}\n"
-                    f"context: Council mediation for issue #{issue.id}\n"
-                    "type: knowledge\n"
+                    f"principle: Mediator synthesized split council vote: {mediation[:200]}\n"
+                    f"rationale: Council mediation for issue #{issue.id} round {round_num}\n"
+                    f"failure_mode: Council could not reach consensus without mediation\n"
+                    "scope: hydraflow/shape\n"
                     "MEMORY_SUGGESTION_END"
                 )
                 await self._suggest_memory(
@@ -332,13 +332,12 @@ class ShapePhase:
                 )
                 learning = (
                     "MEMORY_SUGGESTION_START\n"
-                    f"title: Council auto-selected direction for #{issue.id}\n"
-                    f"learning: Expert council reached consensus on Direction {winner} "
+                    f"principle: Expert council reached consensus on Direction {winner} "
                     f"for '{issue.title}' in round {round_num} with avg confidence "
-                    f"{council_result.avg_confidence:.1f}/10. "
-                    f"Decision was automated (no human needed).\n"
-                    f"context: Expert council vote for issue #{issue.id}\n"
-                    "type: knowledge\n"
+                    f"{council_result.avg_confidence:.1f}/10\n"
+                    f"rationale: Expert council vote for issue #{issue.id} automated the decision without human input\n"
+                    f"failure_mode: Without council automation, shape would have required human selection\n"
+                    "scope: hydraflow/shape\n"
                     "MEMORY_SUGGESTION_END"
                 )
                 await self._suggest_memory(
@@ -377,11 +376,11 @@ class ShapePhase:
         )
         learning = (
             "MEMORY_SUGGESTION_START\n"
-            f"title: Council split for #{issue.id} after {max_rounds} rounds\n"
-            f"learning: Expert council could not reach consensus for '{issue.title}' "
-            f"after {max_rounds} voting rounds. Human tiebreaker needed.\n"
-            f"context: Expert council vote for issue #{issue.id}\n"
-            "type: knowledge\n"
+            f"principle: Expert council could not reach consensus for '{issue.title}' "
+            f"after {max_rounds} voting rounds — human tiebreaker needed\n"
+            f"rationale: Expert council vote for issue #{issue.id} split after {max_rounds} rounds\n"
+            f"failure_mode: Council automation exhausted rounds without consensus\n"
+            "scope: hydraflow/shape\n"
             "MEMORY_SUGGESTION_END"
         )
         await self._suggest_memory(learning, "shape-council", f"issue #{issue.id}")
@@ -591,12 +590,12 @@ class ShapePhase:
         turn_num = len(conv.turns)
         transcript = (
             "MEMORY_SUGGESTION_START\n"
-            f"title: Shape turn {turn_num} signal for #{issue.id}\n"
-            f"learning: Turn {turn_num} for '{issue.title}': "
-            f"human response classified as '{signal}'. "
-            f"Response excerpt: '{response[:80]}'\n"
-            f"context: Shape conversation turn {turn_num} for issue #{issue.id}\n"
-            "type: knowledge\n"
+            f"principle: Turn {turn_num} for '{issue.title}': "
+            f"human response classified as '{signal}' "
+            f"(excerpt: '{response[:80]}')\n"
+            f"rationale: Shape conversation turn {turn_num} for issue #{issue.id}\n"
+            "failure_mode: Without classification, shape signals drift between turns\n"
+            "scope: hydraflow/shape\n"
             "MEMORY_SUGGESTION_END"
         )
         await self._suggest_memory(transcript, "shape", f"issue #{issue.id}")
@@ -619,13 +618,13 @@ class ShapePhase:
 
         transcript = (
             "MEMORY_SUGGESTION_START\n"
-            f"title: Shape conversation completed for #{issue.id}\n"
-            f"learning: Shaped '{issue.title}' in {turn_count} turns. "
-            f"Signals: {', '.join(signals) if signals else 'none classified'}. "
-            f"Taste tokens: {', '.join(taste_tokens) if taste_tokens else 'none extracted'}. "
-            f"Conversation depth indicates {'deep exploration' if turn_count > 6 else 'quick decision'}.\n"
-            f"context: Shape finalization for issue #{issue.id}\n"
-            "type: knowledge\n"
+            f"principle: Shaped '{issue.title}' in {turn_count} turns — "
+            f"signals: {', '.join(signals) if signals else 'none classified'}, "
+            f"taste tokens: {', '.join(taste_tokens) if taste_tokens else 'none extracted'}, "
+            f"depth indicates {'deep exploration' if turn_count > 6 else 'quick decision'}\n"
+            f"rationale: Shape finalization summary for issue #{issue.id}\n"
+            "failure_mode: Without finalization signal, shape learnings are not reusable\n"
+            "scope: hydraflow/shape\n"
             "MEMORY_SUGGESTION_END"
         )
         await self._suggest_memory(transcript, "shape", f"issue #{issue.id}")
@@ -722,7 +721,7 @@ class ShapePhase:
             hindsight = getattr(self._runner, "_hindsight", None)
             if not hindsight:
                 return ""
-            memories = await recall_safe(hindsight, Bank.LEARNINGS, query, limit=5)
+            memories = await recall_safe(hindsight, Bank.TRIBAL, query, limit=5)
             if memories:
                 return format_memories_as_markdown(memories)
         except Exception:

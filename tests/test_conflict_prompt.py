@@ -59,7 +59,7 @@ class TestBuildConflictPrompt:
         prompt = build_conflict_prompt(ISSUE_URL, PR_URL, None, 1)
         assert "MEMORY_SUGGESTION_START" in prompt
         assert "MEMORY_SUGGESTION_END" in prompt
-        assert "## Optional: Memory Suggestion" in prompt
+        assert "## Optional: Tribal-Memory Suggestion" in prompt
 
     def test_no_accumulated_learnings_section(self, tmp_path: Path) -> None:
         """Digest.md was removed — conflict prompt no longer includes learnings."""
@@ -195,7 +195,7 @@ class TestBuildRebuildPrompt:
         )
         assert "MEMORY_SUGGESTION_START" in prompt
         assert "MEMORY_SUGGESTION_END" in prompt
-        assert "## Optional: Memory Suggestion" in prompt
+        assert "## Optional: Tribal-Memory Suggestion" in prompt
 
     def test_memory_suggestion_uses_rebuild_context(self) -> None:
         prompt = build_rebuild_prompt(

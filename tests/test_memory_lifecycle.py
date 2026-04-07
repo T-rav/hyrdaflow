@@ -40,7 +40,7 @@ class TestRetainRecallInjectCycle:
         harness = MemoryHarness(tmp_path)
         harness.set_bank_responses(
             {
-                str(Bank.LEARNINGS): [
+                str(Bank.TRIBAL): [
                     HindsightMemory(text="Always run lint before committing")
                 ],
             }
@@ -70,9 +70,7 @@ class TestRetainRecallInjectCycle:
         harness = MemoryHarness(tmp_path)
         harness.set_bank_responses(
             {
-                str(Bank.LEARNINGS): [
-                    HindsightMemory(text="Use async patterns for I/O")
-                ],
+                str(Bank.TRIBAL): [HindsightMemory(text="Use async patterns for I/O")],
             }
         )
 
@@ -102,7 +100,7 @@ class TestRetainRecallInjectCycle:
 
         await retain_safe(
             mock_client,
-            Bank.LEARNINGS,
+            Bank.TRIBAL,
             "Important learning",
             context="test context",
             wal=wal,
@@ -111,7 +109,7 @@ class TestRetainRecallInjectCycle:
         assert wal.count == 1
         entries = wal.load()
         assert entries[0].content == "Important learning"
-        assert entries[0].bank == str(Bank.LEARNINGS)
+        assert entries[0].bank == str(Bank.TRIBAL)
 
     @pytest.mark.asyncio
     async def test_multi_bank_recall_assembles_all_sections(
@@ -123,7 +121,7 @@ class TestRetainRecallInjectCycle:
         harness = MemoryHarness(tmp_path)
         harness.set_bank_responses(
             {
-                str(Bank.LEARNINGS): [HindsightMemory(text="LEARN_A")],
+                str(Bank.TRIBAL): [HindsightMemory(text="LEARN_A")],
                 str(Bank.TROUBLESHOOTING): [HindsightMemory(text="TROUBLE_B")],
                 str(Bank.RETROSPECTIVES): [HindsightMemory(text="RETRO_C")],
                 str(Bank.REVIEW_INSIGHTS): [HindsightMemory(text="REVIEW_D")],
@@ -178,10 +176,10 @@ class TestCrossPhaseMemoryThreading:
         transcript = (
             "Some output\n"
             "MEMORY_SUGGESTION_START\n"
-            "title: Use bulk inserts for batch ops\n"
-            "type: knowledge\n"
-            "learning: Bulk inserts are 10x faster than individual inserts\n"
-            "context: issue #100 implementation\n"
+            "principle: Bulk inserts are 10x faster than individual inserts\n"
+            "rationale: per-row round trips dominate under load\n"
+            "failure_mode: batch jobs time out when row count exceeds a few thousand\n"
+            "scope: hydraflow/db\n"
             "MEMORY_SUGGESTION_END\n"
             "More output"
         )
@@ -198,9 +196,11 @@ class TestCrossPhaseMemoryThreading:
         lines = items_path.read_text().strip().splitlines()
         assert len(lines) == 1
         item = json.loads(lines[0])
-        assert item["title"] == "Use bulk inserts for batch ops"
-        assert item["learning"] == "Bulk inserts are 10x faster than individual inserts"
-        assert item["memory_type"] == "knowledge"
+        assert (
+            item["principle"] == "Bulk inserts are 10x faster than individual inserts"
+        )
+        assert item["scope"] == "hydraflow/db"
+        assert item["schema_version"] == 1
 
     @pytest.mark.asyncio
     async def test_stored_memory_is_recallable_by_next_phase(
@@ -215,10 +215,10 @@ class TestCrossPhaseMemoryThreading:
         # Phase 1: Planner produces a memory suggestion
         transcript = (
             "MEMORY_SUGGESTION_START\n"
-            "title: Config validation pattern\n"
-            "type: knowledge\n"
-            "learning: Always validate config before starting workers\n"
-            "context: planning for issue #200\n"
+            "principle: Always validate config before starting workers\n"
+            "rationale: catches bad overrides before they corrupt state\n"
+            "failure_mode: workers crash-loop with opaque validation errors\n"
+            "scope: hydraflow\n"
             "MEMORY_SUGGESTION_END\n"
         )
         await file_memory_suggestion(
@@ -228,14 +228,14 @@ class TestCrossPhaseMemoryThreading:
         # Verify it was stored
         items_path = config.data_path("memory", "items.jsonl")
         stored = json.loads(items_path.read_text().strip())
-        assert stored["learning"] == "Always validate config before starting workers"
+        assert stored["principle"] == "Always validate config before starting workers"
 
         # Phase 2: Implementer recalls the memory — seed mock from Phase 1's stored
         # output so the test verifies the storage→recall connection end-to-end.
         harness = MemoryHarness(tmp_path)
         harness.set_bank_responses(
             {
-                str(Bank.LEARNINGS): [HindsightMemory(text=stored["learning"])],
+                str(Bank.TRIBAL): [HindsightMemory(text=stored["principle"])],
             }
         )
 
@@ -263,15 +263,18 @@ class TestCrossPhaseMemoryThreading:
 
         for i in range(3):
             transcript = (
-                f"MEMORY_SUGGESTION_START\n"
-                f"title: Learning {i}\n"
-                f"type: knowledge\n"
-                f"learning: Insight number {i}\n"
-                f"context: phase {i}\n"
-                f"MEMORY_SUGGESTION_END\n"
+                "MEMORY_SUGGESTION_START\n"
+                f"principle: Insight number {i}\n"
+                f"rationale: rationale for insight {i}\n"
+                f"failure_mode: failure without insight {i}\n"
+                "scope: hydraflow\n"
+                "MEMORY_SUGGESTION_END\n"
             )
             await file_memory_suggestion(
-                transcript, source=f"phase-{i}", reference=f"issue #{i}", config=config
+                transcript,
+                source=f"phase-{i}",
+                reference=f"issue #{i}",
+                config=config,
             )
 
         items_path = config.data_path("memory", "items.jsonl")
@@ -279,7 +282,7 @@ class TestCrossPhaseMemoryThreading:
         assert len(lines) == 3
         for i, line in enumerate(lines):
             item = json.loads(line)
-            assert item["title"] == f"Learning {i}"
+            assert item["principle"] == f"Insight number {i}"
 
 
 # ---------------------------------------------------------------------------
@@ -353,7 +356,7 @@ class TestDegradationWithoutHindsight:
         async def _partial_fail(_client, bank, _query, **_kw):
             if bank == Bank.TROUBLESHOOTING:
                 raise RuntimeError("this bank is down")
-            if bank == Bank.LEARNINGS:
+            if bank == Bank.TRIBAL:
                 return [HindsightMemory(text="Healthy learning")]
             return []
 
@@ -378,8 +381,8 @@ class TestDegradationWithoutHindsight:
         wal = HindsightWAL(tmp_path / "wal" / "replay.jsonl")
 
         # Simulate buffered entries from a previous outage
-        wal.append(WALEntry(bank="hydraflow-learnings", content="Buffered item 1"))
-        wal.append(WALEntry(bank="hydraflow-learnings", content="Buffered item 2"))
+        wal.append(WALEntry(bank="hydraflow-tribal", content="Buffered item 1"))
+        wal.append(WALEntry(bank="hydraflow-tribal", content="Buffered item 2"))
         assert wal.count == 2
 
         # Hindsight comes back online
@@ -401,7 +404,7 @@ class TestDegradationWithoutHindsight:
         wal = HindsightWAL(tmp_path / "wal" / "drop.jsonl", max_retries=2)
 
         # Entry already at retry limit
-        wal.append(WALEntry(bank="hydraflow-learnings", content="Old item", retries=1))
+        wal.append(WALEntry(bank="hydraflow-tribal", content="Old item", retries=1))
         assert wal.count == 1
 
         mock_client = MagicMock()
@@ -421,7 +424,7 @@ class TestDegradationWithoutHindsight:
         from hindsight_types import Bank
 
         # Should not raise
-        await retain_safe(None, Bank.LEARNINGS, "some content")
+        await retain_safe(None, Bank.TRIBAL, "some content")
 
     @pytest.mark.asyncio
     async def test_recall_safe_returns_empty_when_client_is_none(self) -> None:
@@ -429,7 +432,7 @@ class TestDegradationWithoutHindsight:
         from hindsight import recall_safe
         from hindsight_types import Bank
 
-        result = await recall_safe(None, Bank.LEARNINGS, "query")
+        result = await recall_safe(None, Bank.TRIBAL, "query")
         assert result == []
 
 
@@ -453,7 +456,7 @@ class TestMemoryQuality:
         # stats still reflect that the duplicate was detected.
         harness.set_bank_responses(
             {
-                str(Bank.LEARNINGS): [
+                str(Bank.TRIBAL): [
                     HindsightMemory(
                         text="Always run lint before committing code changes"
                     )
@@ -488,7 +491,7 @@ class TestMemoryQuality:
         harness = MemoryHarness(tmp_path)
         harness.set_bank_responses(
             {
-                str(Bank.LEARNINGS): [
+                str(Bank.TRIBAL): [
                     HindsightMemory(
                         text="Prefer PostgreSQL for transactional workloads"
                     )
@@ -519,7 +522,7 @@ class TestMemoryQuality:
         harness = MemoryHarness(tmp_path)
         harness.set_bank_responses(
             {
-                str(Bank.LEARNINGS): [HindsightMemory(text="One learning")],
+                str(Bank.TRIBAL): [HindsightMemory(text="One learning")],
                 # All other banks return []
             }
         )
@@ -550,7 +553,7 @@ class TestMemoryQuality:
         big_text = "X" * 500
         harness.set_bank_responses(
             {
-                str(Bank.LEARNINGS): [HindsightMemory(text=big_text)],
+                str(Bank.TRIBAL): [HindsightMemory(text=big_text)],
             }
         )
 
@@ -602,7 +605,7 @@ class TestMemoryQuality:
         with patch("hindsight.retain_safe", new_callable=AsyncMock) as mock_retain:
             schedule_retain(
                 mock_client,
-                Bank.LEARNINGS,
+                Bank.TRIBAL,
                 "Scheduled learning",
                 context="test",
             )
@@ -611,7 +614,7 @@ class TestMemoryQuality:
 
         mock_retain.assert_called_once_with(
             mock_client,
-            Bank.LEARNINGS,
+            Bank.TRIBAL,
             "Scheduled learning",
             context="test",
             metadata=None,
@@ -625,7 +628,7 @@ class TestMemoryQuality:
         from hindsight_types import Bank
 
         with patch("hindsight.retain_safe", new_callable=AsyncMock) as mock_retain:
-            schedule_retain(None, Bank.LEARNINGS, "content")
+            schedule_retain(None, Bank.TRIBAL, "content")
             await asyncio.sleep(0)
 
         mock_retain.assert_not_called()

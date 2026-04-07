@@ -369,7 +369,7 @@ class TestInjectMemory:
         runner = _TestRunner(config, event_bus, hindsight=mock_client)
 
         def _recall_side_effect(client, bank, query, **_kwargs):
-            if bank == Bank.LEARNINGS:
+            if bank == Bank.TRIBAL:
                 return [HindsightMemory(content="Always run lint")]
             if bank == Bank.TROUBLESHOOTING:
                 return [HindsightMemory(content="Check import paths first")]
@@ -396,7 +396,7 @@ class TestInjectMemory:
         runner = _TestRunner(config, event_bus, hindsight=mock_client)
 
         def _recall_side_effect(client, bank, query, **_kwargs):
-            if bank == Bank.LEARNINGS:
+            if bank == Bank.TRIBAL:
                 return [HindsightMemory(content="Always run lint")]
             if bank == Bank.RETROSPECTIVES:
                 return [
@@ -425,7 +425,7 @@ class TestInjectMemory:
         runner = _TestRunner(config, event_bus, hindsight=mock_client)
 
         def _recall_side_effect(client, bank, query, **_kwargs):
-            if bank == Bank.LEARNINGS:
+            if bank == Bank.TRIBAL:
                 return [HindsightMemory(content="LEARNING_ITEM")]
             if bank == Bank.TROUBLESHOOTING:
                 return [HindsightMemory(content="TROUBLESHOOT_ITEM")]

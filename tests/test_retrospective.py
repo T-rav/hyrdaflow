@@ -632,7 +632,8 @@ class TestPatternDetection:
             await collector._detect_patterns(entries)
 
         transcript = mock_file_mem.call_args[0][0]
-        assert "type: knowledge" in transcript
+        assert "principle:" in transcript
+        assert "scope:" in transcript
         assert "MEMORY_SUGGESTION_START" in transcript
 
 

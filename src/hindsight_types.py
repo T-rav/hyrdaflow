@@ -23,7 +23,7 @@ __all__ = ["Bank", "HindsightMemory", "WALEntry"]
 class Bank(StrEnum):
     """Hindsight memory bank identifiers."""
 
-    LEARNINGS = "hydraflow-learnings"
+    TRIBAL = "hydraflow-tribal"
     RETROSPECTIVES = "hydraflow-retrospectives"
     REVIEW_INSIGHTS = "hydraflow-review-insights"
     HARNESS_INSIGHTS = "hydraflow-harness-insights"

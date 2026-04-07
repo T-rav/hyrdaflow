@@ -431,14 +431,21 @@ class HealthMonitorLoop(BaseBackgroundLoop):
                 for line in raw_suggestions:
                     try:
                         rec = json.loads(line)
+                        principle = rec.get("suggestion", rec.get("title", ""))
+                        rationale = (
+                            f"Detected from {rec.get('occurrences', 0)} pipeline"
+                            f" failures in category {rec.get('category', 'unknown')}"
+                        )
+                        failure_mode = (
+                            f"Pipeline failure pattern: {rec.get('title', 'Unknown')}"
+                        )
                         transcript = (
-                            f"MEMORY_SUGGESTION_START\n"
-                            f"title: Harness insight: {rec.get('title', 'Unknown')}\n"
-                            f"type: instruction\n"
-                            f"learning: {rec.get('suggestion', rec.get('title', ''))}\n"
-                            f"context: Detected from {rec.get('occurrences', 0)} pipeline"
-                            f" failures in category {rec.get('category', 'unknown')}\n"
-                            f"MEMORY_SUGGESTION_END"
+                            "MEMORY_SUGGESTION_START\n"
+                            f"principle: {principle}\n"
+                            f"rationale: {rationale}\n"
+                            f"failure_mode: {failure_mode}\n"
+                            "scope: hydraflow\n"
+                            "MEMORY_SUGGESTION_END"
                         )
                         await file_memory_suggestion(
                             transcript,

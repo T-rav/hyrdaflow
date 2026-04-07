@@ -8,18 +8,20 @@ from __future__ import annotations
 # "implementation", "planning", "review", "correction", "conflict resolution",
 # or "rebuild".
 MEMORY_SUGGESTION_PROMPT = """\
-## Optional: Memory Suggestion
+## Optional: Tribal-Memory Suggestion
 
-If you discover a reusable pattern or insight during this {context} that would help future agent runs, you may output ONE suggestion:
+If during this {context} you discovered a durable, load-bearing insight that
+future agent runs would be strictly worse without, you may output ONE tribal
+memory suggestion. Bar is HIGH: the insight should be a principle-level rule
+that prevents a real failure mode, not a trivial observation.
 
 MEMORY_SUGGESTION_START
-title: Short descriptive title
-type: knowledge | config | instruction | code
-learning: What was learned and why it matters
-context: How it was discovered (reference issue/PR numbers)
+principle: A single-sentence rule agents should follow going forward
+rationale: Why this rule holds — the causal reasoning behind it
+failure_mode: The concrete bad outcome that occurs when the rule is violated
+scope: The module/subsystem the rule applies to (e.g. hydraflow/shape, hydraflow/db)
 MEMORY_SUGGESTION_END
 
-Types: knowledge (passive insight), config (suggests config change), instruction (new agent instruction), code (suggests code change).
-Actionable types (config, instruction, code) will be routed for human approval.
-Only suggest genuinely valuable learnings — not trivial observations.
+All four fields are required. Blocks missing any field are silently dropped.
+Do NOT emit a suggestion unless you can fill all four fields non-trivially.
 """

@@ -49,14 +49,15 @@ class TestMemorySuggestionPrompt:
         assert "rebuild" in result
         assert "{context}" not in result
 
-    def test_contains_type_definitions(self) -> None:
-        assert "knowledge" in MEMORY_SUGGESTION_PROMPT
-        assert "config" in MEMORY_SUGGESTION_PROMPT
-        assert "instruction" in MEMORY_SUGGESTION_PROMPT
-        assert "code" in MEMORY_SUGGESTION_PROMPT
+    def test_contains_tribal_field_definitions(self) -> None:
+        assert "principle:" in MEMORY_SUGGESTION_PROMPT
+        assert "rationale:" in MEMORY_SUGGESTION_PROMPT
+        assert "failure_mode:" in MEMORY_SUGGESTION_PROMPT
+        assert "scope:" in MEMORY_SUGGESTION_PROMPT
 
-    def test_contains_field_definitions(self) -> None:
-        assert "title:" in MEMORY_SUGGESTION_PROMPT
-        assert "type:" in MEMORY_SUGGESTION_PROMPT
-        assert "learning:" in MEMORY_SUGGESTION_PROMPT
-        assert "context:" in MEMORY_SUGGESTION_PROMPT
+    def test_does_not_contain_legacy_fields(self) -> None:
+        assert "title:" not in MEMORY_SUGGESTION_PROMPT
+        assert "learning:" not in MEMORY_SUGGESTION_PROMPT
+        # The ``{context}`` placeholder uses a different colon form and is
+        # checked separately; the legacy ``context:`` field label must be gone.
+        assert "\ncontext:" not in MEMORY_SUGGESTION_PROMPT
