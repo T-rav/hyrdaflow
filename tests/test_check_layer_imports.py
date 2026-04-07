@@ -17,6 +17,8 @@ sys.modules["check_layer_imports"] = _mod
 _spec.loader.exec_module(_mod)
 
 from check_layer_imports import (  # noqa: E402
+    COMPOSITION_ROOT,
+    CROSS_CUTTING,
     ImportInfo,
     Violation,
     check_violations,
@@ -54,7 +56,15 @@ class TestResolveLayer:
     def test_cross_cutting(self):
         assert resolve_layer("events") == "cross-cutting"
         assert resolve_layer("state") == "cross-cutting"
-        assert resolve_layer("service_registry") == "cross-cutting"
+
+    def test_composition_root(self):
+        assert resolve_layer("service_registry") == "composition-root"
+
+    def test_service_registry_not_in_cross_cutting(self):
+        assert "service_registry" not in CROSS_CUTTING
+
+    def test_service_registry_in_composition_root(self):
+        assert "service_registry" in COMPOSITION_ROOT
 
     def test_pattern_loop(self):
         assert resolve_layer("memory_sync_loop") == 2

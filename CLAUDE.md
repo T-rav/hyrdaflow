@@ -24,7 +24,7 @@ HydraFlow runs five concurrent async loops from `orchestrator.py`:
 - `orchestrator.py` — Main coordinator (five async polling loops)
 - `config.py` — `HydraFlowConfig` Pydantic model (50+ env-var overrides)
 - `models.py` — Pydantic data models (Phase, SessionLog, ReviewResult, etc.)
-- `service_registry.py` — Dependency injection factory (`build_services()`)
+- `service_registry.py` — Composition root (`build_services()`); imports from all layers to wire dependencies
 - `state.py` — `StateTracker` (JSON-backed crash recovery)
 - `events.py` — `EventBus` async pub/sub
 

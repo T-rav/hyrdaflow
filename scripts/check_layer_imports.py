@@ -78,8 +78,12 @@ LAYER_MAP: dict[str, int] = {
 CROSS_CUTTING: set[str] = {
     "events",
     "state",
-    "service_registry",
     "ports",
+}
+
+# Composition root — wires all layers together; exempt from direction checks
+COMPOSITION_ROOT: set[str] = {
+    "service_registry",
 }
 
 # Modules exempt from all checks (composition roots that wire everything)
@@ -127,6 +131,7 @@ LAYER_NAMES: dict[int | str, str] = {
     3: "L3-Runners",
     4: "L4-Infrastructure",
     "cross-cutting": "Cross-cutting",
+    "composition-root": "Composition-root",
 }
 
 
@@ -154,6 +159,10 @@ def resolve_layer(module_name: str) -> int | str | None:
     # Check explicit map first
     if module_name in LAYER_MAP:
         return LAYER_MAP[module_name]
+
+    # Check composition root
+    if module_name in COMPOSITION_ROOT:
+        return "composition-root"
 
     # Check cross-cutting
     if module_name in CROSS_CUTTING:
