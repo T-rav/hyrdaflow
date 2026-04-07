@@ -807,6 +807,58 @@ class TestMergeOutcomeRecording:
         assert recorded_calls[0]["quality_fix_attempts"] == 2
         assert recorded_calls[0]["review_attempts"] == 3
 
+    @pytest.mark.asyncio
+    async def test_merge_outcome_scoring_defaults_to_zero_when_no_meta(
+        self, config: HydraFlowConfig, tmp_path: object
+    ) -> None:
+        """When no WorkerResultMeta is stored, scorer receives 0 for both fields."""
+        from pathlib import Path
+        from unittest.mock import patch
+
+        state_file = Path(str(tmp_path)) / "state.json"
+        state = StateTracker(state_file)
+        handler = PostMergeHandler(
+            config=config,
+            state=state,
+            prs=AsyncMock(),
+            event_bus=EventBus(),
+            ac_generator=None,
+            retrospective=None,
+            verification_judge=None,
+            epic_checker=None,
+        )
+        pr = PRInfoFactory.create(number=12, issue_number=99)
+        issue = TaskFactory.create(id=99)
+        result = ReviewResultFactory.create()
+
+        # No meta stored — get_worker_result_meta returns None
+        handler._prs.merge_pr = AsyncMock(return_value=True)
+        ctx = MergeApprovalContext(
+            pr=pr,
+            issue=issue,
+            result=result,
+            diff="diff",
+            worker_id=0,
+            ci_gate_fn=AsyncMock(return_value=True),
+            escalate_fn=AsyncMock(),
+            publish_fn=AsyncMock(),
+        )
+
+        recorded_calls: list[dict] = []
+
+        def capture_record_merge_outcome(**kwargs):  # type: ignore[no-untyped-def]
+            recorded_calls.append(kwargs)
+
+        with patch(
+            "memory_scoring.MemoryScorer.record_merge_outcome",
+            side_effect=capture_record_merge_outcome,
+        ):
+            await handler.handle_approved(ctx)
+
+        assert len(recorded_calls) == 1
+        assert recorded_calls[0]["quality_fix_attempts"] == 0
+        assert recorded_calls[0]["review_attempts"] == 0
+
 
 # ---------------------------------------------------------------------------
 # _safe_hook recovery — secondary crash protection
