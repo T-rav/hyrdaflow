@@ -399,7 +399,7 @@ class ShapePhase:
             return True, False
 
         result = await self._check_for_response(issue)
-        if not result:
+        if result is None:
             if conv.status != "timed_out" and self._is_timed_out(conv):
                 conv.status = "timed_out"
                 self._state.set_shape_conversation(issue.id, conv)
@@ -447,14 +447,14 @@ class ShapePhase:
         """Check all response sources for a human reply.
 
         Returns a (response_text, source) tuple or None.
-        Source is 'dashboard' for state-based responses or 'github' for comments.
+        Source is 'whatsapp' for state-based responses or 'github' for comments.
 
-        Checks in order: dashboard/WhatsApp responses (fastest), then GitHub
-        comments (authoritative). Dashboard and WhatsApp responses arrive via
-        the human-input API before they're mirrored to GitHub, so checking
-        them first avoids a one-cycle race condition.
+        Checks in order: WhatsApp responses (fastest), then GitHub comments
+        (authoritative). WhatsApp responses arrive via the human-input API
+        before they're mirrored to GitHub, so checking them first avoids a
+        one-cycle race condition.
         """
-        # Source 1: Dashboard / WhatsApp responses (via human-input API)
+        # Source 1: WhatsApp responses (via human-input API)
         # These arrive before the GitHub comment mirror, so check first
         try:
             # Access via store's bus subscribers or state — the response
@@ -463,7 +463,7 @@ class ShapePhase:
             response = self._state.get_shape_response(issue.id)
             if response:
                 self._state.clear_shape_response(issue.id)
-                return (response, "dashboard")
+                return (response, "whatsapp")
         except Exception:
             pass
 

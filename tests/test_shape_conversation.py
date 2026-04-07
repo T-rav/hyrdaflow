@@ -258,10 +258,10 @@ class TestConversationTurnSource:
     """Tests that ConversationTurn.source is populated correctly."""
 
     @pytest.mark.asyncio
-    async def test_state_response_sets_source_to_dashboard(
+    async def test_state_response_sets_source_to_whatsapp(
         self, phase: ShapePhase, sample_task: Task, deps: dict
     ) -> None:
-        """When response comes from state (dashboard/whatsapp), source='dashboard'."""
+        """When response comes from state (WhatsApp webhook), source='whatsapp'."""
         conv = ShapeConversation(
             issue_number=42,
             turns=[
@@ -285,7 +285,7 @@ class TestConversationTurnSource:
 
         human_turns = [t for t in conv.turns if t.role == "human"]
         assert len(human_turns) == 1
-        assert human_turns[0].source == "dashboard"
+        assert human_turns[0].source == "whatsapp"
 
     @pytest.mark.asyncio
     async def test_github_comment_sets_source_to_github(
@@ -330,6 +330,35 @@ class TestConversationTurnSource:
         """Source field defaults to empty string when not provided."""
         turn = ConversationTurn(role="agent", content="Hello")
         assert turn.source == ""
+
+    @pytest.mark.asyncio
+    async def test_no_response_appends_no_human_turn(
+        self, phase: ShapePhase, sample_task: Task, deps: dict
+    ) -> None:
+        """When neither path returns a response, no human turn is appended."""
+        conv = ShapeConversation(
+            issue_number=42,
+            turns=[
+                ConversationTurn(
+                    role="agent",
+                    content="Options...",
+                    timestamp=datetime.now(UTC).isoformat(),
+                )
+            ],
+            last_activity_at=datetime.now(UTC).isoformat(),
+        )
+        deps["state"].get_shape_conversation.return_value = conv
+        deps["state"].get_shape_response.return_value = None
+        deps["store"].enrich_with_comments = AsyncMock(
+            return_value=sample_task.model_copy(
+                update={"comments": ["**Shape Turn 1** — Options..."]}
+            )
+        )
+
+        await phase._shape_single(sample_task)
+
+        human_turns = [t for t in conv.turns if t.role == "human"]
+        assert len(human_turns) == 0
 
 
 class TestWhatsAppBridge:
