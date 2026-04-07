@@ -63,6 +63,48 @@ async def test_judge_rejects_implementation_detail():
 
 
 @pytest.mark.asyncio
+async def test_judge_strips_markdown_fenced_json():
+    """Claude wraps JSON in ```json...``` fences even when told not to.
+
+    The parser must strip the fence and extract the inner object.
+    Real-world failure surfaced during the first end-to-end prune run.
+    """
+    from memory_judge import MemoryJudge
+
+    runner = AsyncMock()
+    runner.run_simple.return_value = _FakeResult(
+        stdout='```json\n{"score": 0.85, "verdict": "accept", "reason": "real durable rule"}\n```'
+    )
+    judge = MemoryJudge(config=_fake_config(), runner=runner, threshold=0.7)
+    verdict = await judge.evaluate(
+        principle="Background loops must rehydrate state on restart, not reset.",
+        rationale="A 2025 incident wiped pending work.",
+        failure_mode="Pending work is reprocessed or lost on every deploy.",
+        scope="src/*_loop.py",
+    )
+    assert verdict.accepted is True
+    assert verdict.score == 0.85
+    assert "durable" in verdict.reason
+
+
+@pytest.mark.asyncio
+async def test_judge_extracts_json_from_prose_prelude():
+    """If Claude adds a prose prelude before the JSON, extract the object."""
+    from memory_judge import MemoryJudge
+
+    runner = AsyncMock()
+    runner.run_simple.return_value = _FakeResult(
+        stdout='Sure, here is my evaluation:\n{"score": 0.2, "verdict": "reject", "reason": "noise"}'
+    )
+    judge = MemoryJudge(config=_fake_config(), runner=runner, threshold=0.7)
+    verdict = await judge.evaluate(
+        principle="x" * 20, rationale="x" * 20, failure_mode="x" * 20, scope="x"
+    )
+    assert verdict.accepted is False
+    assert verdict.score == 0.2
+
+
+@pytest.mark.asyncio
 async def test_judge_handles_malformed_response_as_reject():
     from memory_judge import MemoryJudge
 

@@ -10,8 +10,14 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+# Matches the first balanced-looking JSON object in a response, including
+# inside markdown code fences. Claude often wraps replies as ```json\n{...}\n```
+# even when told not to — strip the fence and pull out the object body.
+_JSON_OBJECT_RE = re.compile(r"\{[^{}]*\}", re.DOTALL)
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
@@ -126,16 +132,45 @@ class MemoryJudge:
             return JudgeVerdict(
                 accepted=False, score=0.0, reason="empty judge response"
             )
-        try:
-            # Take the last non-empty line in case the tool prints prelude.
-            line = raw.strip().splitlines()[-1]
-            data = json.loads(line)
-            score = float(data["score"])
-            reason = str(data.get("reason", ""))
-        except (json.JSONDecodeError, KeyError, ValueError, IndexError):
-            return JudgeVerdict(
-                accepted=False, score=0.0, reason="malformed judge response"
-            )
 
-        accepted = score >= self._threshold
-        return JudgeVerdict(accepted=accepted, score=score, reason=reason)
+        cleaned = _strip_markdown_fences(raw.strip())
+        # Try direct parse first; if that fails, fall back to extracting the
+        # first {...} object from the body. This handles both bare JSON and
+        # ```json\n{...}\n``` fenced responses (which Claude often emits even
+        # when told not to).
+        candidates: list[str] = [cleaned]
+        match = _JSON_OBJECT_RE.search(cleaned)
+        if match:
+            candidates.append(match.group(0))
+
+        for candidate in candidates:
+            try:
+                data = json.loads(candidate)
+                score = float(data["score"])
+                reason = str(data.get("reason", ""))
+            except (json.JSONDecodeError, KeyError, ValueError, TypeError):
+                continue
+            accepted = score >= self._threshold
+            return JudgeVerdict(accepted=accepted, score=score, reason=reason)
+
+        return JudgeVerdict(
+            accepted=False, score=0.0, reason="malformed judge response"
+        )
+
+
+def _strip_markdown_fences(text: str) -> str:
+    """Strip surrounding ``` or ```json fences from a response body.
+
+    Returns the inner text if the response is fenced, otherwise the original.
+    """
+    if not text.startswith("```"):
+        return text
+    lines = text.splitlines()
+    if not lines:
+        return text
+    # Drop the opening fence line (```json, ```python, etc).
+    body = lines[1:]
+    # Drop the trailing fence line if present.
+    while body and body[-1].strip() == "```":
+        body = body[:-1]
+    return "\n".join(body).strip()

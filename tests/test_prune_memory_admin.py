@@ -140,3 +140,53 @@ async def test_prune_memory_no_items_file_succeeds(tmp_path):
 
     assert result.success is True
     assert any("nothing to prune" in line.lower() for line in result.log)
+
+
+@pytest.mark.asyncio
+async def test_prune_memory_handles_concatenated_pretty_printed_legacy_format(tmp_path):
+    """Real-world legacy items.jsonl files are concatenated pretty-printed
+    JSON, not one-object-per-line. The streaming raw_decode parser must
+    handle both formats."""
+    from admin_tasks import run_prune_memory
+
+    cfg = _fake_config(tmp_path)
+    items_path = cfg.memory_dir / "items.jsonl"
+    items_path.parent.mkdir(parents=True, exist_ok=True)
+    items_path.write_text(
+        # Two pretty-printed legacy objects, no compact-line separator.
+        json.dumps(
+            {
+                "id": "mem-aaaa",
+                "title": "Old format A",
+                "learning": "Pre-tribal lesson A",
+                "context": "From #1234",
+            },
+            indent=2,
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "id": "mem-bbbb",
+                "title": "Old format B",
+                "learning": "Pre-tribal lesson B",
+                "context": "From #5678",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    judge = _make_judge()  # judge should never be called for legacy items
+    result = await run_prune_memory(cfg, judge=judge)
+
+    assert result.success is True
+    archive_path = cfg.memory_dir / "items_archive.jsonl"
+    archived = archive_path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(archived) == 2
+    ids = {json.loads(line)["id"] for line in archived}
+    assert ids == {"mem-aaaa", "mem-bbbb"}
+    # All survivors should be gone (they were all legacy).
+    assert items_path.read_text(encoding="utf-8") == ""
+    # Log should reflect 2 legacy items archived.
+    assert any("legacy_v0=2" in line for line in result.log)

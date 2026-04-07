@@ -733,12 +733,26 @@ async def run_prune_memory(
     archived: list[dict[str, Any]] = []
     legacy_count = 0
 
-    for line in items_path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
+    # Stream-decode the file. We accept both true JSONL (one object per line,
+    # written by the new tribal pipeline) AND concatenated pretty-printed JSON
+    # objects (the legacy format that pre-tribal writers produced). raw_decode
+    # advances through the buffer one object at a time and skips intervening
+    # whitespace, so both formats parse identically.
+    text = items_path.read_text(encoding="utf-8")
+    decoder = _json.JSONDecoder()
+    pos = 0
+    while pos < len(text):
+        while pos < len(text) and text[pos] in " \t\r\n":
+            pos += 1
+        if pos >= len(text):
+            break
         try:
-            item = _json.loads(line)
+            item, end = decoder.raw_decode(text, pos)
         except _json.JSONDecodeError:
+            warnings.append(f"Skipping malformed JSON near offset {pos}")
+            break
+        pos = end
+        if not isinstance(item, dict):
             continue
         # Pre-tribal items (no `principle`) go straight to archive.
         if "principle" not in item:
