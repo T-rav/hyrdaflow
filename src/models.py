@@ -2359,6 +2359,7 @@ class WorkerResultMeta(TypedDict, total=False):
     """Metadata stored by ``StateTracker.set_worker_result_meta``."""
 
     quality_fix_attempts: int
+    pre_quality_review_attempts: int
     duration_seconds: float
     error: str | None
     commits: int
