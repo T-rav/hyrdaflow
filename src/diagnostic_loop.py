@@ -94,11 +94,12 @@ class DiagnosticLoop(BaseBackgroundLoop):
             )
         except Exception:
             logger.warning("Failed to fetch issues for diagnostic check", exc_info=True)
-            return {"processed": 0, "fixed": 0, "escalated": 0}
+            return {"processed": 0, "fixed": 0, "escalated": 0, "retried": 0}
 
         processed = 0
         escalated = 0
         fixed = 0
+        retried = 0
 
         for raw_issue in issues:
             if self._stop_event.is_set():
@@ -112,10 +113,17 @@ class DiagnosticLoop(BaseBackgroundLoop):
             processed += 1
             if outcome == "fixed":
                 fixed += 1
+            elif outcome == "retry":
+                retried += 1
             else:
                 escalated += 1
 
-        return {"processed": processed, "fixed": fixed, "escalated": escalated}
+        return {
+            "processed": processed,
+            "fixed": fixed,
+            "escalated": escalated,
+            "retried": retried,
+        }
 
     async def _process_issue(  # noqa: PLR0911
         self,
@@ -126,7 +134,8 @@ class DiagnosticLoop(BaseBackgroundLoop):
         """Run the full diagnostic pipeline for a single issue.
 
         Returns ``"fixed"`` when the issue was successfully repaired and
-        transitioned to review, or ``"escalated"`` when it was sent to HITL.
+        transitioned to review, ``"retry"`` when the fix failed but attempts
+        remain, or ``"escalated"`` when it was sent to HITL.
         """
         # --- Load escalation context ---
         context = self._state.get_escalation_context(issue_number)
@@ -153,10 +162,10 @@ class DiagnosticLoop(BaseBackgroundLoop):
             )
             return "escalated"
 
-        # --- Enrich context with previous attempts ---
-        prior_attempts = self._state.get_diagnostic_attempts(issue_number)
-        if prior_attempts:
-            context = context.model_copy(update={"previous_attempts": prior_attempts})
+        # --- Load previous attempts (used for context enrichment + limit check) ---
+        attempts = self._state.get_diagnostic_attempts(issue_number)
+        if attempts:
+            context = context.model_copy(update={"previous_attempts": attempts})
 
         # --- Stage 1: Diagnose ---
         logger.info(
@@ -182,7 +191,6 @@ class DiagnosticLoop(BaseBackgroundLoop):
             return "escalated"
 
         # --- Check attempt limit ---
-        attempts = self._state.get_diagnostic_attempts(issue_number)
         if len(attempts) >= self._config.max_diagnostic_attempts:
             logger.info(
                 "Diagnostic: issue #%d exhausted %d attempt(s) — escalating to HITL",
@@ -284,7 +292,7 @@ class DiagnosticLoop(BaseBackgroundLoop):
                 issue_number,
             )
             await self._publish_update(issue_number, "retry")
-            return "escalated"
+            return "retry"
 
         # All attempts exhausted after this failure
         logger.info(

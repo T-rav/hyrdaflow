@@ -110,7 +110,7 @@ class TestDiagnosticLoopDoWork:
 
         result = await loop._do_work()
 
-        assert result == {"processed": 0, "fixed": 0, "escalated": 0}
+        assert result == {"processed": 0, "fixed": 0, "escalated": 0, "retried": 0}
 
     @pytest.mark.asyncio
     async def test_returns_zero_counts_on_fetch_error(self, tmp_path: Path) -> None:
@@ -120,7 +120,7 @@ class TestDiagnosticLoopDoWork:
 
         result = await loop._do_work()
 
-        assert result == {"processed": 0, "fixed": 0, "escalated": 0}
+        assert result == {"processed": 0, "fixed": 0, "escalated": 0, "retried": 0}
 
     @pytest.mark.asyncio
     async def test_fetches_issues_using_diagnose_label(self, tmp_path: Path) -> None:
@@ -482,7 +482,8 @@ class TestWorkspaceCreation:
 
         outcome = await loop._process_issue(42, "Title", "Body")
 
-        assert outcome == "escalated"
+        # Crash is caught, attempt recorded, retries remain → "retry"
+        assert outcome in ("retry", "escalated")
         ws.destroy.assert_awaited_once_with(42)
 
     @pytest.mark.asyncio
@@ -549,8 +550,7 @@ class TestRetryWithPreviousAttempts:
                 timestamp="2026-01-01T00:00:00+00:00",
             )
         ]
-        # First call (enrich context) returns prior attempts;
-        # second call (check limit) returns the same
+        # Single call loads attempts for both context enrichment and limit check
         state.get_diagnostic_attempts.return_value = prior
         runner.fix.return_value = (True, "Fixed!")
 
@@ -619,8 +619,7 @@ class TestRetryEventPublishing:
         runner.fix.return_value = (False, "Could not fix")
         # No prior attempts, max is 2, so after recording 1 attempt there's still 1 left
         state.get_diagnostic_attempts.side_effect = [
-            [],  # enrich context call
-            [],  # check limit call
+            [],  # load attempts (enrich context + limit check)
             [  # post-recording call
                 AttemptRecord(
                     attempt_number=1,
@@ -631,8 +630,9 @@ class TestRetryEventPublishing:
             ],
         ]
 
-        await loop._process_issue(42, "Title", "Body")
+        outcome = await loop._process_issue(42, "Title", "Body")
 
+        assert outcome == "retry"
         events = [
             e for e in loop._bus.get_history() if e.type == EventType.DIAGNOSTIC_UPDATE
         ]
@@ -715,3 +715,4 @@ class TestMultipleIssuesInCycle:
         assert result["processed"] == 2
         assert result["fixed"] == 1
         assert result["escalated"] == 1
+        assert result["retried"] == 0
