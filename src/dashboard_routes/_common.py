@@ -41,7 +41,6 @@ _INTERVAL_BOUNDS: dict[str, tuple[int, int]] = {
     "ci_monitor": (60, 86400),
     "security_patch": (300, 86400),
     "code_grooming": (3600, 604800),
-    "trace_mining": (30, 14400),
     "repo_wiki": (300, 604800),
     "diagnostic": (10, 3600),
     "sentry_ingest": (60, 86400),

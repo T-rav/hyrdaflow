@@ -68,7 +68,6 @@ from shape_runner import ShapeRunner
 from stale_issue_gc_loop import StaleIssueGCLoop  # noqa: TCH001
 from stale_issue_loop import StaleIssueLoop
 from state import StateTracker
-from trace_mining_loop import TraceMiningLoop  # noqa: TCH001
 from transcript_summarizer import TranscriptSummarizer
 from triage import TriageRunner
 from triage_phase import TriagePhase
@@ -146,7 +145,6 @@ class ServiceRegistry:
     ci_monitor_loop: CIMonitorLoop
     security_patch_loop: SecurityPatchLoop
     code_grooming_loop: CodeGroomingLoop
-    trace_mining_loop: TraceMiningLoop
     repo_wiki_store: RepoWikiStore
     repo_wiki_loop: RepoWikiLoop
     diagnostic_loop: DiagnosticLoop
@@ -641,12 +639,6 @@ def build_services(
         deps=loop_deps,
         credentials=credentials,
     )
-    trace_mining_loop = TraceMiningLoop(
-        config=config,
-        state=state,
-        hindsight=hindsight_client,
-        deps=loop_deps,
-    )
     repo_wiki_loop = RepoWikiLoop(
         config=config,
         wiki_store=repo_wiki_store,
@@ -721,7 +713,6 @@ def build_services(
         ci_monitor_loop=ci_monitor_loop,
         security_patch_loop=security_patch_loop,
         code_grooming_loop=code_grooming_loop,
-        trace_mining_loop=trace_mining_loop,
         repo_wiki_store=repo_wiki_store,
         repo_wiki_loop=repo_wiki_loop,
         diagnostic_loop=diagnostic_loop,

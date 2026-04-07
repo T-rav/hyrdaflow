@@ -306,7 +306,6 @@ export const BACKGROUND_WORKERS = [
   { key: 'ci_monitor', label: 'CI Monitor', description: 'Detects failing CI on main and files/auto-closes issues.', color: theme.yellow, group: 'repo_health', tags: ['quality'] },
   { key: 'security_patch', label: 'Security Patch', description: 'Polls Dependabot alerts and files issues for fixable vulnerabilities.', color: theme.red, group: 'repo_health', tags: ['security'] },
   { key: 'code_grooming', label: 'Code Grooming', description: 'Runs periodic audit scans and files issues for critical findings.', color: theme.accent, group: 'repo_health', tags: ['quality'] },
-  { key: 'trace_mining', label: 'Trace Mining', description: 'Aggregates in-process subprocess traces, rolls up tool/token/skill stats per phase run, and syncs insights to Hindsight.', color: theme.accent, group: 'learning', tags: ['observability'] },
   { key: 'repo_wiki', label: 'Repo Wiki', description: 'Lints and maintains per-repo knowledge wikis compiled from plan/implement/review cycles.', color: theme.purple, group: 'learning', tags: ['knowledge'] },
   { key: 'diagnostic', label: 'Diagnostic Agent', description: 'Analyzes escalated issues, classifies severity, and attempts targeted fixes before HITL.', color: theme.blue, system: true, group: 'operations', tags: ['recovery'] },
 ]

@@ -182,7 +182,7 @@ cython_debug/
 # Learn more at https://abstra.io/docs
 .abstra/
 
-# Monocle trace files (harvested before worktree cleanup)
+# Legacy Monocle trace files
 .monocle/
 
 # Visual Studio Code

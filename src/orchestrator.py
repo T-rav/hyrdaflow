@@ -138,7 +138,6 @@ class HydraFlowOrchestrator:
             "ci_monitor": svc.ci_monitor_loop,
             "security_patch": svc.security_patch_loop,
             "code_grooming": svc.code_grooming_loop,
-            "trace_mining": svc.trace_mining_loop,
             "repo_wiki": svc.repo_wiki_loop,
             "diagnostic": svc.diagnostic_loop,
             "retrospective": svc.retrospective_loop,
@@ -865,7 +864,6 @@ class HydraFlowOrchestrator:
             ("repo_wiki", self._svc.repo_wiki_loop.run),
             ("security_patch", self._svc.security_patch_loop.run),
             ("stale_issue_gc", self._svc.stale_issue_gc_loop.run),
-            ("trace_mining", self._svc.trace_mining_loop.run),
             ("retrospective", self._svc.retrospective_loop.run),
         ]
 

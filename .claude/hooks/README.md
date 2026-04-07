@@ -12,6 +12,6 @@ Shell scripts that gate specific tool calls:
 
 ## Observability
 
-HydraFlow now collects trace data **in-process** inside `stream_claude_process()` (see `src/trace_collector.py`). There is no Stop-hook-based tracing — the collector writes `subprocess-N.json` files directly to `<data_root>/traces/<issue>/<phase>/run-N/` as each agent subprocess completes. The `trace_mining_loop` then aggregates runs into `TraceSummary` and syncs insights to Hindsight.
+HydraFlow now collects trace data **in-process** inside `stream_claude_process()` (see `src/trace_collector.py`). There is no Stop-hook-based tracing — the collector writes `subprocess-N.json` files directly to `<data_root>/traces/<issue>/<phase>/run-N/` as each agent subprocess completes. `trace_rollup.write_phase_rollup` aggregates per-subprocess traces into `summary.json`.
 
 No environment variables or external dependencies are required for tracing.

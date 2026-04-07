@@ -1,4 +1,4 @@
-"""Tests for Monocle trace data models."""
+"""Tests for trace data models."""
 
 from __future__ import annotations
 

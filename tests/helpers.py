@@ -1652,7 +1652,6 @@ def mock_fetcher_noop(orch: Any) -> None:
         "repo_wiki_loop",
         "security_patch_loop",
         "stale_issue_gc_loop",
-        "trace_mining_loop",
     ):
         loop_obj = getattr(orch._svc, loop_attr, None)
         if loop_obj is not None:

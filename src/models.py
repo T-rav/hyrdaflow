@@ -1296,7 +1296,7 @@ class LifetimeStats(BaseModel):
     total_outcomes_verify_resolved: int = 0
     # Threshold proposals already filed (avoid re-filing)
     fired_thresholds: list[str] = Field(default_factory=list)
-    # --- Monocle trace mining ---
+    # --- Trace mining ---
     total_prompt_tokens: int = 0
     total_completion_tokens: int = 0
     total_cache_read_tokens: int = 0
@@ -1312,7 +1312,7 @@ class LifetimeStats(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Monocle trace mining models
+# Trace mining models
 # ---------------------------------------------------------------------------
 
 

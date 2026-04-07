@@ -167,7 +167,6 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("sentry_max_creation_attempts", "SENTRY_MAX_CREATION_ATTEMPTS", 3),
     ("security_patch_interval", "HYDRAFLOW_SECURITY_PATCH_INTERVAL", 3600),
     ("code_grooming_interval", "HYDRAFLOW_CODE_GROOMING_INTERVAL", 86400),
-    ("trace_mining_interval", "HYDRAFLOW_TRACE_MINING_INTERVAL", 3600),
     ("repo_wiki_interval", "HYDRAFLOW_REPO_WIKI_INTERVAL", 3600),
     ("max_repo_wiki_chars", "HYDRAFLOW_MAX_REPO_WIKI_CHARS", 15_000),
     ("diagnostic_interval", "HYDRAFLOW_DIAGNOSTIC_INTERVAL", 30),
@@ -1298,12 +1297,6 @@ class HydraFlowConfig(BaseModel):
         ge=10,
         le=14400,
         description="Seconds between memory sync polls (default: 1 hour)",
-    )
-    trace_mining_interval: int = Field(
-        default=3600,
-        ge=10,
-        le=86400,
-        description="Seconds between Monocle trace mining cycles (default: 1 hour)",
     )
     data_poll_interval: int = Field(
         default=300,
