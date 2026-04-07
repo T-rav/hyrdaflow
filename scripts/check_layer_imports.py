@@ -89,7 +89,7 @@ COMPOSITION_ROOT: set[str] = {
 
 # Modules exempt from all checks. Must include all COMPOSITION_ROOT members so
 # that run_check() skips them before resolve_layer() is called.
-ALLOWLIST: set[str] = COMPOSITION_ROOT | set()
+ALLOWLIST: set[str] = set(COMPOSITION_ROOT)
 
 # Per-file import allowlist: {source_module: {allowed_target_module, ...}}
 # These are known architectural exceptions documented for tracking.
