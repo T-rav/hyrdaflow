@@ -180,3 +180,49 @@ class TestIntervalBounds:
         assert not stale, (
             f"_INTERVAL_BOUNDS_SKIP contains entries that are not real loops: {sorted(stale)}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Loops that are intentionally absent from loop_factories (started separately).
+# ---------------------------------------------------------------------------
+_LOOP_FACTORIES_SKIP: set[str] = set()
+
+
+def _parse_loop_factories() -> set[str]:
+    """Extract loop names from the loop_factories list in _supervise_loops."""
+    text = (SRC / "orchestrator.py").read_text()
+    # Match lines like:  ("diagnostic", self._svc.diagnostic_loop.run),
+    # or:                ("triage", self._triage_loop),
+    return set(re.findall(r'\(\s*"(\w+)"\s*,\s*self[._]', text))
+
+
+class TestLoopFactories:
+    """Every bg_loop_registry entry must also appear in loop_factories.
+
+    The bg_loop_registry makes a loop visible to the dashboard and state
+    restorer, but loop_factories is what actually *starts* the loop.
+    A loop present in the registry but missing from loop_factories will
+    never run — this is the exact bug that stranded 100+ issues on
+    hydraflow-diagnose (gh-TBD).
+    """
+
+    def test_all_registry_loops_in_factories(self, loops: dict[str, str]) -> None:
+        registry_keys = _parse_bg_loop_registry()
+        factory_keys = _parse_loop_factories()
+        missing = {
+            name
+            for name in registry_keys
+            if name not in factory_keys and name not in _LOOP_FACTORIES_SKIP
+        }
+        assert not missing, (
+            f"Loops in bg_loop_registry but missing from loop_factories "
+            f"(registered but never started): {sorted(missing)}"
+        )
+
+    def test_skip_list_entries_are_real_loops(self) -> None:
+        """Ensure skip-list entries refer to actual discovered loops."""
+        all_loops = _discover_loops()
+        stale = _LOOP_FACTORIES_SKIP - set(all_loops.keys())
+        assert not stale, (
+            f"_LOOP_FACTORIES_SKIP contains entries not in discovered loops: {sorted(stale)}"
+        )

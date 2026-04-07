@@ -1640,6 +1640,24 @@ def mock_fetcher_noop(orch: Any) -> None:
     orch._svc.workspaces.enable_rerere = AsyncMock()  # type: ignore[method-assign]
     orch._svc.workspaces.sanitize_repo = AsyncMock()  # type: ignore[method-assign]
 
+    # Mock the 7 background loops added in #6258 so they don't make real
+    # gh/Claude CLI calls that raise AuthenticationError and set stop_event.
+    async def _wait_for_stop() -> None:
+        await orch._stop_event.wait()
+
+    for loop_attr in (
+        "diagnostic_loop",
+        "ci_monitor_loop",
+        "code_grooming_loop",
+        "repo_wiki_loop",
+        "security_patch_loop",
+        "stale_issue_gc_loop",
+        "trace_mining_loop",
+    ):
+        loop_obj = getattr(orch._svc, loop_attr, None)
+        if loop_obj is not None:
+            loop_obj.run = _wait_for_stop  # type: ignore[method-assign]
+
 
 def make_worker_result(
     issue_number: int = 42,

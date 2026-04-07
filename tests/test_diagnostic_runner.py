@@ -139,6 +139,55 @@ class TestBuildDiagnosisPrompt:
         prompt = _build_diagnosis_prompt(99, "My Bug", "Details", ctx)
         assert "Issue #99" in prompt
 
+    def test_empty_body_shows_placeholder(self) -> None:
+        from diagnostic_runner import _build_diagnosis_prompt
+
+        ctx = EscalationContext(cause="ci", origin_phase="review")
+        prompt = _build_diagnosis_prompt(1, "Bug", "", ctx)
+        assert "_No description provided._" in prompt
+
+    def test_nonempty_body_appears_in_prompt(self) -> None:
+        from diagnostic_runner import _build_diagnosis_prompt
+
+        ctx = EscalationContext(cause="ci", origin_phase="review")
+        prompt = _build_diagnosis_prompt(1, "Bug", "Detailed body", ctx)
+        assert "Detailed body" in prompt
+        assert "_No description provided._" not in prompt
+
+
+class TestMaxDiagnosticAttemptsValidation:
+    """Config validation for max_diagnostic_attempts."""
+
+    def test_rejects_zero(self) -> None:
+        from pydantic import ValidationError
+
+        from config import HydraFlowConfig
+
+        with pytest.raises(ValidationError, match="max_diagnostic_attempts"):
+            HydraFlowConfig(max_diagnostic_attempts=0)
+
+    def test_rejects_negative(self) -> None:
+        from pydantic import ValidationError
+
+        from config import HydraFlowConfig
+
+        with pytest.raises(ValidationError, match="max_diagnostic_attempts"):
+            HydraFlowConfig(max_diagnostic_attempts=-1)
+
+    def test_rejects_above_max(self) -> None:
+        from pydantic import ValidationError
+
+        from config import HydraFlowConfig
+
+        with pytest.raises(ValidationError, match="max_diagnostic_attempts"):
+            HydraFlowConfig(max_diagnostic_attempts=11)
+
+    def test_accepts_valid_value(self) -> None:
+        from config import HydraFlowConfig
+
+        cfg = HydraFlowConfig(max_diagnostic_attempts=3)
+        assert cfg.max_diagnostic_attempts == 3
+
 
 class TestDiagnosticRunner:
     @pytest.fixture
@@ -307,6 +356,54 @@ class TestDiagnosticRunner:
         )
         assert success is False
         assert "crashed" in transcript.lower()
+
+    @pytest.mark.asyncio
+    async def test_diagnose_reraises_permission_error(
+        self, runner, monkeypatch
+    ) -> None:
+        """PermissionError is not swallowed — it propagates."""
+        ctx = EscalationContext(cause="CI failed", origin_phase="review")
+
+        async def failing_execute(*args, **kwargs):
+            raise PermissionError("access denied")
+
+        monkeypatch.setattr(runner, "_execute", failing_execute)
+        with pytest.raises(PermissionError, match="access denied"):
+            await runner.diagnose(
+                issue_number=42, issue_title="Bug", issue_body="Fix it", context=ctx
+            )
+
+    @pytest.mark.asyncio
+    async def test_diagnose_reraises_memory_error(self, runner, monkeypatch) -> None:
+        """MemoryError is not swallowed — it propagates."""
+        ctx = EscalationContext(cause="CI failed", origin_phase="review")
+
+        async def failing_execute(*args, **kwargs):
+            raise MemoryError()
+
+        monkeypatch.setattr(runner, "_execute", failing_execute)
+        with pytest.raises(MemoryError):
+            await runner.diagnose(
+                issue_number=42, issue_title="Bug", issue_body="Fix it", context=ctx
+            )
+
+    @pytest.mark.asyncio
+    async def test_fix_reraises_permission_error(self, runner, monkeypatch) -> None:
+        """PermissionError during fix is not swallowed."""
+        diagnosis = DiagnosisResult(
+            root_cause="Missing import",
+            severity=Severity.P2_FUNCTIONAL,
+            fixable=True,
+            fix_plan="Add import",
+            human_guidance="Simple",
+        )
+
+        async def failing_execute(*args, **kwargs):
+            raise PermissionError("access denied")
+
+        monkeypatch.setattr(runner, "_execute", failing_execute)
+        with pytest.raises(PermissionError, match="access denied"):
+            await runner.fix(42, "Bug", "Fix it", diagnosis, "/tmp/wt")
 
     @pytest.mark.asyncio
     async def test_diagnose_empty_transcript(self, runner, monkeypatch) -> None:

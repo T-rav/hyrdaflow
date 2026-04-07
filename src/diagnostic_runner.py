@@ -39,7 +39,7 @@ def _build_diagnosis_prompt(
     sections = [
         f"# Diagnostic Analysis — Issue #{issue_number}\n",
         f"**Title:** {issue_title}\n",
-        f"**Body:**\n{issue_body}\n",
+        f"**Body:**\n{issue_body or '_No description provided._'}\n",
         f"**Escalation cause:** {context.cause}\n",
         f"**Origin phase:** {context.origin_phase}\n",
     ]
@@ -118,6 +118,8 @@ class DiagnosticRunner(BaseRunner):
                 self._config.repo_root,
                 {"issue": issue_number, "source": "diagnostic"},
             )
+        except (PermissionError, KeyboardInterrupt, SystemExit, MemoryError):
+            raise
         except Exception:
             logger.exception("Diagnostic agent failed for issue #%d", issue_number)
             return DiagnosisResult(
@@ -180,6 +182,8 @@ class DiagnosticRunner(BaseRunner):
             )
             verify = await self._verify_quality(wt)
             return verify.passed, transcript
+        except (PermissionError, KeyboardInterrupt, SystemExit, MemoryError):
+            raise
         except Exception:
             logger.exception("Diagnostic fix failed for issue #%d", issue_number)
             return False, "Fix agent crashed"

@@ -651,6 +651,7 @@ def build_services(
         prs=prs,
         state=state,
         deps=loop_deps,
+        workspaces=workspaces,
     )
 
     return ServiceRegistry(

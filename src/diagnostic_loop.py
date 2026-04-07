@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from diagnostic_runner import DiagnosisResult, DiagnosticRunner
     from ports import PRPort
     from state import StateTracker
+    from workspace import WorkspaceManager
 
 logger = logging.getLogger("hydraflow.diagnostic_loop")
 
@@ -70,6 +71,7 @@ class DiagnosticLoop(BaseBackgroundLoop):
         prs: PRPort,
         state: StateTracker,
         deps: LoopDeps,
+        workspaces: WorkspaceManager | None = None,  # noqa: UP007
     ) -> None:
         super().__init__(
             worker_name="diagnostic",
@@ -79,17 +81,25 @@ class DiagnosticLoop(BaseBackgroundLoop):
         self._runner = runner
         self._prs = prs
         self._state = state
+        self._workspaces = workspaces
 
     def _get_default_interval(self) -> int:
         return self._config.diagnostic_interval
 
     async def _do_work(self) -> dict[str, Any] | None:
         """Poll for diagnosed issues and run the diagnostic pipeline."""
-        issues = await self._prs.list_issues_by_label(self._config.diagnose_label[0])
+        try:
+            issues = await self._prs.list_issues_by_label(
+                self._config.diagnose_label[0]
+            )
+        except Exception:
+            logger.warning("Failed to fetch issues for diagnostic check", exc_info=True)
+            return {"processed": 0, "fixed": 0, "escalated": 0, "retried": 0}
 
         processed = 0
         escalated = 0
         fixed = 0
+        retried = 0
 
         for raw_issue in issues:
             if self._stop_event.is_set():
@@ -103,12 +113,19 @@ class DiagnosticLoop(BaseBackgroundLoop):
             processed += 1
             if outcome == "fixed":
                 fixed += 1
+            elif outcome == "retry":
+                retried += 1
             else:
                 escalated += 1
 
-        return {"processed": processed, "fixed": fixed, "escalated": escalated}
+        return {
+            "processed": processed,
+            "fixed": fixed,
+            "escalated": escalated,
+            "retried": retried,
+        }
 
-    async def _process_issue(
+    async def _process_issue(  # noqa: PLR0911
         self,
         issue_number: int,
         issue_title: str,
@@ -117,7 +134,8 @@ class DiagnosticLoop(BaseBackgroundLoop):
         """Run the full diagnostic pipeline for a single issue.
 
         Returns ``"fixed"`` when the issue was successfully repaired and
-        transitioned to review, or ``"escalated"`` when it was sent to HITL.
+        transitioned to review, ``"retry"`` when the fix failed but attempts
+        remain, or ``"escalated"`` when it was sent to HITL.
         """
         # --- Load escalation context ---
         context = self._state.get_escalation_context(issue_number)
@@ -144,6 +162,11 @@ class DiagnosticLoop(BaseBackgroundLoop):
             )
             return "escalated"
 
+        # --- Load previous attempts (used for context enrichment + limit check) ---
+        attempts = self._state.get_diagnostic_attempts(issue_number)
+        if attempts:
+            context = context.model_copy(update={"previous_attempts": attempts})
+
         # --- Stage 1: Diagnose ---
         logger.info(
             "Diagnostic: running Stage 1 (diagnose) for issue #%d", issue_number
@@ -168,7 +191,6 @@ class DiagnosticLoop(BaseBackgroundLoop):
             return "escalated"
 
         # --- Check attempt limit ---
-        attempts = self._state.get_diagnostic_attempts(issue_number)
         if len(attempts) >= self._config.max_diagnostic_attempts:
             logger.info(
                 "Diagnostic: issue #%d exhausted %d attempt(s) — escalating to HITL",
@@ -187,10 +209,40 @@ class DiagnosticLoop(BaseBackgroundLoop):
         )
         await self._publish_update(issue_number, "fixing")
 
+        branch = f"agent/diag-{issue_number}"
         wt_path = self._config.workspace_path_for_issue(issue_number)
-        success, transcript = await self._runner.fix(
-            issue_number, issue_title, issue_body, diagnosis, str(wt_path)
-        )
+
+        # Create workspace if we have a manager and the path doesn't exist
+        if self._workspaces is not None and not wt_path.exists():
+            try:
+                wt_path = await self._workspaces.create(issue_number, branch)
+            except Exception:
+                logger.exception(
+                    "Diagnostic: workspace creation failed for issue #%d",
+                    issue_number,
+                )
+                await self._escalate_to_hitl(issue_number, comment=diagnosis_comment)
+                return "escalated"
+
+        try:
+            success, transcript = await self._runner.fix(
+                issue_number, issue_title, issue_body, diagnosis, str(wt_path)
+            )
+        except Exception:
+            logger.exception(
+                "Diagnostic: runner.fix() crashed for issue #%d", issue_number
+            )
+            success, transcript = False, "runner.fix() crashed"
+        finally:
+            if self._workspaces is not None:
+                try:
+                    await self._workspaces.destroy(issue_number)
+                except Exception:
+                    logger.warning(
+                        "Diagnostic: workspace cleanup failed for issue #%d",
+                        issue_number,
+                        exc_info=True,
+                    )
 
         # Record this attempt regardless of outcome
         record = AttemptRecord(
@@ -216,9 +268,17 @@ class DiagnosticLoop(BaseBackgroundLoop):
                     f"{diagnosis_comment}"
                 ),
             )
-            await self._prs.swap_pipeline_labels(
-                issue_number, self._config.review_label[0]
-            )
+            try:
+                await self._prs.swap_pipeline_labels(
+                    issue_number, self._config.review_label[0]
+                )
+            except Exception:
+                logger.warning(
+                    "Diagnostic: label swap to review failed for issue #%d "
+                    "— fix was applied but issue may need manual label update",
+                    issue_number,
+                    exc_info=True,
+                )
             await self._publish_update(issue_number, "fixed")
             return "fixed"
 
@@ -232,7 +292,7 @@ class DiagnosticLoop(BaseBackgroundLoop):
                 issue_number,
             )
             await self._publish_update(issue_number, "retry")
-            return "escalated"
+            return "retry"
 
         # All attempts exhausted after this failure
         logger.info(
@@ -244,8 +304,25 @@ class DiagnosticLoop(BaseBackgroundLoop):
 
     async def _escalate_to_hitl(self, issue_number: int, *, comment: str) -> None:
         """Post the diagnosis comment and swap labels to HITL."""
-        await self._prs.post_comment(issue_number, comment)
-        await self._prs.swap_pipeline_labels(issue_number, self._config.hitl_label[0])
+        try:
+            await self._prs.post_comment(issue_number, comment)
+        except Exception:
+            logger.warning(
+                "Diagnostic: failed to post comment for issue #%d",
+                issue_number,
+                exc_info=True,
+            )
+        try:
+            await self._prs.swap_pipeline_labels(
+                issue_number, self._config.hitl_label[0]
+            )
+        except Exception:
+            logger.warning(
+                "Diagnostic: label swap to HITL failed for issue #%d "
+                "— issue may need manual label update",
+                issue_number,
+                exc_info=True,
+            )
         await self._publish_update(issue_number, "escalated")
 
     async def _publish_update(self, issue_number: int, status: str) -> None:

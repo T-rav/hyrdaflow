@@ -49,10 +49,11 @@ def _make_loop(
     tmp_path: Path,
     *,
     enabled: bool = True,
-) -> tuple[DiagnosticLoop, MagicMock, MagicMock, MagicMock]:
+    with_workspaces: bool = False,
+) -> tuple[DiagnosticLoop, MagicMock, MagicMock, MagicMock, MagicMock | None]:
     """Build a DiagnosticLoop with test-friendly defaults.
 
-    Returns (loop, runner_mock, prs_mock, state_mock).
+    Returns (loop, runner_mock, prs_mock, state_mock, workspaces_mock).
     """
     deps = make_bg_loop_deps(tmp_path, enabled=enabled)
 
@@ -71,14 +72,22 @@ def _make_loop(
     state.add_diagnostic_attempt = MagicMock()
     state.set_diagnosis_severity = MagicMock()
 
+    workspaces: MagicMock | None = None
+    if with_workspaces:
+        workspaces = MagicMock()
+        wt_path = deps.config.workspace_path_for_issue(42)
+        workspaces.create = AsyncMock(return_value=wt_path)
+        workspaces.destroy = AsyncMock()
+
     loop = DiagnosticLoop(
         config=deps.config,
         runner=runner,
         prs=prs,
         state=state,
         deps=deps.loop_deps,
+        workspaces=workspaces,
     )
-    return loop, runner, prs, state
+    return loop, runner, prs, state, workspaces
 
 
 class TestDiagnosticLoopInterval:
@@ -86,7 +95,7 @@ class TestDiagnosticLoopInterval:
 
     def test_returns_config_value(self, tmp_path: Path) -> None:
         """_get_default_interval returns the configured diagnostic_interval."""
-        loop, _, _, _ = _make_loop(tmp_path)
+        loop, _, _, _, _ = _make_loop(tmp_path)
         assert loop._get_default_interval() == loop._config.diagnostic_interval
 
 
@@ -96,17 +105,27 @@ class TestDiagnosticLoopDoWork:
     @pytest.mark.asyncio
     async def test_empty_issue_list_returns_zero_counts(self, tmp_path: Path) -> None:
         """When no issues are labeled, _do_work returns zeroed stats."""
-        loop, _, prs, _ = _make_loop(tmp_path)
+        loop, _, prs, _, _ = _make_loop(tmp_path)
         prs.list_issues_by_label.return_value = []
 
         result = await loop._do_work()
 
-        assert result == {"processed": 0, "fixed": 0, "escalated": 0}
+        assert result == {"processed": 0, "fixed": 0, "escalated": 0, "retried": 0}
+
+    @pytest.mark.asyncio
+    async def test_returns_zero_counts_on_fetch_error(self, tmp_path: Path) -> None:
+        """When list_issues_by_label raises, _do_work returns zeroed stats."""
+        loop, _, prs, _, _ = _make_loop(tmp_path)
+        prs.list_issues_by_label.side_effect = RuntimeError("auth failed")
+
+        result = await loop._do_work()
+
+        assert result == {"processed": 0, "fixed": 0, "escalated": 0, "retried": 0}
 
     @pytest.mark.asyncio
     async def test_fetches_issues_using_diagnose_label(self, tmp_path: Path) -> None:
         """_do_work fetches issues using the first element of diagnose_label."""
-        loop, _, prs, _ = _make_loop(tmp_path)
+        loop, _, prs, _, _ = _make_loop(tmp_path)
         prs.list_issues_by_label.return_value = []
 
         await loop._do_work()
@@ -118,7 +137,7 @@ class TestDiagnosticLoopDoWork:
     @pytest.mark.asyncio
     async def test_fixed_issue_counts_as_fixed(self, tmp_path: Path) -> None:
         """When fix succeeds, the fixed counter increments."""
-        loop, runner, prs, state = _make_loop(tmp_path)
+        loop, runner, prs, state, _ = _make_loop(tmp_path)
         prs.list_issues_by_label.return_value = [
             {"number": 42, "title": "Bug", "body": "It's broken"}
         ]
@@ -134,7 +153,7 @@ class TestDiagnosticLoopDoWork:
     @pytest.mark.asyncio
     async def test_unfixable_issue_counts_as_escalated(self, tmp_path: Path) -> None:
         """When diagnosis says not fixable, the escalated counter increments."""
-        loop, runner, prs, _ = _make_loop(tmp_path)
+        loop, runner, prs, _, _ = _make_loop(tmp_path)
         prs.list_issues_by_label.return_value = [
             {"number": 42, "title": "Bug", "body": "It's broken"}
         ]
@@ -149,7 +168,7 @@ class TestDiagnosticLoopDoWork:
     @pytest.mark.asyncio
     async def test_stops_processing_when_stop_event_set(self, tmp_path: Path) -> None:
         """When stop_event is set, no further issues are processed."""
-        loop, runner, prs, _ = _make_loop(tmp_path)
+        loop, runner, prs, _, _ = _make_loop(tmp_path)
         prs.list_issues_by_label.return_value = [
             {"number": 1, "title": "A", "body": ""},
             {"number": 2, "title": "B", "body": ""},
@@ -169,7 +188,7 @@ class TestProcessIssueNoContext:
     @pytest.mark.asyncio
     async def test_escalates_to_hitl_when_context_missing(self, tmp_path: Path) -> None:
         """When no escalation context exists, issue goes straight to HITL."""
-        loop, runner, prs, state = _make_loop(tmp_path)
+        loop, runner, prs, state, _ = _make_loop(tmp_path)
         state.get_escalation_context.return_value = None
 
         outcome = await loop._process_issue(42, "Title", "Body")
@@ -189,7 +208,7 @@ class TestProcessIssueNoContext:
         self, tmp_path: Path
     ) -> None:
         """A DIAGNOSTIC_UPDATE event is published when escalating for missing context."""
-        loop, _, _, state = _make_loop(tmp_path)
+        loop, _, _, state, _ = _make_loop(tmp_path)
         state.get_escalation_context.return_value = None
 
         await loop._process_issue(42, "Title", "Body")
@@ -206,7 +225,7 @@ class TestProcessIssueNotFixable:
     @pytest.mark.asyncio
     async def test_escalates_to_hitl_when_not_fixable(self, tmp_path: Path) -> None:
         """When diagnosis.fixable is False, issue is escalated to HITL."""
-        loop, runner, prs, state = _make_loop(tmp_path)
+        loop, runner, prs, state, _ = _make_loop(tmp_path)
         runner.diagnose.return_value = _make_diagnosis(fixable=False)
 
         outcome = await loop._process_issue(42, "Title", "Body")
@@ -224,7 +243,7 @@ class TestProcessIssueNotFixable:
     @pytest.mark.asyncio
     async def test_severity_stored_even_when_not_fixable(self, tmp_path: Path) -> None:
         """Severity is persisted to state even when the issue cannot be fixed."""
-        loop, runner, _, state = _make_loop(tmp_path)
+        loop, runner, _, state, _ = _make_loop(tmp_path)
         runner.diagnose.return_value = _make_diagnosis(
             fixable=False, severity=Severity.P0_SECURITY
         )
@@ -240,7 +259,7 @@ class TestProcessIssueSuccessfulFix:
     @pytest.mark.asyncio
     async def test_transitions_to_review_on_success(self, tmp_path: Path) -> None:
         """Successful fix transitions the issue label to review."""
-        loop, runner, prs, _ = _make_loop(tmp_path)
+        loop, runner, prs, _, _ = _make_loop(tmp_path)
         runner.fix.return_value = (True, "Fixed!")
 
         outcome = await loop._process_issue(42, "Title", "Body")
@@ -253,7 +272,7 @@ class TestProcessIssueSuccessfulFix:
     @pytest.mark.asyncio
     async def test_posts_success_comment_on_fix(self, tmp_path: Path) -> None:
         """A success comment is posted when fix succeeds."""
-        loop, runner, prs, _ = _make_loop(tmp_path)
+        loop, runner, prs, _, _ = _make_loop(tmp_path)
         runner.fix.return_value = (True, "Fixed!")
 
         await loop._process_issue(42, "Title", "Body")
@@ -266,7 +285,7 @@ class TestProcessIssueSuccessfulFix:
     @pytest.mark.asyncio
     async def test_records_attempt_on_success(self, tmp_path: Path) -> None:
         """An AttemptRecord is written to state on successful fix."""
-        loop, runner, _, state = _make_loop(tmp_path)
+        loop, runner, _, state, _ = _make_loop(tmp_path)
         runner.fix.return_value = (True, "Fixed!")
 
         await loop._process_issue(42, "Title", "Body")
@@ -280,7 +299,7 @@ class TestProcessIssueSuccessfulFix:
     @pytest.mark.asyncio
     async def test_publishes_fixed_event(self, tmp_path: Path) -> None:
         """A DIAGNOSTIC_UPDATE 'fixed' event is published on successful fix."""
-        loop, runner, _, _ = _make_loop(tmp_path)
+        loop, runner, _, _, _ = _make_loop(tmp_path)
         runner.fix.return_value = (True, "Fixed!")
 
         await loop._process_issue(42, "Title", "Body")
@@ -297,7 +316,7 @@ class TestProcessIssueMaxAttemptsExhausted:
     @pytest.mark.asyncio
     async def test_escalates_when_attempts_at_max(self, tmp_path: Path) -> None:
         """When attempts already equal max_diagnostic_attempts, escalate without fixing."""
-        loop, runner, prs, state = _make_loop(tmp_path)
+        loop, runner, prs, state, _ = _make_loop(tmp_path)
         # Simulate max attempts already recorded
         max_attempts = loop._config.max_diagnostic_attempts
         state.get_diagnostic_attempts.return_value = [
@@ -321,7 +340,7 @@ class TestProcessIssueMaxAttemptsExhausted:
     @pytest.mark.asyncio
     async def test_escalates_after_final_failing_attempt(self, tmp_path: Path) -> None:
         """When fix fails and no attempts remain, escalate to HITL."""
-        loop, runner, prs, state = _make_loop(tmp_path)
+        loop, runner, prs, state, _ = _make_loop(tmp_path)
         # max_diagnostic_attempts defaults to 2; simulate 0 previous attempts
         # so this will be attempt 1; then after recording, 1 < 2 so it retries
         # To test exhaustion: set max to 1 via state side effect
@@ -355,7 +374,7 @@ class TestProcessIssueMaxAttemptsExhausted:
     @pytest.mark.asyncio
     async def test_records_failed_attempt(self, tmp_path: Path) -> None:
         """A failed fix attempt is recorded in state."""
-        loop, runner, _, state = _make_loop(tmp_path)
+        loop, runner, _, state, _ = _make_loop(tmp_path)
         runner.fix.return_value = (False, "error: test failed")
 
         await loop._process_issue(42, "Title", "Body")
@@ -415,3 +434,285 @@ class TestFormatHelpers:
         diagnosis = _make_diagnosis(fix_plan="")
         comment = _format_diagnosis_comment(diagnosis)
         assert "_No fix plan generated._" in comment
+
+
+class TestWorkspaceCreation:
+    """Diagnostic loop creates and cleans up workspaces for fix attempts."""
+
+    @pytest.mark.asyncio
+    async def test_creates_workspace_before_fix(self, tmp_path: Path) -> None:
+        """When workspaces manager is provided, workspace is created before fix."""
+        loop, runner, _, _, ws = _make_loop(tmp_path, with_workspaces=True)
+        runner.fix.return_value = (True, "Fixed!")
+        assert ws is not None
+
+        await loop._process_issue(42, "Title", "Body")
+
+        ws.create.assert_awaited_once_with(42, "agent/diag-42")
+        runner.fix.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_destroys_workspace_after_success(self, tmp_path: Path) -> None:
+        """Workspace is cleaned up after a successful fix."""
+        loop, runner, _, _, ws = _make_loop(tmp_path, with_workspaces=True)
+        runner.fix.return_value = (True, "Fixed!")
+        assert ws is not None
+
+        await loop._process_issue(42, "Title", "Body")
+
+        ws.destroy.assert_awaited_once_with(42)
+
+    @pytest.mark.asyncio
+    async def test_destroys_workspace_after_failure(self, tmp_path: Path) -> None:
+        """Workspace is cleaned up even when fix fails."""
+        loop, runner, _, _, ws = _make_loop(tmp_path, with_workspaces=True)
+        runner.fix.return_value = (False, "Could not fix")
+        assert ws is not None
+
+        await loop._process_issue(42, "Title", "Body")
+
+        ws.destroy.assert_awaited_once_with(42)
+
+    @pytest.mark.asyncio
+    async def test_destroys_workspace_on_runner_exception(self, tmp_path: Path) -> None:
+        """Workspace is cleaned up even when runner.fix() raises."""
+        loop, runner, _, _, ws = _make_loop(tmp_path, with_workspaces=True)
+        runner.fix.side_effect = RuntimeError("boom")
+        assert ws is not None
+
+        outcome = await loop._process_issue(42, "Title", "Body")
+
+        # Crash is caught, attempt recorded, retries remain → "retry"
+        assert outcome in ("retry", "escalated")
+        ws.destroy.assert_awaited_once_with(42)
+
+    @pytest.mark.asyncio
+    async def test_escalates_when_workspace_creation_fails(
+        self, tmp_path: Path
+    ) -> None:
+        """If workspace creation fails, issue is escalated to HITL."""
+        loop, runner, prs, _, ws = _make_loop(tmp_path, with_workspaces=True)
+        assert ws is not None
+        ws.create.side_effect = RuntimeError("clone failed")
+
+        outcome = await loop._process_issue(42, "Title", "Body")
+
+        assert outcome == "escalated"
+        runner.fix.assert_not_awaited()
+        prs.swap_pipeline_labels.assert_awaited_once_with(
+            42, loop._config.hitl_label[0]
+        )
+
+    @pytest.mark.asyncio
+    async def test_destroys_preexisting_workspace_on_retry(
+        self, tmp_path: Path
+    ) -> None:
+        """On retry, workspace exists from prior attempt — still destroyed after fix."""
+        loop, runner, _, _, ws = _make_loop(tmp_path, with_workspaces=True)
+        assert ws is not None
+        runner.fix.return_value = (False, "Could not fix")
+
+        # Simulate workspace already existing from a prior attempt
+        wt_path = loop._config.workspace_path_for_issue(42)
+        wt_path.mkdir(parents=True, exist_ok=True)
+
+        await loop._process_issue(42, "Title", "Body")
+
+        # create should NOT be called (workspace already existed)
+        ws.create.assert_not_awaited()
+        # destroy MUST still be called to clean up
+        ws.destroy.assert_awaited_once_with(42)
+
+    @pytest.mark.asyncio
+    async def test_no_workspace_manager_still_works(self, tmp_path: Path) -> None:
+        """Without a workspace manager, loop uses config path directly."""
+        loop, runner, _, _, ws = _make_loop(tmp_path, with_workspaces=False)
+        assert ws is None
+        runner.fix.return_value = (True, "Fixed!")
+
+        outcome = await loop._process_issue(42, "Title", "Body")
+
+        assert outcome == "fixed"
+
+
+class TestRetryWithPreviousAttempts:
+    """Diagnostic loop enriches context with previous attempts on retry."""
+
+    @pytest.mark.asyncio
+    async def test_context_includes_previous_attempts(self, tmp_path: Path) -> None:
+        """When prior attempts exist, they are passed to diagnose() via context."""
+        loop, runner, _, state, _ = _make_loop(tmp_path)
+        prior = [
+            AttemptRecord(
+                attempt_number=1,
+                changes_made=False,
+                error_summary="first try failed",
+                timestamp="2026-01-01T00:00:00+00:00",
+            )
+        ]
+        # Single call loads attempts for both context enrichment and limit check
+        state.get_diagnostic_attempts.return_value = prior
+        runner.fix.return_value = (True, "Fixed!")
+
+        await loop._process_issue(42, "Title", "Body")
+
+        # Verify diagnose() received context with previous_attempts populated
+        ctx_arg = runner.diagnose.call_args[0][3]
+        assert len(ctx_arg.previous_attempts) == 1
+        assert ctx_arg.previous_attempts[0].error_summary == "first try failed"
+
+    @pytest.mark.asyncio
+    async def test_empty_attempts_leaves_context_unchanged(
+        self, tmp_path: Path
+    ) -> None:
+        """When no prior attempts, context.previous_attempts stays empty."""
+        loop, runner, _, state, _ = _make_loop(tmp_path)
+        state.get_diagnostic_attempts.return_value = []
+        runner.fix.return_value = (True, "Fixed!")
+
+        await loop._process_issue(42, "Title", "Body")
+
+        ctx_arg = runner.diagnose.call_args[0][3]
+        assert ctx_arg.previous_attempts == []
+
+
+class TestLabelSwapFailure:
+    """Label swap failure after successful fix is handled gracefully."""
+
+    @pytest.mark.asyncio
+    async def test_label_swap_error_returns_fixed(self, tmp_path: Path) -> None:
+        """If swap_pipeline_labels raises after fix, outcome is still 'fixed'."""
+        loop, runner, prs, _, _ = _make_loop(tmp_path)
+        runner.fix.return_value = (True, "Fixed!")
+        prs.swap_pipeline_labels.side_effect = RuntimeError("API error")
+
+        outcome = await loop._process_issue(42, "Title", "Body")
+
+        assert outcome == "fixed"
+
+    @pytest.mark.asyncio
+    async def test_label_swap_error_still_publishes_fixed_event(
+        self, tmp_path: Path
+    ) -> None:
+        """Even if label swap fails, the fixed event is published."""
+        loop, runner, prs, _, _ = _make_loop(tmp_path)
+        runner.fix.return_value = (True, "Fixed!")
+        prs.swap_pipeline_labels.side_effect = RuntimeError("API error")
+
+        await loop._process_issue(42, "Title", "Body")
+
+        events = [
+            e for e in loop._bus.get_history() if e.type == EventType.DIAGNOSTIC_UPDATE
+        ]
+        assert any(e.data.get("status") == "fixed" for e in events)
+
+
+class TestRetryEventPublishing:
+    """Verify the retry event is published when fix fails but retries remain."""
+
+    @pytest.mark.asyncio
+    async def test_publishes_retry_event_on_failed_fix_with_retries(
+        self, tmp_path: Path
+    ) -> None:
+        """A DIAGNOSTIC_UPDATE 'retry' event is published when fix fails but retries remain."""
+        loop, runner, _, state, _ = _make_loop(tmp_path)
+        runner.fix.return_value = (False, "Could not fix")
+        # No prior attempts, max is 2, so after recording 1 attempt there's still 1 left
+        state.get_diagnostic_attempts.side_effect = [
+            [],  # load attempts (enrich context + limit check)
+            [  # post-recording call
+                AttemptRecord(
+                    attempt_number=1,
+                    changes_made=False,
+                    error_summary="failed",
+                    timestamp="2026-01-01T00:00:00+00:00",
+                )
+            ],
+        ]
+
+        outcome = await loop._process_issue(42, "Title", "Body")
+
+        assert outcome == "retry"
+        events = [
+            e for e in loop._bus.get_history() if e.type == EventType.DIAGNOSTIC_UPDATE
+        ]
+        statuses = [e.data.get("status") for e in events]
+        assert "retry" in statuses
+
+
+class TestEscalateToHitlErrorHandling:
+    """_escalate_to_hitl handles API errors without crashing the cycle."""
+
+    @pytest.mark.asyncio
+    async def test_post_comment_failure_still_swaps_labels(
+        self, tmp_path: Path
+    ) -> None:
+        """If post_comment fails, label swap is still attempted."""
+        loop, runner, prs, state, _ = _make_loop(tmp_path)
+        state.get_escalation_context.return_value = None
+        prs.post_comment.side_effect = RuntimeError("API down")
+
+        outcome = await loop._process_issue(42, "Title", "Body")
+
+        assert outcome == "escalated"
+        prs.swap_pipeline_labels.assert_awaited_once_with(
+            42, loop._config.hitl_label[0]
+        )
+
+    @pytest.mark.asyncio
+    async def test_label_swap_failure_in_escalation_does_not_crash(
+        self, tmp_path: Path
+    ) -> None:
+        """If swap_pipeline_labels fails during escalation, cycle continues."""
+        loop, runner, prs, state, _ = _make_loop(tmp_path)
+        state.get_escalation_context.return_value = None
+        prs.swap_pipeline_labels.side_effect = RuntimeError("API down")
+
+        outcome = await loop._process_issue(42, "Title", "Body")
+
+        assert outcome == "escalated"
+        prs.post_comment.assert_awaited_once()
+
+
+class TestRunnerCrashRecordsAttempt:
+    """When runner.fix() crashes, an attempt is still recorded."""
+
+    @pytest.mark.asyncio
+    async def test_records_failed_attempt_on_runner_crash(self, tmp_path: Path) -> None:
+        """A crash in runner.fix() records a failed AttemptRecord."""
+        loop, runner, _, state, _ = _make_loop(tmp_path)
+        runner.fix.side_effect = RuntimeError("kaboom")
+
+        await loop._process_issue(42, "Title", "Body")
+
+        state.add_diagnostic_attempt.assert_called_once()
+        record: AttemptRecord = state.add_diagnostic_attempt.call_args[0][1]
+        assert record.changes_made is False
+        assert "crashed" in record.error_summary
+
+
+class TestMultipleIssuesInCycle:
+    """_do_work correctly counts mixed outcomes across multiple issues."""
+
+    @pytest.mark.asyncio
+    async def test_mixed_outcomes_counted_correctly(self, tmp_path: Path) -> None:
+        """One fixed + one escalated gives correct counts."""
+        loop, runner, prs, state, _ = _make_loop(tmp_path)
+        prs.list_issues_by_label.return_value = [
+            {"number": 1, "title": "A", "body": "a"},
+            {"number": 2, "title": "B", "body": "b"},
+        ]
+        # First issue: fixable → fixed; second issue: not fixable → escalated
+        runner.diagnose.side_effect = [
+            _make_diagnosis(fixable=True),
+            _make_diagnosis(fixable=False),
+        ]
+        runner.fix.return_value = (True, "Fixed!")
+
+        result = await loop._do_work()
+
+        assert result is not None
+        assert result["processed"] == 2
+        assert result["fixed"] == 1
+        assert result["escalated"] == 1
+        assert result["retried"] == 0
