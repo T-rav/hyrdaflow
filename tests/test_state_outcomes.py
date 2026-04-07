@@ -555,6 +555,8 @@ class TestSessionCounters:
         # 4 triaged / ~2 hours ~ 2.0/hr (allow some tolerance for test timing)
         assert 1.5 <= throughput["triaged"] <= 2.5
         assert throughput["planned"] == 0.0
+        assert throughput["discovered"] == 0.0
+        assert throughput["shaped"] == 0.0
 
     def test_compute_throughput_no_session_start(self, tmp_path: Path) -> None:
         """Throughput with empty session_start should return all zeros."""
