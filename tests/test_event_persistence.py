@@ -270,8 +270,8 @@ class TestEventLogRotation:
 
         await log.rotate(max_size_bytes=1, max_age_days=7)
 
-        # Only the events.jsonl file should remain
-        files = list(tmp_path.iterdir())
+        # Only the events.jsonl file (and its lock file) should remain
+        files = [f for f in tmp_path.iterdir() if f.suffix != ".lock"]
         assert len(files) == 1
         assert files[0].name == "events.jsonl"
 
