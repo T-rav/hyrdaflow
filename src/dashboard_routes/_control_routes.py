@@ -11,7 +11,13 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from admin_tasks import run_clean, run_ensure_labels, run_prep, run_scaffold
+from admin_tasks import (
+    run_clean,
+    run_compact,
+    run_ensure_labels,
+    run_prep,
+    run_scaffold,
+)
 from app_version import get_app_version
 from config import HydraFlowConfig, save_config_file
 from dashboard_routes._common import _INTERVAL_BOUNDS
@@ -337,6 +343,12 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
         repo: str | None = Query(default=None, description="Repo slug to target"),
     ) -> JSONResponse:
         return await ctx.execute_admin_task("ensure-labels", run_ensure_labels, repo)
+
+    @router.post("/api/admin/compact")
+    async def admin_compact(
+        repo: str | None = Query(default=None, description="Repo slug to target"),
+    ) -> JSONResponse:
+        return await ctx.execute_admin_task("compact", run_compact, repo)
 
     @router.patch("/api/control/config")
     async def patch_config(

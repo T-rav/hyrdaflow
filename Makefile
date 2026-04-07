@@ -36,7 +36,7 @@ RESET := \033[0m
 DOCKER_IMAGE ?= ghcr.io/t-rav/hydraflow-agent:latest
 DOCKER_BASE_IMAGE ?= ghcr.io/t-rav/hydraflow-agent-base:latest
 
-.PHONY: help run dev dry-run clean clean-assets coverage cover smoke test test-fast test-cov lint lint-check lint-fix typecheck security quality quality-lite install setup status ui ui-dev ui-clean ensure-labels prep scaffold hot docker-build docker-ensure docker-test deps integration soak screenshot screenshot-update check-node-ui
+.PHONY: help run dev dry-run clean clean-assets compact coverage cover smoke test test-fast test-cov lint lint-check lint-fix typecheck security quality quality-lite install setup status ui ui-dev ui-clean ensure-labels prep scaffold hot docker-build docker-ensure docker-test deps integration soak screenshot screenshot-update check-node-ui
 
 check-node-ui:
 	@cd $(HYDRAFLOW_DIR)src/ui && $(HYDRAFLOW_DIR)scripts/ui-npm.sh --version >/dev/null
@@ -66,6 +66,7 @@ help:
 	@echo "  make ensure-labels  Create HydraFlow labels in GitHub repo (API with offline fallback)"
 	@echo "  make prep           Sync agent assets then run full prep (API with offline fallback)"
 	@echo "  make scaffold       Generate baseline tests and CI configuration (API with offline fallback)"
+	@echo "  make compact        Run manual memory compaction (API with offline fallback)"
 	@echo "  make setup          Install hooks/assets for target repo ($(TARGET_REPO_ROOT))"
 	@echo "  make install        Install dashboard dependencies"
 	@echo "  make ui             Build React dashboard (src/ui/dist/)"
@@ -431,6 +432,12 @@ ensure-labels: deps
 	@curl -sf -X POST "http://localhost:$(PORT)/api/admin/ensure-labels" 2>/dev/null \
 		&& echo "$(GREEN)Label sync complete (via API)$(RESET)" \
 		|| (cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py ensure-labels && echo "$(GREEN)Label sync complete$(RESET)")
+
+compact: deps
+	@echo "$(BLUE)Running manual memory compaction...$(RESET)"
+	@curl -sf -X POST "http://localhost:$(PORT)/api/admin/compact" 2>/dev/null \
+		&& echo "$(GREEN)Compaction complete (via API)$(RESET)" \
+		|| (cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/run_admin_task.py compact && echo "$(GREEN)Compaction complete$(RESET)")
 
 hot:
 	@echo "$(BLUE)Sending config update to running HydraFlow instance on :$(PORT)...$(RESET)"
