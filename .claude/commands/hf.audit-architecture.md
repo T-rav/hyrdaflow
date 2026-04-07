@@ -27,10 +27,13 @@ Layer 1 — Domain (pure data, business rules, no I/O)
   models.py, config.py
 
 Cross-cutting (available to all, imports only from Domain):
-  events.py, state/, service_registry.py
+  events.py, state/
+
+Composition root (imports from ALL layers to wire dependencies):
+  service_registry.py
 ```
 
-**Dependency direction rule:** A module at layer N may import from layers 1..N but NEVER from layer N+1 or above. Cross-cutting may import from Layer 1 only. `service_registry.py` is the sole exception — it wires everything together.
+**Dependency direction rule:** A module at layer N may import from layers 1..N but NEVER from layer N+1 or above. Cross-cutting modules may import from Layer 1 only. `service_registry.py` is the composition root — it imports from all layers by design and is exempt from direction checks.
 
 ## Instructions
 
@@ -73,7 +76,8 @@ Assign each source file to a layer:
 | 2 — Application | orchestrator.py, *_phase.py, phase_utils.py, pr_unsticker.py, base_background_loop.py, *_loop.py | Workflow coordination, phase management |
 | 3 — Runners | base_runner.py, agent.py, planner.py, reviewer.py, hitl_runner.py, triage_runner.py, runner_utils.py | Agent subprocess management |
 | 4 — Infrastructure | pr_manager.py, worktree.py, merge_conflict_resolver.py, post_merge_handler.py, dashboard.py, dashboard_routes/ | I/O, external tools, HTTP endpoints |
-| X — Cross-cutting | events.py, state/, service_registry.py | Shared infrastructure (imports only from Layer 1) |
+| X — Cross-cutting | events.py, state/ | Shared infrastructure (imports only from Layer 1) |
+| CR — Composition root | service_registry.py | Wires all layers; exempt from direction checks |
 
 ## Steps
 
@@ -89,7 +93,7 @@ Assign each source file to a layer:
    - **Cross-cutting pollution**: events.py, state/*.py importing from Layer 2+ (should only import Layer 1)
    - **Lateral coupling**: Two modules at the same layer importing each other (circular — suggests missing abstraction)
    - **Skip-layer**: Layer 2 importing directly from Layer 4, bypassing Layer 3 (suggests missing intermediary)
-6. service_registry.py is EXEMPT — it wires all layers by design
+6. service_registry.py is the composition root — it wires all layers by design and is exempt from direction checks
 
 ### Phase 3: Check Circular Dependencies
 7. From the import graph, detect cycles:
