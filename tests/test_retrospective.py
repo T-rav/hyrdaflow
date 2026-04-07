@@ -971,7 +971,7 @@ class TestRetrospectiveHindsightDualWrite:
 
     def test_falsy_mock_hindsight_still_retains(self, config: HydraFlowConfig) -> None:
         """A falsy-but-non-None hindsight mock must still trigger schedule_retain."""
-        from unittest.mock import MagicMock
+        from unittest.mock import AsyncMock, MagicMock
 
         mock_hindsight = MagicMock()
         mock_hindsight.__bool__ = lambda _self: False  # falsy mock

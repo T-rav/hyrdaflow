@@ -171,8 +171,7 @@ class HarnessInsightStore:
                     self._failures_path,
                     exc_info=True,
                 )
-
-        if self._hindsight is not None:
+        else:
             from hindsight import Bank, schedule_retain  # noqa: PLC0415
 
             schedule_retain(
