@@ -241,6 +241,8 @@ class ConfigFactory:
         verify_label: list[str] | None = None,
         find_label: list[str] | None = None,
         planner_label: list[str] | None = None,
+        parked_label: list[str] | None = None,
+        diagnose_label: list[str] | None = None,
         planner_tool: Literal["claude", "codex", "pi"] = "claude",
         planner_model: str = "opus",
         triage_tool: Literal["claude", "codex", "pi"] = "claude",
@@ -444,6 +446,12 @@ class ConfigFactory:
                 planner_label=planner_label
                 if planner_label is not None
                 else ["hydraflow-plan"],
+                parked_label=parked_label
+                if parked_label is not None
+                else ["hydraflow-parked"],
+                diagnose_label=diagnose_label
+                if diagnose_label is not None
+                else ["hydraflow-diagnose"],
                 planner_tool=planner_tool,
                 planner_model=planner_model,
                 triage_tool=triage_tool,
