@@ -794,6 +794,24 @@ class TestReviewInsightHindsightDualWrite:
         reviews_path = tmp_path / "reviews.jsonl"
         assert not reviews_path.exists()
 
+    def test_falsy_mock_hindsight_still_retains(self, tmp_path: Path) -> None:
+        """A falsy-but-non-None hindsight mock must still trigger schedule_retain."""
+        from unittest.mock import MagicMock, patch
+
+        mock_hindsight = MagicMock()
+        mock_hindsight.__bool__ = lambda _self: False  # falsy mock
+        store = ReviewInsightStore(tmp_path, hindsight=mock_hindsight)
+        record = _make_record()
+
+        with patch("hindsight.schedule_retain") as mock_retain:
+            store.append_review(record)
+            # schedule_retain must be called even though mock is falsy
+            mock_retain.assert_called_once()
+
+        # File write must NOT happen when hindsight is set (even if falsy)
+        reviews_path = tmp_path / "reviews.jsonl"
+        assert not reviews_path.exists()
+
 
 # ---------------------------------------------------------------------------
 # Dolt backend integration

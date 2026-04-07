@@ -234,7 +234,7 @@ class RetrospectiveCollector:
 
     def _append_entry(self, entry: RetrospectiveEntry) -> None:
         """Append a JSON line to the retrospective log."""
-        if not self._hindsight:
+        if self._hindsight is None:
             try:
                 from file_util import append_jsonl  # noqa: PLC0415
 
@@ -245,8 +245,7 @@ class RetrospectiveCollector:
                     self._retro_path,
                     exc_info=True,
                 )
-
-        if self._hindsight:
+        else:
             from hindsight import Bank, schedule_retain  # noqa: PLC0415
 
             content = (

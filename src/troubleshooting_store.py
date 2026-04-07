@@ -115,7 +115,7 @@ class TroubleshootingPatternStore:
         except ImportError:
             pass
 
-        if self._hindsight:
+        if self._hindsight is not None:
             from hindsight import Bank, schedule_retain  # noqa: PLC0415
 
             content = f"{pattern.pattern_name}: {pattern.description}\nFix: {pattern.fix_strategy}"

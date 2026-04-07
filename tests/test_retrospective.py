@@ -969,6 +969,33 @@ class TestRetrospectiveHindsightDualWrite:
         retro_path = config.data_path("memory", "retrospectives.jsonl")
         assert not retro_path.exists()
 
+    def test_falsy_mock_hindsight_still_retains(self, config: HydraFlowConfig) -> None:
+        """A falsy-but-non-None hindsight mock must still trigger schedule_retain."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        mock_hindsight = MagicMock()
+        mock_hindsight.__bool__ = lambda _self: False  # falsy mock
+        state = StateTracker(config.state_file)
+        mock_prs = AsyncMock()
+        collector = RetrospectiveCollector(
+            config, state, mock_prs, hindsight=mock_hindsight
+        )
+
+        entry = RetrospectiveEntry(
+            issue_number=42,
+            pr_number=100,
+            timestamp="2026-02-20T10:30:00Z",
+        )
+
+        with patch("hindsight.schedule_retain") as mock_retain:
+            collector._append_entry(entry)
+            # schedule_retain must be called even though mock is falsy
+            mock_retain.assert_called_once()
+
+        # File write must NOT happen when hindsight is set (even if falsy)
+        retro_path = config.data_path("memory", "retrospectives.jsonl")
+        assert not retro_path.exists()
+
 
 # ---------------------------------------------------------------------------
 # Dolt backend integration

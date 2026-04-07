@@ -398,6 +398,20 @@ class MemoryScorer:
         )
         return result
 
+    def evict_items(self, item_ids: list[int]) -> list[int]:
+        """Remove entries from item_scores.json and return IDs actually removed."""
+        with _SCORES_LOCK:
+            scores = self.load_item_scores()
+            removed: list[int] = []
+            for item_id in item_ids:
+                if item_id in scores:
+                    del scores[item_id]
+                    removed.append(item_id)
+            if removed:
+                self._save_item_scores(scores)
+                logger.info("Evicted %d memory items: %s", len(removed), removed)
+        return removed
+
     def get_item_score_for_context(
         self, item_id: int, context: str = "feature"
     ) -> float:

@@ -539,6 +539,91 @@ class TestCompactionClassification:
 
 
 # ---------------------------------------------------------------------------
+# TestEvictItems (unit tests for MemoryScorer.evict_items)
+# ---------------------------------------------------------------------------
+
+
+class TestEvictItems:
+    def test_evict_removes_specified_items(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path / "mem")
+        scorer._save_item_scores(
+            {
+                1: {
+                    "score": 0.1,
+                    "appearances": 10,
+                    "trail": [],
+                    "condensed_summary": "",
+                },
+                2: {
+                    "score": 0.8,
+                    "appearances": 5,
+                    "trail": [],
+                    "condensed_summary": "",
+                },
+                3: {
+                    "score": 0.05,
+                    "appearances": 8,
+                    "trail": [],
+                    "condensed_summary": "",
+                },
+            }
+        )
+        removed = scorer.evict_items([1, 3])
+        assert removed == [1, 3]
+        remaining = scorer.load_item_scores()
+        assert 1 not in remaining
+        assert 3 not in remaining
+        assert 2 in remaining
+
+    def test_evict_empty_list_no_change(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path / "mem")
+        scorer._save_item_scores(
+            {1: {"score": 0.5, "appearances": 3, "trail": [], "condensed_summary": ""}}
+        )
+        removed = scorer.evict_items([])
+        assert removed == []
+        assert 1 in scorer.load_item_scores()
+
+    def test_evict_nonexistent_ids_skipped(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path / "mem")
+        scorer._save_item_scores(
+            {1: {"score": 0.5, "appearances": 3, "trail": [], "condensed_summary": ""}}
+        )
+        removed = scorer.evict_items([99, 100])
+        assert removed == []
+        assert 1 in scorer.load_item_scores()
+
+    def test_evict_mixed_existing_and_nonexistent(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path / "mem")
+        scorer._save_item_scores(
+            {
+                1: {
+                    "score": 0.1,
+                    "appearances": 10,
+                    "trail": [],
+                    "condensed_summary": "",
+                },
+                2: {
+                    "score": 0.8,
+                    "appearances": 5,
+                    "trail": [],
+                    "condensed_summary": "",
+                },
+            }
+        )
+        removed = scorer.evict_items([1, 99])
+        assert removed == [1]
+        remaining = scorer.load_item_scores()
+        assert 1 not in remaining
+        assert 2 in remaining
+
+    def test_evict_no_scores_file(self, tmp_path: Path) -> None:
+        scorer = MemoryScorer(tmp_path / "mem")
+        removed = scorer.evict_items([1, 2])
+        assert removed == []
+
+
+# ---------------------------------------------------------------------------
 # TestWordOverlap (unit tests for helper)
 # ---------------------------------------------------------------------------
 

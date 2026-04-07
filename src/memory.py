@@ -256,7 +256,7 @@ class MemorySyncWorker:
             }
 
         # Write items to Hindsight
-        if self._hindsight:
+        if self._hindsight is not None:
             from hindsight import Bank, retain_safe  # noqa: PLC0415
 
             for item in local_items:

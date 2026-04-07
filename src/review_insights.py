@@ -228,7 +228,7 @@ class ReviewInsightStore:
 
     def append_review(self, record: ReviewRecord) -> None:
         """Append *record* as a JSON line to ``reviews.jsonl``."""
-        if not self._hindsight:
+        if self._hindsight is None:
             try:
                 from file_util import append_jsonl  # noqa: PLC0415
 
@@ -239,8 +239,7 @@ class ReviewInsightStore:
                     self._reviews_path,
                     exc_info=True,
                 )
-
-        if self._hindsight:
+        else:
             from hindsight import Bank, schedule_retain  # noqa: PLC0415
 
             schedule_retain(

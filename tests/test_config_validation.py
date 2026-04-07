@@ -1180,6 +1180,8 @@ class TestLabelValidation:
             "epic_child_label",
             "find_label",
             "planner_label",
+            "parked_label",
+            "diagnose_label",
         ],
     )
     def test_empty_label_list_raises_validation_error(
@@ -1630,6 +1632,22 @@ class TestLabelsMustNotBeEmpty:
         with pytest.raises(ValidationError):
             ConfigFactory.create(repo_root=tmp_path / "repo", review_label=[])
 
+    def test_rejects_empty_parked_label(self, tmp_path: Path) -> None:
+        from pydantic import ValidationError
+
+        from tests.helpers import ConfigFactory
+
+        with pytest.raises(ValidationError):
+            ConfigFactory.create(repo_root=tmp_path / "repo", parked_label=[])
+
+    def test_rejects_empty_diagnose_label(self, tmp_path: Path) -> None:
+        from pydantic import ValidationError
+
+        from tests.helpers import ConfigFactory
+
+        with pytest.raises(ValidationError):
+            ConfigFactory.create(repo_root=tmp_path / "repo", diagnose_label=[])
+
     def test_accepts_non_empty_labels(self, tmp_path: Path) -> None:
         from tests.helpers import ConfigFactory
 
@@ -1640,6 +1658,22 @@ class TestLabelsMustNotBeEmpty:
         )
         assert cfg.ready_label == ["valid"]
         assert cfg.review_label == ["valid"]
+
+    def test_accepts_custom_parked_label(self, tmp_path: Path) -> None:
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path / "repo", parked_label=["custom-parked"]
+        )
+        assert cfg.parked_label == ["custom-parked"]
+
+    def test_accepts_custom_diagnose_label(self, tmp_path: Path) -> None:
+        from tests.helpers import ConfigFactory
+
+        cfg = ConfigFactory.create(
+            repo_root=tmp_path / "repo", diagnose_label=["custom-diagnose"]
+        )
+        assert cfg.diagnose_label == ["custom-diagnose"]
 
 
 class TestAgentToolFields:
