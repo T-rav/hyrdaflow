@@ -10,10 +10,15 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_file_memory_suggestion_passes_real_client(tmp_path):
-    from config import HydraFlowConfig
     from memory import file_memory_suggestion
+    from tests.helpers import ConfigFactory
 
-    cfg = HydraFlowConfig(state_dir=tmp_path)
+    # CRITICAL: use ConfigFactory(repo_root=tmp_path) — the auto-resolver in
+    # config._resolve_base_paths sets data_root to repo_root/.hydraflow when
+    # data_root is the default Path(".") . If we pass HydraFlowConfig() without
+    # repo_root, the resolver falls back to CWD/.hydraflow, which during a test
+    # run pollutes the actual worktree's .hydraflow/memory/items.jsonl.
+    cfg = ConfigFactory.create(repo_root=tmp_path)
     fake_client = MagicMock(name="HindsightClient")
     transcript = (
         "MEMORY_SUGGESTION_START\n"
