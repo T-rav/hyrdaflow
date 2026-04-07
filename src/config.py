@@ -1528,6 +1528,8 @@ class HydraFlowConfig(BaseModel):
         "shape_label",
         "planner_label",
         "verify_label",
+        "parked_label",
+        "diagnose_label",
     )
     @classmethod
     def labels_must_not_be_empty(cls, v: list[str]) -> list[str]:
