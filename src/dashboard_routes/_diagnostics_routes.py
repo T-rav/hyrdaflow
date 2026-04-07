@@ -194,10 +194,10 @@ def build_diagnostics_router(config: HydraFlowConfig) -> APIRouter:
     @router.get("/issue/{issue}/{phase}")
     def issue_phase(issue: int, phase: str) -> list[dict[str, Any]]:
         if not _PHASE_PATTERN.fullmatch(phase):
-            return []
+            raise HTTPException(status_code=404, detail="not found")
         phase_dir = _safe_traces_subdir(config.data_root, issue, phase)
         if phase_dir is None or not phase_dir.is_dir():
-            return []
+            raise HTTPException(status_code=404, detail="not found")
         summaries: list[dict[str, Any]] = []
         for run_dir in sorted(phase_dir.iterdir()):
             if not run_dir.is_dir() or not run_dir.name.startswith("run-"):

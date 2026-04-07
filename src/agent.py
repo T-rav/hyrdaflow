@@ -1185,7 +1185,7 @@ SUMMARY: <one-line summary>
             existing: list[dict] = []
             if results_path.exists():
                 try:
-                    existing = _json.loads(results_path.read_text())
+                    existing = _json.loads(results_path.read_text(encoding="utf-8"))
                 except (ValueError, OSError):
                     existing = []
             existing.append(
@@ -1197,7 +1197,7 @@ SUMMARY: <one-line summary>
                     "blocking": blocking,
                 }
             )
-            results_path.write_text(_json.dumps(existing, indent=2))
+            results_path.write_text(_json.dumps(existing, indent=2), encoding="utf-8")
         except Exception:
             logger.warning(
                 "Failed to append skill result for %s", skill_name, exc_info=True

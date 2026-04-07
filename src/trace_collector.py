@@ -354,6 +354,6 @@ class TraceCollector:
         )
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"subprocess-{self._subprocess_idx}.json"
-        out_path.write_text(trace.model_dump_json(indent=2))
+        out_path.write_text(trace.model_dump_json(indent=2), encoding="utf-8")
 
         return trace
