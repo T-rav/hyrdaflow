@@ -28,7 +28,6 @@ class Bank(StrEnum):
     REVIEW_INSIGHTS = "hydraflow-review-insights"
     HARNESS_INSIGHTS = "hydraflow-harness-insights"
     TROUBLESHOOTING = "hydraflow-troubleshooting"
-    TRACING_INSIGHTS = "hydraflow-tracing-insights"
 
 
 # ---------------------------------------------------------------------------

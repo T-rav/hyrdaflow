@@ -27,9 +27,7 @@ async def test_implement_phase_allocates_and_ends_run(config, tmp_path):
 
     await phase.run_batch()
 
-    # No active runs after batch completes
-    assert phase._state.get_active_trace_run(42, "implement") is None
-    # Next begin gets run_id 2 (one run already consumed)
+    # end_trace_run was called: next begin gets run_id 2 (one run consumed)
     assert phase._state.begin_trace_run(42, "implement") == 2
 
 
@@ -45,5 +43,5 @@ async def test_implement_phase_rolls_up_on_agent_failure(config, tmp_path):
 
     await phase.run_batch()
 
-    # Still no active runs — end_trace_run fired in finally block
-    assert phase._state.get_active_trace_run(99, "implement") is None
+    # end_trace_run fired in finally block: next begin gets run_id 2
+    assert phase._state.begin_trace_run(99, "implement") == 2

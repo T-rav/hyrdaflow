@@ -355,18 +355,6 @@ class TestLifetimeStatsModel:
         assert stats.total_implementation_seconds == 0.0
         assert stats.total_review_seconds == 0.0
         assert stats.fired_thresholds == []
-        assert stats.total_prompt_tokens == 0
-        assert stats.total_completion_tokens == 0
-        assert stats.total_cache_read_tokens == 0
-        assert stats.total_cache_creation_tokens == 0
-        assert stats.tool_invocation_counts == {}
-        assert stats.tool_error_counts == {}
-        assert stats.skill_invocation_counts == {}
-        assert stats.subagent_invocation_counts == {}
-        assert stats.total_traces_harvested == 0
-        assert stats.total_spans_processed == 0
-        assert stats.total_inference_calls == 0
-        assert stats.total_agent_turns == 0
 
     def test_model_copy_is_independent(self) -> None:
         """model_copy should produce an independent instance."""

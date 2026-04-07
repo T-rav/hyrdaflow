@@ -14,7 +14,6 @@ class TestBank:
         assert Bank.REVIEW_INSIGHTS == "hydraflow-review-insights"
         assert Bank.HARNESS_INSIGHTS == "hydraflow-harness-insights"
         assert Bank.TROUBLESHOOTING == "hydraflow-troubleshooting"
-        assert Bank.TRACING_INSIGHTS == "hydraflow-tracing-insights"
 
     def test_bank_is_str(self) -> None:
         assert isinstance(Bank.LEARNINGS, str)

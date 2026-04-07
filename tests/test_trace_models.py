@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from hindsight import Bank
 from models import (
-    LifetimeStats,
     TraceSkillProfile,
     TraceSpanStats,
     TraceSummary,
@@ -147,43 +145,3 @@ class TestTraceSummary:
         data = summary.model_dump()
         restored = TraceSummary.model_validate(data)
         assert restored == summary
-
-
-class TestLifetimeStatsTraceFields:
-    def test_trace_fields_default_zero(self) -> None:
-        stats = LifetimeStats()
-        assert stats.total_prompt_tokens == 0
-        assert stats.total_completion_tokens == 0
-        assert stats.total_cache_read_tokens == 0
-        assert stats.total_cache_creation_tokens == 0
-        assert stats.tool_invocation_counts == {}
-        assert stats.tool_error_counts == {}
-        assert stats.skill_invocation_counts == {}
-        assert stats.subagent_invocation_counts == {}
-        assert stats.total_traces_harvested == 0
-        assert stats.total_spans_processed == 0
-        assert stats.total_inference_calls == 0
-        assert stats.total_agent_turns == 0
-
-    def test_trace_fields_roundtrip(self) -> None:
-        stats = LifetimeStats(
-            total_prompt_tokens=5000,
-            total_completion_tokens=2000,
-            tool_invocation_counts={"Read": 100, "Bash": 50},
-            skill_invocation_counts={"tdd": 10},
-            subagent_invocation_counts={"Explore": 20},
-        )
-        data = stats.model_dump()
-        restored = LifetimeStats.model_validate(data)
-        assert restored.total_prompt_tokens == 5000
-        assert restored.tool_invocation_counts == {"Read": 100, "Bash": 50}
-        assert restored.skill_invocation_counts == {"tdd": 10}
-        assert restored.subagent_invocation_counts == {"Explore": 20}
-
-
-class TestTracingInsightsBank:
-    def test_tracing_insights_bank_exists(self) -> None:
-        assert Bank.TRACING_INSIGHTS == "hydraflow-tracing-insights"
-
-    def test_tracing_insights_is_valid_bank(self) -> None:
-        assert Bank.TRACING_INSIGHTS in list(Bank)

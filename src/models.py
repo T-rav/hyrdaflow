@@ -1296,19 +1296,6 @@ class LifetimeStats(BaseModel):
     total_outcomes_verify_resolved: int = 0
     # Threshold proposals already filed (avoid re-filing)
     fired_thresholds: list[str] = Field(default_factory=list)
-    # --- Trace mining ---
-    total_prompt_tokens: int = 0
-    total_completion_tokens: int = 0
-    total_cache_read_tokens: int = 0
-    total_cache_creation_tokens: int = 0
-    tool_invocation_counts: dict[str, int] = Field(default_factory=dict)
-    tool_error_counts: dict[str, int] = Field(default_factory=dict)
-    skill_invocation_counts: dict[str, int] = Field(default_factory=dict)
-    subagent_invocation_counts: dict[str, int] = Field(default_factory=dict)
-    total_traces_harvested: int = 0
-    total_spans_processed: int = 0
-    total_inference_calls: int = 0
-    total_agent_turns: int = 0
 
 
 # ---------------------------------------------------------------------------
