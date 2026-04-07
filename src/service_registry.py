@@ -583,6 +583,7 @@ def build_services(
         config=config,
         deps=loop_deps,
         prs=prs,
+        hindsight=hindsight_client,
     )
     dependabot_merge_loop = DependabotMergeLoop(  # noqa: F841
         config=config,

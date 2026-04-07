@@ -386,6 +386,7 @@ class RetrospectiveCollector:
             "retrospective",
             clean_title,
             self._config,
+            hindsight=self._hindsight,
         )
 
     def _load_filed_patterns(self) -> set[str]:

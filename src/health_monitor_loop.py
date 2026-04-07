@@ -21,6 +21,7 @@ from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
 
 if TYPE_CHECKING:
+    from hindsight import HindsightClient
     from ports import PRPort
 
 logger = logging.getLogger("hydraflow.health_monitor_loop")
@@ -282,6 +283,7 @@ class HealthMonitorLoop(BaseBackgroundLoop):
         deps: LoopDeps,
         *,
         prs: PRPort | None = None,
+        hindsight: HindsightClient | None = None,
         verification_window: int = 20,
     ) -> None:
         super().__init__(
@@ -290,6 +292,7 @@ class HealthMonitorLoop(BaseBackgroundLoop):
             deps=deps,
         )
         self._prs = prs
+        self._hindsight = hindsight
         self._verification_window = verification_window
         self._decisions_dir: Path = config.memory_dir
         self._pending: list[PendingAdjustment] = []
@@ -442,6 +445,7 @@ class HealthMonitorLoop(BaseBackgroundLoop):
                             "harness_insight",
                             "health_monitor",
                             self._config,
+                            hindsight=self._hindsight,
                         )
                     except Exception:  # noqa: BLE001
                         continue

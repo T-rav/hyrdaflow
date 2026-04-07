@@ -30,7 +30,7 @@ from transcript_summarizer import TranscriptSummarizer
 if TYPE_CHECKING:
     from beads_manager import BeadsManager
     from epic import EpicManager
-    from hindsight import HindsightClient  # noqa: TCH004
+    from hindsight import HindsightClient
     from ports import IssueStorePort, PRPort
     from repo_wiki import RepoWikiStore  # noqa: TCH004
     from wiki_compiler import WikiCompiler  # noqa: TCH004

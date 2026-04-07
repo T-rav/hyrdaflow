@@ -23,6 +23,11 @@ async def test_file_memory_suggestion_passes_real_client(tmp_path):
         "MEMORY_SUGGESTION_END\n"
     )
 
+    # NOTE: patch hindsight.schedule_retain (definition module), not
+    # memory.schedule_retain — memory.py does a deferred local import
+    # inside file_memory_suggestion, so there is no module-level binding
+    # to patch on the memory side. Without this, the patch would silently
+    # fail to intercept the call.
     with patch("hindsight.schedule_retain") as mock_schedule:
         await file_memory_suggestion(
             transcript,
