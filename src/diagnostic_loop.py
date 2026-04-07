@@ -199,11 +199,9 @@ class DiagnosticLoop(BaseBackgroundLoop):
         wt_path = self._config.workspace_path_for_issue(issue_number)
 
         # Create workspace if we have a manager and the path doesn't exist
-        created_workspace = False
         if self._workspaces is not None and not wt_path.exists():
             try:
                 wt_path = await self._workspaces.create(issue_number, branch)
-                created_workspace = True
             except Exception:
                 logger.exception(
                     "Diagnostic: workspace creation failed for issue #%d",
@@ -217,7 +215,7 @@ class DiagnosticLoop(BaseBackgroundLoop):
                 issue_number, issue_title, issue_body, diagnosis, str(wt_path)
             )
         finally:
-            if created_workspace and self._workspaces is not None:
+            if self._workspaces is not None:
                 try:
                     await self._workspaces.destroy(issue_number)
                 except Exception:

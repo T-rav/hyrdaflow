@@ -493,6 +493,26 @@ class TestWorkspaceCreation:
         )
 
     @pytest.mark.asyncio
+    async def test_destroys_preexisting_workspace_on_retry(
+        self, tmp_path: Path
+    ) -> None:
+        """On retry, workspace exists from prior attempt — still destroyed after fix."""
+        loop, runner, _, _, ws = _make_loop(tmp_path, with_workspaces=True)
+        assert ws is not None
+        runner.fix.return_value = (False, "Could not fix")
+
+        # Simulate workspace already existing from a prior attempt
+        wt_path = loop._config.workspace_path_for_issue(42)
+        wt_path.mkdir(parents=True, exist_ok=True)
+
+        await loop._process_issue(42, "Title", "Body")
+
+        # create should NOT be called (workspace already existed)
+        ws.create.assert_not_awaited()
+        # destroy MUST still be called to clean up
+        ws.destroy.assert_awaited_once_with(42)
+
+    @pytest.mark.asyncio
     async def test_no_workspace_manager_still_works(self, tmp_path: Path) -> None:
         """Without a workspace manager, loop uses config path directly."""
         loop, runner, _, _, ws = _make_loop(tmp_path, with_workspaces=False)
