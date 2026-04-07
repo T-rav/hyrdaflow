@@ -3,7 +3,8 @@
 
 Validates that imports flow inward only: a module at layer N may import from
 layers 1..N but NEVER from layer N+1 or above. Cross-cutting modules may
-import from Layer 1 only. service_registry.py is the sole exception.
+import from Layer 1 only. service_registry.py is the composition root — it
+wires all layers by design and is exempt from direction checks.
 
 Exit codes:
   0 — no violations found
@@ -86,10 +87,9 @@ COMPOSITION_ROOT: set[str] = {
     "service_registry",
 }
 
-# Modules exempt from all checks (composition roots that wire everything)
-ALLOWLIST: set[str] = {
-    "service_registry",
-}
+# Modules exempt from all checks. Must include all COMPOSITION_ROOT members so
+# that run_check() skips them before resolve_layer() is called.
+ALLOWLIST: set[str] = COMPOSITION_ROOT | set()
 
 # Per-file import allowlist: {source_module: {allowed_target_module, ...}}
 # These are known architectural exceptions documented for tracking.
