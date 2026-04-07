@@ -45,7 +45,9 @@ def write_phase_rollup(
     traces: list[SubprocessTrace] = []
     for path in subprocess_files:
         try:
-            traces.append(SubprocessTrace.model_validate_json(path.read_text()))
+            traces.append(
+                SubprocessTrace.model_validate_json(path.read_text(encoding="utf-8"))
+            )
         except Exception:
             logger.warning("Skipping malformed subprocess trace: %s", path)
 
@@ -59,7 +61,7 @@ def write_phase_rollup(
         try:
             import json  # noqa: PLC0415
 
-            loaded = json.loads(skill_results_path.read_text())
+            loaded = json.loads(skill_results_path.read_text(encoding="utf-8"))
             if isinstance(loaded, list):
                 skill_results = loaded
         except Exception:
@@ -74,12 +76,12 @@ def write_phase_rollup(
     )
 
     summary_path = run_dir / "summary.json"
-    summary_path.write_text(summary.model_dump_json(indent=2))
+    summary_path.write_text(summary.model_dump_json(indent=2), encoding="utf-8")
 
     # Update the latest pointer atomically (temp write + replace)
     latest_path = run_dir.parent / "latest"
     latest_tmp = run_dir.parent / "latest.tmp"
-    latest_tmp.write_text(f"run-{run_id}\n")
+    latest_tmp.write_text(f"run-{run_id}\n", encoding="utf-8")
     latest_tmp.replace(latest_path)
 
     # Append to factory_metrics.jsonl for the diagnostics dashboard

@@ -160,10 +160,17 @@ class TestDiagnosticsIssueDrillEndpoints:
 
     def test_issue_phase_rejects_non_canonical_phase(self, app: FastAPI) -> None:
         client = TestClient(app)
-        # Uppercase / space is not in the [a-z_-]+ pattern
+        # Uppercase / space is not in the [a-z_-]+ pattern. Matches the
+        # drill-down sibling's 404 behavior so consumers get a consistent
+        # error signal for bad phase names.
         response = client.get("/api/diagnostics/issue/42/Plan%20A")
-        assert response.status_code == 200
-        assert response.json() == []
+        assert response.status_code == 404
+
+    def test_issue_phase_missing_dir_returns_404(self, app: FastAPI) -> None:
+        """A valid phase name with no on-disk directory returns 404."""
+        client = TestClient(app)
+        response = client.get("/api/diagnostics/issue/999/implement")
+        assert response.status_code == 404
 
     def test_issue_phase_run_rejects_non_canonical_phase(self, app: FastAPI) -> None:
         client = TestClient(app)
@@ -187,16 +194,12 @@ class TestPathTraversalProtection:
 
     def test_phase_traversal_blocked_at_router_level(self, app: FastAPI) -> None:
         """FastAPI/starlette normalizes ``..`` before routing, so a traversal
-        attempt never reaches the handler — any non-2xx or empty response is
-        acceptable; what matters is that no file outside the traces root is
-        read.
+        attempt never reaches the handler. The phase-list endpoint now
+        raises 404 on bad phases to match the drill-down sibling.
         """
         client = TestClient(app)
         response = client.get("/api/diagnostics/issue/42/..%2F..%2Fetc")
-        # Router rejects it (404) OR handler rejects it (200 + empty list)
-        assert response.status_code in (200, 404)
-        if response.status_code == 200:
-            assert response.json() == []
+        assert response.status_code == 404
 
     def test_phase_run_traversal_blocked_at_router_level(self, app: FastAPI) -> None:
         client = TestClient(app)

@@ -118,7 +118,9 @@ class TraceMiningLoop(BaseBackgroundLoop):
                     # Mark as crashed since the run never called end_trace_run
                     crashed_summary = summary.model_copy(update={"crashed": True})
                     summary_path = run_dir / "summary.json"
-                    summary_path.write_text(crashed_summary.model_dump_json(indent=2))
+                    summary_path.write_text(
+                        crashed_summary.model_dump_json(indent=2), encoding="utf-8"
+                    )
             except Exception:
                 logger.warning(
                     "Failed to finalize orphan run %s", run_dir, exc_info=True
@@ -150,7 +152,9 @@ class TraceMiningLoop(BaseBackgroundLoop):
                 continue
 
             try:
-                summary = TraceSummary.model_validate_json(summary_path.read_text())
+                summary = TraceSummary.model_validate_json(
+                    summary_path.read_text(encoding="utf-8")
+                )
             except Exception:
                 logger.warning(
                     "Skipping malformed summary at %s", summary_path, exc_info=True
@@ -220,7 +224,9 @@ class TraceMiningLoop(BaseBackgroundLoop):
                 continue
 
             try:
-                summary = TraceSummary.model_validate_json(summary_path.read_text())
+                summary = TraceSummary.model_validate_json(
+                    summary_path.read_text(encoding="utf-8")
+                )
             except Exception:
                 logger.warning(
                     "Skipping malformed summary at %s", summary_path, exc_info=True
