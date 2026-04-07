@@ -858,6 +858,13 @@ class HydraFlowOrchestrator:
             ("sentry_ingest", self._svc.sentry_loop.run),
             ("github_cache", self._svc.github_cache_loop.run),
             ("pipeline_stats", self._pipeline_stats_loop),
+            ("diagnostic", self._svc.diagnostic_loop.run),
+            ("ci_monitor", self._svc.ci_monitor_loop.run),
+            ("code_grooming", self._svc.code_grooming_loop.run),
+            ("repo_wiki", self._svc.repo_wiki_loop.run),
+            ("security_patch", self._svc.security_patch_loop.run),
+            ("stale_issue_gc", self._svc.stale_issue_gc_loop.run),
+            ("trace_mining", self._svc.trace_mining_loop.run),
         ]
 
         # Optional: WAL replay loop for Hindsight crash recovery
