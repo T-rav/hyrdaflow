@@ -29,7 +29,15 @@ class SessionStateMixin:
     # --- session counters ---
 
     _SESSION_COUNTER_FIELDS = frozenset(
-        {"triaged", "planned", "implemented", "reviewed", "merged"}
+        {
+            "triaged",
+            "discovered",
+            "shaped",
+            "planned",
+            "implemented",
+            "reviewed",
+            "merged",
+        }
     )
 
     def increment_session_counter(self, stage: str) -> None:
