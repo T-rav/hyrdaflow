@@ -12,6 +12,8 @@ on:
       - "Dockerfile.agent"
       - "Dockerfile.agent-base"
       - "scripts/docker-smoke-test.sh"
+      - "pyproject.toml"
+      - "uv.lock"
   workflow_run:
     workflows: ["Build Agent Base Image"]
     types: [completed]
@@ -41,30 +43,33 @@ jobs:
       # Dockerfile.agent is self-contained (builds from scratch via inline
       # stages) unless BASE_IMAGE is overridden to a pre-built image.
       # Only pass the override when the base image is actually pullable
-      # AND the base Dockerfile hasn't changed in this PR (otherwise the
-      # cached GHCR image is stale and we must do a full build).
-      - name: Check if base Dockerfile changed
+      # AND nothing in this PR would invalidate the cached base (Dockerfile.agent-base
+      # itself, pyproject.toml, or uv.lock — all baked into the base image).
+      - name: Check if base inputs changed
         id: base-changed
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           CHANGED=false
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "$EVENT_NAME" = "pull_request" ]; then
             # Use GitHub API — reliable regardless of clone depth
-            FILES=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --jq '.[].filename')
-            if echo "$FILES" | grep -q '^Dockerfile.agent-base$'; then
+            FILES=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/files" --jq '.[].filename')
+            if echo "$FILES" | grep -qE '^(Dockerfile\.agent-base|pyproject\.toml|uv\.lock)$'; then
               CHANGED=true
             fi
           fi
           echo "changed=${CHANGED}" >> "$GITHUB_OUTPUT"
-          [ "$CHANGED" = "true" ] && echo "Dockerfile.agent-base changed — forcing full build" || true
+          [ "$CHANGED" = "true" ] && echo "Base inputs changed — forcing full build" || true
 
       - name: Check if base image is available
         id: base-check
         run: |
           if [ "${{ steps.base-changed.outputs.changed }}" = "true" ]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "Base Dockerfile changed — skipping cached base image"
+            echo "Base inputs changed — skipping cached base image"
           elif docker pull "$BASE_IMAGE" 2>/dev/null; then
             echo "available=true" >> "$GITHUB_OUTPUT"
           else

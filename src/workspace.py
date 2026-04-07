@@ -313,24 +313,15 @@ class WorkspaceManager:
     ) -> None:
         """Clean up after an issue is done (PR created/merged/failed).
 
-        Salvages any uncommitted changes, harvests trace files, then
-        removes the workspace.
+        Salvages any uncommitted changes, then removes the workspace.
+        Trace collection is now in-process (see src/trace_collector.py)
+        and writes directly to <data_root>/traces/<issue>/<phase>/run-N/
+        during the agent run, so no harvest step is needed here.
         """
+        del phase  # retained in signature for API stability; no longer used
         # Salvage any uncommitted work before destroying
         with contextlib.suppress(Exception):
             await self._salvage_uncommitted(issue_number)
-
-        # Harvest Monocle trace files before workspace is destroyed
-        with contextlib.suppress(Exception):
-            from trace_harvester import harvest_traces
-
-            wt_path = self._config.workspace_path_for_issue(issue_number)
-            harvest_traces(
-                wt_path,
-                issue_number=issue_number,
-                phase=phase,
-                data_path=self._config.data_root,
-            )
 
         # Destroy workspace
         with contextlib.suppress(RuntimeError):

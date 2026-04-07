@@ -7,7 +7,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from agent_cli import build_agent_command, build_lightweight_command
+from agent_cli import (
+    build_agent_command,
+    build_lightweight_command,
+)
 
 
 class TestBuildAgentCommand:
@@ -229,3 +232,105 @@ class TestBuildLightweightCommand:
         assert cmd1[-1] == "first"
         assert cmd2[-1] == "second"
         assert cmd1 is not cmd2
+
+
+class TestPluginDirFlags:
+    """Tests for plugin directory injection into Claude commands."""
+
+    def test_plugin_dir_flags_returns_empty_when_dirs_missing(self) -> None:
+        """No flags when plugin directories don't exist on disk."""
+        from unittest.mock import patch
+
+        from agent_cli import _plugin_dir_flags
+
+        with patch("agent_cli.Path.is_dir", return_value=False):
+            assert _plugin_dir_flags() == []
+
+    def test_plugin_dir_flags_includes_existing_dirs(self, tmp_path: Path) -> None:
+        """Flags should include only directories that exist."""
+        from unittest.mock import patch
+
+        from agent_cli import _plugin_dir_flags
+
+        fake_dir = str(tmp_path / "lightfactory")
+        (tmp_path / "lightfactory").mkdir()
+
+        with patch("agent_cli._DOCKER_PLUGIN_DIRS", (fake_dir,)):
+            flags = _plugin_dir_flags()
+
+        assert flags == ["--plugin-dir", fake_dir]
+
+    def test_plugin_dir_flags_skips_missing_dirs(self, tmp_path: Path) -> None:
+        """Directories that don't exist should be skipped."""
+        from unittest.mock import patch
+
+        from agent_cli import _plugin_dir_flags
+
+        existing = str(tmp_path / "exists")
+        (tmp_path / "exists").mkdir()
+        missing = str(tmp_path / "missing")
+
+        with patch("agent_cli._DOCKER_PLUGIN_DIRS", (existing, missing)):
+            flags = _plugin_dir_flags()
+
+        assert flags == ["--plugin-dir", existing]
+
+    def test_claude_agent_command_includes_plugin_dirs(self, tmp_path: Path) -> None:
+        """build_agent_command for claude should include --plugin-dir flags."""
+        from unittest.mock import patch
+
+        fake_dir = str(tmp_path / "superpowers")
+        (tmp_path / "superpowers").mkdir()
+
+        with patch("agent_cli._DOCKER_PLUGIN_DIRS", (fake_dir,)):
+            cmd = build_agent_command(tool="claude", model="sonnet")
+
+        assert "--plugin-dir" in cmd
+        assert cmd[cmd.index("--plugin-dir") + 1] == fake_dir
+
+    def test_codex_command_does_not_include_plugin_dirs(self, tmp_path: Path) -> None:
+        """Codex commands should not include --plugin-dir flags."""
+        from unittest.mock import patch
+
+        fake_dir = str(tmp_path / "superpowers")
+        (tmp_path / "superpowers").mkdir()
+
+        with patch("agent_cli._DOCKER_PLUGIN_DIRS", (fake_dir,)):
+            cmd = build_agent_command(tool="codex", model="o4-mini")
+
+        assert "--plugin-dir" not in cmd
+
+    def test_lightweight_claude_includes_plugin_dirs(self, tmp_path: Path) -> None:
+        """build_lightweight_command for claude should include --plugin-dir flags."""
+        from unittest.mock import patch
+
+        fake_dir = str(tmp_path / "lightfactory")
+        (tmp_path / "lightfactory").mkdir()
+
+        with patch("agent_cli._DOCKER_PLUGIN_DIRS", (fake_dir,)):
+            cmd, _ = build_lightweight_command(
+                tool="claude", model="sonnet", prompt="test"
+            )
+
+        assert "--plugin-dir" in cmd
+        assert cmd[cmd.index("--plugin-dir") + 1] == fake_dir
+
+    def test_lightweight_pi_excludes_plugin_dirs(self, tmp_path: Path) -> None:
+        """build_lightweight_command for pi should not include --plugin-dir flags."""
+        from unittest.mock import patch
+
+        fake_dir = str(tmp_path / "lightfactory")
+        (tmp_path / "lightfactory").mkdir()
+
+        with patch("agent_cli._DOCKER_PLUGIN_DIRS", (fake_dir,)):
+            cmd, _ = build_lightweight_command(tool="pi", model="pi-max", prompt="test")
+
+        assert "--plugin-dir" not in cmd
+
+    def test_docker_plugin_dirs_constant_has_expected_entries(self) -> None:
+        """The constant should list all three plugin repos."""
+        from agent_cli import _DOCKER_PLUGIN_DIRS
+
+        assert len(_DOCKER_PLUGIN_DIRS) == 3
+        paths = {d.rsplit("/", 1)[-1] for d in _DOCKER_PLUGIN_DIRS}
+        assert paths == {"claude-plugins-official", "superpowers", "lightfactory"}

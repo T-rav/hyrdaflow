@@ -1,0 +1,7 @@
+{"type":"system","subtype":"init","session_id":"sess_abc","model":"claude-opus-4-6"}
+{"type":"assistant","message":{"id":"msg_1","content":[{"type":"text","text":"I'll start by reading the config."}]},"usage":{"input_tokens":120,"output_tokens":15,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}
+{"type":"assistant","message":{"id":"msg_2","content":[{"type":"tool_use","id":"tool_1","name":"Read","input":{"file_path":"src/config.py"}}]},"usage":{"input_tokens":135,"output_tokens":40,"cache_read_input_tokens":120,"cache_creation_input_tokens":0}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool_1","content":"file contents..."}]}}
+{"type":"assistant","message":{"id":"msg_3","content":[{"type":"tool_use","id":"tool_2","name":"Bash","input":{"command":"pytest tests/"}}]},"usage":{"input_tokens":175,"output_tokens":60,"cache_read_input_tokens":255,"cache_creation_input_tokens":0}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool_2","content":"5 passed"}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"Done.","usage":{"input_tokens":235,"output_tokens":80,"cache_read_input_tokens":315,"cache_creation_input_tokens":0}}

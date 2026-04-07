@@ -99,7 +99,7 @@ async def test_init_success(manager):
         mock_run.return_value = "Initialized"
         await manager.init(Path("/repo"))
         mock_run.assert_called_once_with(
-            "bd", "init", "--mode", "server", cwd=Path("/repo"), timeout=30.0
+            "bd", "init", "--server", cwd=Path("/repo"), timeout=30.0
         )
 
 

@@ -97,6 +97,7 @@ class TestInitialization:
             "diagnostic_attempts",
             "diagnosis_severities",
             "sentry_creation_attempts",
+            "trace_runs",
         }
         assert set(d.keys()) == expected_keys
 

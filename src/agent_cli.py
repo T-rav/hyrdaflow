@@ -2,9 +2,27 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 AgentTool = Literal["claude", "codex", "pi"]
+
+# Pre-cloned plugin directories baked into the Docker image.
+# Each entry becomes a ``--plugin-dir <path>`` flag on Claude CLI invocations.
+_DOCKER_PLUGIN_DIRS: tuple[str, ...] = (
+    "/opt/plugins/claude-plugins-official",
+    "/opt/plugins/superpowers",
+    "/opt/plugins/lightfactory",
+)
+
+
+def _plugin_dir_flags() -> list[str]:
+    """Return ``--plugin-dir`` flags for plugin dirs that exist on disk."""
+    flags: list[str] = []
+    for d in _DOCKER_PLUGIN_DIRS:
+        if Path(d).is_dir():
+            flags.extend(["--plugin-dir", d])
+    return flags
 
 
 def build_agent_command(
@@ -40,6 +58,7 @@ def build_agent_command(
         "--permission-mode",
         "bypassPermissions",
     ]
+    cmd.extend(_plugin_dir_flags())
     if disallowed_tools:
         cmd.extend(["--disallowedTools", disallowed_tools])
     if max_turns is not None:
@@ -85,7 +104,10 @@ def build_lightweight_command(
         cmd.append(prompt)
         return cmd, None
     # claude / pi / any other tool: use -p flag
-    return [tool, "-p", prompt, "--model", model], None
+    cmd = [tool, "-p", prompt, "--model", model]
+    if tool == "claude":
+        cmd.extend(_plugin_dir_flags())
+    return cmd, None
 
 
 def _build_pi_command(

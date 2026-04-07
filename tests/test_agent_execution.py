@@ -719,11 +719,16 @@ class TestBuildPrompt:
     async def test_prompt_includes_test_step(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
-        """Implementation prompt should include a test-writing step."""
+        """Implementation prompt should drive test-writing via TDD."""
         runner = AgentRunner(config, event_bus)
         prompt, _ = await runner._build_prompt_with_stats(agent_task)
-        assert "Write tests" in prompt
-        assert "prevent regressions" in prompt
+        # Commit 33331ca4 switched the implementer to TDD discipline; the
+        # prompt no longer says "Write tests" / "prevent regressions"
+        # literally — instead it documents the RED/GREEN/REFACTOR cycle
+        # and reaffirms tests are mandatory in the rules section.
+        assert "Test-Driven Development" in prompt
+        assert "failing test" in prompt
+        assert "Tests are mandatory" in prompt
 
     @pytest.mark.asyncio
     async def test_self_check_includes_dead_code_check(

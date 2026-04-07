@@ -1527,6 +1527,11 @@ def create_router(
 
     _register_metrics(router, ctx)
 
+    # --- Diagnostics routes (factory metrics + trace artifacts) ---
+    from dashboard_routes._diagnostics_routes import build_diagnostics_router
+
+    router.include_router(build_diagnostics_router(config))
+
     # --- Issue history cache ---
     # Cache the aggregated issue_rows + pr_to_issue for the unfiltered case.
     # Persisted to disk so the first request after restart is fast.

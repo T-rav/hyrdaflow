@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from hindsight import HindsightClient
     from hindsight_wal import HindsightWAL
     from repo_wiki import RepoWikiStore
+    from tracing_context import TracingContext
 
 logger = logging.getLogger("hydraflow.agent")
 
@@ -732,14 +733,27 @@ Run through this checklist before your final commit:
 
 {body}{plan_section}{review_feedback_section}{prior_failure_section}{comments_section}{memory_section}{log_section}
 
-## Instructions
+## Instructions — Test-Driven Development
+
+Follow TDD discipline: **tests first, then implementation**.
 
 1. Understand the issue and relevant code paths.
-2. Implement the solution — write the code changes first.
-3. Write tests to ensure functionality, prevent regressions, and catch bugs.
-4. Run the available tools at their checkpoints (see below).
-5. Fix any issues found before proceeding.
-6. Commit with: "Fixes #{issue.id}: <concise summary>"
+2. **Plan tests** — list the tests you will write covering zero/empty, one, many,
+   boundary, interface, and exception cases (ZOMBIES heuristic).
+3. **RED** — Write one failing test. Predict the failure, run the test suite, confirm it fails.
+4. **GREEN** — Write the minimal code to make the test pass. No more.
+5. **Simplify** — For each line you added, ask: "Does a failing test require this?"
+   Remove anything not demanded by a test. Re-run tests after each removal.
+6. **Refactor** — Improve expressiveness and clarity while keeping tests green.
+7. Repeat steps 3-6 for each planned test.
+8. Run the available tools at their checkpoints (see below).
+9. Fix any issues found before proceeding.
+10. Commit with: "Fixes #{issue.id}: <concise summary>"
+
+Key rules:
+- Write only one test at a time. See it fail before writing implementation.
+- Run **all** tests every cycle, not just the new one.
+- Never write implementation code that no test requires.
 
 {tools_section}
 
@@ -759,7 +773,7 @@ Run through this checklist before your final commit:
 - Follow the project's CLAUDE.md guidelines strictly.
 - NEVER delete or overwrite existing CLAUDE.md content. You may append new sections or
   modify existing sections, but you must preserve all information already present.
-- Write tests for all new code — tests are mandatory. Run tests with: `{test_cmd}`
+- Tests are mandatory — follow the TDD process above. Run tests with: `{test_cmd}`
 - Do NOT push to remote. Do NOT create pull requests.
 - Do NOT run `git push` or `gh pr create`.
 - Run `make quality-lite` (lint + typecheck + security, no tests) as a sense check.
@@ -1100,7 +1114,11 @@ SUMMARY: <one-line summary>
 
         cmd = self._build_pre_quality_review_command()
         summary = ""
+        skill_started = time.monotonic()
 
+        # Each iteration's _execute call allocates its own subprocess_idx
+        # from BaseRunner's monotonic counter, so retries and back-to-back
+        # skills never overwrite each other's subprocess-N.json files.
         for attempt in range(1, max_attempts + 1):
             transcript = await self._execute(
                 cmd,
@@ -1110,7 +1128,8 @@ SUMMARY: <one-line summary>
             )
             passed, summary, findings = skill.result_parser(transcript)
             if passed:
-                return LoopResult(passed=True, summary=summary, attempts=attempt)
+                result = LoopResult(passed=True, summary=summary, attempts=attempt)
+                break
             if findings:
                 logger.info(
                     "%s findings for #%d: %s",
@@ -1118,8 +1137,71 @@ SUMMARY: <one-line summary>
                     issue.id,
                     "; ".join(findings[:5]),
                 )
+        else:
+            result = LoopResult(passed=False, summary=summary, attempts=max_attempts)
 
-        return LoopResult(passed=False, summary=summary, attempts=max_attempts)
+        # Append the skill result to run-N/skill_results.json alongside
+        # the parent run. This is the source of truth for skill-effectiveness
+        # scoring in trace_rollup.
+        ctx = self._tracing_ctx
+        if ctx is not None:
+            self._append_skill_result(
+                ctx,
+                skill_name=skill.name,
+                passed=result.passed,
+                attempts=result.attempts,
+                duration_seconds=time.monotonic() - skill_started,
+                blocking=skill.blocking,
+            )
+
+        return result
+
+    def _append_skill_result(
+        self,
+        ctx: TracingContext,
+        *,
+        skill_name: str,
+        passed: bool,
+        attempts: int,
+        duration_seconds: float,
+        blocking: bool,
+    ) -> None:
+        """Append a skill result to <run-N>/skill_results.json.
+
+        Never raises — tracing must not crash the agent run.
+        """
+        try:
+            import json as _json  # noqa: PLC0415
+
+            run_dir = (
+                self._config.data_root
+                / "traces"
+                / str(ctx.issue_number)
+                / ctx.phase
+                / f"run-{ctx.run_id}"
+            )
+            run_dir.mkdir(parents=True, exist_ok=True)
+            results_path = run_dir / "skill_results.json"
+            existing: list[dict] = []
+            if results_path.exists():
+                try:
+                    existing = _json.loads(results_path.read_text())
+                except (ValueError, OSError):
+                    existing = []
+            existing.append(
+                {
+                    "skill_name": skill_name,
+                    "passed": passed,
+                    "attempts": attempts,
+                    "duration_seconds": round(duration_seconds, 3),
+                    "blocking": blocking,
+                }
+            )
+            results_path.write_text(_json.dumps(existing, indent=2))
+        except Exception:
+            logger.warning(
+                "Failed to append skill result for %s", skill_name, exc_info=True
+            )
 
     async def _run_quality_fix_loop(
         self,

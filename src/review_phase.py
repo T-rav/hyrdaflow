@@ -479,33 +479,67 @@ class ReviewPhase:
         issue_map: dict[int, Task],
     ) -> ReviewResult:
         """Core review logic for a single PR — called inside the semaphore."""
-        await self._publish_review_status(pr, idx, "start")
-
-        guards = await self._run_initial_guards(idx, pr, issue_map)
-        if isinstance(guards, ReviewResult):
-            return guards
-
-        pre_review = await self._run_pre_review_checks(pr, guards.task)
-        if isinstance(pre_review, ReviewResult):
-            return pre_review
-
-        result = await self._run_and_post_review(
-            pr,
-            guards.task,
-            guards.workspace_path,
-            pre_review.diff,
-            idx,
-            code_scanning_alerts=pre_review.code_scanning_alerts,
+        from trace_rollup import write_phase_rollup  # noqa: PLC0415
+        from tracing_context import (  # noqa: PLC0415
+            TracingContext,
+            source_to_phase,
         )
 
-        return await self._run_post_review_actions(
-            pr,
-            guards.task,
-            guards.workspace_path,
-            result,
-            pre_review,
-            idx,
+        trace_phase = source_to_phase("reviewer")
+        run_id = self._state.begin_trace_run(pr.issue_number, trace_phase)
+        self._reviewers.set_tracing_context(
+            TracingContext(
+                issue_number=pr.issue_number,
+                phase=trace_phase,
+                source="reviewer",
+                run_id=run_id,
+            )
         )
+
+        try:
+            await self._publish_review_status(pr, idx, "start")
+
+            guards = await self._run_initial_guards(idx, pr, issue_map)
+            if isinstance(guards, ReviewResult):
+                return guards
+
+            pre_review = await self._run_pre_review_checks(pr, guards.task)
+            if isinstance(pre_review, ReviewResult):
+                return pre_review
+
+            result = await self._run_and_post_review(
+                pr,
+                guards.task,
+                guards.workspace_path,
+                pre_review.diff,
+                idx,
+                code_scanning_alerts=pre_review.code_scanning_alerts,
+            )
+
+            return await self._run_post_review_actions(
+                pr,
+                guards.task,
+                guards.workspace_path,
+                result,
+                pre_review,
+                idx,
+            )
+        finally:
+            self._reviewers.clear_tracing_context()
+            try:
+                write_phase_rollup(
+                    config=self._config,
+                    issue_number=pr.issue_number,
+                    phase=trace_phase,
+                    run_id=run_id,
+                )
+            except Exception:
+                logger.warning(
+                    "Phase rollup failed for PR #%d",
+                    pr.number,
+                    exc_info=True,
+                )
+            self._state.end_trace_run(pr.issue_number, trace_phase)
 
     async def _run_initial_guards(
         self,

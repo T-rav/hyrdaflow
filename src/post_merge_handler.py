@@ -272,13 +272,16 @@ class PostMergeHandler:
                 from memory_scoring import MemoryScorer  # noqa: PLC0415
 
                 scorer = MemoryScorer(self._config.memory_dir)
+                _meta = self._state.get_worker_result_meta(pr.issue_number)
                 scorer.record_merge_outcome(
                     issue_id=pr.issue_number,
                     digest_hash=self._state.get_digest_hash(pr.issue_number) or "",
-                    quality_fix_attempts=getattr(result, "quality_fix_attempts", 0)
-                    or 0,
-                    review_attempts=getattr(result, "pre_quality_review_attempts", 0)
-                    or 0,
+                    quality_fix_attempts=_meta.get("quality_fix_attempts", 0)
+                    if _meta
+                    else 0,
+                    review_attempts=_meta.get("pre_quality_review_attempts", 0)
+                    if _meta
+                    else 0,
                     tags=list(issue.tags) if issue else [],
                     issue_title=issue.title if issue else "",
                 )

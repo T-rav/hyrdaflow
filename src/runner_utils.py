@@ -9,6 +9,7 @@ import os
 import signal
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from activity_parser import get_activity_parser
 from events import EventBus, EventType, HydraFlowEvent
@@ -21,6 +22,9 @@ from subprocess_util import (
     make_clean_env,
     parse_credit_resume_time,
 )
+
+if TYPE_CHECKING:
+    from trace_collector import TraceCollector
 
 logger = logging.getLogger("hydraflow.runner_utils")
 
@@ -46,6 +50,7 @@ async def stream_claude_process(
     runner: SubprocessRunner | None = None,
     usage_stats: dict[str, object] | None = None,
     gh_token: str = "",
+    trace_collector: TraceCollector | None = None,
 ) -> str:
     """Run an agent subprocess and stream its output.
 
@@ -192,6 +197,12 @@ async def stream_claude_process(
                         )
                 except Exception:
                     logger.warning("Activity parsing failed", exc_info=True)
+
+                # Feed the in-process trace collector if one was provided.
+                # TraceCollector.record is fail-open (wraps its own exceptions),
+                # so no try/except needed here.
+                if trace_collector is not None:
+                    trace_collector.record(line)
 
             stderr_bytes = await stderr_task
             await proc.wait()

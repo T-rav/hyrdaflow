@@ -171,6 +171,44 @@ class TriagePhase:
                 await self._triage_adr(issue)
             return 1
 
+        from trace_rollup import write_phase_rollup  # noqa: PLC0415
+        from tracing_context import (  # noqa: PLC0415
+            TracingContext,
+            source_to_phase,
+        )
+
+        trace_phase = source_to_phase("triage")
+        run_id = self._state.begin_trace_run(issue.id, trace_phase)
+        self._triage.set_tracing_context(
+            TracingContext(
+                issue_number=issue.id,
+                phase=trace_phase,
+                source="triage",
+                run_id=run_id,
+            )
+        )
+
+        try:
+            return await self._triage_single_traced(issue)
+        finally:
+            self._triage.clear_tracing_context()
+            try:
+                write_phase_rollup(
+                    config=self._config,
+                    issue_number=issue.id,
+                    phase=trace_phase,
+                    run_id=run_id,
+                )
+            except Exception:
+                logger.warning(
+                    "Phase rollup failed for issue #%d",
+                    issue.id,
+                    exc_info=True,
+                )
+            self._state.end_trace_run(issue.id, trace_phase)
+
+    async def _triage_single_traced(self, issue: Task) -> int:
+        """Inner triage logic — called with tracing context already set."""
         try:
             result = await self._triage.evaluate(issue)
         except RuntimeError as exc:

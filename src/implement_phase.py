@@ -473,6 +473,7 @@ class ImplementPhase:
             )
         meta: WorkerResultMeta = {
             "quality_fix_attempts": result.quality_fix_attempts,
+            "pre_quality_review_attempts": result.pre_quality_review_attempts,
             "duration_seconds": result.duration_seconds,
             "error": result.error,
             "commits": result.commits,
@@ -514,6 +515,19 @@ class ImplementPhase:
                 digest_hash = hashlib.sha256(items_path.read_bytes()).hexdigest()[:16]
         self._state.set_digest_hash(issue.id, digest_hash)
 
+        # Copy architecture diagrams from /tmp into the worktree so the
+        # implementer agent has full architectural context on disk.
+        from planner import PlannerRunner  # noqa: PLC0415
+
+        n_diagrams = PlannerRunner.copy_diagrams_to_workspace(issue.id, wt_path)
+        if n_diagrams:
+            logger.info(
+                "Copied %d diagram file(s) into workspace for #%d",
+                n_diagrams,
+                issue.id,
+            )
+            PlannerRunner.cleanup_diagrams(issue.id)
+
         # Enrich the task with comments so the agent can find the plan
         # comment posted by the planner.  The IssueStore bulk fetch
         # does not include comment bodies.
@@ -534,12 +548,44 @@ class ImplementPhase:
         if bead_mapping:
             run_kwargs["bead_mapping"] = bead_mapping
 
-        result = await self._agents.run(
-            issue,
-            wt_path,
-            branch,
-            **run_kwargs,  # type: ignore[arg-type]
+        # Allocate a trace run id and set the tracing context on the agent
+        # runner so its _execute calls build a TraceCollector.
+        from trace_rollup import write_phase_rollup  # noqa: PLC0415
+        from tracing_context import TracingContext, source_to_phase  # noqa: PLC0415
+
+        phase = source_to_phase("implementer")
+        run_id = self._state.begin_trace_run(issue.id, phase)
+        self._agents.set_tracing_context(
+            TracingContext(
+                issue_number=issue.id,
+                phase=phase,
+                source="implementer",
+                run_id=run_id,
+            )
         )
+
+        try:
+            result = await self._agents.run(
+                issue,
+                wt_path,
+                branch,
+                **run_kwargs,  # type: ignore[arg-type]
+            )
+        finally:
+            self._agents.clear_tracing_context()
+            # Roll up the subprocess traces whether the run succeeded or failed.
+            try:
+                write_phase_rollup(
+                    config=self._config,
+                    issue_number=issue.id,
+                    phase=phase,
+                    run_id=run_id,
+                )
+            except Exception:
+                logger.warning(
+                    "Phase rollup failed for issue #%d", issue.id, exc_info=True
+                )
+            self._state.end_trace_run(issue.id, phase)
 
         await self._record_impl_metrics(issue, result, review_feedback)
 

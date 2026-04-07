@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
 import time
 from pathlib import Path
 
@@ -247,7 +248,7 @@ class PlannerRunner(BaseRunner):
         return build_agent_command(
             tool=self._config.planner_tool,
             model=self._config.planner_model,
-            disallowed_tools="Write,Edit,NotebookEdit",
+            disallowed_tools="Edit,NotebookEdit",
         )
 
     # Comment/line char limits are now configurable via HydraFlowConfig:
@@ -436,10 +437,17 @@ class PlannerRunner(BaseRunner):
 
 ## Instructions
 
-{mode_note}You are in READ-ONLY mode. Do NOT create, modify, or delete any files.
-Do NOT run any commands that change state (no git commit, no file writes, no installs).
+{mode_note}You are in READ-ONLY mode for the repository. Do NOT modify any repository files.
+Do NOT run any commands that change state (no git commit, no installs).
 
-Your job: explore code and produce a concrete implementation plan.
+You MAY write architecture diagram files to `/tmp/hydraflow-diagrams/issue-{issue.id}/`
+using the Write tool. Use LikeC4 (.likec4) format to capture the code topology around
+the change area — C4 structural diagrams (context, container, component) and dynamic
+views for request/data flows. These files will be copied into the implementation
+worktree and attached to the issue comment so the implementer has full architectural
+context.
+
+Your job: explore code, map the relevant architecture, and produce a concrete implementation plan.
 
 ## Exploration Strategy — USE SEMANTIC TOOLS
 
@@ -460,10 +468,13 @@ Use semantic tools first (before grep):
 
 1. Restate the issue in your own words.
 2. Explore relevant code with semantic tools.
-3. Identify concrete file-level deltas.
-4. Build a Task Graph with dependency-ordered phases (full plans only).
-5. Write behavioral test specs for each phase — describe observable outcomes, not test code.
-6. For UI work, call out reusable components/shared modules (`constants.js`, `types.js`, `theme.js`).
+3. Map the code topology — trace call graphs, data flows, and component boundaries.
+   Write LikeC4 diagram files (.likec4) to `/tmp/hydraflow-diagrams/issue-{issue.id}/`
+   capturing the C4 model (specification, model, views) for the change area.
+4. Identify concrete file-level deltas.
+5. Build a Task Graph with dependency-ordered phases (full plans only).
+6. Write behavioral test specs for each phase — describe observable outcomes, not test code.
+7. For UI work, call out reusable components/shared modules (`constants.js`, `types.js`, `theme.js`).
 
 ## Required Output
 
@@ -567,6 +578,71 @@ This closes the issue automatically. False positives waste significant human tim
     def _run_phase_minus_one_gates(self, plan: str) -> tuple[list[str], list[str]]:
         """Delegate to :func:`plan_validation.run_phase_gates`."""
         return run_phase_gates(plan, self._config)
+
+    # ------------------------------------------------------------------
+    # Diagram artifact helpers
+    # ------------------------------------------------------------------
+
+    DIAGRAM_TMP_ROOT = Path("/tmp/hydraflow-diagrams")  # nosec B108
+
+    @classmethod
+    def diagram_dir_for_issue(cls, issue_id: int) -> Path:
+        """Return the temp directory where the planner writes diagram files."""
+        return cls.DIAGRAM_TMP_ROOT / f"issue-{issue_id}"
+
+    @classmethod
+    def collect_diagram_attachments(cls, issue_id: int) -> str:
+        """Read diagram files from the temp dir and format as markdown code blocks.
+
+        Returns an empty string if no diagram files exist.
+        """
+        diagram_dir = cls.diagram_dir_for_issue(issue_id)
+        if not diagram_dir.is_dir():
+            return ""
+
+        blocks: list[str] = []
+        for f in sorted(diagram_dir.iterdir()):
+            if not f.is_file():
+                continue
+            suffix = f.suffix.lower()
+            if suffix == ".likec4":
+                lang = "likec4"
+            elif suffix == ".md":
+                # Already markdown — include raw
+                blocks.append(f.read_text())
+                continue
+            else:
+                lang = ""
+            content = f.read_text()
+            blocks.append(f"**{f.name}**\n```{lang}\n{content}\n```")
+
+        return "\n\n".join(blocks)
+
+    @classmethod
+    def copy_diagrams_to_workspace(cls, issue_id: int, workspace: Path) -> int:
+        """Copy diagram files from /tmp into the workspace.
+
+        Returns the number of files copied.
+        """
+        src = cls.diagram_dir_for_issue(issue_id)
+        if not src.is_dir():
+            return 0
+
+        dst = workspace / "docs" / "architecture"
+        dst.mkdir(parents=True, exist_ok=True)
+        count = 0
+        for f in src.iterdir():
+            if f.is_file():
+                shutil.copy2(f, dst / f.name)
+                count += 1
+        return count
+
+    @classmethod
+    def cleanup_diagrams(cls, issue_id: int) -> None:
+        """Remove the temp diagram directory for an issue."""
+        d = cls.diagram_dir_for_issue(issue_id)
+        if d.is_dir():
+            shutil.rmtree(d, ignore_errors=True)
 
     def _extract_plan(self, transcript: str) -> str:
         """Extract the plan from between PLAN_START/PLAN_END markers.

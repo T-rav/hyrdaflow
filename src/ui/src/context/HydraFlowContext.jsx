@@ -144,6 +144,7 @@ export function reducer(state, action) {
           hitlItems: [],
           hitlEscalation: null,
           lastSeenId: -1,
+          sessions: [],
           pipelineIssues: { ...emptyPipeline },
           intents: [],
           humanInputRequests: {},
@@ -768,6 +769,23 @@ export function reducer(state, action) {
         runtimes: Array.isArray(action.data?.runtimes) ? action.data.runtimes : [],
       }
 
+    case 'OPTIMISTIC_RUNTIME': {
+      const { slug, running } = action.data
+      const existing = (state.runtimes || []).find(rt => rt.slug === slug)
+      if (existing) {
+        return {
+          ...state,
+          runtimes: state.runtimes.map(rt =>
+            rt.slug === slug ? { ...rt, running } : rt,
+          ),
+        }
+      }
+      return {
+        ...state,
+        runtimes: [...(state.runtimes || []), { slug, running }],
+      }
+    }
+
     case 'SET_CENTRALIZED_DATA':
       return {
         ...state,
@@ -1055,6 +1073,7 @@ export function HydraFlowProvider({ children }) {
 
   const startRuntime = useCallback(async (slug, repoPath = null) => {
     try {
+      dispatch({ type: 'OPTIMISTIC_RUNTIME', data: { slug, running: true } })
       const encodedSlug = encodeURIComponent(slug)
       const runtimeRes = await fetch(`/api/runtimes/${encodedSlug}/start`, {
         method: 'POST',
@@ -1085,6 +1104,7 @@ export function HydraFlowProvider({ children }) {
           if (!path) {
             const listRes = await fetch('/api/repos')
             if (!listRes.ok) {
+              dispatch({ type: 'OPTIMISTIC_RUNTIME', data: { slug, running: false } })
               const message = await parseApiError(
                 listRes,
                 `Failed to list repos (${listRes.status})`,
@@ -1102,6 +1122,7 @@ export function HydraFlowProvider({ children }) {
             path = String(match?.path || '').trim()
           }
           if (!path) {
+            dispatch({ type: 'OPTIMISTIC_RUNTIME', data: { slug, running: false } })
             return { ok: false, error: `Repo not found for slug: ${slug}` }
           }
           const addRes = await postCompat('/api/repos/add', {
@@ -1114,6 +1135,7 @@ export function HydraFlowProvider({ children }) {
             queryPayloads: [{ path }, { repo_path: path }],
           })
           if (!addRes.ok) {
+            dispatch({ type: 'OPTIMISTIC_RUNTIME', data: { slug, running: false } })
             const message = await parseApiError(
               addRes,
               `Failed to start repo (${addRes.status})`,
@@ -1127,12 +1149,14 @@ export function HydraFlowProvider({ children }) {
         return { ok: true }
       }
 
+      dispatch({ type: 'OPTIMISTIC_RUNTIME', data: { slug, running: false } })
       const message = await parseApiError(
         runtimeRes,
         `Failed to start runtime (${runtimeRes.status})`,
       )
       return { ok: false, error: message }
     } catch (err) {
+      dispatch({ type: 'OPTIMISTIC_RUNTIME', data: { slug, running: false } })
       console.warn('Failed to start runtime', slug, err)
       return { ok: false, error: err?.message || 'Failed to start runtime' }
     }
@@ -1140,10 +1164,12 @@ export function HydraFlowProvider({ children }) {
 
   const stopRuntime = useCallback(async (slug) => {
     try {
+      dispatch({ type: 'OPTIMISTIC_RUNTIME', data: { slug, running: false } })
       const res = await fetch(`/api/runtimes/${encodeURIComponent(slug)}/stop`, {
         method: 'POST',
       })
       if (!res.ok) {
+        dispatch({ type: 'OPTIMISTIC_RUNTIME', data: { slug, running: true } })
         const message = await parseApiError(
           res,
           `Failed to stop runtime (${res.status})`,
@@ -1153,6 +1179,7 @@ export function HydraFlowProvider({ children }) {
       await fetchRuntimes()
       return { ok: true }
     } catch (err) {
+      dispatch({ type: 'OPTIMISTIC_RUNTIME', data: { slug, running: true } })
       console.warn('Failed to stop runtime', slug, err)
       return { ok: false, error: err?.message || 'Failed to stop runtime' }
     }

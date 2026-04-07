@@ -3,7 +3,8 @@
 
 Validates that imports flow inward only: a module at layer N may import from
 layers 1..N but NEVER from layer N+1 or above. Cross-cutting modules may
-import from Layer 1 only. service_registry.py is the sole exception.
+import from Layer 1 only. service_registry.py is the composition root — it
+wires all layers by design and is exempt from direction checks.
 
 Exit codes:
   0 — no violations found
@@ -78,14 +79,17 @@ LAYER_MAP: dict[str, int] = {
 CROSS_CUTTING: set[str] = {
     "events",
     "state",
-    "service_registry",
     "ports",
 }
 
-# Modules exempt from all checks (composition roots that wire everything)
-ALLOWLIST: set[str] = {
+# Composition root — wires all layers together; exempt from direction checks
+COMPOSITION_ROOT: set[str] = {
     "service_registry",
 }
+
+# Modules exempt from all checks. Must include all COMPOSITION_ROOT members so
+# that run_check() skips them before resolve_layer() is called.
+ALLOWLIST: set[str] = set(COMPOSITION_ROOT)
 
 # Per-file import allowlist: {source_module: {allowed_target_module, ...}}
 # These are known architectural exceptions documented for tracking.
@@ -129,6 +133,7 @@ LAYER_NAMES: dict[int | str, str] = {
     3: "L3-Runners",
     4: "L4-Infrastructure",
     "cross-cutting": "Cross-cutting",
+    "composition-root": "Composition-root",
 }
 
 
@@ -156,6 +161,10 @@ def resolve_layer(module_name: str) -> int | str | None:
     # Check explicit map first
     if module_name in LAYER_MAP:
         return LAYER_MAP[module_name]
+
+    # Check composition root
+    if module_name in COMPOSITION_ROOT:
+        return "composition-root"
 
     # Check cross-cutting
     if module_name in CROSS_CUTTING:

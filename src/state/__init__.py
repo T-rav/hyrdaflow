@@ -40,6 +40,7 @@ from ._sentry import SentryStateMixin
 from ._session import SessionStateMixin
 from ._shape import ShapeStateMixin
 from ._stale_issue import StaleIssueStateMixin
+from ._trace_runs import TraceRunsMixin
 from ._worker import WorkerStateMixin
 from ._workspace import WorkspaceStateMixin
 
@@ -68,6 +69,7 @@ class StateTracker(
     CodeGroomingStateMixin,
     DiagnosticStateMixin,
     SentryStateMixin,
+    TraceRunsMixin,
 ):
     """JSON-file backed state for crash recovery.
 

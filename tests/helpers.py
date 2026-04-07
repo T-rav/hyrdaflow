@@ -676,15 +676,25 @@ class PipelineHarness:
 
         self.triage_runner = AsyncMock()
         self.triage_runner.evaluate = AsyncMock()
+        self.triage_runner.set_tracing_context = MagicMock()
+        self.triage_runner.clear_tracing_context = MagicMock()
         self.planners = AsyncMock()
         self.planners.plan = AsyncMock()
+        self.planners.set_tracing_context = MagicMock()
+        self.planners.clear_tracing_context = MagicMock()
         self.agents = AsyncMock()
         self.agents.run = AsyncMock()
+        self.agents.set_tracing_context = MagicMock()
+        self.agents.clear_tracing_context = MagicMock()
         self.reviewers = AsyncMock()
         self.reviewers.review = AsyncMock()
         self.reviewers.fix_ci = AsyncMock()
+        self.reviewers.set_tracing_context = MagicMock()
+        self.reviewers.clear_tracing_context = MagicMock()
         self.hitl_runner = AsyncMock()
         self.hitl_runner.run = AsyncMock()
+        self.hitl_runner.set_tracing_context = MagicMock()
+        self.hitl_runner.clear_tracing_context = MagicMock()
         self._hitl_fetcher = AsyncMock()
         self._hitl_fetcher.fetch_issue_by_number = AsyncMock()
 
@@ -1026,6 +1036,8 @@ def make_plan_phase(
     fetcher = AsyncMock()
     store = IssueStore(config, fetcher, bus)
     planners = AsyncMock()
+    planners.set_tracing_context = MagicMock()
+    planners.clear_tracing_context = MagicMock()
     prs = AsyncMock()
     prs.post_comment = AsyncMock()
     prs.remove_label = AsyncMock()
@@ -1097,7 +1109,7 @@ def make_implement_phase(
     # the production code may pass but test mocks don't declare.
     _original_run = agent_run
 
-    async def _kwargs_absorbing_run(*args: object, **kwargs: object) -> WorkerResult:
+    async def _kwargs_absorbing_run(*args: Any, **kwargs: Any) -> WorkerResult:
         import inspect  # noqa: PLC0415
 
         sig = inspect.signature(_original_run)
@@ -1115,6 +1127,13 @@ def make_implement_phase(
 
     mock_agents.run = _kwargs_absorbing_run
     mock_agents.hindsight = None
+    # set_tracing_context / clear_tracing_context are synchronous on the real
+    # runner; override the auto-generated async mocks with plain MagicMocks so
+    # callers don't get "coroutine was never awaited" warnings.
+    from unittest.mock import MagicMock  # noqa: PLC0415
+
+    mock_agents.set_tracing_context = MagicMock()
+    mock_agents.clear_tracing_context = MagicMock()
 
     # Mock IssueStore — get_implementable returns the supplied issues once
     mock_store = AsyncMock(spec=IssueStore)
@@ -1279,6 +1298,8 @@ def make_hitl_phase(config):
     workspaces.create = AsyncMock(return_value=config.workspace_base / "issue-42")
     workspaces.destroy = AsyncMock()
     hitl_runner = AsyncMock()
+    hitl_runner.set_tracing_context = MagicMock()
+    hitl_runner.clear_tracing_context = MagicMock()
     prs = AsyncMock()
     prs.remove_label = AsyncMock()
     prs.add_labels = AsyncMock()
@@ -1317,6 +1338,8 @@ def make_triage_phase(config):
     fetcher = AsyncMock()
     store = IssueStore(config, fetcher, bus)
     triage = AsyncMock()
+    triage.set_tracing_context = MagicMock()
+    triage.clear_tracing_context = MagicMock()
     prs = AsyncMock()
     prs.remove_label = AsyncMock()
     prs.add_labels = AsyncMock()
@@ -1510,6 +1533,8 @@ def make_review_phase(
     mock_wt.destroy = AsyncMock()
 
     mock_reviewers = AsyncMock()
+    mock_reviewers.set_tracing_context = MagicMock()
+    mock_reviewers.clear_tracing_context = MagicMock()
     mock_prs = AsyncMock()
     # expected_pr_title is a sync staticmethod on PRManager — use MagicMock
     # so callers don't get an unawaited coroutine when invoking it without await.

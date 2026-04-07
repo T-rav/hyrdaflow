@@ -167,9 +167,42 @@ class HITLPhase:
                         issue_number, self._config.hitl_active_label[0]
                     )
 
-                    result = await self._hitl_runner.run(
-                        issue, correction, cause, wt_path
+                    from trace_rollup import write_phase_rollup  # noqa: PLC0415
+                    from tracing_context import (  # noqa: PLC0415
+                        TracingContext,
+                        source_to_phase,
                     )
+
+                    trace_phase = source_to_phase("hitl")
+                    run_id = self._state.begin_trace_run(issue_number, trace_phase)
+                    self._hitl_runner.set_tracing_context(
+                        TracingContext(
+                            issue_number=issue_number,
+                            phase=trace_phase,
+                            source="hitl",
+                            run_id=run_id,
+                        )
+                    )
+                    try:
+                        result = await self._hitl_runner.run(
+                            issue, correction, cause, wt_path
+                        )
+                    finally:
+                        self._hitl_runner.clear_tracing_context()
+                        try:
+                            write_phase_rollup(
+                                config=self._config,
+                                issue_number=issue_number,
+                                phase=trace_phase,
+                                run_id=run_id,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "Phase rollup failed for issue #%d",
+                                issue_number,
+                                exc_info=True,
+                            )
+                        self._state.end_trace_run(issue_number, trace_phase)
 
                     # File memory suggestion if present in transcript
                     if result.transcript:
