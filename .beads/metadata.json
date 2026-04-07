@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "hydraflow",
+  "project_id": "8acad540-9756-4bc6-afef-4518c85453e4"
+}

@@ -244,3 +244,6 @@ src/ui/src/test/shims/generated/
 
 # Local superpowers drafts (plans, specs)
 docs/superpowers/
+
+# Beads / Dolt files (added by bd init)
+.beads-credential-key
