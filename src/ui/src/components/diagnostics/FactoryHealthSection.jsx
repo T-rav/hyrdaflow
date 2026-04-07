@@ -61,8 +61,13 @@ function MetricCard({ label, points, color, lowerIsBetter }) {
 }
 
 function formatValue(label, value) {
-  if (label.includes('%') || label.includes('Rate')) {
+  // 'Rate' metrics are stored as 0–1 fractions; multiply by 100 to display.
+  if (label.includes('Rate')) {
     return `${(value * 100).toFixed(1)}%`
+  }
+  // '%' labels (e.g. 'Plan Accuracy %') are already on a 0–100 scale.
+  if (label.includes('%')) {
+    return `${value.toFixed(1)}%`
   }
   if (label.includes('Duration')) {
     return `${value.toFixed(0)}s`
