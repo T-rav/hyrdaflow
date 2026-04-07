@@ -1861,6 +1861,7 @@ describe('orchestrator_status reducer — session reset for other clients', () =
       humanInputRequests: { 42: { question: 'Continue?' } },
       lastSeenId: 50,
       intents: [{ text: 'Fix bug', issueNumber: 42, status: 'created' }],
+      sessions: [{ id: 'old-session', status: 'completed', repo: 'owner/repo' }],
     }
 
     const next = reducer(dirtyState, {
@@ -1879,6 +1880,7 @@ describe('orchestrator_status reducer — session reset for other clients', () =
     expect(next.humanInputRequests).toEqual({})
     expect(next.lastSeenId).toBe(-1)
     expect(next.intents).toEqual([])
+    expect(next.sessions).toEqual([])
   })
 
   it('does NOT reset session state when running without reset flag (reconnect case)', () => {
@@ -2061,5 +2063,110 @@ describe('SESSION_RESET reducer', () => {
     })
     expect(next.prs).toHaveLength(1)
     expect(next.prs[0]).toEqual({ pr: 99, merged: true })
+  })
+})
+
+describe('OPTIMISTIC_RUNTIME reducer', () => {
+  it('updates existing runtime running state', () => {
+    const state = {
+      ...initialState,
+      runtimes: [
+        { slug: 'owner/repo-a', running: false },
+        { slug: 'owner/repo-b', running: true },
+      ],
+    }
+    const next = reducer(state, {
+      type: 'OPTIMISTIC_RUNTIME',
+      data: { slug: 'owner/repo-a', running: true },
+    })
+    expect(next.runtimes).toHaveLength(2)
+    expect(next.runtimes[0]).toEqual({ slug: 'owner/repo-a', running: true })
+    expect(next.runtimes[1]).toEqual({ slug: 'owner/repo-b', running: true })
+  })
+
+  it('appends new runtime entry when slug not found', () => {
+    const state = {
+      ...initialState,
+      runtimes: [{ slug: 'owner/repo-a', running: true }],
+    }
+    const next = reducer(state, {
+      type: 'OPTIMISTIC_RUNTIME',
+      data: { slug: 'owner/repo-b', running: true },
+    })
+    expect(next.runtimes).toHaveLength(2)
+    expect(next.runtimes[1]).toEqual({ slug: 'owner/repo-b', running: true })
+  })
+
+  it('sets running to false for stop', () => {
+    const state = {
+      ...initialState,
+      runtimes: [{ slug: 'owner/repo-a', running: true }],
+    }
+    const next = reducer(state, {
+      type: 'OPTIMISTIC_RUNTIME',
+      data: { slug: 'owner/repo-a', running: false },
+    })
+    expect(next.runtimes[0].running).toBe(false)
+  })
+
+  it('handles empty runtimes array', () => {
+    const next = reducer(initialState, {
+      type: 'OPTIMISTIC_RUNTIME',
+      data: { slug: 'owner/repo-a', running: true },
+    })
+    expect(next.runtimes).toHaveLength(1)
+    expect(next.runtimes[0]).toEqual({ slug: 'owner/repo-a', running: true })
+  })
+})
+
+describe('orchestrator_status session reset clears sessions', () => {
+  it('clears sessions array when reset flag is true', () => {
+    const state = {
+      ...initialState,
+      sessions: [
+        { id: 'old-1', status: 'completed', repo: 'owner/repo' },
+        { id: 'old-2', status: 'completed', repo: 'owner/repo' },
+      ],
+    }
+    const next = reducer(state, {
+      type: 'orchestrator_status',
+      data: { status: 'running', reset: true },
+      timestamp: '2026-01-01T00:00:00Z',
+    })
+    expect(next.sessions).toEqual([])
+  })
+
+  it('preserves sessions on reconnect without reset flag', () => {
+    const sessions = [
+      { id: 'active-1', status: 'active', repo: 'owner/repo' },
+    ]
+    const state = {
+      ...initialState,
+      orchestratorStatus: 'running',
+      sessions,
+    }
+    const next = reducer(state, {
+      type: 'orchestrator_status',
+      data: { status: 'running' },
+      timestamp: '2026-01-01T00:00:00Z',
+    })
+    expect(next.sessions).toEqual(sessions)
+  })
+
+  it('preserves sessions when orchestrator stops', () => {
+    const sessions = [
+      { id: 'done-1', status: 'completed', repo: 'owner/repo' },
+    ]
+    const state = {
+      ...initialState,
+      orchestratorStatus: 'running',
+      sessions,
+    }
+    const next = reducer(state, {
+      type: 'orchestrator_status',
+      data: { status: 'idle' },
+      timestamp: '2026-01-01T00:00:00Z',
+    })
+    expect(next.sessions).toEqual(sessions)
   })
 })
