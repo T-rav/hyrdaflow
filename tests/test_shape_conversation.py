@@ -254,6 +254,84 @@ class TestConversationLoop:
         deps["prs"].transition.assert_awaited_once_with(42, "plan")
 
 
+class TestConversationTurnSource:
+    """Tests that ConversationTurn.source is populated correctly."""
+
+    @pytest.mark.asyncio
+    async def test_state_response_sets_source_to_dashboard(
+        self, phase: ShapePhase, sample_task: Task, deps: dict
+    ) -> None:
+        """When response comes from state (dashboard/whatsapp), source='dashboard'."""
+        conv = ShapeConversation(
+            issue_number=42,
+            turns=[
+                ConversationTurn(
+                    role="agent",
+                    content="Options...",
+                    timestamp=datetime.now(UTC).isoformat(),
+                )
+            ],
+            last_activity_at=datetime.now(UTC).isoformat(),
+        )
+        deps["state"].get_shape_conversation.return_value = conv
+        deps["state"].get_shape_response.return_value = "Go with B"
+        deps["store"].enrich_with_comments = AsyncMock(return_value=sample_task)
+        deps["shape_runner"].run_turn = AsyncMock(
+            return_value=ShapeTurnResult(content="Exploring B...", is_final=False)
+        )
+        phase._runner = deps["shape_runner"]
+
+        await phase._shape_single(sample_task)
+
+        human_turns = [t for t in conv.turns if t.role == "human"]
+        assert len(human_turns) == 1
+        assert human_turns[0].source == "dashboard"
+
+    @pytest.mark.asyncio
+    async def test_github_comment_sets_source_to_github(
+        self, phase: ShapePhase, sample_task: Task, deps: dict
+    ) -> None:
+        """When response comes from GitHub comments, source='github'."""
+        conv = ShapeConversation(
+            issue_number=42,
+            turns=[
+                ConversationTurn(
+                    role="agent",
+                    content="Options...",
+                    timestamp=datetime.now(UTC).isoformat(),
+                )
+            ],
+            last_activity_at=datetime.now(UTC).isoformat(),
+        )
+        deps["state"].get_shape_conversation.return_value = conv
+        deps["state"].get_shape_response.return_value = None
+        deps["store"].enrich_with_comments = AsyncMock(
+            return_value=sample_task.model_copy(
+                update={
+                    "comments": [
+                        "**Shape Turn 1** — Options...",
+                        "Go deeper on B",
+                    ]
+                }
+            )
+        )
+        deps["shape_runner"].run_turn = AsyncMock(
+            return_value=ShapeTurnResult(content="Exploring B...", is_final=False)
+        )
+        phase._runner = deps["shape_runner"]
+
+        await phase._shape_single(sample_task)
+
+        human_turns = [t for t in conv.turns if t.role == "human"]
+        assert len(human_turns) == 1
+        assert human_turns[0].source == "github"
+
+    def test_source_defaults_to_empty_string(self) -> None:
+        """Source field defaults to empty string when not provided."""
+        turn = ConversationTurn(role="agent", content="Hello")
+        assert turn.source == ""
+
+
 class TestWhatsAppBridge:
     """Tests for WhatsApp webhook parsing."""
 

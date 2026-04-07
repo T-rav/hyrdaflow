@@ -398,8 +398,8 @@ class ShapePhase:
         if not needs_response:
             return True, False
 
-        response = await self._check_for_response(issue)
-        if not response:
+        result = await self._check_for_response(issue)
+        if not result:
             if conv.status != "timed_out" and self._is_timed_out(conv):
                 conv.status = "timed_out"
                 self._state.set_shape_conversation(issue.id, conv)
@@ -411,6 +411,8 @@ class ShapePhase:
                 logger.info("Issue #%d shape — timed out", issue.id)
             self._store.enqueue_transition(issue, "shape")
             return False, False
+
+        response, source = result
 
         # Got a response — process it
         if conv.status == "timed_out":
@@ -424,6 +426,7 @@ class ShapePhase:
                 content=response,
                 timestamp=datetime.now(UTC).isoformat(),
                 signal=signal,
+                source=source,
             )
         )
         conv.last_activity_at = datetime.now(UTC).isoformat()
@@ -440,8 +443,11 @@ class ShapePhase:
 
         return True, False
 
-    async def _check_for_response(self, issue: Task) -> str | None:
+    async def _check_for_response(self, issue: Task) -> tuple[str, str] | None:
         """Check all response sources for a human reply.
+
+        Returns a (response_text, source) tuple or None.
+        Source is 'dashboard' for state-based responses or 'github' for comments.
 
         Checks in order: dashboard/WhatsApp responses (fastest), then GitHub
         comments (authoritative). Dashboard and WhatsApp responses arrive via
@@ -457,13 +463,16 @@ class ShapePhase:
             response = self._state.get_shape_response(issue.id)
             if response:
                 self._state.clear_shape_response(issue.id)
-                return response
+                return (response, "dashboard")
         except Exception:
             pass
 
         # Source 2: GitHub comments (authoritative, works for all channels)
         enriched = await self._store.enrich_with_comments(issue)
-        return self._find_human_reply(enriched.comments or [])
+        reply = self._find_human_reply(enriched.comments or [])
+        if reply:
+            return (reply, "github")
+        return None
 
     def _find_human_reply(self, comments: list[str]) -> str | None:
         """Find the most recent human comment after the last agent turn."""
