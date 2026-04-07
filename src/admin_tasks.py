@@ -665,23 +665,25 @@ async def run_compact(config: HydraFlowConfig) -> TaskResult:
         if items_path.exists():
             evicted_set = set(removed)
             kept_lines: list[str] = []
+            original_count = 0
             for raw_line in items_path.read_text(encoding="utf-8").splitlines():
                 stripped = raw_line.strip()
                 if not stripped:
                     continue
+                original_count += 1
                 try:
                     item = json.loads(stripped)
                     item_int_id = abs(hash(str(item.get("id", "")))) % (10**9)
                     if item_int_id not in evicted_set:
                         kept_lines.append(stripped)
-                except (json.JSONDecodeError, Exception):
+                except Exception:
                     kept_lines.append(stripped)
             items_path.write_text(
                 "\n".join(kept_lines) + ("\n" if kept_lines else ""),
                 encoding="utf-8",
             )
             log.append(
-                f"Filtered items.jsonl: removed {len(removed)} entries, {len(kept_lines)} remain"
+                f"Filtered items.jsonl: removed {original_count - len(kept_lines)} entries, {len(kept_lines)} remain"
             )
         else:
             log.append("items.jsonl not found — score-only eviction performed")
