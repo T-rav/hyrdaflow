@@ -16,6 +16,7 @@ from agent import AgentRunner
 from base_background_loop import LoopDeps
 from baseline_policy import BaselinePolicy
 from beads_manager import BeadsManager
+from bug_reproducer import BugReproducer
 from caching_issue_store import CachingIssueStore
 from ci_monitor_loop import CIMonitorLoop  # noqa: TCH001
 from code_grooming_loop import CodeGroomingLoop  # noqa: TCH001
@@ -46,6 +47,7 @@ from memory_sync_loop import MemorySyncLoop
 from merge_conflict_resolver import MergeConflictResolver
 from models import StatusCallback
 from plan_phase import PlanPhase
+from plan_reviewer import PlanReviewer
 from planner import PlannerRunner
 from ports import IssueStorePort
 from post_merge_handler import PostMergeHandler
@@ -408,6 +410,29 @@ def build_services(
         enabled=config.issue_cache_enabled,
     )
 
+    # Adversarial plan reviewer (#6421) and triage-time bug reproducer
+    # (#6424). Both are read-only/scoped agent runners that produce the
+    # cache records the precondition gate consumes. Subprocess wiring
+    # is the next follow-up — until then, the runners' subprocess
+    # shims raise NotImplementedError and the consuming phases catch
+    # the failure as a best-effort skip.
+    plan_reviewer = PlanReviewer(
+        config=config,
+        event_bus=event_bus,
+        runner=subprocess_runner,
+        hindsight=hindsight_client,
+        credentials=credentials,
+        wiki_store=repo_wiki_store,
+    )
+    bug_reproducer = BugReproducer(
+        config=config,
+        event_bus=event_bus,
+        runner=subprocess_runner,
+        hindsight=hindsight_client,
+        credentials=credentials,
+        wiki_store=repo_wiki_store,
+    )
+
     triager = TriagePhase(
         config,
         state,
@@ -418,6 +443,7 @@ def build_services(
         stop_event,
         epic_manager=epic_manager,
         issue_cache=issue_cache,
+        bug_reproducer=bug_reproducer,
     )
     discover_runner = DiscoverRunner(config, event_bus)
     discover_phase = DiscoverPhase(  # noqa: F841
@@ -473,6 +499,7 @@ def build_services(
         hindsight=hindsight_client,
         judge=memory_judge,
         issue_cache=issue_cache,
+        plan_reviewer=plan_reviewer,
     )
     hitl_phase = HITLPhase(
         config,
@@ -622,6 +649,7 @@ def build_services(
         judge=memory_judge,
         retrospective_queue=retrospective_queue,
         precondition_gate=precondition_gate,
+        issue_cache=issue_cache,
     )
 
     # Background loops — shared deps bundled into a single LoopDeps object

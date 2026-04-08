@@ -26,6 +26,7 @@ from task_source import TaskTransitioner
 from triage import TriageRunner
 
 if TYPE_CHECKING:
+    from bug_reproducer import BugReproducer
     from epic import EpicManager
     from issue_cache import IssueCache
     from ports import IssueStorePort, PRPort
@@ -54,6 +55,7 @@ class TriagePhase:
         stop_event: asyncio.Event,
         epic_manager: EpicManager | None = None,
         issue_cache: IssueCache | None = None,
+        bug_reproducer: BugReproducer | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -65,6 +67,7 @@ class TriagePhase:
         self._stop_event = stop_event
         self._epic_manager = epic_manager
         self._issue_cache = issue_cache
+        self._bug_reproducer = bug_reproducer
 
     def _enrich_parent_epic(self, issue: Task) -> None:
         """Set the parent_epic field if this issue belongs to a tracked epic."""
@@ -339,6 +342,45 @@ class TriagePhase:
                 routing_outcome=routing_outcome,
                 reasoning="; ".join(result.reasons) if result.reasons else "",
             )
+
+        # Reproduce bug-classified issues that were routed to plan
+        # (#6424). The reproducer writes a failing test under
+        # tests/regressions/ when possible, and the result is mirrored
+        # to the cache as a reproduction_stored record. The downstream
+        # READY-stage precondition gate (has_reproduction_for_bug)
+        # blocks bug-routed-to-plan issues that lack a successful
+        # reproduction and routes them back to triage with the
+        # investigation as feedback. This method just produces the
+        # data the gate consumes — the gate handles enforcement.
+        if (
+            self._bug_reproducer is not None
+            and self._issue_cache is not None
+            and routing_outcome == "plan"
+            and str(result.issue_type) == "bug"
+        ):
+            try:
+                repro = await self._bug_reproducer.reproduce(issue)
+                self._issue_cache.record_reproduction_stored(
+                    issue.id,
+                    outcome=str(repro.outcome),
+                    test_path=repro.test_path,
+                    details=repro.investigation or repro.failing_output,
+                )
+                if str(repro.outcome) == "unable":
+                    logger.warning(
+                        "Bug reproduction unable for issue #%d — READY "
+                        "gate will route back to triage: %s",
+                        issue.id,
+                        repro.investigation,
+                    )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Bug reproducer raised for issue #%d — leaving issue "
+                    "without a reproduction record",
+                    issue.id,
+                    exc_info=True,
+                )
+
         return 1
 
     async def _maybe_decompose(self, issue: Task, result: object) -> bool:

@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from dolt_backend import DoltBackend
     from hindsight import HindsightClient
     from hindsight_wal import HindsightWAL
+    from issue_cache import IssueCache
     from memory_judge import MemoryJudge  # noqa: TCH004
     from ports import IssueStorePort, PRPort, WorkspacePort
     from precondition_gate import PreconditionGate
@@ -131,6 +132,7 @@ class ReviewPhase:
         judge: MemoryJudge | None = None,
         retrospective_queue: RetrospectiveQueue | None = None,
         precondition_gate: PreconditionGate | None = None,
+        issue_cache: IssueCache | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -160,6 +162,7 @@ class ReviewPhase:
         self._hindsight = hindsight
         self._retrospective_queue = retrospective_queue
         self._precondition_gate = precondition_gate
+        self._issue_cache = issue_cache
         self._visual_validator: VisualValidator | None = None
         if config.visual_validation_enabled:
             from visual_validator import VisualValidator  # noqa: PLC0415
@@ -323,9 +326,33 @@ class ReviewPhase:
                                     self._active_issues_cb()
 
         try:
-            return await run_concurrent_batch(prs, _review_one, self._stop_event)
+            results = await run_concurrent_batch(prs, _review_one, self._stop_event)
         finally:
             release_batch_in_flight(self._store, {pr.issue_number for pr in prs})
+
+        # Mirror review verdicts into the issue cache as review_stored
+        # records (#6422 + #6421). The READY-stage precondition gate
+        # for downstream PR-driven re-review reads has_blocking from
+        # these records. REQUEST_CHANGES verdicts are blocking; APPROVE
+        # and SKIP are not. Best-effort: cache failures never raise.
+        if self._issue_cache is not None:
+            for result in results:
+                if result.issue_number <= 0:
+                    continue
+                try:
+                    self._issue_cache.record_review_stored(
+                        result.issue_number,
+                        review_text=result.summary,
+                        has_blocking=(result.verdict == ReviewVerdict.REQUEST_CHANGES),
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "Failed to write review_stored cache record for issue #%d",
+                        result.issue_number,
+                        exc_info=True,
+                    )
+
+        return results
 
     async def review_adrs(self, issues: list[Task]) -> list[ReviewResult]:
         """Review ADR issues that intentionally have no PR."""

@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from hindsight import HindsightClient
     from issue_cache import IssueCache
     from memory_judge import MemoryJudge  # noqa: TCH004
+    from plan_reviewer import PlanReviewer
     from ports import IssueStorePort, PRPort
     from repo_wiki import RepoWikiStore  # noqa: TCH004
     from wiki_compiler import WikiCompiler  # noqa: TCH004
@@ -65,6 +66,7 @@ class PlanPhase:
         hindsight: HindsightClient | None = None,
         judge: MemoryJudge | None = None,
         issue_cache: IssueCache | None = None,
+        plan_reviewer: PlanReviewer | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -82,6 +84,7 @@ class PlanPhase:
         self._wiki_store = wiki_store
         self._wiki_compiler = wiki_compiler
         self._issue_cache = issue_cache
+        self._plan_reviewer = plan_reviewer
         self._suggest_memory = MemorySuggester(config, hindsight=hindsight, judge=judge)
         self._escalator = PipelineEscalator(
             state,
@@ -286,12 +289,55 @@ class PlanPhase:
         # validation_errors with PlanFinding-shaped findings would
         # poison the cache for review-stage consumers expecting the
         # severity/dimension/description schema.
+        plan_version = 1
         if self._issue_cache is not None:
-            self._issue_cache.record_plan_stored(
+            plan_version = self._issue_cache.record_plan_stored(
                 issue.id,
                 plan_text=result.plan,
                 actionability_score=result.actionability_score,
             )
+
+        # Run the adversarial plan reviewer (#6421) and write its
+        # findings as a review_stored cache record. The reviewer is
+        # best-effort here — if it fails or the subprocess shim
+        # raises NotImplementedError (until the runner wiring lands),
+        # we log at warning and proceed. The downstream READY-stage
+        # gate (PreconditionGate against has_clean_review) is what
+        # actually enforces blocking findings; this method just
+        # produces the data the gate consumes.
+        if self._plan_reviewer is not None and self._issue_cache is not None:
+            try:
+                review = await self._plan_reviewer.review(
+                    issue, result, plan_version=plan_version
+                )
+                if review.success:
+                    self._issue_cache.record_review_stored(
+                        issue.id,
+                        review_text=review.summary,
+                        has_blocking=review.has_blocking_findings,
+                        findings=[f.model_dump() for f in review.findings],
+                    )
+                    if review.has_blocking_findings:
+                        logger.warning(
+                            "Plan review for issue #%d found blocking "
+                            "findings — READY-stage gate will route back "
+                            "to PLAN: %s",
+                            issue.id,
+                            review.summary,
+                        )
+                else:
+                    logger.warning(
+                        "Plan review skipped for issue #%d: %s",
+                        issue.id,
+                        review.error or "reviewer returned no result",
+                    )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Plan reviewer raised for issue #%d — leaving plan "
+                    "without a review record",
+                    issue.id,
+                    exc_info=True,
+                )
 
         logger.info("Plan posted and labels swapped for issue #%d", issue.id)
 
