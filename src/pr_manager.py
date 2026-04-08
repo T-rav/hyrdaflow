@@ -897,12 +897,8 @@ class PRManager:
         return await self._gh_json_query(
             "gh",
             "api",
-            f"repos/{self._repo}/dependabot/alerts",
+            f"repos/{self._repo}/dependabot/alerts?state={state}&per_page=100",
             "--paginate",
-            "--field",
-            f"state={state}",
-            "--field",
-            "per_page=100",
             dry_run_return=[],
             dry_run_log="[dry-run] Would fetch Dependabot alerts",
             error_log="Failed to fetch Dependabot alerts",

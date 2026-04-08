@@ -96,18 +96,32 @@ def build_lightweight_command(
     background workers (ADR reviewer, memory compaction, PR unsticker,
     transcript summarizer).
 
-    Returns ``(cmd, input_bytes)`` where *input_bytes* is always ``None``
-    (reserved for future stdin-based backends).
+    Returns ``(cmd, input_bytes)`` where *input_bytes* is the prompt
+    encoded as UTF-8 bytes when passed via stdin, or ``None`` when the
+    prompt is short enough to pass as a CLI argument.
+
+    Large prompts are passed via stdin to avoid hitting the OS
+    ``ARG_MAX`` limit (typically ~130 KB on macOS/Linux).
     """
     if tool == "codex":
         cmd = _build_codex_command(model=model)
         cmd.append(prompt)
         return cmd, None
-    # claude / pi / any other tool: use -p flag
-    cmd = [tool, "-p", prompt, "--model", model]
+
+    # For large prompts, pass via stdin to avoid OS ARG_MAX limit.
+    prompt_bytes = prompt.encode()
+    use_stdin = len(prompt_bytes) > 100_000  # ~100 KB threshold
+
+    if use_stdin:
+        cmd = [tool, "-p", "-", "--model", model]
+        input_bytes: bytes | None = prompt_bytes
+    else:
+        cmd = [tool, "-p", prompt, "--model", model]
+        input_bytes = None
+
     if tool == "claude":
         cmd.extend(_plugin_dir_flags())
-    return cmd, None
+    return cmd, input_bytes
 
 
 def _build_pi_command(

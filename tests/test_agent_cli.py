@@ -208,8 +208,8 @@ class TestBuildLightweightCommand:
         assert cmd[cmd.index("--model") + 1] == "pi-max"
         assert cmd_input is None
 
-    def test_input_always_none(self) -> None:
-        """cmd_input should always be None for both codex and non-codex tools."""
+    def test_input_none_for_short_prompts(self) -> None:
+        """cmd_input should be None for short prompts (passed as CLI arg)."""
         _, codex_input = build_lightweight_command(
             tool="codex", model="o4-mini", prompt="test"
         )
@@ -219,6 +219,62 @@ class TestBuildLightweightCommand:
 
         assert codex_input is None
         assert claude_input is None
+
+    def test_large_prompt_uses_stdin(self) -> None:
+        """Prompts over 100KB should be passed via stdin, not as CLI arg."""
+        large_prompt = "x" * 150_000
+        cmd, cmd_input = build_lightweight_command(
+            tool="claude", model="sonnet", prompt=large_prompt
+        )
+
+        assert cmd[0] == "claude"
+        assert "-p" in cmd
+        assert "-" in cmd  # stdin marker
+        assert large_prompt not in cmd  # prompt NOT in command args
+        assert cmd_input == large_prompt.encode()
+
+    def test_large_prompt_codex_still_inline(self) -> None:
+        """Codex always uses positional arg regardless of prompt size."""
+        large_prompt = "x" * 150_000
+        cmd, cmd_input = build_lightweight_command(
+            tool="codex", model="o4-mini", prompt=large_prompt
+        )
+
+        assert cmd[-1] == large_prompt
+        assert cmd_input is None
+
+    def test_large_prompt_pi_uses_stdin(self) -> None:
+        """Pi tool should also use stdin for large prompts."""
+        large_prompt = "x" * 150_000
+        cmd, cmd_input = build_lightweight_command(
+            tool="pi", model="pi-max", prompt=large_prompt
+        )
+
+        assert cmd[0] == "pi"
+        assert "-" in cmd
+        assert large_prompt not in cmd
+        assert cmd_input == large_prompt.encode()
+        assert cmd[cmd.index("--model") + 1] == "pi-max"
+
+    def test_boundary_prompt_stays_inline(self) -> None:
+        """Prompt of exactly 100KB should remain as CLI arg (not stdin)."""
+        boundary_prompt = "x" * 100_000
+        cmd, cmd_input = build_lightweight_command(
+            tool="claude", model="sonnet", prompt=boundary_prompt
+        )
+
+        assert boundary_prompt in cmd
+        assert cmd_input is None
+
+    def test_boundary_plus_one_uses_stdin(self) -> None:
+        """Prompt of 100KB + 1 byte should switch to stdin."""
+        over_prompt = "x" * 100_001
+        cmd, cmd_input = build_lightweight_command(
+            tool="claude", model="sonnet", prompt=over_prompt
+        )
+
+        assert over_prompt not in cmd
+        assert cmd_input is not None
 
     def test_codex_does_not_mutate_shared_state(self) -> None:
         """Calling build_lightweight_command twice should not share list references."""

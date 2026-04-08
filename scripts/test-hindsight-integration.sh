@@ -126,7 +126,7 @@ async def test():
 
     # Retain
     result = await client.retain(
-        Bank.LEARNINGS,
+        Bank.TRIBAL,
         'Python client test: always check types with pyright',
         context='type safety',
     )
@@ -136,7 +136,7 @@ async def test():
     await asyncio.sleep(3)
 
     # Recall
-    memories = await client.recall(Bank.LEARNINGS, 'type checking best practices')
+    memories = await client.recall(Bank.TRIBAL, 'type checking best practices')
     print(f'  Recall: {len(memories)} memories')
     for m in memories[:3]:
         print(f'    - {m.display_text[:80]}')
