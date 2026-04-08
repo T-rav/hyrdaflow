@@ -220,6 +220,7 @@ _ENV_FLOAT_RATIO_OVERRIDES: list[tuple[str, str, float]] = [
 _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("dry_run", "HYDRAFLOW_DRY_RUN", False),
     ("sensor_enrichment_enabled", "HYDRAFLOW_SENSOR_ENRICHMENT_ENABLED", True),
+    ("issue_cache_enabled", "HYDRAFLOW_ISSUE_CACHE_ENABLED", True),
     ("docker_read_only_root", "HYDRAFLOW_DOCKER_READ_ONLY_ROOT", True),
     ("docker_no_new_privileges", "HYDRAFLOW_DOCKER_NO_NEW_PRIVILEGES", True),
     (
@@ -910,6 +911,17 @@ class HydraFlowConfig(BaseModel):
         description=(
             "Append Agent Hints blocks to captured tool-failure output "
             "based on rules in sensor_rules.SEED_RULES."
+        ),
+    )
+
+    # Local JSONL issue cache — append-only mirror of GitHub issue state.
+    # See src/issue_cache.py and issue #6422.
+    issue_cache_enabled: bool = Field(
+        default=True,
+        description=(
+            "Write structured snapshots (classification, plans, reviews, "
+            "reproductions, route-backs) to a local JSONL cache alongside "
+            "GitHub. GitHub remains the primary source of truth."
         ),
     )
 

@@ -37,6 +37,7 @@ from health_monitor_loop import HealthMonitorLoop
 from hitl_phase import HITLPhase
 from hitl_runner import HITLRunner
 from implement_phase import ImplementPhase
+from issue_cache import IssueCache
 from issue_fetcher import GitHubTaskFetcher, IssueFetcher
 from issue_store import IssueStore
 from memory import MemorySyncWorker
@@ -104,6 +105,7 @@ class ServiceRegistry:
     fetcher: IssueFetcher
     store: IssueStore
     crate_manager: CrateManager
+    issue_cache: IssueCache
 
     # Phase coordinators
     triager: TriagePhase
@@ -328,6 +330,12 @@ def build_services(
     # Crate management
     crate_manager = CrateManager(config, state, prs, event_bus)
     store.set_crate_manager(crate_manager)
+
+    # Local JSONL issue cache (append-only mirror; see src/issue_cache.py and #6422)
+    issue_cache = IssueCache(
+        config.data_path("cache"),
+        enabled=config.issue_cache_enabled,
+    )
 
     # Harness insight store (shared across phases)
     harness_insights = HarnessInsightStore(
@@ -704,6 +712,7 @@ def build_services(
         fetcher=fetcher,
         store=store,
         crate_manager=crate_manager,
+        issue_cache=issue_cache,
         triager=triager,
         discover_phase=discover_phase,
         shape_phase=shape_phase,
