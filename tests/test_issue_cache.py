@@ -131,8 +131,11 @@ class TestBestEffort:
     def test_oserror_on_read_returns_empty_not_raise(self, tmp_path: Path) -> None:
         cache = _cache(tmp_path)
         cache.record_fetch(42, {"ok": True})
-        # Make the file unreadable via patch.
-        with patch.object(Path, "read_text", side_effect=OSError("boom")):
+        # Patch the Path symbol as imported by issue_cache rather than the
+        # global pathlib.Path.read_text — keeps the mock blast radius
+        # confined to issue_cache module reads, leaving pytest internals
+        # and tmp_path fixtures unaffected.
+        with patch("issue_cache.Path.read_text", side_effect=OSError("boom")):
             history = cache.read_history(42)
         assert history == []
 
@@ -337,3 +340,65 @@ class TestKnownIssueIds:
         (cache.issues_dir / "scratch.txt").write_text("garbage")
         (cache.issues_dir / "not-a-number.jsonl").write_text('{"ok": 1}\n')
         assert cache.known_issue_ids() == [42]
+
+    def test_sort_is_numeric_not_lexicographic(self, tmp_path: Path) -> None:
+        """[1, 2, 10] must sort numerically as [1, 2, 10], not as the
+        lexicographic [1, 10, 2]. Catches a regression where stems are
+        sorted as strings instead of being parsed to int first."""
+        cache = _cache(tmp_path)
+        cache.record_fetch(2, {})
+        cache.record_fetch(10, {})
+        cache.record_fetch(1, {})
+        assert cache.known_issue_ids() == [1, 2, 10]
+
+
+# ---------------------------------------------------------------------------
+# Concurrent versioned writes
+# ---------------------------------------------------------------------------
+
+
+class TestConcurrentVersioning:
+    """Versioned writers serialize per-issue so concurrent calls cannot
+    allocate duplicate version numbers. Without the per-issue lock, two
+    threads racing on record_plan_stored would both read the same
+    latest version, both compute version=N+1, and both append a record
+    with the same number — silently corrupting the audit trail."""
+
+    def test_concurrent_plan_writes_get_distinct_versions(self, tmp_path: Path) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        cache = _cache(tmp_path)
+        n_writes = 20
+
+        def write(_: int) -> int:
+            return cache.record_plan_stored(42, plan_text="iteration")
+
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            versions = sorted(ex.map(write, range(n_writes)))
+
+        # Every version is distinct and the set is exactly 1..n_writes.
+        assert versions == list(range(1, n_writes + 1))
+
+        # And the JSONL file has exactly n_writes records.
+        history = cache.read_history(42)
+        assert len(history) == n_writes
+
+    def test_concurrent_writes_for_different_issues_run_in_parallel(
+        self, tmp_path: Path
+    ) -> None:
+        """Per-issue locking — two issues should be able to write in
+        parallel without serializing on each other."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        cache = _cache(tmp_path)
+
+        def write(issue_id: int) -> int:
+            return cache.record_plan_stored(issue_id, plan_text="x")
+
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            results = list(ex.map(write, [1, 2, 3, 4]))
+
+        # Each issue gets version 1 — independent counters.
+        assert results == [1, 1, 1, 1]
+        for issue_id in (1, 2, 3, 4):
+            assert len(cache.read_history(issue_id)) == 1

@@ -19,6 +19,36 @@ See issue #6422 for the full rationale. Key design points:
 - **Config-gated**: ``HydraFlowConfig.issue_cache_enabled`` defaults to
   True. Disabling returns HydraFlow to pre-cache behaviour exactly.
 
+## Concurrency
+
+Versioned writers (``record_plan_stored``, ``record_review_stored``)
+serialize per-issue via a ``threading.Lock`` registry. The lock prevents
+the read-then-append race that would otherwise let two concurrent
+versioned writers allocate the same ``version`` value. The lock is
+per-issue so unrelated issues can write in parallel.
+
+A threading lock is used (rather than ``asyncio.Lock``) so the API
+stays synchronous and callable from both sync and async contexts. The
+lock is held only across the file read + append window, which is
+microseconds for typical issue history sizes — acceptable to hold
+while running on an asyncio event loop.
+
+This serialization assumes a single process. Cross-process concurrent
+writers (multi-orchestrator deployments) would need a file lock at the
+filesystem layer; this module does not provide one. The Swamp-lifecycle
+PRs (#6421/#6423/#6424) only call versioned writers from phase code
+running in a single orchestrator process, so the threading lock is
+sufficient for that use case.
+
+## Performance
+
+``_next_version`` reads the entire issue JSONL file on every versioned
+write — O(n) in history length. For typical per-issue histories
+(< 50 records over an issue's lifetime) this is well under 1ms. For
+issues with thousands of plan iterations, an in-memory version counter
+keyed by ``(issue_id, kind)`` would be the right optimization. Not
+required for the current Swamp-lifecycle use case.
+
 This module intentionally does NOT implement the full
 ``CachingIssueStore`` decorator from the issue scope — that is a
 follow-up. This first slice lands the storage primitive and the first
@@ -30,6 +60,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -109,6 +140,22 @@ class IssueCache:
         self._cache_dir = cache_dir
         self._issues_dir = cache_dir / "issues"
         self._enabled = enabled
+        # Per-issue locks serialize versioned writers so two concurrent
+        # record_plan_stored / record_review_stored calls cannot allocate
+        # the same version number. The registry itself is guarded by a
+        # global lock for safe lazy creation. See module docstring →
+        # Concurrency for the design rationale.
+        self._version_locks: dict[int, threading.Lock] = {}
+        self._version_locks_guard = threading.Lock()
+
+    def _get_version_lock(self, issue_id: int) -> threading.Lock:
+        """Lazily create and return the per-issue versioning lock."""
+        with self._version_locks_guard:
+            lock = self._version_locks.get(issue_id)
+            if lock is None:
+                lock = threading.Lock()
+                self._version_locks[issue_id] = lock
+            return lock
 
     @property
     def enabled(self) -> bool:
@@ -194,21 +241,26 @@ class IssueCache:
         the number of prior ``plan_stored`` records for the same issue
         plus one — making plan v1 → v2 → v3 history readable from the
         JSONL stream without a separate index.
+
+        Thread/coroutine-safe via a per-issue lock — concurrent calls
+        for the same issue serialize so each gets a distinct version.
+        Calls for different issues run in parallel.
         """
-        version = self._next_version(issue_id, CacheRecordKind.PLAN_STORED)
-        self.record(
-            CacheRecord(
-                issue_id=issue_id,
-                kind=CacheRecordKind.PLAN_STORED,
-                version=version,
-                payload={
-                    "plan_text": plan_text,
-                    "actionability_score": actionability_score,
-                    "findings": list(findings or []),
-                },
+        with self._get_version_lock(issue_id):
+            version = self._next_version(issue_id, CacheRecordKind.PLAN_STORED)
+            self.record(
+                CacheRecord(
+                    issue_id=issue_id,
+                    kind=CacheRecordKind.PLAN_STORED,
+                    version=version,
+                    payload={
+                        "plan_text": plan_text,
+                        "actionability_score": actionability_score,
+                        "findings": list(findings or []),
+                    },
+                )
             )
-        )
-        return version
+            return version
 
     def record_review_stored(
         self,
@@ -218,21 +270,25 @@ class IssueCache:
         has_critical: bool,
         findings: Iterable[dict[str, Any]] | None = None,
     ) -> int:
-        """Record an adversarial plan review or PR review (#6421 composes)."""
-        version = self._next_version(issue_id, CacheRecordKind.REVIEW_STORED)
-        self.record(
-            CacheRecord(
-                issue_id=issue_id,
-                kind=CacheRecordKind.REVIEW_STORED,
-                version=version,
-                payload={
-                    "review_text": review_text,
-                    "has_critical": has_critical,
-                    "findings": list(findings or []),
-                },
+        """Record an adversarial plan review or PR review (#6421 composes).
+
+        Thread/coroutine-safe via a per-issue lock — see record_plan_stored.
+        """
+        with self._get_version_lock(issue_id):
+            version = self._next_version(issue_id, CacheRecordKind.REVIEW_STORED)
+            self.record(
+                CacheRecord(
+                    issue_id=issue_id,
+                    kind=CacheRecordKind.REVIEW_STORED,
+                    version=version,
+                    payload={
+                        "review_text": review_text,
+                        "has_critical": has_critical,
+                        "findings": list(findings or []),
+                    },
+                )
             )
-        )
-        return version
+            return version
 
     def record_reproduction_stored(
         self,
