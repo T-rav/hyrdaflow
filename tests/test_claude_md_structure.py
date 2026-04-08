@@ -99,6 +99,64 @@ class TestAvoidedPatternsExtraction:
         )
 
 
+class TestClaudeMdIsToCForm:
+    """CLAUDE.md must remain a lean table of contents, not an encyclopedia.
+
+    #6425 caps CLAUDE.md at ≤80 lines and requires the full topic set to
+    exist under docs/agents/. This test guards against content drifting
+    back into CLAUDE.md.
+    """
+
+    LINE_BUDGET = 80
+
+    def test_claude_md_within_line_budget(self) -> None:
+        content = _read_claude_md()
+        line_count = len(content.splitlines())
+        assert line_count <= self.LINE_BUDGET, (
+            f"CLAUDE.md is {line_count} lines — exceeds the {self.LINE_BUDGET}-line "
+            "budget. Move content into a docs/agents/*.md topic file and link it."
+        )
+
+    def test_all_topic_files_exist(self) -> None:
+        required = [
+            "architecture.md",
+            "avoided-patterns.md",
+            "background-loops.md",
+            "commands.md",
+            "quality-gates.md",
+            "sentry.md",
+            "testing.md",
+            "ui-standards.md",
+            "worktrees.md",
+            "README.md",
+        ]
+        missing = [f for f in required if not (DOCS_AGENTS / f).exists()]
+        assert not missing, f"missing docs/agents files: {missing}"
+
+    def test_claude_md_links_to_every_topic_file(self) -> None:
+        """Every topic file in docs/agents/ (except README.md) must be
+        linked from CLAUDE.md. Catches topic drift where a doc is added
+        but the ToC is forgotten."""
+        content = _read_claude_md()
+        topic_files = {
+            f.name for f in DOCS_AGENTS.glob("*.md") if f.name != "README.md"
+        }
+        unlinked = [f for f in topic_files if f"docs/agents/{f}" not in content]
+        assert not unlinked, f"topic files not linked from CLAUDE.md: {unlinked}"
+
+    def test_docs_agents_readme_is_index(self) -> None:
+        """The README.md in docs/agents/ is an index, not a topic."""
+        readme = DOCS_AGENTS / "README.md"
+        assert readme.exists()
+        content = readme.read_text(encoding="utf-8")
+        # The index must list every topic file.
+        topic_files = sorted(
+            f.name for f in DOCS_AGENTS.glob("*.md") if f.name != "README.md"
+        )
+        missing = [f for f in topic_files if f not in content]
+        assert not missing, f"docs/agents/README.md index missing entries: {missing}"
+
+
 class TestLinkedDocsResolve:
     """Every markdown link from CLAUDE.md to a relative path must resolve
     to a real file. Prevents ToC rot as docs are renamed.
