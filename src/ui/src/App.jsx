@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef, useEffect, lazy, Suspense } from 'react'
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { HydraFlowProvider, useHydraFlow } from './context/HydraFlowContext'
 import { Header } from './components/Header'
 import { HumanInputBanner } from './components/HumanInputBanner'
@@ -9,15 +9,12 @@ import { StreamView } from './components/StreamView'
 import { SessionSidebar } from './components/SessionSidebar'
 import { theme } from './theme'
 
-const DiagnosticsTab = lazy(() => import('./components/diagnostics/DiagnosticsTab').then(m => ({ default: m.DiagnosticsTab })))
-
-const TABS = ['issues', 'hitl', 'outcomes', 'diagnostics', 'system']
+const TABS = ['issues', 'hitl', 'outcomes', 'system']
 
 const TAB_LABELS = {
   issues: 'Work Stream',
   outcomes: 'Outcomes',
   hitl: 'HITL',
-  diagnostics: 'Diagnostics',
   system: 'System',
 }
 
@@ -258,11 +255,6 @@ function AppContent() {
             orchestratorStatus === 'running'
               ? <HITLTable items={hitlItems} onRefresh={refreshHitl} />
               : <div style={idleMessage}>Pipeline is not running — HITL actions are unavailable.</div>
-          )}
-          {activeTab === 'diagnostics' && (
-            <Suspense fallback={<div style={idleMessage}>Loading diagnostics…</div>}>
-              <DiagnosticsTab />
-            </Suspense>
           )}
           {activeTab === 'system' && (
             <SystemPanel

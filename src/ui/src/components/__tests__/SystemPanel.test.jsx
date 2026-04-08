@@ -366,13 +366,14 @@ describe('SystemPanel', () => {
   })
 
   describe('Sub-tab Navigation', () => {
-    it('shows Workers, Pipeline, Metrics, Insights, and Livestream sub-tab labels', () => {
+    it('shows Workers, Pipeline, Metrics, Insights, Diagnostics, and Livestream sub-tab labels', () => {
       render(<SystemPanel backgroundWorkers={[]} />)
       expect(screen.getByText('Workers')).toBeInTheDocument()
       expect(screen.getByText('Pipeline')).toBeInTheDocument()
       expect(screen.getByText('Metrics')).toBeInTheDocument()
       expect(screen.queryByText('Processes')).not.toBeInTheDocument()
       expect(screen.getByText('Insights')).toBeInTheDocument()
+      expect(screen.getByText('Diagnostics')).toBeInTheDocument()
       expect(screen.getByText('Livestream')).toBeInTheDocument()
       expect(screen.queryByText('Event Log')).not.toBeInTheDocument()
     })
@@ -436,6 +437,24 @@ describe('SystemPanel', () => {
       fireEvent.click(screen.getByText('Insights'))
       expect(screen.getByText('Failure Patterns')).toBeInTheDocument()
       expect(screen.queryByText('Repo Health')).not.toBeInTheDocument()
+    })
+
+    it('clicking Diagnostics sub-tab mounts the DiagnosticsTab via Suspense', async () => {
+      // DiagnosticsTab fetches /api/diagnostics/* on mount; stub them so the
+      // dynamic-imported component can render in jsdom.
+      const originalFetch = global.fetch
+      global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: async () => [] }))
+      try {
+        render(<SystemPanel backgroundWorkers={[]} />)
+        fireEvent.click(screen.getByText('Diagnostics'))
+        // Lazy-loaded; wait for the dynamic import to resolve and tab to mount.
+        await waitFor(() => {
+          expect(screen.getByText('Factory Diagnostics')).toBeInTheDocument()
+        })
+        expect(screen.queryByText('Repo Health')).not.toBeInTheDocument()
+      } finally {
+        global.fetch = originalFetch
+      }
     })
 
     it('renders event data in Livestream sub-tab', () => {

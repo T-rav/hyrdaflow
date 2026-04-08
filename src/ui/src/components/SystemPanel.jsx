@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react'
+import React, { useState, useCallback, useMemo, lazy, Suspense } from 'react'
 import { theme } from '../theme'
 import { BACKGROUND_WORKERS, WORKER_GROUPS, INTERVAL_PRESETS, WORKER_PRESETS, EDITABLE_INTERVAL_WORKERS, SYSTEM_WORKER_INTERVALS, UNSTICK_BATCH_OPTIONS } from '../constants'
 import { useHydraFlow } from '../context/HydraFlowContext'
@@ -8,11 +8,16 @@ import { WorkerLogStream } from './WorkerLogStream'
 import { MetricsPanel } from './MetricsPanel'
 import { InsightsPanel } from './InsightsPanel'
 
+const DiagnosticsTab = lazy(() =>
+  import('./diagnostics/DiagnosticsTab').then(m => ({ default: m.DiagnosticsTab }))
+)
+
 const SUB_TABS = [
   { key: 'workers', label: 'Workers' },
   { key: 'pipeline', label: 'Pipeline' },
   { key: 'metrics', label: 'Metrics' },
   { key: 'insights', label: 'Insights' },
+  { key: 'diagnostics', label: 'Diagnostics' },
   { key: 'livestream', label: 'Livestream' },
 ]
 
@@ -549,6 +554,11 @@ export function SystemPanel({ backgroundWorkers, onToggleBgWorker, onTriggerBgWo
           <MetricsPanel />
         )}
         {activeSubTab === 'insights' && <InsightsPanel />}
+        {activeSubTab === 'diagnostics' && (
+          <Suspense fallback={<div style={styles.diagnosticsLoading}>Loading diagnostics…</div>}>
+            <DiagnosticsTab />
+          </Suspense>
+        )}
         {activeSubTab === 'livestream' && <Livestream events={events} />}
       </div>
     </div>
@@ -593,6 +603,12 @@ const styles = {
     flex: 1,
     overflowY: 'auto',
     padding: 20,
+  },
+  diagnosticsLoading: {
+    padding: 32,
+    textAlign: 'center',
+    color: theme.dimText,
+    fontSize: 13,
   },
   heading: {
     fontSize: 16,

@@ -234,7 +234,7 @@ describe('Main tab bar', () => {
   it('has exactly 4 main tabs', async () => {
     const { default: App } = await import('../../App')
     render(<App />)
-    const tabLabels = ['Work Stream', 'HITL', 'Outcomes', 'Diagnostics', 'System']
+    const tabLabels = ['Work Stream', 'HITL', 'Outcomes', 'System']
     const tabContainer = screen.getByTestId('main-tabs')
     expect(tabContainer.childElementCount).toBe(tabLabels.length)
     for (const label of tabLabels) {
@@ -253,6 +253,13 @@ describe('Main tab bar', () => {
     render(<App />)
     // Livestream is now a sub-tab inside System, not a top-level tab
     expect(screen.queryByText('Livestream')).not.toBeInTheDocument()
+  })
+
+  it('does not render Diagnostics in the main tab bar (moved to System sub-tab)', async () => {
+    const { default: App } = await import('../../App')
+    render(<App />)
+    const tabContainer = screen.getByTestId('main-tabs')
+    expect(within(tabContainer).queryByText('Diagnostics')).toBeNull()
   })
 
   it('Work Stream tab is rendered first (tab order)', async () => {
