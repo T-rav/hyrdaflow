@@ -161,8 +161,7 @@ class PlanReviewer(BaseRunner):
         ``review`` method has a clean injection point for tests. The
         prompt built by ``_build_prompt`` is the input.
         """
-        # _ = (task, plan_result)  # explicitly unused until follow-up wiring
-        del task, plan_result
+        _ = (task, plan_result)  # unused until follow-up wiring
         raise NotImplementedError(
             "Plan reviewer subprocess is not wired in this PR — patch "
             "PlanReviewer._run_review_subprocess in tests to inject a "
@@ -256,10 +255,12 @@ class PlanReviewer(BaseRunner):
 
             suggestion_match = _SUGGESTION_RE.match(raw_line)
             if suggestion_match and current is not None:
-                # Pydantic models are immutable by default — but
-                # PlanFinding is a plain BaseModel, so attribute
-                # assignment works. Set the suggestion on the in-flight
-                # finding before it gets committed.
+                # Use model_copy to produce a fresh PlanFinding with
+                # the suggestion populated. PlanFinding is not declared
+                # frozen, so direct assignment would also work, but
+                # model_copy makes the copy-then-rebind contract
+                # explicit and avoids the trap of mutating an instance
+                # that may have already been appended to a list.
                 current = current.model_copy(
                     update={"suggestion": suggestion_match.group("suggestion").strip()}
                 )

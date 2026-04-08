@@ -245,6 +245,33 @@ class TestReproduceOrchestration:
         assert "ZeroDivisionError" in result.failing_output
 
     @pytest.mark.asyncio
+    async def test_partial_outcome_round_trip(self) -> None:
+        """Verify that a `partial` transcript flows through reproduce()
+        correctly — the outcome lands as PARTIAL and repro_script is
+        populated. Catches a regression where the field-by-field copy
+        in reproduce() drops the repro_script line."""
+        reproducer = _reproducer()
+        body = (
+            "Outcome: partial\n"
+            "Repro_script: curl -X POST http://localhost:8000/foo\n"
+            "Confidence: 0.6\n"
+            "Investigation: manual reproduction works but no automated test"
+        )
+        with patch.object(
+            BugReproducer,
+            "_run_reproducer_subprocess",
+            return_value=_wrap(body),
+        ):
+            result = await reproducer.reproduce(_task())
+        assert result.outcome == ReproductionOutcome.PARTIAL
+        assert "curl" in result.repro_script
+        assert result.confidence == pytest.approx(0.6)
+        assert "manual reproduction works" in result.investigation
+        # Issue number is set from the orchestration call site, not the
+        # parser default of 0.
+        assert result.issue_number == 42
+
+    @pytest.mark.asyncio
     async def test_unable_outcome_round_trip(self) -> None:
         reproducer = _reproducer()
         body = "Outcome: unable\nInvestigation: bug body has no repro steps"

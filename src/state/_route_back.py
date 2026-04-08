@@ -49,6 +49,27 @@ class RouteBackStateMixin:
         self.save()
         return new
 
+    def decrement_route_back_count(self, issue_id: int) -> int:
+        """Decrement and return the new route-back count for *issue_id*.
+
+        No-op when the counter is already at 0. Used by
+        :class:`~route_back.RouteBackCoordinator` to undo an increment
+        when the label swap that the counter was tracking fails — see
+        ``RouteBackCounterPort.decrement_route_back_count`` for the
+        rationale.
+        """
+        key = self._key(issue_id)
+        current = self._data.route_back_counts.get(key, 0)
+        if current <= 0:
+            return 0
+        new = current - 1
+        if new == 0:
+            self._data.route_back_counts.pop(key, None)
+        else:
+            self._data.route_back_counts[key] = new
+        self.save()
+        return new
+
     def reset_route_back_count(self, issue_id: int) -> None:
         """Clear the route-back counter for *issue_id*.
 

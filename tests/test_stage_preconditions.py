@@ -67,6 +67,7 @@ class TestHasPlan:
             issue_type="feature",
             complexity_score=3,
             complexity_rank="low",
+            routing_outcome="plan",
         )
         result = has_plan(cache, 42)
         assert result.ok is False
@@ -122,6 +123,7 @@ class TestHasReproductionForBug:
             issue_type="feature",
             complexity_score=3,
             complexity_rank="low",
+            routing_outcome="plan",
         )
         assert has_reproduction_for_bug(cache, 42).ok is True
 
@@ -132,6 +134,7 @@ class TestHasReproductionForBug:
             issue_type="bug",
             complexity_score=5,
             complexity_rank="medium",
+            routing_outcome="plan",
         )
         result = has_reproduction_for_bug(cache, 42)
         assert result.ok is False
@@ -144,6 +147,7 @@ class TestHasReproductionForBug:
             issue_type="bug",
             complexity_score=5,
             complexity_rank="medium",
+            routing_outcome="plan",
         )
         cache.record_reproduction_stored(
             42,
@@ -159,6 +163,7 @@ class TestHasReproductionForBug:
             issue_type="bug",
             complexity_score=5,
             complexity_rank="medium",
+            routing_outcome="plan",
         )
         cache.record_reproduction_stored(
             42,
@@ -189,6 +194,7 @@ class TestCheckPreconditions:
             issue_type="feature",
             complexity_score=3,
             complexity_rank="low",
+            routing_outcome="plan",
         )
         cache.record_plan_stored(42, plan_text="full plan")
         cache.record_review_stored(42, review_text="LGTM", has_blocking=False)
@@ -218,6 +224,7 @@ class TestCheckPreconditions:
             issue_type="bug",
             complexity_score=5,
             complexity_rank="medium",
+            routing_outcome="plan",
         )
         cache.record_plan_stored(42, plan_text="fix the bug")
         cache.record_review_stored(42, review_text="LGTM", has_blocking=False)
@@ -267,6 +274,7 @@ class TestCheckPreconditions:
             issue_type="bug",
             complexity_score=5,
             complexity_rank="medium",
+            routing_outcome="plan",
         )
         # Write a reproduction record with non-canonical casing.
         from issue_cache import CacheRecord, CacheRecordKind
@@ -282,6 +290,40 @@ class TestCheckPreconditions:
         assert result.ok is False
         assert "escalate to HITL" in result.reason
 
+    def test_classification_with_parked_routing_does_not_satisfy_bug_gate(
+        self, tmp_path: Path
+    ) -> None:
+        """A bug classification with routing_outcome='parked' must NOT
+        satisfy has_reproduction_for_bug, even though issue_type=='bug'.
+        Without this guard, a parked-then-relabeled issue could bypass
+        the reproduction requirement."""
+        cache = _cache(tmp_path)
+        cache.record_classification(
+            42,
+            issue_type="bug",
+            complexity_score=5,
+            complexity_rank="medium",
+            routing_outcome="parked",  # not "plan"
+        )
+        # No reproduction record exists, but the gate should pass
+        # because the classification was not routed to plan — the
+        # gate defers to upstream classification.
+        result = has_reproduction_for_bug(cache, 42)
+        assert result.ok is True
+
+    def test_classification_with_discover_routing_does_not_satisfy_bug_gate(
+        self, tmp_path: Path
+    ) -> None:
+        cache = _cache(tmp_path)
+        cache.record_classification(
+            42,
+            issue_type="bug",
+            complexity_score=5,
+            complexity_rank="medium",
+            routing_outcome="discover",
+        )
+        assert has_reproduction_for_bug(cache, 42).ok is True
+
     def test_bug_reproduction_outcome_titlecase_also_blocks(
         self, tmp_path: Path
     ) -> None:
@@ -291,6 +333,7 @@ class TestCheckPreconditions:
             issue_type="bug",
             complexity_score=5,
             complexity_rank="medium",
+            routing_outcome="plan",
         )
         from issue_cache import CacheRecord, CacheRecordKind
 

@@ -74,14 +74,18 @@ class TriagePhase:
         if parents:
             issue.parent_epic = parents[0]
 
-    @staticmethod
-    def _complexity_rank(score: int) -> str:
+    def _complexity_rank(self, score: int) -> str:
         """Convert a 0-10 complexity score into a coarse rank label.
 
-        The cache stores both the raw score and a label so downstream
-        phases can read the rank without hardcoding thresholds.
+        The ``"high"`` boundary is tied to
+        ``epic_decompose_complexity_threshold`` so the cache rank
+        agrees with the epic-decomposition routing decision. If an
+        operator lowers the epic threshold, issues at that score
+        level will be marked ``"high"`` in the cache, matching the
+        decomposition behavior instead of drifting out of sync.
         """
-        if score >= 8:
+        high_threshold = self._config.epic_decompose_complexity_threshold
+        if score >= high_threshold:
             return "high"
         if score >= 5:
             return "medium"
@@ -240,22 +244,10 @@ class TriagePhase:
             )
             return 0
 
-        # Mirror classification into the local JSONL cache (#6422 + #6423).
-        # Downstream precondition gates read this structured record
-        # instead of re-parsing triage comments. Best-effort: the cache
-        # itself never raises into the domain layer.
-        if self._issue_cache is not None:
-            self._issue_cache.record_classification(
-                issue.id,
-                issue_type=str(result.issue_type),
-                complexity_score=result.complexity_score,
-                complexity_rank=self._complexity_rank(result.complexity_score),
-                reasoning="; ".join(result.reasons) if result.reasons else "",
-            )
-
         if self._config.dry_run:
             return 1
 
+        routing_outcome: str = "unknown"
         if result.needs_discovery or (
             result.ready and result.clarity_score < self._config.clarity_threshold
         ):
@@ -263,6 +255,7 @@ class TriagePhase:
             self._store.enqueue_transition(issue, "discover")
             await self._transitioner.transition(issue.id, "discover")
             self._state.increment_session_counter("triaged")
+            routing_outcome = "discover"
             logger.info(
                 "Issue #%d triaged → %s (needs product discovery, clarity=%d)",
                 issue.id,
@@ -280,11 +273,15 @@ class TriagePhase:
                 self._store.enqueue_transition(issue, "plan")
                 await self._transitioner.transition(issue.id, "plan")
                 self._state.increment_session_counter("triaged")
+                routing_outcome = "plan"
                 logger.info(
                     "Issue #%d triaged → %s (ready for planning)",
                     issue.id,
                     self._config.planner_label[0],
                 )
+            else:
+                # Auto-decomposed into an epic; children are the real work.
+                routing_outcome = "epic_decomposed"
         elif _is_sentry_issue(issue):
             # Sentry-originated issues that fail triage are noise — auto-close
             await self._prs.post_comment(
@@ -295,6 +292,7 @@ class TriagePhase:
             )
             await self._transitioner.close_task(issue.id)
             self._state.mark_issue(issue.id, "completed")
+            routing_outcome = "sentry_noise_closed"
             logger.info(
                 "Issue #%d Sentry noise auto-closed by triage: %s",
                 issue.id,
@@ -319,10 +317,27 @@ class TriagePhase:
                     },
                 )
             )
+            routing_outcome = "parked"
             logger.info(
                 "Issue #%d triaged → parked (needs info: %s)",
                 issue.id,
                 "; ".join(result.reasons),
+            )
+
+        # Mirror classification into the local JSONL cache with the
+        # final routing outcome captured. Writing AFTER the routing
+        # decision prevents the READY-stage precondition gate from
+        # accepting a classification whose issue was parked or sent
+        # to discover — the gate checks routing_outcome == "plan".
+        # Best-effort: cache failures never raise into the domain layer.
+        if self._issue_cache is not None:
+            self._issue_cache.record_classification(
+                issue.id,
+                issue_type=str(result.issue_type),
+                complexity_score=result.complexity_score,
+                complexity_rank=self._complexity_rank(result.complexity_score),
+                routing_outcome=routing_outcome,
+                reasoning="; ".join(result.reasons) if result.reasons else "",
             )
         return 1
 

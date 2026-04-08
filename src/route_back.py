@@ -101,6 +101,18 @@ class RouteBackCounterPort(Protocol):
         """Increment and return the new route-back count for *issue_id*."""
         ...
 
+    def decrement_route_back_count(self, issue_id: int) -> int:
+        """Decrement and return the new route-back count for *issue_id*.
+
+        Used by the coordinator to undo an increment when a label swap
+        fails after the counter was already incremented — without this
+        rollback, transient ``gh`` network blips would burn through the
+        route-back budget without any actual route-back happening.
+
+        Must be a no-op (return 0) when the counter is already at 0.
+        """
+        ...
+
 
 class RouteBackCoordinator:
     """Coordinates label swap + cache record + counter + escalation."""
@@ -212,9 +224,23 @@ class RouteBackCoordinator:
                 issue_id,
                 exc,
             )
+            # Undo the counter increment — the label swap was the
+            # action being counted, and it didn't happen. Without
+            # this rollback, two consecutive label-swap failures
+            # (e.g. transient `gh` network blips) would burn through
+            # the route-back budget and trigger spurious HITL escalation.
+            try:
+                rolled_back = self._counter.decrement_route_back_count(issue_id)
+            except Exception as decrement_exc:  # noqa: BLE001
+                logger.warning(
+                    "route_back: counter rollback failed for issue #%d: %s",
+                    issue_id,
+                    decrement_exc,
+                )
+                rolled_back = new_count
             return RouteBackResult(
                 RouteBackOutcome.FAILED,
-                counter=new_count,
+                counter=rolled_back,
                 reason=f"label swap failed: {exc}",
             )
 

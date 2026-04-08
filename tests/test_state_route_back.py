@@ -59,6 +59,43 @@ class TestRouteBackCounter:
         tracker.reset_route_back_count(999)
         assert tracker.get_route_back_count(999) == 0
 
+    def test_decrement_returns_new_count(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        tracker.increment_route_back_count(42)
+        tracker.increment_route_back_count(42)
+        tracker.increment_route_back_count(42)
+        assert tracker.decrement_route_back_count(42) == 2
+        assert tracker.decrement_route_back_count(42) == 1
+        assert tracker.decrement_route_back_count(42) == 0
+
+    def test_decrement_below_zero_is_noop(self, tmp_path: Path) -> None:
+        tracker = make_tracker(tmp_path)
+        # Counter starts at 0; decrementing must not produce a negative.
+        assert tracker.decrement_route_back_count(42) == 0
+        assert tracker.decrement_route_back_count(42) == 0
+        assert tracker.get_route_back_count(42) == 0
+
+    def test_decrement_to_zero_clears_entry(self, tmp_path: Path) -> None:
+        """Decrement-to-zero must remove the dict entry to keep the
+        state JSON clean — leaving zero entries would bloat the state
+        file over time as issues come and go."""
+        tracker = make_tracker(tmp_path)
+        tracker.increment_route_back_count(42)
+        tracker.decrement_route_back_count(42)
+        # Internal data dict should not have the key.
+        assert "42" not in tracker._data.route_back_counts
+
+    def test_decrement_persists_across_restart(self, tmp_path: Path) -> None:
+        state_file = tmp_path / "state.json"
+
+        tracker1 = StateTracker(state_file)
+        tracker1.increment_route_back_count(42)
+        tracker1.increment_route_back_count(42)
+        tracker1.decrement_route_back_count(42)
+
+        tracker2 = StateTracker(state_file)
+        assert tracker2.get_route_back_count(42) == 1
+
 
 # ---------------------------------------------------------------------------
 # Persistence across restart

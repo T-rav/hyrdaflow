@@ -118,17 +118,29 @@ def has_clean_review(cache: IssueCache, issue_id: int) -> PreconditionResult:
 
 
 def has_reproduction_for_bug(cache: IssueCache, issue_id: int) -> PreconditionResult:
-    """If the issue is classified as a bug, it must have a reproduction record.
+    """If the issue is classified as a bug routed to plan, it must have a
+    reproduction record.
 
     Non-bug issues pass this check unconditionally — reproduction is
     only required for bug-labeled work (#6424). Bugs without a successful
     reproduction get routed back to TRIAGE with the investigation as
     feedback so a human can either fix the issue body or escalate.
+
+    Only classifications with ``routing_outcome == "plan"`` are
+    considered — a bug issue that was parked, routed to discover,
+    or closed as Sentry noise does NOT satisfy this gate. Without the
+    routing check, a park-then-relabel cycle could let a never-planned
+    classification satisfy the plan-stage precondition incorrectly.
     """
     classification = cache.latest_classification(issue_id)
     if classification is None:
         # No classification record yet — let the upstream classifier
         # do its job before checking this precondition.
+        return PreconditionResult(ok=True)
+    routing_outcome = str(classification.payload.get("routing_outcome", ""))
+    if routing_outcome != "plan":
+        # Classification exists but the issue wasn't routed to plan.
+        # Defer to the upstream classifier on the next triage cycle.
         return PreconditionResult(ok=True)
     issue_type = classification.payload.get("issue_type", "")
     if issue_type != "bug":

@@ -416,3 +416,48 @@ class TestTriagePhaseBatchScaling:
         config.max_triagers = 5  # type: ignore[assignment]
         await phase.triage_issues()
         store.get_triageable.assert_called_with(1)
+
+
+class TestComplexityRank:
+    """Tests for TriagePhase._complexity_rank threshold mapping (#6422).
+
+    The "high" boundary is tied to
+    config.epic_decompose_complexity_threshold so the cache rank
+    label agrees with the epic-decomposition routing decision.
+    """
+
+    def test_high_threshold_matches_config(self, config: HydraFlowConfig) -> None:
+        phase, *_ = make_triage_phase(config)
+        threshold = config.epic_decompose_complexity_threshold
+        assert phase._complexity_rank(threshold) == "high"
+        assert phase._complexity_rank(threshold + 1) == "high"
+
+    def test_score_below_high_threshold_is_medium(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase, *_ = make_triage_phase(config)
+        threshold = config.epic_decompose_complexity_threshold
+        # Just below the high threshold should NOT be high.
+        assert phase._complexity_rank(threshold - 1) != "high"
+
+    def test_medium_low_trivial_thresholds(self, config: HydraFlowConfig) -> None:
+        phase, *_ = make_triage_phase(config)
+        # Boundary values for the lower thresholds.
+        assert phase._complexity_rank(5) == "medium"
+        assert phase._complexity_rank(4) == "low"
+        assert phase._complexity_rank(2) == "low"
+        assert phase._complexity_rank(1) == "trivial"
+        assert phase._complexity_rank(0) == "trivial"
+
+    def test_lowered_high_threshold_changes_boundary(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """If an operator lowers epic_decompose_complexity_threshold,
+        scores at that level should newly be classified "high" — proves
+        the rank label is tied to config, not a hardcoded constant."""
+        phase, *_ = make_triage_phase(config)
+        # Use object.__setattr__ to bypass any frozen-model guard.
+        object.__setattr__(config, "epic_decompose_complexity_threshold", 6)
+        assert phase._complexity_rank(6) == "high"
+        assert phase._complexity_rank(7) == "high"
+        assert phase._complexity_rank(5) == "medium"

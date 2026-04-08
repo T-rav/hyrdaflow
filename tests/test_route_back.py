@@ -36,6 +36,17 @@ class _InMemoryCounter:
         self._counts[issue_id] = new
         return new
 
+    def decrement_route_back_count(self, issue_id: int) -> int:
+        current = self._counts.get(issue_id, 0)
+        if current <= 0:
+            return 0
+        new = current - 1
+        if new == 0:
+            self._counts.pop(issue_id, None)
+        else:
+            self._counts[issue_id] = new
+        return new
+
 
 def _coordinator(
     tmp_path: Path,
@@ -193,7 +204,11 @@ class TestRouteBackEscalated:
 
 class TestRouteBackFailed:
     @pytest.mark.asyncio
-    async def test_label_swap_failure_returns_failed(self, tmp_path: Path) -> None:
+    async def test_label_swap_failure_rolls_back_counter(self, tmp_path: Path) -> None:
+        """Label swap failures must roll the counter back to its
+        pre-attempt value. Without rollback, transient `gh` network
+        blips would consume the route-back budget without any actual
+        route-back happening, causing spurious HITL escalation."""
         coordinator, _, prs, counter = _coordinator(tmp_path)
         prs.swap_pipeline_labels = AsyncMock(
             side_effect=RuntimeError("gh network blip")
@@ -204,7 +219,49 @@ class TestRouteBackFailed:
         )
         assert result.outcome == RouteBackOutcome.FAILED
         assert "gh network blip" in result.reason
-        # Counter was already incremented — the route-back was attempted.
+        # Counter was rolled back to 0 because the label swap failed.
+        assert counter.get_route_back_count(42) == 0
+        assert result.counter == 0
+
+    @pytest.mark.asyncio
+    async def test_repeated_label_swap_failures_do_not_burn_budget(
+        self, tmp_path: Path
+    ) -> None:
+        """Two consecutive label-swap failures must NOT escalate to HITL.
+        With rollback, both attempts find the counter at 0 going in,
+        increment to 1, fail the swap, and roll back to 0."""
+        coordinator, _, prs, counter = _coordinator(tmp_path, max_route_backs=2)
+        prs.swap_pipeline_labels = AsyncMock(side_effect=RuntimeError("network down"))
+
+        for _ in range(5):
+            result = await coordinator.route_back(
+                42, from_stage="ready", to_stage="plan", reason="r"
+            )
+            assert result.outcome == RouteBackOutcome.FAILED
+
+        # Counter is still 0 after 5 failed attempts — the budget is intact.
+        assert counter.get_route_back_count(42) == 0
+
+    @pytest.mark.asyncio
+    async def test_subsequent_successful_route_back_after_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """After a label-swap failure rolls back, a later successful
+        route-back must get count=1 (not count=2 from a leaked
+        increment)."""
+        coordinator, _, prs, counter = _coordinator(tmp_path)
+        # First call fails.
+        prs.swap_pipeline_labels = AsyncMock(side_effect=RuntimeError("blip"))
+        await coordinator.route_back(
+            42, from_stage="ready", to_stage="plan", reason="r"
+        )
+        # Network recovers.
+        prs.swap_pipeline_labels = AsyncMock()
+        result = await coordinator.route_back(
+            42, from_stage="ready", to_stage="plan", reason="r"
+        )
+        assert result.outcome == RouteBackOutcome.ROUTED
+        assert result.counter == 1
         assert counter.get_route_back_count(42) == 1
 
     @pytest.mark.asyncio

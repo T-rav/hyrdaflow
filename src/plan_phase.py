@@ -279,12 +279,18 @@ class PlanPhase:
         # overwriting comments (#6422). Downstream precondition gates
         # (#6423) and the adversarial plan reviewer (#6421) read this
         # structured record. Best-effort: the cache never raises.
+        #
+        # findings is intentionally empty on the success path —
+        # adversarial findings come from PlanReviewer (#6421) and are
+        # written via record_review_stored, not here. Conflating
+        # validation_errors with PlanFinding-shaped findings would
+        # poison the cache for review-stage consumers expecting the
+        # severity/dimension/description schema.
         if self._issue_cache is not None:
             self._issue_cache.record_plan_stored(
                 issue.id,
                 plan_text=result.plan,
                 actionability_score=result.actionability_score,
-                findings=[{"message": e} for e in result.validation_errors],
             )
 
         logger.info("Plan posted and labels swapped for issue #%d", issue.id)
