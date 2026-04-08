@@ -335,6 +335,7 @@ def build_services(
         hindsight=hindsight_client,
         dolt=dolt_backend,
         wal=hindsight_wal,
+        sensor_enrichment_enabled=config.sensor_enrichment_enabled,
     )
 
     # Troubleshooting pattern store (CI timeout feedback loop)

@@ -543,6 +543,76 @@ class TestImprovementSuggestion:
 
 
 # ---------------------------------------------------------------------------
+# Sensor enrichment integration (#6426)
+# ---------------------------------------------------------------------------
+
+
+class TestSensorEnrichmentIntegration:
+    """Verify HarnessInsightStore.append_failure wires into sensor_enricher."""
+
+    def test_hints_populated_when_rule_matches_details(self, tmp_path: Path) -> None:
+        """A failure record whose details match a seed rule gets hints."""
+        store = HarnessInsightStore(tmp_path / "memory")
+        record = _make_record(
+            details="ModuleNotFoundError: No module named 'hindsight'",
+        )
+        store.append_failure(record)
+
+        # Record object itself is mutated in place with matched hints.
+        assert any("optional" in hint.lower() for hint in record.hints), (
+            f"expected optional-dep hint, got {record.hints}"
+        )
+
+        # Hints are also persisted to the JSONL file.
+        failures_path = tmp_path / "memory" / "harness_failures.jsonl"
+        content = failures_path.read_text()
+        assert "optional" in content.lower()
+
+    def test_hints_empty_when_no_rule_matches(self, tmp_path: Path) -> None:
+        store = HarnessInsightStore(tmp_path / "memory")
+        record = _make_record(details="something totally unremarkable")
+        store.append_failure(record)
+        assert record.hints == []
+
+    def test_enrichment_disabled_is_noop(self, tmp_path: Path) -> None:
+        store = HarnessInsightStore(
+            tmp_path / "memory",
+            sensor_enrichment_enabled=False,
+        )
+        record = _make_record(
+            details="ModuleNotFoundError: No module named 'hindsight'",
+        )
+        store.append_failure(record)
+        assert record.hints == []
+
+    def test_explicit_hints_are_respected(self, tmp_path: Path) -> None:
+        """Caller-supplied hints should not be overwritten."""
+        store = HarnessInsightStore(tmp_path / "memory")
+        record = _make_record(
+            details="ModuleNotFoundError: No module named 'hindsight'",
+        )
+        record.hints = ["caller-supplied hint"]
+        store.append_failure(record)
+        assert record.hints == ["caller-supplied hint"]
+
+    def test_enrichment_never_raises_on_internal_error(self, tmp_path: Path) -> None:
+        """Enrichment is best-effort — an exception must not prevent persistence."""
+        store = HarnessInsightStore(tmp_path / "memory")
+        record = _make_record(details="some details")
+
+        # Patch matching_rules to raise; append_failure should still succeed.
+        with patch(
+            "sensor_enricher.matching_rules",
+            side_effect=RuntimeError("boom"),
+        ):
+            store.append_failure(record)
+
+        failures_path = tmp_path / "memory" / "harness_failures.jsonl"
+        assert failures_path.exists()
+        assert len(failures_path.read_text().strip().splitlines()) == 1
+
+
+# ---------------------------------------------------------------------------
 # append_failure OSError handling (issue #1038)
 # ---------------------------------------------------------------------------
 

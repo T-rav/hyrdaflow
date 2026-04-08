@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 __all__ = [
+    "ANY_TOOL",
+    "MATCH_ALL_TOOLS",
     "ErrorPattern",
     "FileChanged",
     "Rule",
@@ -30,7 +32,13 @@ __all__ = [
 ]
 
 # Tool name sentinel meaning "fire for any tool output, not just a specific one".
+# Used on the RULE side: Rule(tool=ANY_TOOL, ...) fires regardless of caller tool.
 ANY_TOOL = "any"
+
+# Caller-side sentinel meaning "match every rule regardless of tool scope".
+# Used by callers that do not know which tool produced the output (e.g.
+# :class:`HarnessInsightStore` enriching generic failure records).
+MATCH_ALL_TOOLS = "*"
 
 
 class RuleTrigger:
@@ -107,6 +115,8 @@ class EnrichmentResult:
 
 
 def _tool_matches(rule_tool: str, tool: str) -> bool:
+    if tool == MATCH_ALL_TOOLS:
+        return True
     return rule_tool in (ANY_TOOL, tool)
 
 

@@ -92,6 +92,11 @@ class FailureRecord(BaseModel):
     subcategories: list[str] = Field(default_factory=list)
     details: str = ""
     stage: PipelineStage | Literal[""] = ""
+    # Agent Hints matched from sensor_enricher.SEED_RULES at record time.
+    # Populated by HarnessInsightStore.append_failure when sensor enrichment
+    # is enabled. Empty list means no rules matched or enrichment disabled.
+    # See docs/agents/avoided-patterns.md and src/sensor_enricher.py.
+    hints: list[str] = Field(default_factory=list)
 
 
 class ImprovementSuggestion(BaseModel):
@@ -144,6 +149,7 @@ class HarnessInsightStore:
         hindsight: HindsightClient | None = None,
         dolt: DoltBackend | None = None,
         wal: HindsightWAL | None = None,
+        sensor_enrichment_enabled: bool = True,
     ) -> None:
         from dedup_store import DedupStore  # noqa: PLC0415
 
@@ -157,9 +163,52 @@ class HarnessInsightStore:
         self._hindsight = hindsight
         self._dolt = dolt
         self._wal = wal
+        self._sensor_enrichment_enabled = sensor_enrichment_enabled
+
+    def _enrich_record_hints(self, record: FailureRecord) -> None:
+        """Populate ``record.hints`` from matching sensor rules.
+
+        Runs sensor_enricher against the record's ``details`` using the
+        seed rule registry. Silently no-ops when enrichment is disabled
+        or nothing matches. Never raises — enrichment is best-effort.
+        """
+        if not self._sensor_enrichment_enabled:
+            return
+        if record.hints:
+            # Caller already populated hints; respect explicit values.
+            return
+        try:
+            from sensor_enricher import (  # noqa: PLC0415
+                MATCH_ALL_TOOLS,
+                matching_rules,
+            )
+            from sensor_rules import SEED_RULES  # noqa: PLC0415
+
+            # We have no changed-file context here, so only ErrorPattern
+            # rules will fire from the failure details. This is
+            # intentional — FileChanged rules are meant for tool-output
+            # integration points that know which files were edited.
+            # Use MATCH_ALL_TOOLS because failure records don't carry
+            # the originating tool (ruff/pyright/pytest) explicitly.
+            result = matching_rules(
+                SEED_RULES,
+                tool=MATCH_ALL_TOOLS,
+                raw_output=record.details,
+                changed_files=[],
+            )
+            record.hints = [rule.hint for rule in result.fired]
+        except Exception:  # noqa: BLE001
+            logger.warning("sensor enrichment failed", exc_info=True)
 
     def append_failure(self, record: FailureRecord) -> None:
-        """Append *record* as a JSON line to ``harness_failures.jsonl``."""
+        """Append *record* as a JSON line to ``harness_failures.jsonl``.
+
+        When sensor enrichment is enabled, matching rule hints from
+        :mod:`sensor_rules` are added to ``record.hints`` before the
+        record is persisted. This makes the hints visible in the failure
+        archive and downstream retry-context builders.
+        """
+        self._enrich_record_hints(record)
         try:
             from file_util import append_jsonl  # noqa: PLC0415
 

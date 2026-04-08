@@ -20,6 +20,7 @@ Run a comprehensive code quality audit across the entire repo. Dynamically analy
    - **Agent 2: Method size, class cohesion & duplication** — Enforces small methods, single-concept classes, and DRY.
    - **Agent 3: Error handling & robustness** — Finds bare excepts, swallowed errors, missing error paths, and fragile patterns.
    - **Agent 4: Type safety & API consistency** — Finds missing type annotations, `Any` overuse, inconsistent return types, and public API gaps.
+   - **Agent 5: Convention drift & over-engineering** — Reads `docs/agents/avoided-patterns.md` (or CLAUDE.md fallback) at runtime and sweeps the codebase for documented avoided patterns plus over-engineering accumulation.
 
 4. Wait for all agents to complete.
 5. After all finish, run `gh issue list --repo $REPO --label $LABEL --state open --search "code quality" --limit 200` to show the user a final summary of all issues created.
@@ -419,6 +420,100 @@ You are a code quality auditor focused on type safety and API consistency for th
 
 Focus on public APIs and cross-module interfaces. Skip internal helper functions and test code.
 Prioritize by impact — type gaps in widely-used functions matter more than leaf functions.
+
+Return a summary of all findings grouped by category, with GH issue URLs created.
+```
+
+## Agent 5: Convention Drift & Over-Engineering
+
+```
+You are a code quality auditor focused on convention drift and over-engineering for the project at {repo_root}.
+
+## Configuration
+- GitHub repo: {REPO}
+- Assignee: {ASSIGNEE}
+- Label: {LABEL}
+
+## Steps
+
+### Phase 1: Load project conventions
+1. Read `docs/agents/avoided-patterns.md`. If that file does not exist, fall back to the "Avoided Patterns" section of `CLAUDE.md`.
+2. Parse out each documented avoided pattern — title + description + (when provided) detection heuristic.
+3. Cache each pattern as a `(id, description, detection_strategy)` triple for the sweep below.
+
+### Phase 2: Sweep for documented avoided patterns
+For each pattern from Phase 1, scan the codebase for violations. Current known patterns (keep in sync with the doc — do not hardcode, read them at runtime):
+
+- **Pydantic field additions without test updates**: Use `git log --since=90.days src/models.py` to list recent commits touching models. For each, check whether `tests/test_models.py` or `tests/test_smoke.py` was updated in the same commit via `git show --stat <sha>`. Flag commits where a field addition landed without a matching test update.
+- **Top-level imports of optional dependencies in test files**: Grep `tests/` for `^from (hindsight|httpx) import` and `^import (hindsight|httpx)` (i.e., at column 0, module-level). Each match is a violation.
+- **Background sleep loops polling for results**: Grep non-test source code for `time.sleep(` or `asyncio.sleep(` inside `while` or `for` loops. Exclude retry loops with explicit max attempts.
+- **Mocking at the wrong level**: Grep tests for `@patch("<module>.<name>")` where `<module>` is the definition module of `<name>`. Legitimate patches target the import site. Heuristic: if a patched target is the file where the function is `def`-ined, that's a likely smell.
+- **Falsy checks on optional objects**: Grep source for `if not self\._\w+` then check whether the attribute is typed `X | None` in the class `__init__`. Flag each occurrence.
+
+### Phase 3: Sweep for over-engineering patterns
+- **Single-use helpers**: Functions defined once and called from exactly one non-test site. Inline candidates. (Use grep to count call sites; exclude dunder methods, protocol implementations, and CLI entry points.)
+- **Speculative abstractions**: Base classes with a single concrete subclass; Protocols with a single implementer; factories that return one type; dataclasses with one field. These are all candidates for inlining.
+- **Defensive handling of impossible cases**: `if x is None: raise` where the preceding code path always populates `x`. Trace the control flow; if nothing can set `x` to None, flag the guard.
+- **Backwards-compat shims**: Comments matching `# (kept|retained).*compat`, `# deprecated`, or `# backwards.compat`. Unused `_`-prefixed variables retained "for compat". Deprecated argument handlers with no remaining callers.
+- **Feature-flag rot**: Config flags that are never toggled in production — grep the flag name, find no `False`/`True` overrides in `settings`, CI, or deploy config. Flag if the flag has only ever had its default value.
+- **Test-only code paths in production**: `if os.getenv("TESTING")` or similar branches in `src/`. These should be in test fixtures, not production code.
+
+### Phase 4: Create GitHub issues
+1. Check for duplicate GH issues first:
+   `gh issue list --repo {REPO} --label {LABEL} --state open --search "<key terms>"`
+2. Create GH issues for NEW findings only, grouped by theme:
+   `gh issue create --repo {REPO} --assignee {ASSIGNEE} --label {LABEL} --title "Code Quality: Convention drift — <theme>" --body "<details>"`
+
+## Issue Body Format
+
+```markdown
+## Context
+<1-2 sentences on the drift or over-engineering pattern and why it matters>
+
+**Type:** chore
+**Source:** Agent 5 (convention drift & over-engineering)
+
+## Scope
+- Files: <list affected files>
+- Risk: <low/medium — describe>
+
+## Findings
+| Pattern | File:Line | Details |
+|---------|-----------|---------|
+| <pattern id from avoided-patterns.md or over-engineering category> | <path:line> | <what was found and why it violates> |
+
+## Suggested Fixes
+- [ ] <file:line> — <specific remediation>
+
+## Acceptance Criteria
+- [ ] All listed violations are remediated
+- [ ] `docs/agents/avoided-patterns.md` is updated if a new pattern is discovered
+- [ ] All existing tests pass (`make test`)
+- [ ] No new lint or type errors (`make quality-lite`)
+
+## Reference
+See `docs/agents/avoided-patterns.md` for the canonical rule descriptions.
+```
+
+## Grouping Strategy
+- "Code Quality: Convention drift — Pydantic field additions missing test updates"
+- "Code Quality: Convention drift — Top-level optional-dep imports in tests"
+- "Code Quality: Over-engineering — Single-use helpers to inline"
+- "Code Quality: Over-engineering — Stale feature flags"
+- "Code Quality: Over-engineering — Backwards-compat shims to remove"
+
+## Severity guidance
+- **high**: convention violations that cause real test failures or hidden bugs (e.g., Pydantic field additions without test updates, wrong-level mocks masking broken code paths)
+- **medium**: over-engineering accumulation (single-use helpers, speculative abstractions, stale feature flags, backwards-compat shims)
+- **low**: cosmetic drift (old comments, unused `_`-vars)
+
+Only `high` and `medium` findings are filed as issues by the grooming loop — `low` findings are logged for trend analysis but not turned into work.
+
+## Keep-in-sync principle
+This agent reads `docs/agents/avoided-patterns.md` at runtime. Adding a new avoided pattern to that doc automatically adds it to the next sweep — no code change needed here. If you find yourself hardcoding a new pattern in this prompt, STOP and add it to the doc instead.
+
+Emit findings as JSON objects (one per theme) matching the schema parsed by `src/code_grooming_loop.py::_FINDING_RE`:
+  `{"id": "<stable hash>", "severity": "high|medium|low", "title": "...", "description": "<markdown>"}`
 
 Return a summary of all findings grouped by category, with GH issue URLs created.
 ```

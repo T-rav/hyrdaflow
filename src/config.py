@@ -219,6 +219,7 @@ _ENV_FLOAT_RATIO_OVERRIDES: list[tuple[str, str, float]] = [
 
 _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("dry_run", "HYDRAFLOW_DRY_RUN", False),
+    ("sensor_enrichment_enabled", "HYDRAFLOW_SENSOR_ENRICHMENT_ENABLED", True),
     ("docker_read_only_root", "HYDRAFLOW_DOCKER_READ_ONLY_ROOT", True),
     ("docker_no_new_privileges", "HYDRAFLOW_DOCKER_NO_NEW_PRIVILEGES", True),
     (
@@ -902,6 +903,16 @@ class HydraFlowConfig(BaseModel):
         default="high",
         description="Minimum severity to file issues for (critical, high, medium, low)",
     )
+    # Sensor enrichment — positive prompt injection on captured tool output.
+    # See src/sensor_enricher.py and docs/agents/avoided-patterns.md.
+    sensor_enrichment_enabled: bool = Field(
+        default=True,
+        description=(
+            "Append Agent Hints blocks to captured tool-failure output "
+            "based on rules in sensor_rules.SEED_RULES."
+        ),
+    )
+
     # Code grooming
     code_grooming_interval: int = Field(
         default=86400,
