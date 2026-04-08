@@ -52,6 +52,7 @@ from post_merge_handler import PostMergeHandler
 from pr_manager import PRManager
 from pr_unsticker import PRUnsticker
 from pr_unsticker_loop import PRUnstickerLoop
+from precondition_gate import PreconditionGate
 from repo_wiki import RepoWikiStore
 from repo_wiki_loop import RepoWikiLoop  # noqa: TCH001
 from report_issue_loop import ReportIssueLoop
@@ -62,6 +63,7 @@ from retrospective_queue import RetrospectiveQueue  # noqa: TCH001
 from review_insights import ReviewInsightStore
 from review_phase import ReviewPhase
 from reviewer import ReviewRunner
+from route_back import RouteBackCoordinator
 from run_recorder import RunRecorder
 from runs_gc_loop import RunsGCLoop
 from security_patch_loop import SecurityPatchLoop  # noqa: TCH001
@@ -389,6 +391,23 @@ def build_services(
         enabled=config.issue_cache_enabled,
     )
 
+    # Route-back coordinator + precondition gate (#6423). The coordinator
+    # ties label swap + cache record + counter + HITL escalation. The gate
+    # is the consumer-side filter implement_phase / review_phase use to
+    # drop issues that fail their stage preconditions.
+    route_back_coordinator = RouteBackCoordinator(
+        cache=issue_cache,
+        prs=prs,
+        counter=state,  # StateTracker satisfies RouteBackCounterPort
+        hitl_label=config.hitl_label[0],
+        max_route_backs=2,
+    )
+    precondition_gate = PreconditionGate(
+        cache=issue_cache,
+        coordinator=route_back_coordinator,
+        enabled=config.issue_cache_enabled,
+    )
+
     triager = TriagePhase(
         config,
         state,
@@ -485,6 +504,7 @@ def build_services(
         transcript_summarizer=summarizer,
         hindsight=hindsight_client,
         judge=memory_judge,
+        precondition_gate=precondition_gate,
     )
 
     from metrics_manager import MetricsManager
@@ -601,6 +621,7 @@ def build_services(
         wiki_compiler=wiki_compiler,
         judge=memory_judge,
         retrospective_queue=retrospective_queue,
+        precondition_gate=precondition_gate,
     )
 
     # Background loops — shared deps bundled into a single LoopDeps object

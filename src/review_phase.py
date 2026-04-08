@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from hindsight_wal import HindsightWAL
     from memory_judge import MemoryJudge  # noqa: TCH004
     from ports import IssueStorePort, PRPort, WorkspacePort
+    from precondition_gate import PreconditionGate
     from repo_wiki import RepoWikiStore  # noqa: TCH004 — used in __init__ signature
     from retrospective_queue import RetrospectiveQueue
     from visual_validator import VisualValidator
@@ -129,6 +130,7 @@ class ReviewPhase:
         wiki_compiler: WikiCompiler | None = None,
         judge: MemoryJudge | None = None,
         retrospective_queue: RetrospectiveQueue | None = None,
+        precondition_gate: PreconditionGate | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -157,6 +159,7 @@ class ReviewPhase:
         self._baseline_policy = baseline_policy
         self._hindsight = hindsight
         self._retrospective_queue = retrospective_queue
+        self._precondition_gate = precondition_gate
         self._visual_validator: VisualValidator | None = None
         if config.visual_validation_enabled:
             from visual_validator import VisualValidator  # noqa: PLC0415
@@ -262,6 +265,20 @@ class ReviewPhase:
         """Run reviewer agents on non-draft PRs, merging approved ones inline."""
         if not prs:
             return []
+
+        # Apply the precondition gate (#6423) before reviewing. Issues
+        # whose plan/review records are missing get routed back to the
+        # ready stage; only PRs whose underlying issues pass the gate
+        # are reviewed in this cycle.
+        if self._precondition_gate is not None:
+            from stage_preconditions import Stage  # noqa: PLC0415
+
+            gated = await self._precondition_gate.filter_and_route(issues, Stage.REVIEW)
+            gated_ids = {i.id for i in gated}
+            issues = gated
+            prs = [pr for pr in prs if pr.issue_number in gated_ids]
+            if not prs:
+                return []
 
         issue_map = {i.id: i for i in issues}
         semaphore = asyncio.Semaphore(self._config.max_reviewers)
