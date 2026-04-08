@@ -126,6 +126,16 @@ Simple mechanical tasks (rename, format, move) don't need these — just do them
 
 The `/hf.quality-gate` command runs a structured quality check sequence. Use it before presenting work as complete.
 
+## Code Review Before Merge
+
+**After creating a PR, always self-review it for gaps, bugs, and test coverage before declaring it done.** Use `/superpowers:requesting-code-review` to run a structured review that checks:
+
+- **Gaps**: Missing edge cases, unhandled error paths, callers not updated for API changes
+- **Bugs**: Logic errors, off-by-one, race conditions, injection risks
+- **Test coverage**: Missing boundary tests, untested code paths, missing negative cases
+
+Do not present a PR as ready until the review passes and any findings are addressed.
+
 ## Background Loop Guidelines
 
 When creating a new background loop (`BaseBackgroundLoop` subclass):
