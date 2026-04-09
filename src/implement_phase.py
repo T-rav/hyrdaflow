@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from hindsight import HindsightClient
     from memory_judge import MemoryJudge  # noqa: TCH004
     from ports import IssueStorePort, PRPort, WorkspacePort
+    from precondition_gate import PreconditionGate
 
 logger = logging.getLogger("hydraflow.implement_phase")
 
@@ -66,6 +67,7 @@ class ImplementPhase:
         transcript_summarizer: TranscriptSummarizer | None = None,
         hindsight: HindsightClient | None = None,
         judge: MemoryJudge | None = None,
+        precondition_gate: PreconditionGate | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -84,6 +86,7 @@ class ImplementPhase:
         self._active_issues_lock = asyncio.Lock()
         self._suggest_memory = MemorySuggester(config, hindsight=hindsight, judge=judge)
         self._zero_diff_memory_filed: set[int] = set()
+        self._precondition_gate = precondition_gate
         self._escalator = PipelineEscalator(
             state,
             prs,
@@ -180,10 +183,29 @@ class ImplementPhase:
     ) -> tuple[list[WorkerResult], list[Task]]:
         """Run implementation agents concurrently using a slot-filling pool.
 
-        If *issues* is ``None``, pulls from the ``IssueStore`` ready queue
-        continuously as slots free up.  If a fixed list is provided,
-        processes those items then returns.
+        If *issues* is ``None``, drains the ``IssueStore`` ready queue
+        once, runs the precondition gate (#6423) if configured, then
+        feeds the gated batch into the slot-fill pool. If a fixed list
+        is provided, processes those items directly without gating —
+        callers that pass an explicit list are assumed to have done
+        their own gating.
         """
+        if issues is None and self._precondition_gate is not None:
+            # Drain + gate at the start of the cycle. Issues that fail
+            # the gate are routed back via the coordinator inside
+            # filter_and_route — they do not appear in the gated list.
+            from stage_preconditions import Stage  # noqa: PLC0415
+
+            drained: list[Task] = []
+            while True:
+                batch = self._store.get_implementable(8)
+                if not batch:
+                    break
+                drained.extend(batch)
+            issues = await self._precondition_gate.filter_and_route(
+                drained, Stage.READY
+            )
+
         if issues is not None:
             # Fixed list mode — process exactly these issues
             items_iter = iter(issues)

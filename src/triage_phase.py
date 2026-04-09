@@ -26,7 +26,9 @@ from task_source import TaskTransitioner
 from triage import TriageRunner
 
 if TYPE_CHECKING:
+    from bug_reproducer import BugReproducer
     from epic import EpicManager
+    from issue_cache import IssueCache
     from ports import IssueStorePort, PRPort
 
 logger = logging.getLogger("hydraflow.triage_phase")
@@ -52,6 +54,8 @@ class TriagePhase:
         event_bus: EventBus,
         stop_event: asyncio.Event,
         epic_manager: EpicManager | None = None,
+        issue_cache: IssueCache | None = None,
+        bug_reproducer: BugReproducer | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -62,6 +66,8 @@ class TriagePhase:
         self._bus = event_bus
         self._stop_event = stop_event
         self._epic_manager = epic_manager
+        self._issue_cache = issue_cache
+        self._bug_reproducer = bug_reproducer
 
     def _enrich_parent_epic(self, issue: Task) -> None:
         """Set the parent_epic field if this issue belongs to a tracked epic."""
@@ -70,6 +76,25 @@ class TriagePhase:
         parents = self._epic_manager.find_parent_epics(issue.id)
         if parents:
             issue.parent_epic = parents[0]
+
+    def _complexity_rank(self, score: int) -> str:
+        """Convert a 0-10 complexity score into a coarse rank label.
+
+        The ``"high"`` boundary is tied to
+        ``epic_decompose_complexity_threshold`` so the cache rank
+        agrees with the epic-decomposition routing decision. If an
+        operator lowers the epic threshold, issues at that score
+        level will be marked ``"high"`` in the cache, matching the
+        decomposition behavior instead of drifting out of sync.
+        """
+        high_threshold = self._config.epic_decompose_complexity_threshold
+        if score >= high_threshold:
+            return "high"
+        if score >= 5:
+            return "medium"
+        if score >= 2:
+            return "low"
+        return "trivial"
 
     async def triage_issues(self) -> int:
         """Evaluate ``find_label`` issues and route them.
@@ -225,6 +250,7 @@ class TriagePhase:
         if self._config.dry_run:
             return 1
 
+        routing_outcome: str = "unknown"
         if result.needs_discovery or (
             result.ready and result.clarity_score < self._config.clarity_threshold
         ):
@@ -232,6 +258,7 @@ class TriagePhase:
             self._store.enqueue_transition(issue, "discover")
             await self._transitioner.transition(issue.id, "discover")
             self._state.increment_session_counter("triaged")
+            routing_outcome = "discover"
             logger.info(
                 "Issue #%d triaged → %s (needs product discovery, clarity=%d)",
                 issue.id,
@@ -246,14 +273,23 @@ class TriagePhase:
                         "Issue #%d enriched by triage before promotion",
                         issue.id,
                     )
-                self._store.enqueue_transition(issue, "plan")
-                await self._transitioner.transition(issue.id, "plan")
-                self._state.increment_session_counter("triaged")
+                # IMPORTANT: do NOT swap the label yet. We need to write
+                # the classification record AND run the bug reproducer
+                # (for bug-classified issues) BEFORE the plan loop can
+                # observe the new label and start work. The swap happens
+                # below after the cache writes complete. Setting
+                # routing_outcome here marks the intent for the
+                # post-cache transition block.
+                routing_outcome = "plan"
                 logger.info(
-                    "Issue #%d triaged → %s (ready for planning)",
+                    "Issue #%d triaged → %s (ready for planning, "
+                    "deferred swap until cache records written)",
                     issue.id,
                     self._config.planner_label[0],
                 )
+            else:
+                # Auto-decomposed into an epic; children are the real work.
+                routing_outcome = "epic_decomposed"
         elif _is_sentry_issue(issue):
             # Sentry-originated issues that fail triage are noise — auto-close
             await self._prs.post_comment(
@@ -264,6 +300,7 @@ class TriagePhase:
             )
             await self._transitioner.close_task(issue.id)
             self._state.mark_issue(issue.id, "completed")
+            routing_outcome = "sentry_noise_closed"
             logger.info(
                 "Issue #%d Sentry noise auto-closed by triage: %s",
                 issue.id,
@@ -288,11 +325,83 @@ class TriagePhase:
                     },
                 )
             )
+            routing_outcome = "parked"
             logger.info(
                 "Issue #%d triaged → parked (needs info: %s)",
                 issue.id,
                 "; ".join(result.reasons),
             )
+
+        # Mirror classification into the local JSONL cache with the
+        # final routing outcome captured. Writing AFTER the routing
+        # decision prevents the READY-stage precondition gate from
+        # accepting a classification whose issue was parked or sent
+        # to discover — the gate checks routing_outcome == "plan".
+        # Best-effort: cache failures never raise into the domain layer.
+        if self._issue_cache is not None:
+            self._issue_cache.record_classification(
+                issue.id,
+                issue_type=str(result.issue_type),
+                complexity_score=result.complexity_score,
+                complexity_rank=self._complexity_rank(result.complexity_score),
+                routing_outcome=routing_outcome,
+                reasoning="; ".join(result.reasons) if result.reasons else "",
+            )
+
+        # Reproduce bug-classified issues that were routed to plan
+        # (#6424). The reproducer writes a failing test under
+        # tests/regressions/ when possible, and the result is mirrored
+        # to the cache as a reproduction_stored record. The downstream
+        # READY-stage precondition gate (has_reproduction_for_bug)
+        # blocks bug-routed-to-plan issues that lack a successful
+        # reproduction and routes them back to triage with the
+        # investigation as feedback. This method just produces the
+        # data the gate consumes — the gate handles enforcement.
+        #
+        # CRITICAL: this MUST run before the label swap to plan
+        # below. Otherwise the plan loop can pick up the issue
+        # before the reproduction record exists, the READY gate
+        # finds nothing, and the issue ping-pongs forever.
+        if (
+            self._bug_reproducer is not None
+            and self._issue_cache is not None
+            and routing_outcome == "plan"
+            and str(result.issue_type) == "bug"
+        ):
+            try:
+                repro = await self._bug_reproducer.reproduce(issue)
+                self._issue_cache.record_reproduction_stored(
+                    issue.id,
+                    outcome=str(repro.outcome),
+                    test_path=repro.test_path,
+                    details=repro.investigation or repro.failing_output,
+                )
+                if str(repro.outcome) == "unable":
+                    logger.warning(
+                        "Bug reproduction unable for issue #%d — READY "
+                        "gate will route back to triage: %s",
+                        issue.id,
+                        repro.investigation,
+                    )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Bug reproducer raised for issue #%d — leaving issue "
+                    "without a reproduction record",
+                    issue.id,
+                    exc_info=True,
+                )
+
+        # Deferred plan-stage label swap. Now that the classification
+        # record + reproduction record (if applicable) are written, the
+        # implement loop's READY gate has data to check when the issue
+        # eventually transitions through plan → ready. The discover/
+        # parked/sentry paths swapped their labels inline above because
+        # they have no race window with downstream consumers.
+        if routing_outcome == "plan":
+            self._store.enqueue_transition(issue, "plan")
+            await self._transitioner.transition(issue.id, "plan")
+            self._state.increment_session_counter("triaged")
+
         return 1
 
     async def _maybe_decompose(self, issue: Task, result: object) -> bool:

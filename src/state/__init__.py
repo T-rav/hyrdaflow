@@ -35,6 +35,7 @@ from ._issue import IssueStateMixin
 from ._lifetime import LifetimeStatsMixin
 from ._report import ReportStateMixin
 from ._review import ReviewStateMixin
+from ._route_back import RouteBackStateMixin
 from ._security_patch import SecurityPatchStateMixin
 from ._sentry import SentryStateMixin
 from ._session import SessionStateMixin
@@ -56,6 +57,7 @@ class StateTracker(
     WorkspaceStateMixin,
     HITLStateMixin,
     ReviewStateMixin,
+    RouteBackStateMixin,
     EpicStateMixin,
     LifetimeStatsMixin,
     SessionStateMixin,

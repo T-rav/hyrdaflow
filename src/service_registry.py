@@ -16,6 +16,7 @@ from agent import AgentRunner
 from base_background_loop import LoopDeps
 from baseline_policy import BaselinePolicy
 from beads_manager import BeadsManager
+from bug_reproducer import BugReproducer
 from caching_issue_store import CachingIssueStore
 from ci_monitor_loop import CIMonitorLoop  # noqa: TCH001
 from code_grooming_loop import CodeGroomingLoop  # noqa: TCH001
@@ -46,12 +47,14 @@ from memory_sync_loop import MemorySyncLoop
 from merge_conflict_resolver import MergeConflictResolver
 from models import StatusCallback
 from plan_phase import PlanPhase
+from plan_reviewer import PlanReviewer
 from planner import PlannerRunner
 from ports import IssueStorePort
 from post_merge_handler import PostMergeHandler
 from pr_manager import PRManager
 from pr_unsticker import PRUnsticker
 from pr_unsticker_loop import PRUnstickerLoop
+from precondition_gate import PreconditionGate
 from repo_wiki import RepoWikiStore
 from repo_wiki_loop import RepoWikiLoop  # noqa: TCH001
 from report_issue_loop import ReportIssueLoop
@@ -62,6 +65,7 @@ from retrospective_queue import RetrospectiveQueue  # noqa: TCH001
 from review_insights import ReviewInsightStore
 from review_phase import ReviewPhase
 from reviewer import ReviewRunner
+from route_back import RouteBackCoordinator
 from run_recorder import RunRecorder
 from runs_gc_loop import RunsGCLoop
 from security_patch_loop import SecurityPatchLoop  # noqa: TCH001
@@ -382,6 +386,59 @@ def build_services(
     beads_mgr = BeadsManager()
 
     # Phase coordinators
+    # Local JSONL issue cache — append-only mirror of GitHub issue state.
+    # See src/issue_cache.py and issue #6422.
+    issue_cache = IssueCache(
+        config.data_path("cache"),
+        enabled=config.issue_cache_enabled,
+    )
+
+    # Route-back coordinator + precondition gate (#6423). The coordinator
+    # ties label swap + cache record + counter + HITL escalation. The gate
+    # is the consumer-side filter implement_phase / review_phase use to
+    # drop issues that fail their stage preconditions.
+    route_back_coordinator = RouteBackCoordinator(
+        cache=issue_cache,
+        prs=prs,
+        counter=state,  # StateTracker satisfies RouteBackCounterPort
+        hitl_label=config.hitl_label[0],
+        max_route_backs=2,
+    )
+    # The gate enforces stage preconditions only when BOTH the cache is
+    # enabled (so records exist to check) AND the dedicated gate flag
+    # is set. The gate flag defaults to False so that turning on the
+    # cache doesn't automatically activate enforcement on a fresh
+    # install with no historical records — operators flip the gate
+    # flag separately after confirming cache coverage.
+    precondition_gate = PreconditionGate(
+        cache=issue_cache,
+        coordinator=route_back_coordinator,
+        enabled=(config.issue_cache_enabled and config.precondition_gate_enabled),
+    )
+
+    # Adversarial plan reviewer (#6421) and triage-time bug reproducer
+    # (#6424). Both are read-only/scoped agent runners that produce the
+    # cache records the precondition gate consumes. Subprocess wiring
+    # is the next follow-up — until then, the runners' subprocess
+    # shims raise NotImplementedError and the consuming phases catch
+    # the failure as a best-effort skip.
+    plan_reviewer = PlanReviewer(
+        config=config,
+        event_bus=event_bus,
+        runner=subprocess_runner,
+        hindsight=hindsight_client,
+        credentials=credentials,
+        wiki_store=repo_wiki_store,
+    )
+    bug_reproducer = BugReproducer(
+        config=config,
+        event_bus=event_bus,
+        runner=subprocess_runner,
+        hindsight=hindsight_client,
+        credentials=credentials,
+        wiki_store=repo_wiki_store,
+    )
+
     triager = TriagePhase(
         config,
         state,
@@ -391,6 +448,8 @@ def build_services(
         event_bus,
         stop_event,
         epic_manager=epic_manager,
+        issue_cache=issue_cache,
+        bug_reproducer=bug_reproducer,
     )
     discover_runner = DiscoverRunner(config, event_bus)
     discover_phase = DiscoverPhase(  # noqa: F841
@@ -445,6 +504,8 @@ def build_services(
         wiki_compiler=wiki_compiler,
         hindsight=hindsight_client,
         judge=memory_judge,
+        issue_cache=issue_cache,
+        plan_reviewer=plan_reviewer,
     )
     hitl_phase = HITLPhase(
         config,
@@ -476,6 +537,7 @@ def build_services(
         transcript_summarizer=summarizer,
         hindsight=hindsight_client,
         judge=memory_judge,
+        precondition_gate=precondition_gate,
     )
 
     from metrics_manager import MetricsManager
@@ -592,6 +654,8 @@ def build_services(
         wiki_compiler=wiki_compiler,
         judge=memory_judge,
         retrospective_queue=retrospective_queue,
+        precondition_gate=precondition_gate,
+        issue_cache=issue_cache,
     )
 
     # Background loops — shared deps bundled into a single LoopDeps object

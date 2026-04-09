@@ -16,8 +16,10 @@ if TYPE_CHECKING:
     from dolt_backend import DoltBackend
     from hindsight import HindsightClient
     from hindsight_wal import HindsightWAL
+    from issue_cache import IssueCache
     from memory_judge import MemoryJudge  # noqa: TCH004
     from ports import IssueStorePort, PRPort, WorkspacePort
+    from precondition_gate import PreconditionGate
     from repo_wiki import RepoWikiStore  # noqa: TCH004 — used in __init__ signature
     from retrospective_queue import RetrospectiveQueue
     from visual_validator import VisualValidator
@@ -101,6 +103,39 @@ class PreReviewContext:
     code_scanning_alerts: list[CodeScanningAlert] | None
 
 
+# Marker substrings indicating a ReviewResult that did NOT reach a real
+# verdict and therefore must NOT be cached. Caching these as
+# has_blocking=False would silently let a non-reviewed PR satisfy the
+# downstream gate.
+_NON_VERDICT_SUMMARY_MARKERS: tuple[str, ...] = (
+    "stopped",
+    "Issue not found",
+    "Merge conflicts with main",
+    "Review failed due to unexpected error",
+)
+
+
+def _is_meaningful_verdict(result: ReviewResult) -> bool:
+    """Return True if *result* represents a real review decision worth caching.
+
+    Skips:
+      - COMMENT verdicts (advisory only, no decision)
+      - results whose summary contains a non-verdict marker substring
+        (stopped, infrastructure error, missing issue, merge conflict)
+
+    Keeps:
+      - APPROVE / REQUEST_CHANGES with a normal summary
+
+    Used by ReviewPhase.review_prs to gate the review_stored cache
+    write so a no-real-review result cannot poison the downstream
+    READY-stage precondition gate.
+    """
+    if result.verdict == ReviewVerdict.COMMENT:
+        return False
+    summary = result.summary or ""
+    return not any(marker in summary for marker in _NON_VERDICT_SUMMARY_MARKERS)
+
+
 class ReviewPhase:
     """Runs reviewer agents on PRs, merging approved ones inline."""
 
@@ -129,6 +164,8 @@ class ReviewPhase:
         wiki_compiler: WikiCompiler | None = None,
         judge: MemoryJudge | None = None,
         retrospective_queue: RetrospectiveQueue | None = None,
+        precondition_gate: PreconditionGate | None = None,
+        issue_cache: IssueCache | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -157,6 +194,8 @@ class ReviewPhase:
         self._baseline_policy = baseline_policy
         self._hindsight = hindsight
         self._retrospective_queue = retrospective_queue
+        self._precondition_gate = precondition_gate
+        self._issue_cache = issue_cache
         self._visual_validator: VisualValidator | None = None
         if config.visual_validation_enabled:
             from visual_validator import VisualValidator  # noqa: PLC0415
@@ -263,6 +302,20 @@ class ReviewPhase:
         if not prs:
             return []
 
+        # Apply the precondition gate (#6423) before reviewing. Issues
+        # whose plan/review records are missing get routed back to the
+        # ready stage; only PRs whose underlying issues pass the gate
+        # are reviewed in this cycle.
+        if self._precondition_gate is not None:
+            from stage_preconditions import Stage  # noqa: PLC0415
+
+            gated = await self._precondition_gate.filter_and_route(issues, Stage.REVIEW)
+            gated_ids = {i.id for i in gated}
+            issues = gated
+            prs = [pr for pr in prs if pr.issue_number in gated_ids]
+            if not prs:
+                return []
+
         issue_map = {i.id: i for i in issues}
         semaphore = asyncio.Semaphore(self._config.max_reviewers)
 
@@ -306,9 +359,41 @@ class ReviewPhase:
                                     self._active_issues_cb()
 
         try:
-            return await run_concurrent_batch(prs, _review_one, self._stop_event)
+            results = await run_concurrent_batch(prs, _review_one, self._stop_event)
         finally:
             release_batch_in_flight(self._store, {pr.issue_number for pr in prs})
+
+        # Mirror review verdicts into the issue cache as review_stored
+        # records (#6422 + #6421). The READY-stage precondition gate
+        # for downstream PR-driven re-review reads has_blocking from
+        # these records. Only meaningful verdicts produce a cache
+        # record:
+        #   APPROVE          → has_blocking=False (good to go)
+        #   REQUEST_CHANGES  → has_blocking=True  (must re-review)
+        # No-verdict / stopped / errored results are SKIPPED entirely
+        # so they cannot poison a downstream gate by silently caching
+        # has_blocking=False for a review that never actually ran.
+        # See _is_meaningful_verdict for the skip rules.
+        if self._issue_cache is not None:
+            for result in results:
+                if result.issue_number <= 0:
+                    continue
+                if not _is_meaningful_verdict(result):
+                    continue
+                try:
+                    self._issue_cache.record_review_stored(
+                        result.issue_number,
+                        review_text=result.summary,
+                        has_blocking=(result.verdict == ReviewVerdict.REQUEST_CHANGES),
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "Failed to write review_stored cache record for issue #%d",
+                        result.issue_number,
+                        exc_info=True,
+                    )
+
+        return results
 
     async def review_adrs(self, issues: list[Task]) -> list[ReviewResult]:
         """Review ADR issues that intentionally have no PR."""

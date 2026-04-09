@@ -1760,3 +1760,42 @@ class MemoryHarness:
     ) -> list[Any]:
         """Side-effect function for patching ``hindsight.recall_safe``."""
         return self._bank_responses.get(str(bank), [])
+
+
+# ---------------------------------------------------------------------------
+# Route-back counter stub (#6423)
+# ---------------------------------------------------------------------------
+
+
+class InMemoryRouteBackCounter:
+    """In-memory ``RouteBackCounterPort`` implementation for tests.
+
+    Mirrors ``state._route_back.RouteBackStateMixin`` semantics: get
+    starts at 0, increment returns the new value, decrement-to-zero
+    clears the entry, decrement-below-zero is a no-op. Used by
+    ``tests/test_route_back.py`` and ``tests/test_precondition_gate.py``
+    so the counter shape stays consistent across both files instead
+    of drifting between two parallel stubs.
+    """
+
+    def __init__(self) -> None:
+        self._counts: dict[int, int] = {}
+
+    def get_route_back_count(self, issue_id: int) -> int:
+        return self._counts.get(issue_id, 0)
+
+    def increment_route_back_count(self, issue_id: int) -> int:
+        new = self._counts.get(issue_id, 0) + 1
+        self._counts[issue_id] = new
+        return new
+
+    def decrement_route_back_count(self, issue_id: int) -> int:
+        current = self._counts.get(issue_id, 0)
+        if current <= 0:
+            return 0
+        new = current - 1
+        if new == 0:
+            self._counts.pop(issue_id, None)
+        else:
+            self._counts[issue_id] = new
+        return new

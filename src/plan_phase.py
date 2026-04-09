@@ -31,7 +31,9 @@ if TYPE_CHECKING:
     from beads_manager import BeadsManager
     from epic import EpicManager
     from hindsight import HindsightClient
+    from issue_cache import IssueCache
     from memory_judge import MemoryJudge  # noqa: TCH004
+    from plan_reviewer import PlanReviewer
     from ports import IssueStorePort, PRPort
     from repo_wiki import RepoWikiStore  # noqa: TCH004
     from wiki_compiler import WikiCompiler  # noqa: TCH004
@@ -63,6 +65,8 @@ class PlanPhase:
         wiki_compiler: WikiCompiler | None = None,
         hindsight: HindsightClient | None = None,
         judge: MemoryJudge | None = None,
+        issue_cache: IssueCache | None = None,
+        plan_reviewer: PlanReviewer | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -79,6 +83,8 @@ class PlanPhase:
         self._beads_manager = beads_manager
         self._wiki_store = wiki_store
         self._wiki_compiler = wiki_compiler
+        self._issue_cache = issue_cache
+        self._plan_reviewer = plan_reviewer
         self._suggest_memory = MemorySuggester(config, hindsight=hindsight, judge=judge)
         self._escalator = PipelineEscalator(
             state,
@@ -241,6 +247,16 @@ class PlanPhase:
         # Ingest plan knowledge into the per-repo wiki
         await self._wiki_ingest_plan(issue.id, result.plan)
 
+        # IMPORTANT: cache writes (plan_stored + review_stored) and the
+        # adversarial reviewer MUST run BEFORE the label swap to ready.
+        # If the swap happened first, the implement loop could pick up
+        # the issue and the READY-stage precondition gate would find
+        # no records and route the issue back to plan — causing an
+        # infinite ping-pong loop. The eager-transition guard at
+        # `enqueue_transition` is in-memory only and does not protect
+        # against the GitHub label being visible to other pollers.
+        await self._write_plan_records(issue, result)
+
         # Activate eager-transition protection BEFORE the GitHub label swap
         # so that concurrent polling cannot re-queue the issue during the
         # non-atomic label add/remove window.
@@ -271,6 +287,73 @@ class PlanPhase:
             self._state.record_plan_duration(result.duration_seconds)
         self._state.increment_session_counter("planned")
         logger.info("Plan posted and labels swapped for issue #%d", issue.id)
+
+    async def _write_plan_records(self, issue: Task, result: PlanResult) -> int:
+        """Write plan_stored + review_stored cache records.
+
+        Called BEFORE the label swap to ready so the records exist
+        before the implement loop can observe the new label and run
+        the READY-stage precondition gate. Returns the plan version
+        assigned by the cache (1 if no cache configured).
+
+        Best-effort across both writes — failures log at warning and
+        do not raise into the caller, so the plan still proceeds and
+        the gate handles the missing-record case via route-back with
+        the cause "no review_stored record" (effectively the same as
+        a blocking review, with a clearer human-readable cause).
+
+        Adversarial findings live in the review_stored record, not in
+        plan_stored — conflating validation_errors with PlanFinding-
+        shaped findings would poison the cache for review-stage
+        consumers.
+        """
+        plan_version = 1
+        if self._issue_cache is None:
+            return plan_version
+
+        plan_version = self._issue_cache.record_plan_stored(
+            issue.id,
+            plan_text=result.plan,
+            actionability_score=result.actionability_score,
+        )
+
+        if self._plan_reviewer is None:
+            return plan_version
+
+        try:
+            review = await self._plan_reviewer.review(
+                issue, result, plan_version=plan_version
+            )
+            if review.success:
+                self._issue_cache.record_review_stored(
+                    issue.id,
+                    review_text=review.summary,
+                    has_blocking=review.has_blocking_findings,
+                    findings=[f.model_dump() for f in review.findings],
+                )
+                if review.has_blocking_findings:
+                    logger.warning(
+                        "Plan review for issue #%d found blocking "
+                        "findings — READY-stage gate will route back "
+                        "to PLAN: %s",
+                        issue.id,
+                        review.summary,
+                    )
+            else:
+                logger.warning(
+                    "Plan review skipped for issue #%d: %s",
+                    issue.id,
+                    review.error or "reviewer returned no result",
+                )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Plan reviewer raised for issue #%d — leaving plan "
+                "without a review record",
+                issue.id,
+                exc_info=True,
+            )
+
+        return plan_version
 
     _WIKI_INGEST_MAX_CHARS = 40_000
 

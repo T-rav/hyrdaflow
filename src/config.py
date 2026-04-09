@@ -231,6 +231,11 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         "HYDRAFLOW_CACHING_ISSUE_STORE_ENABLED",
         False,
     ),
+    (
+        "precondition_gate_enabled",
+        "HYDRAFLOW_PRECONDITION_GATE_ENABLED",
+        False,
+    ),
     ("docker_read_only_root", "HYDRAFLOW_DOCKER_READ_ONLY_ROOT", True),
     ("docker_no_new_privileges", "HYDRAFLOW_DOCKER_NO_NEW_PRIVILEGES", True),
     (
@@ -959,6 +964,21 @@ class HydraFlowConfig(BaseModel):
             "TTL window for cached enrich_with_comments results. "
             "Records older than this are treated as stale and the "
             "decorator falls through to the inner store."
+        ),
+    )
+
+    # Precondition gate enforcement (#6423). Defaults to False so the
+    # gate is opt-in: turning on the cache (`issue_cache_enabled`)
+    # does NOT automatically activate enforcement, because a freshly-
+    # deployed cache has no historical records and would route every
+    # in-flight issue back forever. Operators flip this to True only
+    # after confirming the cache has coverage of in-flight work.
+    precondition_gate_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enforce stage preconditions on the implement and review "
+            "phases. Requires issue_cache_enabled to be True. Defaults "
+            "to False to give operators a separate opt-in switch."
         ),
     )
 

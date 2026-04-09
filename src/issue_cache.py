@@ -231,12 +231,22 @@ class IssueCache:
         issue_type: str,
         complexity_score: float | int,
         complexity_rank: str,
+        routing_outcome: str,
         reasoning: str = "",
     ) -> None:
         """Record a triage classification (#6422 amendment).
 
         Downstream phases and the precondition gate (#6423) read this
         instead of regex-scraping triage comments.
+
+        ``routing_outcome`` captures where the triager actually routed
+        the issue: ``"plan"``, ``"discover"``, ``"parked"``,
+        ``"sentry_noise_closed"``, ``"duplicate_closed"``, etc. The
+        READY-stage precondition gate reads this field and only
+        accepts classifications with ``routing_outcome == "plan"`` —
+        a classified-then-parked issue must NOT satisfy the plan-stage
+        gate. Callers that don't know the routing outcome yet should
+        pass ``"unknown"``.
         """
         self.record(
             CacheRecord(
@@ -246,6 +256,7 @@ class IssueCache:
                     "issue_type": issue_type,
                     "complexity_score": complexity_score,
                     "complexity_rank": complexity_rank,
+                    "routing_outcome": routing_outcome,
                     "reasoning": reasoning,
                 },
             )
@@ -291,10 +302,15 @@ class IssueCache:
         issue_id: int,
         *,
         review_text: str,
-        has_critical: bool,
+        has_blocking: bool,
         findings: Iterable[dict[str, Any]] | None = None,
     ) -> int:
         """Record an adversarial plan review or PR review (#6421 composes).
+
+        ``has_blocking`` mirrors ``PlanReview.has_blocking_findings`` —
+        True when the review surfaced any CRITICAL or HIGH severity
+        finding. The READY-stage precondition gate reads this key to
+        decide whether to advance the issue or route it back to PLAN.
 
         Thread/coroutine-safe via a per-issue lock — see record_plan_stored.
         """
@@ -307,7 +323,7 @@ class IssueCache:
                     version=version,
                     payload={
                         "review_text": review_text,
-                        "has_critical": has_critical,
+                        "has_blocking": has_blocking,
                         "findings": list(findings or []),
                     },
                 )
