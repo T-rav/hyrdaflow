@@ -207,6 +207,16 @@ soak: deps
 	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) pytest tests/ -m soak -v --timeout=7200
 	@echo "$(GREEN)Soak tests passed$(RESET)"
 
+scenario: deps
+	@echo "$(BLUE)Running scenario tests...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) pytest tests/scenarios/ -m scenario -v
+	@echo "$(GREEN)Scenario tests passed$(RESET)"
+
+scenario-loops: deps
+	@echo "$(BLUE)Running scenario loop tests...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) pytest tests/scenarios/ -m scenario_loops -v
+	@echo "$(GREEN)Scenario loop tests passed$(RESET)"
+
 test-fast: deps
 	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) pytest tests/ -x --tb=short
 

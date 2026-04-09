@@ -125,13 +125,15 @@ asyncio_mode = "auto"
 addopts = [
     "-q",
     "--tb=short",
-    "-m", "not soak and not docker",
+    "-m", "not soak and not docker and not scenario_loops",
 ]
 markers = [
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
     "soak: marks tests as soak/long-running tests (excluded from default runs)",
     "docker: marks tests requiring a running Docker daemon",
+    "scenario: scenario tests with MockWorld (full pipeline, deterministic)",
+    "scenario_loops: scenario tests exercising background loops (Tier B)",
 ]
 
 [tool.coverage.run]
