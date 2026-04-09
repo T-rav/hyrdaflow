@@ -153,6 +153,7 @@ class TestClassificationRecord:
             issue_type="bug",
             complexity_score=7,
             complexity_rank="high",
+            routing_outcome="plan",
             reasoning="touches 3 modules",
         )
         latest = cache.latest_classification(42)
@@ -162,6 +163,7 @@ class TestClassificationRecord:
             "issue_type": "bug",
             "complexity_score": 7,
             "complexity_rank": "high",
+            "routing_outcome": "plan",
             "reasoning": "touches 3 modules",
         }
 
@@ -172,12 +174,14 @@ class TestClassificationRecord:
             issue_type="feature",
             complexity_score=3,
             complexity_rank="low",
+            routing_outcome="plan",
         )
         cache.record_classification(
             42,
             issue_type="bug",  # re-classified
             complexity_score=7,
             complexity_rank="high",
+            routing_outcome="plan",
         )
         latest = cache.latest_classification(42)
         assert latest is not None
@@ -222,20 +226,20 @@ class TestReviewRecord:
         version = cache.record_review_stored(
             42,
             review_text="plan ignores the reproduction test",
-            has_critical=True,
+            has_blocking=True,
             findings=[{"severity": "critical", "note": "missing repro ref"}],
         )
         assert version == 1
         latest = cache.latest_review(42)
         assert latest is not None
-        assert latest.payload["has_critical"] is True
+        assert latest.payload["has_blocking"] is True
         assert latest.payload["findings"][0]["severity"] == "critical"
 
     def test_review_versions_increment(self, tmp_path: Path) -> None:
         cache = _cache(tmp_path)
-        v1 = cache.record_review_stored(42, review_text="first", has_critical=True)
+        v1 = cache.record_review_stored(42, review_text="first", has_blocking=True)
         v2 = cache.record_review_stored(
-            42, review_text="second — cleaner", has_critical=False
+            42, review_text="second — cleaner", has_blocking=False
         )
         assert (v1, v2) == (1, 2)
 
@@ -303,6 +307,7 @@ class TestLatestRecordLookup:
             issue_type="bug",
             complexity_score=5,
             complexity_rank="medium",
+            routing_outcome="plan",
         )
         cache.record_fetch(42, {})
         cache.record_plan_stored(42, plan_text="a plan")
