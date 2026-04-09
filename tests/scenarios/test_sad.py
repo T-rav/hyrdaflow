@@ -57,20 +57,14 @@ class TestS3ReviewRejects:
     """S3: Review rejects with REQUEST_CHANGES."""
 
     async def test_review_rejection_tracked(self, mock_world):
-        # review_phase may invoke reviewers.review multiple times (re-review
-        # path); script several REQUEST_CHANGES results so the rejection
-        # sticks across all internal re-review attempts.
-        rejects = [
-            ReviewResultFactory.create(
-                issue_number=1,
-                verdict=ReviewVerdict.REQUEST_CHANGES,
-                merged=False,
-            )
-            for _ in range(5)
-        ]
+        reject = ReviewResultFactory.create(
+            issue_number=1,
+            verdict=ReviewVerdict.REQUEST_CHANGES,
+            merged=False,
+        )
         world = mock_world.add_issue(
             1, "Fix UI glitch", "Button misaligned"
-        ).set_phase_results("review", 1, rejects)
+        ).set_phase_result("review", 1, reject)
         result = await world.run_pipeline()
 
         outcome = result.issue(1)

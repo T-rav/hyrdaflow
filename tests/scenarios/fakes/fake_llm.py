@@ -26,9 +26,12 @@ class _ScriptedRunner:
 
     def __init__(self) -> None:
         self._scripts: dict[int, deque[Any]] = {}
+        self._last_scripted: dict[int, Any] = {}
 
     def _add_script(self, issue_number: int, results: list[Any]) -> None:
         self._scripts[issue_number] = deque(results)
+        # Clear any stale last-scripted so the new script takes precedence
+        self._last_scripted.pop(issue_number, None)
 
     def add_script(self, issue_number: int, results: list[Any]) -> None:
         self._add_script(issue_number, results)
@@ -36,7 +39,12 @@ class _ScriptedRunner:
     def _pop(self, issue_number: int, default_factory: Callable[[], Any]) -> Any:
         q = self._scripts.get(issue_number)
         if q:
-            return q.popleft()
+            result = q.popleft()
+            self._last_scripted[issue_number] = result
+            return result
+        # Deque empty — repeat last scripted result if we had one
+        if issue_number in self._last_scripted:
+            return self._last_scripted[issue_number]
         return default_factory()
 
     def set_tracing_context(self, _context: Any) -> None:

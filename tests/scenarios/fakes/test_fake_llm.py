@@ -81,6 +81,22 @@ class TestFakeLLMScriptedResults:
         result = await llm.reviewers.review(pr, task, Path("/tmp"), "diff")
         assert result.verdict == ReviewVerdict.REQUEST_CHANGES
 
+    async def test_last_scripted_result_is_sticky(self):
+        from tests.scenarios.fakes.fake_llm import FakeLLM
+
+        llm = FakeLLM()
+        reject = PlanResultFactory.create(issue_number=1, success=False)
+        llm.script_plan(1, [reject])
+
+        task = TaskFactory.create(id=1)
+        r1 = await llm.planners.plan(task)
+        r2 = await llm.planners.plan(task)
+        r3 = await llm.planners.plan(task)
+        # All three calls return the scripted rejection, not the default success
+        assert r1.success is False
+        assert r2.success is False
+        assert r3.success is False
+
     async def test_tracing_context_methods_are_noops(self):
         from tests.scenarios.fakes.fake_llm import FakeLLM
 
