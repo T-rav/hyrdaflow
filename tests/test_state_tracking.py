@@ -98,6 +98,7 @@ class TestInitialization:
             "diagnosis_severities",
             "sentry_creation_attempts",
             "trace_runs",
+            "route_back_counts",
         }
         assert set(d.keys()) == expected_keys
 
