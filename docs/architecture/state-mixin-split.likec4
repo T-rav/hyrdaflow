@@ -1,0 +1,84 @@
+// C4 Component Diagram: IssueStateMixin decomposition
+// Issue #6297 — Split monolithic mixin into 5 focused mixins
+
+specification {
+  element system
+  element container
+  element component
+  element mixin
+}
+
+model {
+  statePackage = container "state package" {
+    description "src/state/ — Crash-recovery state persistence"
+
+    stateTracker = component "StateTracker" {
+      description "Facade class inheriting all mixins. __init__.py lines 55-75."
+    }
+
+    // --- BEFORE: monolithic mixin ---
+    issueStateMixin = mixin "IssueStateMixin (BEFORE)" {
+      description "31 public methods, 302 lines. 6 unrelated concern groups. REMOVED."
+    }
+
+    // --- AFTER: 5 focused mixins ---
+    issueProgressMixin = mixin "IssueProgressMixin" {
+      description "11 methods: mark_issue, mark_pr, issue attempts, active issues, interrupted issues"
+    }
+
+    workerResultMixin = mixin "WorkerResultMixin" {
+      description "4 methods: worker result meta, digest hash"
+    }
+
+    verificationMixin = mixin "VerificationMixin" {
+      description "4 methods: set/get/clear/get_all verification issues"
+    }
+
+    outcomeMixin = mixin "OutcomeMixin" {
+      description "5 methods: record/get/get_all outcomes, record/get hook failures"
+    }
+
+    crateTimelineMixin = mixin "CrateTimelineMixin" {
+      description "7 methods: active crate, bead mapping, completed timelines"
+    }
+
+    // --- Existing mixins (unchanged) ---
+    workspaceMixin = mixin "WorkspaceStateMixin" {
+      description "Workspace and branch tracking"
+    }
+    reviewMixin = mixin "ReviewStateMixin" {
+      description "Review attempts, feedback, SHA tracking"
+    }
+    lifetimeMixin = mixin "LifetimeStatsMixin" {
+      description "Lifetime counters and thresholds"
+    }
+
+    // Composition: StateTracker inherits all mixins
+    stateTracker -> issueProgressMixin "inherits"
+    stateTracker -> workerResultMixin "inherits"
+    stateTracker -> verificationMixin "inherits"
+    stateTracker -> outcomeMixin "inherits"
+    stateTracker -> crateTimelineMixin "inherits"
+    stateTracker -> workspaceMixin "inherits"
+    stateTracker -> reviewMixin "inherits"
+    stateTracker -> lifetimeMixin "inherits"
+  }
+
+  stateData = component "StateData" {
+    description "Pydantic model in src/models.py. Shared _data attribute across all mixins."
+  }
+
+  // All mixins access shared StateData
+  issueProgressMixin -> stateData "reads/writes _data fields"
+  workerResultMixin -> stateData "reads/writes _data fields"
+  verificationMixin -> stateData "reads/writes _data fields"
+  outcomeMixin -> stateData "reads/writes _data.issue_outcomes, hook_failures, lifetime_stats"
+  crateTimelineMixin -> stateData "reads/writes _data fields"
+}
+
+views {
+  view afterSplit of statePackage {
+    title "StateTracker Mixin Composition (After Split)"
+    include *
+  }
+}
