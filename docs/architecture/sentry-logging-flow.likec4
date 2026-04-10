@@ -1,0 +1,117 @@
+// C4 Model: Sentry Logging Flow in PRManager
+// Issue #6306 — Incorrect Sentry signal levels for transient failures
+
+specification {
+  element actor
+  element system
+  element component
+  element module
+}
+
+model {
+  actor caller = "Callers" {
+    description "Background loops and handlers that invoke PRManager methods"
+
+    component dependabotMerge = "DependabotMergeLoop" {
+      description "dependabot_merge_loop.py:72 — calls merge_pr(), checks bool return"
+    }
+    component ciMonitor = "CIMonitorLoop" {
+      description "ci_monitor_loop.py — calls get_latest_ci_status() and list_issues_by_label()"
+    }
+    component epic = "Epic" {
+      description "epic.py:1319 — calls merge_pr()"
+    }
+    component prUnsticker = "PRUnsticker" {
+      description "pr_unsticker.py:987 — calls merge_pr()"
+    }
+    component postMerge = "PostMergeHandler" {
+      description "post_merge_handler.py:254,267 — calls merge_pr()"
+    }
+    component reportIssue = "ReportIssueLoop" {
+      description "report_issue_loop.py:256 — calls upload_screenshot()"
+    }
+  }
+
+  system prManager = "PRManager" {
+    description "src/pr_manager.py — GitHub PR lifecycle via gh CLI"
+
+    // ISSUE SCOPE: these methods use incorrect log levels
+    component mergePr = "merge_pr()" {
+      description "L395-444: logger.error on L443 for transient merge failure — MUST change to warning"
+    }
+    component uploadScreenshot = "upload_screenshot()" {
+      description "L1006-1055: logger.exception on L1054 for upload failure — MUST change to warning"
+    }
+    component uploadScreenshotGist = "upload_screenshot_gist()" {
+      description "L1084-1121: logger.exception on L1120 for gist upload failure — change to warning"
+    }
+
+    // AUDIT SCOPE: other logger.error calls catching transient RuntimeError
+    component pushBranch = "push_branch()" {
+      description "L155-180: logger.error on L179 for push failure"
+    }
+    component createPr = "create_pr()" {
+      description "L192-311: logger.error on L311 for PR creation failure"
+    }
+    component submitReview = "submit_review()" {
+      description "L481-545: logger.error on L539 for review submit failure"
+    }
+    component createIssue = "create_issue()" {
+      description "L935-1002: logger.error on L1001 for issue creation failure"
+    }
+    component getPrDiff = "get_pr_diff()" {
+      description "L1137-1150: logger.error on L1149 for diff fetch failure"
+    }
+    component getPrDiffNames = "get_pr_diff_names()" {
+      description "L1152-1167: logger.error on L1166 for diff names fetch failure"
+    }
+    component pullMain = "pull_main()" {
+      description "L1196-1211: logger.error on L1210 for pull failure"
+    }
+
+    // KEEP AS-IS: intentional error level
+    component addLabels = "_add_labels()" {
+      description "L547-606: logger.error on L598 — intentional: prevents label-swap orphan (data integrity)"
+    }
+
+    // ALREADY CORRECT: warning level
+    component listIssuesByLabel = "list_issues_by_label()" {
+      description "L685-716: logger.warning + raise — already correct level"
+    }
+    component getLatestCiStatus = "get_latest_ci_status()" {
+      description "L735-760: logger.warning + raise — already correct level"
+    }
+  }
+
+  system sentryPipeline = "Sentry Pipeline" {
+    description "LoggingIntegration + _before_send filter"
+
+    component loggingIntegration = "LoggingIntegration" {
+      description "event_level=logging.ERROR — all logger.error() calls create Sentry events"
+    }
+    component beforeSend = "_before_send()" {
+      description "server.py:55 — drops non-BUG_TYPES exceptions, BUT logger.error without exc_info bypasses filter"
+    }
+    component sentryIngest = "SentryIngestLoop" {
+      description "sentry_loop.py — polls Sentry issues, files GitHub issues — noise amplifier"
+    }
+  }
+
+  // Data flow: transient failure → Sentry noise
+  mergePr -> loggingIntegration "logger.error (no exc_info) → bypasses filter"
+  loggingIntegration -> beforeSend "event with no exception attached"
+  beforeSend -> sentryIngest "passes through: record_exc is None"
+  sentryIngest -> caller "files GitHub issue for transient merge failure"
+
+  // Data flow: screenshot upload → Sentry (partially filtered)
+  uploadScreenshot -> loggingIntegration "logger.exception → attaches exc_info"
+  loggingIntegration -> beforeSend "event with RuntimeError exception"
+  beforeSend -> sentryIngest "RuntimeError NOT in BUG_TYPES → dropped by filter"
+}
+
+views {
+  view index {
+    title "PRManager Sentry Logging — Change Area"
+    include *
+  }
+}
