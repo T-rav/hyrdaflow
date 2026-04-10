@@ -586,17 +586,17 @@ This closes the issue automatically. False positives waste significant human tim
     DIAGRAM_TMP_ROOT = Path("/tmp/hydraflow-diagrams")  # nosec B108
 
     @classmethod
-    def diagram_dir_for_issue(cls, issue_id: int) -> Path:
+    def diagram_dir_for_issue(cls, issue_number: int) -> Path:
         """Return the temp directory where the planner writes diagram files."""
-        return cls.DIAGRAM_TMP_ROOT / f"issue-{issue_id}"
+        return cls.DIAGRAM_TMP_ROOT / f"issue-{issue_number}"
 
     @classmethod
-    def collect_diagram_attachments(cls, issue_id: int) -> str:
+    def collect_diagram_attachments(cls, issue_number: int) -> str:
         """Read diagram files from the temp dir and format as markdown code blocks.
 
         Returns an empty string if no diagram files exist.
         """
-        diagram_dir = cls.diagram_dir_for_issue(issue_id)
+        diagram_dir = cls.diagram_dir_for_issue(issue_number)
         if not diagram_dir.is_dir():
             return ""
 
@@ -619,12 +619,12 @@ This closes the issue automatically. False positives waste significant human tim
         return "\n\n".join(blocks)
 
     @classmethod
-    def copy_diagrams_to_workspace(cls, issue_id: int, workspace: Path) -> int:
+    def copy_diagrams_to_workspace(cls, issue_number: int, workspace: Path) -> int:
         """Copy diagram files from /tmp into the workspace.
 
         Returns the number of files copied.
         """
-        src = cls.diagram_dir_for_issue(issue_id)
+        src = cls.diagram_dir_for_issue(issue_number)
         if not src.is_dir():
             return 0
 
@@ -638,9 +638,9 @@ This closes the issue automatically. False positives waste significant human tim
         return count
 
     @classmethod
-    def cleanup_diagrams(cls, issue_id: int) -> None:
+    def cleanup_diagrams(cls, issue_number: int) -> None:
         """Remove the temp diagram directory for an issue."""
-        d = cls.diagram_dir_for_issue(issue_id)
+        d = cls.diagram_dir_for_issue(issue_number)
         if d.is_dir():
             shutil.rmtree(d, ignore_errors=True)
 
