@@ -1,0 +1,101 @@
+// C4 Component diagram: Dead class definitions in models.py
+// Issue #6312 — shows which classes are dead vs live and their canonical locations
+
+specification {
+  element system
+  element module
+  element class_def
+  tag dead
+  tag live
+  tag canonical
+}
+
+model {
+  system hydraflow "HydraFlow" {
+
+    module models_py "src/models.py" {
+      description "Central Pydantic model definitions (3145 lines)"
+
+      class_def audit_finding "AuditFinding" {
+        description "L1671–1679. Never imported. code_grooming_loop uses raw dicts."
+        #dead
+      }
+
+      class_def precheck_result_models "PrecheckResult" {
+        description "L2631–2638. Frozen dataclass, no defaults. Only imported by test file."
+        #dead
+      }
+
+      class_def conflict_resolution "ConflictResolutionResult" {
+        description "L2641. Imported by pr_unsticker.py — LIVE, do not touch."
+        #live
+      }
+
+      class_def adr_validation_issue_models "ADRValidationIssue" {
+        description "L3124–3129. Pydantic BaseModel duplicate. Zero imports."
+        #dead
+      }
+
+      class_def adr_validation_result_models "ADRValidationResult" {
+        description "L3132–3145. Pydantic BaseModel duplicate. Zero imports."
+        #dead
+      }
+    }
+
+    module adr_pre_validator "src/adr_pre_validator.py" {
+      class_def adr_issue_canonical "ADRValidationIssue" {
+        description "Dataclass. Used by all ADR validation consumers."
+        #canonical
+      }
+      class_def adr_result_canonical "ADRValidationResult" {
+        description "Dataclass. Used by adr_reviewer.py and all consumers."
+        #canonical
+      }
+    }
+
+    module precheck_py "src/precheck.py" {
+      class_def precheck_canonical "PrecheckResult" {
+        description "Frozen dataclass with defaults. Used by parse_precheck_transcript."
+        #canonical
+      }
+    }
+
+    module code_grooming "src/code_grooming_loop.py" {
+      description "Parses findings as raw dicts, never uses AuditFinding"
+    }
+
+    module adr_reviewer "src/adr_reviewer.py" {
+      description "Imports ADRValidationResult from adr_pre_validator"
+    }
+
+    module pr_unsticker "src/pr_unsticker.py" {
+      description "Imports ConflictResolutionResult from models — LIVE"
+    }
+
+    module test_file "tests/test_models_analysis.py" {
+      class_def test_precheck "TestPrecheckResultModel" {
+        description "L289–338. Tests dead models.PrecheckResult. Remove with it."
+        #dead
+      }
+    }
+  }
+
+  // Live import relationships
+  adr_reviewer -> adr_result_canonical "imports"
+  pr_unsticker -> conflict_resolution "imports"
+
+  // Dead — no import arrows into these
+  // audit_finding: 0 importers
+  // adr_validation_issue_models: 0 importers
+  // adr_validation_result_models: 0 importers
+  // precheck_result_models: only test_precheck imports it
+
+  test_precheck -> precheck_result_models "imports (sole consumer)"
+}
+
+views {
+  view dead_code_topology of hydraflow {
+    title "Dead Class Topology — Issue #6312"
+    include *
+  }
+}
