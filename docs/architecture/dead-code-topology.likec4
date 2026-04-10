@@ -1,0 +1,116 @@
+// C4 Component diagram: summarize_and_publish dead code chain
+// Issue #6315 — dead code removal topology
+
+specification {
+  element component
+  element method
+  element test
+  tag dead
+  tag alive
+}
+
+model {
+  transcriptSummarizer = component 'TranscriptSummarizer' {
+    #alive
+    description 'Transcript summarization service'
+
+    summarizeAndPublish = method 'summarize_and_publish' {
+      #dead
+      description 'Permanent no-op returning None (lines 258-275)'
+    }
+
+    summarizeAndComment = method 'summarize_and_comment' {
+      #alive
+      description 'Active method — NOT part of removal'
+    }
+  }
+
+  mergeConflictResolver = component 'MergeConflictResolver' {
+    #alive
+    description 'Resolves merge conflicts in PR branches'
+
+    maybeSummarize = method '_maybe_summarize_conflict' {
+      #dead
+      description 'Calls dead summarize_and_publish (lines 360-376)'
+    }
+
+    resolveConflicts = method 'resolve_merge_conflicts' {
+      #alive
+      description 'Calls _maybe_summarize_conflict at lines 209, 224'
+    }
+
+    freshRebuild = method 'fresh_branch_rebuild' {
+      #alive
+      description 'Calls _maybe_summarize_conflict at line 338'
+    }
+
+    summarizerParam = method '__init__ summarizer param' {
+      #dead
+      description 'Constructor param + self._summarizer (line 49, 58)'
+    }
+
+    summarizerImport = method 'TranscriptSummarizer import' {
+      #dead
+      description 'Line 24 import — only used for dead param type'
+    }
+  }
+
+  reviewPhase = component 'ReviewPhase' {
+    #alive
+    description 'Review orchestration phase'
+
+    backwardCompatProp = method '_maybe_summarize_conflict property' {
+      #dead
+      description 'Backward-compat delegation at lines 2195-2198'
+    }
+  }
+
+  serviceRegistry = component 'ServiceRegistry' {
+    #alive
+    description 'Production wiring / composition root'
+
+    summarizerKwarg = method 'summarizer=summarizer kwarg' {
+      #dead
+      description 'Line 561 — passes summarizer to MergeConflictResolver'
+    }
+  }
+
+  // Tests
+  testSummarizeAndPublish = test 'TestSummarizeAndPublish' {
+    #dead
+    description 'test_transcript_summarizer.py:430-451'
+  }
+
+  testSummarizeNarrows = test 'test_summarize_narrows_to_runtime_os_error' {
+    #dead
+    description 'test_exception_chaining.py:398-409'
+  }
+
+  testHelpersMCR = test 'make_conflict_resolver helper' {
+    #alive
+    description 'helpers.py:1376 — remove summarizer=None kwarg'
+  }
+
+  testHelpersRP = test 'make_review_phase helper' {
+    #alive
+    description 'helpers.py:1561 — remove summarizer=None kwarg'
+  }
+
+  // Call graph (dead chain)
+  resolveConflicts -> maybeSummarize 'await (lines 209, 224)'
+  freshRebuild -> maybeSummarize 'await (line 338)'
+  maybeSummarize -> summarizeAndPublish 'await (line 367)'
+  backwardCompatProp -> maybeSummarize 'delegates (line 2198)'
+  summarizerKwarg -> summarizerParam 'wires (line 561)'
+
+  // Test references
+  testSummarizeAndPublish -> summarizeAndPublish 'tests no-op'
+  testSummarizeNarrows -> maybeSummarize 'tests exception narrowing'
+}
+
+views {
+  view deadCodeChain of transcriptSummarizer {
+    title 'Dead Code Chain: summarize_and_publish'
+    include *
+  }
+}
