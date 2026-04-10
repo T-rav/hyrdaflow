@@ -2469,3 +2469,52 @@ class TestADRCouncilReviewerCredentials:
         )
         assert reviewer._credentials is creds
         assert reviewer._credentials.gh_token == "test-token-xyz"
+
+
+class TestWriteAdrDecision:
+    """Tests for _write_adr_decision using append_jsonl."""
+
+    def test_calls_append_jsonl_with_correct_args(self, tmp_path: Path) -> None:
+        """_write_adr_decision delegates to append_jsonl with path and JSON."""
+        import json
+
+        from adr_reviewer import _write_adr_decision
+
+        config = ConfigFactory.create(repo_root=tmp_path / "repo")
+        expected_path = config.data_path("memory", "adr_decisions.jsonl")
+
+        with patch("adr_reviewer.append_jsonl") as mock_append:
+            _write_adr_decision(config, "My ADR", "body text", "accepted")
+
+        mock_append.assert_called_once()
+        call_path, call_data = mock_append.call_args[0]
+        assert call_path == expected_path
+        rec = json.loads(call_data)
+        assert rec["title"] == "My ADR"
+        assert rec["body"] == "body text"
+        assert rec["type"] == "accepted"
+        assert "timestamp" in rec
+
+    def test_logs_warning_on_oserror(self, tmp_path: Path) -> None:
+        """_write_adr_decision logs warning when append_jsonl raises OSError."""
+        from adr_reviewer import _write_adr_decision
+
+        config = ConfigFactory.create(repo_root=tmp_path / "repo")
+
+        with (
+            patch("adr_reviewer.append_jsonl", side_effect=OSError("disk full")),
+            patch("adr_reviewer.logger") as mock_logger,
+        ):
+            _write_adr_decision(config, "Fail ADR", "body", "accepted")
+
+        mock_logger.warning.assert_called()
+
+    def test_does_not_propagate_oserror(self, tmp_path: Path) -> None:
+        """_write_adr_decision swallows OSError without propagating."""
+        from adr_reviewer import _write_adr_decision
+
+        config = ConfigFactory.create(repo_root=tmp_path / "repo")
+
+        with patch("adr_reviewer.append_jsonl", side_effect=OSError("fail")):
+            # Should not raise
+            _write_adr_decision(config, "Fail ADR", "body", "accepted")
