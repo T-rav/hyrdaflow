@@ -292,11 +292,18 @@ class MemorySyncWorker:
         adr_issues = self._local_items_to_issue_dicts(local_items)
         await self._route_adr_candidates(adr_issues)
 
+        # Apply temporal decay to prevent monotonic score drift
+        from memory_scoring import MemoryScorer  # noqa: PLC0415
+
+        scorer = MemoryScorer(self._config.memory_dir)
+        scorer.apply_temporal_decay()
+
         return {
             "action": "synced",
             "item_count": len(local_items),
             "compacted": False,
             "digest_chars": 0,
+            "decayed_items": len(local_items),
         }
 
     async def _sync_one_item(self, item: dict[str, object]) -> None:

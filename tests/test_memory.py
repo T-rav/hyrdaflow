@@ -782,6 +782,100 @@ class TestMemorySyncWorkerSync:
             assert not isinstance(r, Exception), f"sync() raised: {r}"
 
 
+class TestMemorySyncWorkerDecay:
+    """Tests for temporal decay integration in sync()."""
+
+    @pytest.mark.asyncio
+    async def test_sync_calls_apply_temporal_decay_when_items_exist(
+        self, tmp_path: Path
+    ) -> None:
+        """sync() with local items calls MemoryScorer.apply_temporal_decay() once."""
+        import json
+
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+
+        items_path = config.data_path("memory", "items.jsonl")
+        items_path.parent.mkdir(parents=True, exist_ok=True)
+        items = [
+            {
+                "id": "mem-aaa",
+                "title": "Test",
+                "learning": "Always test first",
+                "context": "",
+                "memory_type": "knowledge",
+                "source": "implementer",
+                "reference": "#10",
+                "created_at": "2024-06-01T00:00:00Z",
+            },
+        ]
+        with items_path.open("w") as f:
+            for item in items:
+                f.write(json.dumps(item) + "\n")
+
+        worker = MemorySyncWorker(config, state, bus)
+
+        with patch("memory_scoring.MemoryScorer.apply_temporal_decay") as mock_decay:
+            stats = await worker.sync()
+
+        mock_decay.assert_called_once()
+        assert stats["decayed_items"] == 1
+
+    @pytest.mark.asyncio
+    async def test_sync_skips_decay_when_no_items(self, tmp_path: Path) -> None:
+        """sync() with no local items does not call apply_temporal_decay()."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+
+        worker = MemorySyncWorker(config, state, bus)
+
+        with patch("memory_scoring.MemoryScorer.apply_temporal_decay") as mock_decay:
+            stats = await worker.sync()
+
+        mock_decay.assert_not_called()
+        assert stats["item_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_sync_returns_decayed_items_count(self, tmp_path: Path) -> None:
+        """sync() includes decayed_items in the returned stats dict."""
+        import json
+
+        config = ConfigFactory.create(repo_root=tmp_path)
+        state = MagicMock()
+        state.get_memory_state.return_value = ([], "", None)
+        bus = MagicMock()
+
+        items_path = config.data_path("memory", "items.jsonl")
+        items_path.parent.mkdir(parents=True, exist_ok=True)
+        items = [
+            {
+                "id": f"mem-{i}",
+                "title": f"Item {i}",
+                "learning": f"Learning {i}",
+                "context": "",
+                "memory_type": "knowledge",
+                "source": "implementer",
+                "reference": f"#{i}",
+                "created_at": "2024-06-01T00:00:00Z",
+            }
+            for i in range(3)
+        ]
+        with items_path.open("w") as f:
+            for item in items:
+                f.write(json.dumps(item) + "\n")
+
+        worker = MemorySyncWorker(config, state, bus)
+
+        with patch("memory_scoring.MemoryScorer.apply_temporal_decay"):
+            stats = await worker.sync()
+
+        assert stats["decayed_items"] == 3
+
+
 # --- State tracking tests ---
 
 
