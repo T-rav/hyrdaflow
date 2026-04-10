@@ -1,0 +1,77 @@
+// C4 Component diagram: Shape Conversation model topology
+// Issue #6320 — Literal type migration for ConversationTurn and ShapeConversation
+
+specification {
+  element system
+  element container
+  element component
+  element model_field
+}
+
+model {
+  system hydraflow "HydraFlow" {
+    container models "src/models.py" {
+      component ConversationTurn "ConversationTurn" {
+        description "Single turn in shape design conversation"
+        model_field role "role: str -> Literal['agent','human']"
+        model_field source "source: str -> Literal['github','dashboard','whatsapp','']"
+        model_field signal "signal: str (keep as str — open-ended)"
+      }
+      component ShapeConversation "ShapeConversation" {
+        description "Persisted state for active shape conversation"
+        model_field status "status: str -> Literal['exploring','finalizing','done','timed_out']"
+      }
+    }
+
+    container shape_phase "src/shape_phase.py" {
+      component _shape_single "_shape_single()" {
+        description "Main conversation loop entry point"
+      }
+      component _handle_waiting "._handle_waiting_state()" {
+        description "Handles timeout, checks for response, sets status"
+      }
+      component _check_for_response "_check_for_response()" {
+        description "Returns (response, source) from whatsapp or github"
+      }
+      component _classify_signal "_classify_signal()" {
+        description "Returns signal string — stays as str"
+      }
+      component _run_council "_run_council_vote()" {
+        description "Expert council — sets status='done'"
+      }
+    }
+
+    container state_shape "src/state/_shape.py" {
+      component set_shape_conv "set_shape_conversation()" {
+        description "Persists ShapeConversation to state.json"
+      }
+      component get_shape_conv "get_shape_conversation()" {
+        description "Loads ShapeConversation from state.json"
+      }
+    }
+
+    container tests "tests/test_shape_conversation.py" {
+      component test_models "TestConversationStateModel"
+      component test_source "TestConversationTurnSource"
+      component test_loop "TestConversationLoop"
+    }
+  }
+
+  // Data flows
+  _shape_single -> ConversationTurn "creates role='agent' turns"
+  _handle_waiting -> ConversationTurn "creates role='human' turns with source"
+  _handle_waiting -> ShapeConversation "sets status: timed_out, exploring, finalizing"
+  _shape_single -> ShapeConversation "sets status: finalizing, done"
+  _run_council -> ShapeConversation "sets status: done"
+  _check_for_response -> _handle_waiting "returns (response, 'whatsapp'|'github')"
+  _classify_signal -> _handle_waiting "returns signal string"
+  _shape_single -> set_shape_conv "persists after mutation"
+  get_shape_conv -> _shape_single "loads on entry"
+}
+
+views {
+  view data_flow "Shape Conversation Data Flow" {
+    include *
+    description "How ConversationTurn and ShapeConversation fields are written and read"
+  }
+}
