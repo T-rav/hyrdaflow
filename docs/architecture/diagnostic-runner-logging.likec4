@@ -1,0 +1,95 @@
+// C4 Component diagram: DiagnosticRunner logging gap
+// Issue #6307 — silent Pydantic validation failures
+
+specification {
+  element system
+  element container
+  element component
+  element external
+
+  relationship calls
+  relationship logs
+  relationship returns
+}
+
+model {
+  hydraflow = system "HydraFlow" {
+    diagnostic_loop = container "DiagnosticLoop" {
+      description "Background loop that escalates issues to diagnostic phase"
+      process_issue = component "DiagnosticLoop._process_issue()" {
+        description "Sole caller of DiagnosticRunner.diagnose() and .fix()"
+      }
+    }
+
+    diagnostic_runner = container "DiagnosticRunner" {
+      description "Two-stage diagnostic agent: diagnose (read-only) + fix (worktree)"
+
+      diagnose_method = component "diagnose()" {
+        description "Stage 1: runs agent, parses JSON, validates DiagnosisResult"
+      }
+      fix_method = component "fix()" {
+        description "Stage 2: runs fix agent in worktree, verifies quality"
+      }
+
+      // Exception blocks in diagnose()
+      crash_handler = component "diagnose except block (L121-131)" {
+        description "Catches agent execution crash. Has logger.exception() — OK"
+      }
+      validation_handler = component "diagnose validation except (L143-154)" {
+        description "Catches model_validate failure. NO LOGGING — BUG"
+      }
+
+      // Exception block in fix()
+      fix_crash_handler = component "fix except block (L185-189)" {
+        description "Catches fix agent crash. Has logger.exception() — may be wrong level"
+      }
+    }
+
+    sentry = container "Sentry Integration" {
+      logging_integration = component "LoggingIntegration" {
+        description "WARNING+ captured, ERROR+ creates events"
+      }
+      before_send = component "_before_send filter" {
+        description "Only _BUG_TYPES pass: TypeError, KeyError, ValueError, etc."
+      }
+    }
+
+    models = container "Models" {
+      diagnosis_result = component "DiagnosisResult" {
+        description "Pydantic model: root_cause, severity, fixable, fix_plan, ..."
+      }
+    }
+
+    logger_sys = container "Python Logger" {
+      hydraflow_diagnostic = component "hydraflow.diagnostic" {
+        description "Logger for diagnostic runner"
+      }
+    }
+  }
+
+  // Relationships
+  process_issue -> diagnose_method "calls"
+  process_issue -> fix_method "calls"
+  diagnose_method -> diagnosis_result "model_validate(parsed)"
+  validation_handler -> hydraflow_diagnostic "MISSING: should log warning"
+  crash_handler -> hydraflow_diagnostic "logger.exception() — OK"
+  fix_crash_handler -> hydraflow_diagnostic "logger.exception() — review level"
+  hydraflow_diagnostic -> logging_integration "emits log records"
+  logging_integration -> before_send "ERROR+ events"
+}
+
+views {
+  view diagnostic_logging of diagnostic_runner {
+    title "DiagnosticRunner Exception Handling & Logging Gaps"
+    include *
+    include sentry, models, logger_sys
+  }
+
+  dynamic view fix_flow {
+    title "Data flow: diagnose() validation failure path"
+    process_issue -> diagnose_method "1. call diagnose()"
+    diagnose_method -> diagnosis_result "2. model_validate(parsed) — throws ValidationError"
+    validation_handler -> hydraflow_diagnostic "3. MISSING: log warning with exc_info"
+    validation_handler -> process_issue "4. return degraded DiagnosisResult (fixable=False)"
+  }
+}

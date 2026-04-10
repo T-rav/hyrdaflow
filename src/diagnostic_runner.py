@@ -143,6 +143,11 @@ class DiagnosticRunner(BaseRunner):
         try:
             return DiagnosisResult.model_validate(parsed)
         except Exception:
+            logger.warning(
+                "DiagnosisResult validation failed for issue #%d — using fallback",
+                issue_number,
+                exc_info=True,
+            )
             return DiagnosisResult(
                 root_cause=parsed.get(
                     "root_cause", transcript[:500] if transcript else ""
