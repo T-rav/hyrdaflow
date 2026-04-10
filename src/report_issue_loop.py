@@ -279,7 +279,9 @@ class ReportIssueLoop(BaseBackgroundLoop):
         )
         return f"/hf.issue {description}"
 
-    async def _invoke_report_agent(self, prompt: str) -> tuple[str, int]:
+    async def _invoke_report_agent(
+        self, prompt: str, report_id: str = ""
+    ) -> tuple[str, int]:
         """Stream the agent CLI and extract the created issue number.
 
         Returns ``(transcript, issue_number)``.  Raises
@@ -309,7 +311,7 @@ class ReportIssueLoop(BaseBackgroundLoop):
         except AuthenticationRetryError:
             raise
         except Exception:
-            logger.exception("Report issue agent failed")
+            logger.exception("Report issue agent failed for report %s", report_id)
             return "", 0
 
     async def _handle_report_success(
@@ -435,7 +437,9 @@ class ReportIssueLoop(BaseBackgroundLoop):
         )
 
         try:
-            _transcript, issue_number = await self._invoke_report_agent(prompt)
+            _transcript, issue_number = await self._invoke_report_agent(
+                prompt, report_id=report.id
+            )
         except AuthenticationRetryError:
             logger.warning(
                 "Report %s hit authentication error — deferring to next cycle",
