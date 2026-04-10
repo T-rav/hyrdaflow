@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from adr_pre_validator import ADRPreValidator, ADRValidationResult
 from adr_utils import ADR_FILE_RE
 from agent_cli import build_lightweight_command
+from file_util import append_jsonl
 from models import ADRCouncilResult, CouncilVerdict, CouncilVote
 from subprocess_util import make_clean_env, run_subprocess
 
@@ -31,18 +32,16 @@ def _write_adr_decision(
     """Write an ADR decision to adr_decisions.jsonl."""
     try:
         path = config.data_path("memory", "adr_decisions.jsonl")
-        path.parent.mkdir(parents=True, exist_ok=True)
         rec = {
             "title": title,
             "body": body,
             "type": decision_type,
             "timestamp": datetime.now(UTC).isoformat(),
         }
-        with path.open("a") as f:
-            f.write(_json.dumps(rec) + "\n")
+        append_jsonl(path, _json.dumps(rec))
         logger.info("ADR decision recorded: %s", title)
     except OSError:
-        logger.debug("Failed to write ADR decision", exc_info=True)
+        logger.warning("Failed to write ADR decision", exc_info=True)
 
 
 # Valid statuses are single words: Proposed, Accepted, Superseded, Deprecated, Rejected.
