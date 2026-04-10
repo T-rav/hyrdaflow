@@ -1,0 +1,114 @@
+// C4 Component diagram: DoltBackend timeout exception flow
+// Issue #6328 — TimeoutExpired handling gap
+
+specification {
+  element actor
+  element system
+  element component
+  element method
+
+  tag bug
+  tag fix
+}
+
+model {
+  orchestrator = system "Orchestrator" {
+    service_registry = component "service_registry" {
+      description "build_services() / build_state_tracker()"
+    }
+  }
+
+  callers = system "DoltBackend Callers" {
+    state_tracker = component "StateTracker" {
+      description "Calls load_state, save_state, commit"
+    }
+    dedup_store = component "DedupStore" {
+      description "Calls get_dedup_set, add_to_dedup_set"
+    }
+    memory = component "Memory" {
+      description "Calls load_sessions, get_session"
+    }
+  }
+
+  dolt_backend = system "DoltBackend" {
+    _run = method "_run()" {
+      description "subprocess.run(timeout=30) — raises TimeoutExpired"
+    }
+    _sql = method "_sql()" {
+      description "Calls _run('sql', '-q', query)"
+    }
+    _sql_exec = method "_sql_exec()" {
+      description "Calls _run('sql', '-q', query) — no result"
+    }
+
+    // READ path methods — NEED TimeoutExpired catch
+    load_state = method "load_state()" {
+      description "Catches CalledProcessError+JSONDecodeError+KeyError+IndexError, returns None"
+    }
+    load_sessions = method "load_sessions()" {
+      #bug
+      description "BUG: catches CalledProcessError+JSONDecodeError only, missing TimeoutExpired"
+    }
+    get_session = method "get_session()" {
+      #bug
+      description "BUG: catches CalledProcessError+JSONDecodeError+KeyError+IndexError, missing TimeoutExpired"
+    }
+    get_dedup_set = method "get_dedup_set()" {
+      #bug
+      description "BUG: catches CalledProcessError+JSONDecodeError, missing TimeoutExpired"
+    }
+    log_method = method "log()" {
+      #bug
+      description "BUG: catches CalledProcessError+JSONDecodeError, missing TimeoutExpired"
+    }
+    diff_state = method "diff_state()" {
+      #bug
+      description "BUG: catches CalledProcessError only, missing TimeoutExpired"
+    }
+    delete_session = method "delete_session()" {
+      #bug
+      description "BUG: catches CalledProcessError only, missing TimeoutExpired"
+    }
+
+    // WRITE path methods — out of scope, no try/except
+    save_state = method "save_state()" {
+      description "No try/except — write failures propagate (by design)"
+    }
+    commit_method = method "commit()" {
+      description "No try/except — write failures propagate (by design)"
+    }
+  }
+
+  subprocess_mod = system "subprocess" {
+    subprocess_run = component "subprocess.run(timeout=30)" {
+      description "Raises TimeoutExpired if command exceeds 30s"
+    }
+  }
+
+  // Call chain
+  service_registry -> dolt_backend
+  state_tracker -> load_state
+  state_tracker -> save_state
+  dedup_store -> get_dedup_set
+  memory -> load_sessions
+  memory -> get_session
+
+  load_sessions -> _sql
+  get_session -> _sql
+  get_dedup_set -> _sql
+  log_method -> _sql
+  diff_state -> _run
+  delete_session -> _sql_exec
+  load_state -> _sql
+
+  _sql -> _run
+  _sql_exec -> _run
+  _run -> subprocess_run
+}
+
+views {
+  view timeout_flow of dolt_backend {
+    title "DoltBackend: TimeoutExpired propagation gap"
+    include *
+  }
+}
