@@ -1,0 +1,95 @@
+// Service Registry Refactoring — C4 Component Diagram
+// Issue #6334: Break down build_services() into sub-factories
+
+specification {
+  element compositionRoot
+  element subFactory
+  element dataclass
+  element serviceGroup
+  element externalCaller
+}
+
+model {
+  // Current state: monolithic build_services
+  currentState = compositionRoot "build_services() — Current" {
+    description "Single 645-line function that instantiates 40+ services"
+
+    infraBlock = serviceGroup "Infrastructure (L221-267)" {
+      description "credentials, hindsight, memory_judge, dolt_backend, workspaces, subprocess_runner"
+    }
+    runnersBlock = serviceGroup "Runners (L269-335)" {
+      description "agents, planners, researcher, reviewers, hitl_runner, triage, summarizer"
+    }
+    dataBlock = serviceGroup "Data & Stores (L337-394)" {
+      description "store, crate_manager, issue_cache, phase_store, gh_cache, harness_insights, troubleshooting_store"
+    }
+    phasesBlock = serviceGroup "Phases & Support (L396-665)" {
+      description "triager, discover, shape, plan, hitl, implement, review + conflict_resolver, pr_unsticker, post_merge_handler"
+    }
+    loopsBlock = serviceGroup "Background Loops (L667-793)" {
+      description "loop_deps + 20 BaseBackgroundLoop subclass instances"
+    }
+  }
+
+  // Target state: sub-factories
+  targetState = compositionRoot "build_services() — Target (~50 lines)" {
+    description "Thin orchestrator calling 4 sub-factories"
+
+    coreDeps = dataclass "_CoreDeps" {
+      description "Frozen dataclass bundling 12 shared infrastructure objects (follows LoopDeps pattern)"
+    }
+
+    buildCore = subFactory "_build_core()" {
+      description "credentials, hindsight, memory_judge, dolt, workspaces, subprocess_runner, wiki, prs, fetcher, gh_cache"
+    }
+    buildRunnersAndData = subFactory "_build_runners_and_data()" {
+      description "LLM runners + stores + support services (agents, planners, store, crate_manager, etc.)"
+    }
+    buildPhases = subFactory "_build_phases()" {
+      description "7 phase coordinators + conflict_resolver, pr_unsticker, post_merge_handler"
+    }
+    buildLoops = subFactory "_build_background_loops()" {
+      description "loop_deps + all 20 BaseBackgroundLoop instances"
+    }
+
+    registryReturn = dataclass "ServiceRegistry" {
+      description "73-field dataclass — public API unchanged"
+    }
+
+    // Dependency flow between sub-factories
+    buildCore -> coreDeps "returns"
+    coreDeps -> buildRunnersAndData "input"
+    coreDeps -> buildPhases "input"
+    coreDeps -> buildLoops "input"
+    buildRunnersAndData -> buildPhases "runners + stores"
+    buildRunnersAndData -> buildLoops "services for loops"
+    buildPhases -> buildLoops "phases for loop deps"
+    buildLoops -> registryReturn "populates"
+    buildPhases -> registryReturn "populates"
+    buildRunnersAndData -> registryReturn "populates"
+    buildCore -> registryReturn "populates"
+  }
+
+  // External callers (unchanged)
+  orchestrator = externalCaller "HydraFlowOrchestrator.__init__()" {
+    description "Sole production caller — orchestrator.py:107"
+  }
+  tests = externalCaller "Test suite" {
+    description "test_service_registry.py, test_caretaker_loop_wiring.py, etc."
+  }
+
+  orchestrator -> targetState "calls build_services()"
+  tests -> targetState "calls build_services()"
+}
+
+views {
+  view current_state of currentState {
+    title "Current: Monolithic build_services()"
+    include *
+  }
+
+  view target_state of targetState {
+    title "Target: Sub-factory Composition"
+    include *
+  }
+}
