@@ -1854,7 +1854,7 @@ class EpicDetail(BaseModel):
     merge_strategy: MergeStrategy = MergeStrategy.INDEPENDENT
     children: list[EpicChildInfo] = Field(default_factory=list)
     readiness: EpicReadiness = Field(default_factory=EpicReadiness)
-    release: dict | None = None
+    release: dict[str, object] | None = None
 
 
 # --- Changelog ---

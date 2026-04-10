@@ -163,7 +163,7 @@ regardless of code quality.
 """
 
 
-def extract_spec_match(transcript: str) -> dict:
+def extract_spec_match(transcript: str) -> dict[str, object]:
     """Extract spec-match assessment from agent transcript."""
     start = transcript.find(_SPEC_MATCH_START)
     end = transcript.find(_SPEC_MATCH_END)

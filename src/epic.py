@@ -1005,7 +1005,7 @@ class EpicManager:
             version=version or None,
         )
 
-    def _get_release_data(self, epic_number: int) -> dict | None:
+    def _get_release_data(self, epic_number: int) -> dict[str, object] | None:
         """Return release info dict if a release exists for this epic."""
         release = self._state.get_release(epic_number)
         if release is None:

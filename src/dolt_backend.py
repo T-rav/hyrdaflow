@@ -110,7 +110,7 @@ class DoltBackend:
 
     # --- State read/write ---
 
-    def load_state(self) -> dict | None:
+    def load_state(self) -> dict[str, object] | None:
         """Load the state JSON document. Returns ``None`` if no state stored."""
         try:
             raw = self._sql("SELECT data FROM state WHERE id = 1;")
@@ -188,7 +188,7 @@ class DoltBackend:
             logger.warning("Failed to load sessions from Dolt", exc_info=True)
             return []
 
-    def get_session(self, session_id: str) -> dict | None:
+    def get_session(self, session_id: str) -> dict[str, object] | None:
         """Load a single session by ID."""
         escaped = session_id.replace("'", "''")
         try:
