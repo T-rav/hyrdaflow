@@ -1,0 +1,105 @@
+// C4 Component Diagram — Literal type narrowing for issue #6310
+// Shows which files define, validate, and consume the four fields being changed.
+
+specification {
+  element system
+  element container
+  element component
+  element database
+}
+
+model {
+  hydraflow = system "HydraFlow" {
+
+    models = container "src/models.py" {
+      conversationTurn = component "ConversationTurn" {
+        description "role: str → Literal['agent','human']"
+      }
+      shapeConversation = component "ShapeConversation" {
+        description "status: str → Literal['exploring','finalizing','done','timed_out']"
+      }
+      issueOutcome = component "IssueOutcome" {
+        description "phase: str → Literal['','triage','plan','implement','review','hitl']"
+      }
+    }
+
+    config = container "src/config.py" {
+      severityField = component "security_patch_severity_threshold" {
+        description "str → Literal['critical','high','medium','low']"
+      }
+      envStrOverrides = component "_ENV_STR_OVERRIDES" {
+        description "Remove severity threshold entry"
+      }
+      envLiteralOverrides = component "_ENV_LITERAL_OVERRIDES" {
+        description "Add severity threshold entry"
+      }
+      applyEnvOverrides = component "apply_env_overrides()" {
+        description "Validates Literal fields via get_args()"
+      }
+    }
+
+    // Consumers
+    shapePhase = container "src/shape_phase.py" {
+      description "Sets status and role on ShapeConversation/ConversationTurn"
+    }
+    securityPatchLoop = container "src/security_patch_loop.py" {
+      description "Reads severity threshold, compares via _SEVERITY_RANK"
+    }
+    stateIssue = container "src/state/_issue.py" {
+      description "record_outcome() creates IssueOutcome with phase param"
+    }
+    dashboardRoutes = container "src/dashboard_routes/" {
+      description "Reads status=='exploring', calls record_outcome(phase='hitl')"
+    }
+    planPhase = container "src/plan_phase.py" {
+      description "Calls record_outcome(phase='plan')"
+    }
+    stateInit = container "src/state/__init__.py" {
+      description "Calls record_outcome(phase='review')"
+    }
+
+    // Test consumers
+    tests = container "tests/" {
+      testConfig = component "test_config_env.py" {
+        description "Parametrized env override tests"
+      }
+      testShape = component "test_shape_conversation.py" {
+        description "Tests ConversationTurn and ShapeConversation"
+      }
+      testModels = component "test_models_pipeline.py" {
+        description "Tests IssueOutcome construction"
+      }
+      testStateOutcomes = component "test_state_outcomes.py" {
+        description "Tests record_outcome with explicit phase values"
+      }
+      testStateMixin = component "test_state_mixin_decomposition.py" {
+        description "Tests record_outcome WITHOUT phase param (uses default '')"
+      }
+      testSecPatch = component "test_security_patch_loop.py" {
+        description "Tests severity threshold config"
+      }
+      helpers = component "tests/helpers.py" {
+        description "ConfigFactory.create() — type annotation update"
+      }
+    }
+  }
+
+  // Relationships
+  shapePhase -> conversationTurn "sets role='agent'|'human'"
+  shapePhase -> shapeConversation "sets status='exploring'|'finalizing'|'done'|'timed_out'"
+  securityPatchLoop -> severityField "reads threshold for _meets_severity()"
+  stateIssue -> issueOutcome "creates IssueOutcome(phase=...)"
+  dashboardRoutes -> shapeConversation "reads status=='exploring'"
+  dashboardRoutes -> stateIssue "record_outcome(phase='hitl')"
+  planPhase -> stateIssue "record_outcome(phase='plan')"
+  stateInit -> stateIssue "record_outcome(phase='review')"
+  applyEnvOverrides -> envLiteralOverrides "validates via get_args()"
+  applyEnvOverrides -> envStrOverrides "applies without validation"
+}
+
+views {
+  view of hydraflow {
+    title "Literal Type Narrowing — Affected Components"
+    include *
+  }
+}
