@@ -1,0 +1,93 @@
+// C4 Component Diagram: Unused Config Fields and Their Intended Consumers
+// Issue #6314 — Config field cleanup topology
+
+specification {
+  element system
+  element container
+  element component
+  tag unused
+  tag wired
+  tag remove
+}
+
+model {
+  system hydraflow "HydraFlow" {
+    container config "Config Layer" {
+      component hydraflow_config "HydraFlowConfig" "src/config.py" {
+        // Fields to WIRE (connected but not yet plumbed)
+        component state_backup_interval "state_backup_interval" #wired
+        component state_backup_count "state_backup_count" #wired
+
+        // Fields to REMOVE (no consumer exists)
+        component memory_compaction_model "memory_compaction_model" #remove
+        component memory_compaction_tool "memory_compaction_tool" #remove
+        component memory_compaction_timeout "memory_compaction_timeout" #remove
+        component visual_diff_threshold "visual_diff_threshold" #remove
+        component visual_max_screens "visual_max_screens" #remove
+        component visual_per_screen_budget "visual_per_screen_budget_bytes" #remove
+        component max_verif_chars "max_verification_instructions_chars" #remove
+        component summarizer_timeout "summarizer_timeout" #remove
+        component memory_prune_stale "memory_prune_stale_items" #remove
+      }
+
+      component env_int_overrides "_ENV_INT_OVERRIDES" "lines 73-170"
+      component env_str_overrides "_ENV_STR_OVERRIDES" "lines 180-220"
+      component env_literal_overrides "_ENV_LITERAL_OVERRIDES" "lines 272-290"
+      component env_float_custom "Custom float handler" "lines 2246-2256"
+      component harmonize "harmonize_background_defaults()" "lines 1842-1858"
+    }
+
+    container services "Service Layer" {
+      component service_registry "build_state_tracker()" "src/service_registry.py:205"
+    }
+
+    container state "State Layer" {
+      component state_tracker "StateTracker.__init__()" "src/state/__init__.py:105" {
+        component backup_interval_param "backup_interval=300"
+        component backup_count_param "backup_count=3"
+      }
+    }
+
+    container consumers "Intended Consumers (not wired)" {
+      component memory_py "MemorySyncWorker" "src/memory.py" #unused
+      component visual_validator "VisualValidator" "src/visual_validator.py" #unused
+      component acceptance "AcceptanceCriteriaGenerator" "src/acceptance_criteria.py" #unused
+      component summarizer "TranscriptSummarizer" "src/transcript_summarizer.py" #unused
+    }
+
+    container tests "Test Layer" {
+      component config_factory "ConfigFactory" "tests/helpers.py:284-610"
+      component test_config_val "test_config_validation.py"
+      component test_memory "test_memory.py"
+      component test_prompt_budget "test_prompt_budget_config.py"
+      component test_consistency "test_config_consistency.py"
+    }
+  }
+
+  // Wiring relationships (to be created)
+  state_backup_interval -> service_registry "needs wiring"
+  state_backup_count -> service_registry "needs wiring"
+  service_registry -> state_tracker "instantiates (missing params)"
+
+  // Harmonize references (to be removed)
+  harmonize -> memory_compaction_tool "propagates background_tool"
+  harmonize -> memory_compaction_model "propagates background_model"
+
+  // Env override references (to be removed)
+  env_int_overrides -> memory_compaction_timeout "line 131"
+  env_int_overrides -> summarizer_timeout "line 134"
+  env_int_overrides -> visual_max_screens "line 142"
+  env_int_overrides -> visual_per_screen_budget "lines 144-146"
+  env_int_overrides -> max_verif_chars "lines 161-163"
+  env_str_overrides -> memory_compaction_model "line 193"
+  env_literal_overrides -> memory_compaction_tool "line 283"
+  env_float_custom -> visual_diff_threshold "line 2248"
+}
+
+views {
+  view index {
+    include *
+    title "Issue #6314: Config Field Cleanup Topology"
+    description "Shows 11 unused config fields: 2 to wire, 9 to remove"
+  }
+}
