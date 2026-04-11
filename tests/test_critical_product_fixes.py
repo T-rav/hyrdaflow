@@ -283,10 +283,17 @@ class TestTraceRollupTempCleanup:
             trace.model_dump_json(), encoding="utf-8"
         )
 
-        # Make replace() fail
+        # Make replace() fail only for the latest.tmp -> latest rename
         latest_dir = run_dir.parent
+        original_replace = Path.replace
+
+        def _failing_replace(self: Path, target: object) -> Path:
+            if self.name == "latest.tmp":
+                raise OSError("permission denied")
+            return original_replace(self, target)  # type: ignore[arg-type]
+
         with (
-            patch.object(Path, "replace", side_effect=OSError("permission denied")),
+            patch.object(Path, "replace", _failing_replace),
             pytest.raises(OSError, match="permission denied"),
         ):
             write_phase_rollup(
@@ -367,5 +374,34 @@ class TestSentryLoopHttpErrorHandling:
             client_instance.get = AsyncMock(side_effect=error)
 
             result = await loop._fetch_unresolved("my-project")
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_list_projects_returns_empty_on_connect_error(self) -> None:
+        """Network errors (ConnectError, TimeoutException) are also caught."""
+        import httpx  # noqa: PLC0415
+
+        from sentry_loop import SentryLoop  # noqa: PLC0415
+
+        config = MagicMock()
+        config.sentry_org = "test-org"
+        config.sentry_project_filter = ""
+        creds = MagicMock()
+        creds.sentry_auth_token = "fake-token"
+        deps = MagicMock()
+        deps.bus = EventBus()
+
+        loop = SentryLoop(config=config, prs=MagicMock(), deps=deps, credentials=creds)
+
+        with patch("sentry_loop.httpx.AsyncClient") as MockClient:
+            client_instance = AsyncMock()
+            MockClient.return_value.__aenter__ = AsyncMock(return_value=client_instance)
+            MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+            client_instance.get = AsyncMock(
+                side_effect=httpx.ConnectError("DNS resolution failed")
+            )
+
+            result = await loop._list_projects()
 
         assert result == []

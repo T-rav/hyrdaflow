@@ -381,9 +381,9 @@ class EventBus:
         events = await self._event_log.load(max_events=self._max_history)
         async with self._history_lock:
             self._history = events
-        if events:
-            max_id = max(e.id for e in events)
-            _event_counter.advance(max_id + 1)
+            if events:
+                max_id = max(e.id for e in events)
+                _event_counter.advance(max_id + 1)
 
     async def load_events_since(self, since: datetime) -> list[HydraFlowEvent] | None:
         """Load persisted events from disk since *since*.

@@ -168,7 +168,7 @@ class SentryLoop(BaseBackgroundLoop):
                 resp = await client.get(url, headers=self._headers())
                 resp.raise_for_status()
                 projects: list[dict[str, Any]] = resp.json()
-        except httpx.HTTPStatusError:
+        except httpx.HTTPError:
             logger.warning("Sentry API returned error listing projects", exc_info=True)
             return []
 
@@ -192,7 +192,7 @@ class SentryLoop(BaseBackgroundLoop):
                 resp.raise_for_status()
                 result: list[dict[str, Any]] = resp.json()
                 return result
-        except httpx.HTTPStatusError:
+        except httpx.HTTPError:
             logger.warning(
                 "Sentry API returned error fetching issues for %s",
                 project_slug,
