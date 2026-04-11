@@ -82,7 +82,11 @@ def write_phase_rollup(
     latest_path = run_dir.parent / "latest"
     latest_tmp = run_dir.parent / "latest.tmp"
     latest_tmp.write_text(f"run-{run_id}\n", encoding="utf-8")
-    latest_tmp.replace(latest_path)
+    try:
+        latest_tmp.replace(latest_path)
+    except OSError:
+        latest_tmp.unlink(missing_ok=True)
+        raise
 
     # Append to factory_metrics.jsonl for the diagnostics dashboard
     try:

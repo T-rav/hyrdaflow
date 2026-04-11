@@ -628,18 +628,29 @@ class DockerRunner:
                 timeout=timeout,
             )
 
-            logs_stdout = await loop.run_in_executor(
-                None,
-                lambda: container.logs(stdout=True, stderr=False).decode(
-                    errors="replace"
-                ),
-            )
-            logs_stderr = await loop.run_in_executor(
-                None,
-                lambda: container.logs(stdout=False, stderr=True).decode(
-                    errors="replace"
-                ),
-            )
+            try:
+                logs_stdout = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: container.logs(stdout=True, stderr=False).decode(
+                            errors="replace"
+                        ),
+                    ),
+                    timeout=30.0,
+                )
+                logs_stderr = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: container.logs(stdout=False, stderr=True).decode(
+                            errors="replace"
+                        ),
+                    ),
+                    timeout=30.0,
+                )
+            except TimeoutError:
+                logger.warning("Timed out fetching container logs")
+                logs_stdout = ""
+                logs_stderr = ""
 
             return SimpleResult(
                 stdout=logs_stdout.strip(),

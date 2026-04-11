@@ -2006,7 +2006,7 @@ class PRManager:
         """
         fd, tmp_path = tempfile.mkstemp(suffix=".md", prefix="hydraflow-body-")
         try:
-            with os.fdopen(fd, "w") as f:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(body)
             return await run_subprocess_with_retry(
                 *cmd,

@@ -677,7 +677,10 @@ async def run_compact(config: HydraFlowConfig) -> TaskResult:
                     if item_int_id not in evicted_set:
                         kept_lines.append(stripped)
                 except Exception:
-                    kept_lines.append(stripped)
+                    logger.warning(
+                        "Dropping malformed JSONL line during compaction: %s",
+                        stripped[:120],
+                    )
             items_path.write_text(
                 "\n".join(kept_lines) + ("\n" if kept_lines else ""),
                 encoding="utf-8",

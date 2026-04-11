@@ -312,6 +312,7 @@ class EventBus:
         self._active_session_id: str | None = None
         self._active_repo: str | None = None
         self._pending_persists: set[asyncio.Task[None]] = set()
+        self._history_lock = asyncio.Lock()
 
     def set_session_id(self, session_id: str | None) -> None:
         """Set the active session ID to auto-inject into published events."""
@@ -332,9 +333,10 @@ class EventBus:
             event.session_id = self._active_session_id
         if self._active_repo and event.repo is None:
             event.repo = self._active_repo
-        self._history.append(event)
-        if len(self._history) > self._max_history:
-            self._history = self._history[-self._max_history :]
+        async with self._history_lock:
+            self._history.append(event)
+            if len(self._history) > self._max_history:
+                self._history = self._history[-self._max_history :]
         for queue in list(self._subscribers):
             try:
                 queue.put_nowait(event)
@@ -377,7 +379,8 @@ class EventBus:
         if self._event_log is None:
             return
         events = await self._event_log.load(max_events=self._max_history)
-        self._history = events
+        async with self._history_lock:
+            self._history = events
         if events:
             max_id = max(e.id for e in events)
             _event_counter.advance(max_id + 1)

@@ -61,6 +61,12 @@ class HindsightClient:
         """Close the underlying HTTP client."""
         await self._client.aclose()
 
+    async def __aenter__(self) -> HindsightClient:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        await self.close()
+
     # -- Health ---------------------------------------------------------------
 
     async def health_check(self) -> bool:

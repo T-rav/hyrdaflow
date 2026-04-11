@@ -249,67 +249,70 @@ class ReportIssueLoop(BaseBackgroundLoop):
                         report.id,
                     )
 
-        # Upload screenshot to GitHub (via gist) so the issue body can
-        # reference a real URL instead of a local temp path.
+        # Everything from here on must clean up the screenshot temp file.
+        issue_number = 0
         screenshot_url: str = ""
-        if screenshot_path:
-            screenshot_url = await self._pr_manager.upload_screenshot(screenshot_path)
-            if not screenshot_url:
-                logger.warning(
-                    "Screenshot upload failed for report %s; "
-                    "issue will be created without inline image",
-                    report.id,
-                )
-
-        # Build prompt — invoke /hf.issue so Claude gets the full skill
-        # instructions (codebase research, duplicate check, structured body).
-        description = report.description
-        if screenshot_path:
-            description += (
-                f"\n\nA screenshot of the bug is saved at {screenshot_path} "
-                f"— read it with the Read tool to see what the user saw."
-            )
-            if screenshot_url:
-                description += (
-                    f"\n\nThe screenshot has been uploaded to: {screenshot_url}"
-                    f"\n\nInclude this markdown image in the GitHub issue body "
-                    f"so the screenshot is visible inline:\n\n"
-                    f"![Screenshot]({screenshot_url})"
-                )
-            else:
-                description += (
-                    "\n\nScreenshot upload failed — do NOT include a local "
-                    "file path in the issue body as it will render as a "
-                    "broken image."
-                )
-
-        # Use hydraflow-plan so bug reports go through the planning phase
-        # (lite plan auto-detected) before implementation. This ensures every
-        # issue has a plan comment that the implement agent can reference.
         plan_label = (
             self._config.planner_label[0]
             if self._config.planner_label
             else "hydraflow-plan"
         )
-        description += (
-            f"\n\nIMPORTANT: Use the label `{plan_label}` instead of "
-            f"`hydraflow-find` for this issue."
-        )
-
-        prompt = f"/hf.issue {description}"
-
-        cmd = build_agent_command(
-            tool=self._config.report_issue_tool,
-            model=self._config.report_issue_model,
-            max_turns=10,
-        )
-
-        event_data: TranscriptEventData = {
-            "source": "report_issue",
-        }
-
-        issue_number = 0
         try:
+            # Upload screenshot to GitHub (via gist) so the issue body can
+            # reference a real URL instead of a local temp path.
+            if screenshot_path:
+                screenshot_url = await self._pr_manager.upload_screenshot(
+                    screenshot_path
+                )
+                if not screenshot_url:
+                    logger.warning(
+                        "Screenshot upload failed for report %s; "
+                        "issue will be created without inline image",
+                        report.id,
+                    )
+
+            # Build prompt — invoke /hf.issue so Claude gets the full skill
+            # instructions (codebase research, duplicate check, structured body).
+            description = report.description
+            if screenshot_path:
+                description += (
+                    f"\n\nA screenshot of the bug is saved at {screenshot_path} "
+                    f"— read it with the Read tool to see what the user saw."
+                )
+                if screenshot_url:
+                    description += (
+                        f"\n\nThe screenshot has been uploaded to: {screenshot_url}"
+                        f"\n\nInclude this markdown image in the GitHub issue body "
+                        f"so the screenshot is visible inline:\n\n"
+                        f"![Screenshot]({screenshot_url})"
+                    )
+                else:
+                    description += (
+                        "\n\nScreenshot upload failed — do NOT include a local "
+                        "file path in the issue body as it will render as a "
+                        "broken image."
+                    )
+
+            # Use hydraflow-plan so bug reports go through the planning phase
+            # (lite plan auto-detected) before implementation. This ensures every
+            # issue has a plan comment that the implement agent can reference.
+            description += (
+                f"\n\nIMPORTANT: Use the label `{plan_label}` instead of "
+                f"`hydraflow-find` for this issue."
+            )
+
+            prompt = f"/hf.issue {description}"
+
+            cmd = build_agent_command(
+                tool=self._config.report_issue_tool,
+                model=self._config.report_issue_model,
+                max_turns=10,
+            )
+
+            event_data: TranscriptEventData = {
+                "source": "report_issue",
+            }
+
             transcript = await stream_claude_process(
                 cmd=cmd,
                 prompt=prompt,

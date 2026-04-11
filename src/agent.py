@@ -1173,6 +1173,8 @@ SUMMARY: <one-line summary>
         try:
             import json as _json  # noqa: PLC0415
 
+            from file_util import atomic_write  # noqa: PLC0415
+
             run_dir = (
                 self._config.data_root
                 / "traces"
@@ -1197,7 +1199,7 @@ SUMMARY: <one-line summary>
                     "blocking": blocking,
                 }
             )
-            results_path.write_text(_json.dumps(existing, indent=2), encoding="utf-8")
+            atomic_write(results_path, _json.dumps(existing, indent=2))
         except Exception:
             logger.warning(
                 "Failed to append skill result for %s", skill_name, exc_info=True

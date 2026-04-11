@@ -163,10 +163,14 @@ class SentryLoop(BaseBackgroundLoop):
         """List Sentry projects, optionally filtered by config."""
         org = quote(self._config.sentry_org)
         url = f"{_SENTRY_API}/organizations/{org}/projects/"
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(url, headers=self._headers())
-            resp.raise_for_status()
-            projects: list[dict[str, Any]] = resp.json()
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(url, headers=self._headers())
+                resp.raise_for_status()
+                projects: list[dict[str, Any]] = resp.json()
+        except httpx.HTTPStatusError:
+            logger.warning("Sentry API returned error listing projects", exc_info=True)
+            return []
 
         if self._config.sentry_project_filter:
             allowed = {
@@ -182,11 +186,19 @@ class SentryLoop(BaseBackgroundLoop):
         org = quote(self._config.sentry_org)
         url = f"{_SENTRY_API}/projects/{org}/{quote(project_slug)}/issues/"
         params = {"query": "is:unresolved level:error", "sort": "date", "limit": "25"}
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(url, headers=self._headers(), params=params)
-            resp.raise_for_status()
-            result: list[dict[str, Any]] = resp.json()
-            return result
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(url, headers=self._headers(), params=params)
+                resp.raise_for_status()
+                result: list[dict[str, Any]] = resp.json()
+                return result
+        except httpx.HTTPStatusError:
+            logger.warning(
+                "Sentry API returned error fetching issues for %s",
+                project_slug,
+                exc_info=True,
+            )
+            return []
 
     async def _resolve_sentry_issue(self, issue_id: str) -> None:
         """Mark a Sentry issue as resolved so it won't be re-polled.

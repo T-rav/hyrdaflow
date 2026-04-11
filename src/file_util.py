@@ -29,7 +29,7 @@ def atomic_write(path: Path, data: str) -> None:
         suffix=".tmp",
     )
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
@@ -47,7 +47,7 @@ def append_jsonl(path: Path, data: str) -> None:
     to ensure the record reaches stable storage before returning.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a") as f:
+    with open(path, "a", encoding="utf-8") as f:
         f.write(data + "\n")
         f.flush()
         os.fsync(f.fileno())
@@ -57,7 +57,7 @@ def append_jsonl(path: Path, data: str) -> None:
 def file_lock(path: Path) -> Iterator[None]:
     """Acquire an exclusive advisory lock for *path* until context exit."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a+") as lock_f:
+    with open(path, "a+", encoding="utf-8") as lock_f:
         fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX)
         try:
             yield
