@@ -1,0 +1,81 @@
+// LikeC4 architecture diagram — WorkspaceGCLoop exception handling flow
+// Issue #6303: Replace bare except Exception with reraise_on_credit_or_bug
+
+specification {
+  element system
+  element module
+  element function
+  element pattern
+}
+
+model {
+  gc_system = system "Workspace GC Loop" {
+    gc_loop = module "WorkspaceGCLoop" {
+      do_work = function "_do_work()" {
+        description "Orchestrates 4 GC phases; catches per-item exceptions"
+      }
+      phase1 = function "Phase 1: state workspaces" {
+        description "except Exception at line 73 — wraps _is_safe_to_gc + destroy"
+      }
+      phase2 = function "_collect_orphaned_dirs" {
+        description "except Exception at line 272 — wraps _is_safe_to_gc + destroy"
+      }
+      phase3 = function "_collect_orphaned_branches" {
+        description "except Exception at line 333 — wraps pipeline label + git branch -D"
+      }
+      phase4 = function "_prune_stale_branch_entries" {
+        description "except Exception at line 358 — wraps _is_safe_to_gc + state mutation"
+      }
+      is_safe = function "_is_safe_to_gc" {
+        description "3 internal except Exception blocks (lines 141, 163, 194) — return safe defaults"
+      }
+    }
+
+    classify = module "exception_classify" {
+      reraise = function "reraise_on_credit_or_bug(exc)" {
+        description "Re-raises AuthenticationError, CreditExhaustedError, and LIKELY_BUG_EXCEPTIONS"
+      }
+    }
+
+    base_loop = module "BaseBackgroundLoop" {
+      execute_cycle = function "_execute_cycle()" {
+        description "Catches AuthenticationError/CreditExhaustedError and re-raises (lines 141-144)"
+      }
+    }
+
+    subprocess = module "subprocess_util" {
+      auth_error = function "AuthenticationError(RuntimeError)"
+      credit_error = function "CreditExhaustedError(RuntimeError)"
+    }
+  }
+
+  // Current flow (broken): exceptions swallowed
+  do_work -> phase1
+  do_work -> phase2
+  do_work -> phase3
+  do_work -> phase4
+
+  phase1 -> is_safe
+  phase2 -> is_safe
+  phase4 -> is_safe
+
+  // Desired flow: reraise_on_credit_or_bug at top of each except block
+  phase1 -> reraise
+  phase2 -> reraise
+  phase3 -> reraise
+  phase4 -> reraise
+  is_safe -> reraise
+
+  // Fatal exceptions propagate up to base loop
+  reraise -> auth_error
+  reraise -> credit_error
+  execute_cycle -> do_work
+}
+
+views {
+  view exception_flow of gc_system {
+    title "GC Loop Exception Flow After Fix"
+    description "reraise_on_credit_or_bug added to all 7 except Exception blocks"
+    include *
+  }
+}

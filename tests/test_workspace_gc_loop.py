@@ -926,3 +926,205 @@ class TestCollectOrphanedBranchesPerItemIsolation:
         assert count == 1
         assert 10 in call_log
         assert 20 in call_log
+
+
+class TestGCReraisesFatalExceptions:
+    """Fatal exceptions (AuthenticationError, CreditExhaustedError, likely bugs)
+    must propagate through GC except blocks instead of being swallowed as warnings.
+    """
+
+    # -- Phase 1: _do_work except block (line 73) --
+
+    @pytest.mark.asyncio
+    async def test_phase1_reraises_authentication_error(self, tmp_path: Path) -> None:
+        """AuthenticationError from _is_safe_to_gc propagates out of _do_work."""
+        from subprocess_util import AuthenticationError  # noqa: PLC0415
+
+        loop, _s, _e = _make_loop(tmp_path, active_workspaces={42: "/p/42"})
+        loop._get_issue_state = AsyncMock(side_effect=AuthenticationError("bad token"))
+        with pytest.raises(AuthenticationError):
+            await loop._do_work()
+
+    @pytest.mark.asyncio
+    async def test_phase1_reraises_attribute_error(self, tmp_path: Path) -> None:
+        """AttributeError (likely bug) from _is_safe_to_gc propagates out of _do_work."""
+        loop, _s, _e = _make_loop(tmp_path, active_workspaces={42: "/p/42"})
+        loop._get_issue_state = AsyncMock(side_effect=AttributeError("no such attr"))
+        with pytest.raises(AttributeError):
+            await loop._do_work()
+
+    # -- _is_safe_to_gc: _get_issue_state except block (line 141) --
+
+    @pytest.mark.asyncio
+    async def test_is_safe_to_gc_reraises_auth_error_from_get_issue_state(
+        self, tmp_path: Path
+    ) -> None:
+        """AuthenticationError from _get_issue_state propagates out of _is_safe_to_gc."""
+        from subprocess_util import AuthenticationError  # noqa: PLC0415
+
+        loop, _s, _e = _make_loop(tmp_path)
+        loop._get_issue_state = AsyncMock(side_effect=AuthenticationError("bad token"))
+        with pytest.raises(AuthenticationError):
+            await loop._is_safe_to_gc(42)
+
+    # -- _is_safe_to_gc: _has_open_pr except block (line 163) --
+
+    @pytest.mark.asyncio
+    async def test_is_safe_to_gc_reraises_auth_error_from_has_open_pr(
+        self, tmp_path: Path
+    ) -> None:
+        """AuthenticationError from _has_open_pr propagates out of _is_safe_to_gc."""
+        from subprocess_util import AuthenticationError  # noqa: PLC0415
+
+        loop, _s, _e = _make_loop(tmp_path)
+        loop._get_issue_state = AsyncMock(return_value="open")
+        loop._has_open_pr = AsyncMock(side_effect=AuthenticationError("bad token"))
+        with pytest.raises(AuthenticationError):
+            await loop._is_safe_to_gc(42)
+
+    # -- _issue_has_pipeline_label except block (line 194) --
+
+    @pytest.mark.asyncio
+    async def test_issue_has_pipeline_label_reraises_auth_error(
+        self, tmp_path: Path
+    ) -> None:
+        """AuthenticationError from run_subprocess propagates out of _issue_has_pipeline_label."""
+        from subprocess_util import AuthenticationError  # noqa: PLC0415
+
+        loop, _s, _e = _make_loop(tmp_path)
+        loop._issue_has_pipeline_label = (
+            WorkspaceGCLoop._issue_has_pipeline_label.__get__(loop)
+        )  # type: ignore[attr-defined]
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+            m.side_effect = AuthenticationError("bad token")
+            with pytest.raises(AuthenticationError):
+                await loop._issue_has_pipeline_label(42)
+
+    # -- _collect_orphaned_dirs except block (line 272) --
+
+    @pytest.mark.asyncio
+    async def test_collect_orphaned_dirs_reraises_auth_error(
+        self, tmp_path: Path
+    ) -> None:
+        """AuthenticationError from _is_safe_to_gc propagates out of _collect_orphaned_dirs."""
+        from subprocess_util import AuthenticationError  # noqa: PLC0415
+
+        loop, _s, _e = _make_loop(tmp_path)
+        slug = loop._config.repo_slug
+        (loop._config.workspace_base / slug / "issue-50").mkdir(parents=True)
+        loop._get_issue_state = AsyncMock(side_effect=AuthenticationError("bad token"))
+        with pytest.raises(AuthenticationError):
+            await loop._collect_orphaned_dirs({}, 10)
+
+    @pytest.mark.asyncio
+    async def test_collect_orphaned_dirs_reraises_attribute_error(
+        self, tmp_path: Path
+    ) -> None:
+        """AttributeError (likely bug) from _is_safe_to_gc propagates out of _collect_orphaned_dirs."""
+        loop, _s, _e = _make_loop(tmp_path)
+        slug = loop._config.repo_slug
+        (loop._config.workspace_base / slug / "issue-50").mkdir(parents=True)
+        loop._get_issue_state = AsyncMock(side_effect=AttributeError("no such attr"))
+        with pytest.raises(AttributeError):
+            await loop._collect_orphaned_dirs({}, 10)
+
+    # -- _collect_orphaned_branches per-item except block (line 333) --
+
+    @pytest.mark.asyncio
+    async def test_collect_orphaned_branches_reraises_auth_error(
+        self, tmp_path: Path
+    ) -> None:
+        """AuthenticationError from _issue_has_pipeline_label propagates out of _collect_orphaned_branches."""
+        from subprocess_util import AuthenticationError  # noqa: PLC0415
+
+        loop, _s, _e = _make_loop(tmp_path)
+        loop._collect_orphaned_branches = (
+            WorkspaceGCLoop._collect_orphaned_branches.__get__(loop)
+        )  # type: ignore[attr-defined]
+        loop._issue_has_pipeline_label = AsyncMock(  # type: ignore[method-assign]
+            side_effect=AuthenticationError("bad token")
+        )
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+            m.return_value = "  agent/issue-99\n"
+            with pytest.raises(AuthenticationError):
+                await loop._collect_orphaned_branches()
+
+    @pytest.mark.asyncio
+    async def test_collect_orphaned_branches_reraises_attribute_error(
+        self, tmp_path: Path
+    ) -> None:
+        """AttributeError (likely bug) in branch processing propagates."""
+        loop, _s, _e = _make_loop(tmp_path)
+        loop._collect_orphaned_branches = (
+            WorkspaceGCLoop._collect_orphaned_branches.__get__(loop)
+        )  # type: ignore[attr-defined]
+        loop._issue_has_pipeline_label = AsyncMock(  # type: ignore[method-assign]
+            side_effect=AttributeError("no such attr")
+        )
+        with patch("workspace_gc_loop.run_subprocess", new_callable=AsyncMock) as m:
+            m.return_value = "  agent/issue-99\n"
+            with pytest.raises(AttributeError):
+                await loop._collect_orphaned_branches()
+
+    # -- _prune_stale_branch_entries except block (line 358) --
+
+    @pytest.mark.asyncio
+    async def test_prune_stale_branch_entries_reraises_auth_error(
+        self, tmp_path: Path
+    ) -> None:
+        """AuthenticationError from _is_safe_to_gc propagates out of _prune_stale_branch_entries."""
+        from subprocess_util import AuthenticationError  # noqa: PLC0415
+
+        loop, state, _e = _make_loop(tmp_path)
+        state.set_branch(42, "agent/issue-42")
+        loop._is_safe_to_gc = AsyncMock(side_effect=AuthenticationError("bad token"))
+        with pytest.raises(AuthenticationError):
+            await loop._prune_stale_branch_entries()
+
+    @pytest.mark.asyncio
+    async def test_prune_stale_branch_entries_reraises_attribute_error(
+        self, tmp_path: Path
+    ) -> None:
+        """AttributeError (likely bug) propagates out of _prune_stale_branch_entries."""
+        loop, state, _e = _make_loop(tmp_path)
+        state.set_branch(42, "agent/issue-42")
+        loop._is_safe_to_gc = AsyncMock(side_effect=AttributeError("no such attr"))
+        with pytest.raises(AttributeError):
+            await loop._prune_stale_branch_entries()
+
+    # -- Transient errors are still caught (regression safety) --
+
+    @pytest.mark.asyncio
+    async def test_phase1_still_catches_runtime_error(self, tmp_path: Path) -> None:
+        """RuntimeError (transient) is still caught, not re-raised."""
+        loop, _s, _e = _make_loop(tmp_path, active_workspaces={42: "/p/42"})
+        loop._get_issue_state = AsyncMock(
+            side_effect=RuntimeError("transient network error")
+        )
+        # RuntimeError is caught in _is_safe_to_gc (returns False → skipped)
+        # and does not propagate to _do_work.
+        result = await loop._do_work()
+        assert result["skipped"] == 1
+
+    @pytest.mark.asyncio
+    async def test_collect_orphaned_dirs_still_catches_os_error(
+        self, tmp_path: Path
+    ) -> None:
+        """OSError (transient filesystem) is still caught in _collect_orphaned_dirs."""
+        loop, _s, _e = _make_loop(tmp_path)
+        slug = loop._config.repo_slug
+        (loop._config.workspace_base / slug / "issue-50").mkdir(parents=True)
+        loop._is_safe_to_gc = AsyncMock(side_effect=OSError("disk error"))
+        collected = await loop._collect_orphaned_dirs({}, 10)
+        assert collected == 0  # error was caught, not propagated
+
+    @pytest.mark.asyncio
+    async def test_prune_stale_branch_entries_still_catches_runtime_error(
+        self, tmp_path: Path
+    ) -> None:
+        """RuntimeError (transient) is still caught in _prune_stale_branch_entries."""
+        loop, state, _e = _make_loop(tmp_path)
+        state.set_branch(42, "agent/issue-42")
+        loop._is_safe_to_gc = AsyncMock(side_effect=RuntimeError("API failure"))
+        pruned = await loop._prune_stale_branch_entries()
+        assert pruned == 0  # error was caught, not propagated

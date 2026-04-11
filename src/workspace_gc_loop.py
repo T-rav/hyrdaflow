@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import Credentials, HydraFlowConfig
+from exception_classify import reraise_on_credit_or_bug
 from state import StateTracker
 from subprocess_util import run_subprocess
 
@@ -70,7 +71,8 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
                     logger.info("GC: collected workspace for issue #%d", issue_number)
                 else:
                     skipped += 1
-            except Exception:
+            except Exception as exc:  # noqa: BLE001
+                reraise_on_credit_or_bug(exc)
                 logger.warning(
                     "GC: failed to collect workspace for issue #%d",
                     issue_number,
@@ -138,7 +140,8 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
         # Check issue state via GitHub API
         try:
             issue_state = await self._get_issue_state(issue_number)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             logger.debug(
                 "GC: could not fetch issue #%d state — skipping",
                 issue_number,
@@ -160,7 +163,8 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
             else:
                 try:
                     safe_to_gc = not await self._has_open_pr(issue_number)
-                except Exception:
+                except Exception as exc:  # noqa: BLE001
+                    reraise_on_credit_or_bug(exc)
                     logger.debug(
                         "GC: could not check PR for issue #%d — skipping",
                         issue_number,
@@ -191,7 +195,8 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
                 cwd=self._config.repo_root,
                 gh_token=self._credentials.gh_token,
             )
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             logger.debug(
                 "GC: could not fetch labels for issue #%d — skipping GC",
                 issue_number,
@@ -269,7 +274,8 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
                         "GC: collected orphaned worktree dir for issue #%d",
                         issue_number,
                     )
-            except Exception:
+            except Exception as exc:  # noqa: BLE001
+                reraise_on_credit_or_bug(exc)
                 logger.warning(
                     "GC: failed to collect orphaned dir for issue #%d",
                     issue_number,
@@ -330,7 +336,8 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
                 self._state.remove_branch(issue_number)
                 collected += 1
                 logger.info("GC: deleted orphaned branch %s", branch)
-            except Exception:
+            except Exception as exc:  # noqa: BLE001
+                reraise_on_credit_or_bug(exc)
                 logger.warning(
                     "GC: error processing branch %s — skipping",
                     branch,
@@ -355,7 +362,8 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
                     logger.info(
                         "GC: pruned stale branch entry for issue #%d", issue_number
                     )
-            except Exception:
+            except Exception as exc:  # noqa: BLE001
+                reraise_on_credit_or_bug(exc)
                 logger.warning(
                     "GC: could not prune branch entry for issue #%d",
                     issue_number,
