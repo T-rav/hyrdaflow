@@ -7,14 +7,16 @@ import { SystemPanel } from './components/SystemPanel'
 import { OutcomesPanel } from './components/IssueHistoryPanel'
 import { StreamView } from './components/StreamView'
 import { SessionSidebar } from './components/SessionSidebar'
+import { MemoryBrowser } from './components/MemoryBrowser'
 import { theme } from './theme'
 
-const TABS = ['issues', 'hitl', 'outcomes', 'system']
+const TABS = ['issues', 'hitl', 'outcomes', 'memory', 'system']
 
 const TAB_LABELS = {
   issues: 'Work Stream',
   outcomes: 'Outcomes',
   hitl: 'HITL',
+  memory: 'Memory',
   system: 'System',
 }
 
@@ -255,6 +257,9 @@ function AppContent() {
             orchestratorStatus === 'running'
               ? <HITLTable items={hitlItems} onRefresh={refreshHitl} />
               : <div style={idleMessage}>Pipeline is not running — HITL actions are unavailable.</div>
+          )}
+          {activeTab === 'memory' && (
+            <MemoryBrowser />
           )}
           {activeTab === 'system' && (
             <SystemPanel

@@ -140,6 +140,35 @@ class HindsightClient:
             )
         return memories
 
+    # -- Multi-bank recall ----------------------------------------------------
+
+    async def recall_banks(
+        self,
+        query: str,
+        banks: list[Bank] | None = None,
+        *,
+        limit: int = 5,
+    ) -> dict[Bank, list[HindsightMemory]]:
+        """Recall from multiple banks concurrently.
+
+        Returns a mapping from bank to recalled memories.  Failed banks
+        return empty lists without blocking others.
+        """
+        import asyncio  # noqa: PLC0415
+
+        targets = list(banks) if banks else list(Bank)
+
+        async def _safe_recall(bank: Bank) -> tuple[Bank, list[HindsightMemory]]:
+            try:
+                memories = await self.recall(bank, query, limit=limit)
+            except Exception:  # noqa: BLE001
+                logger.warning("recall_banks: recall failed for bank=%s", bank)
+                memories = []
+            return bank, memories
+
+        results = await asyncio.gather(*[_safe_recall(b) for b in targets])
+        return dict(results)
+
     # -- Reflect --------------------------------------------------------------
 
     async def reflect(

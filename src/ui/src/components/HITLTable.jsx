@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { theme } from '../theme'
 import { PIPELINE_STAGES } from '../constants'
 import { useHITLCorrection } from '../hooks/useHITLCorrection'
+import { MemoryContext } from './MemoryContext'
 
 export function HITLTable({ items, onRefresh }) {
   const [expandedIssue, setExpandedIssue] = useState(null)
@@ -339,6 +340,7 @@ export function HITLTable({ items, onRefresh }) {
                             Cause: {item.cause}
                           </div>
                         )}
+                        <MemoryContext issueNumber={item.issue} variant="hitl" />
                         <textarea
                           style={styles.textarea}
                           placeholder="Provide correction guidance..."

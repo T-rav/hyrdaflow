@@ -2582,6 +2582,32 @@ class TribalMemory(BaseModel):
     created_at: str = Field(default="")
 
 
+class MemoryContextItem(BaseModel):
+    """A single memory item surfaced to human operators."""
+
+    bank: str
+    content: str
+    relevance_score: float = 0.0
+    timestamp: str = ""
+    context: str = ""
+
+
+class MemoryContextResponse(BaseModel):
+    """Response for memory context queries."""
+
+    items: list[MemoryContextItem] = Field(default_factory=list)
+    query: str = ""
+    bank_filter: str | None = None
+
+
+class MemoryBankInfo(BaseModel):
+    """Summary info about a Hindsight memory bank."""
+
+    id: str
+    name: str
+    item_count: int = 0
+
+
 class UnstickResult(TypedDict):
     """Return shape of ``PRUnsticker.unstick``."""
 

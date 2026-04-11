@@ -1517,6 +1517,11 @@ def create_router(
 
     _register_hitl(router, ctx)
 
+    # --- Memory context routes (extracted to _memory_routes.py) ---
+    from dashboard_routes._memory_routes import register as _register_memory
+
+    _register_memory(router, ctx)
+
     # --- Control routes (extracted to _control_routes.py) ---
     from dashboard_routes._control_routes import register as _register_control
 

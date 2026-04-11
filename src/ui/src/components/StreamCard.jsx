@@ -3,6 +3,7 @@ import { theme } from '../theme'
 import { PIPELINE_STAGES, PULSE_ANIMATION, ACTIVITY_TYPE_COLORS } from '../constants'
 import { formatDuration, STAGE_META, STAGE_KEYS } from '../hooks/useTimeline'
 import { TranscriptPreview } from './TranscriptPreview'
+import { MemoryContext } from './MemoryContext'
 import { WORKSTREAM_SIDE_INSET_PX } from '../styles/sectionStyles'
 
 export function StatusDot({ status, stageKey }) {
@@ -209,6 +210,7 @@ export function StreamCard({ issue, intent, defaultExpanded, onRequestChanges, t
           {isActive && transcript.length > 0 && (
             <TranscriptPreview transcript={transcript} />
           )}
+          <MemoryContext issueNumber={issue.issueNumber} variant="issue" />
           {(issue.pr?.url || onRequestChanges) && (
             <div style={styles.actions}>
               {issue.pr?.url && (
