@@ -1,0 +1,106 @@
+// C4 Component diagram: HealthMonitorLoop._do_work refactoring
+// Shows the current monolithic _do_work and target extracted methods
+
+specification {
+  element system
+  element container
+  element component
+  element method
+}
+
+model {
+  healthMonitor = component "HealthMonitorLoop" {
+    description "Background loop monitoring pipeline health"
+
+    // Orchestrator (refactored _do_work)
+    doWork = method "_do_work" {
+      description "~20-line sequencer calling each sub-task"
+    }
+
+    // Already-extracted methods (no change needed)
+    verifyPending = method "_verify_pending_adjustments" {
+      description "Check pending adjustments for outcome verification"
+    }
+    applyAdj = method "_apply_adjustments" {
+      description "Apply safe auto-adjustments from ADJUSTMENT_RULES"
+    }
+    fileHitl = method "_file_hitl_recommendations" {
+      description "Write HITL recs to JSONL for unsafe problems"
+    }
+    emitSentry = method "_emit_sentry_metrics" {
+      description "Emit all aggregated Sentry measurements"
+    }
+
+    // NEW extracted methods
+    runKnowledgeGaps = method "_run_knowledge_gap_count" {
+      description "detect_knowledge_gaps -> gap_count: int"
+    }
+    runLogIngestion = method "_run_log_ingestion_cycle" {
+      description "parse/detect/enrich/file log patterns -> LogIngestionResult | None"
+    }
+    runHarnessAutoFile = method "_run_harness_auto_file_cycle" {
+      description "auto_file_suggestions call"
+    }
+    runSuggestionIngestion = method "_run_suggestion_ingestion_cycle" {
+      description "Read JSONL, file as memory, clear file"
+    }
+    runProposalVerification = method "_run_proposal_verification_cycle" {
+      description "Queue append or inline verify"
+    }
+    runCrossProject = method "_run_cross_project_pattern_cycle" {
+      description "Cross-project log pattern detection"
+    }
+    runHitlCount = method "_run_hitl_recommendations_count" {
+      description "Count unactioned HITL recs -> int"
+    }
+
+    // Data flow: doWork calls each in sequence
+    doWork -> verifyPending "1. verify pending"
+    doWork -> applyAdj "2. apply adjustments"
+    doWork -> fileHitl "3. file HITL recs"
+    doWork -> runKnowledgeGaps "4. gap count"
+    doWork -> runLogIngestion "5. log ingestion"
+    doWork -> runHarnessAutoFile "6. harness auto-file"
+    doWork -> runSuggestionIngestion "7. suggestion ingestion"
+    doWork -> runProposalVerification "8. proposal verification"
+    doWork -> runCrossProject "9. cross-project patterns"
+    doWork -> runHitlCount "10. HITL rec count"
+    doWork -> emitSentry "11. emit sentry (aggregated)"
+  }
+
+  // External dependencies (deferred imports)
+  memoryScoring = component "memory_scoring" {
+    description "detect_knowledge_gaps()"
+  }
+  logIngestion = component "log_ingestion" {
+    description "parse/detect/enrich/file log patterns"
+  }
+  harnessInsights = component "harness_insights" {
+    description "HarnessInsightStore, auto_file_suggestions()"
+  }
+  memoryModule = component "memory" {
+    description "file_memory_suggestion()"
+  }
+  reviewInsights = component "review_insights" {
+    description "ReviewInsightStore, verify_proposals()"
+  }
+  retrospectiveQueue = component "retrospective_queue" {
+    description "RetrospectiveQueue, QueueItem, QueueKind"
+  }
+
+  // Extracted method -> external dep
+  runKnowledgeGaps -> memoryScoring "deferred import"
+  runLogIngestion -> logIngestion "deferred import"
+  runHarnessAutoFile -> harnessInsights "deferred import"
+  runSuggestionIngestion -> memoryModule "deferred import"
+  runProposalVerification -> reviewInsights "deferred import (fallback)"
+  runProposalVerification -> retrospectiveQueue "queue append (primary)"
+  runCrossProject -> logIngestion "deferred import"
+}
+
+views {
+  view of healthMonitor {
+    title "HealthMonitorLoop._do_work refactoring"
+    description "Extraction of 7 inline blocks into private methods"
+  }
+}

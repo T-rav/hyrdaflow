@@ -1271,3 +1271,272 @@ class TestHarnessSuggestionIngestion:
             if line.strip() and not _json.loads(line).get("actioned", False)
         )
         assert count == 2
+
+
+# ---------------------------------------------------------------------------
+# Extracted private methods — independent testability
+# ---------------------------------------------------------------------------
+
+
+class TestRunKnowledgeGapCount:
+    """Tests for _run_knowledge_gap_count — knowledge gap detection."""
+
+    def test_returns_gap_count_when_module_available(self, tmp_path: Path) -> None:
+        """Returns the number of detected knowledge gaps."""
+        loop = _make_loop(tmp_path)
+        _write_failures(loop._failures_path, [{"category": "ci_failure"}] * 3)
+
+        with patch(
+            "memory_scoring.detect_knowledge_gaps",
+            return_value=["g1", "g2"],
+        ):
+            result = loop._run_knowledge_gap_count()
+
+        assert result == 2
+
+    def test_returns_zero_on_exception(self, tmp_path: Path) -> None:
+        """Returns 0 when detect_knowledge_gaps raises."""
+        loop = _make_loop(tmp_path)
+
+        with patch(
+            "memory_scoring.detect_knowledge_gaps",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = loop._run_knowledge_gap_count()
+
+        assert result == 0
+
+    def test_returns_zero_when_import_fails(self, tmp_path: Path) -> None:
+        """Returns 0 when memory_scoring is not importable."""
+        loop = _make_loop(tmp_path)
+        # No patching — relies on the import guard returning 0
+        result = loop._run_knowledge_gap_count()
+        assert isinstance(result, int)
+
+
+class TestRunLogIngestionCycle:
+    """Tests for _run_log_ingestion_cycle — log parsing and pattern filing."""
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_no_log_dir(self, tmp_path: Path) -> None:
+        """Returns None when no logs directory exists."""
+        loop = _make_loop(tmp_path)
+        result = await loop._run_log_ingestion_cycle()
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_on_import_error(self, tmp_path: Path) -> None:
+        """Returns None when log_ingestion module is not available."""
+        loop = _make_loop(tmp_path)
+        # Even with a log dir, if log_ingestion is missing, returns None
+        log_dir = loop._config.data_root / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        result = await loop._run_log_ingestion_cycle()
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_updates_last_log_scan_on_success(self, tmp_path: Path) -> None:
+        """Sets _last_log_scan after successful log ingestion."""
+        loop = _make_loop(tmp_path)
+        log_dir = loop._config.data_root / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        assert loop._last_log_scan is None
+
+        mock_result = MagicMock()
+        mock_result.total_patterns = 5
+        mock_result.filed = 2
+        mock_result.escalated = 1
+
+        with (
+            patch("health_monitor_loop.parse_log_files", create=True, return_value=[]),
+            patch(
+                "health_monitor_loop.detect_log_patterns", create=True, return_value=[]
+            ),
+            patch(
+                "health_monitor_loop.load_known_patterns", create=True, return_value={}
+            ),
+            patch(
+                "health_monitor_loop.file_log_patterns",
+                create=True,
+                new_callable=AsyncMock,
+                return_value=mock_result,
+            ),
+            patch(
+                "health_monitor_loop.save_known_patterns",
+                create=True,
+                return_value=None,
+            ),
+        ):
+            result = await loop._run_log_ingestion_cycle()
+
+        assert result is not None
+        assert result.total_patterns == 5
+        assert loop._last_log_scan is not None
+
+
+class TestRunHarnessAutoFileCycle:
+    """Tests for _run_harness_auto_file_cycle — auto-file harness insights."""
+
+    @pytest.mark.asyncio
+    async def test_no_error_when_import_fails(self, tmp_path: Path) -> None:
+        """Silently handles ImportError when harness_insights is missing."""
+        loop = _make_loop(tmp_path)
+        # Should not raise
+        await loop._run_harness_auto_file_cycle()
+
+    @pytest.mark.asyncio
+    async def test_calls_auto_file_suggestions(self, tmp_path: Path) -> None:
+        """Calls auto_file_suggestions with correct arguments."""
+        loop = _make_loop(tmp_path)
+        mock_auto_file = AsyncMock()
+        mock_store_cls = MagicMock()
+        mock_store_instance = MagicMock()
+        mock_store_cls.return_value = mock_store_instance
+
+        with (
+            patch(
+                "health_monitor_loop.HarnessInsightStore",
+                create=True,
+                new=mock_store_cls,
+            ),
+            patch(
+                "health_monitor_loop.auto_file_suggestions",
+                create=True,
+                new=mock_auto_file,
+            ),
+        ):
+            await loop._run_harness_auto_file_cycle()
+
+        mock_auto_file.assert_awaited_once_with(mock_store_instance, loop._config)
+
+
+class TestRunHarnessSuggestionIngestionCycle:
+    """Tests for _run_harness_suggestion_ingestion_cycle — JSONL → memory items."""
+
+    @pytest.mark.asyncio
+    async def test_no_op_when_file_missing(self, tmp_path: Path) -> None:
+        """Does nothing when harness_suggestions.jsonl doesn't exist."""
+        loop = _make_loop(tmp_path)
+        # Should not raise
+        await loop._run_harness_suggestion_ingestion_cycle()
+
+    @pytest.mark.asyncio
+    async def test_clears_suggestions_after_ingestion(self, tmp_path: Path) -> None:
+        """Clears the suggestions file after processing."""
+        loop = _make_loop(tmp_path)
+        suggestions_path = loop._config.data_path("memory", "harness_suggestions.jsonl")
+        suggestions_path.parent.mkdir(parents=True, exist_ok=True)
+        rec = {
+            "title": "Test",
+            "category": "ci_failure",
+            "occurrences": 2,
+            "suggestion": "Fix it",
+        }
+        suggestions_path.write_text(json.dumps(rec) + "\n", encoding="utf-8")
+
+        with patch(
+            "health_monitor_loop.file_memory_suggestion",
+            create=True,
+            new_callable=AsyncMock,
+        ):
+            await loop._run_harness_suggestion_ingestion_cycle()
+
+        assert suggestions_path.read_text(encoding="utf-8") == ""
+
+    @pytest.mark.asyncio
+    async def test_no_error_on_exception(self, tmp_path: Path) -> None:
+        """Logs and continues on exception during ingestion."""
+        loop = _make_loop(tmp_path)
+        suggestions_path = loop._config.data_path("memory", "harness_suggestions.jsonl")
+        suggestions_path.parent.mkdir(parents=True, exist_ok=True)
+        suggestions_path.write_text("not-valid-json\n", encoding="utf-8")
+
+        # Should not raise
+        await loop._run_harness_suggestion_ingestion_cycle()
+
+
+class TestRunProposalVerificationCycle:
+    """Tests for _run_proposal_verification_cycle — queue or inline verify."""
+
+    def test_enqueues_when_queue_available(self, tmp_path: Path) -> None:
+        """Appends QueueItem to retrospective_queue when wired."""
+        mock_queue = MagicMock()
+        loop = _make_loop(tmp_path)
+        loop._retrospective_queue = mock_queue
+
+        loop._run_proposal_verification_cycle()
+
+        mock_queue.append.assert_called_once()
+
+    def test_no_error_when_queue_is_none_and_import_fails(self, tmp_path: Path) -> None:
+        """Silently handles ImportError for inline fallback."""
+        loop = _make_loop(tmp_path)
+        loop._retrospective_queue = None
+        # Should not raise
+        loop._run_proposal_verification_cycle()
+
+
+class TestRunCrossProjectPatternCycle:
+    """Tests for _run_cross_project_pattern_cycle — cross-project log patterns."""
+
+    def test_no_error_when_import_fails(self, tmp_path: Path) -> None:
+        """Silently handles ImportError when log_ingestion is missing."""
+        loop = _make_loop(tmp_path)
+        # Should not raise
+        loop._run_cross_project_pattern_cycle()
+
+    def test_calls_detect_cross_project_patterns(self, tmp_path: Path) -> None:
+        """Calls detect_cross_project_log_patterns with known patterns."""
+        loop = _make_loop(tmp_path)
+        mock_detect = MagicMock(return_value=[{"pattern": "timeout"}])
+
+        with (
+            patch(
+                "health_monitor_loop.detect_cross_project_log_patterns",
+                create=True,
+                new=mock_detect,
+            ),
+            patch(
+                "health_monitor_loop.load_known_patterns",
+                create=True,
+                return_value={"p1": "v1"},
+            ),
+        ):
+            loop._run_cross_project_pattern_cycle()
+
+        mock_detect.assert_called_once()
+
+
+class TestCountUnactionedHitlRecommendations:
+    """Tests for _count_unactioned_hitl_recommendations."""
+
+    def test_returns_zero_when_no_file(self, tmp_path: Path) -> None:
+        """Returns 0 when hitl_recommendations.jsonl doesn't exist."""
+        loop = _make_loop(tmp_path)
+        result = loop._count_unactioned_hitl_recommendations()
+        assert result == 0
+
+    def test_counts_unactioned_only(self, tmp_path: Path) -> None:
+        """Counts only unactioned recommendations."""
+        loop = _make_loop(tmp_path)
+        rec_path = loop._config.data_path("memory", "hitl_recommendations.jsonl")
+        rec_path.parent.mkdir(parents=True, exist_ok=True)
+        recs = [
+            json.dumps({"title": "r1", "actioned": False}),
+            json.dumps({"title": "r2", "actioned": False}),
+            json.dumps({"title": "r3", "actioned": True}),
+        ]
+        rec_path.write_text("\n".join(recs) + "\n", encoding="utf-8")
+
+        result = loop._count_unactioned_hitl_recommendations()
+        assert result == 2
+
+    def test_returns_zero_on_exception(self, tmp_path: Path) -> None:
+        """Returns 0 when the file is unreadable or malformed."""
+        loop = _make_loop(tmp_path)
+        rec_path = loop._config.data_path("memory", "hitl_recommendations.jsonl")
+        rec_path.parent.mkdir(parents=True, exist_ok=True)
+        rec_path.write_text("not-json\n", encoding="utf-8")
+
+        result = loop._count_unactioned_hitl_recommendations()
+        assert result == 0

@@ -319,11 +319,8 @@ class HealthMonitorLoop(BaseBackgroundLoop):
     async def _do_work(self) -> dict[str, Any] | None:
         """Execute one health-monitor cycle."""
         metrics = compute_trend_metrics(
-            self._outcomes_path,
-            self._scores_path,
-            self._failures_path,
+            self._outcomes_path, self._scores_path, self._failures_path
         )
-
         logger.info(
             "Health monitor cycle: first_pass_rate=%.2f avg_score=%.2f "
             "surprise_rate=%.2f hitl_rate=%.2f stale_items=%d",
@@ -334,27 +331,53 @@ class HealthMonitorLoop(BaseBackgroundLoop):
             metrics.stale_item_count,
         )
 
-        # Verify pending adjustments before applying new ones
         self._verify_pending_adjustments(metrics)
-
-        # Apply safe auto-adjustments
         adjustments_made = self._apply_adjustments(metrics)
-
-        # File HITL recommendations for unsafe problems
         await self._file_hitl_recommendations(metrics)
 
-        # Compute knowledge gap count for Sentry metrics
-        gap_count = 0
+        gap_count = self._run_knowledge_gap_count()
+        log_result = await self._run_log_ingestion_cycle()
+        await self._run_harness_auto_file_cycle()
+        await self._run_harness_suggestion_ingestion_cycle()
+        self._run_proposal_verification_cycle()
+        self._run_cross_project_pattern_cycle()
+
+        self._emit_sentry_metrics(
+            metrics,
+            gap_count=gap_count,
+            adjustment_count=adjustments_made,
+            log_patterns_total=log_result.total_patterns if log_result else 0,
+            log_patterns_novel=log_result.filed if log_result else 0,
+            log_patterns_escalating=log_result.escalated if log_result else 0,
+            hitl_recommendations_count=self._count_unactioned_hitl_recommendations(),
+        )
+
+        return {
+            "first_pass_rate": round(metrics.first_pass_rate, 4),
+            "avg_memory_score": round(metrics.avg_memory_score, 4),
+            "surprise_rate": round(metrics.surprise_rate, 4),
+            "hitl_escalation_rate": round(metrics.hitl_escalation_rate, 4),
+            "stale_item_count": metrics.stale_item_count,
+            "adjustments_made": adjustments_made,
+            "total_outcomes": metrics.total_outcomes,
+        }
+
+    # ------------------------------------------------------------------
+    # Extracted sub-tasks (each independently testable)
+    # ------------------------------------------------------------------
+
+    def _run_knowledge_gap_count(self) -> int:
+        """Detect knowledge gaps and return the count."""
         try:
             from memory_scoring import detect_knowledge_gaps  # noqa: PLC0415
 
             gaps = detect_knowledge_gaps(self._failures_path, [])
-            gap_count = len(gaps)
+            return len(gaps)
         except Exception:  # noqa: BLE001
-            pass
+            return 0
 
-        # Log pattern analysis
-        log_result = None
+    async def _run_log_ingestion_cycle(self) -> Any | None:
+        """Parse logs, detect patterns, enrich, and file novel patterns."""
         try:
             from log_ingestion import (  # noqa: PLC0415
                 detect_log_patterns,
@@ -364,49 +387,50 @@ class HealthMonitorLoop(BaseBackgroundLoop):
                 save_known_patterns,
             )
 
-            # Find log directory from config
             log_file = getattr(self._config, "log_file", None)
             if log_file:
                 log_dir = Path(log_file).parent
             else:
                 log_dir = self._config.data_root / "logs"
 
-            if log_dir.is_dir():
-                since = self._last_log_scan
-                entries = parse_log_files(log_dir, since=since)
-                patterns = detect_log_patterns(entries)
-                known = load_known_patterns(self._config.memory_dir)
+            if not log_dir.is_dir():
+                return None
 
-                # Enrich with EventBus context
-                try:
-                    from log_ingestion import (
-                        enrich_patterns_with_events,  # noqa: PLC0415
-                    )
+            entries = parse_log_files(log_dir, since=self._last_log_scan)
+            patterns = detect_log_patterns(entries)
+            known = load_known_patterns(self._config.memory_dir)
 
-                    history = self._bus.get_history() if hasattr(self, "_bus") else []
-                    event_dicts = [
-                        {"type": e.type.value, "data": e.data} for e in history
-                    ]
-                    enrich_patterns_with_events(patterns, event_dicts)
-                except Exception:  # noqa: BLE001
-                    pass  # enrichment is best-effort
-
-                log_result = await file_log_patterns(patterns, known, self._config)
-                save_known_patterns(self._config.memory_dir, known)
-                self._last_log_scan = datetime.now(UTC)
-
-                logger.info(
-                    "Log ingestion: %d patterns, %d novel filed, %d escalated",
-                    log_result.total_patterns,
-                    log_result.filed,
-                    log_result.escalated,
+            # Enrich with EventBus context (best-effort)
+            try:
+                from log_ingestion import (
+                    enrich_patterns_with_events,  # noqa: PLC0415
                 )
+
+                history = self._bus.get_history() if hasattr(self, "_bus") else []
+                event_dicts = [{"type": e.type.value, "data": e.data} for e in history]
+                enrich_patterns_with_events(patterns, event_dicts)
+            except Exception:  # noqa: BLE001
+                pass
+
+            log_result = await file_log_patterns(patterns, known, self._config)
+            save_known_patterns(self._config.memory_dir, known)
+            self._last_log_scan = datetime.now(UTC)
+
+            logger.info(
+                "Log ingestion: %d patterns, %d novel filed, %d escalated",
+                log_result.total_patterns,
+                log_result.filed,
+                log_result.escalated,
+            )
+            return log_result
         except ImportError:
-            pass
+            return None
         except Exception:  # noqa: BLE001
             logger.debug("Log ingestion failed", exc_info=True)
+            return None
 
-        # Auto-file harness insight suggestions
+    async def _run_harness_auto_file_cycle(self) -> None:
+        """Auto-file harness insight suggestions."""
         try:
             from harness_insights import (  # noqa: PLC0415
                 HarnessInsightStore,
@@ -420,83 +444,88 @@ class HealthMonitorLoop(BaseBackgroundLoop):
         except Exception:  # noqa: BLE001
             logger.debug("Harness auto-file failed", exc_info=True)
 
-        # Ingest harness suggestions as memory items
+    async def _run_harness_suggestion_ingestion_cycle(self) -> None:
+        """Read harness suggestions JSONL and file each as a memory item."""
         try:
             suggestions_path = self._config.data_path(
                 "memory", "harness_suggestions.jsonl"
             )
-            if suggestions_path.exists():
-                from memory import file_memory_suggestion  # noqa: PLC0415
+            if not suggestions_path.exists():
+                return
 
-                raw_suggestions = (
-                    suggestions_path.read_text(encoding="utf-8").strip().splitlines()
-                )
-                for line in raw_suggestions:
-                    try:
-                        rec = json.loads(line)
-                        principle = rec.get("suggestion", rec.get("title", ""))
-                        rationale = (
-                            f"Detected from {rec.get('occurrences', 0)} pipeline"
-                            f" failures in category {rec.get('category', 'unknown')}"
-                        )
-                        failure_mode = (
-                            f"Pipeline failure pattern: {rec.get('title', 'Unknown')}"
-                        )
-                        transcript = (
-                            "MEMORY_SUGGESTION_START\n"
-                            f"principle: {principle}\n"
-                            f"rationale: {rationale}\n"
-                            f"failure_mode: {failure_mode}\n"
-                            "scope: hydraflow\n"
-                            "MEMORY_SUGGESTION_END"
-                        )
-                        await file_memory_suggestion(
-                            transcript,
-                            "harness_insight",
-                            "health_monitor",
-                            self._config,
-                            hindsight=self._hindsight,
-                        )
-                    except Exception:  # noqa: BLE001
-                        continue
-                # Clear processed suggestions so they are not re-ingested
-                suggestions_path.write_text("", encoding="utf-8")
+            from memory import file_memory_suggestion  # noqa: PLC0415
+
+            raw_suggestions = (
+                suggestions_path.read_text(encoding="utf-8").strip().splitlines()
+            )
+            for line in raw_suggestions:
+                try:
+                    rec = json.loads(line)
+                    principle = rec.get("suggestion", rec.get("title", ""))
+                    rationale = (
+                        f"Detected from {rec.get('occurrences', 0)} pipeline"
+                        f" failures in category {rec.get('category', 'unknown')}"
+                    )
+                    failure_mode = (
+                        f"Pipeline failure pattern: {rec.get('title', 'Unknown')}"
+                    )
+                    transcript = (
+                        "MEMORY_SUGGESTION_START\n"
+                        f"principle: {principle}\n"
+                        f"rationale: {rationale}\n"
+                        f"failure_mode: {failure_mode}\n"
+                        "scope: hydraflow\n"
+                        "MEMORY_SUGGESTION_END"
+                    )
+                    await file_memory_suggestion(
+                        transcript,
+                        "harness_insight",
+                        "health_monitor",
+                        self._config,
+                        hindsight=self._hindsight,
+                    )
+                except Exception:  # noqa: BLE001
+                    continue
+            # Clear processed suggestions so they are not re-ingested
+            suggestions_path.write_text("", encoding="utf-8")
         except Exception:  # noqa: BLE001
             logger.debug("Harness suggestion ingestion failed", exc_info=True)
 
-        # Enqueue proposal verification for the retrospective loop
+    def _run_proposal_verification_cycle(self) -> None:
+        """Enqueue proposal verification or run inline fallback."""
         if self._retrospective_queue is not None:
             from retrospective_queue import QueueItem, QueueKind  # noqa: PLC0415
 
             self._retrospective_queue.append(QueueItem(kind=QueueKind.VERIFY_PROPOSALS))
-        else:
-            # Fallback: inline verification when queue not wired
-            try:
-                from review_insights import (  # noqa: PLC0415
-                    ReviewInsightStore,
-                    verify_proposals,
+            return
+
+        # Fallback: inline verification when queue not wired
+        try:
+            from review_insights import (  # noqa: PLC0415
+                ReviewInsightStore,
+                verify_proposals,
+            )
+
+            insight_store = ReviewInsightStore(self._config.memory_dir)
+            records = insight_store.load_recent(50)
+            stale = verify_proposals(insight_store, records)
+            for category in stale:
+                logger.warning(
+                    "HITL recommendation: stale review insight '%s'", category
                 )
+        except ImportError:
+            pass
+        except Exception:  # noqa: BLE001
+            logger.debug("Proposal verification failed", exc_info=True)
 
-                insight_store = ReviewInsightStore(self._config.memory_dir)
-                records = insight_store.load_recent(50)
-                stale = verify_proposals(insight_store, records)
-                for category in stale:
-                    logger.warning(
-                        "HITL recommendation: stale review insight '%s'", category
-                    )
-            except ImportError:
-                pass
-            except Exception:  # noqa: BLE001
-                logger.debug("Proposal verification failed", exc_info=True)
-
-        # Cross-project log pattern detection
+    def _run_cross_project_pattern_cycle(self) -> None:
+        """Detect log patterns shared across projects."""
         try:
             from log_ingestion import (  # noqa: PLC0415
                 detect_cross_project_log_patterns,
                 load_known_patterns,
             )
 
-            # Collect known patterns from current project (multi-project requires registry)
             project_patterns = {
                 self._config.repo_slug: load_known_patterns(self._config.memory_dir)
             }
@@ -508,41 +537,20 @@ class HealthMonitorLoop(BaseBackgroundLoop):
         except Exception:  # noqa: BLE001
             logger.debug("Cross-project log pattern detection failed", exc_info=True)
 
-        # Count unactioned HITL recommendations for Sentry metrics
-        hitl_recommendations_count = 0
+    def _count_unactioned_hitl_recommendations(self) -> int:
+        """Count unactioned HITL recommendations for Sentry metrics."""
         try:
             rec_path = self._config.data_path("memory", "hitl_recommendations.jsonl")
-            if rec_path.exists():
-                lines = rec_path.read_text(encoding="utf-8").strip().splitlines()
-                hitl_recommendations_count = sum(
-                    1
-                    for line in lines
-                    if line.strip() and not json.loads(line).get("actioned", False)
-                )
+            if not rec_path.exists():
+                return 0
+            lines = rec_path.read_text(encoding="utf-8").strip().splitlines()
+            return sum(
+                1
+                for line in lines
+                if line.strip() and not json.loads(line).get("actioned", False)
+            )
         except Exception:  # noqa: BLE001
-            pass
-
-        # Emit Sentry measurements
-        self._emit_sentry_metrics(
-            metrics,
-            gap_count=gap_count,
-            adjustment_count=adjustments_made,
-            log_patterns_total=log_result.total_patterns if log_result else 0,
-            log_patterns_novel=log_result.filed if log_result else 0,
-            log_patterns_escalating=log_result.escalated if log_result else 0,
-            hitl_recommendations_count=hitl_recommendations_count,
-        )
-
-        total_outcomes = metrics.total_outcomes
-        return {
-            "first_pass_rate": round(metrics.first_pass_rate, 4),
-            "avg_memory_score": round(metrics.avg_memory_score, 4),
-            "surprise_rate": round(metrics.surprise_rate, 4),
-            "hitl_escalation_rate": round(metrics.hitl_escalation_rate, 4),
-            "stale_item_count": metrics.stale_item_count,
-            "adjustments_made": adjustments_made,
-            "total_outcomes": total_outcomes,
-        }
+            return 0
 
     # ------------------------------------------------------------------
     # Safe auto-adjustment
