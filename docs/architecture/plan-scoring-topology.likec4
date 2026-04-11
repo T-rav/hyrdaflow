@@ -1,0 +1,72 @@
+// C4 Component diagram — plan_scoring decomposition (Issue #6304)
+
+specification {
+  element system
+  element module
+  element function
+}
+
+model {
+  system hydraflow "HydraFlow" {
+    module planner "src/planner.py" {
+      function _score_actionability "Planner._score_actionability()" {
+        description "Thin delegation wrapper — calls score_actionability()"
+      }
+    }
+
+    module plan_scoring "src/plan_scoring.py" {
+      function score_actionability "score_actionability()" {
+        description "Public entry point — sum of sub-scores + clamp + rank"
+      }
+      function _score_task_graph "_score_task_graph()" {
+        description "Task Graph regex + phase scoring → (int, bool)"
+      }
+      function _score_impl_steps "_score_impl_steps()" {
+        description "Implementation Steps fallback scoring → int"
+      }
+      function _score_file_delta "_score_file_delta()" {
+        description "File Delta presence scoring → int"
+      }
+      function _score_testing_strategy "_score_testing_strategy()" {
+        description "Testing Strategy keyword scoring → int"
+      }
+    }
+
+    module task_graph "src/task_graph.py" {
+      function extract_phases "extract_phases()" {
+        description "Parse Task Graph section into TaskGraphPhase list"
+      }
+      function extract_impl_step_texts "extract_impl_step_texts()" {
+        description "Parse Implementation Steps into text list"
+      }
+    }
+
+    module plan_constants "src/plan_constants.py" {
+      function PlanScale "PlanScale" {
+        description "Literal['lite', 'full'] type alias"
+      }
+    }
+  }
+
+  // Call graph
+  _score_actionability -> score_actionability
+  score_actionability -> _score_task_graph
+  score_actionability -> _score_impl_steps
+  score_actionability -> _score_file_delta
+  score_actionability -> _score_testing_strategy
+
+  _score_task_graph -> extract_phases
+  _score_impl_steps -> extract_impl_step_texts
+
+  // Type imports
+  score_actionability -> PlanScale
+  _score_task_graph -> PlanScale
+  _score_impl_steps -> PlanScale
+}
+
+views {
+  view of plan_scoring {
+    title "plan_scoring.py — After Decomposition"
+    include *
+  }
+}
