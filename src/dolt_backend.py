@@ -123,6 +123,7 @@ class DoltBackend:
             return data_str
         except (
             subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
             json.JSONDecodeError,
             KeyError,
             IndexError,
@@ -184,7 +185,11 @@ class DoltBackend:
                 else:
                     results.append(d)
             return results
-        except (subprocess.CalledProcessError, json.JSONDecodeError):
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            json.JSONDecodeError,
+        ):
             logger.warning("Failed to load sessions from Dolt", exc_info=True)
             return []
 
@@ -202,6 +207,7 @@ class DoltBackend:
             return json.loads(d) if isinstance(d, str) else d
         except (
             subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
             json.JSONDecodeError,
             KeyError,
             IndexError,
@@ -214,7 +220,7 @@ class DoltBackend:
         try:
             self._sql_exec(f"DELETE FROM sessions WHERE session_id = '{escaped}';")  # nosec B608
             return True
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             return False
 
     # --- Dedup sets (replaces JSON array files) ---
@@ -227,7 +233,11 @@ class DoltBackend:
             )
             rows = json.loads(raw)
             return {row["value"] for row in rows.get("rows", [])}
-        except (subprocess.CalledProcessError, json.JSONDecodeError):
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            json.JSONDecodeError,
+        ):
             return set()
 
     def add_to_dedup_set(self, set_name: str, value: str) -> None:
@@ -254,5 +264,9 @@ class DoltBackend:
                 f"FROM dolt_log LIMIT {limit};"
             )
             return json.loads(raw).get("rows", [])
-        except (subprocess.CalledProcessError, json.JSONDecodeError):
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            json.JSONDecodeError,
+        ):
             return []

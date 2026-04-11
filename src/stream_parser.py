@@ -462,7 +462,7 @@ def _pick_usage_extractor(
     return current
 
 
-def _map_usage_payload(obj: Any) -> dict[str, int]:
+def _map_usage_payload(obj: dict[str, Any] | list[Any] | object) -> dict[str, int]:
     """Return canonical usage totals from arbitrary payload object."""
     totals: dict[str, int] = {}
     for key, value in _iter_numeric_fields(obj):
@@ -487,7 +487,9 @@ def _map_top_level_usage_scalars(event: dict[str, Any]) -> dict[str, int]:
     return totals
 
 
-def _iter_numeric_fields(obj: Any) -> list[tuple[str, int]]:
+def _iter_numeric_fields(
+    obj: dict[str, Any] | list[Any] | object,
+) -> list[tuple[str, int]]:
     """Return nested ``(key, int_value)`` numeric fields for a usage payload."""
     out: list[tuple[str, int]] = []
     if isinstance(obj, dict):

@@ -360,20 +360,7 @@ class MergeConflictResolver:
     async def _maybe_summarize_conflict(
         self, transcript: str, issue_number: int, pr_number: int
     ) -> None:
-        """Summarize a conflict resolution transcript if summarizer is available."""
-        if self._summarizer is None:
-            return
-        try:
-            await self._summarizer.summarize_and_publish(
-                transcript=transcript,
-                issue_number=issue_number,
-                phase="conflict_resolution",
-            )
-        except (RuntimeError, OSError):
-            logger.exception(
-                "Failed to file transcript summary for conflict resolution on PR #%d",
-                pr_number,
-            )
+        """No-op — transcript summary as issue feature was removed."""
 
     def save_conflict_transcript(
         self,

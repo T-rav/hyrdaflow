@@ -255,25 +255,6 @@ class TranscriptSummarizer:
 
     # --- Issue-based summaries (legacy, configurable) ---
 
-    async def summarize_and_publish(
-        self,
-        transcript: str,
-        issue_number: int,
-        phase: str,
-        issue_title: str = "",
-        duration_seconds: float = 0.0,
-    ) -> int | None:
-        """Summarize a transcript and publish as a GitHub issue.
-
-        Returns the created issue number, or ``None`` if skipped/failed.
-        Never raises — all errors are logged and swallowed.
-
-        .. deprecated::
-            The ``transcript_summary_as_issue`` feature was removed. This method
-            is now a permanent no-op and always returns ``None``.
-        """
-        return None
-
     async def _call_model(self, prompt: str) -> str | None:
         """Call the configured CLI backend to summarize.
 

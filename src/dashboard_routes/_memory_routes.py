@@ -145,7 +145,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
             )
 
         # Recall from troubleshooting + learnings banks for HITL context
-        hitl_banks = [Bank.TROUBLESHOOTING, Bank.LEARNINGS, Bank.REVIEW_INSIGHTS]
+        hitl_banks = [Bank.TROUBLESHOOTING, Bank.TRIBAL, Bank.REVIEW_INSIGHTS]
         try:
             bank_results = await ctx.hindsight_client.recall_banks(
                 query,

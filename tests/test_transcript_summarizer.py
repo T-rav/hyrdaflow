@@ -427,30 +427,7 @@ class TestSummarizeAndComment:
         assert call_kwargs["input"] is None
 
 
-# --- TranscriptSummarizer.summarize_and_publish tests ---
-
-
-class TestSummarizeAndPublish:
-    """Tests for issue-based transcript summaries (deprecated no-op)."""
-
-    @pytest.mark.asyncio
-    async def test_always_returns_none(self, tmp_path: Path) -> None:
-        """summarize_and_publish is a permanent no-op after feature removal."""
-        config = ConfigFactory.create(repo_root=tmp_path)
-        prs = MagicMock()
-        prs.create_issue = AsyncMock()
-        bus = MagicMock()
-        state = MagicMock()
-
-        summarizer = TranscriptSummarizer(config, prs, bus, state)
-        result = await summarizer.summarize_and_publish(
-            transcript="x" * 1000, issue_number=42, phase="implement"
-        )
-
-        assert result is None
-        prs.create_issue.assert_not_called()
-
-
+# Note: TestSummarizeAndPublish removed — method was a deprecated no-op, now deleted.
 # Note: TestExtractAndFileMemoryItems was removed in the tribal-memory rollout
 # (2026-04-07). Transcript-summary auto-filing was removed because the bullets
 # routinely produced implementation-detail noise below the tribal-knowledge bar.

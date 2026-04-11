@@ -923,9 +923,11 @@ class HydraFlowConfig(BaseModel):
         le=86400,
         description="Seconds between Dependabot alert polls",
     )
-    security_patch_severity_threshold: str = Field(
-        default="high",
-        description="Minimum severity to file issues for (critical, high, medium, low)",
+    security_patch_severity_threshold: Literal["critical", "high", "medium", "low"] = (
+        Field(
+            default="high",
+            description="Minimum severity to file issues for",
+        )
     )
     # Sensor enrichment — positive prompt injection on captured tool output.
     # See src/sensor_enricher.py and docs/agents/avoided-patterns.md.

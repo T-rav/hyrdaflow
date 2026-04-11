@@ -434,16 +434,14 @@ class ShapeResult(BaseModel):
 class ConversationTurn(BaseModel):
     """A single turn in a shape design conversation."""
 
-    role: str = Field(description="Who spoke: 'agent' or 'human'")
+    role: Literal["agent", "human"] = Field(description="Who spoke")
     content: str = Field(description="The message content")
     timestamp: str = Field(default="", description="ISO 8601 timestamp")
     signal: str = Field(
         default="",
         description="Classified learning signal (e.g. scope_narrow, positive)",
     )
-    source: str = Field(
-        default="", description="Response source: github, dashboard, whatsapp"
-    )
+    source: str = Field(default="", description="Response source identifier")
 
 
 class ShapeConversation(BaseModel):
@@ -451,8 +449,8 @@ class ShapeConversation(BaseModel):
 
     issue_number: int = Field(description="GitHub issue number")
     turns: list[ConversationTurn] = Field(default_factory=list)
-    status: str = Field(
-        default="exploring", description="exploring, finalizing, done, timed_out"
+    status: Literal["exploring", "finalizing", "done", "timed_out"] = Field(
+        default="exploring", description="Shape conversation lifecycle status"
     )
     started_at: str = Field(default="", description="ISO 8601")
     last_activity_at: str = Field(default="", description="ISO 8601")
@@ -667,11 +665,6 @@ class ReproductionResult(BaseModel):
     error: str | None = Field(default=None)
 
 
-# ---------------------------------------------------------------------------
-# Stage preconditions and route-back (#6423)
-# ---------------------------------------------------------------------------
-
-
 class RouteBackRecord(BaseModel):
     """Record of a stage route-back transition (#6423).
 
@@ -691,6 +684,11 @@ class RouteBackRecord(BaseModel):
     timestamp: IsoTimestamp = Field(
         default_factory=lambda: datetime.now(UTC).isoformat(),
     )
+
+
+# ---------------------------------------------------------------------------
+# Stage preconditions and route-back (#6423)
+# ---------------------------------------------------------------------------
 
 
 class ResearchResult(BaseModel):
@@ -2293,16 +2291,6 @@ class TranscriptLinePayload(TypedDict, total=False):
     source: str
     line: str
     repo: str
-
-
-class ActivityType(StrEnum):
-    """Kind of agent activity detected from CLI output."""
-
-    TOOL_CALL = "tool_call"
-    TOOL_RESULT = "tool_result"
-    THINKING = "thinking"
-    TEXT = "text"
-    ERROR = "error"
 
 
 class AgentActivityPayload(TypedDict, total=False):
