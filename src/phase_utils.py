@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Coroutine, Generator
+from collections.abc import AsyncGenerator, Callable, Coroutine, Generator
 from contextlib import asynccontextmanager, contextmanager
 from typing import TYPE_CHECKING, Any, TypeVar
 
@@ -294,7 +294,7 @@ async def store_lifecycle(
     store: IssueStorePort,
     issue_number: int,
     stage: str,
-):
+) -> AsyncGenerator[None, None]:
     """Mark an issue active on enter and complete on exit.
 
     Args:

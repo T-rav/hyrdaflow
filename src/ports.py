@@ -80,7 +80,7 @@ class StateBackendPort(Protocol):
     imported at module level.
     """
 
-    def load_state(self) -> dict | None:
+    def load_state(self) -> dict[str, object] | None:
         """Load the state JSON document. Returns ``None`` if no state stored."""
         ...
 

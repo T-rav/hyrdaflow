@@ -19,7 +19,7 @@ from models import DiagnosisResult, Severity
 logger = logging.getLogger("hydraflow.diagnostic")
 
 
-def _extract_json(text: str) -> dict | None:
+def _extract_json(text: str) -> dict[str, object] | None:
     """Extract first JSON block from agent output."""
     match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
     raw = match.group(1).strip() if match else text.strip()
@@ -149,12 +149,12 @@ class DiagnosticRunner(BaseRunner):
                 exc_info=True,
             )
             return DiagnosisResult(
-                root_cause=parsed.get(
-                    "root_cause", transcript[:500] if transcript else ""
+                root_cause=str(
+                    parsed.get("root_cause", transcript[:500] if transcript else "")
                 ),
                 severity=Severity.P2_FUNCTIONAL,
                 fixable=False,
-                fix_plan=parsed.get("fix_plan", ""),
+                fix_plan=str(parsed.get("fix_plan", "")),
                 human_guidance="Agent output did not validate. Manual review required.",
             )
 

@@ -69,7 +69,7 @@ class CouncilVote:
         self.confidence = max(1, min(confidence, 10))
         self.timestamp = datetime.now(UTC).isoformat()
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         return {
             "expert": self.expert_name,
             "direction": self.direction,
@@ -137,7 +137,7 @@ class CouncilResult:
             lines.append("\n**No consensus** — escalating to human for tiebreaker.\n")
         return "\n".join(lines)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         return {
             "votes": [v.to_dict() for v in self.votes],
             "consensus": self.has_consensus,
