@@ -2129,11 +2129,11 @@ class TestADRSequence:
     @pytest.fixture(autouse=True)
     def _clear_assigned(self) -> Generator[None, None, None]:
         """Reset the module-level assigned set before and after each test."""
-        import phase_utils
+        import adr_utils
 
-        phase_utils._assigned_adr_numbers.clear()
+        adr_utils._assigned_adr_numbers.clear()
         yield
-        phase_utils._assigned_adr_numbers.clear()
+        adr_utils._assigned_adr_numbers.clear()
 
     def test_prepare_adr_plan_writes_fallback_plan_for_adr_issue(
         self, config: HydraFlowConfig

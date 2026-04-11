@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field  # noqa: TCH002
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
@@ -38,7 +38,7 @@ class LogEntry(BaseModel):
     repo: str | None = None
     session: str | None = None
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 def fingerprint_message(msg: str) -> str:
@@ -134,15 +134,19 @@ def parse_log_files(
 class LogPattern(BaseModel):
     """A recurring log message template detected above the count threshold."""
 
-    fingerprint: str
-    level: str
-    source_module: str
-    count: int
-    sample_messages: list[str]
-    sample_issues: list[int]
-    first_seen: str
-    last_seen: str
-    phase_context: list[str] = Field(default_factory=list)
+    fingerprint: str = Field(description="Stable message template for grouping")
+    level: str = Field(description="Log level of the pattern (e.g. WARNING, ERROR)")
+    source_module: str = Field(description="Logger name that emitted the entries")
+    count: int = Field(description="Number of entries matching this pattern")
+    sample_messages: list[str] = Field(description="Up to 3 raw message samples")
+    sample_issues: list[int] = Field(
+        description="Issue numbers seen in matching entries"
+    )
+    first_seen: str = Field(description="ISO timestamp of the earliest matching entry")
+    last_seen: str = Field(description="ISO timestamp of the latest matching entry")
+    phase_context: list[str] = Field(
+        default_factory=list, description="Phase context from EventBus history"
+    )
 
 
 def detect_log_patterns(
@@ -235,12 +239,18 @@ _LOG_PATTERNS_FILE = "log_patterns.jsonl"
 class KnownLogPattern(BaseModel):
     """Persistence record for a previously filed log pattern."""
 
-    fingerprint: str
-    source_module: str
-    filed_at: str
-    issue_number: int = 0  # 0 when filed via local JSONL (no GitHub issue)
-    last_count: int
-    filed_count: int  # count when first filed — baseline for escalation
+    fingerprint: str = Field(
+        description="Stable message template identifying the pattern"
+    )
+    source_module: str = Field(description="Logger name that emitted the entries")
+    filed_at: str = Field(description="ISO timestamp when the pattern was first filed")
+    issue_number: int = Field(
+        default=0, description="GitHub issue number (0 for local-only)"
+    )
+    last_count: int = Field(description="Most recent observation count")
+    filed_count: int = Field(
+        description="Count when first filed — baseline for escalation"
+    )
 
 
 def load_known_patterns(memory_dir: Path) -> dict[str, KnownLogPattern]:

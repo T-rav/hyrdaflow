@@ -84,11 +84,6 @@ class LifetimeStatsMixin:
         """Return a copy of the lifetime stats counters."""
         return self._data.lifetime_stats.model_copy()
 
-    def update_lifetime_stats(self, stats: LifetimeStats) -> None:
-        """Replace the stored lifetime stats with *stats* and persist."""
-        self._data.lifetime_stats = stats
-        self.save()
-
     # --- threshold tracking ---
 
     def get_fired_thresholds(self) -> list[str]:

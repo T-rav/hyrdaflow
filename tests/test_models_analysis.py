@@ -10,9 +10,9 @@ from models import (
     InstructionsQualityResult,
     ParsedCriteria,
     PlanAccuracyResult,
-    PrecheckResult,
     PRInfoExtract,
 )
+from precheck import PrecheckResult
 from tests.conftest import AnalysisResultFactory
 
 # --- DeltaReport ---

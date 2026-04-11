@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from makefile_scaffold import (
-    discover_project_paths,
     generate_makefile,
     merge_makefile,
     parse_makefile,
@@ -276,44 +273,3 @@ class TestMergeMakefile:
         new_content, _ = merge_makefile(existing, "python")
         assert ".DEFAULT_GOAL := quality" in new_content
         assert new_content.count(".DEFAULT_GOAL") == 1
-
-
-class TestDiscoverProjectPaths:
-    """Tests for discover_project_paths()."""
-
-    def test_discovers_multiple_project_paths(self, tmp_path: Path) -> None:
-        (tmp_path / "backend").mkdir()
-        (tmp_path / "backend" / "pyproject.toml").touch()
-        (tmp_path / "frontend").mkdir()
-        (tmp_path / "frontend" / "package.json").write_text("{}\n")
-        paths = discover_project_paths(tmp_path)
-        rels = {str(p.relative_to(tmp_path)) for p in paths}
-        assert "backend" in rels
-        assert "frontend" in rels
-
-    def test_ignores_git_submodule_paths(self, tmp_path: Path) -> None:
-        (tmp_path / "backend").mkdir()
-        (tmp_path / "backend" / "pyproject.toml").touch()
-        (tmp_path / "hydraflow").mkdir()
-        (tmp_path / "hydraflow" / "package.json").write_text("{}\n")
-        (tmp_path / ".gitmodules").write_text(
-            '[submodule "hydraflow"]\n\tpath = hydraflow\n\turl = https://example.com/hydraflow.git\n'
-        )
-
-        paths = discover_project_paths(tmp_path)
-        rels = {str(p.relative_to(tmp_path)) for p in paths}
-        assert "backend" in rels
-        assert "hydraflow" not in rels
-
-    def test_ignores_hydra_named_folder_without_gitmodules(
-        self, tmp_path: Path
-    ) -> None:
-        (tmp_path / "backend").mkdir()
-        (tmp_path / "backend" / "pyproject.toml").touch()
-        (tmp_path / "hydra").mkdir()
-        (tmp_path / "hydra" / "package.json").write_text("{}\n")
-
-        paths = discover_project_paths(tmp_path)
-        rels = {str(p.relative_to(tmp_path)) for p in paths}
-        assert "backend" in rels
-        assert "hydra" not in rels

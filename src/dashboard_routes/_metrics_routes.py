@@ -5,12 +5,12 @@ from __future__ import annotations
 import contextlib
 import logging
 from collections import Counter
-from typing import Any
 
 from fastapi import APIRouter, Response
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from config import HydraFlowConfig
 from dashboard_routes._routes import RouteContext
 from metrics_manager import get_metrics_cache_dir
 from models import (
@@ -28,7 +28,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
     """Register metrics-related routes on *router*."""
 
     def _load_local_metrics_cache(
-        target_config: Any,
+        target_config: HydraFlowConfig,
         limit: int = 100,
     ) -> list[MetricsSnapshot]:
         """Load metrics snapshots from local disk cache without requiring the orchestrator."""

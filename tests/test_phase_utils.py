@@ -14,10 +14,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from adr_utils import next_adr_number
 from events import EventType
+from exception_classify import LIKELY_BUG_EXCEPTIONS
 from harness_insights import FailureCategory, HarnessInsightStore
 from models import PipelineStage
 from phase_utils import (
-    LIKELY_BUG_EXCEPTIONS,
     MemorySuggester,
     PipelineEscalator,
     escalate_to_hitl,

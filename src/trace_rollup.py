@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from models import (
     SubprocessTrace,
@@ -55,7 +55,7 @@ def write_phase_rollup(
         return None
 
     # Also read skill_results.json if the agent._run_skill hook wrote one.
-    skill_results: list[dict] = []
+    skill_results: list[dict[str, Any]] = []
     skill_results_path = run_dir / "skill_results.json"
     if skill_results_path.exists():
         try:
@@ -99,7 +99,7 @@ def _aggregate(
     issue_number: int,
     phase: str,
     run_id: int,
-    skill_results: list[dict] | None = None,
+    skill_results: list[dict[str, Any]] | None = None,
 ) -> TraceSummary:
     prompt_total = sum(t.tokens.prompt_tokens for t in traces)
     completion_total = sum(t.tokens.completion_tokens for t in traces)
@@ -193,7 +193,7 @@ def _append_factory_metric(
     config: HydraFlowConfig,
     summary: TraceSummary,
     traces: list[SubprocessTrace],
-    external_skill_results: list[dict],
+    external_skill_results: list[dict[str, Any]],
 ) -> None:
     """Append one event to factory_metrics.jsonl describing this phase run."""
     import json  # noqa: PLC0415
@@ -201,7 +201,7 @@ def _append_factory_metric(
     metrics_path = config.factory_metrics_path
     metrics_path.parent.mkdir(parents=True, exist_ok=True)
 
-    skill_entries: list[dict] = []
+    skill_entries: list[dict[str, Any]] = []
     for t in traces:
         for sr in t.skill_results:
             skill_entries.append(

@@ -256,11 +256,3 @@ class DoltBackend:
             return json.loads(raw).get("rows", [])
         except (subprocess.CalledProcessError, json.JSONDecodeError):
             return []
-
-    def diff_state(self, from_commit: str = "HEAD~1", to_commit: str = "HEAD") -> str:
-        """Show the diff of the state table between two commits."""
-        try:
-            result = self._run("diff", from_commit, to_commit, "--stat", check=False)
-            return result.stdout
-        except subprocess.CalledProcessError:
-            return ""

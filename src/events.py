@@ -271,27 +271,6 @@ class EventLog:
         """
         await asyncio.to_thread(self._rotate_sync, max_size_bytes, max_age_days)
 
-    async def maybe_rotate(
-        self,
-        max_size_bytes: int = 10 * 1024 * 1024,
-        max_age_days: int = 7,
-    ) -> bool:
-        """Check if the log exceeds size/age thresholds and rotate if needed.
-
-        Returns ``True`` if a rotation was performed. Designed to be called
-        periodically from a background loop.
-        """
-        if not self._path.exists():
-            return False
-        try:
-            file_size = self._path.stat().st_size
-        except OSError:
-            return False
-        if file_size <= max_size_bytes:
-            return False
-        await self.rotate(max_size_bytes, max_age_days)
-        return True
-
 
 class EventBus:
     """Async pub/sub bus with history replay.

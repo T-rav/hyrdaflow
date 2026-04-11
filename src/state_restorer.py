@@ -51,7 +51,7 @@ class StateRestorer:
         """Restore saved background-worker poll-interval overrides from state."""
         saved_intervals = self._state.get_worker_intervals()
         if saved_intervals:
-            self._bg_workers.restore_intervals(saved_intervals)
+            self._bg_workers._restore_intervals(saved_intervals)
             logger.info(
                 "Restored %d worker interval override(s) from state",
                 len(saved_intervals),
@@ -99,7 +99,7 @@ class StateRestorer:
         """Restore persisted disabled-worker flags into the in-memory map."""
         disabled = self._state.get_disabled_workers()
         if disabled:
-            self._bg_workers.restore_enabled_flags(disabled)
+            self._bg_workers._restore_enabled_flags(disabled)
             logger.info(
                 "Restored %d disabled worker(s) from state: %s",
                 len(disabled),
@@ -125,7 +125,7 @@ class StateRestorer:
             sorted(stale),
         )
         for name in stale:
-            self._bg_workers.remove_enabled_entry(name)
+            self._bg_workers._remove_enabled_entry(name)
         self._state.set_disabled_workers(disabled - stale)
 
     def _restore_bg_worker_states(self) -> None:
@@ -133,7 +133,7 @@ class StateRestorer:
         persisted = self._state.get_bg_worker_states()
         restored = 0
         if persisted:
-            self._bg_workers.restore_worker_states(persisted)
+            self._bg_workers._restore_worker_states(persisted)
             restored = len(persisted)
             logger.info(
                 "Restored %d background worker heartbeat entr%s from state",
@@ -156,7 +156,7 @@ class StateRestorer:
         if not history:
             return 0
         latest: dict[str, BackgroundWorkerState] = {}
-        existing = self._bg_workers.known_worker_state_names()
+        existing = self._bg_workers._known_worker_state_names()
         for event in reversed(history):
             if event.type != EventType.BACKGROUND_WORKER_STATUS:
                 continue
@@ -176,6 +176,6 @@ class StateRestorer:
                 details=details,
             )
         for name, state in latest.items():
-            self._bg_workers.restore_worker_state(name, state)
+            self._bg_workers._restore_worker_state(name, state)
             self._state.set_bg_worker_state(name, state)
         return len(latest)

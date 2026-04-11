@@ -209,11 +209,6 @@ class StateTracker(
         else:
             atomic_write(self._path, data)
 
-    def commit_state(self, message: str = "state update") -> None:
-        """Create a Dolt version commit (no-op when using file backend)."""
-        if self._dolt is not None:
-            self._dolt.commit(message)
-
     # --- reset ---
 
     def reset(self) -> None:

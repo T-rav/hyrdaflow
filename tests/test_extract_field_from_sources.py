@@ -8,11 +8,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from dashboard_routes import (
+from dashboard_routes._common import (
     _extract_field_from_sources,
+    _parse_compat_json_object,
+)
+from dashboard_routes._routes import (
     _extract_repo_path,
     _extract_repo_slug,
-    _parse_compat_json_object,
 )
 
 
