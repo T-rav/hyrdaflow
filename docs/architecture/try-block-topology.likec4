@@ -1,0 +1,71 @@
+// C4 Dynamic view: try block nesting in all three phases
+// Issue #6300 — overly broad try blocks
+
+specification {
+  element phase
+  element tryblock
+  element operation
+  tag narrow
+  tag broad
+  tag already_ok
+}
+
+model {
+  plan = phase "PlanPhase._plan_one()" {
+    description "156 lines under store_lifecycle — NEEDS narrowing"
+    #broad
+
+    p_research = operation "research_runner.research()" {
+      description "Lines 599-627. Has own try for post_comment but research call itself unguarded"
+    }
+    p_tracing = tryblock "try: planners.plan() / finally: clear+rollup" {
+      description "Lines 645-666. ALREADY well-structured narrow try/finally"
+      #narrow
+    }
+    p_branching = operation "Result branching + _handle_plan_success/_handle_plan_failure" {
+      description "Lines 668-738. No try protection — exceptions here propagate to _plan_worker"
+      #broad
+    }
+    p_transcript = operation "_post_plan_transcript()" {
+      description "Line 738. Never-raise method but called in flat scope"
+    }
+  }
+
+  implement = phase "ImplementPhase._run_implementation()" {
+    description "Already decomposed — narrow try blocks"
+    #already_ok
+
+    i_setup = operation "_setup_worktree_and_branch()" {
+      description "Line 530. Called before tracing — unguarded but propagates via fatal_guard"
+    }
+    i_tracing = tryblock "try: agents.run() / finally: clear+rollup" {
+      description "Lines 593-614. Well-structured narrow try/finally"
+      #narrow
+    }
+    i_metrics = operation "_record_impl_metrics()" {
+      description "Line 616. Called after tracing cleanup"
+    }
+  }
+
+  review = phase "ReviewPhase._review_one_inner()" {
+    description "Already decomposed into sub-methods"
+    #already_ok
+
+    r_guards = operation "_run_initial_guards()" { }
+    r_prechecks = operation "_run_pre_review_checks()" { }
+    r_review = operation "_run_and_post_review()" { }
+    r_post = operation "_run_post_review_actions()" { }
+    r_tracing = tryblock "try: all 4 ops / finally: clear+rollup" {
+      description "Lines 589-632. Wraps the 4 sub-method calls"
+      #narrow
+    }
+  }
+}
+
+views {
+  view try_block_overview {
+    title "Try Block Structure Across All Three Phases"
+    include plan, implement, review
+    include plan.*, implement.*, review.*
+  }
+}

@@ -1,0 +1,60 @@
+// C4 Component diagram: plan_phase._plan_one() decomposition
+// Issue #6300 — narrowing try blocks in plan phase
+
+specification {
+  element component
+  element method
+  element submethod
+  tag current
+  tag proposed
+}
+
+model {
+  planPhase = component "PlanPhase" {
+    description "Orchestrates planning for GitHub issues"
+
+    _plan_one = method "_plan_one()" {
+      description "Current: 156-line flat method under store_lifecycle"
+      #current
+
+      // Current structure (all under store_lifecycle scope):
+      research_block = submethod "Research Block (L599-627)" {
+        description "research_runner.research() + post_comment()"
+      }
+      tracing_bookend = submethod "Tracing Bookend (L629-666)" {
+        description "set_tracing_context → planners.plan() → finally: clear + rollup + end_trace"
+      }
+      result_branching = submethod "Result Branching (L668-738)" {
+        description "already_satisfied / success+plan / retry+plan / failure"
+      }
+      transcript_post = submethod "Transcript Post (L738)" {
+        description "_post_plan_transcript()"
+      }
+    }
+
+    // Proposed extracted methods:
+    _run_research = method "_run_research()" {
+      description "PROPOSED: Encapsulate research runner call + comment posting with targeted error log"
+      #proposed
+    }
+    _execute_planner = method "_execute_planner()" {
+      description "PROPOSED: Tracing bookend + planners.plan() — returns PlanResult"
+      #proposed
+    }
+    _process_plan_result = method "_process_plan_result()" {
+      description "PROPOSED: already_satisfied / success / retry / failure branching"
+      #proposed
+    }
+  }
+
+  // Data flow
+  _run_research -> _execute_planner "research_context: str"
+  _execute_planner -> _process_plan_result "result: PlanResult"
+}
+
+views {
+  view plan_one_decomposition of planPhase {
+    title "plan_phase._plan_one() — Current vs Proposed Structure"
+    include *
+  }
+}
