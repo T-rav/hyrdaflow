@@ -6,6 +6,7 @@ import { CostByPhaseChart } from './CostByPhaseChart'
 import { CacheHitChart } from './CacheHitChart'
 import { IssueTable } from './IssueTable'
 import { DrillDownPane } from './DrillDownPane'
+import { FactoryHealthSection } from './FactoryHealthSection'
 
 export function DiagnosticsTab() {
   const [range, setRange] = useState('7d')
@@ -112,6 +113,8 @@ export function DiagnosticsTab() {
       </div>
 
       <CacheHitChart data={cache} />
+
+      <FactoryHealthSection />
 
       <IssueTable rows={issues} onRowClick={handleRowClick} />
 
