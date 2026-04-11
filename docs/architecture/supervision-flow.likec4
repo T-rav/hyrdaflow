@@ -1,0 +1,82 @@
+// Issue #6323: Loop Supervision Dynamic Flow
+// Shows how loop supervision works after decomposition
+
+specification {
+  element actor
+  element system
+  element component
+
+  relationship calls
+  relationship creates
+  relationship monitors
+}
+
+model {
+
+  orchestrator = system "Orchestrator" {
+    run_method = component "run()" {
+      description "Entry point: init, build factories, delegate to supervisor"
+    }
+    factory_builder = component "_build_loop_factories()" {
+      description "Builds [(name, coroutine)] list — stays in orchestrator.py"
+    }
+    phase_wrappers = component "Phase loop wrappers" {
+      description "_triage_loop, _plan_loop, etc. — call polling_loop()"
+    }
+  }
+
+  supervisor = system "LoopSupervisor" {
+    supervise = component "supervise()" {
+      description "Creates tasks from factories, enters supervision loop"
+    }
+    sup_loop = component "_run_supervision_loop()" {
+      description "asyncio.wait FIRST_COMPLETED, dispatch exceptions"
+    }
+    exc_handler = component "_handle_loop_exception()" {
+      description "Routes: AuthError → halt, CreditExhausted → pause, else → restart"
+    }
+    restart = component "_restart_loop()" {
+      description "Log, publish ERROR, create new task from factory"
+    }
+    auth_error = component "_handle_auth_error()" {
+      description "Set auth_failed, publish SYSTEM_ALERT, stop"
+    }
+  }
+
+  credit = system "CreditPauseManager" {
+    pause = component "pause()" {
+      description "Lock → set pause time → cancel_fn() → sleep → resume_fn()"
+    }
+    sleep = component "sleep_until_resume()" {
+      description "Interruptible sleep until resume_at or manual clear"
+    }
+  }
+
+  polling = system "polling_loop() [module-level]" {
+    poll_body = component "Main loop" {
+      description "Check enabled → try work_fn → handle error → sleep"
+    }
+    error = component "_handle_poll_error()" {
+      description "Classify, log, publish ERROR, escalate if circuit breaker trips"
+    }
+  }
+
+  // Flow
+  run_method -> factory_builder "builds loop_factories list"
+  factory_builder -> supervise "passes factories"
+  supervise -> sup_loop "enters supervision"
+  sup_loop -> exc_handler "on task exception"
+  exc_handler -> restart "generic crash"
+  exc_handler -> auth_error "AuthenticationError"
+  exc_handler -> pause "CreditExhaustedError"
+  pause -> sleep "wait for credits"
+  phase_wrappers -> poll_body "each phase loop calls"
+  poll_body -> error "on work_fn exception"
+}
+
+views {
+  view supervision_flow of supervisor {
+    title "Loop Supervision Flow After Decomposition"
+    include *
+  }
+}

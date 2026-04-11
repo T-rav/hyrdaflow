@@ -1,0 +1,135 @@
+// Issue #6323: HydraFlowOrchestrator Decomposition
+// C4 Component Diagram — Before and After
+
+specification {
+  element system
+  element container
+  element component
+  element module
+
+  relationship delegates
+  relationship composes
+  relationship accesses
+}
+
+model {
+
+  // === CURRENT STATE (god object) ===
+
+  current = system "Current Architecture" {
+    orchestrator_current = container "HydraFlowOrchestrator (1282 lines)" {
+      description "God object: 68 methods, 32 public"
+
+      pipeline_stats = component "Pipeline Stats" {
+        description "build_pipeline_stats (111 lines)"
+      }
+      credit_pause = component "Credit Pause" {
+        description "pause/resume/compute (123 lines)"
+      }
+      loop_supervision = component "Loop Supervision" {
+        description "_supervise_loops (92 lines), _polling_loop (112 lines)"
+      }
+      phase_loops = component "Phase Loops" {
+        description "8 thin wrappers: triage, discover, shape, plan, implement, review, hitl, memory_sync"
+      }
+      session_mgmt = component "Session Mgmt" {
+        description "_start_session, _end_session"
+      }
+      lifecycle = component "Lifecycle" {
+        description "run(), stop(), reset()"
+      }
+
+      // Already extracted
+      bg_workers_ref = component "BGWorkerManager" {
+        description "Already extracted"
+      }
+      hitl_ctrl_ref = component "HITLController" {
+        description "Already extracted"
+      }
+      state_restorer_ref = component "StateRestorer" {
+        description "Already extracted"
+      }
+    }
+  }
+
+  // === TARGET STATE (after decomposition) ===
+
+  target = system "Target Architecture" {
+    orchestrator_target = container "HydraFlowOrchestrator (~550 lines)" {
+      description "Composition root / facade — 32 delegation stubs"
+
+      facade = component "Facade Layer" {
+        description "Properties + thin delegation stubs for all 32 public API members"
+      }
+      lifecycle_t = component "Lifecycle" {
+        description "run(), stop(), reset() — orchestrates components"
+      }
+      phase_loops_t = component "Phase Loop Wrappers" {
+        description "8 thin methods calling supervisor.polling_loop()"
+      }
+      phase_work = component "Phase Work" {
+        description "_do_implement_work(), _do_review_work(), _review_single_issue()"
+      }
+    }
+
+    stats_builder = container "PipelineStatsBuilder (~120 lines)" {
+      description "New: owns pipeline stats computation"
+      build_method = component "build()" {
+        description "Orchestrates _compute_uptime, _build_stage_stats, _build_throughput"
+      }
+    }
+
+    credit_mgr = container "CreditPauseManager (~140 lines)" {
+      description "New: owns credit pause state, timing, and orchestration"
+      pause_state = component "Pause State" {
+        description "_paused_until, _lock, _resume_event"
+      }
+      pause_orch = component "Pause Orchestration" {
+        description "pause(), sleep_until_resume(), clear()"
+      }
+    }
+
+    loop_sup = container "LoopSupervisor (~160 lines)" {
+      description "New: owns loop task supervision and crash recovery"
+      supervise = component "supervise()" {
+        description "Create tasks, monitor, restart on crash"
+      }
+      error_handling = component "Error Handling" {
+        description "_handle_loop_exception, _handle_auth_error, _restart_loop"
+      }
+    }
+
+    polling_fn = container "polling_loop() (module-level, ~80 lines)" {
+      description "New: generic poll infrastructure as pure function"
+    }
+
+    // Existing extracted components (unchanged)
+    bg_workers_t = container "BGWorkerManager" {
+      description "Existing: BG worker lifecycle"
+    }
+    hitl_ctrl_t = container "HITLController" {
+      description "Existing: HITL interaction"
+    }
+    state_restorer_t = container "StateRestorer" {
+      description "Existing: crash recovery"
+    }
+  }
+
+  // Relationships
+  orchestrator_target -> stats_builder "delegates build_pipeline_stats()"
+  orchestrator_target -> credit_mgr "delegates credit pause ops"
+  orchestrator_target -> loop_sup "delegates supervision"
+  orchestrator_target -> bg_workers_t "delegates BG worker ops"
+  orchestrator_target -> hitl_ctrl_t "delegates HITL ops"
+  orchestrator_target -> state_restorer_t "delegates state restore"
+  loop_sup -> credit_mgr "uses for credit pause timing"
+  loop_sup -> polling_fn "calls for phase loops"
+  phase_loops_t -> polling_fn "invokes via supervisor"
+}
+
+views {
+  view decomposition of target {
+    title "Orchestrator Decomposition — Target State"
+    include *
+  }
+}
