@@ -1668,16 +1668,6 @@ class CIMonitorSettings(BaseModel):
     create_issue: bool = True
 
 
-class AuditFinding(BaseModel):
-    """A single finding from a code audit."""
-
-    category: str
-    priority: Literal["P0", "P1", "P2", "P3"]
-    summary: str
-    file_path: str = ""
-    details: str = ""
-
-
 class CodeGroomingSettings(BaseModel):
     """Configuration for the code grooming worker."""
 
@@ -2629,17 +2619,6 @@ class ThresholdProposal(TypedDict):
 
 
 @dataclass(frozen=True)
-class PrecheckResult:
-    """Result of parsing a precheck transcript."""
-
-    risk: str
-    confidence: float
-    escalate: bool
-    summary: str
-    parse_failed: bool
-
-
-@dataclass(frozen=True)
 class ConflictResolutionResult:
     """Result of a merge conflict resolution attempt."""
 
@@ -3106,7 +3085,9 @@ class ADRCouncilResult(BaseModel):
     rounds_needed: int = 1
     votes: list[CouncilVote] = Field(default_factory=list)
     all_round_votes: list[list[CouncilVote]] = Field(default_factory=list)
-    final_decision: str = ""
+    final_decision: str = (
+        ""  # uppercase: ACCEPT, REJECT, REQUEST_CHANGES, DUPLICATE, NO_CONSENSUS
+    )
     duplicate_detected: bool = False
     duplicate_of: int | None = None
     summary: str = ""

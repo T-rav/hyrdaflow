@@ -372,25 +372,3 @@ class TestExtractAdrSection:
 # ---------------------------------------------------------------------------
 # Backward compatibility — phase_utils re-exports
 # ---------------------------------------------------------------------------
-
-
-class TestBackwardCompatReexports:
-    """Ensure phase_utils still exposes ADR utilities for existing consumers."""
-
-    def test_phase_utils_reexports_is_adr_issue_title(self) -> None:
-        from adr_utils import is_adr_issue_title as au_fn
-        from phase_utils import is_adr_issue_title as pu_fn
-
-        assert pu_fn is au_fn
-
-    def test_phase_utils_reexports_adr_file_re(self) -> None:
-        from adr_utils import ADR_FILE_RE as au_re
-        from phase_utils import ADR_FILE_RE as pu_re
-
-        assert pu_re is au_re
-
-    def test_phase_utils_reexports_next_adr_number(self) -> None:
-        from adr_utils import next_adr_number as au_fn
-        from phase_utils import next_adr_number as pu_fn
-
-        assert pu_fn is au_fn

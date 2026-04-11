@@ -500,7 +500,7 @@ class TestBgWorkerIntervalEndpoint:
 
     def test_interval_bounds_importable_from_module(self) -> None:
         """_INTERVAL_BOUNDS should be a module-level constant, not closure-scoped."""
-        from dashboard_routes import _INTERVAL_BOUNDS
+        from dashboard_routes._common import _INTERVAL_BOUNDS
 
         assert isinstance(_INTERVAL_BOUNDS, dict)
         assert "memory_sync" in _INTERVAL_BOUNDS

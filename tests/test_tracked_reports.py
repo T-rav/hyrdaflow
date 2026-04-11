@@ -583,17 +583,17 @@ class TestExtractIssueNumber:
     """Tests for _extract_issue_number from dashboard_routes."""
 
     def test_valid_issue_url(self) -> None:
-        from dashboard_routes import _extract_issue_number
+        from dashboard_routes._routes import _extract_issue_number
 
         assert _extract_issue_number("https://github.com/acme/repo/issues/42") == 42
 
     def test_no_issue_url(self) -> None:
-        from dashboard_routes import _extract_issue_number
+        from dashboard_routes._routes import _extract_issue_number
 
         assert _extract_issue_number("no url here") == 0
 
     def test_empty_string(self) -> None:
-        from dashboard_routes import _extract_issue_number
+        from dashboard_routes._routes import _extract_issue_number
 
         assert _extract_issue_number("") == 0
 

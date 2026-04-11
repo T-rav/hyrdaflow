@@ -165,19 +165,9 @@ class TestBackwardCompatibility:
 
         assert phase_is_likely_bug is is_likely_bug
 
-    def test_phase_utils_reexports_likely_bug_exceptions(self) -> None:
-        from phase_utils import LIKELY_BUG_EXCEPTIONS as phase_tuple
-
-        assert phase_tuple is LIKELY_BUG_EXCEPTIONS
-
     def test_phase_utils_reexports_reraise_on_credit_or_bug(self) -> None:
         from phase_utils import (
             reraise_on_credit_or_bug as phase_reraise,
         )
 
         assert phase_reraise is reraise_on_credit_or_bug
-
-    def test_phase_utils_reexports_capture_if_bug(self) -> None:
-        from phase_utils import capture_if_bug as phase_capture
-
-        assert phase_capture is capture_if_bug

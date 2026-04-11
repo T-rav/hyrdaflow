@@ -8,17 +8,6 @@ from collections.abc import Callable, Coroutine, Generator
 from contextlib import asynccontextmanager, contextmanager
 from typing import TYPE_CHECKING, Any, TypeVar
 
-# ADR utilities — canonical home is ``adr_utils``; re-exported here for
-# backward compatibility so existing consumers don't break.
-from adr_utils import (  # noqa: F401
-    ADR_FILE_RE,
-    _assigned_adr_numbers,
-    adr_validation_reasons,
-    is_adr_issue_title,
-    load_existing_adr_topics,
-    next_adr_number,
-    normalize_adr_topic,
-)
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
 
@@ -26,16 +15,7 @@ if TYPE_CHECKING:
     from hindsight import HindsightClient
     from memory_judge import MemoryJudge  # noqa: TCH004
 
-# Exception classification — canonical definitions live in
-# ``exception_classify`` (cross-cutting); re-exported here for backward
-# compatibility so existing consumers don't break.
-# Deprecated: import directly from ``exception_classify`` instead.
-from exception_classify import (  # noqa: F401
-    LIKELY_BUG_EXCEPTIONS,
-    capture_if_bug,
-    is_likely_bug,
-    reraise_on_credit_or_bug,
-)
+from exception_classify import is_likely_bug, reraise_on_credit_or_bug  # noqa: F401
 from harness_insights import FailureCategory, FailureRecord, HarnessInsightStore
 from memory import file_memory_suggestion
 from models import EscalationContext, PipelineStage, PRInfo, ReviewUpdatePayload, Task

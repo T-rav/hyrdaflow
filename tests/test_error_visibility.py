@@ -19,7 +19,7 @@ class TestIsLikelyDisconnect:
     """Tests for the _is_likely_disconnect helper in dashboard_routes."""
 
     def _call(self, exc: BaseException) -> bool:
-        from dashboard_routes import _is_likely_disconnect
+        from dashboard_routes._routes import _is_likely_disconnect
 
         return _is_likely_disconnect(exc)
 

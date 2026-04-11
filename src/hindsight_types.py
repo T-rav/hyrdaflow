@@ -54,7 +54,7 @@ class HindsightMemory(BaseModel):
 class WALEntry(BaseModel):
     """A single pending retain operation."""
 
-    bank: str
+    bank: str  # Bank enum value; kept as str for WAL transport flexibility
     content: str
     context: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)

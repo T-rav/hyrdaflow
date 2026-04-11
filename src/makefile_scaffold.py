@@ -8,9 +8,8 @@ stack (Python, Node, Java, Ruby/Rails, C#, Go, Rust, C++).
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
-from prep_ignore import PREP_IGNORED_DIRS, load_git_submodule_roots
+from makefile_contract import OPTIONAL_TARGETS, REQUIRED_TARGETS
 
 _PYTHON_TARGETS: dict[str, str] = {
     "lint": "\truff check . --fix && ruff format .\n",
@@ -210,56 +209,8 @@ _HELP_RECIPE = (
     '\t@echo "  quality      Run quality-lite + tests"\n'
 )
 
-_ALL_TARGET_NAMES = [
-    "help",
-    "lint",
-    "lint-check",
-    "lint-fix",
-    "typecheck",
-    "security",
-    "test",
-    "coverage-check",
-    "smoke",
-    "quality-lite",
-    "quality",
-]
 
-
-_PROJECT_MARKERS: tuple[str, ...] = (
-    "Makefile",
-    "makefile",
-    "GNUmakefile",
-    "pyproject.toml",
-    "requirements.txt",
-    "setup.py",
-    "package.json",
-    "go.mod",
-    "Cargo.toml",
-    "pom.xml",
-    "build.gradle",
-    "build.gradle.kts",
-    "Gemfile",
-    "CMakeLists.txt",
-)
-
-
-def discover_project_paths(repo_root: Path) -> list[Path]:
-    """Discover project directories that should get Makefile scaffolding."""
-    paths: set[Path] = set()
-    submodule_roots = load_git_submodule_roots(repo_root)
-    for path in repo_root.rglob("*"):
-        if any(part in PREP_IGNORED_DIRS for part in path.parts):
-            continue
-        resolved = path.resolve()
-        if any(
-            root == resolved or root in resolved.parents for root in submodule_roots
-        ):
-            continue
-        if not path.is_file():
-            continue
-        if path.name in _PROJECT_MARKERS or path.name.endswith((".sln", ".csproj")):
-            paths.add(path.parent)
-    return sorted(paths)
+_ALL_TARGET_NAMES = list(REQUIRED_TARGETS) + list(OPTIONAL_TARGETS)
 
 
 def parse_makefile(content: str) -> dict[str, str]:

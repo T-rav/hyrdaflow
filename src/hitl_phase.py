@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("hydraflow.hitl_phase")
 
+
 _HITL_ORIGIN_DISPLAY: dict[str, str] = {
     "hydraflow-find": "from triage",
     "hydraflow-plan": "from plan",

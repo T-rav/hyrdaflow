@@ -52,8 +52,8 @@ class TestWALEntry:
     """WALEntry model tests."""
 
     def test_defaults(self) -> None:
-        entry = WALEntry(bank="b", content="c")
-        assert entry.bank == "b"
+        entry = WALEntry(bank="hydraflow-tribal", content="c")
+        assert entry.bank == "hydraflow-tribal"
         assert entry.content == "c"
         assert entry.context == ""
         assert entry.metadata == {}
@@ -61,7 +61,9 @@ class TestWALEntry:
         assert entry.created_at  # non-empty ISO timestamp
 
     def test_serialization_roundtrip(self) -> None:
-        entry = WALEntry(bank="b", content="c", context="ctx", metadata={"k": "v"})
+        entry = WALEntry(
+            bank="hydraflow-tribal", content="c", context="ctx", metadata={"k": "v"}
+        )
         data = entry.model_dump()
         restored = WALEntry.model_validate(data)
         assert restored == entry

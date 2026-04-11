@@ -14,6 +14,7 @@ from typing import Any, Literal, get_args
 from pydantic import (
     AliasChoices,
     BaseModel,
+    ConfigDict,
     Field,
     field_validator,
     model_validator,
@@ -32,7 +33,7 @@ class Credentials(BaseModel):
     via ``build_credentials()``.
     """
 
-    model_config = {"frozen": True}
+    model_config = ConfigDict(frozen=True)
 
     gh_token: str = Field(
         default="",
@@ -1647,7 +1648,7 @@ class HydraFlowConfig(BaseModel):
             raise ValueError(msg)
         return v
 
-    model_config = {"arbitrary_types_allowed": True}
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @property
     def all_pipeline_labels(self) -> list[str]:

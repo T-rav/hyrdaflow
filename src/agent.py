@@ -7,7 +7,7 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
@@ -1184,7 +1184,7 @@ SUMMARY: <one-line summary>
             )
             run_dir.mkdir(parents=True, exist_ok=True)
             results_path = run_dir / "skill_results.json"
-            existing: list[dict] = []
+            existing: list[dict[str, Any]] = []
             if results_path.exists():
                 try:
                     existing = _json.loads(results_path.read_text(encoding="utf-8"))
