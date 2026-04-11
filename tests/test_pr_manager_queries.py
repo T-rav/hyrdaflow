@@ -1450,3 +1450,66 @@ class TestGetIssueState:
         assert "99" in call_args
         assert "issue" in call_args
         assert "view" in call_args
+
+
+# ---------------------------------------------------------------------------
+# try/except/raise wrapper removal (issue #6306)
+# ---------------------------------------------------------------------------
+
+
+class TestListIssuesByLabelNoWrapper:
+    """Verify list_issues_by_label propagates exceptions without extra logging."""
+
+    @pytest.mark.asyncio
+    async def test_failure_propagates_without_warning_log(
+        self, config, event_bus, caplog
+    ):
+        mgr = make_pr_manager(config, event_bus)
+        mock_create = (
+            SubprocessMockBuilder().with_returncode(1).with_stderr("API error").build()
+        )
+
+        with (
+            caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+            patch("asyncio.create_subprocess_exec", mock_create),
+            pytest.raises(RuntimeError),
+        ):
+            await mgr.list_issues_by_label("bug")
+
+        warning_records = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "Failed to list issues" in r.message
+        ]
+        assert warning_records == [], (
+            "Removed try/except/raise wrapper should not produce a warning log"
+        )
+
+
+class TestGetLatestCiStatusNoWrapper:
+    """Verify get_latest_ci_status propagates exceptions without extra logging."""
+
+    @pytest.mark.asyncio
+    async def test_failure_propagates_without_warning_log(
+        self, config, event_bus, caplog
+    ):
+        mgr = make_pr_manager(config, event_bus)
+        mock_create = (
+            SubprocessMockBuilder().with_returncode(1).with_stderr("API error").build()
+        )
+
+        with (
+            caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+            patch("asyncio.create_subprocess_exec", mock_create),
+            pytest.raises(RuntimeError),
+        ):
+            await mgr.get_latest_ci_status()
+
+        warning_records = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "Could not fetch CI status" in r.message
+        ]
+        assert warning_records == [], (
+            "Removed try/except/raise wrapper should not produce a warning log"
+        )

@@ -532,6 +532,24 @@ class TestUploadScreenshotGist:
         assert result == ""
 
     @pytest.mark.asyncio
+    async def test_failure_logs_warning_not_error(self, config, event_bus, caplog):
+        mgr = make_pr_manager(config, event_bus)
+        mock_exec = SubprocessMockBuilder().with_returncode(1).build()
+
+        with (
+            caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+            patch("asyncio.create_subprocess_exec", mock_exec),
+        ):
+            result = await mgr.upload_screenshot_gist("aGVsbG8=")
+
+        assert result == ""
+        assert "Screenshot gist upload failed" in caplog.text
+        error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert error_records == [], (
+            "Transient gist upload failure must not log at ERROR level"
+        )
+
+    @pytest.mark.asyncio
     async def test_unexpected_output_returns_empty_string(self, config, event_bus):
         mgr = make_pr_manager(config, event_bus)
         mock_exec = SubprocessMockBuilder().with_stdout("unexpected output").build()
@@ -757,6 +775,30 @@ async def test_push_branch_failure_returns_false(config, event_bus, tmp_path):
         result = await manager.push_branch(tmp_path, "agent/issue-99")
 
     assert result is False
+
+
+@pytest.mark.asyncio
+async def test_push_branch_failure_logs_warning_not_error(
+    config, event_bus, tmp_path, caplog
+):
+    manager = make_pr_manager(config, event_bus)
+    mock_create = (
+        SubprocessMockBuilder()
+        .with_returncode(1)
+        .with_stderr("error: failed to push")
+        .build()
+    )
+
+    with (
+        caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+        patch("asyncio.create_subprocess_exec", mock_create),
+    ):
+        result = await manager.push_branch(tmp_path, "agent/issue-99")
+
+    assert result is False
+    assert "failed for" in caplog.text
+    error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert error_records == [], "Transient push failure must not log at ERROR level"
 
 
 @pytest.mark.asyncio
@@ -1058,6 +1100,30 @@ async def test_merge_pr_failure_returns_false(config, event_bus):
 
 
 @pytest.mark.asyncio
+async def test_merge_pr_failure_logs_warning_not_error(config, event_bus, caplog):
+    manager = make_pr_manager(config, event_bus)
+    title_proc = (
+        SubprocessMockBuilder().with_stdout('{"title":"Fix","body":""}').build()
+    )
+    fail_proc = (
+        SubprocessMockBuilder().with_returncode(1).with_stderr("merge failed").build()
+    )
+    calls = iter([title_proc.return_value, fail_proc.return_value])
+    mock = AsyncMock(side_effect=lambda *a, **kw: next(calls))
+
+    with (
+        caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+        patch("asyncio.create_subprocess_exec", mock),
+    ):
+        result = await manager.merge_pr(101)
+
+    assert result is False
+    assert "Merge failed for PR #101" in caplog.text
+    error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert error_records == [], "Transient merge failure must not log at ERROR level"
+
+
+@pytest.mark.asyncio
 async def test_merge_pr_dry_run_skips_command(dry_config, event_bus):
     manager = make_pr_manager(dry_config, event_bus)
     mock_create = SubprocessMockBuilder().build()
@@ -1176,6 +1242,24 @@ async def test_get_pr_diff_failure_returns_empty_string(config, event_bus):
     assert diff == ""
 
 
+@pytest.mark.asyncio
+async def test_get_pr_diff_failure_logs_warning_not_error(config, event_bus, caplog):
+    manager = make_pr_manager(config, event_bus)
+    mock_create = (
+        SubprocessMockBuilder().with_returncode(1).with_stderr("not found").build()
+    )
+
+    with (
+        caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+        patch("asyncio.create_subprocess_exec", mock_create),
+    ):
+        await manager.get_pr_diff(999)
+
+    assert "Could not get diff for PR #999" in caplog.text
+    error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert error_records == [], "Transient diff failure must not log at ERROR level"
+
+
 # ---------------------------------------------------------------------------
 # pull_main
 # ---------------------------------------------------------------------------
@@ -1211,6 +1295,28 @@ async def test_pull_main_failure_returns_false(config, event_bus):
         result = await manager.pull_main()
 
     assert result is False
+
+
+@pytest.mark.asyncio
+async def test_pull_main_failure_logs_warning_not_error(config, event_bus, caplog):
+    manager = make_pr_manager(config, event_bus)
+    mock_create = (
+        SubprocessMockBuilder()
+        .with_returncode(1)
+        .with_stderr("fatal: pull failed")
+        .build()
+    )
+
+    with (
+        caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+        patch("asyncio.create_subprocess_exec", mock_create),
+    ):
+        result = await manager.pull_main()
+
+    assert result is False
+    assert "Pull main failed" in caplog.text
+    error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert error_records == [], "Transient pull failure must not log at ERROR level"
 
 
 @pytest.mark.asyncio
@@ -2145,6 +2251,27 @@ class TestGetPrDiffNames:
         assert result == []
 
     @pytest.mark.asyncio
+    async def test_get_pr_diff_names_failure_logs_warning_not_error(
+        self, config, event_bus, caplog
+    ):
+        manager = make_pr_manager(config, event_bus)
+        mock_create = (
+            SubprocessMockBuilder().with_returncode(1).with_stderr("not found").build()
+        )
+
+        with (
+            caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+            patch("asyncio.create_subprocess_exec", mock_create),
+        ):
+            await manager.get_pr_diff_names(999)
+
+        assert "Could not get diff file names for PR #999" in caplog.text
+        error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert error_records == [], (
+            "Transient diff-names failure must not log at ERROR level"
+        )
+
+    @pytest.mark.asyncio
     async def test_get_pr_diff_names_empty_diff_returns_empty_list(
         self, config, event_bus
     ):
@@ -2604,3 +2731,141 @@ async def test_create_pr_fallback_updates_existing_pr_title(config, event_bus, i
     assert pr_info.number == 222
     expected_title = PRManager.expected_pr_title(issue.number, issue.title)
     manager.update_pr_title.assert_awaited_once_with(222, expected_title)
+
+
+# ---------------------------------------------------------------------------
+# Transient failure log-level assertions (issue #6306)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_upload_screenshot_failure_logs_warning_not_error(
+    config, event_bus, tmp_path, caplog
+):
+    manager = make_pr_manager(config, event_bus)
+    png_file = tmp_path / "shot.png"
+    png_file.write_bytes(b"\x89PNG fake data")
+
+    # _ensure_screenshot_release succeeds, upload fails
+    call_count = 0
+
+    async def _side_effect(*args, **_kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # _ensure_screenshot_release view call — succeeds
+            return SubprocessMockBuilder().with_stdout("").build().return_value
+        # upload call — fails
+        return (
+            SubprocessMockBuilder()
+            .with_returncode(1)
+            .with_stderr("upload error")
+            .build()
+            .return_value
+        )
+
+    with (
+        caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+        patch("asyncio.create_subprocess_exec", AsyncMock(side_effect=_side_effect)),
+    ):
+        result = await manager.upload_screenshot(png_file)
+
+    assert result == ""
+    assert "Screenshot upload failed" in caplog.text
+    error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert error_records == [], (
+        "Transient screenshot upload failure must not log at ERROR level"
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_pr_failure_logs_warning_not_error(
+    config, event_bus, issue, caplog
+):
+    manager = make_pr_manager(config, event_bus)
+    manager.find_open_pr_for_branch = AsyncMock(return_value=None)
+    mock_create = (
+        SubprocessMockBuilder().with_returncode(1).with_stderr("gh: error").build()
+    )
+
+    with (
+        caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+        patch("asyncio.create_subprocess_exec", mock_create),
+    ):
+        pr_info = await manager.create_pr(issue, "agent/issue-42")
+
+    assert pr_info.number == 0
+    assert "PR creation failed" in caplog.text
+    error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert error_records == [], (
+        "Transient PR creation failure must not log at ERROR level"
+    )
+
+
+@pytest.mark.asyncio
+async def test_submit_review_failure_logs_warning_not_error(config, event_bus, caplog):
+    manager = make_pr_manager(config, event_bus)
+    mock_create = (
+        SubprocessMockBuilder().with_returncode(1).with_stderr("review failed").build()
+    )
+
+    with (
+        caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+        patch("asyncio.create_subprocess_exec", mock_create),
+    ):
+        result = await manager.submit_review(101, ReviewVerdict.APPROVE, "Looks good")
+
+    assert result is False
+    assert "Could not submit" in caplog.text
+    error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert error_records == [], "Transient review failure must not log at ERROR level"
+
+
+@pytest.mark.asyncio
+async def test_add_labels_strict_failure_logs_warning_not_error(
+    config, event_bus, caplog
+):
+    manager = make_pr_manager(config, event_bus)
+    mock_create = (
+        SubprocessMockBuilder()
+        .with_returncode(1)
+        .with_stderr("label add failed")
+        .build()
+    )
+
+    with (
+        caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+        patch("asyncio.create_subprocess_exec", mock_create),
+        pytest.raises(RuntimeError),
+    ):
+        await manager._add_labels_strict("issue", 42, ["bug"])
+
+    assert "Failed to add label" in caplog.text
+    error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert error_records == [], (
+        "Transient label-add failure must not log at ERROR level"
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_issue_failure_logs_warning_not_error(config, event_bus, caplog):
+    manager = make_pr_manager(config, event_bus)
+    mock_create = (
+        SubprocessMockBuilder()
+        .with_returncode(1)
+        .with_stderr("issue creation failed")
+        .build()
+    )
+
+    with (
+        caplog.at_level(logging.WARNING, logger="hydraflow.pr_manager"),
+        patch("asyncio.create_subprocess_exec", mock_create),
+    ):
+        result = await manager.create_issue("Test Issue", "body")
+
+    assert result == 0
+    assert "Issue creation failed" in caplog.text
+    error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert error_records == [], (
+        "Transient issue creation failure must not log at ERROR level"
+    )

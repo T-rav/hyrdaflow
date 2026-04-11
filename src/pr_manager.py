@@ -176,7 +176,7 @@ class PRManager:
             return True
         except RuntimeError as exc:
             action = "Force-push" if force else "Push"
-            logger.error("%s failed for %s: %s", action, branch, exc)
+            logger.warning("%s failed for %s: %s", action, branch, exc)
             return False
 
     @staticmethod
@@ -308,7 +308,7 @@ class PRManager:
             return pr_info
 
         except (RuntimeError, ValueError) as exc:
-            logger.error("PR creation failed for issue #%d: %s", issue.number, exc)
+            logger.warning("PR creation failed for issue #%d: %s", issue.number, exc)
             existing = await self.find_open_pr_for_branch(
                 branch, issue_number=issue.number
             )
@@ -440,7 +440,7 @@ class PRManager:
             )
             return True
         except RuntimeError as exc:
-            logger.error("Merge failed for PR #%d: %s", pr_number, exc)
+            logger.warning("Merge failed for PR #%d: %s", pr_number, exc)
             return False
 
     async def _comment(
@@ -536,7 +536,7 @@ class PRManager:
                     pr_number,
                 )
                 raise SelfReviewError(err_msg) from exc
-            logger.error(
+            logger.warning(
                 "Could not submit %s review on PR #%d: %s",
                 verdict.value,
                 pr_number,
@@ -595,7 +595,7 @@ class PRManager:
                     f"labels[]={label}",
                 )
             except RuntimeError:
-                logger.error(
+                logger.warning(
                     "Failed to add label %r to %s #%d during swap — "
                     "aborting to prevent orphan",
                     label,
@@ -685,35 +685,31 @@ class PRManager:
     async def list_issues_by_label(self, label: str) -> list[dict[str, Any]]:
         """Return open issues with the given label as a list of dicts."""
         self._assert_repo()
-        try:
-            output = await self._run_gh(
-                "gh",
-                "issue",
-                "list",
-                "--repo",
-                self._repo,
-                "--label",
-                label,
-                "--state",
-                "open",
-                "--json",
-                "number,title,body,updatedAt",
-                "--limit",
-                "100",
-            )
-            items = json.loads(output)
-            return [
-                {
-                    "number": item.get("number", 0),
-                    "title": item.get("title", ""),
-                    "body": item.get("body", ""),
-                    "updated_at": item.get("updatedAt", ""),
-                }
-                for item in items
-            ]
-        except Exception:
-            logger.warning("Failed to list issues for label %s", label, exc_info=True)
-            raise
+        output = await self._run_gh(
+            "gh",
+            "issue",
+            "list",
+            "--repo",
+            self._repo,
+            "--label",
+            label,
+            "--state",
+            "open",
+            "--json",
+            "number,title,body,updatedAt",
+            "--limit",
+            "100",
+        )
+        items = json.loads(output)
+        return [
+            {
+                "number": item.get("number", 0),
+                "title": item.get("title", ""),
+                "body": item.get("body", ""),
+                "updated_at": item.get("updatedAt", ""),
+            }
+            for item in items
+        ]
 
     async def get_issue_updated_at(self, issue_number: int) -> str:
         """Return the updated_at timestamp for an issue as ISO string."""
@@ -735,29 +731,25 @@ class PRManager:
     async def get_latest_ci_status(self) -> tuple[str, str]:
         """Return (conclusion, url) for the latest CI run on the main branch."""
         self._assert_repo()
-        try:
-            output = await self._run_gh(
-                "gh",
-                "run",
-                "list",
-                "--repo",
-                self._repo,
-                "--branch",
-                self._config.main_branch,
-                "--limit",
-                "1",
-                "--json",
-                "conclusion,url",
-                "--jq",
-                ".[0] | [.conclusion, .url] | @tsv",
-            )
-            parts = output.strip().split("\t")
-            conclusion = parts[0] if parts else ""
-            url = parts[1] if len(parts) > 1 else ""
-            return (conclusion, url)
-        except Exception:
-            logger.warning("Could not fetch CI status", exc_info=True)
-            raise
+        output = await self._run_gh(
+            "gh",
+            "run",
+            "list",
+            "--repo",
+            self._repo,
+            "--branch",
+            self._config.main_branch,
+            "--limit",
+            "1",
+            "--json",
+            "conclusion,url",
+            "--jq",
+            ".[0] | [.conclusion, .url] | @tsv",
+        )
+        parts = output.strip().split("\t")
+        conclusion = parts[0] if parts else ""
+        url = parts[1] if len(parts) > 1 else ""
+        return (conclusion, url)
 
     async def close_issue(self, issue_number: int) -> None:
         """Close a GitHub issue."""
@@ -998,7 +990,7 @@ class PRManager:
             )
             return issue_number
         except (RuntimeError, ValueError) as exc:
-            logger.error("Issue creation failed for %r: %s", title, exc)
+            logger.warning("Issue creation failed for %r: %s", title, exc)
             return 0
 
     _SCREENSHOT_RELEASE_TAG = "screenshots"
@@ -1051,7 +1043,7 @@ class PRManager:
             logger.info("Screenshot uploaded: %s", url)
             return url
         except Exception:
-            logger.exception("Screenshot upload failed")
+            logger.warning("Screenshot upload failed", exc_info=True)
             return ""
 
     async def _ensure_screenshot_release(self) -> None:
@@ -1117,7 +1109,7 @@ class PRManager:
             output = await self._run_gh(*gist_args)
             return self._gist_raw_url(output, "screenshot.png")
         except Exception:
-            logger.exception("Screenshot gist upload failed")
+            logger.warning("Screenshot gist upload failed", exc_info=True)
             return ""
         finally:
             Path(tmp_path).unlink(missing_ok=True)
@@ -1146,7 +1138,7 @@ class PRManager:
                 self._repo,
             )
         except RuntimeError as exc:
-            logger.error("Could not get diff for PR #%d: %s", pr_number, exc)
+            logger.warning("Could not get diff for PR #%d: %s", pr_number, exc)
             return ""
 
     async def get_pr_diff_names(self, pr_number: int) -> list[str]:
@@ -1163,7 +1155,9 @@ class PRManager:
             )
             return [f.strip() for f in output.strip().splitlines() if f.strip()]
         except RuntimeError as exc:
-            logger.error("Could not get diff file names for PR #%d: %s", pr_number, exc)
+            logger.warning(
+                "Could not get diff file names for PR #%d: %s", pr_number, exc
+            )
             return []
 
     async def get_pr_approvers(self, pr_number: int) -> list[str]:
@@ -1207,7 +1201,7 @@ class PRManager:
             )
             return True
         except RuntimeError as exc:
-            logger.error("Pull main failed: %s", exc)
+            logger.warning("Pull main failed: %s", exc)
             return False
 
     # --- CI check methods ---
