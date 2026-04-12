@@ -173,7 +173,7 @@ class TaskLink(BaseModel):
 
     kind: TaskLinkKind
     target_id: int
-    target_url: str = ""
+    target_url: HttpUrl = ""
 
 
 # Compiled patterns: (pattern, kind). Order matters — first match per target_id wins.
@@ -232,8 +232,8 @@ class Task(BaseModel):
     body: str = ""
     tags: list[str] = Field(default_factory=list)
     comments: list[str] = Field(default_factory=list)
-    source_url: str = ""
-    created_at: str = ""
+    source_url: HttpUrl = ""
+    created_at: IsoTimestamp = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
     links: list[TaskLink] = Field(default_factory=list)
     parent_epic: int | None = None
@@ -257,7 +257,7 @@ class GitHubIssue(BaseModel):
     author: str = ""
     state: GitHubIssueState = GitHubIssueState.OPEN
     milestone_number: int | None = None
-    created_at: str = ""
+    created_at: IsoTimestamp = ""
 
     @field_validator("labels", mode="before")
     @classmethod
@@ -452,8 +452,8 @@ class ShapeConversation(BaseModel):
     status: Literal["exploring", "finalizing", "done", "timed_out"] = Field(
         default="exploring", description="Shape conversation lifecycle status"
     )
-    started_at: str = Field(default="", description="ISO 8601")
-    last_activity_at: str = Field(default="", description="ISO 8601")
+    started_at: IsoTimestamp = Field(default="", description="ISO 8601")
+    last_activity_at: IsoTimestamp = Field(default="", description="ISO 8601")
 
 
 class ShapeTurnResult(BaseModel):
@@ -940,7 +940,7 @@ class AttemptRecord(BaseModel):
     attempt_number: int
     changes_made: bool
     error_summary: str
-    timestamp: str
+    timestamp: IsoTimestamp
 
 
 class EscalationContext(BaseModel):
@@ -1311,7 +1311,7 @@ class ThroughputStats(BaseModel):
 class PipelineStats(BaseModel):
     """Unified real-time pipeline state emitted periodically by the orchestrator."""
 
-    timestamp: str
+    timestamp: IsoTimestamp
     stages: dict[str, StageStats] = Field(default_factory=dict)
     queue: QueueStats = Field(default_factory=QueueStats)
     throughput: ThroughputStats = Field(default_factory=ThroughputStats)
@@ -1358,7 +1358,7 @@ class HookFailureRecord(BaseModel):
 
     hook_name: str
     error: str
-    timestamp: str
+    timestamp: IsoTimestamp
 
 
 class HITLCloseRequest(BaseModel):
@@ -1385,8 +1385,8 @@ class SessionLog(BaseModel):
 
     id: str
     repo: str
-    started_at: str
-    ended_at: str | None = None
+    started_at: IsoTimestamp
+    ended_at: IsoTimestamp | None = None
     issues_processed: list[int] = Field(default_factory=list)
     issues_succeeded: int = 0
     issues_failed: int = 0
@@ -1511,7 +1511,7 @@ class ToolCallSpan(BaseModel):
     """One tool invocation observed during a subprocess."""
 
     tool_name: str
-    started_at: str  # ISO 8601
+    started_at: IsoTimestamp  # ISO 8601
     duration_ms: int
     input_summary: str  # human-readable preview from _summarize_tool
     succeeded: bool
@@ -1541,7 +1541,7 @@ class SubprocessTrace(BaseModel):
     run_id: int
     subprocess_idx: int
     backend: str  # "claude" / "codex" / "pi"
-    started_at: str  # ISO 8601
+    started_at: IsoTimestamp  # ISO 8601
     ended_at: str | None = None
     success: bool
     crashed: bool = False
@@ -1559,7 +1559,7 @@ class HITLSummaryCacheEntry(BaseModel):
     """Cached LLM summary for a HITL issue."""
 
     summary: str = ""
-    updated_at: str | None = None
+    updated_at: IsoTimestamp | None = None
 
 
 class HITLSummaryFailureEntry(BaseModel):
@@ -1581,8 +1581,12 @@ class EpicState(BaseModel):
     hitl_warned_children: list[int] = Field(default_factory=list)
     approved_children: list[int] = Field(default_factory=list)
     merge_strategy: MergeStrategy = MergeStrategy.INDEPENDENT
-    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
-    last_activity: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    created_at: IsoTimestamp = Field(
+        default_factory=lambda: datetime.now(UTC).isoformat()
+    )
+    last_activity: IsoTimestamp = Field(
+        default_factory=lambda: datetime.now(UTC).isoformat()
+    )
     closed: bool = False
     released: bool = False
     auto_decomposed: bool = False
@@ -1787,7 +1791,7 @@ class EpicChildInfo(BaseModel):
 
     issue_number: int
     title: str = ""
-    url: str = ""
+    url: HttpUrl = ""
     state: EpicChildState = EpicChildState.OPEN
     stage: str = ""  # pipeline stage if active (triage/plan/implement/review/merged)
     current_stage: str = ""  # UI-facing alias of stage
@@ -1797,7 +1801,7 @@ class EpicChildInfo(BaseModel):
     is_excluded: bool = False
     is_approved: bool = False
     pr_number: int | None = None
-    pr_url: str = ""
+    pr_url: HttpUrl = ""
     pr_state: EpicChildPRState | None = None
     branch: str = ""
     ci_status: CIStatus | None = None
@@ -1824,7 +1828,7 @@ class EpicDetail(BaseModel):
 
     epic_number: int
     title: str = ""
-    url: str = ""
+    url: HttpUrl = ""
     total_children: int = 0
     completed: int = 0
     failed: int = 0
@@ -1837,7 +1841,7 @@ class EpicDetail(BaseModel):
     status: EpicStatus = EpicStatus.ACTIVE
     percent_complete: float = 0.0
     last_activity: str = ""
-    created_at: str = ""
+    created_at: IsoTimestamp = ""
     auto_decomposed: bool = False
     merge_strategy: MergeStrategy = MergeStrategy.INDEPENDENT
     children: list[EpicChildInfo] = Field(default_factory=list)
@@ -1878,8 +1882,8 @@ class Crate(BaseModel):
     state: str = "open"
     open_issues: int = 0
     closed_issues: int = 0
-    created_at: str = ""
-    updated_at: str = ""
+    created_at: IsoTimestamp = ""
+    updated_at: IsoTimestamp = ""
 
 
 class CrateCreateRequest(BaseModel):
@@ -1980,7 +1984,9 @@ class PendingReport(BaseModel):
     description: str
     screenshot_base64: str = ""
     environment: dict[str, Any] = Field(default_factory=dict)
-    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    created_at: IsoTimestamp = Field(
+        default_factory=lambda: datetime.now(UTC).isoformat()
+    )
     attempts: int = 0
     reporter_id: str = ""
 
@@ -1988,7 +1994,9 @@ class PendingReport(BaseModel):
 class ReportHistoryEntry(BaseModel):
     """A single event in a tracked report's lifecycle timeline."""
 
-    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    timestamp: IsoTimestamp = Field(
+        default_factory=lambda: datetime.now(UTC).isoformat()
+    )
     action: str  # e.g. "submitted", "processing", "fixed", "reopened", "cancelled"
     detail: str = ""
 
@@ -2002,11 +2010,15 @@ class TrackedReport(BaseModel):
     status: Literal["queued", "in-progress", "filed", "fixed", "closed", "reopened"] = (
         "queued"
     )
-    linked_issue_url: str = ""
-    linked_pr_url: str = ""
+    linked_issue_url: HttpUrl = ""
+    linked_pr_url: HttpUrl = ""
     progress_summary: str = ""
-    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
-    updated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    created_at: IsoTimestamp = Field(
+        default_factory=lambda: datetime.now(UTC).isoformat()
+    )
+    updated_at: IsoTimestamp = Field(
+        default_factory=lambda: datetime.now(UTC).isoformat()
+    )
     history: list[ReportHistoryEntry] = Field(default_factory=list)
 
     _VALID_TRANSITIONS: ClassVar[dict[str, set[str]]] = {
@@ -2458,6 +2470,15 @@ class TriageUpdatePayload(TypedDict, total=False):
     role: str
 
 
+class GitHubIssueSummary(TypedDict):
+    """Lightweight issue dict returned by ``PRPort.list_issues_by_label``."""
+
+    number: int
+    title: str
+    body: str
+    updated_at: str
+
+
 class PipelineSnapshotEntry(TypedDict):
     """Shape of issue dicts returned by ``IssueStore.get_pipeline_snapshot``."""
 
@@ -2719,7 +2740,7 @@ class IssueHistoryLink(BaseModel):
 
     target_id: int
     kind: TaskLinkKind = TaskLinkKind.RELATES_TO
-    target_url: str | None = None
+    target_url: HttpUrl | None = None
 
 
 class IssueHistoryPR(BaseModel):
@@ -2747,8 +2768,8 @@ class IssueHistoryEntry(BaseModel):
     source_calls: dict[str, int] = Field(default_factory=dict)
     model_calls: dict[str, int] = Field(default_factory=dict)
     inference: dict[str, int] = Field(default_factory=dict)
-    first_seen: str | None = None
-    last_seen: str | None = None
+    first_seen: IsoTimestamp | None = None
+    last_seen: IsoTimestamp | None = None
     outcome: IssueOutcome | None = None
 
 
@@ -2834,7 +2855,7 @@ class TimelineStage(BaseModel):
 
     stage: PipelineStage
     status: StageStatus
-    started_at: str | None = None
+    started_at: IsoTimestamp | None = None
     completed_at: str | None = None
     duration_seconds: float | None = None
     transcript_preview: list[str] = Field(default_factory=list)

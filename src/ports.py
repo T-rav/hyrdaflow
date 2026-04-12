@@ -44,13 +44,14 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, runtime_checkable
+from typing import runtime_checkable
 
 from typing_extensions import Protocol
 
 from models import (
     CodeScanningAlert,
     GitHubIssue,
+    GitHubIssueSummary,
     HITLItem,
     LoopResult,
     PRInfo,
@@ -269,8 +270,8 @@ class PRPort(Protocol):
 
     # --- Issue detail accessors ---
 
-    async def list_issues_by_label(self, label: str) -> list[dict[str, Any]]:
-        """Return open issues with the given label as a list of dicts."""
+    async def list_issues_by_label(self, label: str) -> list[GitHubIssueSummary]:
+        """Return open issues with the given label as a list of typed dicts."""
         ...
 
     async def get_issue_state(self, issue_number: int) -> str:

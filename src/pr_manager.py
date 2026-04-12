@@ -24,6 +24,7 @@ from models import (
     CodeScanningAlert,
     Crate,
     GitHubIssue,
+    GitHubIssueSummary,
     HITLItem,
     IssueCreatedPayload,
     LabelCounts,
@@ -682,7 +683,7 @@ class PRManager:
             )
             return "UNKNOWN"
 
-    async def list_issues_by_label(self, label: str) -> list[dict[str, Any]]:
+    async def list_issues_by_label(self, label: str) -> list[GitHubIssueSummary]:
         """Return open issues with the given label as a list of dicts."""
         self._assert_repo()
         output = await self._run_gh(
