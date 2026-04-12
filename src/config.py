@@ -130,7 +130,6 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("visual_max_retries", "HYDRAFLOW_VISUAL_MAX_RETRIES", 2),
     ("agent_timeout", "HYDRAFLOW_AGENT_TIMEOUT", 3600),
     ("transcript_summary_timeout", "HYDRAFLOW_TRANSCRIPT_SUMMARY_TIMEOUT", 120),
-    ("memory_compaction_timeout", "HYDRAFLOW_MEMORY_COMPACTION_TIMEOUT", 60),
     ("quality_timeout", "HYDRAFLOW_QUALITY_TIMEOUT", 3600),
     ("git_command_timeout", "HYDRAFLOW_GIT_COMMAND_TIMEOUT", 30),
     ("summarizer_timeout", "HYDRAFLOW_SUMMARIZER_TIMEOUT", 120),
@@ -140,12 +139,6 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
         "max_troubleshooting_prompt_chars",
         "HYDRAFLOW_MAX_TROUBLESHOOTING_PROMPT_CHARS",
         3000,
-    ),
-    ("visual_max_screens", "HYDRAFLOW_VISUAL_MAX_SCREENS", 20),
-    (
-        "visual_per_screen_budget_bytes",
-        "HYDRAFLOW_VISUAL_PER_SCREEN_BUDGET_BYTES",
-        5_000_000,
     ),
     # Prompt budget configuration
     ("max_discussion_comment_chars", "HYDRAFLOW_MAX_DISCUSSION_COMMENT_CHARS", 500),
@@ -165,8 +158,6 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
         50_000,
     ),
     ("hindsight_timeout", "HYDRAFLOW_HINDSIGHT_TIMEOUT", 30),
-    ("state_backup_interval", "HYDRAFLOW_STATE_BACKUP_INTERVAL", 300),
-    ("state_backup_count", "HYDRAFLOW_STATE_BACKUP_COUNT", 3),
     ("health_monitor_interval", "HYDRAFLOW_HEALTH_MONITOR_INTERVAL", 7200),
     ("stale_issue_interval", "HYDRAFLOW_STALE_ISSUE_INTERVAL", 86400),
     ("sentry_poll_interval", "SENTRY_POLL_INTERVAL", 600),
@@ -192,7 +183,6 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("docker_network", "HYDRAFLOW_DOCKER_NETWORK", ""),
     ("system_model", "HYDRAFLOW_SYSTEM_MODEL", ""),
     ("background_model", "HYDRAFLOW_BACKGROUND_MODEL", ""),
-    ("memory_compaction_model", "HYDRAFLOW_MEMORY_COMPACTION_MODEL", "haiku"),
     ("transcript_summary_model", "HYDRAFLOW_TRANSCRIPT_SUMMARY_MODEL", "haiku"),
     ("wiki_compilation_model", "HYDRAFLOW_WIKI_COMPILATION_MODEL", "haiku"),
     ("triage_model", "HYDRAFLOW_TRIAGE_MODEL", "haiku"),
@@ -282,7 +272,6 @@ _ENV_LITERAL_OVERRIDES: list[tuple[str, str]] = [
     ("triage_tool", "HYDRAFLOW_TRIAGE_TOOL"),
     ("transcript_summary_tool", "HYDRAFLOW_TRANSCRIPT_SUMMARY_TOOL"),
     ("wiki_compilation_tool", "HYDRAFLOW_WIKI_COMPILATION_TOOL"),
-    ("memory_compaction_tool", "HYDRAFLOW_MEMORY_COMPACTION_TOOL"),
     ("ac_tool", "HYDRAFLOW_AC_TOOL"),
     ("verification_judge_tool", "HYDRAFLOW_VERIFICATION_JUDGE_TOOL"),
     ("subskill_tool", "HYDRAFLOW_SUBSKILL_TOOL"),
@@ -879,15 +868,6 @@ class HydraFlowConfig(BaseModel):
         le=10_000,
         description="Max characters for learned troubleshooting patterns in CI timeout prompts",
     )
-    memory_compaction_tool: Literal["claude", "codex", "pi"] = Field(
-        default="claude",
-        description="CLI backend for memory digest compaction",
-    )
-    memory_compaction_model: str = Field(
-        default="haiku",
-        description="Cheap model for summarising memory digest when over size limit",
-    )
-
     # Sentry error ingestion
     sentry_org: str = Field(
         default="",
@@ -1155,22 +1135,6 @@ class HydraFlowConfig(BaseModel):
         default=True,
         description="Enable visual validation scope checks and runtime validation during review",
     )
-    visual_diff_threshold: float = Field(
-        default=0.01,
-        ge=0.0,
-        le=1.0,
-        description="Per-screen pixel diff ratio that triggers FAIL",
-    )
-    visual_max_screens: int = Field(
-        default=20,
-        ge=1,
-        description="Maximum number of screens to compare",
-    )
-    visual_per_screen_budget_bytes: int = Field(
-        default=5_000_000,
-        ge=1,
-        description="Maximum artifact size in bytes per screen",
-    )
     visual_validation_trigger_patterns: list[str] = Field(
         default_factory=lambda: [
             "src/ui/**",
@@ -1319,20 +1283,6 @@ class HydraFlowConfig(BaseModel):
         ge=1,
         le=90,
         description="Days of event history to retain during rotation",
-    )
-
-    # State backup
-    state_backup_interval: int = Field(
-        default=300,
-        ge=60,
-        le=86400,
-        description="Seconds between automatic state.json backups",
-    )
-    state_backup_count: int = Field(
-        default=3,
-        ge=1,
-        le=10,
-        description="Number of rotated state.json backup generations to keep",
     )
 
     # Health monitor
@@ -1518,13 +1468,6 @@ class HydraFlowConfig(BaseModel):
         le=600,
         description="Timeout in seconds for transcript summarization model calls",
     )
-    memory_compaction_timeout: int = Field(
-        default=60,
-        ge=30,
-        le=600,
-        description="Timeout in seconds for memory compaction model calls",
-    )
-
     # Execution mode
     dry_run: bool = Field(
         default=False, description="Log actions without executing them"
@@ -1853,7 +1796,6 @@ def _apply_profile_overrides(config: HydraFlowConfig) -> None:
         for field in (
             "triage_tool",
             "transcript_summary_tool",
-            "memory_compaction_tool",
             "report_issue_tool",
         ):
             _apply_if_default(field, config.background_tool)
@@ -1862,7 +1804,6 @@ def _apply_profile_overrides(config: HydraFlowConfig) -> None:
         for field in (
             "triage_model",
             "transcript_summary_model",
-            "memory_compaction_model",
             "report_issue_model",
         ):
             _apply_if_default(field, config.background_model)
@@ -2252,18 +2193,6 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
                         env_val,
                         allowed,
                     )
-
-    # Visual validation float thresholds (bounded 0.0–1.0, special-case).
-    for field, env_key, default in (
-        ("visual_diff_threshold", "HYDRAFLOW_VISUAL_DIFF_THRESHOLD", 0.01),
-    ):
-        if getattr(config, field) == default:
-            env_val = _get_env(env_key)
-            if env_val is not None:
-                with contextlib.suppress(ValueError):
-                    new_val = float(env_val)
-                    if 0.0 <= new_val <= 1.0:
-                        object.__setattr__(config, field, new_val)
 
     # Backward-compat bridge: promote legacy HYDRAFLOW_DOCKER_ENABLED /
     # HYDRA_DOCKER_ENABLED to execution_mode="docker" when the canonical
