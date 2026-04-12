@@ -44,9 +44,12 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import runtime_checkable
+from typing import TYPE_CHECKING, runtime_checkable
 
 from typing_extensions import Protocol
+
+if TYPE_CHECKING:
+    from review_insights import ProposalMetadata, ReviewRecord  # noqa: TCH004
 
 from models import (
     CodeScanningAlert,
@@ -502,3 +505,27 @@ class AgentPort(Protocol):
     async def _verify_result(self, worktree_path: Path, branch: str) -> LoopResult:
         """Verify the agent produced valid commits and quality passes."""
         ...
+
+
+@runtime_checkable
+class ReviewInsightStorePort(Protocol):
+    """Port for review insight persistence.
+
+    Implemented by: ``review_insights.ReviewInsightStore``
+
+    Decouples ``ReviewPhase`` from the concrete file/Dolt storage backend.
+    """
+
+    def append_review(self, record: ReviewRecord) -> None: ...
+
+    def load_recent(self, n: int = 10) -> list[ReviewRecord]: ...
+
+    def get_proposed_categories(self) -> set[str]: ...
+
+    def mark_category_proposed(self, category: str) -> None: ...
+
+    def record_proposal(self, category: str, pre_count: int) -> None: ...
+
+    def load_proposal_metadata(self) -> dict[str, ProposalMetadata]: ...
+
+    def update_proposal_verified(self, category: str, *, verified: bool) -> None: ...

@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from hindsight_wal import HindsightWAL
     from issue_cache import IssueCache
     from memory_judge import MemoryJudge  # noqa: TCH004
-    from ports import IssueStorePort, PRPort, WorkspacePort
+    from ports import IssueStorePort, PRPort, ReviewInsightStorePort, WorkspacePort
     from precondition_gate import PreconditionGate
     from repo_wiki import RepoWikiStore  # noqa: TCH004 — used in __init__ signature
     from retrospective_queue import RetrospectiveQueue
@@ -71,7 +71,6 @@ from post_merge_handler import PostMergeHandler
 from review_insights import (
     _PROPOSAL_STALE_DAYS,
     CATEGORY_DESCRIPTIONS,
-    ReviewInsightStore,
     ReviewRecord,
     analyze_patterns,
     build_insight_issue_body,
@@ -152,7 +151,7 @@ class ReviewPhase:
         post_merge: PostMergeHandler,
         event_bus: EventBus | None = None,
         harness_insights: HarnessInsightStore | None = None,
-        review_insights: ReviewInsightStore | None = None,
+        review_insights: ReviewInsightStorePort | None = None,
         update_bg_worker_status: StatusCallback | None = None,
         baseline_policy: BaselinePolicy | None = None,
         hindsight: HindsightClient | None = None,
@@ -182,9 +181,12 @@ class ReviewPhase:
         self._wiki_compiler = wiki_compiler
         self._update_bg_worker_status = update_bg_worker_status
         self._harness_insights = harness_insights
-        self._insights = review_insights or ReviewInsightStore(
-            config.memory_dir, dolt=dolt, wal=wal
-        )
+        if review_insights is not None:
+            self._insights = review_insights
+        else:
+            from review_insights import ReviewInsightStore  # noqa: PLC0415
+
+            self._insights = ReviewInsightStore(config.memory_dir, dolt=dolt, wal=wal)
         self._wal = wal
         self._active_issues_cb = active_issues_cb
         self._active_issues: set[int] = set()

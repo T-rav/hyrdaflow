@@ -59,6 +59,10 @@ def _check_iso_timestamp(v: str) -> str:
 HttpUrl = Annotated[str, AfterValidator(_check_url)]
 IsoTimestamp = Annotated[str, AfterValidator(_check_iso_timestamp)]
 
+#: Return type for ``BaseBackgroundLoop._do_work()`` — an optional dict
+#: of stats/details included in the ``BACKGROUND_WORKER_STATUS`` event.
+WorkCycleResult = dict[str, Any] | None
+
 # --- Enumerations for constrained fields ---
 
 

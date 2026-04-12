@@ -18,7 +18,12 @@ from typing import Any
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
-from models import BackgroundWorkerStatusPayload, ErrorPayload, StatusCallback
+from models import (
+    BackgroundWorkerStatusPayload,
+    ErrorPayload,
+    StatusCallback,
+    WorkCycleResult,  # noqa: TCH002
+)
 from runner_utils import AuthenticationRetryError
 from subprocess_util import AuthenticationError, CreditExhaustedError
 
@@ -87,7 +92,7 @@ class BaseBackgroundLoop(abc.ABC):
         self._trigger_event = asyncio.Event()
 
     @abc.abstractmethod
-    async def _do_work(self) -> dict[str, Any] | None:
+    async def _do_work(self) -> WorkCycleResult:
         """Execute one cycle of domain-specific work.
 
         Returns an optional stats/details dict to include in the

@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from dolt_backend import DoltBackend
     from hindsight import HindsightClient
     from hindsight_wal import HindsightWAL
+    from ports import ReviewInsightStorePort  # noqa: TCH004
 
 logger = logging.getLogger("hydraflow.review_insights")
 
@@ -550,7 +551,7 @@ _PROPOSAL_IMPROVEMENT_THRESHOLD = 0.5  # >50% reduction marks as verified
 
 
 def verify_proposals(
-    store: ReviewInsightStore,
+    store: ReviewInsightStore | ReviewInsightStorePort,
     records: list[ReviewRecord],
 ) -> list[str]:
     """Check filed improvement proposals and classify outcomes.
