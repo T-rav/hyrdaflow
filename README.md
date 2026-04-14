@@ -182,6 +182,8 @@ Beyond the five pipeline stages, HydraFlow runs background loops for operational
 - **ADR reviewer** — council-based Architecture Decision Record reviews
 - **Report issue** — processes bug reports with screenshot scanning
 
+Each loop that dispatches an LLM call has its own `HYDRAFLOW_*_MODEL` env var for cost tuning (report_issue, sentry, code_grooming, adr_review, memory_judge, memory_compaction, wiki_compilation, transcript_summary). See [docs/agents/background-loops.md](docs/agents/background-loops.md) for the full table and the `HYDRAFLOW_BACKGROUND_MODEL` cascade behavior.
+
 ### Self-improving harness
 
 This repo includes a harnessed self-improvement loop (observation + session retro + memory candidate artifacts).

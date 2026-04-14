@@ -189,6 +189,8 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("subskill_model", "HYDRAFLOW_SUBSKILL_MODEL", "haiku"),
     ("debug_model", "HYDRAFLOW_DEBUG_MODEL", "opus"),
     ("report_issue_model", "HYDRAFLOW_REPORT_ISSUE_MODEL", "opus"),
+    ("sentry_model", "HYDRAFLOW_SENTRY_MODEL", "opus"),
+    ("code_grooming_model", "HYDRAFLOW_CODE_GROOMING_MODEL", "sonnet"),
     ("adr_review_model", "HYDRAFLOW_ADR_REVIEW_MODEL", "sonnet"),
     ("memory_judge_model", "HYDRAFLOW_MEMORY_JUDGE_MODEL", "haiku"),
     ("changelog_file", "HYDRAFLOW_CHANGELOG_FILE", ""),
@@ -1226,6 +1228,14 @@ class HydraFlowConfig(BaseModel):
         default="opus",
         description="Model for report-issue worker (codebase research + structured issue creation)",
     )
+    sentry_model: str = Field(
+        default="opus",
+        description="Model for sentry_loop ingestion worker (issue triage + filing from Sentry events)",
+    )
+    code_grooming_model: str = Field(
+        default="sonnet",
+        description="Model for code_grooming_loop audit worker (daily code-quality scan)",
+    )
     report_issue_interval: int = Field(
         default=30,
         ge=10,
@@ -1805,6 +1815,8 @@ def _apply_profile_overrides(config: HydraFlowConfig) -> None:
             "triage_model",
             "transcript_summary_model",
             "report_issue_model",
+            "sentry_model",
+            "code_grooming_model",
         ):
             _apply_if_default(field, config.background_model)
 

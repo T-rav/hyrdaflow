@@ -344,7 +344,7 @@ class SentryLoop(BaseBackgroundLoop):
 
         cmd = build_agent_command(
             tool=self._config.report_issue_tool,
-            model=self._config.report_issue_model,
+            model=self._config.sentry_model,
             max_turns=10,
         )
 
