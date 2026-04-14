@@ -34,6 +34,11 @@ class FakePR:
     ci_status: str = "pass"
     draft: bool = False
     url: str = ""
+    mergeable: bool = True
+    additions: int = 0
+    deletions: int = 0
+    reviews: list[tuple[str, str]] = field(default_factory=list)
+    checks: list[tuple[str, str]] = field(default_factory=list)
 
 
 class FakeGitHub:
