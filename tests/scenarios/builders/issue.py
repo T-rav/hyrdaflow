@@ -44,9 +44,11 @@ class IssueBuilder:
         return replace(self, _comments=(*self._comments, (by, body)))
 
     def at(self, world: MockWorld) -> Any:
-        """Seed the world's GitHub fake and return the FakeIssue record."""
+        """Seed the issue in both ``world._issues`` (so run_pipeline iterates
+        it) AND ``world.github`` (so PR/label inspection works).
+        """
         number = self._number if self._number is not None else next(_auto_number)
-        world.github.add_issue(
+        world.add_issue(
             number,
             self._title,
             self._body,

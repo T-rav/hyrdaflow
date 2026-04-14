@@ -67,18 +67,7 @@ class ScenarioBuilder:
 
     async def run(self, world: MockWorld) -> None:
         if self._given is not None:
-            for issue_builder in self._given._issues:
-                # Call issue_builder.at to seed world.github, then mirror into
-                # world._issues so run_pipeline() sees the issue in its seed dict.
-                fake_issue = issue_builder.at(world)
-                world._issues[fake_issue.number] = {
-                    "number": fake_issue.number,
-                    "title": fake_issue.title,
-                    "body": fake_issue.body,
-                    "labels": list(fake_issue.labels),
-                }
-            for pr_builder in self._given._prs:
-                await pr_builder.at(world)
+            await self._given.at(world)
         for agent in self._agents:
             agent.at(world)
         if self._pipeline_invoked:
