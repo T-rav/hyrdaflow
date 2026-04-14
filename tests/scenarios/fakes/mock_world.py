@@ -19,8 +19,12 @@ from tests.scenarios.catalog import (
     loop_registrations as _loop_registrations,  # noqa: F401
 )
 from tests.scenarios.fakes.fake_clock import FakeClock
+from tests.scenarios.fakes.fake_docker import FakeDocker
+from tests.scenarios.fakes.fake_fs import FakeFS
+from tests.scenarios.fakes.fake_git import FakeGit
 from tests.scenarios.fakes.fake_github import FakeGitHub
 from tests.scenarios.fakes.fake_hindsight import FakeHindsight
+from tests.scenarios.fakes.fake_http import FakeHTTP
 from tests.scenarios.fakes.fake_llm import FakeLLM
 from tests.scenarios.fakes.fake_sentry import FakeSentry
 from tests.scenarios.fakes.fake_workspace import FakeWorkspace
@@ -39,6 +43,10 @@ class MockWorld:
         self._sentry = FakeSentry()
         self._workspace = FakeWorkspace(tmp_path / "worktrees")
         self._clock = FakeClock(start=time.time())
+        self._docker = FakeDocker()
+        self._git = FakeGit()
+        self._fs = FakeFS()
+        self._http = FakeHTTP()
         self._issues: dict[int, dict[str, Any]] = {}
         self._phase_hooks: list[tuple[str, Callable[[], None]]] = []
 
@@ -166,6 +174,22 @@ class MockWorld:
     @property
     def harness(self) -> PipelineHarness:
         return self._harness
+
+    @property
+    def docker(self) -> FakeDocker:
+        return self._docker
+
+    @property
+    def git(self) -> FakeGit:
+        return self._git
+
+    @property
+    def fs(self) -> FakeFS:
+        return self._fs
+
+    @property
+    def http(self) -> FakeHTTP:
+        return self._http
 
     # --- Run ---
 
