@@ -38,7 +38,7 @@ class MemorySyncLoop(BaseBackgroundLoop):
                 message="Memory sync completed",
                 level="info",
                 data={
-                    "item_count": result.get("processed", 0),
+                    "item_count": result.get("item_count", 0),
                     "compacted": result.get("compacted", False),
                 },
             )

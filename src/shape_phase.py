@@ -721,7 +721,7 @@ class ShapePhase:
 
             query = f"product direction preferences scope decisions for {issue.title}"
             hindsight = getattr(self._runner, "_hindsight", None)
-            if not hindsight:
+            if hindsight is None:
                 return ""
             memories = await recall_safe(hindsight, Bank.TRIBAL, query, limit=5)
             from recall_tracker import log_recall  # noqa: PLC0415
