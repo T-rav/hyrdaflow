@@ -50,6 +50,7 @@ docker = [
 [dependency-groups]
 dev = [
     "hypothesis>=6.151.9",
+    "pyfakefs>=5.7.0",
 ]
 
 # === Ruff ===
