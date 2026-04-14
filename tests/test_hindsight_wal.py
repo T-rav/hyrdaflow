@@ -335,3 +335,76 @@ class TestWALSentryBreadcrumbs:
                 if c[1].get("category") == "hindsight_wal.replay_failed"
             ]
             assert len(replay_call) == 1
+
+
+# ---------------------------------------------------------------------------
+# Concurrency regression — #6142
+# ---------------------------------------------------------------------------
+
+
+class TestConcurrentAppendReplaySafety:
+    """Regression tests for issue #6142.
+
+    HindsightWAL file ops (append / _trim / load / write_all) had no locking.
+    append() (sync, called from async code) and replay() (async) could race:
+    an append between replay's load() and write_all() would be overwritten
+    and silently lost. The RLock fix serializes file ops.
+    """
+
+    @pytest.mark.asyncio
+    async def test_append_during_replay_is_not_lost(self, tmp_path: Path) -> None:
+        """An append() racing replay() must survive the write_all that rebuilds the WAL."""
+        import threading
+
+        wal = HindsightWAL(tmp_path / "wal.jsonl")
+        # Seed with 5 entries that will replay successfully (client.retain stub OK)
+        for i in range(5):
+            wal.append(WALEntry(bank="seed", content=f"seed-{i}"))
+        assert wal.count == 5
+
+        # Gate the replay's retain so we can append mid-flight
+        first_retain_seen = threading.Event()
+        gate = threading.Event()
+
+        async def _gated_retain(*args: object, **kwargs: object) -> None:
+            first_retain_seen.set()
+            # Hold the replay in-progress until the appender has had time
+            # to race us; gate.wait is blocking so we let the event loop
+            # handle the appender thread via asyncio.to_thread-free sleep.
+            while not gate.is_set():
+                await asyncio.sleep(0.01)
+
+        client = MagicMock()
+        client.retain = AsyncMock(side_effect=_gated_retain)
+
+        appended_count = 0
+
+        def _append_new() -> None:
+            """Runs in a separate thread. Blocks on the RLock until replay finishes."""
+            nonlocal appended_count
+            first_retain_seen.wait()
+            # The RLock in append() will make this block until replay() releases.
+            for i in range(3):
+                wal.append(WALEntry(bank="new", content=f"new-{i}"))
+                appended_count += 1
+
+        appender = threading.Thread(target=_append_new)
+        appender.start()
+
+        replay_task = asyncio.create_task(wal.replay(client))
+        # Let replay get past its first retain so first_retain_seen fires
+        await asyncio.sleep(0.05)
+        # Release the gate so replay can finish its remaining retains
+        gate.set()
+        result = await replay_task
+        appender.join(timeout=2.0)
+
+        # All 5 seeds replayed → 0 remaining from replay, plus 3 appends = 3 total
+        assert result == {"replayed": 5, "failed": 0, "dropped": 0}
+        assert appended_count == 3
+        entries = wal.load()
+        new_entries = [e for e in entries if e.bank == "new"]
+        assert len(new_entries) == 3, (
+            f"All 3 appends during replay must survive the terminal write_all; "
+            f"got {len(new_entries)} new entries in final WAL: {entries}"
+        )

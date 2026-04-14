@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -45,69 +46,84 @@ class HindsightWAL:
         self._path = wal_path
         self._max_entries = max_entries
         self._max_retries = max_retries
+        # Re-entrant lock so internal callers (e.g. append → _trim → load/
+        # write_all) don't deadlock on the same lock. Serializes all file
+        # operations so concurrent append() and replay() can't duplicate or
+        # lose entries.
+        self._lock = threading.RLock()
 
     def append(self, entry: WALEntry) -> None:
         """Append a failed retain to the WAL (sync, crash-safe)."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with self._path.open("a") as f:
-                f.write(entry.model_dump_json() + "\n")
-                f.flush()
-            self._trim()
+        with self._lock:
             try:
-                import sentry_sdk as _sentry
+                with self._path.open("a") as f:
+                    f.write(entry.model_dump_json() + "\n")
+                    f.flush()
+                self._trim()
+                try:
+                    import sentry_sdk as _sentry
 
-                _sentry.add_breadcrumb(
-                    category="hindsight_wal.buffered",
-                    message=f"WAL entry buffered for bank={entry.bank}",
-                    level="info",
-                    data={"bank": entry.bank, "entry_count": self.count},
+                    _sentry.add_breadcrumb(
+                        category="hindsight_wal.buffered",
+                        message=f"WAL entry buffered for bank={entry.bank}",
+                        level="info",
+                        data={"bank": entry.bank, "entry_count": self.count},
+                    )
+                except ImportError:
+                    pass
+            except OSError:
+                logger.warning(
+                    "Could not write to WAL at %s", self._path, exc_info=True
                 )
-            except ImportError:
-                pass
-        except OSError:
-            logger.warning("Could not write to WAL at %s", self._path, exc_info=True)
 
     def load(self) -> list[WALEntry]:
         """Load all pending WAL entries."""
-        if not self._path.is_file():
-            return []
-        entries: list[WALEntry] = []
-        for line in self._path.read_text().splitlines():
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                entries.append(WALEntry.model_validate_json(stripped))
-            except (ValueError, KeyError):
-                logger.warning("Skipping corrupt WAL entry: %s", stripped[:80])
-        return entries
+        with self._lock:
+            if not self._path.is_file():
+                return []
+            entries: list[WALEntry] = []
+            for line in self._path.read_text().splitlines():
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    entries.append(WALEntry.model_validate_json(stripped))
+                except (ValueError, KeyError):
+                    logger.warning("Skipping corrupt WAL entry: %s", stripped[:80])
+            return entries
 
     def write_all(self, entries: list[WALEntry]) -> None:
         """Rewrite the WAL with the given entries (atomic replace)."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            content = "\n".join(e.model_dump_json() for e in entries)
-            if content:
-                content += "\n"
-            self._path.write_text(content)
-        except OSError:
-            logger.warning("Could not rewrite WAL at %s", self._path, exc_info=True)
+        with self._lock:
+            try:
+                content = "\n".join(e.model_dump_json() for e in entries)
+                if content:
+                    content += "\n"
+                self._path.write_text(content)
+            except OSError:
+                logger.warning("Could not rewrite WAL at %s", self._path, exc_info=True)
 
     def clear(self) -> None:
         """Remove all WAL entries."""
-        if self._path.is_file():
-            self._path.write_text("")
+        with self._lock:
+            if self._path.is_file():
+                self._path.write_text("")
 
     @property
     def count(self) -> int:
         """Number of pending entries."""
-        if not self._path.is_file():
-            return 0
-        return sum(1 for line in self._path.read_text().splitlines() if line.strip())
+        with self._lock:
+            if not self._path.is_file():
+                return 0
+            return sum(
+                1 for line in self._path.read_text().splitlines() if line.strip()
+            )
 
     def _trim(self) -> None:
         """Drop oldest entries if WAL exceeds max_entries."""
+        # Caller holds self._lock; load/write_all re-acquire via RLock.
         entries = self.load()
         if len(entries) > self._max_entries:
             dropped = len(entries) - self._max_entries
@@ -119,39 +135,45 @@ class HindsightWAL:
         """Replay all pending entries against Hindsight.
 
         Returns ``{"replayed": N, "failed": N, "dropped": N}``.
+
+        The lock is held across the entire replay so concurrent append()
+        calls serialize behind replay. This trades latency on failing
+        appends (rare — only during Hindsight outages) for correctness:
+        no duplicate retains, no lost appends from read/write races.
         """
-        entries = self.load()
-        if not entries:
-            return {"replayed": 0, "failed": 0, "dropped": 0}
+        with self._lock:
+            entries = self.load()
+            if not entries:
+                return {"replayed": 0, "failed": 0, "dropped": 0}
 
-        remaining: list[WALEntry] = []
-        replayed = 0
-        dropped = 0
+            remaining: list[WALEntry] = []
+            replayed = 0
+            dropped = 0
 
-        for entry in entries:
-            try:
-                await client.retain(
-                    entry.bank,
-                    entry.content,
-                    context=entry.context,
-                    metadata=entry.metadata or None,
-                )
-                replayed += 1
-            except Exception:
-                entry.retries += 1
-                if entry.retries >= self._max_retries:
-                    dropped += 1
-                    logger.warning(
-                        "WAL entry dropped after %d retries: bank=%s content=%s",
-                        entry.retries,
+            for entry in entries:
+                try:
+                    await client.retain(
                         entry.bank,
-                        entry.content[:60],
+                        entry.content,
+                        context=entry.context,
+                        metadata=entry.metadata or None,
                     )
-                else:
-                    remaining.append(entry)
+                    replayed += 1
+                except Exception:
+                    entry.retries += 1
+                    if entry.retries >= self._max_retries:
+                        dropped += 1
+                        logger.warning(
+                            "WAL entry dropped after %d retries: bank=%s content=%s",
+                            entry.retries,
+                            entry.bank,
+                            entry.content[:60],
+                        )
+                    else:
+                        remaining.append(entry)
 
-        self.write_all(remaining)
-        failed = len(remaining)
+            self.write_all(remaining)
+            failed = len(remaining)
 
         if failed > 0:
             try:
