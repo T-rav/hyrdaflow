@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tests.conftest import WorkerResultFactory
+from tests.scenarios.builders import IssueBuilder, RepoStateBuilder
 
 pytestmark = pytest.mark.scenario
 
@@ -25,10 +26,23 @@ class TestE1DuplicateIssues:
         actively dedup duplicates this test should be updated to assert the
         new contract.
         """
-        world = mock_world.add_issue(
-            1, "Fix auth bug", "The auth module is broken"
-        ).add_issue(2, "Fix auth bug", "The auth module is broken")
-        result = await world.run_pipeline()
+        await (
+            RepoStateBuilder()
+            .with_issues(
+                [
+                    IssueBuilder()
+                    .numbered(1)
+                    .titled("Fix auth bug")
+                    .bodied("The auth module is broken"),
+                    IssueBuilder()
+                    .numbered(2)
+                    .titled("Fix auth bug")
+                    .bodied("The auth module is broken"),
+                ]
+            )
+            .at(mock_world)
+        )
+        result = await mock_world.run_pipeline()
 
         # Both issues are tracked independently by number
         assert result.issue(1).number == 1
@@ -50,10 +64,11 @@ class TestE2IssueRelabeledMidFlight:
         def hook():
             fired["count"] += 1
 
-        world = mock_world.add_issue(1, "Refactor DB", "Needs DB refactor").on_phase(
-            "plan", hook
+        IssueBuilder().numbered(1).titled("Refactor DB").bodied("Needs DB refactor").at(
+            mock_world
         )
-        result = await world.run_pipeline()
+        mock_world.on_phase("plan", hook)
+        result = await mock_world.run_pipeline()
 
         assert fired["count"] == 1, "on_phase hook should fire exactly once"
         # Pipeline still processes the issue normally
@@ -69,10 +84,11 @@ class TestE5ZeroDiffImplement:
             success=True,
             commits=0,
         )
-        world = mock_world.add_issue(
-            1, "Add type hints", "Already typed module"
-        ).set_phase_result("implement", 1, zero_diff)
-        result = await world.run_pipeline()
+        IssueBuilder().numbered(1).titled("Add type hints").bodied(
+            "Already typed module"
+        ).at(mock_world)
+        mock_world.set_phase_result("implement", 1, zero_diff)
+        result = await mock_world.run_pipeline()
 
         outcome = result.issue(1)
         assert outcome.worker_result is not None
