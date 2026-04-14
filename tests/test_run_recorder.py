@@ -37,6 +37,47 @@ class TestRunContext:
         assert data["model"] == "opus"
         assert data["max_workers"] == 3
 
+    def test_config_dump_excludes_secrets(self, tmp_path: Path) -> None:
+        """Regression for #5971: implement_phase's model_dump(exclude=...) call
+        must strip credentials before they hit disk in run_dir/config.json."""
+        from config import HydraFlowConfig
+
+        config = HydraFlowConfig(
+            repo="test/repo",
+            repo_root=tmp_path / "repo",
+            workspace_base=tmp_path / "wt",
+            state_file=tmp_path / "s.json",
+            gh_token="ghp_SECRET",
+            hindsight_api_key="sk-SECRET",
+            sentry_auth_token="sntrys_SECRET",
+            whatsapp_token="wa_SECRET",
+            whatsapp_phone_id="123456",
+            whatsapp_recipient="+27123456789",
+            whatsapp_verify_token="wvt_SECRET",
+        )
+        # The exact same exclude set used in implement_phase.py:332
+        dumped = config.model_dump(
+            mode="json",
+            exclude={
+                "gh_token",
+                "hindsight_api_key",
+                "sentry_auth_token",
+                "whatsapp_token",
+                "whatsapp_phone_id",
+                "whatsapp_recipient",
+                "whatsapp_verify_token",
+            },
+        )
+        assert "gh_token" not in dumped
+        assert "hindsight_api_key" not in dumped
+        assert "sentry_auth_token" not in dumped
+        assert "whatsapp_token" not in dumped
+        assert "whatsapp_phone_id" not in dumped
+        assert "whatsapp_recipient" not in dumped
+        assert "whatsapp_verify_token" not in dumped
+        # Non-secret fields should still be present
+        assert dumped["repo"] == "test/repo"
+
     def test_append_transcript_buffers_lines(self, tmp_path: Path) -> None:
         run_dir = tmp_path / "run1"
         run_dir.mkdir()

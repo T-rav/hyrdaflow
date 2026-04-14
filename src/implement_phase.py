@@ -329,7 +329,20 @@ class ImplementPhase:
                 plan_text = self._read_plan_for_recording(issue.id)
                 if plan_text:
                     ctx.save_plan(plan_text)
-                ctx.save_config(self._config.model_dump(mode="json"))
+                ctx.save_config(
+                    self._config.model_dump(
+                        mode="json",
+                        exclude={
+                            "gh_token",
+                            "hindsight_api_key",
+                            "sentry_auth_token",
+                            "whatsapp_token",
+                            "whatsapp_phone_id",
+                            "whatsapp_recipient",
+                            "whatsapp_verify_token",
+                        },
+                    )
+                )
             except (RuntimeError, OSError):
                 logger.debug("Run recording setup failed", exc_info=True)
                 ctx = None

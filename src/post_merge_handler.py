@@ -21,6 +21,7 @@ from models import (
     CriterionVerdict,
     GitHubIssue,
     HitlEscalation,
+    IssueOutcomeType,
     JudgeResult,
     JudgeVerdict,
     MergeApprovalContext,
@@ -211,6 +212,19 @@ class PostMergeHandler:
         but merge is deferred until all siblings are ready.
         """
         pr = ctx.pr
+        # Idempotency guard: don't re-run post-merge side effects if this
+        # issue has already been recorded as merged. Protects against retries,
+        # race conditions, and duplicate approval events.
+        existing = self._state.get_outcome(pr.issue_number)
+        if existing is not None and existing.outcome == IssueOutcomeType.MERGED:
+            logger.info(
+                "PR #%d (issue #%d): skipping handle_approved — "
+                "already recorded as MERGED at %s",
+                pr.number,
+                pr.issue_number,
+                existing.closed_at,
+            )
+            return
         issue = ctx.issue
         result = ctx.result
         diff = ctx.diff

@@ -130,6 +130,32 @@ class TestPostMergeHandler:
         s.handler._prs.close_issue.assert_awaited_once_with(s.pr.issue_number)
 
     @pytest.mark.asyncio
+    async def test_handle_approved_is_idempotent_for_already_merged_issue(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """If the issue is already recorded as MERGED, handle_approved must no-op.
+
+        Protects against duplicate post-merge side effects (counters,
+        label swaps, retrospectives, hooks) when handle_approved is
+        invoked twice for the same issue via retry or race.
+        """
+        from models import IssueOutcomeType
+
+        s = _setup_approved(config)
+        s.handler._state.record_outcome(
+            s.pr.issue_number,
+            IssueOutcomeType.MERGED,
+            reason="previous run",
+            pr_number=s.pr.number,
+        )
+
+        await s.call()
+
+        s.handler._prs.merge_pr.assert_not_awaited()
+        s.handler._prs.swap_pipeline_labels.assert_not_awaited()
+        s.handler._prs.close_issue.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_handle_approved_closes_issue_after_merge(
         self, config: HydraFlowConfig
     ) -> None:
