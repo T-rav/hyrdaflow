@@ -50,3 +50,11 @@ class TestMockWorldServiceFailure:
         assert world.hindsight._failing is True
         world.heal_service("hindsight")
         assert world.hindsight._failing is False
+
+
+class TestMockWorldLoopCatalog:
+    async def test_run_with_loops_uses_catalog(self, tmp_path):
+        """MockWorld.run_with_loops routes through LoopCatalog, not _make_loop."""
+        world = MockWorld(tmp_path)
+        stats = await world.run_with_loops(["ci_monitor"], cycles=1)
+        assert "ci_monitor" in stats
