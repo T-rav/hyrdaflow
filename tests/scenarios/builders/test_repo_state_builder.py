@@ -49,8 +49,11 @@ async def test_with_prs_seeds_all(world: MockWorld) -> None:
         )
         .at(world)
     )
-    assert world.github.pr_for_issue(10).ci_status == "failure"
-    assert world.github.pr_for_issue(11).ci_status == "success"
+    pr10 = world.github.pr_for_issue(10)
+    pr11 = world.github.pr_for_issue(11)
+    assert pr10 is not None and pr11 is not None
+    assert pr10.ci_status == "failure"
+    assert pr11.ci_status == "success"
 
 
 def test_chaining_is_immutable() -> None:
