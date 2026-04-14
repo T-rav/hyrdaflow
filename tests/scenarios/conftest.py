@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import pytest
 
+from tests.scenarios.catalog import (
+    loop_registrations as _loop_registrations,  # noqa: F401
+)
+
 
 @pytest.fixture
 async def mock_world(tmp_path):
