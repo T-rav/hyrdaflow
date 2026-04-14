@@ -8,6 +8,8 @@ import os
 import random
 import re
 import subprocess
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -17,6 +19,30 @@ if TYPE_CHECKING:
     from execution import SubprocessRunner
 
 logger = logging.getLogger("hydraflow.subprocess")
+
+# ---------------------------------------------------------------------------
+# Pluggable time source — allows tests to inject FakeClock without patching
+# stdlib. Production code always uses time.time. Only the rate-limit cooldown
+# logic calls _time_source(); all other timing calls are left untouched.
+# ---------------------------------------------------------------------------
+_time_source: Callable[[], float] = time.time
+
+
+def set_time_source(fn: Callable[[], float]) -> None:
+    """Override the module-level time source (for tests only)."""
+    global _time_source  # noqa: PLW0603
+    _time_source = fn
+
+
+def reset_time_source() -> None:
+    """Restore the default ``time.time`` time source."""
+    global _time_source  # noqa: PLW0603
+    _time_source = time.time
+
+
+def _get_time_source() -> Callable[[], float]:
+    return _time_source
+
 
 # Global semaphore to limit concurrent gh/git subprocess calls and prevent
 # GitHub API rate limiting when multiple async loops poll simultaneously.

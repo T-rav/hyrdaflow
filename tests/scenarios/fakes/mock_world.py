@@ -34,7 +34,13 @@ from tests.scenarios.fakes.scenario_result import IssueOutcome, ScenarioResult
 class MockWorld:
     """Composable test world for scenario testing."""
 
-    def __init__(self, tmp_path: Path, *, config: Any = None) -> None:
+    def __init__(
+        self,
+        tmp_path: Path,
+        *,
+        config: Any = None,
+        install_subprocess_clock: bool = False,
+    ) -> None:
         self._tmp_path = tmp_path
         self._harness = PipelineHarness(tmp_path, config=config)
         self._llm = FakeLLM()
@@ -53,6 +59,9 @@ class MockWorld:
         self._wire_runners()
         self._wire_prs()
         self._wire_workspaces()
+
+        if install_subprocess_clock:
+            self._clock.install_subprocess_clock()
 
     def _wire_runners(self) -> None:
         """Replace harness AsyncMock runners with FakeLLM runners."""
