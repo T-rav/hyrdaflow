@@ -1,0 +1,29 @@
+"""FSPort — filesystem surface for scenario tests (scoped to .hydraflow/*)."""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from pathlib import Path
+from typing import runtime_checkable
+
+from typing_extensions import Protocol
+
+
+@runtime_checkable
+class FSPort(Protocol):
+    def write(self, path: Path, data: str | bytes) -> None: ...
+    def read(self, path: Path) -> str: ...
+    def exists(self, path: Path) -> bool: ...
+    def glob(self, root: Path, pattern: str) -> Iterator[Path]: ...
+    def mkdir(
+        self, path: Path, *, parents: bool = True, exist_ok: bool = True
+    ) -> None: ...
+    def lock(self, path: Path) -> FSLock: ...
+
+
+@runtime_checkable
+class FSLock(Protocol):
+    def __enter__(self) -> FSLock: ...
+    def __exit__(self, *exc: object) -> None: ...
+    @property
+    def acquired(self) -> bool: ...

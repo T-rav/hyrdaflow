@@ -15,7 +15,11 @@ from ports import (  # noqa: F401 — production port re-exports
     WorkspacePort,
 )
 from tests.scenarios.ports.clock_port import ClockPort
+from tests.scenarios.ports.docker_port import DockerPort
+from tests.scenarios.ports.fs_port import FSLock, FSPort
+from tests.scenarios.ports.git_port import GitPort
 from tests.scenarios.ports.hindsight_port import HindsightPort
+from tests.scenarios.ports.http_port import HTTPPort, HTTPResponse
 from tests.scenarios.ports.llm_port import (
     AgentRunnerPort,
     LLMPort,
@@ -29,7 +33,13 @@ __all__ = [
     "AgentPort",
     "AgentRunnerPort",
     "ClockPort",
+    "DockerPort",
+    "FSLock",
+    "FSPort",
+    "GitPort",
     "HindsightPort",
+    "HTTPPort",
+    "HTTPResponse",
     "IssueFetcherPort",
     "IssueStorePort",
     "LLMPort",
