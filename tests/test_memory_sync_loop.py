@@ -185,3 +185,22 @@ class TestMemorySyncSentryBreadcrumbs:
             kw = sentry_mock.add_breadcrumb.call_args[1]
             assert kw["category"] == "memory.sync_completed"
             assert kw["level"] == "info"
+
+    @pytest.mark.asyncio
+    async def test_breadcrumb_reads_item_count_from_sync_result(
+        self, tmp_path: Path
+    ) -> None:
+        """Regression: breadcrumb data must read MemorySyncResult['item_count'],
+        not the nonexistent 'processed' key which always returned 0."""
+        from unittest.mock import patch
+
+        loop, _ = _make_loop(tmp_path)
+        loop._memory_sync.sync = AsyncMock(
+            return_value={"action": "sync", "item_count": 7, "compacted": True}
+        )
+        sentry_mock = MagicMock()
+        with patch.dict("sys.modules", {"sentry_sdk": sentry_mock}):
+            await loop._do_work()
+            kw = sentry_mock.add_breadcrumb.call_args[1]
+            assert kw["data"]["item_count"] == 7
+            assert kw["data"]["compacted"] is True
