@@ -270,10 +270,13 @@ class TestEventLogRotation:
 
         await log.rotate(max_size_bytes=1, max_age_days=7)
 
-        # Only the events.jsonl file should remain
-        files = list(tmp_path.iterdir())
-        assert len(files) == 1
-        assert files[0].name == "events.jsonl"
+        # events.jsonl must remain. The .events.jsonl.lock sidecar created by
+        # the file_lock concurrency guard is expected. No atomic_write .tmp
+        # orphans should survive.
+        names = {f.name for f in tmp_path.iterdir()}
+        assert "events.jsonl" in names
+        assert names <= {"events.jsonl", ".events.jsonl.lock"}
+        assert not any(name.endswith(".tmp") for name in names)
 
 
 # ---------------------------------------------------------------------------
