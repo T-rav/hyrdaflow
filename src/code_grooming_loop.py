@@ -66,7 +66,7 @@ class CodeGroomingLoop(BaseBackgroundLoop):
             tool=self._config.background_tool
             if self._config.background_tool != "inherit"
             else "claude",
-            model=self._config.background_model or "sonnet",
+            model=self._config.code_grooming_model,
             max_turns=10,
         )
 
