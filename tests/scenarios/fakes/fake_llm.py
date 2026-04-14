@@ -119,6 +119,14 @@ class _FakeAgentRunner(_ScriptedRunner):
             ),
         )
 
+    def script_stream(self, issue_number: int, events: list[Any]) -> None:
+        if not hasattr(self, "_streams"):
+            self._streams: dict[int, list[Any]] = {}
+        self._streams[issue_number] = list(events)
+
+    def events_for(self, issue_number: int) -> list[Any]:
+        return list(getattr(self, "_streams", {}).get(issue_number, []))
+
 
 class _FakeReviewRunner(_ScriptedRunner):
     async def review(
