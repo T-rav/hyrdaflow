@@ -1198,3 +1198,93 @@ class TestRotateSyncOSError:
             event_log._rotate_sync(max_size_bytes=10, max_age_days=365)
 
         assert "Could not write rotated event log" in caplog.text
+
+
+class TestConcurrentWriteSafety:
+    """Regression tests for issues #6177 and #6178.
+
+    #6177: append_jsonl() lacks file locking — concurrent appends race.
+    #6178: rotate() + concurrent appends — events written between read
+    and atomic_write's os.replace() go to the old (unlinked) inode and
+    are silently lost.
+    """
+
+    def test_concurrent_appends_all_persist(self, tmp_path: Path) -> None:
+        """All events from N threads appending concurrently must land in the file."""
+        import threading
+
+        log_path = tmp_path / "events.jsonl"
+        event_log = EventLog(log_path)
+        n_threads = 20
+        per_thread = 10
+
+        def _append_batch(worker_id: int) -> None:
+            for i in range(per_thread):
+                event = HydraFlowEvent(
+                    type=EventType.PHASE_CHANGE,
+                    data={"worker": worker_id, "i": i},
+                )
+                event_log._append_sync(event.model_dump_json())
+
+        threads = [
+            threading.Thread(target=_append_batch, args=(w,)) for w in range(n_threads)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        lines = log_path.read_text().strip().splitlines()
+        assert len(lines) == n_threads * per_thread
+        # Each line must be valid JSON — no partial/torn writes
+        for raw in lines:
+            HydraFlowEvent.model_validate_json(raw)
+
+    def test_rotation_does_not_lose_concurrent_appends(self, tmp_path: Path) -> None:
+        """Events appended while rotation is holding the lock must survive.
+
+        The fix's file_lock() on both _append_sync and _rotate_sync
+        serializes them — appends block while rotate reads+writes, so
+        no event lands in the unlinked-post-replace inode.
+        """
+        import threading
+
+        log_path = tmp_path / "events.jsonl"
+        event_log = EventLog(log_path)
+
+        # Seed with enough data to trigger rotation (recent events, within max_age)
+        seed_event = HydraFlowEvent(type=EventType.PHASE_CHANGE, data={"seed": 1})
+        log_path.write_text((seed_event.model_dump_json() + "\n") * 500)
+
+        rotate_started = threading.Event()
+        rotate_done = threading.Event()
+
+        def _rotate() -> None:
+            rotate_started.set()
+            event_log._rotate_sync(max_size_bytes=1000, max_age_days=365)
+            rotate_done.set()
+
+        def _concurrent_appends() -> None:
+            rotate_started.wait()
+            for i in range(20):
+                event = HydraFlowEvent(
+                    type=EventType.PHASE_CHANGE,
+                    data={"concurrent": i},
+                )
+                event_log._append_sync(event.model_dump_json())
+
+        rotate_thread = threading.Thread(target=_rotate)
+        append_thread = threading.Thread(target=_concurrent_appends)
+        rotate_thread.start()
+        append_thread.start()
+        rotate_thread.join()
+        append_thread.join()
+
+        assert rotate_done.is_set()
+        lines = log_path.read_text().strip().splitlines()
+        # All 20 concurrent appends must be present in the final file,
+        # regardless of whether they landed before or after rotation.
+        concurrent_count = sum(1 for raw in lines if '"concurrent"' in raw)
+        assert concurrent_count == 20, (
+            f"Expected 20 concurrent events preserved, got {concurrent_count}"
+        )

@@ -14,7 +14,7 @@ from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel, Field, ValidationError
 
-from file_util import append_jsonl, atomic_write
+from file_util import append_jsonl, atomic_write, file_lock
 
 
 class _Counter:
@@ -134,6 +134,11 @@ class EventLog:
 
     def __init__(self, path: Path) -> None:
         self._path = path
+        # Sibling lock file used to serialize concurrent appends and to
+        # prevent rotate() from racing in-flight appends (events appended
+        # between rotate()'s read and os.replace() would otherwise go to
+        # the unlinked inode and be silently lost).
+        self._lock_path = path.parent / f".{path.name}.lock"
 
     @property
     def path(self) -> Path:
@@ -142,7 +147,8 @@ class EventLog:
     def _append_sync(self, line: str) -> None:
         """Synchronous append — called via ``asyncio.to_thread``."""
         try:
-            append_jsonl(self._path, line)
+            with file_lock(self._lock_path):
+                append_jsonl(self._path, line)
         except OSError:
             logger.warning(
                 "Could not append to event log %s",
@@ -213,7 +219,13 @@ class EventLog:
         return await asyncio.to_thread(self._load_sync, since, max_events)
 
     def _rotate_sync(self, max_size_bytes: int, max_age_days: int) -> None:
-        """Synchronous rotation — called via ``asyncio.to_thread``."""
+        """Synchronous rotation — called via ``asyncio.to_thread``.
+
+        Holds the lock across the entire read → filter → atomic_write cycle
+        so concurrent appends block until rotation completes. Without the
+        lock, events appended between the read and os.replace() write to
+        the old (now unlinked) inode and are silently lost.
+        """
         if not self._path.exists():
             return
 
@@ -225,40 +237,49 @@ class EventLog:
         if file_size <= max_size_bytes:
             return
 
-        cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
-        kept_lines: list[str] = []
-
         try:
-            with open(self._path) as f:
-                for raw_line in f:
-                    stripped = raw_line.strip()
-                    if not stripped:
-                        continue
-                    try:
-                        event = HydraFlowEvent.model_validate_json(stripped)
-                        ts = datetime.fromisoformat(event.timestamp)
-                        if ts >= cutoff:
-                            kept_lines.append(stripped)
-                    except (ValidationError, ValueError):
-                        logger.debug(
-                            "Dropping corrupt event line during rotation",
-                            exc_info=True,
-                        )
-                        continue
+            with file_lock(self._lock_path):
+                cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
+                kept_lines: list[str] = []
+
+                try:
+                    with open(self._path) as f:
+                        for raw_line in f:
+                            stripped = raw_line.strip()
+                            if not stripped:
+                                continue
+                            try:
+                                event = HydraFlowEvent.model_validate_json(stripped)
+                                ts = datetime.fromisoformat(event.timestamp)
+                                if ts >= cutoff:
+                                    kept_lines.append(stripped)
+                            except (ValidationError, ValueError):
+                                logger.debug(
+                                    "Dropping corrupt event line during rotation",
+                                    exc_info=True,
+                                )
+                                continue
+                except OSError:
+                    logger.warning(
+                        "Could not read event log for rotation: %s",
+                        self._path,
+                        exc_info=True,
+                    )
+                    return
+
+                content = "\n".join(kept_lines) + "\n" if kept_lines else ""
+                try:
+                    atomic_write(self._path, content)
+                except OSError:
+                    logger.warning(
+                        "Could not write rotated event log: %s",
+                        self._path,
+                        exc_info=True,
+                    )
         except OSError:
+            # file_lock acquisition failed (e.g. permissions on lock file)
             logger.warning(
                 "Could not read event log for rotation: %s",
-                self._path,
-                exc_info=True,
-            )
-            return
-
-        content = "\n".join(kept_lines) + "\n" if kept_lines else ""
-        try:
-            atomic_write(self._path, content)
-        except OSError:
-            logger.warning(
-                "Could not write rotated event log: %s",
                 self._path,
                 exc_info=True,
             )
