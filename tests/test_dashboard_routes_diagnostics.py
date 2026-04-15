@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -28,11 +29,16 @@ def app(tmp_path: Path) -> FastAPI:
     config.diagnostics_dir = tmp_path / "diagnostics"
     config.factory_metrics_path = tmp_path / "diagnostics" / "factory_metrics.jsonl"
 
+    # Use a recent timestamp so the event stays within all range filters
+    # (24h/7d/30d). Hard-coded dates drift out of range over time.
+    recent_ts = (
+        (datetime.now(UTC) - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+    )
     _write_metrics(
         config.factory_metrics_path,
         [
             {
-                "timestamp": "2026-04-06T12:00:00Z",
+                "timestamp": recent_ts,
                 "issue": 42,
                 "phase": "implement",
                 "run_id": 1,

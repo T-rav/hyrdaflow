@@ -93,3 +93,29 @@ class TestH5PlanProducesSubIssues:
         assert outcome.plan_result is not None
         assert outcome.plan_result.new_issues is not None
         assert len(outcome.plan_result.new_issues) == 2
+
+
+class TestH3HITLRoundTrip:
+    """H3: Failed implement routes issue to HITL-like state (does not complete)."""
+
+    async def test_implement_failure_routes_to_hitl(self, mock_world):
+        """When implement fails, the issue should not reach 'done' —
+        it stops at implement stage, representing an HITL escalation point.
+        """
+        from tests.conftest import WorkerResultFactory
+
+        fail = WorkerResultFactory.create(
+            issue_number=1, success=False, error="Docker build failed"
+        )
+        world = mock_world.add_issue(
+            1, "Complex refactor", "Needs careful human review"
+        ).set_phase_result("implement", 1, fail)
+        result = await world.run_pipeline()
+
+        outcome = result.issue(1)
+        assert outcome.final_stage != "done", (
+            "Failed implement should not reach done — should be escalation point"
+        )
+        assert outcome.worker_result is not None
+        assert outcome.worker_result.success is False
+        assert outcome.merged is False

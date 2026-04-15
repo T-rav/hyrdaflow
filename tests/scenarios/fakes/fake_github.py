@@ -22,6 +22,7 @@ class FakeIssue:
     labels: list[str] = field(default_factory=list)
     state: str = "open"
     comments: list[str] = field(default_factory=list)
+    updated_at: str = "2026-01-01T00:00:00Z"
 
 
 @dataclass
@@ -44,6 +45,7 @@ class FakeGitHub:
         self._pr_counter = 10_000
         self._ci_scripts: dict[int, deque[tuple[bool, str]]] = {}
         self._comments: list[tuple[int, str]] = []
+        self._ci_main_status: tuple[str, str] = ("success", "")
 
     # --- Seed API ---
 
@@ -63,6 +65,15 @@ class FakeGitHub:
 
     def script_ci(self, pr_number: int, results: list[tuple[bool, str]]) -> None:
         self._ci_scripts[pr_number] = deque(results)
+
+    def set_ci_main_status(self, conclusion: str, url: str = "") -> None:
+        """Script the response for get_latest_ci_status (main branch CI)."""
+        self._ci_main_status = (conclusion, url)
+
+    def set_issue_updated_at(self, issue_number: int, updated_at: str) -> None:
+        """Set the updated_at timestamp on a seeded issue."""
+        if issue_number in self._issues:
+            self._issues[issue_number].updated_at = updated_at
 
     # --- Query API ---
 
@@ -139,9 +150,10 @@ class FakeGitHub:
         self._comments.append((pr_number, body))
 
     async def submit_review(
-        self, pr_number: int, body: str, event: str = "COMMENT"
-    ) -> None:
-        pass
+        self, pr_number: int, verdict_or_body: Any = "", body: str = "", **_kw: Any
+    ) -> bool:
+        """Accept both (pr, body, event) from phases and (pr, verdict, body) from loops."""
+        return True
 
     async def create_task(
         self, title: str, body: str, labels: list[str] | None = None
@@ -251,3 +263,72 @@ class FakeGitHub:
         if pr_number in self._prs:
             self._prs[pr_number].merged = True
         return True
+
+    # --- Loop-required PRPort methods ---
+
+    async def list_issues_by_label(self, label: str) -> list[dict[str, Any]]:
+        """Return open issues carrying *label* as GitHubIssueSummary-style dicts."""
+        return [
+            {
+                "number": issue.number,
+                "title": issue.title,
+                "body": issue.body,
+                "updated_at": getattr(issue, "updated_at", "2026-01-01T00:00:00Z"),
+            }
+            for issue in self._issues.values()
+            if issue.state == "open" and label in issue.labels
+        ]
+
+    async def get_issue_updated_at(self, issue_number: int) -> str:
+        """Return updated_at timestamp for an issue."""
+        if issue_number in self._issues:
+            return getattr(
+                self._issues[issue_number], "updated_at", "2026-01-01T00:00:00Z"
+            )
+        return ""
+
+    async def get_issue_state(self, issue_number: int) -> str:
+        """Return issue state as GitHub GraphQL style (OPEN/COMPLETED)."""
+        if issue_number in self._issues:
+            state = self._issues[issue_number].state
+            return "COMPLETED" if state == "closed" else "OPEN"
+        return "OPEN"
+
+    async def list_hitl_items(
+        self, hitl_labels: list[str], *, concurrency: int = 10
+    ) -> list[Any]:
+        """Return HITLItem-compatible objects for issues with HITL labels."""
+        from models import HITLItem
+
+        items: list[HITLItem] = []
+        for issue in self._issues.values():
+            if issue.state != "open":
+                continue
+            if any(lbl in issue.labels for lbl in hitl_labels):
+                pr = self.pr_for_issue(issue.number)
+                items.append(
+                    HITLItem(
+                        issue=issue.number,
+                        title=issue.title,
+                        pr=pr.number if pr else 0,
+                        branch=pr.branch if pr else "",
+                        cause="ci_failure",
+                    )
+                )
+        return items
+
+    async def get_latest_ci_status(self) -> tuple[str, str]:
+        """Return (conclusion, url) for latest CI on main branch."""
+        return self._ci_main_status
+
+    async def create_issue(
+        self, title: str, body: str, labels: list[str] | None = None
+    ) -> int:
+        """Create a new issue and return its number."""
+        num = max(self._issues.keys(), default=9000) + 1
+        self.add_issue(num, title, body, labels=labels)
+        return num
+
+    async def get_dependabot_alerts(self, state: str = "open") -> list[dict[str, Any]]:
+        """Return Dependabot alerts."""
+        return []

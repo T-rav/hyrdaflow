@@ -78,3 +78,65 @@ class TestE5ZeroDiffImplement:
         assert outcome.worker_result is not None
         assert outcome.worker_result.commits == 0
         assert outcome.worker_result.success is True
+
+
+class TestE3StaleWorktreeDuringActiveProcessing:
+    """E3: Workspace GC skips actively-processing issues."""
+
+    async def test_active_issue_worktree_not_gc_collected(self, mock_world):
+        """An issue that is actively being processed (in-pipeline) should
+        not have its worktree garbage collected, even if the worktree exists
+        in the workspace tracker.
+        """
+        world = mock_world
+
+        # Seed issue and run pipeline — issue will be processed through phases
+        world.add_issue(1, "Active work", "Being processed right now")
+
+        # Create worktree as if implement phase had created it
+        await world._workspace.create(1, "agent/issue-1")
+
+        # Run pipeline to process the issue
+        result = await world.run_pipeline()
+
+        # Worktree should still exist — not destroyed by phases
+        # (phases don't destroy, only GC does — and we haven't run GC)
+        assert 1 in world._workspace.created
+        # The issue completed successfully through the pipeline
+        outcome = result.issue(1)
+        assert outcome is not None
+
+
+class TestE4EpicWithSubIssues:
+    """E4: Plan produces sub-issues that are tracked alongside parent."""
+
+    async def test_parent_and_sub_issues_tracked(self, mock_world):
+        """When a plan creates sub-issues, the parent plan result carries
+        the new_issues list and the sub-issues are created in FakeGitHub.
+        """
+        from models import NewIssueSpec
+        from tests.conftest import PlanResultFactory
+
+        plan_with_children = PlanResultFactory.create(
+            issue_number=1,
+            success=True,
+            new_issues=[
+                NewIssueSpec(title="Child A", body="Sub-task A"),
+                NewIssueSpec(title="Child B", body="Sub-task B"),
+                NewIssueSpec(title="Child C", body="Sub-task C"),
+            ],
+        )
+        world = mock_world.add_issue(
+            1, "Epic: Rewrite auth", "Full auth system rewrite"
+        ).set_phase_result("plan", 1, plan_with_children)
+        result = await world.run_pipeline()
+
+        outcome = result.issue(1)
+        assert outcome.plan_result is not None
+        assert outcome.plan_result.new_issues is not None
+        assert len(outcome.plan_result.new_issues) == 3
+        # Sub-issue titles should match
+        titles = [ni.title for ni in outcome.plan_result.new_issues]
+        assert "Child A" in titles
+        assert "Child B" in titles
+        assert "Child C" in titles

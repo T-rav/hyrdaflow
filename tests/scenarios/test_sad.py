@@ -99,3 +99,30 @@ class TestS6CIFailsFirstThenPasses:
         # establishes a baseline so later tasks can script CI failure/retry.
         outcome = result.issue(1)
         assert outcome.final_stage == "done"
+
+
+class TestS4GitHubFailureDuringImplement:
+    """S4: GitHub service failure during implement — issue does not complete."""
+
+    async def test_github_down_during_implement_blocks_completion(self, mock_world):
+        """When implement fails due to a service error, the issue should
+        not reach done. Uses a scripted failure result to simulate a GitHub
+        API 5xx during PR creation.
+        """
+        fail = WorkerResultFactory.create(
+            issue_number=1, success=False, error="GitHub API 503: Service Unavailable"
+        )
+        world = mock_world.add_issue(
+            1, "Add caching", "Cache API responses"
+        ).set_phase_result("implement", 1, fail)
+
+        result = await world.run_pipeline()
+
+        outcome = result.issue(1)
+        assert outcome.final_stage != "done", (
+            "GitHub 5xx during implement should prevent completion"
+        )
+        assert outcome.worker_result is not None
+        assert outcome.worker_result.success is False
+        assert "503" in (outcome.worker_result.error or "")
+        assert outcome.merged is False

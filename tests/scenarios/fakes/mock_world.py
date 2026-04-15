@@ -272,3 +272,154 @@ class MockWorld:
         )
         result._outcomes = outcomes
         return result
+
+    async def run_with_loops(
+        self,
+        loops: list[str],
+        *,
+        cycles: int = 1,
+    ) -> dict[str, dict[str, Any] | None]:
+        """Instantiate and run real BaseBackgroundLoop subclasses.
+
+        Each loop runs for *cycles* iterations using the counting-sleep
+        pattern (``instant_sleep_factory``), then stops.  FakeGitHub is
+        wired as the PRPort so loops interact with seeded world state.
+
+        Returns a dict mapping loop name → last ``_do_work()`` stats.
+        """
+
+        from tests.helpers import make_bg_loop_deps  # noqa: PLC0415
+
+        bg = make_bg_loop_deps(self._tmp_path)
+        # Override stop-after-2 default: build a sleep that stops after `cycles`
+        call_count = 0
+        stop_event = bg.stop_event
+
+        async def _counting_sleep(_seconds: int | float) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count >= cycles:
+                stop_event.set()
+            await asyncio.sleep(0)
+
+        from base_background_loop import LoopDeps
+
+        loop_deps = LoopDeps(
+            event_bus=bg.bus,
+            stop_event=stop_event,
+            status_cb=bg.status_cb,
+            enabled_cb=bg.enabled_cb,
+            sleep_fn=_counting_sleep,
+        )
+        config = bg.config
+
+        loop_instances = []
+        for name in loops:
+            instance = self._make_loop(name, config, loop_deps)
+            loop_instances.append((name, instance))
+
+        # Run _do_work directly (not .run()) to get stats without the
+        # full run-loop machinery that sleeps/triggers.
+        results: dict[str, dict[str, Any] | None] = {}
+        for name, loop in loop_instances:
+            for _ in range(cycles):
+                stats = await loop._do_work()
+                results[name] = stats
+
+        return results
+
+    def _make_loop(self, name: str, config: Any, loop_deps: Any) -> Any:
+        """Instantiate a named loop with FakeGitHub wired as its PRPort."""
+        from unittest.mock import MagicMock  # noqa: PLC0415
+
+        gh = self._github
+
+        if name == "ci_monitor":
+            from ci_monitor_loop import CIMonitorLoop
+
+            return CIMonitorLoop(
+                config=config,
+                pr_manager=gh,
+                deps=loop_deps,
+            )
+
+        if name == "stale_issue_gc":
+            from stale_issue_gc_loop import StaleIssueGCLoop
+
+            return StaleIssueGCLoop(
+                config=config,
+                pr_manager=gh,
+                deps=loop_deps,
+            )
+
+        if name == "dependabot_merge":
+            from dependabot_merge_loop import DependabotMergeLoop
+
+            # Reuse existing mocks if already initialized (multi-cycle tests)
+            if not hasattr(self, "_dependabot_cache"):
+                cache = MagicMock()
+                cache.get_open_prs.return_value = []
+                state = MagicMock()
+                from models import DependabotMergeSettings
+
+                state.get_dependabot_merge_settings.return_value = (
+                    DependabotMergeSettings()
+                )
+                state.get_dependabot_merge_processed.return_value = set()
+                self._dependabot_cache = cache
+                self._dependabot_state = state
+            cache = self._dependabot_cache
+            state = self._dependabot_state
+            return DependabotMergeLoop(
+                config=config,
+                cache=cache,
+                prs=gh,
+                state=state,
+                deps=loop_deps,
+            )
+
+        if name == "pr_unsticker":
+            from unittest.mock import AsyncMock  # noqa: PLC0415
+
+            from pr_unsticker_loop import PRUnstickerLoop
+
+            unsticker = MagicMock()
+            unsticker.unstick = AsyncMock(
+                side_effect=lambda items: {"resolved": 0, "skipped": len(items)}
+            )
+            return PRUnstickerLoop(
+                config=config,
+                pr_unsticker=unsticker,
+                prs=gh,
+                deps=loop_deps,
+            )
+
+        if name == "health_monitor":
+            from health_monitor_loop import HealthMonitorLoop
+
+            return HealthMonitorLoop(
+                config=config,
+                deps=loop_deps,
+                prs=gh,
+            )
+
+        if name == "workspace_gc":
+            from workspace_gc_loop import WorkspaceGCLoop
+
+            state = MagicMock()
+            state.get_active_workspaces.return_value = {}
+            state.get_active_issue_numbers.return_value = set()
+            state.get_active_branches.return_value = {}
+            state.get_hitl_cause.return_value = None
+            state.get_issue_attempts.return_value = 0
+            self._workspace_gc_state = state
+            return WorkspaceGCLoop(
+                config=config,
+                workspaces=self._workspace,
+                prs=gh,
+                state=state,
+                deps=loop_deps,
+            )
+
+        msg = f"Unknown loop: {name}"
+        raise ValueError(msg)

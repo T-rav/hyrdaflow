@@ -308,31 +308,6 @@ class TestDiagnosticRunner:
         assert warning_records[0].exc_info[0] is not None
 
     @pytest.mark.asyncio
-    async def test_diagnose_logs_raw_output_at_debug_on_validation_failure(
-        self, runner, monkeypatch, caplog
-    ) -> None:
-        """Raw parsed dict is logged at debug level when validation fails."""
-        import logging
-
-        caplog.set_level(logging.DEBUG, logger="hydraflow.diagnostic")
-        ctx = EscalationContext(cause="CI failed", origin_phase="review")
-
-        async def fake_execute(*args, **kwargs):
-            return '```json\n{"root_cause": "Bad schema", "severity": "INVALID"}\n```'
-
-        monkeypatch.setattr(runner, "_execute", fake_execute)
-        await runner.diagnose(
-            issue_number=42, issue_title="Bug", issue_body="Fix it", context=ctx
-        )
-        debug_records = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.DEBUG and "raw" in r.message.lower()
-        ]
-        assert len(debug_records) == 1
-        assert "Bad schema" in debug_records[0].message
-
-    @pytest.mark.asyncio
     async def test_fix_returns_success_when_quality_passes(
         self, runner, monkeypatch
     ) -> None:

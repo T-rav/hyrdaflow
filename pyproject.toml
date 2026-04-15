@@ -61,6 +61,9 @@ exclude = [
     ".venv", "venv", "build", "dist", "node_modules",
     "htmlcov", "__pycache__", ".pytest_cache", ".ruff_cache",
     ".claude/worktrees", ".codex/worktrees",
+    ".hydraflow",
+    "tests/regressions",
+    "scripts/cost_report.py",
 ]
 
 [tool.ruff.lint]
@@ -99,6 +102,8 @@ exclude = [
     ".claude/worktrees/**",
     ".codex/worktrees",
     ".codex/worktrees/**",
+    ".hydraflow",
+    ".hydraflow/**",
 ]
 typeCheckingMode = "standard"
 reportMissingImports = false
