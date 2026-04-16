@@ -47,9 +47,9 @@ class TestMockWorldServiceFailure:
     async def test_fail_and_heal_service(self, tmp_path):
         world = MockWorld(tmp_path)
         world.fail_service("hindsight")
-        assert world.hindsight._failing is True
+        assert world.hindsight.is_failing is True
         world.heal_service("hindsight")
-        assert world.hindsight._failing is False
+        assert world.hindsight.is_failing is False
 
 
 class TestMockWorldLoopCatalog:

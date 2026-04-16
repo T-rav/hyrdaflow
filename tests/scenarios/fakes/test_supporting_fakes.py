@@ -15,27 +15,37 @@ pytestmark = pytest.mark.scenario
 class TestFakeHindsight:
     async def test_retain_and_recall(self):
         hs = FakeHindsight()
-        await hs.retain("learnings", "key1", "test memory")
+        await hs.retain("learnings", "test memory", metadata={"key": "key1"})
         results = await hs.recall("learnings", "test")
         assert len(results) == 1
         assert results[0]["content"] == "test memory"
+        assert results[0]["metadata"] == {"key": "key1"}
 
     async def test_recall_empty_bank(self):
         hs = FakeHindsight()
         results = await hs.recall("learnings", "nothing")
         assert results == []
 
+    async def test_recall_respects_top_k(self):
+        hs = FakeHindsight()
+        for i in range(5):
+            await hs.retain("learnings", f"entry {i}")
+        results = await hs.recall("learnings", "", top_k=2)
+        assert len(results) == 2
+
     async def test_fail_mode(self):
         hs = FakeHindsight()
         hs.set_failing(True)
+        assert hs.is_failing is True
         with pytest.raises(ConnectionError):
-            await hs.retain("learnings", "k", "v")
+            await hs.retain("learnings", "v")
 
     async def test_heal_after_fail(self):
         hs = FakeHindsight()
         hs.set_failing(True)
         hs.set_failing(False)
-        await hs.retain("learnings", "k", "v")
+        assert hs.is_failing is False
+        await hs.retain("learnings", "v")
         results = await hs.recall("learnings", "")
         assert len(results) == 1
 

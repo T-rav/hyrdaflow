@@ -93,13 +93,167 @@ def _build_workspace_gc(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     )
 
 
+def _build_runs_gc(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from runs_gc_loop import RunsGCLoop  # noqa: PLC0415
+
+    run_recorder = ports.get("run_recorder") or MagicMock()
+    ports.setdefault("run_recorder", run_recorder)
+    return RunsGCLoop(config=config, run_recorder=run_recorder, deps=deps)
+
+
+def _build_retrospective(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from retrospective_loop import RetrospectiveLoop  # noqa: PLC0415
+
+    retrospective = ports.get("retrospective") or MagicMock()
+    insights = ports.get("insights") or MagicMock()
+    queue = ports.get("retrospective_queue") or MagicMock()
+    ports.setdefault("retrospective", retrospective)
+    ports.setdefault("insights", insights)
+    ports.setdefault("retrospective_queue", queue)
+    return RetrospectiveLoop(
+        config=config,
+        deps=deps,
+        retrospective=retrospective,
+        insights=insights,
+        queue=queue,
+        prs=ports["github"],
+    )
+
+
+def _build_adr_reviewer(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from adr_reviewer_loop import ADRReviewerLoop  # noqa: PLC0415
+
+    adr_reviewer = ports.get("adr_reviewer") or MagicMock()
+    ports.setdefault("adr_reviewer", adr_reviewer)
+    return ADRReviewerLoop(config=config, adr_reviewer=adr_reviewer, deps=deps)
+
+
+def _build_github_cache(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from github_cache_loop import GitHubCacheLoop  # noqa: PLC0415
+
+    cache = ports.get("github_cache") or MagicMock()
+    ports.setdefault("github_cache", cache)
+    return GitHubCacheLoop(config=config, cache=cache, deps=deps)
+
+
+def _build_repo_wiki(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from repo_wiki_loop import RepoWikiLoop  # noqa: PLC0415
+
+    wiki_store = ports.get("wiki_store") or MagicMock()
+    ports.setdefault("wiki_store", wiki_store)
+    return RepoWikiLoop(config=config, wiki_store=wiki_store, deps=deps)
+
+
+def _build_sentry(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from sentry_loop import SentryLoop  # noqa: PLC0415
+
+    return SentryLoop(config=config, prs=ports["github"], deps=deps)
+
+
+def _build_memory_sync(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from memory_sync_loop import MemorySyncLoop  # noqa: PLC0415
+
+    memory_sync = ports.get("memory_sync") or MagicMock()
+    ports.setdefault("memory_sync", memory_sync)
+    return MemorySyncLoop(config=config, memory_sync=memory_sync, deps=deps)
+
+
+def _build_diagnostic(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from diagnostic_loop import DiagnosticLoop  # noqa: PLC0415
+
+    runner = ports.get("diagnostic_runner") or MagicMock()
+    state = ports.get("diagnostic_state") or MagicMock()
+    ports.setdefault("diagnostic_runner", runner)
+    ports.setdefault("diagnostic_state", state)
+    return DiagnosticLoop(
+        config=config,
+        runner=runner,
+        prs=ports["github"],
+        state=state,
+        deps=deps,
+    )
+
+
+def _build_code_grooming(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from code_grooming_loop import CodeGroomingLoop  # noqa: PLC0415
+
+    return CodeGroomingLoop(config=config, pr_manager=ports["github"], deps=deps)
+
+
+def _build_report_issue(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from report_issue_loop import ReportIssueLoop  # noqa: PLC0415
+
+    state = ports.get("report_issue_state") or MagicMock()
+    ports.setdefault("report_issue_state", state)
+    return ReportIssueLoop(
+        config=config,
+        state=state,
+        pr_manager=ports["github"],
+        deps=deps,
+    )
+
+
+def _build_epic_sweeper(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from epic_sweeper_loop import EpicSweeperLoop  # noqa: PLC0415
+
+    fetcher = ports.get("issue_fetcher") or MagicMock()
+    state = ports.get("epic_sweeper_state") or MagicMock()
+    ports.setdefault("issue_fetcher", fetcher)
+    ports.setdefault("epic_sweeper_state", state)
+    return EpicSweeperLoop(
+        config=config,
+        fetcher=fetcher,
+        prs=ports["github"],
+        state=state,
+        deps=deps,
+    )
+
+
+def _build_security_patch(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from security_patch_loop import SecurityPatchLoop  # noqa: PLC0415
+
+    return SecurityPatchLoop(config=config, pr_manager=ports["github"], deps=deps)
+
+
+def _build_stale_issue(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from stale_issue_loop import StaleIssueLoop  # noqa: PLC0415
+
+    state = ports.get("stale_issue_state") or MagicMock()
+    ports.setdefault("stale_issue_state", state)
+    return StaleIssueLoop(config=config, prs=ports["github"], state=state, deps=deps)
+
+
+def _build_epic_monitor(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from epic_monitor_loop import EpicMonitorLoop  # noqa: PLC0415
+
+    epic_manager = ports.get("epic_manager") or MagicMock()
+    ports.setdefault("epic_manager", epic_manager)
+    return EpicMonitorLoop(config=config, epic_manager=epic_manager, deps=deps)
+
+
 _BUILDERS: dict[str, Any] = {
+    # phase 1
     "ci_monitor": _build_ci_monitor,
     "stale_issue_gc": _build_stale_issue_gc,
     "dependabot_merge": _build_dependabot_merge,
     "pr_unsticker": _build_pr_unsticker,
     "health_monitor": _build_health_monitor,
     "workspace_gc": _build_workspace_gc,
+    # phase 3b
+    "runs_gc": _build_runs_gc,
+    "retrospective": _build_retrospective,
+    "adr_reviewer": _build_adr_reviewer,
+    "github_cache": _build_github_cache,
+    "repo_wiki": _build_repo_wiki,
+    "sentry": _build_sentry,
+    "memory_sync": _build_memory_sync,
+    "diagnostic": _build_diagnostic,
+    "code_grooming": _build_code_grooming,
+    "report_issue": _build_report_issue,
+    "epic_sweeper": _build_epic_sweeper,
+    "security_patch": _build_security_patch,
+    "stale_issue": _build_stale_issue,
+    "epic_monitor": _build_epic_monitor,
 }
 
 

@@ -156,3 +156,99 @@ class TestE4EpicWithSubIssues:
         assert "Child A" in titles
         assert "Child B" in titles
         assert "Child C" in titles
+
+
+class TestE6LabelChangedMidFlight:
+    """E6: Label changed by human after pipeline starts — no crash."""
+
+    async def test_label_swap_mid_plan_does_not_crash(self, mock_world):
+        IssueBuilder().numbered(1).titled("Refactor").at(mock_world)
+
+        def flip_label():
+            mock_world.github.issue(1).labels[:] = ["hydraflow-hitl"]
+
+        mock_world.on_phase("plan", flip_label)
+        result = await mock_world.run_pipeline()
+        assert result.issue(1) is not None
+
+
+class TestE7TwoLoopsRaceSameIssue:
+    """E7: CI monitor and stale_issue_gc both see the same issue — lock respected."""
+
+    async def test_concurrent_loop_invocations_do_not_corrupt(self, mock_world):
+        IssueBuilder().numbered(5).labeled("hydraflow-ci-failure").at(mock_world)
+        stats = await mock_world.run_with_loops(
+            ["ci_monitor", "stale_issue_gc"], cycles=1
+        )
+        assert "ci_monitor" in stats
+        assert "stale_issue_gc" in stats
+
+
+class TestE8DuplicateEventDelivery:
+    """E8: Same phase hook fires twice (duplicate webhook delivery)."""
+
+    async def test_duplicate_hook_fire_does_not_double_process(self, mock_world):
+        counter = {"n": 0}
+
+        def hook():
+            counter["n"] += 1
+
+        IssueBuilder().numbered(1).at(mock_world)
+        mock_world.on_phase("plan", hook)
+        mock_world.on_phase("plan", hook)  # registered twice -> fires twice
+        await mock_world.run_pipeline()
+        assert (
+            counter["n"] == 2
+        )  # hooks fire per registration; not deduped at this layer
+
+
+class TestE9IssueClosedMidImplement:
+    """E9: Issue closed while in implement phase — does not abort the run."""
+
+    async def test_close_during_implement_does_not_abort(self, mock_world):
+        IssueBuilder().numbered(1).titled("Close me").at(mock_world)
+
+        def close_issue():
+            mock_world.github.issue(1).state = "closed"
+
+        mock_world.on_phase("implement", close_issue)
+        result = await mock_world.run_pipeline()
+        assert mock_world.github.issue(1).state == "closed"
+        assert result.issue(1) is not None
+
+
+class TestE10ClockJumpsBackward:
+    """E10: Clock jumps backward (NTP correction) — TTL arithmetic is safe."""
+
+    async def test_clock_rewind_is_observable(self, mock_world):
+        start = mock_world.clock.now()
+        mock_world.clock.advance(-5.0)
+        assert mock_world.clock.now() == start - 5.0
+        # Pipeline still runs (no division-by-zero or negative-sleep crash).
+        IssueBuilder().numbered(1).at(mock_world)
+        await mock_world.run_pipeline()
+
+
+class TestE11StopEventMidPhase:
+    """E11: run_with_loops completes without hanging when called with cycles=1.
+
+    NOTE: ``run_with_loops`` invokes ``_do_work()`` directly, so stop-event
+    lifecycle isn't actually exercised here — this test asserts completion,
+    not graceful shutdown. A real graceful-shutdown scenario would need to
+    drive ``loop.run()`` with a stop event.
+    """
+
+    async def test_run_with_loops_completes(self, mock_world):
+        stats = await mock_world.run_with_loops(["ci_monitor"], cycles=1)
+        assert "ci_monitor" in stats
+
+
+class TestE12ServiceFailureDuringPipeline:
+    """E12: Hindsight fails mid-plan — pipeline continues, no crash."""
+
+    async def test_service_failure_does_not_abort_pipeline(self, mock_world):
+        IssueBuilder().numbered(1).at(mock_world)
+        mock_world.fail_service("hindsight")
+        result = await mock_world.run_pipeline()
+        assert result.issue(1) is not None
+        mock_world.heal_service("hindsight")

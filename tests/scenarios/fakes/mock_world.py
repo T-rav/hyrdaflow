@@ -330,9 +330,11 @@ class MockWorld:
     ) -> dict[str, dict[str, Any] | None]:
         """Instantiate and run real BaseBackgroundLoop subclasses via LoopCatalog.
 
-        Each loop runs for *cycles* iterations using the counting-sleep pattern,
-        then stops. FakeGitHub is wired as the PRPort so loops interact with
-        seeded world state.
+        Invokes ``loop._do_work()`` directly, ``cycles`` times per loop. This
+        skips ``loop.run()`` so the sleep/stop_event lifecycle machinery is
+        not exercised — scenarios that need graceful-shutdown semantics should
+        drive ``loop.run()`` directly rather than use this helper. FakeGitHub
+        is wired as the PRPort so loops interact with seeded world state.
 
         Returns a dict mapping loop name → last ``_do_work()`` stats.
         """

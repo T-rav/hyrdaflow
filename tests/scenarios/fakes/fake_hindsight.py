@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
 class _MemoryEntry:
-    key: str
     content: str
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class FakeHindsight:
-    """In-memory Hindsight fake with per-bank storage and fail mode."""
+    """In-memory Hindsight fake with per-bank storage and fail mode.
+
+    Implements ``HindsightPort`` exactly — signatures match the port contract
+    so ``isinstance(..., HindsightPort)`` is meaningful at call-time too.
+    """
 
     def __init__(self) -> None:
         self._banks: dict[str, list[_MemoryEntry]] = {}
@@ -21,25 +26,41 @@ class FakeHindsight:
     def set_failing(self, failing: bool) -> None:
         self._failing = failing
 
+    @property
+    def is_failing(self) -> bool:
+        return self._failing
+
     def _check_health(self) -> None:
         if self._failing:
             msg = "FakeHindsight is in fail mode"
             raise ConnectionError(msg)
 
-    async def retain(self, bank: str, key: str, content: str) -> dict:
+    async def retain(
+        self,
+        bank: str,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         self._check_health()
-        self._banks.setdefault(bank, []).append(_MemoryEntry(key=key, content=content))
-        return {}
+        self._banks.setdefault(bank, []).append(
+            _MemoryEntry(content=content, metadata=dict(metadata) if metadata else {})
+        )
 
-    async def recall(self, bank: str, _query: str) -> list[dict]:
+    async def recall(
+        self, bank: str, query: str, *, top_k: int = 5
+    ) -> list[dict[str, Any]]:
+        _ = query
         self._check_health()
-        entries = self._banks.get(bank, [])
-        return [{"key": e.key, "content": e.content} for e in entries]
+        entries = self._banks.get(bank, [])[:top_k]
+        return [{"content": e.content, "metadata": e.metadata} for e in entries]
 
-    async def reflect(self, bank: str, _query: str) -> str:
+    async def reflect(self, bank: str, prompt: str) -> str:
+        _ = (bank, prompt)
         self._check_health()
-        _ = bank
         return ""
 
-    def bank_entries(self, bank: str) -> list[dict]:
-        return [{"key": e.key, "content": e.content} for e in self._banks.get(bank, [])]
+    def bank_entries(self, bank: str) -> list[dict[str, Any]]:
+        return [
+            {"content": e.content, "metadata": e.metadata}
+            for e in self._banks.get(bank, [])
+        ]

@@ -93,7 +93,7 @@ class TestS5HindsightDown:
         outcome = result.issue(1)
         assert outcome.final_stage == "done"
         assert outcome.merged is True
-        assert world.hindsight._failing is True  # confirm it stayed failed
+        assert world.hindsight.is_failing is True  # confirm it stayed failed
 
 
 class TestS6CIFailsFirstThenPasses:

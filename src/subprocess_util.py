@@ -89,7 +89,7 @@ def _trigger_rate_limit_cooldown() -> None:
     (see :func:`_reset_rate_limit_backoff`).
     """
     global _rate_limit_until, _rate_limit_current_cooldown  # noqa: PLW0603
-    _rate_limit_until = datetime.now(tz=UTC) + timedelta(
+    _rate_limit_until = datetime.fromtimestamp(_time_source(), tz=UTC) + timedelta(
         seconds=_rate_limit_current_cooldown
     )
     logger.warning(
@@ -111,7 +111,9 @@ async def _wait_for_rate_limit_cooldown() -> None:
     """If a global rate-limit cooldown is active, sleep until it expires."""
     if _rate_limit_until is None:
         return
-    remaining = (_rate_limit_until - datetime.now(tz=UTC)).total_seconds()
+    remaining = (
+        _rate_limit_until - datetime.fromtimestamp(_time_source(), tz=UTC)
+    ).total_seconds()
     if remaining > 0:
         logger.info(
             "Rate-limit cooldown active — waiting %.0fs before gh/git call",
