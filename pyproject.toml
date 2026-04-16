@@ -29,7 +29,7 @@ hydraflow = "server:main"
 
 [project.optional-dependencies]
 test = [
-    "pytest>=7.4.0",
+    "pytest>=9.0.3",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
     "pytest-mock>=3.12.0",
