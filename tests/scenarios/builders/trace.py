@@ -89,6 +89,19 @@ class AgentTraceBuilder:
         """Script an implement result with zero commits."""
         return replace(self, _results=(("zero_diff",),))
 
+    def credit_exhaustion_then_recovery(self) -> AgentTraceBuilder:
+        """Preset: first call fails (credit exhaustion), second succeeds."""
+        return replace(self, _results=(_SENTINEL_FAIL, _SENTINEL_SUCCESS))
+
+    def hitl_escalation(self, *, reason: str = "escalation") -> AgentTraceBuilder:
+        """Preset: failure marked as HITL escalation (single scripted fail)."""
+        _ = reason  # reason recorded in the future when trace attrs land
+        return replace(self, _results=(_SENTINEL_FAIL,))
+
+    def parse_error_mid_stream(self) -> AgentTraceBuilder:
+        """Preset: simulates an agent-cli parse error (single scripted fail)."""
+        return replace(self, _results=(_SENTINEL_FAIL,))
+
     def at(self, world: MockWorld) -> None:
         """Resolve results and register them with world.set_phase_results."""
         if self._phase is None:
