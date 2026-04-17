@@ -1493,13 +1493,19 @@ class TestNarrowedExceptionHandling:
         manager._build_detail.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_refresh_cache_catches_type_error(self, tmp_path: Path) -> None:
-        """TypeError from _build_detail is now caught (widened to Exception)."""
+    async def test_refresh_cache_propagates_type_error(self, tmp_path: Path) -> None:
+        """TypeError from _build_detail is a likely-bug — it must propagate.
+
+        See ``reraise_on_credit_or_bug`` in ``exception_classify``: bug-class
+        exceptions (TypeError/ValueError/KeyError/etc.) are re-raised so the
+        orchestrator sees them, matching the rest of
+        ``TestNarrowedExceptionHandling`` above.
+        """
         manager, _, _ = _make_epic_manager(tmp_path)
         manager._state.upsert_epic_state(EpicState(epic_number=100, child_issues=[1]))
         manager._build_detail = AsyncMock(side_effect=TypeError("bad type"))
-        # Should not raise — Exception catch is wider than RuntimeError
-        await manager.refresh_cache()
+        with pytest.raises(TypeError, match="bad type"):
+            await manager.refresh_cache()
 
     @pytest.mark.asyncio
     async def test_refresh_cache_continues_after_runtime_error(
@@ -1551,8 +1557,14 @@ class TestNarrowedExceptionHandling:
         assert 100 in stale
 
     @pytest.mark.asyncio
-    async def test_check_stale_epics_catches_type_error(self, tmp_path: Path) -> None:
-        """TypeError from post_comment is now caught (widened to Exception)."""
+    async def test_check_stale_epics_propagates_type_error(
+        self, tmp_path: Path
+    ) -> None:
+        """TypeError from post_comment is a likely-bug — it must propagate.
+
+        See ``reraise_on_credit_or_bug``: bug-class exceptions are re-raised
+        so the orchestrator sees them rather than being logged as transient.
+        """
         manager, prs, _ = _make_epic_manager(tmp_path)
         manager._state.upsert_epic_state(
             EpicState(
@@ -1562,9 +1574,8 @@ class TestNarrowedExceptionHandling:
             )
         )
         prs.post_comment = AsyncMock(side_effect=TypeError("bad arg"))
-        # Should not raise — Exception catch is wider than RuntimeError
-        stale = await manager.check_stale_epics()
-        assert 100 in stale
+        with pytest.raises(TypeError, match="bad arg"):
+            await manager.check_stale_epics()
 
     @pytest.mark.asyncio
     async def test_check_stale_epics_continues_after_runtime_error(
@@ -1832,7 +1843,7 @@ class TestPerItemErrorGuards:
     async def test_refresh_cache_continues_after_exception(
         self, tmp_path: Path
     ) -> None:
-        """refresh_cache catches Exception (not just RuntimeError)."""
+        """A transient RuntimeError on one epic doesn't abort the loop."""
         manager, _, _ = _make_epic_manager(tmp_path)
         manager._state.upsert_epic_state(EpicState(epic_number=100, child_issues=[1]))
         manager._state.upsert_epic_state(EpicState(epic_number=200, child_issues=[2]))
@@ -1843,11 +1854,11 @@ class TestPerItemErrorGuards:
             nonlocal call_count
             call_count += 1
             if epic_number == 100:
-                raise ValueError("unexpected value error")
+                raise RuntimeError("transient API flake")
             return None
 
         manager._build_detail = _failing_build  # type: ignore[assignment]
-        # Should not raise
+        # Should not raise — RuntimeError is transient, refresh_cache continues
         await manager.refresh_cache()
 
         assert call_count == 2
@@ -1888,7 +1899,7 @@ class TestPerItemErrorGuards:
     async def test_check_stale_epics_bus_publish_inside_try(
         self, tmp_path: Path
     ) -> None:
-        """bus.publish failure in check_stale_epics is caught, not raised."""
+        """A transient RuntimeError from bus.publish is caught; loop survives."""
         manager, prs, _ = _make_epic_manager(tmp_path)
         manager._state.upsert_epic_state(
             EpicState(
@@ -1898,8 +1909,8 @@ class TestPerItemErrorGuards:
             )
         )
         prs.post_comment = AsyncMock()
-        manager._bus.publish = AsyncMock(side_effect=ValueError("publish exploded"))
+        manager._bus.publish = AsyncMock(side_effect=RuntimeError("bus unavailable"))
 
-        # Should not raise — the exception is caught inside the try block
+        # Should not raise — RuntimeError is transient, loop continues
         stale = await manager.check_stale_epics()
         assert 100 in stale

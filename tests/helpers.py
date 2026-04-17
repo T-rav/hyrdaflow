@@ -1645,13 +1645,29 @@ def mock_fetcher_noop(orch: Any) -> None:
     async def _wait_for_stop() -> None:
         await orch._stop_event.wait()
 
+    # All background loops that may call gh/Claude and now propagate auth/
+    # credit errors instead of swallowing them — stub each to just wait for
+    # the stop event so tests can drive the orchestrator without real I/O.
     for loop_attr in (
-        "diagnostic_loop",
+        "adr_reviewer_loop",
         "ci_monitor_loop",
         "code_grooming_loop",
+        "dependabot_merge_loop",
+        "diagnostic_loop",
+        "epic_monitor_loop",
+        "epic_sweeper_loop",
+        "github_cache_loop",
+        "health_monitor_loop",
+        "pr_unsticker_loop",
         "repo_wiki_loop",
+        "report_issue_loop",
+        "retrospective_loop",
+        "runs_gc_loop",
         "security_patch_loop",
+        "sentry_loop",
         "stale_issue_gc_loop",
+        "stale_issue_loop",
+        "workspace_gc_loop",
     ):
         loop_obj = getattr(orch._svc, loop_attr, None)
         if loop_obj is not None:
