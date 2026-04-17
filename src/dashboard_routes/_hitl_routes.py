@@ -25,6 +25,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("hydraflow.dashboard")
 
+# Strong references for fire-and-forget warm_hitl_summary tasks — without
+# this the GC can collect the Task before it completes, silently cancelling
+# the coroutine (#6600). Follows the ``events.py:_pending_persists`` pattern.
+_pending_warm_tasks: set[asyncio.Task[None]] = set()
+
+
+def _log_warm_failure(task: asyncio.Task[None]) -> None:
+    """Log any exception raised by a warm_hitl_summary task."""
+    try:
+        exc = task.exception()
+    except asyncio.CancelledError:
+        return
+    if exc is not None:
+        logger.warning("warm_hitl_summary task failed", exc_info=exc)
+
 
 def register(router: APIRouter, ctx: RouteContext) -> None:
     """Register HITL-related routes on *router*."""
@@ -143,9 +158,12 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
                 and bool(ctx.credentials.gh_token)
                 and ctx.hitl_summary_retry_due(issue_num)
             ):
-                asyncio.create_task(
+                warm_task = asyncio.create_task(
                     ctx.warm_hitl_summary(issue_num, cause=cause or "", origin=origin)
                 )
+                _pending_warm_tasks.add(warm_task)
+                warm_task.add_done_callback(_pending_warm_tasks.discard)
+                warm_task.add_done_callback(_log_warm_failure)
             enriched.append(data)
 
         return JSONResponse(enriched)
