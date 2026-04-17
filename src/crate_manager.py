@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from events import EventType, HydraFlowEvent
+from exception_classify import reraise_on_credit_or_bug
 from models import CrateActivatedPayload, CrateCompletedPayload
 
 if TYPE_CHECKING:
@@ -81,8 +82,11 @@ class CrateManager:
 
         try:
             crates = await self._prs.list_milestones(state="open")
-        except Exception:
-            logger.exception("Failed to list milestones during crate advancement")
+        except Exception as exc:
+            reraise_on_credit_or_bug(exc)
+            logger.warning(
+                "Failed to list milestones during crate advancement", exc_info=True
+            )
             return
 
         current = next((c for c in crates if c.number == active), None)
@@ -127,7 +131,8 @@ class CrateManager:
                     suffix = t[len(date_prefix) + 1 :]
                     if suffix.isdigit():
                         max_iter = max(max_iter, int(suffix))
-        except RuntimeError:
+        except RuntimeError as exc:
+            reraise_on_credit_or_bug(exc)
             logger.warning(
                 "Could not list milestones for title generation", exc_info=True
             )
@@ -147,8 +152,9 @@ class CrateManager:
         title = await self._next_crate_title()
         try:
             crate = await self._prs.create_milestone(title)
-        except Exception:
-            logger.exception("Failed to create auto-crate milestone")
+        except Exception as exc:
+            reraise_on_credit_or_bug(exc)
+            logger.warning("Failed to create auto-crate milestone", exc_info=True)
             return
 
         for task in uncrated:

@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from config import HydraFlowConfig
     from hindsight import HindsightClient
 
+from exception_classify import reraise_on_credit_or_bug
 from hindsight import Bank
 
 logger = logging.getLogger("hydraflow.memory_audit")
@@ -47,6 +48,7 @@ class MemoryAuditor:
             try:
                 result = await self.audit_bank(bank)
                 results.append(result)
-            except Exception:
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)
                 logger.warning("Audit failed for bank=%s", bank, exc_info=True)
         return results

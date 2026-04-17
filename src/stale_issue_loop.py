@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
+from exception_classify import reraise_on_credit_or_bug
 
 if TYPE_CHECKING:
     from pr_manager import PRManager
@@ -65,7 +66,8 @@ class StaleIssueLoop(BaseBackgroundLoop):
                 "number,title,updatedAt,labels",
             )
             issues = json.loads(raw) if raw else []
-        except Exception:
+        except Exception as exc:
+            reraise_on_credit_or_bug(exc)
             logger.warning("Failed to fetch issues for stale check", exc_info=True)
             return stats
 
@@ -129,7 +131,8 @@ class StaleIssueLoop(BaseBackgroundLoop):
                 logger.info(
                     "Closed stale issue #%d: %s", number, issue.get("title", "")
                 )
-            except Exception:
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)
                 logger.warning("Failed to close stale issue #%d", number, exc_info=True)
 
         try:

@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 from agent_cli import build_agent_command
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import Credentials, HydraFlowConfig
+from exception_classify import reraise_on_credit_or_bug
 from execution import SubprocessRunner
 from models import PendingReport, TranscriptEventData
 from runner_utils import AuthenticationRetryError, StreamConfig, stream_claude_process
@@ -157,7 +158,8 @@ class ReportIssueLoop(BaseBackgroundLoop):
                 continue
             try:
                 issue_state = await self._pr_manager.get_issue_state(issue_number)
-            except Exception:
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)
                 logger.debug(
                     "Failed to check issue state for report %s (issue #%d)",
                     report.id,

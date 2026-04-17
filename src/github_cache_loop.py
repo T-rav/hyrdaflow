@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
+from exception_classify import reraise_on_credit_or_bug
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
@@ -129,7 +130,8 @@ class GitHubDataCache:
                 prs = await self._prs.list_open_prs(all_labels)
                 self._open_prs = CacheSnapshot(data=prs, fetched_at=now)
                 stats["open_prs"] = len(prs)
-            except Exception:
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)
                 logger.warning("Cache poll failed for open_prs", exc_info=True)
 
             # HITL items
@@ -142,7 +144,8 @@ class GitHubDataCache:
                 items = await self._prs.list_hitl_items(hitl_labels)
                 self._hitl_items = CacheSnapshot(data=items, fetched_at=now)
                 stats["hitl_items"] = len(items)
-            except Exception:
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)
                 logger.warning("Cache poll failed for hitl_items", exc_info=True)
 
             # Label counts
@@ -150,7 +153,8 @@ class GitHubDataCache:
                 counts = await self._prs.get_label_counts(self._config)
                 self._label_counts = CacheSnapshot(data=counts, fetched_at=now)
                 stats["label_counts"] = True
-            except Exception:
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)
                 logger.warning("Cache poll failed for label_counts", exc_info=True)
 
             # Collaborators
@@ -158,7 +162,8 @@ class GitHubDataCache:
                 collabs = await self._fetcher._get_collaborators()
                 self._collaborators = CacheSnapshot(data=collabs, fetched_at=now)
                 stats["collaborators"] = len(collabs) if collabs else 0
-            except Exception:
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)
                 logger.warning("Cache poll failed for collaborators", exc_info=True)
 
             self._save_to_disk()

@@ -12,6 +12,7 @@ from pathlib import Path
 from changelog import generate_changelog
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+from exception_classify import reraise_on_credit_or_bug
 from issue_fetcher import IssueFetcher
 from models import (
     CIStatus,
@@ -1060,7 +1061,8 @@ class EpicManager:
                                 ),
                             )
                         )
-            except Exception:
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)
                 logger.warning(
                     "Failed to refresh cache for epic #%d, continuing",
                     epic.epic_number,
@@ -1163,7 +1165,8 @@ class EpicManager:
                     f"Consider reviewing the status of child issues.\n\n"
                     f"---\n*HydraFlow Epic Monitor*",
                 )
-            except Exception:
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)
                 logger.warning(
                     "Failed to post stale warning for epic #%d, continuing",
                     epic.epic_number,
@@ -1181,7 +1184,8 @@ class EpicManager:
                         ),
                     )
                 )
-            except Exception:
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)
                 logger.warning(
                     "Failed to publish stale alert for epic #%d, continuing",
                     epic.epic_number,

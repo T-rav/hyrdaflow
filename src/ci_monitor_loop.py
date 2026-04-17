@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
+from exception_classify import reraise_on_credit_or_bug
 
 if TYPE_CHECKING:
     from ports import PRPort
@@ -64,7 +65,8 @@ class CIMonitorLoop(BaseBackgroundLoop):
 
         try:
             conclusion, run_url = await self._prs.get_latest_ci_status()
-        except Exception:
+        except Exception as exc:
+            reraise_on_credit_or_bug(exc)
             logger.warning("CI monitor: could not fetch CI status", exc_info=True)
             return {"error": True}
 
@@ -85,7 +87,8 @@ class CIMonitorLoop(BaseBackgroundLoop):
                         self._open_issue,
                     )
                     self._open_issue = None
-                except Exception:
+                except Exception as exc:
+                    reraise_on_credit_or_bug(exc)
                     logger.warning(
                         "CI monitor: failed to close recovery issue #%d — will retry",
                         self._open_issue,

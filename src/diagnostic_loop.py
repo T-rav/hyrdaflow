@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
 from events import EventType, HydraFlowEvent
+from exception_classify import reraise_on_credit_or_bug
 from models import AttemptRecord, Severity
 
 if TYPE_CHECKING:
@@ -92,7 +93,8 @@ class DiagnosticLoop(BaseBackgroundLoop):
             issues = await self._prs.list_issues_by_label(
                 self._config.diagnose_label[0]
             )
-        except Exception:
+        except Exception as exc:
+            reraise_on_credit_or_bug(exc)
             logger.warning("Failed to fetch issues for diagnostic check", exc_info=True)
             return {"processed": 0, "fixed": 0, "escalated": 0, "retried": 0}
 

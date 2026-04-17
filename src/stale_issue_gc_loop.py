@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
+from exception_classify import reraise_on_credit_or_bug
 
 if TYPE_CHECKING:
     from ports import PRPort
@@ -60,7 +61,8 @@ class StaleIssueGCLoop(BaseBackgroundLoop):
                 break
             try:
                 issues = await self._prs.list_issues_by_label(label)
-            except Exception:
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)
                 logger.warning(
                     "Stale GC: failed to list issues for label %s",
                     label,
@@ -103,7 +105,8 @@ class StaleIssueGCLoop(BaseBackgroundLoop):
                         )
                     else:
                         skipped += 1
-                except Exception:
+                except Exception as exc:
+                    reraise_on_credit_or_bug(exc)
                     logger.warning(
                         "Stale GC: error processing issue #%d — skipping",
                         issue_number,
