@@ -231,17 +231,22 @@ class DiagnosticLoop(BaseBackgroundLoop):
                 issue_number, issue_title, issue_body, diagnosis, str(wt_path)
             )
         except Exception as exc:
-            # PermissionError / OSError / auth / credit / likely-bug are
-            # infrastructure-level failures that should abort the diagnostic
-            # cycle rather than burn attempt budget pretending the fix merely
-            # failed (issue #6411).
-            reraise_on_credit_or_bug(exc)
-            if isinstance(exc, OSError):
+            # Infra-level failures (auth, credit, OS permission/IO) propagate
+            # so the cycle aborts cleanly rather than burning attempt budget
+            # on a permanent error (#6411). Programming errors and other
+            # Exception subclasses are logged with exc_info and treated as a
+            # failed fix so the diagnostic loop can continue with the next
+            # issue (#6606).
+            from subprocess_util import (  # noqa: PLC0415
+                AuthenticationError,
+                CreditExhaustedError,
+            )
+
+            if isinstance(exc, AuthenticationError | CreditExhaustedError | OSError):
                 raise
-            logger.warning(
+            logger.exception(
                 "Diagnostic: runner.fix() crashed for issue #%d",
                 issue_number,
-                exc_info=True,
             )
             success, transcript = False, "runner.fix() crashed"
         finally:

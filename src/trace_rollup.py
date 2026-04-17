@@ -106,7 +106,7 @@ def write_phase_rollup(  # noqa: PLR0911 — early-return guards for missing/mal
             run_id,
             exc_info=True,
         )
-        return None
+        raise
 
     # Append to factory_metrics.jsonl for the diagnostics dashboard
     try:
