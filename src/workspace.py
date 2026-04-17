@@ -505,11 +505,13 @@ class WorkspaceManager:
                         logger.warning("Could not destroy %s: %s", child, exc)
 
     async def _fetch_and_merge_main(self, worktree_path: Path, branch: str) -> bool:
-        """Fetch and merge main into *branch* inside *worktree_path*.
+        """Fetch and merge the configured base branch into *branch*.
 
         Performs the shared three-step sequence: fetch origin, fast-forward
-        local branch to match remote, then merge ``origin/main``.  Raises
-        ``RuntimeError`` on any failure so callers can decide how to handle it.
+        local branch to match remote, then merge ``origin/<base>`` — where
+        ``<base>`` is ``config.base_branch()`` (``staging`` when staging is
+        enabled, else ``main``). Raises ``RuntimeError`` on any failure so
+        callers can decide how to handle it.
 
         Returns *True* on success.
         """
@@ -535,7 +537,10 @@ class WorkspaceManager:
         return True
 
     async def reset_to_main(self, worktree_path: Path) -> None:
-        """Hard-reset worktree to ``origin/main`` and clean untracked files.
+        """Hard-reset worktree to ``origin/<base>`` and clean untracked files.
+
+        ``<base>`` is ``config.base_branch()`` — ``staging`` when staging is
+        enabled, else ``main``. The method name is historical.
 
         Used between implementation retry attempts to discard stale state
         from a prior failed attempt, ensuring a clean slate.
@@ -634,12 +639,12 @@ class WorkspaceManager:
         files: list[str],
         max_chars: int = 30_000,
     ) -> str:
-        """Return the diff of what changed on main for *files* since divergence.
+        """Return the diff of what changed on the base branch for *files*.
 
-        Runs ``git merge-base HEAD origin/main`` then
-        ``git diff <base>..origin/main -- <files>``.  Truncates at
-        *max_chars*.  Returns an empty string on failure or when *files*
-        is empty.
+        Runs ``git merge-base HEAD origin/<base>`` then
+        ``git diff <mbase>..origin/<base> -- <files>``, where ``<base>`` is
+        ``config.base_branch()``. Truncates at *max_chars*. Returns an empty
+        string on failure or when *files* is empty.
         """
         if not files:
             return ""
@@ -674,11 +679,12 @@ class WorkspaceManager:
             return ""
 
     async def get_main_commits_since_diverge(self, worktree_path: Path) -> str:
-        """Return recent commits on main since the branch diverged.
+        """Return recent commits on the base branch since the branch diverged.
 
-        Runs ``git log --oneline HEAD..origin/main`` in *worktree_path*
-        (after fetching main) and returns up to 30 commit summaries as a
-        newline-separated string.  Returns an empty string on failure.
+        Runs ``git log --oneline HEAD..origin/<base>`` in *worktree_path*
+        (after fetching) and returns up to 30 commit summaries as a
+        newline-separated string, where ``<base>`` is ``config.base_branch()``.
+        Returns an empty string on failure.
         """
         try:
             await self._fetch_origin_with_retry(
