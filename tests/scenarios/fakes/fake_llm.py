@@ -97,6 +97,7 @@ class _FakeAgentRunner(_ScriptedRunner):
     def __init__(self) -> None:
         super().__init__()
         self._streams: dict[int, list[Any]] = {}
+        self._prior_failures: dict[int, list[str]] = {}
 
     async def run(
         self,
@@ -110,8 +111,10 @@ class _FakeAgentRunner(_ScriptedRunner):
         bead_mapping: dict[str, str] | None = None,
         **_unused: Any,
     ) -> Any:
-        _ = (worker_id, review_feedback, prior_failure, bead_mapping)
+        _ = (worker_id, review_feedback, bead_mapping)
         issue_number = getattr(task, "id", getattr(task, "number", 0))
+        if prior_failure:
+            self._prior_failures.setdefault(issue_number, []).append(prior_failure)
         return self._pop(
             issue_number,
             lambda: WorkerResultFactory.create(
@@ -128,6 +131,9 @@ class _FakeAgentRunner(_ScriptedRunner):
 
     def events_for(self, issue_number: int) -> list[Any]:
         return list(self._streams.get(issue_number, []))
+
+    def prior_failures_seen_for(self, issue_number: int) -> list[str]:
+        return list(self._prior_failures.get(issue_number, []))
 
 
 class _FakeReviewRunner(_ScriptedRunner):

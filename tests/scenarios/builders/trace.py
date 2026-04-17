@@ -47,9 +47,11 @@ _PHASE_FACTORIES: dict[str, Any] = {
     "review": _review_factory,
 }
 
-# Sentinel values used by preset methods
-_SENTINEL_SUCCESS = object()
-_SENTINEL_FAIL = object()
+# Result specifiers used by preset methods. Each is a ``(kind, kwargs)``
+# tuple resolved in ``.at()`` — ``kind`` is "success" | "fail" | "zero_diff"
+# and ``kwargs`` is extra factory kwargs (e.g. ``{"error": "credit exhausted"}``).
+_SENTINEL_SUCCESS = ("success", {})
+_SENTINEL_FAIL = ("fail", {})
 
 
 @dataclass(frozen=True)
@@ -89,6 +91,30 @@ class AgentTraceBuilder:
         """Script an implement result with zero commits."""
         return replace(self, _results=(("zero_diff",),))
 
+    def credit_exhaustion_then_recovery(self) -> AgentTraceBuilder:
+        """Preset: first call fails with a credit-exhaustion error, second succeeds."""
+        return replace(
+            self,
+            _results=(
+                ("fail", {"error": "credit exhausted: resume_at pending"}),
+                ("success", {}),
+            ),
+        )
+
+    def hitl_escalation(self, *, reason: str = "escalation") -> AgentTraceBuilder:
+        """Preset: single scripted fail tagged as a HITL escalation with ``reason``."""
+        return replace(
+            self,
+            _results=(("fail", {"error": f"hitl: {reason}"}),),
+        )
+
+    def parse_error_mid_stream(self) -> AgentTraceBuilder:
+        """Preset: single scripted fail simulating an agent-cli parse error."""
+        return replace(
+            self,
+            _results=(("fail", {"error": "agent-cli parse error"}),),
+        )
+
     def at(self, world: MockWorld) -> None:
         """Resolve results and register them with world.set_phase_results."""
         if self._phase is None:
@@ -102,10 +128,14 @@ class AgentTraceBuilder:
         resolved: list[Any] = []
 
         for r in self._results:
-            if r is _SENTINEL_SUCCESS:
-                resolved.append(factory(issue_number=self._issue_number, success=True))
-            elif r is _SENTINEL_FAIL:
-                resolved.append(factory(issue_number=self._issue_number, success=False))
+            if isinstance(r, tuple) and len(r) == 2 and r[0] == "success":
+                resolved.append(
+                    factory(issue_number=self._issue_number, success=True, **r[1])
+                )
+            elif isinstance(r, tuple) and len(r) == 2 and r[0] == "fail":
+                resolved.append(
+                    factory(issue_number=self._issue_number, success=False, **r[1])
+                )
             elif isinstance(r, tuple) and len(r) == 1 and r[0] == "zero_diff":
                 if self._phase == "implement":
                     resolved.append(

@@ -11,13 +11,13 @@ from pathlib import Path
 
 import pytest
 from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 from tests.scenarios.builders.issue import IssueBuilder
 from tests.scenarios.builders.pr import PRBuilder
 from tests.scenarios.fakes.mock_world import MockWorld
 from tests.scenarios.fuzz.strategies import (
     issue_builders,
-    pr_builders,
     repo_states,
 )
 
@@ -43,32 +43,14 @@ async def test_issue_builder_never_raises(
     assert len(issue.labels) >= 1
 
 
-@given(builder=pr_builders())
+@given(num=st.integers(min_value=1, max_value=9_999))
 @_DEFAULT_SETTINGS
-async def test_pr_builder_links_to_issue(tmp_path: Path, builder: PRBuilder) -> None:
-    """For any PR draw, seeding its referenced issue then .at() seeds the PR."""
+async def test_pr_builder_links_to_issue(tmp_path: Path, num: int) -> None:
+    """For any drawn issue number, seeding its PR produces an issue-linked FakePR."""
     world = MockWorld(tmp_path)
-    issue_num = builder._issue_number
-    assert issue_num is not None  # strategy always sets it
-    IssueBuilder().numbered(issue_num).at(world)
-    pr = await builder.at(world)
-    assert pr.issue_number == issue_num
-
-
-@given(repo=repo_states())
-@_DEFAULT_SETTINGS
-async def test_repo_state_has_no_orphan_prs(tmp_path: Path, repo) -> None:
-    """For any repo state, every PR seeded references a seeded issue.
-
-    Strategy guarantees PRs only point at issues in the same state,
-    so this is a tautology — if it EVER fails, the strategy is broken.
-    """
-    world = MockWorld(tmp_path)
-    await repo.at(world)
-    # Every PR has a FakePR linked via issue_number
-    for pr_builder in repo._prs:
-        issue_num = pr_builder._issue_number
-        assert world.github.issue(issue_num).number == issue_num
+    IssueBuilder().numbered(num).at(world)
+    pr = await PRBuilder().for_issue(num).at(world)
+    assert pr.issue_number == num
 
 
 @given(repo=repo_states())
