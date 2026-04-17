@@ -261,7 +261,7 @@ class PRManager:
             "--head",
             branch,
             "--base",
-            self._config.main_branch,
+            self._config.base_branch(),
             "--title",
             title,
         ]
@@ -328,6 +328,42 @@ class PRManager:
                 branch=branch,
                 draft=draft,
             )
+
+    async def create_promotion_pr(
+        self,
+        *,
+        rc_branch: str,
+        title: str,
+        body: str,
+    ) -> int:
+        """Open a promotion PR from *rc_branch* into ``main_branch``.
+
+        Used exclusively by :class:`StagingPromotionLoop`. Always targets
+        ``main_branch`` regardless of ``staging_enabled`` — this is the path
+        that promotes release candidates into the known-good branch.
+        """
+        cmd = [
+            "gh",
+            "pr",
+            "create",
+            "--repo",
+            self._repo,
+            "--head",
+            rc_branch,
+            "--base",
+            self._config.main_branch,
+            "--title",
+            title,
+        ]
+        output = await self._run_with_body_file(
+            *cmd, body=body, cwd=self._config.repo_root
+        )
+        url = output.strip()
+        if "/pull/" not in url:
+            raise RuntimeError(
+                f"Unexpected gh pr create output (expected PR URL): {url[:200]}"
+            )
+        return int(url.rstrip("/").split("/")[-1])
 
     async def find_open_pr_for_branch(
         self, branch: str, *, issue_number: int = 0
