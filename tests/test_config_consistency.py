@@ -32,6 +32,8 @@ _INTERVAL_BOUNDS_SKIP: set[str] = {
     "runs_gc_interval",
     "health_monitor_interval",
     "sentry_poll_interval",
+    # Dark-launched; the StagingPromotionLoop is not yet wired (flag-gated).
+    "staging_promotion_interval",
 }
 
 

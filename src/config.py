@@ -107,6 +107,9 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("stale_issue_gc_interval", "HYDRAFLOW_STALE_ISSUE_GC_INTERVAL", 3600),
     ("stale_issue_threshold_days", "HYDRAFLOW_STALE_ISSUE_THRESHOLD_DAYS", 14),
     ("ci_monitor_interval", "HYDRAFLOW_CI_MONITOR_INTERVAL", 300),
+    ("rc_cadence_hours", "HYDRAFLOW_RC_CADENCE_HOURS", 4),
+    ("staging_promotion_interval", "HYDRAFLOW_STAGING_PROMOTION_INTERVAL", 300),
+    ("staging_rc_retention_days", "HYDRAFLOW_STAGING_RC_RETENTION_DAYS", 7),
     ("collaborator_cache_ttl", "HYDRAFLOW_COLLABORATOR_CACHE_TTL", 600),
     (
         "issue_cache_enrich_ttl_seconds",
@@ -196,6 +199,8 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("changelog_file", "HYDRAFLOW_CHANGELOG_FILE", ""),
     ("release_tag_prefix", "HYDRAFLOW_RELEASE_TAG_PREFIX", "v"),
     ("main_branch", "HYDRAFLOW_MAIN_BRANCH", "main"),
+    ("staging_branch", "HYDRAFLOW_STAGING_BRANCH", "staging"),
+    ("rc_branch_prefix", "HYDRAFLOW_RC_BRANCH_PREFIX", "rc/"),
     ("repos_workspace_dir", "HYDRAFLOW_REPOS_WORKSPACE_DIR", "~/.hydra/repos"),
     ("sentry_org", "SENTRY_ORG", ""),
     ("sentry_project_filter", "SENTRY_PROJECT_FILTER", ""),
@@ -258,6 +263,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("screenshot_gist_public", "HYDRAFLOW_SCREENSHOT_GIST_PUBLIC", False),
     ("skip_preflight", "HYDRAFLOW_SKIP_PREFLIGHT", False),
     ("whatsapp_enabled", "HYDRAFLOW_WHATSAPP_ENABLED", False),
+    ("staging_enabled", "HYDRAFLOW_STAGING_ENABLED", False),
 ]
 
 # Literal-typed env-var overrides.
@@ -1251,6 +1257,49 @@ class HydraFlowConfig(BaseModel):
 
     # Git configuration
     main_branch: str = Field(default="main", description="Base branch name")
+
+    # Staging + RC promotion
+    staging_branch: str = Field(
+        default="staging",
+        description="Integration branch name for agent PRs (when staging_enabled)",
+    )
+    staging_enabled: bool = Field(
+        default=False,
+        description="Master switch: when true, agent PRs target staging_branch",
+    )
+    rc_cadence_hours: int = Field(
+        default=4,
+        ge=1,
+        le=168,
+        description="Hours between release-candidate cuts",
+    )
+    rc_branch_prefix: str = Field(
+        default="rc/",
+        description="Prefix for release-candidate branch names",
+    )
+    staging_promotion_interval: int = Field(
+        default=300,
+        ge=30,
+        le=3600,
+        description="Seconds between StagingPromotionLoop ticks",
+    )
+    staging_rc_retention_days: int = Field(
+        default=7,
+        ge=1,
+        le=90,
+        description="Days to retain failed RC branches before cleanup",
+    )
+
+    def base_branch(self) -> str:
+        """Return the branch agent PRs should target.
+
+        Returns ``staging_branch`` when ``staging_enabled`` is true, otherwise
+        ``main_branch``. Use this everywhere the intent is "the branch we
+        build off of". Use ``main_branch`` directly only where the intent is
+        "the released/known-good branch" (e.g., RC promotion compare).
+        """
+        return self.staging_branch if self.staging_enabled else self.main_branch
+
     git_user_name: str = Field(
         default="",
         description="Git user.name for worktree commits; falls back to global git config if empty",
