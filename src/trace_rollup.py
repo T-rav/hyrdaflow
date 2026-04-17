@@ -49,7 +49,9 @@ def write_phase_rollup(  # noqa: PLR0911 — early-return guards for missing/mal
                 SubprocessTrace.model_validate_json(path.read_text(encoding="utf-8"))
             )
         except Exception:
-            logger.warning("Skipping malformed subprocess trace: %s", path)
+            logger.warning(
+                "Skipping malformed subprocess trace: %s", path, exc_info=True
+            )
 
     if not traces:
         return None

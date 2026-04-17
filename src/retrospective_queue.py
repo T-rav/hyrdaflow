@@ -69,7 +69,11 @@ class RetrospectiveQueue:
             try:
                 items.append(QueueItem.model_validate_json(stripped))
             except Exception:
-                logger.debug("Skipping corrupt queue line: %s", stripped[:80])
+                logger.debug(
+                    "Skipping corrupt queue line: %s",
+                    stripped[:80],
+                    exc_info=True,
+                )
         return items
 
     def acknowledge(self, item_ids: list[str]) -> None:
