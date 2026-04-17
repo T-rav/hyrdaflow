@@ -55,6 +55,13 @@ class TestStagingPromotionConfig:
         cfg = _make_cfg(tmp_path)
         assert cfg.rc_cadence_hours == 4
 
+    def test_rc_cadence_hours_env_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_RC_CADENCE_HOURS", "8")
+        cfg = _make_cfg(tmp_path)
+        assert cfg.rc_cadence_hours == 8
+
     def test_rc_branch_prefix_defaults(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -69,12 +76,26 @@ class TestStagingPromotionConfig:
         cfg = _make_cfg(tmp_path)
         assert cfg.staging_promotion_interval == 300
 
+    def test_staging_promotion_interval_env_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_STAGING_PROMOTION_INTERVAL", "120")
+        cfg = _make_cfg(tmp_path)
+        assert cfg.staging_promotion_interval == 120
+
     def test_staging_rc_retention_days_defaults(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("HYDRAFLOW_STAGING_RC_RETENTION_DAYS", raising=False)
         cfg = _make_cfg(tmp_path)
         assert cfg.staging_rc_retention_days == 7
+
+    def test_staging_rc_retention_days_env_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HYDRAFLOW_STAGING_RC_RETENTION_DAYS", "14")
+        cfg = _make_cfg(tmp_path)
+        assert cfg.staging_rc_retention_days == 14
 
     def test_base_branch_returns_staging_when_enabled(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

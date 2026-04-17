@@ -32,6 +32,9 @@ _BOUNDED_INT_FIELDS = [
     ("min_plan_words", 50, 2000, 200),
     ("max_merge_conflict_fix_attempts", 0, 5, 3),
     ("max_new_files_warning", 1, 20, 5),
+    ("rc_cadence_hours", 1, 168, 4),
+    ("staging_promotion_interval", 30, 3600, 300),
+    ("staging_rc_retention_days", 1, 90, 7),
 ]
 
 _BOUNDED_INT_IDS = [f[0] for f in _BOUNDED_INT_FIELDS]

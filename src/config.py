@@ -1290,16 +1290,6 @@ class HydraFlowConfig(BaseModel):
         description="Days to retain failed RC branches before cleanup",
     )
 
-    def base_branch(self) -> str:
-        """Return the branch agent PRs should target.
-
-        Returns ``staging_branch`` when ``staging_enabled`` is true, otherwise
-        ``main_branch``. Use this everywhere the intent is "the branch we
-        build off of". Use ``main_branch`` directly only where the intent is
-        "the released/known-good branch" (e.g., RC promotion compare).
-        """
-        return self.staging_branch if self.staging_enabled else self.main_branch
-
     git_user_name: str = Field(
         default="",
         description="Git user.name for worktree commits; falls back to global git config if empty",
@@ -1731,6 +1721,16 @@ class HydraFlowConfig(BaseModel):
     def repo_data_root(self) -> Path:
         """Return the repo-scoped data directory (``data_root / repo_slug``)."""
         return self.data_root / self.repo_slug
+
+    def base_branch(self) -> str:
+        """Return the branch agent PRs should target.
+
+        Returns ``staging_branch`` when ``staging_enabled`` is true, otherwise
+        ``main_branch``. Use this everywhere the intent is "the branch we
+        build off of". Use ``main_branch`` directly only where the intent is
+        "the released/known-good branch" (e.g., RC promotion compare).
+        """
+        return self.staging_branch if self.staging_enabled else self.main_branch
 
     def branch_for_issue(self, issue_number: int) -> str:
         """Return the canonical branch name for a given issue number."""
