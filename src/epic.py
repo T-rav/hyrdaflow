@@ -758,9 +758,10 @@ class EpicManager:
                 if progress is not None:
                     results.append(progress)
             except Exception:
-                logger.exception(
+                logger.warning(
                     "Failed to get progress for epic #%d, continuing",
                     epic.epic_number,
+                    exc_info=True,
                 )
         return results
 
@@ -773,9 +774,10 @@ class EpicManager:
                 if detail is not None:
                     results.append(detail)
             except Exception:
-                logger.exception(
+                logger.warning(
                     "Failed to get detail for epic #%d, continuing",
                     epic.epic_number,
+                    exc_info=True,
                 )
         return results
 
@@ -1059,9 +1061,10 @@ class EpicManager:
                             )
                         )
             except Exception:
-                logger.exception(
+                logger.warning(
                     "Failed to refresh cache for epic #%d, continuing",
                     epic.epic_number,
+                    exc_info=True,
                 )
 
     async def trigger_release(self, epic_number: int) -> dict[str, object]:
@@ -1161,9 +1164,10 @@ class EpicManager:
                     f"---\n*HydraFlow Epic Monitor*",
                 )
             except Exception:
-                logger.exception(
+                logger.warning(
                     "Failed to post stale warning for epic #%d, continuing",
                     epic.epic_number,
+                    exc_info=True,
                 )
             try:
                 await self._bus.publish(
@@ -1178,9 +1182,10 @@ class EpicManager:
                     )
                 )
             except Exception:
-                logger.exception(
+                logger.warning(
                     "Failed to publish stale alert for epic #%d, continuing",
                     epic.epic_number,
+                    exc_info=True,
                 )
         return stale
 

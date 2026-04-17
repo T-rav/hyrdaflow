@@ -180,7 +180,7 @@ async def file_memory_suggestion(
         with items_path.open("a") as f:
             f.write(mem.model_dump_json() + "\n")
     except OSError:
-        logger.exception("Failed to write tribal memory to JSONL")
+        logger.warning("Failed to write tribal memory to JSONL", exc_info=True)
         return
 
     try:

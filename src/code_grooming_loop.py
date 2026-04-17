@@ -103,7 +103,7 @@ class CodeGroomingLoop(BaseBackgroundLoop):
         try:
             findings = await self._run_audit()
         except Exception:
-            logger.exception("Code grooming audit failed")
+            logger.warning("Code grooming audit failed", exc_info=True)
             return {"filed": 0, "error": True}
 
         seen = self._dedup.get()

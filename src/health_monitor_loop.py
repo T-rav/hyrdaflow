@@ -101,10 +101,17 @@ def _next_decision_id(_decisions_dir: Path) -> str:
 
 
 def _write_decision(decisions_dir: Path, record: dict[str, Any]) -> None:
-    decisions_dir.mkdir(parents=True, exist_ok=True)
-    decisions_file = decisions_dir / "decisions.jsonl"
-    with decisions_file.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    try:
+        decisions_dir.mkdir(parents=True, exist_ok=True)
+        decisions_file = decisions_dir / "decisions.jsonl"
+        with decisions_file.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        # Disk full, permission, or other I/O error — the health monitor loop
+        # must not abort over a single failed decision write.
+        logger.warning(
+            "Failed to persist health decision to %s", decisions_dir, exc_info=True
+        )
 
 
 def _load_decisions(decisions_dir: Path) -> list[dict[str, Any]]:

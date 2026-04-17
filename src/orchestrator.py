@@ -605,7 +605,7 @@ class HydraFlowOrchestrator:
                         exc_info=True,
                     )
                 else:
-                    logger.exception("Pipeline stats emission failed")
+                    logger.warning("Pipeline stats emission failed", exc_info=True)
             await self._sleep_or_stop(interval)
 
     def _restore_state(self) -> None:

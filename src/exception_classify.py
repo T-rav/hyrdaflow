@@ -11,6 +11,10 @@ Extracted from ``phase_utils`` as part of the architecture layering fix
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger("exception_classify")
+
 #: Exception types that almost certainly indicate a code bug rather than a
 #: transient/environmental failure.  When one of these is caught in a
 #: catch-all handler, it should be logged at a higher severity so operators
@@ -45,7 +49,9 @@ def capture_if_bug(exc: Exception, **context: object) -> None:
                 data=context,
             )
     except Exception:
-        pass  # Never let Sentry errors crash the application
+        # Never let Sentry errors crash the application, but leave a debug
+        # breadcrumb so operators can tell when Sentry itself is broken.
+        logger.debug("sentry sdk failure suppressed in capture_if_bug", exc_info=True)
 
 
 def reraise_on_credit_or_bug(exc: BaseException) -> None:

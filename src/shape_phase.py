@@ -471,7 +471,11 @@ class ShapePhase:
                 self._state.clear_shape_response(issue.id)
                 return (response, "whatsapp")
         except Exception:
-            pass
+            logger.warning(
+                "WhatsApp state access failed for issue #%d, falling back to GitHub",
+                issue.id,
+                exc_info=True,
+            )
 
         # Source 2: GitHub comments (authoritative, works for all channels)
         enriched = await self._store.enrich_with_comments(issue)

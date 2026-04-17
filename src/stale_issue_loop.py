@@ -66,7 +66,7 @@ class StaleIssueLoop(BaseBackgroundLoop):
             )
             issues = json.loads(raw) if raw else []
         except Exception:
-            logger.exception("Failed to fetch issues for stale check")
+            logger.warning("Failed to fetch issues for stale check", exc_info=True)
             return stats
 
         cutoff = datetime.now(UTC) - timedelta(days=settings.staleness_days)
@@ -130,7 +130,7 @@ class StaleIssueLoop(BaseBackgroundLoop):
                     "Closed stale issue #%d: %s", number, issue.get("title", "")
                 )
             except Exception:
-                logger.exception("Failed to close stale issue #%d", number)
+                logger.warning("Failed to close stale issue #%d", number, exc_info=True)
 
         try:
             import sentry_sdk as _sentry

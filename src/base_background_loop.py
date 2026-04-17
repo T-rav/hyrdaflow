@@ -236,6 +236,9 @@ class BaseBackgroundLoop(abc.ABC):
             elapsed = (datetime.now(UTC) - last_run).total_seconds()
             return elapsed > self._get_interval()
         except Exception:  # noqa: BLE001
+            logger.debug(
+                "%s: catchup timestamp read failed", self._worker_name, exc_info=True
+            )
             return False
 
     def _record_last_run(self) -> None:
@@ -247,7 +250,8 @@ class BaseBackgroundLoop(abc.ABC):
             ts_path.parent.mkdir(parents=True, exist_ok=True)
             ts_path.write_text(datetime.now(UTC).isoformat())
         except Exception:  # noqa: BLE001
-            pass  # best-effort — don't break the loop
+            # best-effort — don't break the loop, but leave a breadcrumb
+            logger.debug("%s: timestamp write failed", self._worker_name, exc_info=True)
 
     async def run(self) -> None:
         """Run the background worker loop until the stop event is set."""
