@@ -121,7 +121,7 @@ class WorkspaceManager:
 
     def _is_main_ref_lock_error(self, message: str) -> bool:
         """Return True when *message* matches git remote-ref lock races."""
-        main_ref = f"refs/remotes/origin/{self._config.main_branch}"
+        main_ref = f"refs/remotes/origin/{self._config.base_branch()}"
         return (
             f"cannot lock ref '{main_ref}'" in message
             and "unable to update local ref" in message
@@ -148,7 +148,7 @@ class WorkspaceManager:
                         delay = 0.2 * (2 ** (attempt - 1)) + random.uniform(0, 0.15)  # noqa: S311
                         logger.warning(
                             "git fetch race on origin/%s (attempt %d/%d) — retrying in %.2fs",
-                            self._config.main_branch,
+                            self._config.base_branch(),
                             attempt,
                             attempts,
                             delay,
@@ -197,7 +197,7 @@ class WorkspaceManager:
         never force-switches the primary checkout.
         """
         repo = self._repo_root
-        main = self._config.main_branch
+        main = self._config.base_branch()
         gh = self._credentials.gh_token
 
         # Fetch latest main for worktree creation
@@ -236,7 +236,7 @@ class WorkspaceManager:
 
         Fetches latest main so branches are created from up-to-date state.
         """
-        await self._fetch_origin_with_retry(self._repo_root, self._config.main_branch)
+        await self._fetch_origin_with_retry(self._repo_root, self._config.base_branch())
 
     async def _salvage_uncommitted(self, issue_number: int) -> None:
         """Commit and push any uncommitted changes in the worktree before destroying it.
@@ -409,7 +409,7 @@ class WorkspaceManager:
             )
 
             # Fetch latest state from real remote
-            await self._fetch_origin_with_retry(wt_path, self._config.main_branch)
+            await self._fetch_origin_with_retry(wt_path, self._config.base_branch())
 
             # Check if the branch already exists on the remote (resumable work)
             if await self._remote_branch_exists(branch):
@@ -440,7 +440,7 @@ class WorkspaceManager:
                     "checkout",
                     "-b",
                     branch,
-                    f"origin/{self._config.main_branch}",
+                    f"origin/{self._config.base_branch()}",
                     cwd=wt_path,
                     gh_token=self._credentials.gh_token,
                 )
@@ -514,7 +514,7 @@ class WorkspaceManager:
         Returns *True* on success.
         """
         await self._fetch_origin_with_retry(
-            worktree_path, self._config.main_branch, branch
+            worktree_path, self._config.base_branch(), branch
         )
         await run_subprocess(
             "git",
@@ -527,7 +527,7 @@ class WorkspaceManager:
         await run_subprocess(
             "git",
             "merge",
-            f"origin/{self._config.main_branch}",
+            f"origin/{self._config.base_branch()}",
             "--no-edit",
             cwd=worktree_path,
             gh_token=self._credentials.gh_token,
@@ -540,12 +540,12 @@ class WorkspaceManager:
         Used between implementation retry attempts to discard stale state
         from a prior failed attempt, ensuring a clean slate.
         """
-        await self._fetch_origin_with_retry(worktree_path, self._config.main_branch)
+        await self._fetch_origin_with_retry(worktree_path, self._config.base_branch())
         await run_subprocess(
             "git",
             "reset",
             "--hard",
-            f"origin/{self._config.main_branch}",
+            f"origin/{self._config.base_branch()}",
             cwd=worktree_path,
             gh_token=self._credentials.gh_token,
         )
@@ -557,7 +557,7 @@ class WorkspaceManager:
             gh_token=self._credentials.gh_token,
         )
         logger.info(
-            "Reset worktree %s to origin/%s", worktree_path, self._config.main_branch
+            "Reset worktree %s to origin/%s", worktree_path, self._config.base_branch()
         )
 
     async def merge_main(self, worktree_path: Path, branch: str) -> bool:
@@ -648,7 +648,7 @@ class WorkspaceManager:
                 "git",
                 "merge-base",
                 "HEAD",
-                f"origin/{self._config.main_branch}",
+                f"origin/{self._config.base_branch()}",
                 cwd=worktree_path,
                 gh_token=self._credentials.gh_token,
             )
@@ -659,7 +659,7 @@ class WorkspaceManager:
             diff_output = await run_subprocess(
                 "git",
                 "diff",
-                f"{base_sha}..origin/{self._config.main_branch}",
+                f"{base_sha}..origin/{self._config.base_branch()}",
                 "--",
                 *files,
                 cwd=worktree_path,
@@ -681,12 +681,14 @@ class WorkspaceManager:
         newline-separated string.  Returns an empty string on failure.
         """
         try:
-            await self._fetch_origin_with_retry(worktree_path, self._config.main_branch)
+            await self._fetch_origin_with_retry(
+                worktree_path, self._config.base_branch()
+            )
             output = await run_subprocess(
                 "git",
                 "log",
                 "--oneline",
-                f"HEAD..origin/{self._config.main_branch}",
+                f"HEAD..origin/{self._config.base_branch()}",
                 "-30",
                 cwd=worktree_path,
                 gh_token=self._credentials.gh_token,
