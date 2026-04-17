@@ -152,6 +152,12 @@ _CREDIT_PATTERNS = (
     "credit balance is too low",
     "you've hit your limit",
     "hit your usage limit",
+    # Anthropic API spend-cap rejection (HTTP 400 invalid_request_error).
+    # Full phrase — narrower patterns would false-match conversational
+    # transcript text like "reached your specified goals" and trigger a
+    # non-retryable halt on every run.
+    "reached your specified api usage limits",
+    "reached your specified usage limits",
 )
 
 # Matches e.g. "reset at 3pm (America/New_York)", "reset at 3am",
@@ -159,6 +165,18 @@ _CREDIT_PATTERNS = (
 _RESET_TIME_RE = re.compile(
     r"resets?\s+(?:at\s+)?(\d{1,2})\s*(am|pm)"
     r"(?:\s*\(([^)]+)\))?",
+    re.IGNORECASE,
+)
+
+# Matches Anthropic's ISO-style spend-cap resume format:
+# "regain access on 2026-05-01 at 00:00 UTC"
+# UTC is REQUIRED — if Anthropic ever changes the timezone (or omits it),
+# we'd rather fail-to-parse than silently misinterpret the resume time.
+_ISO_RESUME_TIME_RE = re.compile(
+    r"regain\s+access\s+on\s+"
+    r"(\d{4})-(\d{2})-(\d{2})"
+    r"\s+at\s+(\d{1,2}):(\d{2})"
+    r"\s+UTC\b",
     re.IGNORECASE,
 )
 
@@ -243,7 +261,25 @@ def parse_credit_resume_time(text: str) -> datetime | None:
 
     When the parsed time is already past, we assume the reset is
     tomorrow at the same time.
+
+    Also recognizes Anthropic's spend-cap format
+    ``"regain access on 2026-05-01 at 00:00 UTC"`` and returns the exact
+    UTC datetime without the past-time roll-forward (the date is explicit).
     """
+    iso_match = _ISO_RESUME_TIME_RE.search(text)
+    if iso_match:
+        year, month, day, hour, minute = (
+            int(iso_match.group(1)),
+            int(iso_match.group(2)),
+            int(iso_match.group(3)),
+            int(iso_match.group(4)),
+            int(iso_match.group(5)),
+        )
+        try:
+            return datetime(year, month, day, hour, minute, tzinfo=UTC)
+        except ValueError:
+            return None
+
     match = _RESET_TIME_RE.search(text)
     if not match:
         return None

@@ -19,6 +19,12 @@ _MODEL_CHARS_PER_TOKEN: tuple[tuple[tuple[str, ...], float, str], ...] = (
     (("claude", "sonnet", "opus"), 3.9, "medium"),
 )
 
+# Prompts smaller than this may legitimately return zero tokens (stubs,
+# no-ops, cached identity responses). Above the threshold, a zero-usage
+# "success" is almost always a CLI-swallowed API rejection (spend cap,
+# 400 invalid_request_error, etc.) and should not contribute phantom cost.
+_ZERO_USAGE_PROMPT_THRESHOLD = 500
+
 
 def _estimate_tokens(chars: int, model: str) -> tuple[int, float, str]:
     """Estimate token count from character count with model-aware heuristics."""
@@ -114,7 +120,18 @@ class PromptTelemetry:
             actual_total_tokens if actual_total_tokens > 0 else estimated_total_tokens
         )
 
-        record = {
+        # Zero-usage sanity guard: a "successful" CLI run that reports zero
+        # tokens on a non-trivial prompt is almost always a silently-swallowed
+        # API rejection. Reclassify as failed and zero the estimated cost so
+        # the dashboard does not attribute phantom spend.
+        zero_usage_anomaly = (
+            not usage_available
+            and actual_total_tokens == 0
+            and prompt_chars > _ZERO_USAGE_PROMPT_THRESHOLD
+        )
+        effective_success = success and not zero_usage_anomaly
+
+        record: dict[str, object] = {
             "timestamp": datetime.now(UTC).isoformat(),
             "source": source,
             "tool": tool,
@@ -136,7 +153,7 @@ class PromptTelemetry:
             "usage_status": usage_status,
             "usage_available": usage_available,
             "duration_seconds": round(duration_seconds, 3),
-            "status": "success" if success else "failed",
+            "status": "success" if effective_success else "failed",
             "token_estimation_mode": "model-aware-chars-per-token",
             "token_estimation_chars_per_token": chars_per_token,
             "token_estimation_confidence": estimate_confidence,
@@ -170,15 +187,31 @@ class PromptTelemetry:
             "unique_suffix_chars": unique_suffix_chars,
             "prefix_cache_reuse_ratio": prefix_cache_reuse_ratio,
         }
-        # Estimate cost from pricing table
-        cost = self._pricing.estimate_cost(
-            model,
-            input_tokens=actual_input_tokens or prompt_tokens,
-            output_tokens=actual_output_tokens or transcript_tokens,
-            cache_write_tokens=actual_cache_creation_tokens,
-            cache_read_tokens=actual_cache_read_tokens,
-        )
-        record["estimated_cost_usd"] = round(cost, 6) if cost is not None else None
+        # Estimate cost from pricing table. Two cases produce zero cost:
+        # - Zero-usage anomaly: API rejected before billing, so any estimate
+        #   from prompt_chars would be phantom spend.
+        # - Genuine failure with no actual tokens reported AND nothing streamed:
+        #   nothing plausibly billed, so we skip the char-based estimate.
+        # A genuine failure that DID report real tokens (e.g. mid-stream error
+        # after partial billing) must still reflect that spend.
+        if (
+            zero_usage_anomaly
+            or not success
+            and actual_total_tokens == 0
+            and transcript_chars == 0
+        ):
+            record["estimated_cost_usd"] = 0.0
+        else:
+            cost = self._pricing.estimate_cost(
+                model,
+                input_tokens=actual_input_tokens or prompt_tokens,
+                output_tokens=actual_output_tokens or transcript_tokens,
+                cache_write_tokens=actual_cache_creation_tokens,
+                cache_read_tokens=actual_cache_read_tokens,
+            )
+            record["estimated_cost_usd"] = round(cost, 6) if cost is not None else None
+        if zero_usage_anomaly:
+            record["usage_anomaly"] = "zero_usage_with_prompt"
         section_chars = st.get("section_chars")
         if isinstance(section_chars, dict):
             clean_sections: dict[str, int] = {}

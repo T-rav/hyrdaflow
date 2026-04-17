@@ -1033,6 +1033,31 @@ class TestPostStreamResult:
                 logger=logging.getLogger("test"),
             )
 
+    def test_raises_credit_error_on_anthropic_spend_cap_rejection(self) -> None:
+        """Anthropic's 400 invalid_request_error for a hit spend-cap raises with parsed resume_at."""
+        from datetime import UTC, datetime
+
+        from subprocess_util import CreditExhaustedError
+
+        transcript = (
+            'API Error: 400 {"type":"error","error":{"type":"invalid_request_error",'
+            '"message":"You have reached your specified API usage limits. '
+            'You will regain access on 2026-05-01 at 00:00 UTC."}}'
+        )
+        with pytest.raises(CreditExhaustedError) as exc_info:
+            _post_stream_result(
+                raw_lines=[transcript],
+                accumulated_text=transcript + "\n",
+                result_text="",
+                early_killed=False,
+                returncode=0,
+                stderr_text="",
+                parser=self._make_parser_with_snapshot(),
+                config=StreamConfig(),
+                logger=logging.getLogger("test"),
+            )
+        assert exc_info.value.resume_at == datetime(2026, 5, 1, 0, 0, tzinfo=UTC)
+
     def test_skips_credit_check_when_early_killed(self) -> None:
         """Credit check is skipped when early_killed=True."""
         transcript = _post_stream_result(

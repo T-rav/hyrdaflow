@@ -17,8 +17,10 @@ from subprocess_util import (
     _is_auth_error,
     _is_retryable_error,
     configure_gh_concurrency,
+    is_credit_exhaustion,
     make_clean_env,
     make_docker_env,
+    parse_credit_resume_time,
     run_subprocess,
     run_subprocess_with_retry,
 )
@@ -999,3 +1001,101 @@ class TestRateLimitCooldown:
             await run_subprocess("gh", "api", "test", runner=runner)
 
         assert subprocess_util._rate_limit_until is None
+
+
+# ---------------------------------------------------------------------------
+# Credit exhaustion detection — Anthropic API spend-cap rejections
+# ---------------------------------------------------------------------------
+
+
+class TestIsCreditExhaustion:
+    """is_credit_exhaustion must match all current Anthropic rejection phrasings."""
+
+    def test_matches_specified_api_usage_limits_phrasing(self) -> None:
+        """Anthropic's 400 error: 'reached your specified API usage limits'."""
+        msg = (
+            'API Error: 400 {"type":"error","error":{"type":"invalid_request_error",'
+            '"message":"You have reached your specified API usage limits. '
+            'You will regain access on 2026-05-01 at 00:00 UTC."}}'
+        )
+        assert is_credit_exhaustion(msg)
+
+    def test_matches_embedded_in_invalid_request_error_json(self) -> None:
+        """Anthropic's wording may also appear inside a JSON envelope."""
+        msg = (
+            '{"type":"invalid_request_error","message":'
+            '"You have reached your specified API usage limits."}'
+        )
+        assert is_credit_exhaustion(msg)
+
+    def test_still_matches_legacy_phrasings(self) -> None:
+        """Existing patterns must continue to match — no regression."""
+        assert is_credit_exhaustion("Your credit balance is too low")
+        assert is_credit_exhaustion("you've hit your limit")
+        assert is_credit_exhaustion("usage limit reached")
+
+    def test_does_not_match_unrelated_text(self) -> None:
+        """Generic successful transcripts must not trip the detector."""
+        assert not is_credit_exhaustion("All tests passed.")
+        assert not is_credit_exhaustion("")
+
+    def test_does_not_false_match_benign_phrasings(self) -> None:
+        """Tightened patterns must not trigger on conversational output that
+        happens to contain substrings of the error wording. CreditExhaustedError
+        is non-retryable and halts all work — false positives are costly.
+        """
+        # 'reached your specified' used to be overly permissive
+        assert not is_credit_exhaustion(
+            "I've reached your specified goals for this sprint."
+        )
+        assert not is_credit_exhaustion(
+            "We reached your specified target of 95% coverage."
+        )
+        # 'reached your usage limits' in a config/docs context
+        assert not is_credit_exhaustion(
+            "You reached your usage limits set in the test config."
+        )
+
+
+class TestParseCreditResumeTime:
+    """parse_credit_resume_time must recognize Anthropic's ISO-style resume format."""
+
+    def test_parses_iso_date_with_utc(self) -> None:
+        """'regain access on 2026-05-01 at 00:00 UTC' → May 1 2026 00:00 UTC."""
+        msg = "You will regain access on 2026-05-01 at 00:00 UTC."
+        resume = parse_credit_resume_time(msg)
+        assert resume is not None
+        assert resume.year == 2026
+        assert resume.month == 5
+        assert resume.day == 1
+        assert resume.hour == 0
+        assert resume.minute == 0
+
+    def test_parses_iso_date_with_nonzero_time(self) -> None:
+        """'regain access on 2026-06-15 at 14:30 UTC'."""
+        msg = "you will regain access on 2026-06-15 at 14:30 UTC."
+        resume = parse_credit_resume_time(msg)
+        assert resume is not None
+        assert (resume.year, resume.month, resume.day) == (2026, 6, 15)
+        assert (resume.hour, resume.minute) == (14, 30)
+
+    def test_still_parses_legacy_am_pm_format(self) -> None:
+        """Existing 'reset at 3pm' phrasings must still parse — no regression."""
+        resume = parse_credit_resume_time("resets at 3pm")
+        assert resume is not None
+        assert resume.hour in {15, 22, 23, 0, 1, 2, 7, 8}  # tz-dependent
+
+    def test_returns_none_for_non_matching_text(self) -> None:
+        assert parse_credit_resume_time("no date here") is None
+
+    def test_requires_utc_suffix_on_iso_format(self) -> None:
+        """If UTC is absent or replaced (e.g. PST), we must NOT silently
+        interpret the time as UTC — fail-to-parse is safer than silent
+        misinterpretation for cooldown scheduling.
+        """
+        # No timezone suffix: must not parse
+        assert parse_credit_resume_time("regain access on 2026-05-01 at 00:00") is None
+        # Non-UTC timezone: must not parse
+        assert (
+            parse_credit_resume_time("regain access on 2026-05-01 at 00:00 PST") is None
+        )

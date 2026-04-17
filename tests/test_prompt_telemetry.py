@@ -503,3 +503,159 @@ class TestAsFloat:
 
     def test_none_value(self):
         assert _as_float(None) == 0.0
+
+
+class TestZeroUsageSanityGuard:
+    """A 'successful' run that produced zero actual tokens with a non-trivial
+    prompt is almost always a CLI-swallowed API rejection (spend cap, 400
+    error, etc.). Guard: do not estimate phantom cost, re-classify as failed,
+    and tag the record so it is observable.
+    """
+
+    def test_reclassifies_success_with_zero_usage_as_failed(self, telemetry):
+        """success=True + all actual tokens zero + prompt_chars > 500 => status='failed'."""
+        telemetry.record(
+            source="triage",
+            tool="claude",
+            model="sonnet",
+            issue_number=9001,
+            pr_number=None,
+            session_id="sess-zero",
+            prompt_chars=21404,
+            transcript_chars=229,
+            duration_seconds=1.9,
+            success=True,
+            stats={
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "total_tokens": 0,
+                "usage_available": False,
+                "usage_status": "unavailable",
+            },
+        )
+        inf_file = telemetry._config.data_path("metrics", "prompt", "inferences.jsonl")
+        row = json.loads(
+            [ln for ln in inf_file.read_text().splitlines() if ln.strip()][-1]
+        )
+        assert row["status"] == "failed"
+        assert row["estimated_cost_usd"] == 0.0
+        assert row["usage_anomaly"] == "zero_usage_with_prompt"
+
+    def test_leaves_legitimate_successful_run_untouched(self, telemetry):
+        """success=True with actual tokens reported is a real call — no reclassification."""
+        telemetry.record(
+            source="implementer",
+            tool="claude",
+            model="opus",
+            issue_number=9002,
+            pr_number=None,
+            session_id="sess-ok",
+            prompt_chars=5000,
+            transcript_chars=2000,
+            duration_seconds=10.0,
+            success=True,
+            stats={
+                "input_tokens": 1200,
+                "output_tokens": 400,
+                "total_tokens": 1600,
+                "usage_available": True,
+                "usage_status": "available",
+            },
+        )
+        inf_file = telemetry._config.data_path("metrics", "prompt", "inferences.jsonl")
+        row = json.loads(
+            [ln for ln in inf_file.read_text().splitlines() if ln.strip()][-1]
+        )
+        assert row["status"] == "success"
+        assert row.get("usage_anomaly") is None
+        assert row["estimated_cost_usd"] > 0
+
+    def test_leaves_tiny_prompt_runs_alone(self, telemetry):
+        """Prompts under the threshold may legitimately return zero tokens (stub/no-op); don't touch them."""
+        telemetry.record(
+            source="triage",
+            tool="claude",
+            model="sonnet",
+            issue_number=9003,
+            pr_number=None,
+            session_id="sess-tiny",
+            prompt_chars=100,
+            transcript_chars=0,
+            duration_seconds=0.5,
+            success=True,
+            stats={
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "usage_available": False,
+                "usage_status": "unavailable",
+            },
+        )
+        inf_file = telemetry._config.data_path("metrics", "prompt", "inferences.jsonl")
+        row = json.loads(
+            [ln for ln in inf_file.read_text().splitlines() if ln.strip()][-1]
+        )
+        assert row["status"] == "success"
+        assert row.get("usage_anomaly") is None
+
+    def test_already_failed_runs_not_relabeled_but_still_zero_cost(self, telemetry):
+        """Failed runs stay failed; no phantom estimated cost either."""
+        telemetry.record(
+            source="reviewer",
+            tool="claude",
+            model="sonnet",
+            issue_number=9004,
+            pr_number=None,
+            session_id="sess-fail",
+            prompt_chars=8000,
+            transcript_chars=0,
+            duration_seconds=5.0,
+            success=False,
+            stats={
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "usage_available": False,
+                "usage_status": "unavailable",
+            },
+        )
+        inf_file = telemetry._config.data_path("metrics", "prompt", "inferences.jsonl")
+        row = json.loads(
+            [ln for ln in inf_file.read_text().splitlines() if ln.strip()][-1]
+        )
+        assert row["status"] == "failed"
+        assert row["estimated_cost_usd"] == 0.0
+
+    def test_failed_run_with_real_tokens_preserves_cost(self, telemetry):
+        """A genuine failure after partial billing must preserve real-token cost.
+        The spend-cap guard zeroes cost ONLY when the API emitted zero tokens
+        (rejected before billing). A network error after streaming 50k tokens
+        must keep its real cost in the record.
+        """
+        telemetry.record(
+            source="implementer",
+            tool="claude",
+            model="sonnet",
+            issue_number=9005,
+            pr_number=None,
+            session_id="sess-partial",
+            prompt_chars=30000,
+            transcript_chars=5000,
+            duration_seconds=60.0,
+            success=False,  # genuine failure
+            stats={
+                "input_tokens": 50000,  # but tokens were already billed
+                "output_tokens": 8000,
+                "total_tokens": 58000,
+                "usage_available": True,
+                "usage_status": "available",
+            },
+        )
+        inf_file = telemetry._config.data_path("metrics", "prompt", "inferences.jsonl")
+        row = json.loads(
+            [ln for ln in inf_file.read_text().splitlines() if ln.strip()][-1]
+        )
+        assert row["status"] == "failed"
+        assert row.get("usage_anomaly") is None
+        # Real tokens were billed — cost must reflect that, not be zeroed out.
+        assert row["estimated_cost_usd"] > 0
