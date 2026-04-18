@@ -159,6 +159,52 @@ async def test_script_run_with_commits_writes_files_and_commits(tmp_path) -> Non
     assert "fake-commit" in log.stdout
 
 
+async def test_script_run_with_commits_handles_unchanged_content(tmp_path) -> None:
+    """Identical back-to-back content must not raise CalledProcessError."""
+    import subprocess
+
+    subprocess.run(
+        ["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "t@t"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "t"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-m", "init"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    fake = FakeDocker()
+    fake.script_run_with_commits(
+        events=[{"type": "result", "success": True, "exit_code": 0}],
+        commits=[("file.txt", "content")],
+        cwd=tmp_path,
+    )
+    # First commit: creates the file
+    async for _ in await fake.run_agent(command=["agent"]):
+        pass
+
+    fake.script_run_with_commits(
+        events=[{"type": "result", "success": True, "exit_code": 0}],
+        commits=[("file.txt", "content")],  # SAME content — no change
+        cwd=tmp_path,
+    )
+    # Second commit: same content, must not raise
+    async for _ in await fake.run_agent(command=["agent"]):
+        pass
+
+
 async def test_script_run_with_commits_handles_nested_paths(tmp_path) -> None:
     import subprocess
 

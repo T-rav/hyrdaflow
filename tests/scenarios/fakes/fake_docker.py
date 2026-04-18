@@ -129,7 +129,7 @@ async def _aiter_with_hooks(
                 capture_output=True,
             )
             subprocess.run(
-                ["git", "commit", "-m", "fake-commit"],
+                ["git", "commit", "--allow-empty", "-m", "fake-commit"],
                 cwd=cwd,
                 check=True,
                 capture_output=True,
