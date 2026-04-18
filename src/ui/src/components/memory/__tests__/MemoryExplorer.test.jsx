@@ -78,4 +78,19 @@ describe('MemoryExplorer', () => {
       expect(screen.queryByTestId('memory-related-panel')).not.toBeInTheDocument()
     })
   })
+
+  it('search input filters visible items in the section list', async () => {
+    global.fetch.mockImplementation((url) => {
+      if (String(url).includes('/api/memory/banks')) {
+        return Promise.resolve({ ok: true, json: async () => ({ banks: [] }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ query: '', items: [] }) })
+    })
+    render(<MemoryExplorer />)
+    expect(screen.getByText(/thing/i)).toBeInTheDocument()
+    fireEvent.change(screen.getByTestId('memory-search-input'), { target: { value: 'nomatch-xyz' } })
+    await waitFor(() => {
+      expect(screen.queryByText(/thing/i)).not.toBeInTheDocument()
+    })
+  })
 })
