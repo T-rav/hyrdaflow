@@ -177,3 +177,74 @@ def log_preflight_results(results: list[CheckResult]) -> bool:
         else:
             logger.error("[FAIL] %s — %s", r.name, r.message)
     return not any(r.status == CheckStatus.FAIL for r in results)
+
+
+def _check_plugins(
+    config: HydraFlowConfig,
+    *,
+    cache_root: Path | None = None,
+    detected_languages: set[str] | None = None,
+) -> CheckResult:
+    """Verify required plugins are installed under the plugin cache.
+
+    - Tier 1 (``config.required_plugins``) missing → FAIL.
+    - Zero total skills discovered → FAIL.
+    - Tier 2 plugin missing for a detected language → WARN.
+    - Everything present → PASS.
+    """
+    from plugin_skill_registry import discover_plugin_skills  # noqa: PLC0415
+
+    root = cache_root or (Path.home() / ".claude" / "plugins" / "cache")
+    langs = detected_languages or set()
+
+    missing_tier1: list[str] = []
+    for plugin in config.required_plugins:
+        if not _plugin_exists(root, plugin):
+            missing_tier1.append(plugin)
+
+    if missing_tier1:
+        return CheckResult(
+            "plugins",
+            CheckStatus.FAIL,
+            f"Required plugins missing from {root}: {', '.join(missing_tier1)}",
+        )
+
+    required_tier2: list[str] = []
+    missing_tier2: list[str] = []
+    for lang in langs:
+        for plugin in config.language_plugins.get(lang, []):
+            required_tier2.append(plugin)
+            if not _plugin_exists(root, plugin):
+                missing_tier2.append(plugin)
+
+    all_plugins = config.required_plugins + required_tier2
+    skills = discover_plugin_skills(all_plugins, cache_root=root)
+    if not skills:
+        return CheckResult(
+            "plugins",
+            CheckStatus.FAIL,
+            f"Plugin allowlist yielded 0 skills under {root}",
+        )
+
+    if missing_tier2:
+        return CheckResult(
+            "plugins",
+            CheckStatus.WARN,
+            f"Language-conditional plugins missing: {', '.join(missing_tier2)}",
+        )
+
+    return CheckResult(
+        "plugins",
+        CheckStatus.PASS,
+        f"{len(skills)} plugin skills discovered",
+    )
+
+
+def _plugin_exists(cache_root: Path, plugin: str) -> bool:
+    """Return True if ``plugin`` directory exists under any marketplace in ``cache_root``."""
+    if not cache_root.is_dir():
+        return False
+    for marketplace_dir in cache_root.iterdir():
+        if (marketplace_dir / plugin).is_dir():
+            return True
+    return False
