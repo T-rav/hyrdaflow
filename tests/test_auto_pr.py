@@ -473,6 +473,103 @@ async def test_async_commit_author_is_forwarded(
 
 
 @pytest.mark.asyncio
+async def test_async_empty_commit_author_omits_c_overrides(
+    local_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Empty commit_author_name/email must NOT emit `-c user.email= -c user.name=`.
+
+    An empty `-c user.email=` override would force git to use an empty identity
+    and fail with 'Author identity unknown', contradicting the documented
+    `HydraFlowConfig.git_user_name/email` contract ('falls back to global git
+    config if empty'). The helper should instead omit the overrides so git
+    falls back to ambient config.
+    """
+    from auto_pr import open_automated_pr_async
+
+    commit_cmds: list[tuple[str, ...]] = []
+
+    def on_cmd(cmd: tuple[str, ...]) -> None:
+        if "commit" in cmd and "-m" in cmd:
+            commit_cmds.append(cmd)
+
+    def gh_handler(cmd: tuple[str, ...]) -> str:
+        if cmd[2] == "create":
+            return "https://github.com/x/y/pull/44\n"
+        return ""
+
+    monkeypatch.setattr(
+        "subprocess_util.run_subprocess",
+        _real_run_subprocess_stub(gh_handler=gh_handler, on_cmd=on_cmd),
+    )
+
+    target = local_repo / "empty-id.txt"
+    target.write_text("content\n")
+
+    await open_automated_pr_async(
+        repo_root=local_repo,
+        branch="feature/empty-id",
+        files=[target],
+        pr_title="t",
+        pr_body="b",
+        commit_author_name="",
+        commit_author_email="",
+    )
+
+    assert len(commit_cmds) == 1
+    cmd = commit_cmds[0]
+    # No `-c user.email=` or `-c user.name=` in the git invocation.
+    assert not any(arg.startswith("user.email=") for arg in cmd), cmd
+    assert not any(arg.startswith("user.name=") for arg in cmd), cmd
+
+
+@pytest.mark.asyncio
+async def test_async_partial_empty_commit_author_omits_c_overrides(
+    local_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If either name OR email is empty, skip both overrides (don't mix).
+
+    Mixing a real name with an empty email (or vice versa) would still break
+    the commit, so `_build_commit_args` only emits overrides when both values
+    are non-empty.
+    """
+    from auto_pr import open_automated_pr_async
+
+    commit_cmds: list[tuple[str, ...]] = []
+
+    def on_cmd(cmd: tuple[str, ...]) -> None:
+        if "commit" in cmd and "-m" in cmd:
+            commit_cmds.append(cmd)
+
+    def gh_handler(cmd: tuple[str, ...]) -> str:
+        if cmd[2] == "create":
+            return "https://github.com/x/y/pull/45\n"
+        return ""
+
+    monkeypatch.setattr(
+        "subprocess_util.run_subprocess",
+        _real_run_subprocess_stub(gh_handler=gh_handler, on_cmd=on_cmd),
+    )
+
+    target = local_repo / "partial.txt"
+    target.write_text("p\n")
+
+    await open_automated_pr_async(
+        repo_root=local_repo,
+        branch="feature/partial-id",
+        files=[target],
+        pr_title="t",
+        pr_body="b",
+        commit_author_name="Only Name",
+        commit_author_email="",
+    )
+
+    assert len(commit_cmds) == 1
+    cmd = commit_cmds[0]
+    assert not any(arg.startswith("user.name=") for arg in cmd), cmd
+    assert not any(arg.startswith("user.email=") for arg in cmd), cmd
+
+
+@pytest.mark.asyncio
 async def test_async_fetch_failure_is_non_fatal(
     local_repo: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
