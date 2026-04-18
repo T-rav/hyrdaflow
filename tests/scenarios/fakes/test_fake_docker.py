@@ -149,3 +149,40 @@ async def test_script_run_with_commits_writes_files_and_commits(tmp_path) -> Non
         check=True,
     )
     assert "fake-commit" in log.stdout
+
+
+async def test_script_run_with_commits_handles_nested_paths(tmp_path) -> None:
+    import subprocess
+
+    subprocess.run(
+        ["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "t@t"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "t"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-m", "init"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    fake = FakeDocker()
+    fake.script_run_with_commits(
+        events=[{"type": "result", "success": True, "exit_code": 0}],
+        commits=[("src/foo/bar.py", "body")],
+        cwd=tmp_path,
+    )
+
+    events = [e async for e in await fake.run_agent(command=["agent"])]
+    assert events[-1]["type"] == "result"
+    assert (tmp_path / "src" / "foo" / "bar.py").read_text() == "body"

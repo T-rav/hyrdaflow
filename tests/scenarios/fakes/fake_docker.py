@@ -42,11 +42,13 @@ class FakeDocker:
         commits: list[tuple[str, str]],
         cwd: Path,
     ) -> None:
-        """Queue *events* but first write *commits* and run ``git commit -am``.
+        """Queue *events* but first write *commits* and stage+commit them.
 
-        Each entry in *commits* is a ``(relative_path, content)`` tuple. The
-        files are written under *cwd* and committed BEFORE the scripted events
-        yield, so real ``_verify_result`` observes commits in the worktree.
+        Each entry in *commits* is a ``(relative_path, content)`` tuple. Files
+        are written under *cwd* (parent dirs created as needed), staged with
+        ``git add -A``, and committed with ``git commit -m fake-commit`` BEFORE
+        the scripted events yield. This lets real ``_verify_result`` observe
+        commits in the worktree without a GitPort abstraction.
         """
         self._scripts.append(
             [{"__commit_hook__": {"cwd": str(cwd), "files": commits}}, *events]
@@ -113,7 +115,9 @@ async def _aiter_with_hooks(
         if hook:
             cwd = Path(hook["cwd"])
             for rel, content in hook["files"]:
-                (cwd / rel).write_text(content)
+                dest = cwd / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(content)
             subprocess.run(
                 ["git", "add", "-A"],
                 cwd=cwd,
