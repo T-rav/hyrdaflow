@@ -284,7 +284,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=4.1.0" },
     { name = "pytest-mock", marker = "extra == 'test'", specifier = ">=3.12.0" },
     { name = "pytest-playwright", marker = "extra == 'test'", specifier = ">=0.5.0" },
-    { name = "pytest-rerunfailures", marker = "extra == 'test'", specifier = ">=14.0" },
+    { name = "pytest-rerunfailures", marker = "extra == 'test'", specifier = ">=16.0" },
     { name = "pytest-xdist", marker = "extra == 'test'", specifier = ">=3.5.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.0" },
