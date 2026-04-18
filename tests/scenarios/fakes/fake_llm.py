@@ -211,6 +211,7 @@ class _FakeReviewRunner(_ScriptedRunner):
             issue_number=issue_number,
             verdict=ReviewVerdict.APPROVE,
             ci_passed=True,
+            fixes_made=True,
         )
 
 

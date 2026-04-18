@@ -401,3 +401,70 @@ async def test_A10_quality_fix_loop_retries_then_passes(tmp_path) -> None:
     # 1 agent + 4 skills + 2 pre-quality + 1 make-quality-fail + 1 fix-agent +
     # 1 make-quality-pass
     assert len(world.docker.invocations) >= 10
+
+
+async def test_A11_review_fix_ci_loop_resolves(tmp_path) -> None:
+    """CI fails after PR creation → fix_ci runs → CI passes → merge proceeds.
+
+    FakeGitHub.script_ci feeds (fail, pass) to wait_for_ci. Real ReviewPhase
+    wait_and_fix_ci catches the failure, invokes the scripted fix_ci (FakeLLM,
+    always returns fixes_made=True), re-waits CI which now passes. Merge proceeds.
+
+    FakeDocker invocations (8 total — quality passes first attempt):
+      1. Initial agent _execute (streaming) — commits code
+      2–5. Four post-implementation skill _execute calls — default success
+           (diff-sanity, arch-compliance, scope-check, test-adequacy;
+           plan-compliance is skipped: empty prompt with no plan)
+      6. Pre-quality review _execute, attempt 1 — default success
+      7. Pre-quality run-tool _execute, attempt 1 — default success
+      8. make quality (run_simple) — PASSES
+
+    CI fail/fix is handled by FakeGitHub.script_ci + FakeLLM.reviewers.fix_ci
+    and does NOT consume FakeDocker slots.
+    """
+    world = MockWorld(tmp_path, use_real_agent_runner=True)
+    world.add_issue(1, "t", "b", labels=["hydraflow-ready"])
+    worktree_cwd = tmp_path / "worktrees" / "issue-1"
+    init_test_worktree(worktree_cwd)
+
+    _ok = [{"type": "result", "success": True, "exit_code": 0}]
+
+    # 1) Initial agent run: commits code
+    world.docker.script_run_with_commits(
+        events=[{"type": "result", "success": True, "exit_code": 0}],
+        commits=[("x.py", "ok")],
+        cwd=worktree_cwd,
+    )
+    # 2–5) Four post-implementation skill _execute calls — default success
+    # (diff-sanity, arch-compliance, scope-check, test-adequacy)
+    # plan-compliance is skipped: returns empty prompt with no plan → no _execute
+    for _ in range(4):
+        world.docker.script_run(_ok)
+    # 6–7) Pre-quality review loop attempt 1: review + run_tool — both default success
+    world.docker.script_run(_ok)  # review pass
+    world.docker.script_run(_ok)  # run_tool pass
+    # 8) make quality via run_simple — PASSES first attempt (no quality-fix loop)
+    world.docker.script_run(_ok)
+
+    # CI scripted: fail first, pass second.
+    # FakeGitHub._pr_counter starts at 10_000; the first PR created is 10_000.
+    world.github.script_ci(
+        pr_number=10_000,
+        results=[(False, "test failed"), (True, "CI passed")],
+    )
+
+    result = await world.run_pipeline()
+
+    # The issue should have been merged after fix_ci resolved CI
+    assert result.issue(1).merged, (
+        f"expected merged=True; outcome={result.issue(1)!r}; "
+        f"docker_invocations={len(world.docker.invocations)}"
+    )
+
+    # A PR was created and merged
+    pr = world.github.pr_for_issue(1)
+    assert pr is not None
+    assert pr.merged is True
+
+    # 8 FakeDocker invocations: 1 agent + 4 skills + 2 pre-quality + 1 make-quality
+    assert len(world.docker.invocations) >= 8
