@@ -30,7 +30,7 @@ export function PatternCard({ title, count, color, children }) {
       <div style={styles.patternHeader} onClick={() => setExpanded(!expanded)}>
         <span style={{ ...styles.patternDot, background: color || theme.orange }} />
         <span style={styles.patternTitle}>{title}</span>
-        <span style={styles.patternCount}>{count}x</span>
+        <span style={{ ...styles.patternCount, color: color || theme.orange }}>{count}x</span>
         <span style={styles.expandIcon}>{expanded ? '\u25B4' : '\u25BE'}</span>
       </div>
       {expanded && children && (

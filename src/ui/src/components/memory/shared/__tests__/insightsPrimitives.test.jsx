@@ -32,6 +32,8 @@ describe('insightsPrimitives', () => {
       expect(screen.queryByText('hidden body')).not.toBeInTheDocument()
       fireEvent.click(screen.getByText('Pattern'))
       expect(screen.getByText('hidden body')).toBeInTheDocument()
+      fireEvent.click(screen.getByText('Pattern'))
+      expect(screen.queryByText('hidden body')).not.toBeInTheDocument()
     })
   })
 })

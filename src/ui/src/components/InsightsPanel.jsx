@@ -240,15 +240,11 @@ function LearningsSubSection({ title, defaultExpanded, children }) {
 function TroubleshootingPatternCard({ pattern }) {
   return (
     <PatternCard
-      title={
-        <>
-          <span>{pattern.pattern_name}</span>
-          <span style={styles.langTag}>{pattern.language}</span>
-        </>
-      }
+      title={pattern.pattern_name}
       count={pattern.frequency}
       color={theme.orange}
     >
+      <div><span style={styles.langTag}>{pattern.language}</span></div>
       <div style={styles.tsDetail}>
         <span style={styles.tsDetailLabel}>Cause:</span> {pattern.description}
       </div>
