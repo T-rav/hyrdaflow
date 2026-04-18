@@ -48,11 +48,8 @@ class _SilentStdinWriter:
     not through prompts.
     """
 
-    def __init__(self) -> None:
-        self.written: list[bytes] = []
-
     def write(self, data: bytes) -> None:
-        self.written.append(data)
+        _ = data  # intentionally discarded — scenarios assert via FakeDocker events
 
     async def drain(self) -> None:
         return
