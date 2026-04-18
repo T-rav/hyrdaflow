@@ -65,6 +65,14 @@ class _ScriptedRunner:
 
 
 class _FakeTriageRunner(_ScriptedRunner):
+    def __init__(self) -> None:
+        super().__init__()
+        self._decomposition_scripts: dict[int, EpicDecompResult] = {}
+
+    def script_decomposition(self, issue_number: int, result: EpicDecompResult) -> None:
+        """Script the EpicDecompResult returned for the given issue."""
+        self._decomposition_scripts[issue_number] = result
+
     async def evaluate(self, issue: Any, _worker_id: int = 0) -> Any:
         issue_number = getattr(issue, "id", getattr(issue, "number", 0))
         return self._pop(
@@ -72,10 +80,11 @@ class _FakeTriageRunner(_ScriptedRunner):
             lambda: TriageResultFactory.create(issue_number=issue_number, ready=True),
         )
 
-    async def run_decomposition(self, _task: Any) -> EpicDecompResult:
-        # Real decomposition is not exercised in scenario tests; return a
-        # no-op result so triage_phase.py can safely read should_decompose.
-        return EpicDecompResult(should_decompose=False)
+    async def run_decomposition(self, task: Any) -> EpicDecompResult:
+        issue_number = getattr(task, "id", getattr(task, "number", 0))
+        return self._decomposition_scripts.get(
+            issue_number, EpicDecompResult(should_decompose=False)
+        )
 
 
 class _FakePlannerRunner(_ScriptedRunner):
