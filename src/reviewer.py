@@ -21,6 +21,10 @@ from models import (
     ReviewVerdict,
     Task,
 )
+from plugin_skill_registry import (
+    discover_plugin_skills,
+    format_plugin_skills_for_prompt,
+)
 from precheck import run_precheck_context
 from prompt_builder import PromptBuilder
 from runner_constants import MEMORY_SUGGESTION_PROMPT
@@ -846,6 +850,12 @@ VERDICT: APPROVE
 SUMMARY: Implementation looks good, tests are comprehensive, all checks pass.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="review")}"""
+        plugin_skills_section = format_plugin_skills_for_prompt(
+            discover_plugin_skills(self._config.required_plugins)
+        )
+        if plugin_skills_section:
+            prompt = f"{prompt}\n\n{plugin_skills_section}"
+
         review_builder = PromptBuilder()
         review_builder.record_context("Issue body", issue.body or "", issue_body)
         review_builder.record_context("Diff", diff, diff_context)
