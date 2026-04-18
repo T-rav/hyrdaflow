@@ -400,10 +400,15 @@ async def open_automated_pr_async(  # noqa: PLR0911 — linear step-by-step guar
     def _fail(err: str) -> AutoPrResult:
         if raise_on_failure:
             raise AutoPrError(err)
-        logger.exception("open_automated_pr_async failed for %s: %s", branch, err)
+        # Plain .error — not .exception — because we may be called outside an
+        # except handler; .exception would attach a misleading `NoneType: None`
+        # traceback in Sentry (see docs/agents/sentry.md).
+        logger.error("open_automated_pr_async failed for %s: %s", branch, err)
         return AutoPrResult(status="failed", pr_url=None, branch=branch, error=err)
 
-    # Fetch base so origin/{base} is current.
+    # Fetch base so origin/{base} is current. Failures before the worktree
+    # is created don't need cleanup; handle them separately from the main
+    # try/finally below.
     try:
         await run_subprocess(
             "git",
@@ -417,23 +422,23 @@ async def open_automated_pr_async(  # noqa: PLR0911 — linear step-by-step guar
     except RuntimeError as exc:
         return _fail(f"git fetch failed: {exc}")
 
-    # Create worktree on new branch.
+    # From here on every exit path must go through `finally` so the worktree
+    # + branch are torn down regardless of outcome.
     try:
-        await run_subprocess(
-            "git",
-            "worktree",
-            "add",
-            "-b",
-            branch,
-            str(worktree_path),
-            f"origin/{base}",
-            cwd=repo_root,
-            gh_token=gh_token,
-        )
-    except RuntimeError as exc:
-        return _fail(f"git worktree add failed for {branch!r}: {exc}")
-
-    try:
+        try:
+            await run_subprocess(
+                "git",
+                "worktree",
+                "add",
+                "-b",
+                branch,
+                str(worktree_path),
+                f"origin/{base}",
+                cwd=repo_root,
+                gh_token=gh_token,
+            )
+        except RuntimeError as exc:
+            return _fail(f"git worktree add failed for {branch!r}: {exc}")
         if not files:
             logger.info("open_automated_pr_async: no files supplied for %s", branch)
             return AutoPrResult(status="no-diff", pr_url=None, branch=branch)
