@@ -67,10 +67,10 @@ class TestExtractRawBrief:
 class TestBuildPrompt:
     """Tests for DiscoverRunner._build_prompt."""
 
-    def test_prompt_includes_issue_details(self) -> None:
+    def test_prompt_includes_issue_details(self, config, event_bus) -> None:
         from unittest.mock import MagicMock
 
-        runner = DiscoverRunner.__new__(DiscoverRunner)
+        runner = DiscoverRunner(config, event_bus)
         task = MagicMock()
         task.id = 42
         task.title = "Build a better Calendly"

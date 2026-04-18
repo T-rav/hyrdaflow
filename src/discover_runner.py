@@ -233,9 +233,8 @@ Each opportunity should be:
 
 {MEMORY_SUGGESTION_PROMPT}
 """
-        cfg = getattr(self, "_config", None)
         plugin_skills_section = format_plugin_skills_for_prompt(
-            discover_plugin_skills(cfg.required_plugins if cfg is not None else [])
+            discover_plugin_skills(self._config.required_plugins)
         )
         if plugin_skills_section:
             prompt = f"{prompt}\n\n{plugin_skills_section}"
