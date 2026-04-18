@@ -39,17 +39,14 @@ from update_check import load_cached_update_result
 logger = logging.getLogger("hydraflow.dashboard")
 
 
-def _safe_error_message(exc: ValueError | ValidationError) -> str:
+def _safe_error_message(exc: ValidationError) -> str:
     """Return a validation-style message without leaking stack trace details.
 
-    For ``ValidationError``, surfaces ``loc: msg`` per field (safe; Pydantic
-    designs these strings for end-users). For bare ``ValueError`` or when
-    the error list is empty, returns a generic string — callers should
-    ``logger.exception`` to keep diagnostic context on the server.
-    CodeQL rule ``py/stack-trace-exposure``.
+    Surfaces ``loc: msg`` per field — Pydantic designs those strings for
+    end-users, so they're safe to return to the client. Closes the
+    CodeQL ``py/stack-trace-exposure`` rule without losing the
+    per-field feedback that makes settings forms usable.
     """
-    if not isinstance(exc, ValidationError):
-        return "Invalid settings"
     parts = [f"{e['loc'][-1]}: {e['msg']}" for e in exc.errors() if e.get("loc")]
     return "; ".join(parts) if parts else "Invalid settings"
 
@@ -673,8 +670,10 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
             from models import DependabotMergeSettings  # noqa: PLC0415
 
             new_settings = DependabotMergeSettings(**update)
-        except (ValueError, ValidationError) as exc:
+        except ValidationError as exc:
             return JSONResponse({"error": _safe_error_message(exc)}, status_code=400)
+        except ValueError:
+            return JSONResponse({"error": "Invalid settings"}, status_code=400)
 
         ctx.state.set_dependabot_merge_settings(new_settings)
         return JSONResponse({"status": "ok", **new_settings.model_dump()})
@@ -699,8 +698,10 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
             from models import StaleIssueSettings  # noqa: PLC0415
 
             new_settings = StaleIssueSettings(**update)
-        except (ValueError, ValidationError) as exc:
+        except ValidationError as exc:
             return JSONResponse({"error": _safe_error_message(exc)}, status_code=400)
+        except ValueError:
+            return JSONResponse({"error": "Invalid settings"}, status_code=400)
         ctx.state.set_stale_issue_settings(new_settings)
         return JSONResponse({"status": "ok", **new_settings.model_dump()})
 
@@ -724,8 +725,10 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
             from models import SecurityPatchSettings  # noqa: PLC0415
 
             new_settings = SecurityPatchSettings(**update)
-        except (ValueError, ValidationError) as exc:
+        except ValidationError as exc:
             return JSONResponse({"error": _safe_error_message(exc)}, status_code=400)
+        except ValueError:
+            return JSONResponse({"error": "Invalid settings"}, status_code=400)
         ctx.state.set_security_patch_settings(new_settings)
         return JSONResponse({"status": "ok", **new_settings.model_dump()})
 
@@ -749,8 +752,10 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
             from models import CIMonitorSettings  # noqa: PLC0415
 
             new_settings = CIMonitorSettings(**update)
-        except (ValueError, ValidationError) as exc:
+        except ValidationError as exc:
             return JSONResponse({"error": _safe_error_message(exc)}, status_code=400)
+        except ValueError:
+            return JSONResponse({"error": "Invalid settings"}, status_code=400)
         ctx.state.set_ci_monitor_settings(new_settings)
         return JSONResponse({"status": "ok", **new_settings.model_dump()})
 
@@ -779,7 +784,9 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
             from models import CodeGroomingSettings  # noqa: PLC0415
 
             new_settings = CodeGroomingSettings(**update)
-        except (ValueError, ValidationError) as exc:
+        except ValidationError as exc:
             return JSONResponse({"error": _safe_error_message(exc)}, status_code=400)
+        except ValueError:
+            return JSONResponse({"error": "Invalid settings"}, status_code=400)
         ctx.state.set_code_grooming_settings(new_settings)
         return JSONResponse({"status": "ok", **new_settings.model_dump()})
