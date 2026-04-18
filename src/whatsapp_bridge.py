@@ -70,7 +70,10 @@ class WhatsAppBridge:
                 resp = await client.post(url, json=payload, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
-                return data.get("messages", [{}])[0].get("id")
+                messages = data.get("messages") or []
+                if not messages:
+                    return None
+                return messages[0].get("id")
         except Exception:
             logger.warning("WhatsApp send failed", exc_info=True)
             return None
@@ -84,13 +87,18 @@ class WhatsAppBridge:
         """
         text = ""
         try:
-            entry = payload.get("entry", [{}])[0]
-            changes = entry.get("changes", [{}])[0]
-            value = changes.get("value", {})
+            entries = payload.get("entry") or []
+            if not entries:
+                return text, None
+            entry = entries[0]
+            changes = entry.get("changes") or []
+            if not changes:
+                return text, None
+            value = changes[0].get("value", {})
             messages = value.get("messages", [])
             if messages:
                 text = messages[0].get("text", {}).get("body", "")
-        except (IndexError, KeyError, TypeError):
+        except (KeyError, TypeError):
             pass
 
         issue_number = None

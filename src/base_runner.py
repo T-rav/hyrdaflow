@@ -206,7 +206,16 @@ class BaseRunner:
                             self._AUTH_RETRY_MAX,
                             exc,
                         )
-            raise last_auth_error  # type: ignore[misc]
+            if last_auth_error is None:
+                # Retry loop never executed (``_AUTH_RETRY_MAX`` ≤ 0).
+                # Surface this as a meaningful RuntimeError instead of
+                # ``raise None`` → TypeError (#6598).
+                msg = (
+                    "BaseRunner._execute: auth retry loop never ran "
+                    f"(_AUTH_RETRY_MAX={self._AUTH_RETRY_MAX})"
+                )
+                raise RuntimeError(msg)
+            raise last_auth_error
         except Exception:
             if trace_collector is not None:
                 trace_collector.finalize(success=False)
