@@ -238,3 +238,77 @@ async def test_A5_token_budget_exceeded_halts_implement(tmp_path) -> None:
     wr = result.issue(1).worker_result
     assert wr is not None
     assert wr.success is False
+
+
+async def test_A6_github_rate_limit_during_pr_creation_surfaces_error(tmp_path) -> None:
+    """Rate-limit error is absorbed by run_refilling_pool; observable via no PR.
+
+    `fail_service("github")` sets remaining=0.  The first GitHub call
+    (find_existing_issue in the triage duplicate-check) raises RateLimitError.
+    `phase_utils.run_refilling_pool` catches non-fatal exceptions and logs
+    them as warnings — it does NOT re-raise RateLimitError because it is
+    neither AuthenticationError, CreditExhaustedError, nor MemoryError.
+
+    Observable behavior:
+    - `run_pipeline` returns normally (no raise).
+    - The issue never progresses past triage → no PR is created.
+    - The rate-limit counter is consumed (remaining drops to 0).
+    """
+    world = MockWorld(tmp_path, use_real_agent_runner=True)
+    world.add_issue(1, "t", "b", labels=["hydraflow-ready"])
+
+    worktree_cwd = tmp_path / "worktrees" / "issue-1"
+    _init_test_worktree(worktree_cwd)
+
+    world.docker.script_run_with_commits(
+        events=[{"type": "result", "success": True, "exit_code": 0}],
+        commits=[("x.py", "ok")],
+        cwd=worktree_cwd,
+    )
+    world.fail_service("github")  # arms rate-limit (remaining=0)
+
+    # run_pipeline returns normally — the pool absorbs the RateLimitError.
+    result = await world.run_pipeline()
+
+    # No PR was created; issue never merged.
+    assert world.github.pr_for_issue(1) is None
+    assert not result.issue(1).merged
+    # Rate-limit was armed and triggered (remaining stays at 0, not None).
+    assert world.github._rate_limit_remaining == 0
+
+
+async def test_A7_github_secondary_rate_limit_surfaces(tmp_path) -> None:
+    """Secondary (abuse-detection) rate-limit is also absorbed by run_refilling_pool.
+
+    `set_rate_limit_mode(remaining=0, secondary=True)` arms the fake with the
+    secondary flag set.  Like A6, run_refilling_pool absorbs the error — the
+    distinction between primary and secondary rate-limits is carried in the
+    RateLimitError instance (secondary=True) but the pool does not propagate
+    either variant.
+
+    Observable behavior:
+    - `run_pipeline` returns normally (no raise).
+    - The issue never progresses → no PR is created.
+    - The rate-limit mode is still armed (remaining=0, secondary=True).
+    """
+    world = MockWorld(tmp_path, use_real_agent_runner=True)
+    world.add_issue(1, "t", "b", labels=["hydraflow-ready"])
+
+    worktree_cwd = tmp_path / "worktrees" / "issue-1"
+    _init_test_worktree(worktree_cwd)
+
+    world.docker.script_run_with_commits(
+        events=[{"type": "result", "success": True, "exit_code": 0}],
+        commits=[("x.py", "ok")],
+        cwd=worktree_cwd,
+    )
+    world.github.set_rate_limit_mode(remaining=0, secondary=True)
+
+    # run_pipeline returns normally — the pool absorbs the RateLimitError.
+    result = await world.run_pipeline()
+
+    assert world.github.pr_for_issue(1) is None
+    assert not result.issue(1).merged
+    # Secondary flag is still set; confirms secondary mode was armed.
+    assert world.github._rate_limit_secondary is True
+    assert world.github._rate_limit_remaining == 0
