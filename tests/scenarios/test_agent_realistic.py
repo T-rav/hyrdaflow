@@ -271,3 +271,36 @@ async def test_A7_github_secondary_rate_limit_surfaces(tmp_path) -> None:
     # Secondary flag is still set; confirms secondary mode was armed.
     assert world.github._rate_limit_secondary is True
     assert world.github._rate_limit_remaining == 0
+
+
+async def test_A8_find_stage_to_done_realistic_agent(tmp_path) -> None:
+    """Full pipeline from hydraflow-find through triage+plan+implement+review.
+
+    All other A-scenarios shortcut via ``labels=["hydraflow-ready"]``. This
+    one proves the realistic-agent path works from the default entry point
+    that production uses for new issues.
+
+    ``add_issue`` with no ``labels`` defaults to ``["hydraflow-find"]``.
+    ``run_pipeline`` seeds at stage ``"find"`` unconditionally; the triage
+    phase processes the issue and FakeLLM defaults to ``ready=True`` so the
+    issue progresses through plan→implement→review exactly like a
+    ``hydraflow-ready`` issue.
+    """
+    world = MockWorld(tmp_path, use_real_agent_runner=True)
+    world.add_issue(1, "t", "b")  # defaults to labels=["hydraflow-find"]
+
+    worktree_cwd = tmp_path / "worktrees" / "issue-1"
+    init_test_worktree(worktree_cwd)
+
+    world.docker.script_run_with_commits(
+        events=[{"type": "result", "success": True, "exit_code": 0}],
+        commits=[("x.py", "done")],
+        cwd=worktree_cwd,
+    )
+
+    result = await world.run_pipeline()
+
+    # Full pipeline ran and merged the issue.
+    assert result.issue(1).merged
+    # At least one real AgentRunner invocation occurred.
+    assert len(world.docker.invocations) >= 1
