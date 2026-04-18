@@ -24,6 +24,7 @@ _DEFAULT_CACHE_ROOT = Path.home() / ".claude" / "plugins" / "cache"
 _EXCLUDED_SKILL_NAMES: frozenset[str] = frozenset({"using-superpowers"})
 
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
+_KEY_PREFIX_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$")
 
 
 @dataclass(frozen=True)
@@ -139,17 +140,20 @@ def _extract_key(frontmatter: str, key: str) -> str | None:
 
     Intentionally does NOT depend on a YAML library — SKILL.md frontmatter is
     always flat key/value pairs. Multi-line values use the folded-on-next-line
-    convention and are joined with spaces.
+    convention and are joined with spaces. Prefix-match collisions are avoided
+    by requiring an exact key match via ``_KEY_PREFIX_RE``.
     """
     lines = frontmatter.splitlines()
     for i, line in enumerate(lines):
-        if line.startswith(f"{key}:"):
-            value = line[len(key) + 1 :].strip()
-            j = i + 1
-            while j < len(lines) and lines[j].startswith(("  ", "\t")):
-                value = f"{value} {lines[j].strip()}"
-                j += 1
-            return value or None
+        match = _KEY_PREFIX_RE.match(line)
+        if match is None or match.group(1) != key:
+            continue
+        value = match.group(2).strip()
+        j = i + 1
+        while j < len(lines) and lines[j].startswith(("  ", "\t")):
+            value = f"{value} {lines[j].strip()}"
+            j += 1
+        return value or None
     return None
 
 

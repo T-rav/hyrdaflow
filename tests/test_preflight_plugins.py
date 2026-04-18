@@ -148,9 +148,21 @@ class TestRunPreflightChecksWiring:
     """Verify _check_plugins is invoked by run_preflight_checks."""
 
     @pytest.mark.asyncio
-    async def test_plugin_check_appears_in_results(self, tmp_path: Path) -> None:
-        """run_preflight_checks includes a 'plugins' result entry."""
+    async def test_plugin_check_appears_in_results_with_pass_status(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """run_preflight_checks invokes _check_plugins with the shared default cache root.
+
+        Isolated by monkeypatching plugin_skill_registry._DEFAULT_CACHE_ROOT so the
+        test does not depend on the developer's real ~/.claude/plugins/cache.
+        """
+        import plugin_skill_registry
         from preflight import run_preflight_checks
+
+        cache_root = tmp_path / "cache"
+        cache_root.mkdir()
+        _make_plugin(cache_root, "superpowers")
+        monkeypatch.setattr(plugin_skill_registry, "_DEFAULT_CACHE_ROOT", cache_root)
 
         config = HydraFlowConfig(
             required_plugins=["superpowers"],
@@ -159,5 +171,5 @@ class TestRunPreflightChecksWiring:
             data_root=str(tmp_path),
         )
         results = await run_preflight_checks(config)
-        names = [r.name for r in results]
-        assert "plugins" in names
+        plugin_result = next(r for r in results if r.name == "plugins")
+        assert plugin_result.status == CheckStatus.PASS
