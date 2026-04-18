@@ -262,6 +262,13 @@ describe('Main tab bar', () => {
     expect(within(tabContainer).queryByText('Diagnostics')).toBeNull()
   })
 
+  it('does not render Memory in the main tab bar (moved to System sub-tab)', async () => {
+    const { default: App } = await import('../../App')
+    render(<App />)
+    const tabContainer = screen.getByTestId('main-tabs')
+    expect(within(tabContainer).queryByText('Memory')).toBeNull()
+  })
+
   it('Work Stream tab is rendered first (tab order)', async () => {
     const { default: App } = await import('../../App')
     render(<App />)

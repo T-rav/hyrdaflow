@@ -82,6 +82,22 @@ describe('SystemPanel', () => {
       expect(metricsPanel.parentElement).toBe(subTabContent)
       expect(metricsPanel.style.overflowY).toBe('auto')
     })
+
+    it('renders MemoryBrowser when Memory sub-tab selected', async () => {
+      const originalFetch = global.fetch
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ banks: [] }),
+      })
+      try {
+        render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
+        fireEvent.click(screen.getByText('Memory'))
+        expect(screen.getByText('Memory Browser')).toBeInTheDocument()
+        expect(screen.getByTestId('memory-search-input')).toBeInTheDocument()
+      } finally {
+        global.fetch = originalFetch
+      }
+    })
   })
 
   describe('Background Workers', () => {
@@ -366,13 +382,14 @@ describe('SystemPanel', () => {
   })
 
   describe('Sub-tab Navigation', () => {
-    it('shows Workers, Pipeline, Metrics, Insights, Diagnostics, and Livestream sub-tab labels', () => {
+    it('shows Workers, Pipeline, Metrics, Insights, Memory, Diagnostics, and Livestream sub-tab labels', () => {
       render(<SystemPanel backgroundWorkers={[]} />)
       expect(screen.getByText('Workers')).toBeInTheDocument()
       expect(screen.getByText('Pipeline')).toBeInTheDocument()
       expect(screen.getByText('Metrics')).toBeInTheDocument()
       expect(screen.queryByText('Processes')).not.toBeInTheDocument()
       expect(screen.getByText('Insights')).toBeInTheDocument()
+      expect(screen.getByText('Memory')).toBeInTheDocument()
       expect(screen.getByText('Diagnostics')).toBeInTheDocument()
       expect(screen.getByText('Livestream')).toBeInTheDocument()
       expect(screen.queryByText('Event Log')).not.toBeInTheDocument()
