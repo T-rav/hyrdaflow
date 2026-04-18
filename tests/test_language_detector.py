@@ -44,6 +44,13 @@ class TestDetectLanguages:
         )
         assert detect_languages(repo) == {"typescript"}
 
+    def test_typescript_from_package_json_dependencies(self, repo: Path) -> None:
+        """Return typescript when package.json declares typescript under dependencies."""
+        (repo / "package.json").write_text(
+            '{"dependencies": {"typescript": "^5.0.0"}}\n'
+        )
+        assert detect_languages(repo) == {"typescript"}
+
     def test_package_json_without_typescript_dep_is_not_typescript(
         self, repo: Path
     ) -> None:
