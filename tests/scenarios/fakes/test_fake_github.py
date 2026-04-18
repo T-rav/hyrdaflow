@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tests.conftest import TaskFactory
-from tests.scenarios.fakes.fake_github import FakeGitHub
+from tests.scenarios.fakes.fake_github import FakeGitHub, RateLimitError
 
 pytestmark = pytest.mark.scenario
 
@@ -88,3 +88,39 @@ class TestFakeGitHubMutations:
         gh.add_issue(1, "t", "b")
         await gh.post_comment(1, "a comment")
         assert "a comment" in gh.issue(1).comments
+
+
+class TestFakeGitHubRateLimit:
+    async def test_rate_limit_zero_remaining_raises(self) -> None:
+        gh = FakeGitHub()
+        gh.add_issue(1, "t", "b", labels=[])
+        gh.set_rate_limit_mode(remaining=0, reset_in=60)
+        with pytest.raises(RateLimitError) as exc_info:
+            await gh.add_labels(1, ["x"])
+        assert exc_info.value.reset_in == 60
+        assert exc_info.value.secondary is False
+
+    async def test_rate_limit_nonzero_remaining_decrements(self) -> None:
+        gh = FakeGitHub()
+        gh.add_issue(1, "t", "b", labels=[])
+        gh.set_rate_limit_mode(remaining=2, reset_in=60)
+        await gh.add_labels(1, ["a"])  # remaining=1
+        await gh.add_labels(1, ["b"])  # remaining=0
+        with pytest.raises(RateLimitError):
+            await gh.add_labels(1, ["c"])
+
+    async def test_secondary_rate_limit_sets_flag(self) -> None:
+        gh = FakeGitHub()
+        gh.add_issue(1, "t", "b", labels=[])
+        gh.set_rate_limit_mode(remaining=0, secondary=True)
+        with pytest.raises(RateLimitError) as exc_info:
+            await gh.add_labels(1, ["x"])
+        assert exc_info.value.secondary is True
+
+    async def test_rate_limit_heals_via_clear(self) -> None:
+        gh = FakeGitHub()
+        gh.add_issue(1, "t", "b", labels=[])
+        gh.set_rate_limit_mode(remaining=0)
+        gh.clear_rate_limit()
+        await gh.add_labels(1, ["x"])  # no raise
+        assert "x" in gh.issue(1).labels

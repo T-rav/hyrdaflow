@@ -14,6 +14,20 @@ from typing import Any
 from tests.conftest import PRInfoFactory
 
 
+class RateLimitError(Exception):
+    """Raised by FakeGitHub when rate-limit mode is exhausted.
+
+    `secondary=True` represents GitHub's abuse-detection variant, which
+    production code handles differently from primary rate limits.
+    """
+
+    def __init__(self, reset_in: int = 60, *, secondary: bool = False) -> None:
+        self.reset_in = reset_in
+        self.secondary = secondary
+        suffix = " (secondary)" if secondary else ""
+        super().__init__(f"FakeGitHub rate limit{suffix}; reset in {reset_in}s")
+
+
 @dataclass
 class FakeIssue:
     number: int
@@ -51,6 +65,9 @@ class FakeGitHub:
         self._ci_scripts: dict[int, deque[tuple[bool, str]]] = {}
         self._comments: list[tuple[int, str]] = []
         self._ci_main_status: tuple[str, str] = ("success", "")
+        self._rate_limit_remaining: int | None = None  # None = disabled
+        self._rate_limit_reset_in: int = 60
+        self._rate_limit_secondary: bool = False
 
     # --- Seed API ---
 
@@ -79,6 +96,32 @@ class FakeGitHub:
         """Set the updated_at timestamp on a seeded issue."""
         if issue_number in self._issues:
             self._issues[issue_number].updated_at = updated_at
+
+    def set_rate_limit_mode(
+        self,
+        *,
+        remaining: int = 0,
+        reset_in: int = 60,
+        secondary: bool = False,
+    ) -> None:
+        """Enable rate-limit gating; next *remaining* calls succeed, then raise."""
+        self._rate_limit_remaining = remaining
+        self._rate_limit_reset_in = reset_in
+        self._rate_limit_secondary = secondary
+
+    def clear_rate_limit(self) -> None:
+        self._rate_limit_remaining = None
+        self._rate_limit_secondary = False
+
+    def _maybe_rate_limit(self) -> None:
+        if self._rate_limit_remaining is None:
+            return
+        if self._rate_limit_remaining <= 0:
+            raise RateLimitError(
+                reset_in=self._rate_limit_reset_in,
+                secondary=self._rate_limit_secondary,
+            )
+        self._rate_limit_remaining -= 1
 
     # --- Query API ---
 
@@ -109,6 +152,7 @@ class FakeGitHub:
         *,
         pr_number: int | None = None,
     ) -> None:
+        self._maybe_rate_limit()
         _ = pr_number
         stage_label_map = {
             "find": "hydraflow-find",
@@ -128,6 +172,7 @@ class FakeGitHub:
             issue.labels.append(new_label)
 
     async def swap_pipeline_labels(self, issue_number: int, new_label: str) -> None:
+        self._maybe_rate_limit()
         if issue_number in self._issues:
             issue = self._issues[issue_number]
             issue.labels = [
@@ -136,45 +181,54 @@ class FakeGitHub:
             issue.labels.append(new_label)
 
     async def add_labels(self, issue_number: int, labels: list[str]) -> None:
+        self._maybe_rate_limit()
         if issue_number in self._issues:
             for label in labels:
                 if label not in self._issues[issue_number].labels:
                     self._issues[issue_number].labels.append(label)
 
     async def remove_label(self, issue_number: int, label: str) -> None:
+        self._maybe_rate_limit()
         if issue_number in self._issues:
             issue = self._issues[issue_number]
             issue.labels = [lbl for lbl in issue.labels if lbl != label]
 
     async def post_comment(self, issue_number: int, body: str) -> None:
+        self._maybe_rate_limit()
         self._comments.append((issue_number, body))
         if issue_number in self._issues:
             self._issues[issue_number].comments.append(body)
 
     async def post_pr_comment(self, pr_number: int, body: str) -> None:
+        self._maybe_rate_limit()
         self._comments.append((pr_number, body))
 
     async def submit_review(
         self, pr_number: int, verdict_or_body: Any = "", body: str = "", **_kw: Any
     ) -> bool:
         """Accept both (pr, body, event) from phases and (pr, verdict, body) from loops."""
+        self._maybe_rate_limit()
         return True
 
     async def create_task(
         self, title: str, body: str, labels: list[str] | None = None
     ) -> int:
+        self._maybe_rate_limit()
         num = max(self._issues.keys(), default=9000) + 1
         self.add_issue(num, title, body, labels=labels)
         return num
 
     async def close_task(self, issue_number: int) -> None:
+        self._maybe_rate_limit()
         await self.close_issue(issue_number)
 
     async def close_issue(self, issue_number: int) -> None:
+        self._maybe_rate_limit()
         if issue_number in self._issues:
             self._issues[issue_number].state = "closed"
 
     async def find_existing_issue(self, title: str) -> int:
+        self._maybe_rate_limit()
         for issue in self._issues.values():
             if issue.title == title and issue.state == "open":
                 return issue.number
@@ -185,6 +239,7 @@ class FakeGitHub:
         *args: Any,
         **_kwargs: Any,
     ) -> bool:
+        self._maybe_rate_limit()
         _ = args
         return True
 
@@ -196,6 +251,7 @@ class FakeGitHub:
         draft: bool = False,
         **_unused: Any,
     ) -> Any:
+        self._maybe_rate_limit()
         number = self._pr_counter
         self._pr_counter += 1
         issue_number = getattr(issue, "id", getattr(issue, "number", 0))
@@ -220,6 +276,7 @@ class FakeGitHub:
         issue_number: int | None = None,
         **_unused: Any,
     ) -> Any:
+        self._maybe_rate_limit()
         for p in self._prs.values():
             if p.branch == branch and not p.merged:
                 return PRInfoFactory.create(
@@ -235,36 +292,45 @@ class FakeGitHub:
         )
 
     async def branch_has_diff_from_main(self, branch: str) -> bool:
+        self._maybe_rate_limit()
         return True
 
     async def add_pr_labels(self, pr_number: int, labels: list[str]) -> None:
-        pass
+        self._maybe_rate_limit()
 
     async def get_pr_diff(self, pr_number: int) -> str:
+        self._maybe_rate_limit()
         return "diff --git a/x b/x"
 
     async def get_pr_head_sha(self, pr_number: int) -> str:
+        self._maybe_rate_limit()
         return "abc123"
 
     async def get_pr_diff_names(self, pr_number: int) -> list[str]:
+        self._maybe_rate_limit()
         return ["src/app.py"]
 
     async def get_pr_approvers(self, pr_number: int) -> list[str]:
+        self._maybe_rate_limit()
         return ["octocat"]
 
     async def fetch_code_scanning_alerts(self, pr_number: int = 0, **_kw: Any) -> list:
+        self._maybe_rate_limit()
         return []
 
     async def wait_for_ci(self, pr_number: int, **_kw: Any) -> tuple[bool, str]:
+        self._maybe_rate_limit()
         q = self._ci_scripts.get(pr_number)
         if q:
             return q.popleft()
         return (True, "CI passed")
 
     async def fetch_ci_failure_logs(self, pr_number: int, **_kw: Any) -> str:
+        self._maybe_rate_limit()
         return ""
 
     async def merge_pr(self, pr_number: int, **_kw: Any) -> bool:
+        self._maybe_rate_limit()
         if pr_number in self._prs:
             self._prs[pr_number].merged = True
         return True
@@ -273,6 +339,7 @@ class FakeGitHub:
 
     async def list_issues_by_label(self, label: str) -> list[dict[str, Any]]:
         """Return open issues carrying *label* as GitHubIssueSummary-style dicts."""
+        self._maybe_rate_limit()
         return [
             {
                 "number": issue.number,
@@ -286,6 +353,7 @@ class FakeGitHub:
 
     async def get_issue_updated_at(self, issue_number: int) -> str:
         """Return updated_at timestamp for an issue."""
+        self._maybe_rate_limit()
         if issue_number in self._issues:
             return getattr(
                 self._issues[issue_number], "updated_at", "2026-01-01T00:00:00Z"
@@ -294,6 +362,7 @@ class FakeGitHub:
 
     async def get_issue_state(self, issue_number: int) -> str:
         """Return issue state as GitHub GraphQL style (OPEN/COMPLETED)."""
+        self._maybe_rate_limit()
         if issue_number in self._issues:
             state = self._issues[issue_number].state
             return "COMPLETED" if state == "closed" else "OPEN"
@@ -303,6 +372,7 @@ class FakeGitHub:
         self, hitl_labels: list[str], *, concurrency: int = 10
     ) -> list[Any]:
         """Return HITLItem-compatible objects for issues with HITL labels."""
+        self._maybe_rate_limit()
         from models import HITLItem
 
         items: list[HITLItem] = []
@@ -324,6 +394,7 @@ class FakeGitHub:
 
     async def get_latest_ci_status(self) -> tuple[str, str]:
         """Return (conclusion, url) for latest CI on main branch."""
+        self._maybe_rate_limit()
         return self._ci_main_status
 
     async def create_issue(
@@ -334,12 +405,14 @@ class FakeGitHub:
         **_unused: Any,
     ) -> int:
         """Create a new issue and return its number."""
+        self._maybe_rate_limit()
         num = max(self._issues.keys(), default=9000) + 1
         self.add_issue(num, title, body, labels=labels)
         return num
 
     async def get_dependabot_alerts(self, **_kw: Any) -> list[dict[str, Any]]:
         """Return Dependabot alerts."""
+        self._maybe_rate_limit()
         return []
 
     # --- Additional PRPort methods for port conformance (phase 1) ---
@@ -349,19 +422,23 @@ class FakeGitHub:
         return f"[#{issue_number}] {issue_title}"
 
     async def get_pr_mergeable(self, pr_number: int) -> bool | None:
+        self._maybe_rate_limit()
         return True
 
     async def pull_main(self, **_kw: Any) -> None:
-        pass
+        self._maybe_rate_limit()
 
     async def update_issue_body(self, issue_number: int, body: str) -> None:
+        self._maybe_rate_limit()
         if issue_number in self._issues:
             self._issues[issue_number].body = body
 
     async def update_pr_title(self, pr_number: int, title: str) -> bool:
+        self._maybe_rate_limit()
         return True
 
     async def upload_screenshot(self, **_kw: Any) -> str:
+        self._maybe_rate_limit()
         return ""
 
     # --- Staging / RC promotion PRPort methods ---
