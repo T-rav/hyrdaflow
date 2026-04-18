@@ -910,7 +910,7 @@ class TestAcceptADR:
             ],
         )
 
-        with patch("adr_reviewer.run_subprocess", new_callable=AsyncMock):
+        with patch("auto_pr.open_automated_pr_async", new_callable=AsyncMock):
             await reviewer._accept_adr(result, adr_path, adr_dir)
 
         content = adr_path.read_text(encoding="utf-8")
@@ -940,7 +940,7 @@ class TestAcceptADR:
             ],
         )
 
-        with patch("adr_reviewer.run_subprocess", new_callable=AsyncMock):
+        with patch("auto_pr.open_automated_pr_async", new_callable=AsyncMock):
             await reviewer._accept_adr(result, adr_path, adr_dir)
 
         readme_content = readme.read_text(encoding="utf-8")
@@ -974,19 +974,15 @@ class TestAcceptADR:
             ],
         )
 
-        mock_run = AsyncMock()
-        with patch("adr_reviewer.run_subprocess", mock_run):
+        mock_open_pr = AsyncMock()
+        with patch("auto_pr.open_automated_pr_async", mock_open_pr):
             await reviewer._accept_adr(result, adr_path, adr_dir)
 
-        # Check commit message includes minority note
-        commit_calls = [
-            c
-            for c in mock_run.await_args_list
-            if c.args[0] == "git" and c.args[1] == "commit"
-        ]
-        assert len(commit_calls) == 1
-        commit_msg = commit_calls[0].args[3]
-        assert "Minority note:" in commit_msg
+        # Helper called once; commit_message kwarg carries the minority note.
+        assert mock_open_pr.await_count == 1
+        assert mock_open_pr.await_args is not None
+        kwargs = mock_open_pr.await_args.kwargs
+        assert "Minority note:" in kwargs["commit_message"]
 
 
 class TestEscalateToHITL:
@@ -1602,10 +1598,12 @@ class TestAcceptADREdgeCases:
         )
 
         # Should not raise
-        with patch("adr_reviewer.run_subprocess", new_callable=AsyncMock) as mock_run:
+        with patch(
+            "auto_pr.open_automated_pr_async", new_callable=AsyncMock
+        ) as mock_open_pr:
             await reviewer._accept_adr(result, adr_path, adr_dir)
             # Should not reach commit since file couldn't be read
-            mock_run.assert_not_awaited()
+            mock_open_pr.assert_not_awaited()
 
 
 class TestCommitAcceptance:
@@ -1625,15 +1623,20 @@ class TestCommitAcceptance:
             adr_number=1, adr_title="Test", final_decision="ACCEPT", summary="OK"
         )
 
-        with patch("adr_reviewer.run_subprocess", new_callable=AsyncMock) as mock_run:
+        with patch(
+            "auto_pr.open_automated_pr_async", new_callable=AsyncMock
+        ) as mock_open_pr:
             await reviewer._commit_acceptance(
                 tmp_path / "adr.md", tmp_path / "README.md", result
             )
-            mock_run.assert_not_awaited()
+            mock_open_pr.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_git_failure_logs_and_returns(self, tmp_path: Path) -> None:
-        """Worktree creation failure should be caught and logged."""
+    async def test_commit_acceptance_passes_raise_on_failure_false(
+        self, tmp_path: Path
+    ) -> None:
+        """_commit_acceptance delegates to the helper with raise_on_failure=False
+        so transient git/gh failures don't crash the reviewer loop."""
         reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
             adr_number=1, adr_title="Test", final_decision="ACCEPT", summary="OK"
@@ -1643,44 +1646,17 @@ class TestCommitAcceptance:
         adr_path.write_text("**Status:** Accepted")
 
         with patch(
-            "adr_reviewer.run_subprocess",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("git worktree add failed"),
-        ) as mock_run:
-            # Should not raise
+            "auto_pr.open_automated_pr_async", new_callable=AsyncMock
+        ) as mock_open_pr:
             await reviewer._commit_acceptance(
                 adr_path, tmp_path / "repo" / "docs" / "adr" / "README.md", result
             )
-        # Verify the error-raising subprocess was invoked
-        mock_run.assert_awaited()
-
-    @pytest.mark.asyncio
-    async def test_pr_creation_failure_does_not_crash(self, tmp_path: Path) -> None:
-        """PR creation failure after successful commit should be caught."""
-        reviewer = _make_reviewer(tmp_path)
-        result = ADRCouncilResult(
-            adr_number=1, adr_title="Test", final_decision="ACCEPT", summary="OK"
-        )
-        adr_path = tmp_path / "repo" / "docs" / "adr" / "0001-test.md"
-        adr_path.parent.mkdir(parents=True)
-        adr_path.write_text("**Status:** Accepted")
-
-        call_count = 0
-
-        async def _mock_run(*args: object, **kwargs: object) -> None:
-            nonlocal call_count
-            call_count += 1
-            # Last call is `gh pr create` — make it fail
-            if call_count >= 6 and args[0] == "gh":
-                raise RuntimeError("gh pr create failed")
-
-        with patch("adr_reviewer.run_subprocess", new_callable=AsyncMock) as mock_run:
-            mock_run.side_effect = _mock_run
-            # Should not raise
-            await reviewer._commit_acceptance(
-                adr_path, tmp_path / "repo" / "docs" / "adr" / "README.md", result
-            )
-        assert call_count >= 6  # confirms PR creation step was reached
+        assert mock_open_pr.await_count == 1
+        assert mock_open_pr.await_args is not None
+        kwargs = mock_open_pr.await_args.kwargs
+        assert kwargs["raise_on_failure"] is False
+        assert kwargs["auto_merge"] is False
+        assert kwargs["branch"] == "adr/accept-0001"
 
 
 class TestTitleTruncation:
