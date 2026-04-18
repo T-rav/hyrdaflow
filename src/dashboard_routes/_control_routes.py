@@ -545,13 +545,12 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
     ) -> JSONResponse:
         """One-shot: create staging branch from main (if missing) + protect it."""
         _cfg, _state, _bus, _get_orch = ctx.resolve_runtime(repo)
+        pm = ctx.pr_manager_for(_cfg, _bus)
         try:
-            created = await ctx.pr_manager.ensure_branch_exists(
+            created = await pm.ensure_branch_exists(
                 _cfg.staging_branch, base=_cfg.main_branch
             )
-            protection = await ctx.pr_manager.apply_staging_branch_protection(
-                _cfg.staging_branch
-            )
+            protection = await pm.apply_staging_branch_protection(_cfg.staging_branch)
         except RuntimeError as exc:
             return JSONResponse(
                 {"status": "error", "message": str(exc)},
@@ -598,9 +597,11 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
                 cadence_progress_hours = None
 
         open_pr = None
+        recent: list[dict[str, Any]] = []
         if _cfg.staging_enabled:
+            pm = ctx.pr_manager_for(_cfg, _bus)
             try:
-                pr = await ctx.pr_manager.find_open_promotion_pr()
+                pr = await pm.find_open_promotion_pr()
             except Exception:  # noqa: BLE001
                 pr = None
             if pr is not None:
@@ -609,11 +610,8 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
                     "branch": pr.branch,
                     "url": pr.url,
                 }
-
-        recent: list[dict[str, Any]] = []
-        if _cfg.staging_enabled:
             try:
-                recent = await ctx.pr_manager.list_recent_promotion_prs(days=7)
+                recent = await pm.list_recent_promotion_prs(days=7)
             except Exception:  # noqa: BLE001
                 recent = []
 
