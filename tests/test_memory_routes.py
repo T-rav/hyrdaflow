@@ -477,3 +477,57 @@ class TestRecallBanks:
         assert results[Bank.TRIBAL] == []
         assert len(results[Bank.TROUBLESHOOTING]) == 1
         await client.close()
+
+
+# ---------------------------------------------------------------------------
+# /api/memory/pr/{pr_number}
+# ---------------------------------------------------------------------------
+
+
+class TestMemoryForPREndpoint:
+    """Tests for GET /api/memory/pr/{pr_number}."""
+
+    @pytest.mark.asyncio
+    async def test_returns_context_for_pr(self, router_with_hindsight):
+        router, mock_hs, _ = router_with_hindsight
+        mock_hs.recall_banks.return_value = {
+            Bank.REVIEW_INSIGHTS: [
+                HindsightMemory(
+                    text="Review flagged missing tests",
+                    content="Review flagged missing tests",
+                    relevance_score=0.8,
+                ),
+            ],
+        }
+
+        handler = find_endpoint(router, "/api/memory/pr/{pr_number}", "GET")
+        resp = await handler(567)
+
+        payload = json.loads(resp.body)
+        assert payload["query"] == "PR #567"
+        assert len(payload["items"]) == 1
+        assert payload["items"][0]["content"] == "Review flagged missing tests"
+
+    @pytest.mark.asyncio
+    async def test_pr_without_hindsight(self, router_no_hindsight):
+        handler = find_endpoint(
+            router_no_hindsight,
+            "/api/memory/pr/{pr_number}",
+            "GET",
+        )
+        resp = await handler(567)
+
+        payload = json.loads(resp.body)
+        assert payload["items"] == []
+        assert payload["query"] == "PR #567"
+
+    @pytest.mark.asyncio
+    async def test_pr_recall_failure(self, router_with_hindsight):
+        router, mock_hs, _ = router_with_hindsight
+        mock_hs.recall_banks.side_effect = Exception("timeout")
+
+        handler = find_endpoint(router, "/api/memory/pr/{pr_number}", "GET")
+        resp = await handler(99)
+
+        payload = json.loads(resp.body)
+        assert payload["items"] == []
