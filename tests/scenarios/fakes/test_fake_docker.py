@@ -99,3 +99,53 @@ async def test_fail_next_is_single_shot() -> None:
     second = [e async for e in await fake.run_agent(command=["b"])]
     assert first[-1]["success"] is False
     assert second[-1]["success"] is True
+
+
+async def test_script_run_with_commits_writes_files_and_commits(tmp_path) -> None:
+    import subprocess
+
+    # Init a real git repo in tmp_path
+    subprocess.run(
+        ["git", "init", "-b", "main"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "t@t"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "t"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-m", "init"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    fake = FakeDocker()
+    fake.script_run_with_commits(
+        events=[{"type": "result", "success": True, "exit_code": 0}],
+        commits=[("file.txt", "hello")],
+        cwd=tmp_path,
+    )
+
+    events = [e async for e in await fake.run_agent(command=["agent"])]
+    assert events[-1]["type"] == "result"
+    assert (tmp_path / "file.txt").read_text() == "hello"
+
+    log = subprocess.run(
+        ["git", "log", "--oneline"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "fake-commit" in log.stdout

@@ -35,6 +35,23 @@ class FakeDocker:
         """Queue the events that the NEXT run_agent call will yield."""
         self._scripts.append(list(events))
 
+    def script_run_with_commits(
+        self,
+        *,
+        events: list[dict[str, Any]],
+        commits: list[tuple[str, str]],
+        cwd: Path,
+    ) -> None:
+        """Queue *events* but first write *commits* and run ``git commit -am``.
+
+        Each entry in *commits* is a ``(relative_path, content)`` tuple. The
+        files are written under *cwd* and committed BEFORE the scripted events
+        yield, so real ``_verify_result`` observes commits in the worktree.
+        """
+        self._scripts.append(
+            [{"__commit_hook__": {"cwd": str(cwd), "files": commits}}, *events]
+        )
+
     def fail_next(self, *, kind: FaultKind) -> None:
         """Inject a single-shot fault into the next run_agent call."""
         self._next_fault = kind
@@ -77,11 +94,39 @@ class FakeDocker:
             events = self._scripts.popleft()
         else:
             events = [{"type": "result", "success": True, "exit_code": 0}]
-        return _aiter(events)
+        return _aiter_with_hooks(events)
 
 
 async def _aiter(events: list[dict[str, Any]]) -> AsyncIterator[dict[str, Any]]:
     for event in events:
+        yield event
+
+
+async def _aiter_with_hooks(
+    events: list[dict[str, Any]],
+) -> AsyncIterator[dict[str, Any]]:
+    """Like ``_aiter`` but processes ``__commit_hook__`` side-effect entries."""
+    import subprocess
+
+    for event in events:
+        hook = event.get("__commit_hook__") if isinstance(event, dict) else None
+        if hook:
+            cwd = Path(hook["cwd"])
+            for rel, content in hook["files"]:
+                (cwd / rel).write_text(content)
+            subprocess.run(
+                ["git", "add", "-A"],
+                cwd=cwd,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "fake-commit"],
+                cwd=cwd,
+                check=True,
+                capture_output=True,
+            )
+            continue
         yield event
 
 
