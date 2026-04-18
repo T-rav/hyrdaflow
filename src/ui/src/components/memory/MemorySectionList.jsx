@@ -5,7 +5,7 @@ import { EntityChip } from './EntityChip'
 import { HarnessInsightsPanel } from '../HarnessInsightsPanel'
 
 const SECTIONS = [
-  { key: 'retrospective', label: 'Retrospectives', bankId: 'hydraflow-retrospective' },
+  { key: 'retrospective', label: 'Retrospectives', bankId: 'hydraflow-retrospectives' },
   { key: 'reviews', label: 'Review Feedback', bankId: 'hydraflow-review-insights' },
   { key: 'troubleshooting', label: 'Troubleshooting Patterns', bankId: 'hydraflow-troubleshooting' },
   { key: 'harness', label: 'Failure Patterns', bankId: 'hydraflow-harness-insights' },

@@ -84,4 +84,22 @@ describe('MemorySectionList', () => {
     expect(screen.getByText('Tribal Learnings')).toBeInTheDocument()
     expect(screen.queryByText('Retrospectives')).not.toBeInTheDocument()
   })
+
+  it.each([
+    ['hydraflow-retrospectives', 'Retrospectives'],
+    ['hydraflow-review-insights', 'Review Feedback'],
+    ['hydraflow-troubleshooting', 'Troubleshooting Patterns'],
+    ['hydraflow-harness-insights', 'Failure Patterns'],
+    ['hydraflow-tribal', 'Tribal Learnings'],
+  ])('bankFilter=%s keeps the "%s" section visible', (bankId, label) => {
+    render(
+      <MemorySectionList
+        data={SAMPLE_CONTEXT}
+        searchQuery=""
+        bankFilter={bankId}
+        onFocusEntity={() => {}}
+      />,
+    )
+    expect(screen.getByText(label)).toBeInTheDocument()
+  })
 })
