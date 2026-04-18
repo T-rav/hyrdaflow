@@ -473,6 +473,7 @@ def build_scripted_services(
     services.adr_reviewer_loop = FakeBackgroundLoop()
     services.health_monitor_loop = FakeBackgroundLoop()
     services.dependabot_merge_loop = FakeBackgroundLoop()
+    services.staging_promotion_loop = FakeBackgroundLoop()
     services.stale_issue_loop = FakeBackgroundLoop()
     services.sentry_loop = FakeBackgroundLoop()
     services.stale_issue_gc_loop = FakeBackgroundLoop()

@@ -363,3 +363,49 @@ class FakeGitHub:
 
     async def upload_screenshot(self, **_kw: Any) -> str:
         return ""
+
+    # --- Staging / RC promotion PRPort methods ---
+
+    async def create_rc_branch(self, rc_branch: str) -> str:
+        return f"sha-{rc_branch}"
+
+    async def create_promotion_pr(
+        self, *, rc_branch: str, title: str, body: str, **_kw: Any
+    ) -> int:
+        _ = (title, body)
+        num = self._pr_counter
+        self._pr_counter += 1
+        self._prs[num] = FakePR(
+            number=num,
+            issue_number=0,
+            branch=rc_branch,
+            draft=False,
+            url=f"https://github.com/test/repo/pull/{num}",
+        )
+        return num
+
+    async def find_open_promotion_pr(self) -> Any:
+        return None
+
+    async def merge_promotion_pr(self, pr_number: int) -> bool:
+        if pr_number in self._prs:
+            self._prs[pr_number].merged = True
+        return True
+
+    async def list_rc_branches(self) -> list[tuple[str, str]]:
+        return []
+
+    async def delete_branch(self, branch: str) -> bool:
+        _ = branch
+        return True
+
+    async def list_recent_promotion_prs(self, days: int = 7) -> list[dict[str, Any]]:
+        _ = days
+        return []
+
+    async def ensure_branch_exists(self, branch: str, *, base: str) -> bool:
+        _ = (branch, base)
+        return False
+
+    async def apply_staging_branch_protection(self, branch: str) -> dict[str, Any]:
+        return {"status": "protected", "branch": branch}
