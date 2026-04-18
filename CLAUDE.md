@@ -14,11 +14,17 @@ This file is a table of contents. Operational guidance lives in [`docs/agents/`]
 
 ## Knowledge Lookup
 
-Before exploring the codebase from scratch, consult existing structured knowledge.
+Before exploring the codebase from scratch, consult existing structured knowledge. Contradicting an Accepted ADR requires a new ADR superseding it — not just a code change.
 
-- **Architecture Decision Records** — [`docs/adr/`](docs/adr/README.md) is the authoritative record of key design decisions (40+ entries). Read the relevant ADR before changing a documented decision area. Examples: [`0001-five-concurrent-async-loops.md`](docs/adr/0001-five-concurrent-async-loops.md), [`0002-labels-as-state-machine.md`](docs/adr/0002-labels-as-state-machine.md), [`0003-git-worktrees-for-isolation.md`](docs/adr/0003-git-worktrees-for-isolation.md), [`0021-persistence-architecture-and-data-layout.md`](docs/adr/0021-persistence-architecture-and-data-layout.md), [`0029-caretaker-loop-pattern.md`](docs/adr/0029-caretaker-loop-pattern.md), [`0032-per-repo-wiki-knowledge-base.md`](docs/adr/0032-per-repo-wiki-knowledge-base.md). Contradicting an Accepted ADR requires a new ADR superseding it, not just a code change.
-- **Repository wiki** — [`src/repo_wiki.py`](src/repo_wiki.py) implements a per-target-repo LLM knowledge base (Karpathy pattern). Wiki entries are topic-categorized markdown capturing learnings from prior plan/implement/review cycles on managed repos. Query via `RepoWikiStore` when planning or reviewing work on a target repo.
-- **Planning docs** — [`docs/`](docs/) contains `self-improving-harness.md`, `ops-audit-plan.md`, `sentry-alerts.md`, and similar strategy documents. Consult these when your task touches the areas they describe.
+| Source | Path | What's there |
+|--------|------|--------------|
+| Architecture Decision Records | [`docs/adr/README.md`](docs/adr/README.md) | 40+ ADRs indexed by status. Load-bearing examples: [0001](docs/adr/0001-five-concurrent-async-loops.md) async loops · [0002](docs/adr/0002-labels-as-state-machine.md) label state machine · [0003](docs/adr/0003-git-worktrees-for-isolation.md) worktrees · [0021](docs/adr/0021-persistence-architecture-and-data-layout.md) persistence · [0029](docs/adr/0029-caretaker-loop-pattern.md) caretaker loops · [0032](docs/adr/0032-per-repo-wiki-knowledge-base.md) repo wiki |
+| Topic guides for agents | [`docs/agents/README.md`](docs/agents/README.md) | Operational how-tos — see Topic index below |
+| System topology diagrams | [`docs/architecture/`](docs/architecture/) | `.likec4` diagrams: data flow, orchestrator/plan-phase decomposition, supervision, Sentry flow, health monitor |
+| Scenario testing framework | [`docs/scenarios/README.md`](docs/scenarios/README.md) | Release-gating scenario tests + `MockWorld` fixture |
+| Deployment | [`docs/deployment/ec2.md`](docs/deployment/ec2.md) | EC2 deployment steps |
+| Strategy docs | [`docs/`](docs/) | `self-improving-harness.md`, `ops-audit-plan.md`, `sentry-alerts.md`, `pi-backend-integration-plan.md`, `rpi-adoption-plan.md` |
+| Per-target-repo wiki | [`src/repo_wiki.py`](src/repo_wiki.py) | LLM knowledge base (Karpathy pattern); query via `RepoWikiStore` when planning or reviewing work on a managed repo |
 
 When you find a gap in the ADRs or wiki that would have helped you, file a `hydraflow-find` issue so the next run has better context.
 
