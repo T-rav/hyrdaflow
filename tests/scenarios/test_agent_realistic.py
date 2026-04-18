@@ -554,6 +554,71 @@ async def test_A13_zero_diff_fails_without_merge(tmp_path) -> None:
     assert wr.success is False, f"expected success=False; got {wr}"
 
 
+async def test_A15_epic_decomposition_creates_children(tmp_path) -> None:
+    """High-complexity issue with scripted decomp creates 2 child issues.
+
+    Triage phase sees complexity_score >= threshold AND should_decompose=True
+    AND 2+ children, invokes `_prs.create_issue` twice with find-labeled bodies.
+
+    Because PipelineHarness constructs TriagePhase without an EpicManager
+    (epic_manager=None), _maybe_decompose exits early. This test injects a
+    minimal AsyncMock EpicManager into triage_phase._epic_manager and wires
+    prs.create_issue to FakeGitHub so child issue creation is observable.
+
+    Config default: epic_decompose_complexity_threshold=8, so complexity_score=10
+    comfortably clears the gate.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    from models import EpicDecompResult, NewIssueSpec, TriageResult
+
+    world = MockWorld(tmp_path, use_real_agent_runner=True)
+    world.add_issue(100, "big epic", "", labels=["hydraflow-find"])
+
+    # Inject a minimal EpicManager stub so _maybe_decompose does not
+    # short-circuit at "self._epic_manager is None".
+    # find_parent_epics is called synchronously in _enrich_parent_epic so
+    # use MagicMock (not AsyncMock) for it; register_epic is awaited so it
+    # must be an AsyncMock.
+    fake_epic_manager = MagicMock()
+    fake_epic_manager.find_parent_epics = MagicMock(return_value=[])
+    fake_epic_manager.register_epic = AsyncMock(return_value=None)
+    world.harness.triage_phase._epic_manager = fake_epic_manager
+
+    # Wire prs.create_issue to FakeGitHub so child issues land in world state.
+    world.harness.prs.create_issue = world.github.create_issue
+
+    # High-complexity triage result: complexity_score=10 >= threshold of 8.
+    triage_result = TriageResult(
+        issue_number=100,
+        ready=True,
+        complexity_score=10,
+    )
+    world._llm.script_triage(100, [triage_result])
+
+    decomp = EpicDecompResult(
+        should_decompose=True,
+        epic_title="Big Epic",
+        epic_body="Decomposed epic",
+        children=[
+            NewIssueSpec(title="child-a", body=""),
+            NewIssueSpec(title="child-b", body=""),
+        ],
+        reasoning="issue is too large",
+    )
+    world._llm.triage_runner.script_decomposition(100, decomp)
+
+    await world.run_pipeline()
+
+    # 2 new child issues + 1 epic issue should have been created by FakeGitHub.
+    all_issues = list(world.github._issues.values())
+    child_issues = [i for i in all_issues if i.number != 100]
+    assert len(child_issues) >= 2, f"expected >=2 children; got {len(child_issues)}"
+    child_titles = {i.title for i in child_issues}
+    assert "child-a" in child_titles
+    assert "child-b" in child_titles
+
+
 async def test_A14_three_issues_concurrent_realistic(tmp_path) -> None:
     """Three issues run through real AgentRunner concurrently; all merge.
 
