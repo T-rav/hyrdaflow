@@ -138,3 +138,14 @@ async def test_fail_service_unknown_raises(tmp_path) -> None:
     world = MockWorld(tmp_path)
     with pytest.raises(ValueError, match="unknown service"):
         world.fail_service("bogus-service")
+
+
+async def test_pipeline_harness_set_agents_rebuilds_implement_phase(tmp_path) -> None:
+    """set_agents must propagate the new runner into ImplementPhase._agents."""
+    from tests.helpers import PipelineHarness
+
+    harness = PipelineHarness(tmp_path)
+    sentinel = object()
+    harness.set_agents(sentinel)  # type: ignore[arg-type]
+    assert harness.agents is sentinel
+    assert harness.implement_phase._agents is sentinel

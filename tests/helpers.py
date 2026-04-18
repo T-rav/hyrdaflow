@@ -739,14 +739,17 @@ class PipelineHarness:
             self.bus,
             self.stop_event,
         )
+        self._implement_phase_base_kwargs: dict[str, Any] = {
+            "config": self.config,
+            "state": self.state,
+            "workspaces": self.workspaces,
+            "prs": self.prs,
+            "store": self.store,
+            "stop_event": self.stop_event,
+        }
         self.implement_phase = ImplementPhase(
-            config=self.config,
-            state=self.state,
-            workspaces=self.workspaces,
             agents=self.agents,
-            prs=self.prs,
-            store=self.store,
-            stop_event=self.stop_event,
+            **self._implement_phase_base_kwargs,
         )
         self.review_phase = ReviewPhase(
             config=self.config,
@@ -777,19 +780,15 @@ class PipelineHarness:
 
         ImplementPhase captures ``agents`` by reference in its constructor, so
         callers must not simply assign to ``self.agents`` — the rebuild is
-        required to propagate the new runner into the phase.
+        required to propagate the new runner into the phase. Base kwargs are
+        preserved from ``__init__`` so future additions don't get silently dropped.
         """
         from implement_phase import ImplementPhase  # noqa: PLC0415
 
         self.agents = agents
         self.implement_phase = ImplementPhase(
-            config=self.config,
-            state=self.state,
-            workspaces=self.workspaces,
             agents=agents,
-            prs=self.prs,
-            store=self.store,
-            stop_event=self.stop_event,
+            **self._implement_phase_base_kwargs,
         )
 
     def _ensure_test_dirs(self) -> None:
