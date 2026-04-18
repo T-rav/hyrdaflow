@@ -163,3 +163,29 @@ async def test_run_pipeline_is_single_shot(tmp_path) -> None:
 
     with pytest.raises(RuntimeError, match="single-shot"):
         await world.run_pipeline()
+
+
+async def test_mock_world_accepts_iso_clock_start(tmp_path):
+    from tests.scenarios.fakes.mock_world import MockWorld
+
+    world = MockWorld(tmp_path, clock_start="2025-06-15T12:00:00Z")
+    assert world.clock.now() == 1_749_988_800.0
+
+
+async def test_mock_world_accepts_unix_clock_start(tmp_path):
+    from tests.scenarios.fakes.mock_world import MockWorld
+
+    world = MockWorld(tmp_path, clock_start=1_718_467_200.0)
+    assert world.clock.now() == 1_718_467_200.0
+
+
+async def test_mock_world_default_clock_start_uses_wall_time(tmp_path):
+    import time
+
+    from tests.scenarios.fakes.mock_world import MockWorld
+
+    before = time.time()
+    world = MockWorld(tmp_path)
+    after = time.time()
+
+    assert before <= world.clock.now() <= after + 1

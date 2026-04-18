@@ -41,6 +41,7 @@ class MockWorld:
         config: Any = None,
         install_subprocess_clock: bool = False,
         use_real_agent_runner: bool = False,
+        clock_start: float | str | None = None,
     ) -> None:
         self._tmp_path = tmp_path
         self._use_real_agent = use_real_agent_runner
@@ -51,6 +52,8 @@ class MockWorld:
         self._sentry = FakeSentry()
         self._workspace = FakeWorkspace(tmp_path / "worktrees")
         self._clock = FakeClock(start=time.time())
+        if clock_start is not None:
+            self._clock.freeze(clock_start)
         self._docker = FakeDocker()
         self._git = FakeGit()
         self._fs = FakeFS()
