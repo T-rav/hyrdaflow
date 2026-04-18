@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Query
@@ -36,6 +37,19 @@ from route_types import ControlStatusConfig, ControlStatusResponse, RepoSlugPara
 from update_check import load_cached_update_result
 
 logger = logging.getLogger("hydraflow.dashboard")
+
+
+def _safe_error_message(exc: ValidationError) -> str:
+    """Return a validation-style message without leaking stack trace details.
+
+    Surfaces ``loc: msg`` per field — Pydantic designs those strings for
+    end-users, so they're safe to return to the client. Closes the
+    CodeQL ``py/stack-trace-exposure`` rule without losing the
+    per-field feedback that makes settings forms usable.
+    """
+    parts = [f"{e['loc'][-1]}: {e['msg']}" for e in exc.errors() if e.get("loc")]
+    return "; ".join(parts) if parts else "Invalid settings"
+
 
 # Known workers with human-friendly labels (pipeline loops + background)
 _bg_worker_defs = [
@@ -142,6 +156,10 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
         "unstick_all_causes",
         "memory_auto_approve",
         "workspace_base",
+        "staging_enabled",
+        "staging_branch",
+        "main_branch",
+        "rc_cadence_hours",
     }
 
     def _build_system_worker_inference_stats() -> dict[str, dict[str, int]]:
@@ -534,6 +552,105 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
             {"status": "ok", "name": name, "interval_seconds": interval}
         )
 
+    @router.post("/api/admin/setup-staging-branch")
+    async def setup_staging_branch(
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
+        """One-shot: create staging branch from main (if missing) + protect it."""
+        _cfg, _state, _bus, _get_orch = ctx.resolve_runtime(repo)
+        pm = ctx.pr_manager_for(_cfg, _bus)
+        try:
+            created = await pm.ensure_branch_exists(
+                _cfg.staging_branch, base=_cfg.main_branch
+            )
+            protection = await pm.apply_staging_branch_protection(_cfg.staging_branch)
+        except RuntimeError:
+            logger.exception("setup_staging_branch failed")
+            return JSONResponse(
+                {
+                    "status": "error",
+                    "message": "Failed to configure staging branch; see server logs.",
+                },
+                status_code=502,
+            )
+        return JSONResponse(
+            {
+                "status": "ok",
+                "branch": _cfg.staging_branch,
+                "created": created,
+                "protection": protection,
+            }
+        )
+
+    @router.get("/api/staging-promotion/status")
+    async def get_staging_promotion_status(  # noqa: PLR0914
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
+        """RC lifecycle: cadence progress, open PR, recent throughput/failures."""
+        _cfg, _state, _bus, _get_orch = ctx.resolve_runtime(repo)
+
+        def _read_ts(path: Path) -> str | None:
+            if not path.exists():
+                return None
+            try:
+                return path.read_text().strip() or None
+            except OSError:
+                return None
+
+        memory_dir = _cfg.data_root / "memory"
+        last_rc_cut_at = _read_ts(memory_dir / ".staging_promotion_last_rc")
+        last_sweep_at = _read_ts(memory_dir / ".staging_promotion_last_sweep")
+
+        cadence_progress_hours: float | None = None
+        if last_rc_cut_at:
+            try:
+                last = datetime.fromisoformat(last_rc_cut_at)
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=UTC)
+                cadence_progress_hours = (
+                    datetime.now(UTC) - last
+                ).total_seconds() / 3600
+            except ValueError:
+                cadence_progress_hours = None
+
+        open_pr = None
+        recent: list[dict[str, Any]] = []
+        if _cfg.staging_enabled:
+            pm = ctx.pr_manager_for(_cfg, _bus)
+            try:
+                pr = await pm.find_open_promotion_pr()
+            except Exception:  # noqa: BLE001
+                pr = None
+            if pr is not None:
+                open_pr = {
+                    "number": pr.number,
+                    "branch": pr.branch,
+                    "url": pr.url,
+                }
+            try:
+                recent = await pm.list_recent_promotion_prs(days=7)
+            except Exception:  # noqa: BLE001
+                recent = []
+
+        merged = sum(1 for p in recent if p.get("merged"))
+        closed_unmerged = len(recent) - merged
+        failure_rate = (closed_unmerged / len(recent)) if recent else None
+
+        return JSONResponse(
+            {
+                "enabled": _cfg.staging_enabled,
+                "cadence_hours": _cfg.rc_cadence_hours,
+                "cadence_progress_hours": cadence_progress_hours,
+                "last_rc_cut_at": last_rc_cut_at,
+                "last_sweep_at": last_sweep_at,
+                "open_promotion_pr": open_pr,
+                "recent_window_days": 7,
+                "recent_promoted": merged,
+                "recent_failed": closed_unmerged,
+                "recent_failure_rate": failure_rate,
+            }
+        )
+
     @router.get("/api/dependabot-merge/settings")
     async def get_dependabot_merge_settings() -> JSONResponse:
         """Return current Dependabot merge settings."""
@@ -553,8 +670,10 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
             from models import DependabotMergeSettings  # noqa: PLC0415
 
             new_settings = DependabotMergeSettings(**update)
-        except (ValueError, ValidationError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
+        except ValidationError as exc:
+            return JSONResponse({"error": _safe_error_message(exc)}, status_code=400)
+        except ValueError:
+            return JSONResponse({"error": "Invalid settings"}, status_code=400)
 
         ctx.state.set_dependabot_merge_settings(new_settings)
         return JSONResponse({"status": "ok", **new_settings.model_dump()})
@@ -579,8 +698,10 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
             from models import StaleIssueSettings  # noqa: PLC0415
 
             new_settings = StaleIssueSettings(**update)
-        except (ValueError, ValidationError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
+        except ValidationError as exc:
+            return JSONResponse({"error": _safe_error_message(exc)}, status_code=400)
+        except ValueError:
+            return JSONResponse({"error": "Invalid settings"}, status_code=400)
         ctx.state.set_stale_issue_settings(new_settings)
         return JSONResponse({"status": "ok", **new_settings.model_dump()})
 
@@ -604,8 +725,10 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
             from models import SecurityPatchSettings  # noqa: PLC0415
 
             new_settings = SecurityPatchSettings(**update)
-        except (ValueError, ValidationError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
+        except ValidationError as exc:
+            return JSONResponse({"error": _safe_error_message(exc)}, status_code=400)
+        except ValueError:
+            return JSONResponse({"error": "Invalid settings"}, status_code=400)
         ctx.state.set_security_patch_settings(new_settings)
         return JSONResponse({"status": "ok", **new_settings.model_dump()})
 
@@ -629,8 +752,10 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
             from models import CIMonitorSettings  # noqa: PLC0415
 
             new_settings = CIMonitorSettings(**update)
-        except (ValueError, ValidationError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
+        except ValidationError as exc:
+            return JSONResponse({"error": _safe_error_message(exc)}, status_code=400)
+        except ValueError:
+            return JSONResponse({"error": "Invalid settings"}, status_code=400)
         ctx.state.set_ci_monitor_settings(new_settings)
         return JSONResponse({"status": "ok", **new_settings.model_dump()})
 
@@ -659,7 +784,9 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
             from models import CodeGroomingSettings  # noqa: PLC0415
 
             new_settings = CodeGroomingSettings(**update)
-        except (ValueError, ValidationError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
+        except ValidationError as exc:
+            return JSONResponse({"error": _safe_error_message(exc)}, status_code=400)
+        except ValueError:
+            return JSONResponse({"error": "Invalid settings"}, status_code=400)
         ctx.state.set_code_grooming_settings(new_settings)
         return JSONResponse({"status": "ok", **new_settings.model_dump()})

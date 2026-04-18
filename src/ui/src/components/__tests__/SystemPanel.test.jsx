@@ -827,4 +827,127 @@ describe('BackgroundWorkerCard schedule display', () => {
   })
 })
 
+describe('StagingPromotionSettingsPanel', () => {
+  beforeEach(() => {
+    mockUseHydraFlow.mockReturnValue(defaultMockContext({
+      config: {
+        staging_enabled: false,
+        main_branch: 'main',
+        staging_branch: 'staging',
+        rc_cadence_hours: 4,
+      },
+      selectedRepoSlug: null,
+    }))
+    globalThis.fetch = vi.fn((url) => {
+      if (typeof url === 'string' && url.startsWith('/api/staging-promotion/status')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            enabled: false,
+            cadence_hours: 4,
+            cadence_progress_hours: 2.5,
+            last_rc_cut_at: '2026-04-18T10:00:00+00:00',
+            last_sweep_at: null,
+            open_promotion_pr: null,
+            recent_window_days: 7,
+            recent_promoted: 3,
+            recent_failed: 1,
+            recent_failure_rate: 0.25,
+          }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+  })
+
+  const bgWorkers = [
+    { name: 'staging_promotion', status: 'ok', enabled: true, last_run: null, details: {} },
+  ]
+
+  it('renders the four staging promotion controls', () => {
+    render(<SystemPanel backgroundWorkers={bgWorkers} />)
+    expect(screen.getByTestId('staging-promotion-settings')).toBeInTheDocument()
+    expect(screen.getByTestId('staging-enabled-toggle')).not.toBeChecked()
+    expect(screen.getByTestId('main-branch-input')).toHaveValue('main')
+    expect(screen.getByTestId('staging-branch-input')).toHaveValue('staging')
+    expect(screen.getByTestId('rc-cadence-hours-input')).toHaveValue(4)
+  })
+
+  const patchCalls = () =>
+    globalThis.fetch.mock.calls.filter(([url]) => url === '/api/control/config')
+
+  it('patches staging_enabled when toggle clicked', async () => {
+    render(<SystemPanel backgroundWorkers={bgWorkers} />)
+    fireEvent.click(screen.getByTestId('staging-enabled-toggle'))
+    await waitFor(() => {
+      const calls = patchCalls()
+      expect(calls.some(([, opts]) => opts.body.includes('"staging_enabled":true'))).toBe(true)
+    })
+  })
+
+  it('patches main_branch on blur when value changed', async () => {
+    render(<SystemPanel backgroundWorkers={bgWorkers} />)
+    const input = screen.getByTestId('main-branch-input')
+    fireEvent.change(input, { target: { value: 'release' } })
+    fireEvent.blur(input)
+    await waitFor(() => {
+      expect(patchCalls().some(([, opts]) => opts.body.includes('"main_branch":"release"'))).toBe(true)
+    })
+  })
+
+  it('does not patch when branch value unchanged on blur', async () => {
+    render(<SystemPanel backgroundWorkers={bgWorkers} />)
+    const input = screen.getByTestId('staging-branch-input')
+    fireEvent.blur(input)
+    expect(patchCalls()).toHaveLength(0)
+  })
+
+  it('renders cadence progress and 7d throughput from /api/staging-promotion/status', async () => {
+    render(<SystemPanel backgroundWorkers={bgWorkers} />)
+    await waitFor(() => {
+      expect(screen.getByTestId('staging-promotion-status')).toBeInTheDocument()
+    })
+    const statusBlock = screen.getByTestId('staging-promotion-status')
+    expect(statusBlock.textContent).toMatch(/2\.5h \/ 4h/)
+    expect(statusBlock.textContent).toMatch(/3 promoted/)
+    expect(statusBlock.textContent).toMatch(/1 failed/)
+    expect(statusBlock.textContent).toMatch(/25% fail rate/)
+  })
+
+  it('initialize staging branch button POSTs to the admin endpoint', async () => {
+    globalThis.fetch = vi.fn((url, opts) => {
+      if (typeof url === 'string' && url === '/api/admin/setup-staging-branch') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            status: 'ok',
+            branch: 'staging',
+            created: true,
+            protection: { status: 'protected' },
+          }),
+        })
+      }
+      if (typeof url === 'string' && url.startsWith('/api/staging-promotion/status')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            enabled: false, cadence_hours: 4, cadence_progress_hours: null,
+            last_rc_cut_at: null, last_sweep_at: null, open_promotion_pr: null,
+            recent_window_days: 7, recent_promoted: 0, recent_failed: 0, recent_failure_rate: null,
+          }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+    render(<SystemPanel backgroundWorkers={bgWorkers} />)
+    fireEvent.click(screen.getByTestId('staging-branch-setup-btn'))
+    await waitFor(() => {
+      expect(screen.getByTestId('staging-branch-setup-message').textContent)
+        .toMatch(/Created staging/)
+    })
+    const call = globalThis.fetch.mock.calls.find(([u]) => u === '/api/admin/setup-staging-branch')
+    expect(call[1].method).toBe('POST')
+  })
+})
+
 

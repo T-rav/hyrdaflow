@@ -1,0 +1,94 @@
+name: RC Promotion Scenario
+
+# ADR-0042: scenario suite runs on every rc/* → main promotion PR, both
+# on push (PR open / PR update) and on a fixed cron cycle so a stalled
+# promotion PR keeps its CI signal fresh. StagingPromotionLoop only
+# auto-merges when ``wait_for_ci`` reports green — this is the check it
+# waits on.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: write
+
+concurrency:
+  group: rc-scenario-${{ github.event.pull_request.number || 'scheduled' }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Resolve RC PR
+    runs-on: ubuntu-latest
+    outputs:
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+      pr_ref: ${{ steps.resolve.outputs.pr_ref }}
+      should_run: ${{ steps.resolve.outputs.should_run }}
+    steps:
+      - name: Resolve target PR
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER_EVENT: ${{ github.event.pull_request.number }}
+          PR_HEAD_REF_EVENT: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            case "$PR_HEAD_REF_EVENT" in
+              rc/*)
+                echo "pr_number=$PR_NUMBER_EVENT" >> "$GITHUB_OUTPUT"
+                echo "pr_ref=refs/pull/$PR_NUMBER_EVENT/merge" >> "$GITHUB_OUTPUT"
+                echo "should_run=true" >> "$GITHUB_OUTPUT"
+                ;;
+              *)
+                echo "Non-RC PR (head=$PR_HEAD_REF_EVENT); skipping."
+                echo "should_run=false" >> "$GITHUB_OUTPUT"
+                ;;
+            esac
+            exit 0
+          fi
+
+          # schedule / workflow_dispatch — look up the open rc/* PR
+          json=$(gh api \
+            "repos/${{ github.repository }}/pulls?state=open&base=main&per_page=100" \
+            --jq '[.[] | select(.head.ref | startswith("rc/"))] | .[0] // empty')
+          if [ -z "$json" ]; then
+            echo "No open rc/* promotion PR — skipping scheduled scenario run."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          num=$(echo "$json" | jq -r '.number')
+          echo "pr_number=$num" >> "$GITHUB_OUTPUT"
+          echo "pr_ref=refs/pull/$num/merge" >> "$GITHUB_OUTPUT"
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+
+  scenario:
+    name: Scenario Tests
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.pr_ref }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: uv sync --all-extras
+      - name: Scenario suite
+        run: make scenario
+      - name: Scenario loops suite
+        run: make scenario-loops

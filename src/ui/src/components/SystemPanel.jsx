@@ -458,6 +458,240 @@ function DependabotMergeSettingsPanel() {
 }
 
 
+function StagingPromotionStatusRow() {
+  const [status, setStatus] = useState(null)
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const resp = await fetch('/api/staging-promotion/status')
+      if (resp.ok) setStatus(await resp.json())
+    } catch { /* ignore */ }
+  }, [])
+
+  React.useEffect(() => {
+    fetchStatus()
+    const id = setInterval(fetchStatus, 30000)
+    return () => clearInterval(id)
+  }, [fetchStatus])
+
+  if (!status) return null
+
+  const progress = status.cadence_progress_hours
+  const cadence = status.cadence_hours || 4
+  const pctRaw = progress === null || progress === undefined ? 0 : (progress / cadence) * 100
+  const pct = Math.max(0, Math.min(100, pctRaw))
+  const progressLabel = progress === null || progress === undefined
+    ? 'no cut yet'
+    : `${progress.toFixed(1)}h / ${cadence}h`
+
+  const failureRate = status.recent_failure_rate
+  const failureRatePct = failureRate === null || failureRate === undefined
+    ? null
+    : Math.round(failureRate * 100)
+
+  return (
+    <div style={styles.rcStatusBlock} data-testid="staging-promotion-status">
+      <div style={styles.rcStatusRow}>
+        <span style={styles.depMergeSectionLabel}>Cadence</span>
+        <span style={styles.rcStatusValue}>{progressLabel}</span>
+      </div>
+      <div style={styles.rcProgressTrack}>
+        <div style={{ ...styles.rcProgressBar, width: `${pct}%` }} />
+      </div>
+      {status.open_promotion_pr && (
+        <div style={styles.rcStatusRow}>
+          <span style={styles.depMergeSectionLabel}>Open PR</span>
+          <a
+            href={status.open_promotion_pr.url}
+            target="_blank"
+            rel="noreferrer"
+            style={styles.rcStatusLink}
+            data-testid="staging-promotion-open-pr"
+          >
+            #{status.open_promotion_pr.number} ({status.open_promotion_pr.branch})
+          </a>
+        </div>
+      )}
+      <div style={styles.rcStatusRow}>
+        <span style={styles.depMergeSectionLabel}>7d throughput</span>
+        <span style={styles.rcStatusValue}>
+          {status.recent_promoted} promoted · {status.recent_failed} failed
+          {failureRatePct !== null ? ` (${failureRatePct}% fail rate)` : ''}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function StagingPromotionSettingsPanel() {
+  const { config, selectedRepoSlug } = useHydraFlow()
+  const [local, setLocal] = useState(null)
+  const [savingField, setSavingField] = useState(null)
+  const [error, setError] = useState(null)
+
+  const current = local || {
+    staging_enabled: config?.staging_enabled ?? false,
+    main_branch: config?.main_branch ?? 'main',
+    staging_branch: config?.staging_branch ?? 'staging',
+    rc_cadence_hours: config?.rc_cadence_hours ?? 4,
+  }
+
+  const patchField = useCallback(async (field, value) => {
+    const prev = current[field]
+    setLocal({ ...current, [field]: value })
+    setSavingField(field)
+    setError(null)
+    try {
+      const url = selectedRepoSlug
+        ? `/api/control/config?repo=${encodeURIComponent(selectedRepoSlug)}`
+        : '/api/control/config'
+      const resp = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [field]: value, persist: true }),
+      })
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}))
+        setError(data.message || `Save failed (${resp.status})`)
+        setLocal({ ...current, [field]: prev })
+      }
+    } catch (e) {
+      setError(String(e))
+      setLocal({ ...current, [field]: prev })
+    } finally {
+      setSavingField(null)
+    }
+  }, [current, selectedRepoSlug])
+
+  return (
+    <div style={styles.depMergePanel} data-testid="staging-promotion-settings">
+      <StagingPromotionStatusRow />
+      <div style={styles.depMergeSection}>
+        <label style={styles.depMergeCheckbox}>
+          <input
+            type="checkbox"
+            checked={!!current.staging_enabled}
+            disabled={savingField === 'staging_enabled'}
+            onChange={e => patchField('staging_enabled', e.target.checked)}
+            data-testid="staging-enabled-toggle"
+          />
+          <span style={styles.depMergeCheckboxLabel}>
+            Enable staging → main promotion
+          </span>
+        </label>
+      </div>
+      <div style={styles.depMergeSection}>
+        <div style={styles.depMergeSectionLabel}>Main branch</div>
+        <input
+          type="text"
+          value={current.main_branch}
+          disabled={savingField === 'main_branch'}
+          onChange={e => setLocal({ ...current, main_branch: e.target.value })}
+          onBlur={e => {
+            const val = e.target.value.trim()
+            if (val && val !== config?.main_branch) patchField('main_branch', val)
+          }}
+          style={styles.depMergeInput}
+          data-testid="main-branch-input"
+        />
+      </div>
+      <div style={styles.depMergeSection}>
+        <div style={styles.depMergeSectionLabel}>Staging branch</div>
+        <input
+          type="text"
+          value={current.staging_branch}
+          disabled={savingField === 'staging_branch'}
+          onChange={e => setLocal({ ...current, staging_branch: e.target.value })}
+          onBlur={e => {
+            const val = e.target.value.trim()
+            if (val && val !== config?.staging_branch) patchField('staging_branch', val)
+          }}
+          style={styles.depMergeInput}
+          data-testid="staging-branch-input"
+        />
+      </div>
+      <div style={styles.depMergeSection}>
+        <div style={styles.depMergeSectionLabel}>RC cadence (hours)</div>
+        <input
+          type="number"
+          min="1"
+          max="168"
+          value={current.rc_cadence_hours}
+          disabled={savingField === 'rc_cadence_hours'}
+          onChange={e => setLocal({ ...current, rc_cadence_hours: Number(e.target.value) })}
+          onBlur={e => {
+            const val = Number(e.target.value)
+            if (val >= 1 && val !== config?.rc_cadence_hours) patchField('rc_cadence_hours', val)
+          }}
+          style={styles.depMergeInput}
+          data-testid="rc-cadence-hours-input"
+        />
+      </div>
+      {error && (
+        <div style={{ fontSize: 11, color: theme.red }} data-testid="staging-promotion-error">
+          {error}
+        </div>
+      )}
+      <StagingBranchSetupButton />
+    </div>
+  )
+}
+
+function StagingBranchSetupButton() {
+  const [state, setState] = useState('idle')
+  const [message, setMessage] = useState(null)
+
+  const run = useCallback(async () => {
+    setState('running')
+    setMessage(null)
+    try {
+      const resp = await fetch('/api/admin/setup-staging-branch', { method: 'POST' })
+      const data = await resp.json().catch(() => ({}))
+      if (resp.ok && data.status === 'ok') {
+        setState('done')
+        setMessage(
+          data.created
+            ? `Created ${data.branch} and applied protection.`
+            : `${data.branch} already existed; protection applied.`,
+        )
+      } else {
+        setState('error')
+        setMessage(data.message || `Setup failed (${resp.status})`)
+      }
+    } catch (e) {
+      setState('error')
+      setMessage(String(e))
+    }
+  }, [])
+
+  return (
+    <div style={styles.depMergeSection}>
+      <button
+        type="button"
+        onClick={run}
+        disabled={state === 'running'}
+        style={styles.depMergeAddBtn}
+        data-testid="staging-branch-setup-btn"
+      >
+        {state === 'running' ? 'Setting up…' : 'Initialize staging branch'}
+      </button>
+      {message && (
+        <div
+          style={{
+            fontSize: 11,
+            color: state === 'error' ? theme.red : theme.textMuted,
+            marginTop: 4,
+          }}
+          data-testid="staging-branch-setup-message"
+        >
+          {message}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 function WorkerGroupSection({ group, backgroundWorkers, pipelinePollerLastRun, pipelineIssues, orchestratorStatus, onToggleBgWorker, onTriggerBgWorker, onUpdateInterval, events }) {
   const [collapsed, setCollapsed] = useState(false)
   const workerCount = group.workers.length
@@ -499,6 +733,7 @@ function WorkerGroupSection({ group, backgroundWorkers, pipelinePollerLastRun, p
                 extraContent={
                   def.key === 'dependabot_merge' ? <DependabotMergeSettingsPanel /> :
                   def.key === 'pr_unsticker' ? <UnstickWorkersDropdown /> :
+                  def.key === 'staging_promotion' ? <StagingPromotionSettingsPanel /> :
                   undefined
                 }
               />
@@ -879,6 +1114,39 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
+  },
+  rcStatusBlock: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    paddingBottom: 8,
+    borderBottom: `1px solid ${theme.border}`,
+  },
+  rcStatusRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    fontSize: 12,
+  },
+  rcStatusValue: {
+    color: theme.text,
+    fontVariantNumeric: 'tabular-nums',
+  },
+  rcStatusLink: {
+    color: theme.accent,
+    textDecoration: 'none',
+  },
+  rcProgressTrack: {
+    width: '100%',
+    height: 4,
+    background: theme.border,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  rcProgressBar: {
+    height: '100%',
+    background: theme.accent,
+    transition: 'width 0.3s ease',
   },
   depMergeSection: {
     display: 'flex',
