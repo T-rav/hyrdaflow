@@ -34,6 +34,10 @@ logger = logging.getLogger(__name__)
 
 BOT_EMAIL = "hydraflow@noreply"
 BOT_NAME = "HydraFlow"
+# ^^ Defaults used when the caller does not supply
+# `commit_author_name` / `commit_author_email`.  HydraFlow callers should
+# pass `self._config.git_user_name` / `self._config.git_user_email` so a
+# user-configured identity is respected.
 
 # Characters that are not safe for a filesystem path component. Branch names
 # may contain "/" and other characters; sanitize for the worktree dir name.
@@ -117,7 +121,9 @@ def _remove_worktree(
             check=False,
         )
     except Exception:  # pragma: no cover - defensive
-        logger.debug("git worktree remove failed for %s", worktree_path)
+        # Per docs/agents/sentry.md: handled cleanup failures log at
+        # `warning` minimum — never bare `except: pass` or debug-silent.
+        logger.warning("git worktree remove failed for %s", worktree_path)
 
     if worktree_path.exists():
         shutil.rmtree(worktree_path, ignore_errors=True)
@@ -143,6 +149,8 @@ def open_automated_pr(
     base: str = "main",
     auto_merge: bool = True,
     worktree_parent: Path | None = None,
+    commit_author_name: str = BOT_NAME,
+    commit_author_email: str = BOT_EMAIL,
 ) -> AutoPrResult:
     """Open a PR for `files` on a fresh worktree branched from `origin/{base}`.
 
@@ -237,15 +245,16 @@ def open_automated_pr(
             )
             return AutoPrResult(status="no-diff", pr_url=None, branch=branch)
 
-        # Commit with a stable bot identity — do not rely on the user's git
-        # config, which may not be set in automation contexts.
+        # Commit with the caller-supplied identity (defaults to the HydraFlow
+        # bot). Explicit `-c user.email/user.name` ensures the commit succeeds
+        # even when the worktree's git config is empty (e.g. fresh containers).
         try:
             _run_git(
                 [
                     "-c",
-                    f"user.email={BOT_EMAIL}",
+                    f"user.email={commit_author_email}",
                     "-c",
-                    f"user.name={BOT_NAME}",
+                    f"user.name={commit_author_name}",
                     "commit",
                     "-m",
                     title,
@@ -348,6 +357,8 @@ async def open_automated_pr_async(  # noqa: PLR0911 — linear step-by-step guar
     gh_token: str = "",
     raise_on_failure: bool = True,
     worktree_parent: Path | None = None,
+    commit_author_name: str = BOT_NAME,
+    commit_author_email: str = BOT_EMAIL,
 ) -> AutoPrResult:
     """Async variant that routes subprocess calls through `run_subprocess`.
 
@@ -400,15 +411,21 @@ async def open_automated_pr_async(  # noqa: PLR0911 — linear step-by-step guar
     def _fail(err: str) -> AutoPrResult:
         if raise_on_failure:
             raise AutoPrError(err)
-        # Plain .error — not .exception — because we may be called outside an
-        # except handler; .exception would attach a misleading `NoneType: None`
-        # traceback in Sentry (see docs/agents/sentry.md).
-        logger.error("open_automated_pr_async failed for %s: %s", branch, err)
+        # These are transient subprocess failures (git/gh network, auth, race
+        # conditions) — operational, not code bugs. Per docs/agents/sentry.md,
+        # handled transient failures log at `warning`, not `error`.
+        # Plain .warning (not .exception) because we may be called outside an
+        # except handler; .exception would attach a misleading
+        # `NoneType: None` traceback in Sentry.
+        logger.warning("open_automated_pr_async failed for %s: %s", branch, err)
         return AutoPrResult(status="failed", pr_url=None, branch=branch, error=err)
 
-    # Fetch base so origin/{base} is current. Failures before the worktree
-    # is created don't need cleanup; handle them separately from the main
-    # try/finally below.
+    # Best-effort fetch of the base ref. If the fetch fails (offline,
+    # transient auth hiccup), fall through: the subsequent `git worktree add`
+    # will use whatever cached `origin/{base}` the local repo already has,
+    # which is usually recent enough. Only a missing local `origin/{base}`
+    # ref will fail, at which point `git worktree add` surfaces a clear
+    # error and we route through `_fail` like any other failure.
     try:
         await run_subprocess(
             "git",
@@ -420,7 +437,12 @@ async def open_automated_pr_async(  # noqa: PLR0911 — linear step-by-step guar
             gh_token=gh_token,
         )
     except RuntimeError as exc:
-        return _fail(f"git fetch failed: {exc}")
+        logger.warning(
+            "git fetch origin %s failed for %s; continuing with cached ref: %s",
+            base,
+            branch,
+            exc,
+        )
 
     # From here on every exit path must go through `finally` so the worktree
     # + branch are torn down regardless of outcome.
@@ -477,14 +499,16 @@ async def open_automated_pr_async(  # noqa: PLR0911 — linear step-by-step guar
             # Non-zero exit means there IS a diff. Proceed.
             pass
 
-        # Commit with stable bot identity.
+        # Commit with the caller-supplied identity (defaults to the HydraFlow
+        # bot). Explicit `-c user.email/user.name` ensures the commit succeeds
+        # even when the worktree's git config is empty (e.g. fresh containers).
         try:
             await run_subprocess(
                 "git",
                 "-c",
-                f"user.email={BOT_EMAIL}",
+                f"user.email={commit_author_email}",
                 "-c",
-                f"user.name={BOT_NAME}",
+                f"user.name={commit_author_name}",
                 "commit",
                 "-m",
                 msg,
@@ -576,7 +600,9 @@ async def _remove_worktree_async(
             gh_token=gh_token,
         )
     except RuntimeError:
-        logger.debug("git worktree remove failed for %s", worktree_path)
+        # Per docs/agents/sentry.md: handled cleanup failures log at
+        # `warning` minimum.
+        logger.warning("git worktree remove failed for %s", worktree_path)
 
     if worktree_path.exists():
         shutil.rmtree(worktree_path, ignore_errors=True)
@@ -591,4 +617,4 @@ async def _remove_worktree_async(
             gh_token=gh_token,
         )
     except RuntimeError:
-        logger.debug("git branch -D failed for %s", branch)
+        logger.warning("git branch -D failed for %s", branch)

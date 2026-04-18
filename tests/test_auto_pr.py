@@ -428,3 +428,132 @@ async def test_async_gh_token_is_forwarded(
     relevant = [t for t in tokens_seen if t]
     assert relevant, "no subprocess calls observed"
     assert all(t == "ghs_TESTTOKEN" for t in relevant)
+
+
+@pytest.mark.asyncio
+async def test_async_commit_author_is_forwarded(
+    local_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """commit_author_name / commit_author_email appear in the git commit -c args."""
+    from auto_pr import open_automated_pr_async
+
+    commit_cmds: list[tuple[str, ...]] = []
+
+    def on_cmd(cmd: tuple[str, ...]) -> None:
+        if "commit" in cmd and "-m" in cmd:
+            commit_cmds.append(cmd)
+
+    def gh_handler(cmd: tuple[str, ...]) -> str:
+        if cmd[2] == "create":
+            return "https://github.com/x/y/pull/11\n"
+        return ""
+
+    monkeypatch.setattr(
+        "subprocess_util.run_subprocess",
+        _real_run_subprocess_stub(gh_handler=gh_handler, on_cmd=on_cmd),
+    )
+
+    target = local_repo / "author.txt"
+    target.write_text("hi\n")
+
+    await open_automated_pr_async(
+        repo_root=local_repo,
+        branch="feature/author",
+        files=[target],
+        pr_title="t",
+        pr_body="b",
+        commit_author_name="Jane Dev",
+        commit_author_email="jane@example.com",
+    )
+
+    assert len(commit_cmds) == 1
+    cmd = commit_cmds[0]
+    assert "user.email=jane@example.com" in cmd
+    assert "user.name=Jane Dev" in cmd
+
+
+@pytest.mark.asyncio
+async def test_async_fetch_failure_is_non_fatal(
+    local_repo: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """git fetch failures log a warning but don't abort the flow.
+
+    The subsequent worktree add proceeds against the cached `origin/{base}`.
+    """
+    from auto_pr import open_automated_pr_async
+
+    def fail_on(cmd: tuple[str, ...]) -> str | None:
+        if cmd[:3] == ("git", "fetch", "origin"):
+            return "network unreachable"
+        return None
+
+    def gh_handler(cmd: tuple[str, ...]) -> str:
+        if cmd[2] == "create":
+            return "https://github.com/x/y/pull/12\n"
+        return ""
+
+    monkeypatch.setattr(
+        "subprocess_util.run_subprocess",
+        _real_run_subprocess_stub(gh_handler=gh_handler, fail_on=fail_on),
+    )
+
+    target = local_repo / "offline.txt"
+    target.write_text("offline\n")
+
+    with caplog.at_level("WARNING", logger="auto_pr"):
+        result = await open_automated_pr_async(
+            repo_root=local_repo,
+            branch="feature/offline",
+            files=[target],
+            pr_title="t",
+            pr_body="b",
+        )
+
+    assert result.status == "opened"
+    assert any(
+        "git fetch origin main failed" in rec.message and rec.levelname == "WARNING"
+        for rec in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_fail_logs_at_warning_not_error(
+    local_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Transient subprocess failures with raise_on_failure=False log at WARNING,
+    not ERROR, to avoid flooding Sentry (docs/agents/sentry.md).
+    """
+    from auto_pr import open_automated_pr_async
+
+    def fail_on(cmd: tuple[str, ...]) -> str | None:
+        if cmd[:2] == ("git", "push"):
+            return "push rejected"
+        return None
+
+    monkeypatch.setattr(
+        "subprocess_util.run_subprocess",
+        _real_run_subprocess_stub(fail_on=fail_on),
+    )
+
+    target = local_repo / "x.txt"
+    target.write_text("x\n")
+
+    with caplog.at_level("WARNING", logger="auto_pr"):
+        result = await open_automated_pr_async(
+            repo_root=local_repo,
+            branch="feature/warn",
+            files=[target],
+            pr_title="t",
+            pr_body="b",
+            raise_on_failure=False,
+        )
+
+    assert result.status == "failed"
+    # The failure message must log at WARNING, never ERROR.
+    failure_logs = [
+        rec for rec in caplog.records if "open_automated_pr_async failed" in rec.message
+    ]
+    assert failure_logs, "expected a failure log line"
+    assert all(rec.levelname == "WARNING" for rec in failure_logs)
