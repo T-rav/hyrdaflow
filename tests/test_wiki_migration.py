@@ -197,7 +197,10 @@ class TestMigrateRepo:
         # source_issue=None should render as "unknown" in the filename.
         assert "issue-unknown" in entry_file.name
 
-    def test_splits_log_jsonl_by_issue(self, tmp_path: Path) -> None:
+    def test_splits_log_jsonl_by_issue_when_records_carry_issue_number(
+        self, tmp_path: Path
+    ) -> None:
+        """Forward-looking path: post-Phase-3 records will carry issue_number."""
         from migrate_wiki_to_git import migrate_repo
 
         src = tmp_path / "src" / "owner" / "repo"
@@ -218,7 +221,6 @@ class TestMigrateRepo:
             )
             + "\n"
         )
-        # No topic files — we only care about log migration here.
 
         dst = tmp_path / "dst" / "owner" / "repo"
         migrate_repo(src, dst)
@@ -229,3 +231,33 @@ class TestMigrateRepo:
         assert len(log_99) == 1
         assert json.loads(log_42[0])["phase"] == "plan"
         assert json.loads(log_99[0])["phase"] == "review"
+
+    def test_legacy_log_records_without_issue_number_go_to_legacy_jsonl(
+        self, tmp_path: Path
+    ) -> None:
+        """Real-world path: pre-Phase-3 _append_log never wrote issue_number,
+        so migrated records all fall through to ``legacy.jsonl``.
+        """
+        from migrate_wiki_to_git import migrate_repo
+
+        src = tmp_path / "src" / "owner" / "repo"
+        src.mkdir(parents=True)
+        (src / "log.jsonl").write_text(
+            "\n".join(
+                [
+                    # Matches the actual legacy shape produced by
+                    # src/repo_wiki.py:_append_log (op + details only).
+                    json.dumps({"op": "ingest", "details": {"entries_added": 3}}),
+                    json.dumps({"op": "lint", "details": {"stale_entries": 2}}),
+                ]
+            )
+            + "\n"
+        )
+
+        dst = tmp_path / "dst" / "owner" / "repo"
+        migrate_repo(src, dst)
+
+        legacy = (dst / "log" / "legacy.jsonl").read_text().strip().splitlines()
+        assert len(legacy) == 2
+        # No per-issue files should have been created.
+        assert not list((dst / "log").glob("[0-9]*.jsonl"))

@@ -15,8 +15,13 @@ Usage:
         --dst repo_wiki \\
         --dedup-dst .hydraflow/repo_wiki_dedup
 
-Once the migration PR has merged, invoke again with ``--cleanup-local`` to
-remove the legacy ``.hydraflow/repo_wiki/`` directory from this host.
+``--cleanup-local`` is intentionally guarded behind a paired
+``--i-acknowledge-cleanup-erases-live-dedup`` flag: as long as
+``RepoWikiStore`` reads ``ingest_dedup.json`` from the legacy location
+(Phase 2), deleting it would cause every already-processed (issue,
+source_type) pair to be re-ingested on the next phase run.  Phase 3
+refactors the store to read from ``--dedup-dst``; after Phase 3 lands,
+cleanup is safe.
 """
 
 from __future__ import annotations
@@ -138,11 +143,15 @@ def write_entry_file(
 
 
 def migrate_log(src_log: Path, dst_log_dir: Path) -> list[Path]:
-    """Split the legacy combined log.jsonl into per-issue files.
+    """Split the legacy combined ``log.jsonl`` into per-issue files.
 
     The per-entry layout partitions logs by issue number so concurrent
-    issue PRs never append to the same file.  Entries whose ``issue_number``
-    field is missing land in ``unknown.jsonl``.
+    issue PRs never append to the same file.  Records whose JSON
+    payload does not carry a dict ``issue_number`` land in
+    ``legacy.jsonl`` — in practice this is every record produced by
+    the pre-migration ``RepoWikiStore._append_log`` (it never wrote
+    ``issue_number``).  Phase 3 adds the field to new log records so
+    post-Phase-3 writes hit per-issue files directly.
     """
     if not src_log.exists():
         return []
@@ -156,7 +165,8 @@ def migrate_log(src_log: Path, dst_log_dir: Path) -> list[Path]:
             rec = json.loads(stripped)
         except json.JSONDecodeError:
             continue
-        key = str(rec.get("issue_number", "unknown"))
+        issue = rec.get("issue_number") if isinstance(rec, dict) else None
+        key = str(issue) if isinstance(issue, int) else "legacy"
         by_issue.setdefault(key, []).append(stripped)
     written: list[Path] = []
     for issue, lines in by_issue.items():
@@ -239,10 +249,31 @@ def main() -> int:
     parser.add_argument(
         "--cleanup-local",
         action="store_true",
-        help="After migrating, delete --src on this host. Only run after "
-        "the migration PR has merged.",
+        help="After migrating, delete --src on this host. UNSAFE in Phase "
+        "2: `RepoWikiStore._get_dedup()` still reads ingest_dedup.json "
+        "from --src, so cleanup would erase live dedup state and re-"
+        "ingest every already-processed (issue, source_type) pair on the "
+        "next phase run. Do NOT pass this flag until Phase 3 refactors "
+        "the store to read from --dedup-dst.",
+    )
+    parser.add_argument(
+        "--i-acknowledge-cleanup-erases-live-dedup",
+        action="store_true",
+        help="Required together with --cleanup-local. Explicit opt-in to "
+        "erasing live dedup state. See --cleanup-local help.",
     )
     args = parser.parse_args()
+
+    if args.cleanup_local and not args.i_acknowledge_cleanup_erases_live_dedup:
+        print(
+            "Refusing to --cleanup-local without "
+            "--i-acknowledge-cleanup-erases-live-dedup. In Phase 2 the "
+            "running RepoWikiStore still reads ingest_dedup.json from "
+            f"{args.src}; removing it causes re-ingest of every past "
+            "(issue, source_type). Re-read the --cleanup-local help text.",
+            file=sys.stderr,
+        )
+        return 2
 
     if not args.src.is_dir():
         print(f"Source {args.src} does not exist; nothing to migrate.", file=sys.stderr)

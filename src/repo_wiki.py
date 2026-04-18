@@ -382,6 +382,17 @@ class RepoWikiStore:
         new ``index.md`` (per-entry layout, see docs/git-backed-wiki-design.md
         Phase 2). During the migration window both coexist; after migration
         only ``index.md`` remains.
+
+        **WARNING (Phase 2 transition):** Other methods on ``RepoWikiStore``
+        (``ingest``, ``query``, ``lint``, ``active_lint``, ``_ensure_repo_dir``,
+        ``_rebuild_index``, ``_load_topic_entries``) still hardcode the
+        legacy topic-level layout (``{topic}.md`` files + ``index.json``).
+        Pointing a live ``RepoWikiStore`` at a new-layout directory will
+        corrupt it: ``_ensure_repo_dir`` seeds topic ``.md`` files on top of
+        the new per-entry subdirectories.  Phase 3 refactors those methods.
+        Until then, the production runtime keeps pointing at the legacy
+        ``.hydraflow/repo_wiki/`` path; the tracked ``repo_wiki/`` is
+        populated by the migration script but not yet read at runtime.
         """
         if not self._wiki_root.exists():
             return []
