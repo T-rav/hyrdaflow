@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from analysis import PlanAnalyzer
@@ -22,6 +23,7 @@ from phase_utils import (
     store_lifecycle,
 )
 from planner import PlannerRunner
+from repo_wiki import RepoWikiStore, WikiEntry, classify_topic
 from research_runner import ResearchRunner
 from state import StateTracker
 from task_source import TaskTransitioner
@@ -35,7 +37,6 @@ if TYPE_CHECKING:
     from memory_judge import MemoryJudge  # noqa: TCH004
     from plan_reviewer import PlanReviewer
     from ports import IssueStorePort, PRPort
-    from repo_wiki import RepoWikiStore  # noqa: TCH004
     from wiki_compiler import WikiCompiler  # noqa: TCH004
 
 logger = logging.getLogger("hydraflow.plan_phase")
@@ -363,12 +364,23 @@ class PlanPhase:
         Uses the LLM compiler for synthesis when available, falling back
         to mechanical section extraction.  Skips if already ingested.
         Never raises.
+
+        When ``config.repo_wiki_git_backed`` is True and the issue
+        worktree exists, per-entry markdown files are written under the
+        worktree's ``repo_wiki/`` directory and committed by
+        ``commit_pending_entries`` so the wiki updates ride the issue's
+        PR.  Dedup state (``is_ingested`` / ``mark_ingested``) still
+        lives on the main host's legacy wiki path regardless — the
+        tracked writes are an additional artifact, not a replacement
+        for dedup bookkeeping.
         """
         if self._wiki_store is None or not self._config.repo:
             return
         repo = self._config.repo
         if self._wiki_store.is_ingested(repo, issue_number, "plan"):
             return
+
+        tracked_store, worktree_path = self._wiki_tracked_store(issue_number)
         try:
             # Prefer LLM synthesis when compiler is available
             if self._wiki_compiler is not None:
@@ -379,19 +391,106 @@ class PlanPhase:
                     plan_text[: self._WIKI_INGEST_MAX_CHARS],
                 )
                 if entries:
-                    self._wiki_store.ingest(repo, entries)
+                    if tracked_store is not None and worktree_path is not None:
+                        self._wiki_commit_compiler_entries(
+                            tracked_store=tracked_store,
+                            worktree_path=worktree_path,
+                            repo=repo,
+                            issue_number=issue_number,
+                            phase="plan",
+                            entries=entries,
+                        )
+                    else:
+                        self._wiki_store.ingest(repo, entries)
                     self._wiki_store.mark_ingested(repo, issue_number, "plan")
                     return
 
             # Fallback: mechanical section extraction
             from repo_wiki_ingest import ingest_from_plan  # noqa: PLC0415
 
-            ingest_from_plan(self._wiki_store, repo, issue_number, plan_text)
+            if tracked_store is not None and worktree_path is not None:
+                count = ingest_from_plan(
+                    tracked_store,
+                    repo,
+                    issue_number,
+                    plan_text,
+                    git_backed=True,
+                )
+                if count:
+                    tracked_store.commit_pending_entries(
+                        worktree_path=worktree_path,
+                        phase="plan",
+                        issue_number=issue_number,
+                        path_prefix=self._config.repo_wiki_path,
+                    )
+            else:
+                ingest_from_plan(self._wiki_store, repo, issue_number, plan_text)
             self._wiki_store.mark_ingested(repo, issue_number, "plan")
         except Exception:  # noqa: BLE001
             logger.warning(
                 "Wiki ingest failed for plan #%d", issue_number, exc_info=True
             )
+
+    def _wiki_tracked_store(
+        self, issue_number: int
+    ) -> tuple[RepoWikiStore | None, Path | None]:
+        """Build a RepoWikiStore pointed at the issue worktree's tracked
+        ``repo_wiki/`` directory, or ``(None, None)`` when git-backed writes
+        are disabled / the worktree is missing.
+        """
+        if not self._config.repo_wiki_git_backed:
+            return None, None
+        worktree_path = self._config.workspace_path_for_issue(issue_number)
+        if not worktree_path.is_dir():
+            logger.debug(
+                "Wiki git-backed write skipped for #%d: worktree %s missing",
+                issue_number,
+                worktree_path,
+            )
+            return None, None
+        tracked_root = worktree_path / self._config.repo_wiki_path
+        return RepoWikiStore(tracked_root), worktree_path
+
+    def _wiki_commit_compiler_entries(
+        self,
+        *,
+        tracked_store: RepoWikiStore,
+        worktree_path: Path,
+        repo: str,
+        issue_number: int,
+        phase: str,
+        entries: list[WikiEntry],
+    ) -> None:
+        """Route compiler-synthesized entries through ``write_entry`` then
+        commit. Topic classification mirrors ``RepoWikiStore.ingest``.
+        Rolls back any files written before a mid-batch failure.
+        """
+        # Classification uses the module-level helper — same keyword
+        # scheme the legacy layout used, so synthesized entries land in
+        # the expected topic directory.
+        written: list[Path] = []
+        try:
+            for entry in entries:
+                topic = classify_topic(entry)
+                written.append(tracked_store.write_entry(repo, entry, topic=topic))
+            tracked_store.append_log(
+                repo,
+                issue_number,
+                {"phase": phase, "action": "ingest", "entries": len(entries)},
+            )
+            tracked_store.commit_pending_entries(
+                worktree_path=worktree_path,
+                phase=phase,
+                issue_number=issue_number,
+                path_prefix=self._config.repo_wiki_path,
+            )
+        except Exception:
+            for p in written:
+                try:
+                    p.unlink()
+                except OSError:
+                    logger.warning("wiki ingest rollback: failed to unlink %s", p)
+            raise
 
     async def _create_beads_from_plan(self, issue: Task, plan: str) -> None:
         """Create bead tasks from a Task Graph plan and post mapping comment."""

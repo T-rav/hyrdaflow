@@ -89,6 +89,86 @@ def _next_entry_id(topic_dir: Path) -> int:
     return max(ids) + 1 if ids else 1
 
 
+_TOPIC_KEYWORDS: dict[str, list[str]] = {
+    "architecture": [
+        "architect",
+        "structure",
+        "module",
+        "layer",
+        "service",
+        "component",
+        "design",
+        "pattern",
+        "directory",
+        "layout",
+    ],
+    "patterns": [
+        "pattern",
+        "convention",
+        "idiom",
+        "style",
+        "approach",
+        "best practice",
+        "anti-pattern",
+        "refactor",
+    ],
+    "gotchas": [
+        "gotcha",
+        "pitfall",
+        "bug",
+        "issue",
+        "error",
+        "fail",
+        "careful",
+        "watch out",
+        "caveat",
+        "workaround",
+        "edge case",
+    ],
+    "testing": [
+        "test",
+        "fixture",
+        "mock",
+        "assert",
+        "coverage",
+        "pytest",
+        "spec",
+        "integration test",
+        "unit test",
+    ],
+    "dependencies": [
+        "dependency",
+        "package",
+        "import",
+        "library",
+        "version",
+        "requirement",
+        "pip",
+        "npm",
+        "uv",
+        "cargo",
+    ],
+}
+
+
+def classify_topic(entry: WikiEntry) -> str:
+    """Classify a ``WikiEntry`` into a topic based on title/content keywords.
+
+    Public module-level helper so phase runners can classify compiler-
+    produced entries without poking at private store methods.  Defaults
+    to ``"patterns"`` when no topic-specific keywords match.
+    """
+    text = f"{entry.title} {entry.content}".lower()
+    best_topic = "patterns"
+    best_score = 0
+    for topic, keywords in _TOPIC_KEYWORDS.items():
+        score = sum(1 for kw in keywords if kw in text)
+        if score > best_score:
+            best_score = score
+            best_topic = topic
+    return best_topic
+
+
 def _sanitize_body_for_frontmatter(content: str) -> str:
     """Prevent a leading ``---`` in body content from being parsed as a
     second YAML document.
@@ -684,80 +764,8 @@ class RepoWikiStore:
         return repo_dir
 
     def _classify_topic(self, entry: WikiEntry) -> str:
-        """Classify an entry into a topic based on keywords in title/content."""
-        text = f"{entry.title} {entry.content}".lower()
-
-        topic_keywords: dict[str, list[str]] = {
-            "architecture": [
-                "architect",
-                "structure",
-                "module",
-                "layer",
-                "service",
-                "component",
-                "design",
-                "pattern",
-                "directory",
-                "layout",
-            ],
-            "patterns": [
-                "pattern",
-                "convention",
-                "idiom",
-                "style",
-                "approach",
-                "best practice",
-                "anti-pattern",
-                "refactor",
-            ],
-            "gotchas": [
-                "gotcha",
-                "pitfall",
-                "bug",
-                "issue",
-                "error",
-                "fail",
-                "careful",
-                "watch out",
-                "caveat",
-                "workaround",
-                "edge case",
-            ],
-            "testing": [
-                "test",
-                "fixture",
-                "mock",
-                "assert",
-                "coverage",
-                "pytest",
-                "spec",
-                "integration test",
-                "unit test",
-            ],
-            "dependencies": [
-                "dependency",
-                "package",
-                "import",
-                "library",
-                "version",
-                "requirement",
-                "pip",
-                "npm",
-                "uv",
-                "cargo",
-            ],
-        }
-
-        best_topic = "patterns"  # default
-        best_score = 0
-
-        for topic, keywords in topic_keywords.items():
-            score = sum(1 for kw in keywords if kw in text)
-            if score > best_score:
-                best_score = score
-                best_topic = topic
-
-        return best_topic
+        """Backward-compat: classify via the module-level `classify_topic`."""
+        return classify_topic(entry)
 
     def _load_topic_entries(self, topic_path: Path) -> list[WikiEntry]:
         """Parse a topic markdown file back into entries.
