@@ -238,3 +238,98 @@ class TestCommitPendingEntries:
             check=True,
         ).stdout
         assert "unrelated.txt" in status
+
+
+class TestWriteEntryCollisionAndSanitize:
+    """Regressions for review findings L, M, O."""
+
+    def test_write_entry_raises_on_filename_collision(
+        self, store: RepoWikiStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Exclusive open prevents silent overwrite — surfaces the collision
+        that a TOCTOU race between ``_next_entry_id`` and ``path.open('x')``
+        could otherwise produce.
+        """
+        # Force _next_entry_id to return the same id twice — simulating the
+        # race where two concurrent callers both scanned the directory
+        # before either wrote.
+        import repo_wiki as rw
+
+        def stuck_next_id(topic_dir: Path) -> int:
+            del topic_dir
+            return 1
+
+        monkeypatch.setattr(rw, "_next_entry_id", stuck_next_id)
+
+        store.write_entry(REPO, _entry("First", issue=42), topic="patterns")
+        with pytest.raises(FileExistsError):
+            store.write_entry(REPO, _entry("First", issue=42), topic="patterns")
+
+    def test_next_entry_id_skips_non_issue_numbered_files(
+        self, store: RepoWikiStore
+    ) -> None:
+        """`_next_entry_id` must count any ``{digits}-...`` prefix, not only
+        ``{digits}-issue-...``.  A synthesis or hand-edited file without
+        ``issue-`` must not cause a duplicate id on the next write.
+        """
+        topic_dir = store._wiki_root / REPO / "patterns"
+        topic_dir.mkdir(parents=True)
+        (topic_dir / "0001-synthesis-foo.md").write_text("---\nid: 0001\n---\n")
+
+        path = store.write_entry(REPO, _entry("Next"), topic="patterns")
+        assert path.name.startswith("0002-")
+
+    def test_sanitizes_leading_frontmatter_in_body(self, store: RepoWikiStore) -> None:
+        """Content that starts with `---` must not be confused for a second
+        YAML document by a multi-doc parser.
+
+        Invariant: the first non-blank, non-title line of the body
+        section must NOT itself be ``---``. Embedded ``---`` horizontal
+        rules elsewhere in the body remain.
+        """
+        e = WikiEntry(
+            title="Quote",
+            content="---\nnested: true\n---\nactual body",
+            source_type="plan",
+            source_issue=7,
+        )
+        path = store.write_entry(REPO, e, topic="patterns")
+        lines = path.read_text().splitlines()
+
+        close_idx = next(
+            i for i, ln in enumerate(lines) if i > 0 and ln.strip() == "---"
+        )
+        body_start = close_idx + 1
+        while body_start < len(lines) and (
+            lines[body_start].strip() == "" or lines[body_start].startswith("# ")
+        ):
+            body_start += 1
+
+        assert body_start < len(lines), "body absent"
+        assert lines[body_start].strip() != "---", (
+            "first body line must not be `---` — would be read as a "
+            f"second YAML document. Got: {lines[body_start]!r}"
+        )
+
+    def test_commit_pending_entries_respects_path_prefix(
+        self, git_worktree: Path
+    ) -> None:
+        """When repo_wiki_path is overridden, the commit targets that path."""
+        store = RepoWikiStore(git_worktree / "custom_wiki")
+        store.write_entry(REPO, _entry("X", issue=3), topic="patterns")
+
+        store.commit_pending_entries(
+            worktree_path=git_worktree,
+            phase="plan",
+            issue_number=3,
+            path_prefix="custom_wiki",
+        )
+
+        show = subprocess.run(
+            ["git", "-C", str(git_worktree), "show", "--name-only", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        assert "custom_wiki/" in show
+        assert "repo_wiki/" not in show

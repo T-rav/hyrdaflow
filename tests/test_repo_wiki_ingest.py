@@ -151,3 +151,37 @@ class TestGitBackedIngest:
 
         assert count >= 1
         assert (store._wiki_root / REPO / "architecture.md").exists()
+
+    def test_partial_failure_rolls_back_written_entries(
+        self, store: RepoWikiStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If one write_entry raises mid-loop, every prior write in the
+        batch is removed so orphans can't leak into future ingests.
+        """
+        plan = (
+            "## Architecture\n"
+            + ("Service A talks to service B via a queue. " * 5)
+            + "\n\n## Testing\n"
+            + ("Run unit tests before integration tests. " * 5)
+        )
+
+        calls: list[str] = []
+        original = store.write_entry
+
+        def flaky_write_entry(repo_slug: str, entry, *, topic: str):
+            calls.append(topic)
+            if topic == "testing":  # second call blows up
+                raise OSError("disk full")
+            return original(repo_slug, entry, topic=topic)
+
+        monkeypatch.setattr(store, "write_entry", flaky_write_entry)
+
+        with pytest.raises(OSError, match="disk full"):
+            ingest_from_plan(store, REPO, 77, plan, git_backed=True)
+
+        # First write landed on disk; rollback should have removed it.
+        arch_dir = store._wiki_root / REPO / "architecture"
+        assert arch_dir.is_dir() is False or list(arch_dir.glob("*.md")) == []
+
+        # No log record should exist — log append only runs after all writes.
+        assert not (store._wiki_root / REPO / "log" / "77.jsonl").exists()

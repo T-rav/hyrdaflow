@@ -8,6 +8,7 @@ output and produces ``WikiEntry`` objects for the store.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from repo_wiki import WikiEntry
@@ -97,19 +98,13 @@ def ingest_from_plan(
         return 0
 
     if git_backed:
-        for entry, topic in pairs:
-            store.write_entry(repo, entry, topic=topic)
-        store.append_log(
-            repo,
-            issue_number,
-            {"phase": "plan", "action": "ingest", "entries": len(pairs)},
-        )
+        total = _write_pairs_or_rollback(store, repo, issue_number, "plan", pairs)
         logger.info(
             "Wiki ingest from plan #%d: %d entries (git-backed)",
             issue_number,
-            len(pairs),
+            total,
         )
-        return len(pairs)
+        return total
 
     entries = [e for e, _ in pairs]
     result = store.ingest(repo, entries)
@@ -155,19 +150,13 @@ def ingest_from_review(
         return 0
 
     if git_backed:
-        for entry, topic in pairs:
-            store.write_entry(repo, entry, topic=topic)
-        store.append_log(
-            repo,
-            issue_number,
-            {"phase": "review", "action": "ingest", "entries": len(pairs)},
-        )
+        total = _write_pairs_or_rollback(store, repo, issue_number, "review", pairs)
         logger.info(
             "Wiki ingest from review #%d: %d entries (git-backed)",
             issue_number,
-            len(pairs),
+            total,
         )
-        return len(pairs)
+        return total
 
     entries = [e for e, _ in pairs]
     result = store.ingest(repo, entries)
@@ -175,6 +164,41 @@ def ingest_from_review(
     if total:
         logger.info("Wiki ingest from review #%d: %d entries", issue_number, total)
     return total
+
+
+def _write_pairs_or_rollback(
+    store: RepoWikiStore,
+    repo: str,
+    issue_number: int,
+    phase: str,
+    pairs: list[tuple[WikiEntry, str]],
+) -> int:
+    """Write every (entry, topic) pair via ``store.write_entry`` as a
+    single unit.  On any exception, delete the files already written so
+    no partial set can be picked up by the next ingest's id-scan or
+    committed as a half-applied batch.
+
+    Returns the number of entries written on success.  Re-raises the
+    underlying exception after rollback when the batch fails, so the
+    caller can surface the error and decide whether to retry.
+    """
+    written: list[Path] = []
+    try:
+        for entry, topic in pairs:
+            written.append(store.write_entry(repo, entry, topic=topic))
+        store.append_log(
+            repo,
+            issue_number,
+            {"phase": phase, "action": "ingest", "entries": len(pairs)},
+        )
+    except Exception:
+        for p in written:
+            try:
+                p.unlink()
+            except OSError:
+                logger.warning("wiki ingest rollback: failed to unlink %s", p)
+        raise
+    return len(pairs)
 
 
 def _extract_sections(text: str) -> dict[str, str]:

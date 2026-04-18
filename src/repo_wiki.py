@@ -57,7 +57,11 @@ _SOURCE_TYPE_TO_PHASE: dict[str, str] = {
 }
 
 _SLUG_STRIP_RE = re.compile(r"[^a-z0-9]+")
-_ENTRY_ID_RE = re.compile(r"^(\d+)-issue-")
+# Any filename whose first hyphen-separated segment is all digits counts as
+# a numbered entry.  Matching a broader shape than "{id}-issue-..." prevents
+# duplicate IDs when a synthesis entry (no issue tag) or hand-edited file
+# lands in the same directory.
+_ENTRY_ID_RE = re.compile(r"^(\d+)-")
 
 
 def _slugify(title: str, *, max_len: int = 50) -> str:
@@ -69,9 +73,11 @@ def _slugify(title: str, *, max_len: int = 50) -> str:
 def _next_entry_id(topic_dir: Path) -> int:
     """Next monotonic id within a topic directory.
 
-    Scans existing ``{id:04d}-issue-...`` filenames; returns ``max + 1``,
+    Scans any filename starting with ``{digits}-`` and returns ``max + 1``,
     starting at 1 when empty.  IDs are scoped per topic so
-    ``patterns/0001`` and ``gotchas/0001`` coexist.
+    ``patterns/0001`` and ``gotchas/0001`` coexist.  The broader regex
+    (vs strictly ``{id}-issue-``) guarantees that synthesis entries or
+    manually-created numbered files don't cause ID collisions.
     """
     if not topic_dir.is_dir():
         return 1
@@ -81,6 +87,20 @@ def _next_entry_id(topic_dir: Path) -> int:
         if m:
             ids.append(int(m.group(1)))
     return max(ids) + 1 if ids else 1
+
+
+def _sanitize_body_for_frontmatter(content: str) -> str:
+    """Prevent a leading ``---`` in body content from being parsed as a
+    second YAML document.
+
+    If content begins with a line that is exactly ``---`` (or whitespace
+    then ``---``), prepend a zero-width safeguard so downstream YAML
+    parsers stop at the frontmatter block.  Horizontal rules in the
+    middle of content are unaffected.
+    """
+    if content.lstrip().startswith("---"):
+        return "<!-- -->\n" + content
+    return content
 
 
 class WikiEntry(BaseModel):
@@ -497,6 +517,11 @@ class RepoWikiStore:
 
         Callers must provide ``topic`` explicitly — classification is
         the caller's responsibility, not the store's.
+
+        Raises:
+            FileExistsError: If the computed path collides with an
+                existing file (same id + slug + issue).  The exclusive
+                open prevents silent overwrite of prior entries.
         """
         repo_dir = self._repo_dir(repo_slug)
         topic_dir = repo_dir / topic
@@ -512,6 +537,7 @@ class RepoWikiStore:
 
         source_phase = _SOURCE_TYPE_TO_PHASE.get(entry.source_type, "legacy-migrated")
         status = "stale" if entry.stale else "active"
+        safe_content = _sanitize_body_for_frontmatter(entry.content)
 
         body = "\n".join(
             [
@@ -526,11 +552,15 @@ class RepoWikiStore:
                 "",
                 f"# {entry.title}",
                 "",
-                entry.content,
+                safe_content,
                 "",
             ]
         )
-        path.write_text(body)
+        # Exclusive open (`x`) prevents silent overwrite if the same id +
+        # slug + issue collide; surfaces the collision loudly so callers
+        # can handle it (e.g. by rolling back prior writes in a batch).
+        with path.open("x", encoding="utf-8") as f:
+            f.write(body)
         return path
 
     def append_log(
@@ -545,15 +575,23 @@ class RepoWikiStore:
         append to the same file on merge. The record is stamped with
         ``issue_number`` so downstream consumers (console, migrations)
         always have it.
+
+        Uses ``file_util.append_jsonl`` under a ``file_lock`` so
+        concurrent in-process writers (e.g. overlapping plan / review
+        ingests for the same issue) get atomic appends + fsync
+        durability — matching the rest of the codebase's crash-safe
+        JSONL pattern.
         """
+        from file_util import append_jsonl, file_lock  # noqa: PLC0415
+
         log_dir = self._repo_dir(repo_slug) / "log"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / f"{issue_number}.jsonl"
 
         payload = dict(record)
         payload.setdefault("issue_number", issue_number)
-        with log_file.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(payload) + "\n")
+        with file_lock(log_file):
+            append_jsonl(log_file, json.dumps(payload))
         return log_file
 
     def commit_pending_entries(
@@ -562,23 +600,36 @@ class RepoWikiStore:
         worktree_path: Path,
         phase: str,
         issue_number: int,
+        path_prefix: str = "repo_wiki",
     ) -> None:
-        """Stage and commit new per-entry files under ``repo_wiki/`` in
+        """Stage and commit new per-entry files under ``{path_prefix}/`` in
         the given worktree.
 
-        Uses targeted ``git add repo_wiki/`` — never ``git add -A`` — so
-        unrelated changes in the worktree are not swept into the wiki
+        Uses targeted ``git add {path_prefix}/`` — never ``git add -A`` —
+        so unrelated changes in the worktree are not swept into the wiki
         commit. When there is nothing to commit (no changes under
-        ``repo_wiki/``), the method is a no-op and does not produce an
-        empty commit.
+        ``{path_prefix}/``), the method is a no-op and does not produce
+        an empty commit.
+
+        ``path_prefix`` defaults to ``"repo_wiki"`` but callers that
+        respect ``HydraFlowConfig.repo_wiki_path`` (e.g. phase runners)
+        should pass that value so operators who override the config take
+        effect.
 
         The commit message is ``wiki: ingest {phase} for #{issue_number}``.
         """
         import subprocess  # noqa: PLC0415 — isolated here, not a module-level dep
 
-        # Targeted status check: only look at repo_wiki/.
+        # Targeted status check: only look at the configured prefix.
         status = subprocess.run(
-            ["git", "-C", str(worktree_path), "status", "--porcelain", "repo_wiki"],
+            [
+                "git",
+                "-C",
+                str(worktree_path),
+                "status",
+                "--porcelain",
+                path_prefix,
+            ],
             capture_output=True,
             text=True,
             check=True,
@@ -587,7 +638,7 @@ class RepoWikiStore:
             return
 
         subprocess.run(
-            ["git", "-C", str(worktree_path), "add", "repo_wiki"],
+            ["git", "-C", str(worktree_path), "add", path_prefix],
             check=True,
         )
         subprocess.run(
