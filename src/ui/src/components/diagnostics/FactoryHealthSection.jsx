@@ -157,7 +157,7 @@ export function FactoryHealthSection() {
     return <div style={styles.loading}>Loading factory health…</div>
   }
 
-  if (!data) return null
+  if (!data || !data.rolling_averages) return null
 
   const { rolling_averages: ra, cohorts, regressions } = data
 
