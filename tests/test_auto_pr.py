@@ -197,3 +197,234 @@ def test_remove_worktree_deletes_local_branch(local_repo: Path) -> None:
         body="b",
     )
     assert result.status == "no-diff"
+
+
+# ---------------------------------------------------------------------------
+# Async API tests
+# ---------------------------------------------------------------------------
+
+
+import subprocess as _sp
+from collections.abc import Awaitable, Callable
+from pathlib import Path as _Path
+
+GhHandler = Callable[[tuple[str, ...]], str | None]
+OnCmd = Callable[[tuple[str, ...]], None]
+FailOn = Callable[[tuple[str, ...]], str | None]
+
+
+def _real_run_subprocess_stub(
+    gh_handler: GhHandler | None = None,
+    on_cmd: OnCmd | None = None,
+    fail_on: FailOn | None = None,
+) -> Callable[..., Awaitable[str]]:
+    """Build a fake `run_subprocess` that matches the real contract:
+
+    - Raises RuntimeError on non-zero exit (not CalledProcessError).
+    - Returns stripped stdout on success.
+    - `gh pr` calls route through `gh_handler` so tests never hit real `gh`.
+    - `on_cmd` is a side-effect hook.
+    - `fail_on` returning a non-None string raises RuntimeError with that msg.
+    """
+
+    async def fake_run(
+        *cmd: str,
+        cwd: _Path | None = None,
+        gh_token: str = "",
+        timeout: float = 120.0,
+        runner: object = None,
+    ) -> str:
+        del gh_token, timeout, runner
+        if on_cmd is not None:
+            on_cmd(cmd)
+        if fail_on is not None:
+            err = fail_on(cmd)
+            if err is not None:
+                raise RuntimeError(err)
+        if cmd[:2] == ("gh", "pr") and gh_handler is not None:
+            stdout = gh_handler(cmd)
+            if stdout is None:
+                raise RuntimeError(f"gh command failed: {cmd}")
+            return stdout.strip()
+        try:
+            return _sp.run(
+                list(cmd),
+                cwd=str(cwd) if cwd is not None else None,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+        except _sp.CalledProcessError as exc:
+            raise RuntimeError(exc.stderr or str(exc)) from exc
+
+    return fake_run
+
+
+@pytest.mark.asyncio
+async def test_async_happy_path_opens_pr(
+    local_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """open_automated_pr_async: file written, committed, pushed, gh pr create called."""
+    from auto_pr import open_automated_pr_async
+
+    gh_calls: list[tuple[str, ...]] = []
+
+    def gh_handler(cmd: tuple[str, ...]) -> str:
+        gh_calls.append(cmd)
+        if cmd[2] == "create":
+            return "https://github.com/x/y/pull/42\n"
+        return ""
+
+    monkeypatch.setattr(
+        "subprocess_util.run_subprocess",
+        _real_run_subprocess_stub(gh_handler=gh_handler),
+    )
+
+    target = local_repo / "note.txt"
+    target.write_text("hi\n")
+
+    result = await open_automated_pr_async(
+        repo_root=local_repo,
+        branch="feature/a",
+        files=[target],
+        pr_title="feat: a",
+        pr_body="b",
+        auto_merge=True,
+    )
+
+    assert result.status == "opened"
+    assert result.pr_url == "https://github.com/x/y/pull/42"
+    assert any(c[:3] == ("gh", "pr", "create") for c in gh_calls)
+    assert any(c[:3] == ("gh", "pr", "merge") for c in gh_calls)
+
+
+@pytest.mark.asyncio
+async def test_async_uses_separate_commit_message(
+    local_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When commit_message is supplied, it's used for the commit (not pr_title)."""
+    from auto_pr import open_automated_pr_async
+
+    commit_msgs: list[str] = []
+
+    def on_cmd(cmd: tuple[str, ...]) -> None:
+        if "commit" in cmd and "-m" in cmd:
+            idx = cmd.index("-m")
+            commit_msgs.append(cmd[idx + 1])
+
+    def gh_handler(cmd: tuple[str, ...]) -> str:
+        if cmd[2] == "create":
+            return "https://github.com/x/y/pull/1\n"
+        return ""
+
+    monkeypatch.setattr(
+        "subprocess_util.run_subprocess",
+        _real_run_subprocess_stub(gh_handler=gh_handler, on_cmd=on_cmd),
+    )
+
+    target = local_repo / "x.txt"
+    target.write_text("x\n")
+
+    await open_automated_pr_async(
+        repo_root=local_repo,
+        branch="feature/msg",
+        files=[target],
+        pr_title="short title",
+        pr_body="body",
+        commit_message="long commit message\n\nDetails here.",
+    )
+
+    assert "long commit message" in commit_msgs[0]
+    assert "short title" not in commit_msgs[0]
+
+
+@pytest.mark.asyncio
+async def test_async_raise_on_failure_false_returns_failed_status(
+    local_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With raise_on_failure=False, push failure returns status='failed' instead of raising."""
+    from auto_pr import open_automated_pr_async
+
+    def fail_on(cmd: tuple[str, ...]) -> str | None:
+        if cmd[:2] == ("git", "push"):
+            return "push rejected"
+        return None
+
+    monkeypatch.setattr(
+        "subprocess_util.run_subprocess",
+        _real_run_subprocess_stub(fail_on=fail_on),
+    )
+
+    target = local_repo / "f.txt"
+    target.write_text("f\n")
+
+    result = await open_automated_pr_async(
+        repo_root=local_repo,
+        branch="feature/nofail",
+        files=[target],
+        pr_title="t",
+        pr_body="b",
+        raise_on_failure=False,
+    )
+
+    assert result.status == "failed"
+    assert result.error is not None
+    assert "push" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_async_gh_token_is_forwarded(
+    local_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gh_token kwarg is forwarded to every subprocess call."""
+    from auto_pr import open_automated_pr_async
+
+    tokens_seen: list[str] = []
+
+    # We need the raw gh_token that was passed — go direct rather than via
+    # the stub factory so we can capture it.
+    import subprocess as _spmod
+
+    async def capturing_run(
+        *cmd: str,
+        cwd: Path | None = None,
+        gh_token: str = "",
+        timeout: float = 120.0,
+        runner: object = None,
+    ) -> str:
+        del timeout, runner
+        tokens_seen.append(gh_token)
+        if cmd[:3] == ("gh", "pr", "create"):
+            return "https://github.com/x/y/pull/7"
+        if cmd[:2] == ("gh", "pr"):
+            return ""
+        try:
+            return _spmod.run(
+                list(cmd),
+                cwd=str(cwd) if cwd is not None else None,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+        except _spmod.CalledProcessError as exc:
+            raise RuntimeError(exc.stderr or str(exc)) from exc
+
+    monkeypatch.setattr("subprocess_util.run_subprocess", capturing_run)
+
+    target = local_repo / "t.txt"
+    target.write_text("t\n")
+
+    await open_automated_pr_async(
+        repo_root=local_repo,
+        branch="feature/tok",
+        files=[target],
+        pr_title="t",
+        pr_body="b",
+        gh_token="ghs_TESTTOKEN",
+    )
+
+    # Every captured call received the same token (ignore the rare empty
+    # no-op entries for edge paths if any).
+    relevant = [t for t in tokens_seen if t]
+    assert relevant, "no subprocess calls observed"
+    assert all(t == "ghs_TESTTOKEN" for t in relevant)

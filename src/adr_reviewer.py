@@ -15,7 +15,7 @@ from adr_utils import ADR_FILE_RE
 from agent_cli import build_lightweight_command
 from file_util import append_jsonl
 from models import ADRCouncilResult, CouncilVerdict, CouncilVote
-from subprocess_util import make_clean_env, run_subprocess
+from subprocess_util import make_clean_env
 
 if TYPE_CHECKING:
     from config import Credentials, HydraFlowConfig
@@ -804,7 +804,13 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
         readme_path: Path,
         result: ADRCouncilResult,
     ) -> None:
-        """Create worktree, commit status update, push, and create PR."""
+        """Create worktree, commit status update, push, and create PR.
+
+        Delegates the worktree/commit/push/PR lifecycle to
+        :func:`auto_pr.open_automated_pr_async`.
+        """
+        from auto_pr import open_automated_pr_async  # noqa: PLC0415
+
         if self._config.dry_run:
             logger.info(
                 "[dry-run] Would commit acceptance for ADR-%04d", result.adr_number
@@ -813,100 +819,26 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
 
         repo_root = Path(self._config.repo_root)
         branch = f"adr/accept-{result.adr_number:04d}"
-        worktree_path = (
-            Path(self._config.workspace_base) / f"adr-accept-{result.adr_number:04d}"
+
+        files = [adr_path]
+        if readme_path.exists():
+            files.append(readme_path)
+
+        minority = (
+            f"\n\nMinority note: {result.minority_note}"
+            if result.minority_note and result.minority_note != "none"
+            else ""
+        )
+        commit_message = (
+            f"Accept ADR-{result.adr_number:04d}: {result.adr_title}"
+            f"\n\nCouncil decision: {result.summary}{minority}"
         )
 
-        try:
-            # Create an isolated worktree to avoid corrupting the primary checkout
-            await run_subprocess(
-                "git",
-                "worktree",
-                "add",
-                "-b",
-                branch,
-                str(worktree_path),
-                cwd=repo_root,
-                gh_token=self._credentials.gh_token,
-            )
-
-            # Copy updated files into the worktree
-            wt_adr_path = worktree_path / adr_path.relative_to(repo_root)
-            wt_adr_path.parent.mkdir(parents=True, exist_ok=True)
-            wt_adr_path.write_text(
-                adr_path.read_text(encoding="utf-8"), encoding="utf-8"
-            )
-            await run_subprocess(
-                "git",
-                "add",
-                str(wt_adr_path.relative_to(worktree_path)),
-                cwd=worktree_path,
-                gh_token=self._credentials.gh_token,
-            )
-
-            if readme_path.exists():
-                wt_readme = worktree_path / readme_path.relative_to(repo_root)
-                wt_readme.parent.mkdir(parents=True, exist_ok=True)
-                wt_readme.write_text(
-                    readme_path.read_text(encoding="utf-8"), encoding="utf-8"
-                )
-                await run_subprocess(
-                    "git",
-                    "add",
-                    str(wt_readme.relative_to(worktree_path)),
-                    cwd=worktree_path,
-                    gh_token=self._credentials.gh_token,
-                )
-
-            minority = (
-                f"\n\nMinority note: {result.minority_note}"
-                if result.minority_note and result.minority_note != "none"
-                else ""
-            )
-            message = (
-                f"Accept ADR-{result.adr_number:04d}: {result.adr_title}"
-                f"\n\nCouncil decision: {result.summary}{minority}"
-            )
-            await run_subprocess(
-                "git",
-                "commit",
-                "-m",
-                message,
-                cwd=worktree_path,
-                gh_token=self._credentials.gh_token,
-            )
-            await run_subprocess(
-                "git",
-                "push",
-                "-u",
-                "origin",
-                branch,
-                cwd=worktree_path,
-                gh_token=self._credentials.gh_token,
-            )
-        except RuntimeError:
-            logger.exception("Failed to commit ADR-%04d acceptance", result.adr_number)
-            return
-        finally:
-            # Always clean up the worktree
-            try:
-                await run_subprocess(
-                    "git",
-                    "worktree",
-                    "remove",
-                    str(worktree_path),
-                    "--force",
-                    cwd=repo_root,
-                    gh_token=self._credentials.gh_token,
-                )
-            except RuntimeError:
-                logger.debug("Worktree cleanup failed for %s", worktree_path)
-
         summary = self._build_council_summary(result)
-        title = f"Accept ADR-{result.adr_number:04d}: {result.adr_title}"
-        if len(title) > 70:
-            title = title[:67] + "..."
-        body = (
+        pr_title = f"Accept ADR-{result.adr_number:04d}: {result.adr_title}"
+        if len(pr_title) > 70:
+            pr_title = pr_title[:67] + "..."
+        pr_body = (
             f"## ADR Council Review\n\n"
             f"The ADR review council has voted to **accept** "
             f"ADR-{result.adr_number:04d}.\n\n"
@@ -915,24 +847,19 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
             f"Generated by HydraFlow ADR Council"
         )
 
-        try:
-            await run_subprocess(
-                "gh",
-                "pr",
-                "create",
-                "--title",
-                title,
-                "--body",
-                body,
-                "--base",
-                self._config.base_branch(),
-                "--head",
-                branch,
-                cwd=repo_root,
-                gh_token=self._credentials.gh_token,
-            )
-        except RuntimeError:
-            logger.exception("Failed to create PR for ADR-%04d", result.adr_number)
+        await open_automated_pr_async(
+            repo_root=repo_root,
+            branch=branch,
+            files=files,
+            pr_title=pr_title,
+            pr_body=pr_body,
+            commit_message=commit_message,
+            base=self._config.base_branch(),
+            auto_merge=False,
+            gh_token=self._credentials.gh_token,
+            raise_on_failure=False,
+            worktree_parent=Path(self._config.workspace_base),
+        )
 
     async def _escalate_to_hitl(self, result: ADRCouncilResult, *, reason: str) -> None:
         """Record a HITL escalation decision to adr_decisions.jsonl."""

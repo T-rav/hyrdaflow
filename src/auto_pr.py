@@ -53,9 +53,10 @@ class AutoPrError(RuntimeError):
 class AutoPrResult:
     """Outcome of an `open_automated_pr` call."""
 
-    status: Literal["opened", "no-diff"]
+    status: Literal["opened", "no-diff", "failed"]
     pr_url: str | None
     branch: str
+    error: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +142,7 @@ def open_automated_pr(
     body: str,
     base: str = "main",
     auto_merge: bool = True,
+    worktree_parent: Path | None = None,
 ) -> AutoPrResult:
     """Open a PR for `files` on a fresh worktree branched from `origin/{base}`.
 
@@ -173,7 +175,9 @@ def open_automated_pr(
     repo_root = repo_root.resolve()
     timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     wt_name = f"autopr-{_sanitize_branch_for_path(branch)}-{timestamp}"
-    worktree_path = repo_root.parent / wt_name
+    wt_parent = (worktree_parent or repo_root.parent).resolve()
+    wt_parent.mkdir(parents=True, exist_ok=True)
+    worktree_path = wt_parent / wt_name
 
     # Ensure we have an up-to-date origin ref for the base branch.
     _run_git(["fetch", "origin", base, "--quiet"], cwd=repo_root, check=False)
@@ -324,3 +328,262 @@ def _extract_pr_url(stdout: str) -> str | None:
         if stripped.startswith("https://"):
             return stripped
     return None
+
+
+# ---------------------------------------------------------------------------
+# Async API — used from HydraFlow's async call sites (ADR reviewer, etc.)
+# ---------------------------------------------------------------------------
+
+
+async def open_automated_pr_async(  # noqa: PLR0911 — linear step-by-step guards, each with its own fail path
+    *,
+    repo_root: Path,
+    branch: str,
+    files: list[Path],
+    pr_title: str,
+    pr_body: str,
+    commit_message: str | None = None,
+    base: str = "main",
+    auto_merge: bool = True,
+    gh_token: str = "",
+    raise_on_failure: bool = True,
+    worktree_parent: Path | None = None,
+) -> AutoPrResult:
+    """Async variant that routes subprocess calls through `run_subprocess`.
+
+    Same high-level behavior as the sync `open_automated_pr`:
+    worktree → copy files → stage → commit → push → gh pr create → gh pr merge
+    → clean up.
+
+    Differences from the sync version:
+
+    - Uses :func:`subprocess_util.run_subprocess` so it participates in the
+      HydraFlow async loop and the `gh/git` concurrency semaphore.
+    - Accepts an explicit `gh_token` that's threaded through every call.
+    - Accepts an independent `commit_message` for callers where the commit
+      message differs from the PR title (e.g. the ADR reviewer embeds the
+      council summary in the commit).
+    - When `raise_on_failure=False`, logs + returns an
+      ``AutoPrResult(status="failed", error=...)`` instead of raising —
+      matching the ADR reviewer's "log and continue" contract.
+
+    Args:
+        repo_root: Root of the primary git checkout.
+        branch: New branch name (must not already exist on origin).
+        files: Paths under `repo_root` whose current contents should be
+            staged into the PR. Empty → no-diff short-circuit.
+        pr_title: Title for the PR.
+        pr_body: Body for the PR.
+        commit_message: Commit message; defaults to `pr_title` when None.
+        base: Base branch. Defaults to ``"main"``.
+        auto_merge: If True, attempt `gh pr merge --auto --squash`.
+        gh_token: Value injected as GH_TOKEN for each subprocess call.
+        raise_on_failure: If False, failures become
+            ``AutoPrResult(status="failed")`` instead of raising.
+
+    Returns:
+        ``AutoPrResult`` describing the outcome.
+
+    Raises:
+        AutoPrError: If a step fails and `raise_on_failure` is True.
+    """
+    from subprocess_util import run_subprocess  # local import: avoids cycles
+
+    repo_root = repo_root.resolve()
+    timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    wt_name = f"autopr-{_sanitize_branch_for_path(branch)}-{timestamp}"
+    wt_parent = (worktree_parent or repo_root.parent).resolve()
+    wt_parent.mkdir(parents=True, exist_ok=True)
+    worktree_path = wt_parent / wt_name
+    msg = commit_message if commit_message is not None else pr_title
+
+    def _fail(err: str) -> AutoPrResult:
+        if raise_on_failure:
+            raise AutoPrError(err)
+        logger.exception("open_automated_pr_async failed for %s: %s", branch, err)
+        return AutoPrResult(status="failed", pr_url=None, branch=branch, error=err)
+
+    # Fetch base so origin/{base} is current.
+    try:
+        await run_subprocess(
+            "git",
+            "fetch",
+            "origin",
+            base,
+            "--quiet",
+            cwd=repo_root,
+            gh_token=gh_token,
+        )
+    except RuntimeError as exc:
+        return _fail(f"git fetch failed: {exc}")
+
+    # Create worktree on new branch.
+    try:
+        await run_subprocess(
+            "git",
+            "worktree",
+            "add",
+            "-b",
+            branch,
+            str(worktree_path),
+            f"origin/{base}",
+            cwd=repo_root,
+            gh_token=gh_token,
+        )
+    except RuntimeError as exc:
+        return _fail(f"git worktree add failed for {branch!r}: {exc}")
+
+    try:
+        if not files:
+            logger.info("open_automated_pr_async: no files supplied for %s", branch)
+            return AutoPrResult(status="no-diff", pr_url=None, branch=branch)
+
+        # Copy each file, stage by relative path (targeted; no `git add -A`).
+        try:
+            for src_path in files:
+                rel = src_path.resolve().relative_to(repo_root)
+                dst_path = worktree_path / rel
+                dst_path.parent.mkdir(parents=True, exist_ok=True)
+                dst_path.write_bytes(src_path.read_bytes())
+                await run_subprocess(
+                    "git",
+                    "add",
+                    str(rel),
+                    cwd=worktree_path,
+                    gh_token=gh_token,
+                )
+        except (RuntimeError, OSError, ValueError) as exc:
+            return _fail(f"failed to stage files for {branch!r}: {exc}")
+
+        # Detect empty staged diff.
+        try:
+            await run_subprocess(
+                "git",
+                "diff",
+                "--cached",
+                "--quiet",
+                cwd=worktree_path,
+                gh_token=gh_token,
+            )
+            # exit 0 → no staged diff
+            logger.info("open_automated_pr_async: empty staged diff for %s", branch)
+            return AutoPrResult(status="no-diff", pr_url=None, branch=branch)
+        except RuntimeError:
+            # Non-zero exit means there IS a diff. Proceed.
+            pass
+
+        # Commit with stable bot identity.
+        try:
+            await run_subprocess(
+                "git",
+                "-c",
+                f"user.email={BOT_EMAIL}",
+                "-c",
+                f"user.name={BOT_NAME}",
+                "commit",
+                "-m",
+                msg,
+                cwd=worktree_path,
+                gh_token=gh_token,
+            )
+        except RuntimeError as exc:
+            return _fail(f"git commit failed: {exc}")
+
+        try:
+            await run_subprocess(
+                "git",
+                "push",
+                "-u",
+                "origin",
+                branch,
+                cwd=worktree_path,
+                gh_token=gh_token,
+            )
+        except RuntimeError as exc:
+            return _fail(f"git push failed for {branch!r}: {exc}")
+
+        # Create the PR.
+        try:
+            create_stdout = await run_subprocess(
+                "gh",
+                "pr",
+                "create",
+                "--title",
+                pr_title,
+                "--body",
+                pr_body,
+                "--base",
+                base,
+                "--head",
+                branch,
+                cwd=worktree_path,
+                gh_token=gh_token,
+            )
+        except RuntimeError as exc:
+            return _fail(f"gh pr create failed for {branch!r}: {exc}")
+
+        pr_url = _extract_pr_url(create_stdout)
+        if pr_url is None:
+            logger.warning(
+                "gh pr create succeeded for %s but no URL parsed: %r",
+                branch,
+                create_stdout,
+            )
+
+        if auto_merge and pr_url is not None:
+            try:
+                await run_subprocess(
+                    "gh",
+                    "pr",
+                    "merge",
+                    pr_url,
+                    "--auto",
+                    "--squash",
+                    cwd=worktree_path,
+                    gh_token=gh_token,
+                )
+            except RuntimeError as exc:
+                logger.warning("gh pr merge --auto failed for %s: %s", pr_url, exc)
+
+        return AutoPrResult(status="opened", pr_url=pr_url, branch=branch)
+
+    finally:
+        await _remove_worktree_async(repo_root, worktree_path, branch, gh_token)
+
+
+async def _remove_worktree_async(
+    repo_root: Path,
+    worktree_path: Path,
+    branch: str,
+    gh_token: str,
+) -> None:
+    """Best-effort async worktree cleanup. Never raises."""
+    from subprocess_util import run_subprocess  # local import: avoids cycles
+
+    try:
+        await run_subprocess(
+            "git",
+            "worktree",
+            "remove",
+            str(worktree_path),
+            "--force",
+            cwd=repo_root,
+            gh_token=gh_token,
+        )
+    except RuntimeError:
+        logger.debug("git worktree remove failed for %s", worktree_path)
+
+    if worktree_path.exists():
+        shutil.rmtree(worktree_path, ignore_errors=True)
+
+    try:
+        await run_subprocess(
+            "git",
+            "branch",
+            "-D",
+            branch,
+            cwd=repo_root,
+            gh_token=gh_token,
+        )
+    except RuntimeError:
+        logger.debug("git branch -D failed for %s", branch)
