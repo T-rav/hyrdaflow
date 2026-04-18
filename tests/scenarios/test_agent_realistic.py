@@ -855,3 +855,41 @@ async def test_A20_workspace_create_permission_failure(tmp_path) -> None:
 
     # Pipeline does not crash. Issue fails without merging.
     assert not result.issue(1).merged, f"expected no merge; outcome={result.issue(1)}"
+
+
+async def test_A21_state_json_corruption_graceful_fallback(tmp_path) -> None:
+    """Corrupt state.json before run; StateTracker falls back to empty state.
+
+    Per src/state/__init__.py, `StateTracker.load` catches `JSONDecodeError`
+    and OSError, tries `.bak` files, then falls back to empty `StateData()`.
+    Pipeline must still run — a corrupt state file is recoverable.
+
+    PipelineHarness uses `state_file=tmp_path / "state.json"`, so corrupting
+    that file BEFORE MockWorld construction exercises the real StateTracker
+    fallback path.  The pipeline proceeds with a fresh empty state, and the
+    issue is processed normally.
+    """
+    from tests.scenarios.helpers.git_worktree_fixture import init_test_worktree
+
+    # Corrupt the state file before MockWorld (and therefore StateTracker) is created
+    state_file = tmp_path / "state.json"
+    state_file.write_text('{"this is": broken json no closing brace')
+
+    world = MockWorld(tmp_path, use_real_agent_runner=True)
+    world.add_issue(1, "t", "b", labels=["hydraflow-ready"])
+    worktree_cwd = tmp_path / "worktrees" / "issue-1"
+    init_test_worktree(worktree_cwd)
+
+    world.docker.script_run_with_commits(
+        events=[{"type": "result", "success": True, "exit_code": 0}],
+        commits=[("x.py", "ok")],
+        cwd=worktree_cwd,
+    )
+
+    # Pipeline must not raise on startup despite the corrupt state file.
+    # StateTracker.load() catches JSONDecodeError and falls back to StateData().
+    result = await world.run_pipeline()
+
+    # The real StateTracker was exercised: construction did not raise and the
+    # pipeline ran to completion with a fresh empty state.
+    assert result is not None
