@@ -1657,6 +1657,9 @@ class TestCommitAcceptance:
         assert kwargs["raise_on_failure"] is False
         assert kwargs["auto_merge"] is False
         assert kwargs["branch"] == "adr/accept-0001"
+        # Commit author threaded through from HydraFlowConfig, not hardcoded.
+        assert kwargs["commit_author_name"] == reviewer._config.git_user_name
+        assert kwargs["commit_author_email"] == reviewer._config.git_user_email
 
 
 class TestTitleTruncation:

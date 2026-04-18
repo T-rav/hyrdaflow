@@ -859,6 +859,8 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
             gh_token=self._credentials.gh_token,
             raise_on_failure=False,
             worktree_parent=Path(self._config.workspace_base),
+            commit_author_name=self._config.git_user_name,
+            commit_author_email=self._config.git_user_email,
         )
 
     async def _escalate_to_hitl(self, result: ADRCouncilResult, *, reason: str) -> None:
