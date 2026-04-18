@@ -15,6 +15,7 @@ from hypothesis import strategies as st
 
 from tests.scenarios.builders.issue import IssueBuilder
 from tests.scenarios.builders.pr import PRBuilder
+from tests.scenarios.fakes.fake_github import FakeGitHub
 from tests.scenarios.fakes.mock_world import MockWorld
 from tests.scenarios.fuzz.strategies import (
     issue_builders,
@@ -77,3 +78,53 @@ async def test_repo_state_labels_are_valid(tmp_path: Path, repo) -> None:
         assert got.issubset(valid_labels), (
             f"unknown labels on {num}: {got - valid_labels}"
         )
+
+
+_VALID_STAGE_LABELS = [
+    "hydraflow-find",
+    "hydraflow-triage",
+    "hydraflow-plan",
+    "hydraflow-ready",
+    "hydraflow-review",
+    "hydraflow-done",
+    "hydraflow-hitl",
+]
+
+_VALID_STAGES = ["find", "triage", "plan", "ready", "review", "done", "hitl"]
+
+
+@given(
+    initial=st.sampled_from(_VALID_STAGE_LABELS),
+    target=st.sampled_from(_VALID_STAGES),
+)
+@_DEFAULT_SETTINGS
+async def test_fake_github_transition_maintains_single_stage_label(
+    initial: str,
+    target: str,
+) -> None:
+    """After any valid transition, the issue carries exactly one stage label."""
+    gh = FakeGitHub()
+    gh.add_issue(1, "title", "body", labels=[initial, "other-label"])
+
+    await gh.transition(1, target)
+
+    labels = gh.issue(1).labels
+    stage_labels = [lbl for lbl in labels if lbl.startswith("hydraflow-")]
+    assert len(stage_labels) == 1, f"expected one stage label; got {stage_labels}"
+
+
+@given(num_prs=st.integers(min_value=1, max_value=10))
+@_DEFAULT_SETTINGS
+async def test_fake_github_pr_numbers_unique(num_prs: int) -> None:
+    """Every create_pr call produces a unique PR number."""
+    gh = FakeGitHub()
+    seen: set[int] = set()
+
+    for i in range(num_prs):
+        gh.add_issue(i + 1, f"title-{i}", "body", labels=["hydraflow-ready"])
+        issue_obj = type("_Issue", (), {"number": i + 1})()
+        pr_info = await gh.create_pr(issue_obj, f"feat/issue-{i + 1}")
+        assert pr_info.number not in seen, (
+            f"duplicate PR number {pr_info.number} on iteration {i}"
+        )
+        seen.add(pr_info.number)
