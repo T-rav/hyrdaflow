@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { theme } from '../theme'
 import { useHydraFlow } from '../context/HydraFlowContext'
 import { HarnessInsightsPanel } from './HarnessInsightsPanel'
+import { InsightBar, StatBox, PatternCard } from './memory/shared/insightsPrimitives'
 
 const SECTIONS = [
   { key: 'harness', label: 'Failure Patterns' },
@@ -9,23 +10,6 @@ const SECTIONS = [
   { key: 'retrospective', label: 'Retrospective' },
   { key: 'memories', label: 'Learnings' },
 ]
-
-// ---------------------------------------------------------------------------
-// Shared bar component
-// ---------------------------------------------------------------------------
-
-function InsightBar({ label, count, maxCount, color }) {
-  const pct = maxCount > 0 ? (count / maxCount) * 100 : 0
-  return (
-    <div style={styles.barRow}>
-      <div style={styles.barLabel}>{label}</div>
-      <div style={styles.barTrack}>
-        <div style={{ ...styles.barFill, width: `${pct}%`, background: color || theme.accent }} />
-      </div>
-      <div style={styles.barCount}>{count}</div>
-    </div>
-  )
-}
 
 // ---------------------------------------------------------------------------
 // Review Feedback sub-section
@@ -107,7 +91,7 @@ function ReviewFeedbackSection() {
         <div style={styles.section}>
           <div style={styles.sectionTitle}>Recurring Patterns</div>
           {patterns.map((p, i) => (
-            <PatternCard key={i} pattern={p} />
+            <ReviewPatternCard key={i} pattern={p} />
           ))}
         </div>
       )}
@@ -126,30 +110,18 @@ function ReviewFeedbackSection() {
   )
 }
 
-function PatternCard({ pattern }) {
-  const [expanded, setExpanded] = useState(false)
+function ReviewPatternCard({ pattern }) {
   const label = REVIEW_CATEGORY_LABELS[pattern.category] || pattern.category
-
   return (
-    <div style={styles.patternCard}>
-      <div style={styles.patternHeader} onClick={() => setExpanded(!expanded)}>
-        <span style={styles.patternDot} />
-        <span style={styles.patternTitle}>{label}</span>
-        <span style={styles.patternCount}>{pattern.count}x</span>
-        <span style={styles.expandIcon}>{expanded ? '\u25B4' : '\u25BE'}</span>
-      </div>
-      {expanded && pattern.evidence && (
-        <div style={styles.patternBody}>
-          {pattern.evidence.map((e, i) => (
-            <div key={i} style={styles.evidenceItem}>
-              #{e.issue_number}
-              {e.pr_number > 0 && ` (PR #${e.pr_number})`}
-              {e.summary && `: ${e.summary.substring(0, 80)}`}
-            </div>
-          ))}
+    <PatternCard title={label} count={pattern.count} color={theme.orange}>
+      {pattern.evidence && pattern.evidence.map((e, i) => (
+        <div key={i} style={styles.evidenceItem}>
+          #{e.issue_number}
+          {e.pr_number > 0 && ` (PR #${e.pr_number})`}
+          {e.summary && `: ${e.summary.substring(0, 80)}`}
         </div>
-      )}
-    </div>
+      ))}
+    </PatternCard>
   )
 }
 
@@ -233,15 +205,6 @@ function RetrospectiveSection() {
   )
 }
 
-function StatBox({ label, value }) {
-  return (
-    <div style={styles.statBox}>
-      <div style={styles.statValue}>{value}</div>
-      <div style={styles.statLabel}>{label}</div>
-    </div>
-  )
-}
-
 function formatDuration(seconds) {
   if (!seconds || seconds === 0) return '0s'
   if (seconds < 60) return `${Math.round(seconds)}s`
@@ -274,34 +237,31 @@ function LearningsSubSection({ title, defaultExpanded, children }) {
 // Troubleshooting pattern card
 // ---------------------------------------------------------------------------
 
-function TroubleshootingCard({ pattern }) {
-  const [expanded, setExpanded] = useState(false)
+function TroubleshootingPatternCard({ pattern }) {
   return (
-    <div style={styles.patternCard}>
-      <div style={styles.patternHeader} onClick={() => setExpanded(!expanded)}>
-        <span style={styles.patternDot} />
-        <span style={styles.patternTitle}>{pattern.pattern_name}</span>
-        <span style={styles.langTag}>{pattern.language}</span>
-        <span style={styles.patternCount}>{pattern.frequency}x</span>
-        <span style={styles.expandIcon}>{expanded ? '\u25B4' : '\u25BE'}</span>
+    <PatternCard
+      title={
+        <>
+          <span>{pattern.pattern_name}</span>
+          <span style={styles.langTag}>{pattern.language}</span>
+        </>
+      }
+      count={pattern.frequency}
+      color={theme.orange}
+    >
+      <div style={styles.tsDetail}>
+        <span style={styles.tsDetailLabel}>Cause:</span> {pattern.description}
       </div>
-      {expanded && (
-        <div style={styles.patternBody}>
-          <div style={styles.tsDetail}>
-            <span style={styles.tsDetailLabel}>Cause:</span> {pattern.description}
-          </div>
-          <div style={styles.tsDetail}>
-            <span style={styles.tsDetailLabel}>Fix:</span> {pattern.fix_strategy}
-          </div>
-          {pattern.source_issues && pattern.source_issues.length > 0 && (
-            <div style={styles.tsDetail}>
-              <span style={styles.tsDetailLabel}>Issues:</span>{' '}
-              {pattern.source_issues.map((n) => `#${n}`).join(', ')}
-            </div>
-          )}
+      <div style={styles.tsDetail}>
+        <span style={styles.tsDetailLabel}>Fix:</span> {pattern.fix_strategy}
+      </div>
+      {pattern.source_issues && pattern.source_issues.length > 0 && (
+        <div style={styles.tsDetail}>
+          <span style={styles.tsDetailLabel}>Issues:</span>{' '}
+          {pattern.source_issues.map((n) => `#${n}`).join(', ')}
         </div>
       )}
-    </div>
+    </PatternCard>
   )
 }
 
@@ -324,7 +284,7 @@ function TroubleshootingSubSection() {
         <span style={styles.headerText}>patterns learned</span>
       </div>
       {(data.patterns || []).map((p) => (
-        <TroubleshootingCard key={`${p.language}:${p.pattern_name}`} pattern={p} />
+        <TroubleshootingPatternCard key={`${p.language}:${p.pattern_name}`} pattern={p} />
       ))}
     </div>
   )
@@ -523,37 +483,6 @@ const styles = {
     textTransform: 'uppercase',
     letterSpacing: '0.5px',
   },
-  barRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-  },
-  barLabel: {
-    fontSize: 12,
-    color: theme.text,
-    width: 140,
-    flexShrink: 0,
-  },
-  barTrack: {
-    flex: 1,
-    height: 8,
-    background: theme.surfaceInset,
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  barFill: {
-    height: '100%',
-    borderRadius: 4,
-    transition: 'width 0.3s',
-  },
-  barCount: {
-    fontSize: 12,
-    fontWeight: 600,
-    color: theme.textBright,
-    width: 32,
-    textAlign: 'right',
-    flexShrink: 0,
-  },
   tagCloud: {
     display: 'flex',
     flexWrap: 'wrap',
@@ -567,47 +496,9 @@ const styles = {
     borderRadius: 12,
     padding: '2px 8px',
   },
-  patternCard: {
-    border: `1px solid ${theme.border}`,
-    borderRadius: 8,
-    background: theme.surface,
-    overflow: 'hidden',
-  },
-  patternHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '8px 12px',
-    cursor: 'pointer',
-    transition: 'background 0.15s',
-  },
-  patternDot: {
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    background: theme.orange,
-    flexShrink: 0,
-  },
-  patternTitle: {
-    fontSize: 13,
-    color: theme.text,
-    flex: 1,
-  },
-  patternCount: {
-    fontSize: 11,
-    fontWeight: 600,
-    color: theme.orange,
-  },
   expandIcon: {
     fontSize: 10,
     color: theme.textMuted,
-  },
-  patternBody: {
-    padding: '8px 12px 12px',
-    borderTop: `1px solid ${theme.border}`,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 4,
   },
   evidenceItem: {
     fontSize: 11,
@@ -619,23 +510,6 @@ const styles = {
     display: 'flex',
     flexWrap: 'wrap',
     gap: 12,
-  },
-  statBox: {
-    background: theme.surfaceInset,
-    border: `1px solid ${theme.border}`,
-    borderRadius: 8,
-    padding: '8px 16px',
-    minWidth: 100,
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: 700,
-    color: theme.textBright,
-  },
-  statLabel: {
-    fontSize: 11,
-    color: theme.textMuted,
-    marginTop: 2,
   },
   tableContainer: {
     overflowX: 'auto',
