@@ -21,15 +21,10 @@ def _reset_skill_cache():
 
 
 def _make_plugin(cache_root: Path, plugin: str, skill: str = "some-skill") -> None:
-    """Create a minimal plugin with one well-formed skill.
+    """Create a minimal plugin with one well-formed skill (thin wrapper around shared helper)."""
+    from tests.conftest import write_plugin_skill
 
-    Mirrors the real cache layout: ``<marketplace>/<plugin>/<version>/skills/<skill>/SKILL.md``.
-    """
-    skill_dir = cache_root / "official" / plugin / "1.0.0" / "skills" / skill
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
-        f"---\nname: {skill}\ndescription: A skill description\n---\n\nBody.\n"
-    )
+    write_plugin_skill(cache_root, "official", plugin, skill)
 
 
 @pytest.fixture

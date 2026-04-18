@@ -1133,3 +1133,35 @@ class ReviewMockBuilder:
         wt.mkdir(parents=True, exist_ok=True)
 
         return mock_reviewers, mock_prs, mock_wt
+
+
+def write_plugin_skill(
+    cache_root: Path,
+    marketplace: str,
+    plugin: str,
+    skill: str,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    frontmatter: str | None = None,
+    version: str = "1.0.0",
+) -> Path:
+    """Create a SKILL.md under the real cache layout and return its path.
+
+    Layout: ``<cache_root>/<marketplace>/<plugin>/<version>/skills/<skill>/SKILL.md``.
+    Shared helper used by plugin-skill-registry and preflight-plugins tests.
+    """
+    skill_dir = cache_root / marketplace / plugin / version / "skills" / skill
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    skill_md = skill_dir / "SKILL.md"
+    if frontmatter is not None:
+        content = f"---\n{frontmatter}\n---\n\nBody here.\n"
+    else:
+        content = (
+            "---\n"
+            f"name: {name or skill}\n"
+            f"description: {description or f'{skill} description'}\n"
+            "---\n\nBody here.\n"
+        )
+    skill_md.write_text(content)
+    return skill_md

@@ -730,7 +730,7 @@ Run through this checklist before your final commit:
         test_cmd = self._config.test_command  # noqa: F841 — used in f-string prompt
         tools_section = format_tools_for_prompt(discover_tools(self._config.repo_root))
         skills_section = format_skills_for_prompt(get_skills())
-        plugin_skills_section = format_plugin_skills_for_prompt(  # noqa: F841 — used in f-string prompt
+        plugin_skills_section = format_plugin_skills_for_prompt(
             discover_plugin_skills(self._config.required_plugins)
         )
 
@@ -765,7 +765,6 @@ Key rules:
 {tools_section}
 
 {skills_section}
-{plugin_skills_section}
 {feedback_section}{escalation_section}
 {self._build_self_check_checklist(escalations)}
 {self._build_requirements_gap_section(issue)}
@@ -798,6 +797,8 @@ Key rules:
   in files you are not otherwise changing for the issue. Each concern is a separate PR.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="implementation")}"""
+        if plugin_skills_section:
+            prompt = f"{prompt}\n\n{plugin_skills_section}"
         return prompt, builder.build_stats()
 
     # ------------------------------------------------------------------
