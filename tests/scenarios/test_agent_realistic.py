@@ -792,3 +792,47 @@ async def test_A16_credit_exhausted_halts_pipeline(tmp_path) -> None:
         pytest.raises(CreditExhaustedError),
     ):
         await world.run_pipeline()
+
+
+async def test_A19_code_scanning_alerts_reach_reviewer(tmp_path) -> None:
+    """Scripted code-scanning alerts propagate through review pipeline.
+
+    FakeGitHub.add_alerts(pr_number=...) seeds alerts for the PR that will be
+    created. Real ReviewPhase fetches them via fetch_code_scanning_alerts and
+    passes them to ReviewRunner.review. FakeLLM.reviewers records what it
+    received; we assert the alert list reached the reviewer unchanged.
+    """
+    from models import CodeScanningAlert
+    from tests.scenarios.helpers.git_worktree_fixture import init_test_worktree
+
+    world = MockWorld(tmp_path, use_real_agent_runner=True)
+    world.add_issue(1, "t", "b", labels=["hydraflow-ready"])
+    worktree_cwd = tmp_path / "worktrees" / "issue-1"
+    init_test_worktree(worktree_cwd)
+
+    world.docker.script_run_with_commits(
+        events=[{"type": "result", "success": True, "exit_code": 0}],
+        commits=[("x.py", "ok")],
+        cwd=worktree_cwd,
+    )
+
+    alerts = [
+        CodeScanningAlert(
+            number=1,
+            severity="error",
+            security_severity="high",
+            path="x.py",
+            start_line=1,
+            rule="py/test",
+            message="an alert",
+        ),
+    ]
+    # Production ReviewPhase calls fetch_code_scanning_alerts(pr.branch) — the
+    # branch is the key in FakeGitHub._alerts (positional arg maps to pr_number).
+    world.github.add_alerts(pr_number="agent/issue-1", alerts=alerts)
+
+    await world.run_pipeline()
+
+    # Pipeline ran and reviewer saw the alerts
+    received = world._llm.alerts_received_by_reviewer(1)
+    assert received == alerts, f"reviewer received {received!r}"
