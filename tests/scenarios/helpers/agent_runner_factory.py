@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 def build_real_agent_runner(
     *,
     docker: FakeDocker,
-    hindsight: FakeHindsight,  # noqa: ARG001 — passed for API symmetry; AgentRunner takes HindsightClient
+    hindsight: FakeHindsight,  # noqa: ARG001 — accepted for MockWorld API symmetry; AgentRunner receives None because FakeHindsight cannot satisfy HindsightClient
     event_bus: EventBus,
     tmp_path: Path,  # noqa: ARG001 — reserved for future config needs
 ) -> AgentRunner:
@@ -27,9 +27,10 @@ def build_real_agent_runner(
     ``HindsightClient`` type; scenario tests drive hindsight via FakeLLM.
     """
     from agent import AgentRunner  # noqa: PLC0415 — avoid circular import at collection
+    from tests.helpers import ConfigFactory, CredentialsFactory
 
-    config = _build_scenario_config()
-    credentials = _build_scenario_credentials()
+    config = ConfigFactory.create()
+    credentials = CredentialsFactory.create()
 
     return AgentRunner(
         config=config,
@@ -39,17 +40,3 @@ def build_real_agent_runner(
         credentials=credentials,
         wiki_store=None,
     )
-
-
-def _build_scenario_config():  # type: ignore[no-untyped-def]
-    """Return a minimal valid HydraFlowConfig via ConfigFactory."""
-    from tests.helpers import ConfigFactory
-
-    return ConfigFactory.create(repo="T-rav/test-repo")
-
-
-def _build_scenario_credentials():  # type: ignore[no-untyped-def]
-    """Return a minimal valid Credentials for scenarios."""
-    from tests.helpers import CredentialsFactory
-
-    return CredentialsFactory.create()
