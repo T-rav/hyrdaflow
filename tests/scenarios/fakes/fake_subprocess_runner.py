@@ -149,19 +149,20 @@ class FakeSubprocessRunner:
                 cmd, cwd=cwd, env=env, timeout=timeout, input=input
             )
 
-        _ = (cwd, timeout, input)
-        event_iter = await self._docker.run_agent(command=list(cmd), env=env)
-        lines: list[str] = []
-        returncode = 1
-        async for event in event_iter:
-            lines.append(json.dumps(event))
-            if event.get("type") == "result":
-                returncode = int(event.get("exit_code", 1))
-        return SimpleResult(
-            stdout="\n".join(lines),
-            stderr="",
-            returncode=returncode,
-        )
+        _ = (cwd, input)
+
+        async def _drain() -> tuple[str, int]:
+            event_iter = await self._docker.run_agent(command=list(cmd), env=env)
+            lines: list[str] = []
+            returncode = 1
+            async for event in event_iter:
+                lines.append(json.dumps(event))
+                if event.get("type") == "result":
+                    returncode = int(event.get("exit_code", 1))
+            return "\n".join(lines), returncode
+
+        stdout, returncode = await asyncio.wait_for(_drain(), timeout=timeout)
+        return SimpleResult(stdout=stdout, stderr="", returncode=returncode)
 
     @staticmethod
     async def _run_on_host(

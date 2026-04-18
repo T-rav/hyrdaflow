@@ -146,3 +146,25 @@ async def test_run_simple_non_host_command_still_goes_to_docker() -> None:
     result = await runner.run_simple(["make", "quality"])
     # Routes through FakeDocker — returncode comes from scripted result event
     assert result.returncode == 7
+
+
+async def test_run_simple_docker_timeout_raises() -> None:
+    """A FakeDocker script that never yields a result must hit the wait_for timeout."""
+    import asyncio
+
+    class _NeverYieldingDocker:
+        invocations: list = []
+
+        async def run_agent(self, **_kwargs):  # type: ignore[no-untyped-def]
+            async def _iter():
+                await asyncio.sleep(10)  # never completes within timeout
+                yield {"type": "result", "success": True, "exit_code": 0}
+
+            return _iter()
+
+    # Wrap our hanging fake in a FakeSubprocessRunner
+    docker = _NeverYieldingDocker()
+    runner = FakeSubprocessRunner(docker)  # type: ignore[arg-type]
+
+    with pytest.raises(asyncio.TimeoutError):
+        await runner.run_simple(["make", "quality"], timeout=0.05)
