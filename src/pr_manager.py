@@ -478,6 +478,71 @@ class PRManager:
             draft=bool(pr_data.get("isDraft", False)),
         )
 
+    async def list_rc_branches(self) -> list[tuple[str, str]]:
+        """Return ``[(branch_name, committer_date_iso), ...]`` for all ``rc/*`` refs.
+
+        Used exclusively by :class:`StagingPromotionLoop` for retention cleanup.
+        ``committer_date`` is the ref tip's committer date (ISO 8601), which
+        matches the time the RC was cut since RC branches are frozen snapshots.
+        """
+        if self._config.dry_run:
+            return []
+        prefix = self._config.rc_branch_prefix
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "api",
+                f"repos/{self._repo}/git/matching-refs/heads/{prefix}",
+                "--jq",
+                "[.[] | {ref: .ref, sha: .object.sha}]",
+            )
+            refs = json.loads(raw) if raw.strip() else []
+        except (RuntimeError, ValueError, json.JSONDecodeError):
+            logger.debug("Could not list rc/* refs", exc_info=True)
+            return []
+
+        results: list[tuple[str, str]] = []
+        for ref in refs:
+            branch = str(ref.get("ref", "")).removeprefix("refs/heads/")
+            sha = str(ref.get("sha", ""))
+            if not branch or not sha:
+                continue
+            try:
+                commit_raw = await self._run_gh(
+                    "gh",
+                    "api",
+                    f"repos/{self._repo}/git/commits/{sha}",
+                    "--jq",
+                    ".committer.date",
+                )
+            except RuntimeError:
+                logger.debug(
+                    "Could not fetch committer date for %s", sha, exc_info=True
+                )
+                continue
+            committer_date = commit_raw.strip().strip('"')
+            if committer_date:
+                results.append((branch, committer_date))
+        return results
+
+    async def delete_branch(self, branch: str) -> bool:
+        """Delete *branch* from the remote. Returns True on success."""
+        if self._config.dry_run:
+            logger.info("[dry-run] Would delete branch %s", branch)
+            return True
+        try:
+            await self._run_gh(
+                "gh",
+                "api",
+                "--method",
+                "DELETE",
+                f"repos/{self._repo}/git/refs/heads/{branch}",
+            )
+            return True
+        except RuntimeError:
+            logger.warning("Failed to delete branch %s", branch, exc_info=True)
+            return False
+
     async def merge_promotion_pr(self, pr_number: int) -> bool:
         """Merge *pr_number* via ``--merge`` (merge commit), not squash.
 

@@ -45,14 +45,19 @@ class StagingPromotionLoop(BaseBackgroundLoop):
         if not self._config.staging_enabled:
             return {"status": "staging_disabled"}
 
+        swept = await self._sweep_if_due()
+
         existing = await self._prs.find_open_promotion_pr()
         if existing is not None:
-            return await self._handle_open_promotion(existing.number)
+            result = await self._handle_open_promotion(existing.number)
+        elif not self._cadence_elapsed():
+            result = {"status": "cadence_not_elapsed"}
+        else:
+            result = await self._cut_new_rc()
 
-        if not self._cadence_elapsed():
-            return {"status": "cadence_not_elapsed"}
-
-        return await self._cut_new_rc()
+        if swept:
+            result = {**result, "swept": swept}
+        return result
 
     async def _handle_open_promotion(self, pr_number: int) -> dict[str, Any]:
         passed, summary = await self._prs.wait_for_ci(
@@ -158,3 +163,72 @@ class StagingPromotionLoop(BaseBackgroundLoop):
         path = self._cadence_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(when.isoformat())
+
+    def _sweep_path(self) -> Path:
+        return self._config.data_root / "memory" / ".staging_promotion_last_sweep"
+
+    def _sweep_due(self) -> bool:
+        path = self._sweep_path()
+        if not path.exists():
+            return True
+        try:
+            last = datetime.fromisoformat(path.read_text().strip())
+        except ValueError:
+            return True
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=UTC)
+        return (datetime.now(UTC) - last).total_seconds() >= 86400
+
+    async def _sweep_if_due(self) -> int | None:
+        if not self._sweep_due():
+            return None
+        deleted = await self._sweep_stale_rc_branches()
+        path = self._sweep_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(datetime.now(UTC).isoformat())
+        return deleted
+
+    async def _sweep_stale_rc_branches(self) -> int:
+        branches = await self._prs.list_rc_branches()
+        if not branches:
+            return 0
+
+        retention_seconds = self._config.staging_rc_retention_days * 86400
+        now = datetime.now(UTC)
+
+        dated: list[tuple[str, datetime]] = []
+        for branch, iso in branches:
+            try:
+                when = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+            except ValueError:
+                logger.debug("Un-parseable committer date %r on %s", iso, branch)
+                continue
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=UTC)
+            dated.append((branch, when))
+        if not dated:
+            return 0
+
+        # Newest RC is always preserved even if older than the retention window,
+        # so we never leave zero RC snapshots on the repo.
+        dated.sort(key=lambda b: b[1], reverse=True)
+        newest = dated[0][0]
+        open_pr = await self._prs.find_open_promotion_pr()
+        keep_branch = open_pr.branch if open_pr is not None else None
+
+        deleted = 0
+        for branch, when in dated[1:]:
+            if branch == keep_branch:
+                continue
+            if (now - when).total_seconds() < retention_seconds:
+                continue
+            if await self._prs.delete_branch(branch):
+                deleted += 1
+                logger.info("Swept stale RC branch %s", branch)
+        if deleted:
+            logger.info(
+                "Retention sweep: deleted %d rc/* branches (kept newest=%s)",
+                deleted,
+                newest,
+            )
+        return deleted

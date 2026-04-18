@@ -165,6 +165,20 @@ class PRPort(Protocol):
         """
         ...
 
+    async def list_rc_branches(self) -> list[tuple[str, str]]:
+        """Return ``[(branch_name, committer_date_iso), ...]`` for all rc/* refs.
+
+        Matches ``pr_manager.PRManager.list_rc_branches`` exactly.
+        """
+        ...
+
+    async def delete_branch(self, branch: str) -> bool:
+        """Delete *branch* from the remote. Returns True on success.
+
+        Matches ``pr_manager.PRManager.delete_branch`` exactly.
+        """
+        ...
+
     async def get_pr_diff(self, pr_number: int) -> str:
         """Return the unified diff for *pr_number* as a string."""
         ...

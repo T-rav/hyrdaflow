@@ -151,3 +151,77 @@ class TestMergePromotionPr:
         monkeypatch.setattr("pr_manager.run_subprocess", fake_run)
         assert await pm.merge_promotion_pr(77) is True
         assert fake_run.await_count == 0
+
+
+class TestListRcBranches:
+    async def test_returns_branch_and_date_pairs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        pm, _, _ = _build(tmp_path)
+
+        async def fake_gh(*args, **_kwargs):
+            if "matching-refs" in args[2]:
+                return (
+                    '[{"ref": "refs/heads/rc/2026-04-01-1200", "sha": "abc"},'
+                    ' {"ref": "refs/heads/rc/2026-04-10-1600", "sha": "def"}]'
+                )
+            if args[2].endswith("/git/commits/abc"):
+                return '"2026-04-01T12:00:00Z"'
+            if args[2].endswith("/git/commits/def"):
+                return '"2026-04-10T16:00:00Z"'
+            return ""
+
+        monkeypatch.setattr(pm, "_run_gh", fake_gh)
+        rows = await pm.list_rc_branches()
+        assert rows == [
+            ("rc/2026-04-01-1200", "2026-04-01T12:00:00Z"),
+            ("rc/2026-04-10-1600", "2026-04-10T16:00:00Z"),
+        ]
+
+    async def test_returns_empty_on_api_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        pm, _, _ = _build(tmp_path)
+
+        async def fake_gh(*_args, **_kwargs):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(pm, "_run_gh", fake_gh)
+        assert await pm.list_rc_branches() == []
+
+    async def test_returns_empty_in_dry_run(self, tmp_path: Path) -> None:
+        pm, _, _ = _build(tmp_path, dry_run=True)
+        assert await pm.list_rc_branches() == []
+
+
+class TestDeleteBranch:
+    async def test_calls_delete_api(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        pm, _, _ = _build(tmp_path)
+        captured: list[tuple] = []
+
+        async def fake_gh(*args, **_kwargs):
+            captured.append(args)
+            return ""
+
+        monkeypatch.setattr(pm, "_run_gh", fake_gh)
+        assert await pm.delete_branch("rc/2026-04-01-1200") is True
+        args = captured[0]
+        assert "DELETE" in args
+        assert args[-1].endswith("/git/refs/heads/rc/2026-04-01-1200")
+
+    async def test_returns_false_on_api_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        pm, _, _ = _build(tmp_path)
+
+        async def fake_gh(*_args, **_kwargs):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(pm, "_run_gh", fake_gh)
+        assert await pm.delete_branch("rc/2026-04-01-1200") is False
+
+    async def test_skips_gh_in_dry_run(self, tmp_path: Path) -> None:
+        pm, _, _ = _build(tmp_path, dry_run=True)
+        assert await pm.delete_branch("rc/x") is True

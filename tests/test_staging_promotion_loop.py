@@ -67,6 +67,8 @@ def _make_loop(
     prs.create_rc_branch = AsyncMock(return_value="sha123")
     prs.create_promotion_pr = AsyncMock(return_value=42)
     prs.create_issue = AsyncMock(return_value=1234)
+    prs.list_rc_branches = AsyncMock(return_value=[])
+    prs.delete_branch = AsyncMock(return_value=True)
 
     loop = StagingPromotionLoop(config=cfg, prs=prs, deps=loop_deps)
     return loop, prs
@@ -263,3 +265,80 @@ class TestDefaultInterval:
     ) -> None:
         loop, _ = _make_loop(tmp_path, monkeypatch)
         assert loop._get_default_interval() == 300
+
+
+class TestRetentionSweep:
+    def _iso(self, dt: datetime) -> str:
+        return dt.isoformat().replace("+00:00", "Z")
+
+    @pytest.mark.asyncio
+    async def test_sweep_skipped_when_recently_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, prs = _make_loop(tmp_path, monkeypatch)
+        loop._sweep_path().parent.mkdir(parents=True, exist_ok=True)
+        loop._sweep_path().write_text(datetime.now(UTC).isoformat())
+        # Block other work paths so _do_work completes promptly.
+        prs.find_open_promotion_pr.return_value = _make_pr(99)
+        prs.wait_for_ci.return_value = (False, "Timed out")
+        await loop._do_work()
+        prs.list_rc_branches.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_deletes_rc_branches_older_than_retention(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, prs = _make_loop(tmp_path, monkeypatch)
+        old = datetime.now(UTC) - timedelta(days=30)
+        recent = datetime.now(UTC) - timedelta(days=2)
+        prs.list_rc_branches.return_value = [
+            ("rc/2026-03-10-1200", self._iso(old)),
+            ("rc/2026-04-16-0800", self._iso(recent)),
+        ]
+        # Force _do_work straight into the sweep by making it cadence_not_elapsed.
+        loop._record_last_rc(datetime.now(UTC))
+        result = await loop._do_work()
+        prs.delete_branch.assert_called_once_with("rc/2026-03-10-1200")
+        assert result["swept"] == 1
+
+    @pytest.mark.asyncio
+    async def test_preserves_newest_even_if_past_retention(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, prs = _make_loop(tmp_path, monkeypatch)
+        # Every branch is older than retention (7d default); the newest should
+        # still survive so the repo isn't left with zero RC snapshots.
+        prs.list_rc_branches.return_value = [
+            ("rc/2026-01-01-1200", self._iso(datetime.now(UTC) - timedelta(days=90))),
+            ("rc/2026-01-10-1200", self._iso(datetime.now(UTC) - timedelta(days=80))),
+        ]
+        loop._record_last_rc(datetime.now(UTC))
+        await loop._do_work()
+        deleted_branches = [c.args[0] for c in prs.delete_branch.call_args_list]
+        assert "rc/2026-01-10-1200" not in deleted_branches
+        assert "rc/2026-01-01-1200" in deleted_branches
+
+    @pytest.mark.asyncio
+    async def test_preserves_branch_with_open_pr(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        open_pr = _make_pr(99, branch="rc/2026-01-01-1200")
+        loop, prs = _make_loop(tmp_path, monkeypatch, open_promotion=open_pr)
+        prs.list_rc_branches.return_value = [
+            ("rc/2026-01-01-1200", self._iso(datetime.now(UTC) - timedelta(days=90))),
+            ("rc/2026-04-16-0800", self._iso(datetime.now(UTC) - timedelta(days=2))),
+        ]
+        prs.wait_for_ci.return_value = (False, "Timed out")
+        await loop._do_work()
+        deleted_branches = [c.args[0] for c in prs.delete_branch.call_args_list]
+        assert "rc/2026-01-01-1200" not in deleted_branches
+
+    @pytest.mark.asyncio
+    async def test_records_sweep_timestamp_even_when_no_deletes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, _ = _make_loop(tmp_path, monkeypatch)
+        assert not loop._sweep_path().exists()
+        loop._record_last_rc(datetime.now(UTC))
+        await loop._do_work()
+        assert loop._sweep_path().exists()
