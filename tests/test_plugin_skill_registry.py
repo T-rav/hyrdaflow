@@ -9,6 +9,7 @@ import pytest
 from plugin_skill_registry import (
     PluginSkill,
     discover_plugin_skills,
+    format_plugin_skills_for_prompt,
 )
 
 
@@ -144,3 +145,47 @@ class TestPluginSkillQualifiedName:
             description="Use when...",
         )
         assert skill.qualified_name == "superpowers:brainstorming"
+
+
+class TestFormatPluginSkillsForPrompt:
+    """Verify format_plugin_skills_for_prompt emits the expected prompt section."""
+
+    def test_contains_skills_header(self) -> None:
+        """Output begins with a markdown section header."""
+        skills = [PluginSkill("superpowers", "brainstorming", "Use when...")]
+        assert "## Available Skills" in format_plugin_skills_for_prompt(skills)
+
+    def test_contains_qualified_names(self) -> None:
+        """Each skill's qualified_name appears verbatim."""
+        skills = [
+            PluginSkill(
+                "superpowers", "brainstorming", "Use when starting creative work"
+            ),
+            PluginSkill("code-review", "code-review", "Review a PR"),
+        ]
+        output = format_plugin_skills_for_prompt(skills)
+        assert "superpowers:brainstorming" in output
+        assert "code-review:code-review" in output
+
+    def test_contains_descriptions(self) -> None:
+        """Each skill's description appears in the output."""
+        skills = [
+            PluginSkill(
+                "superpowers",
+                "brainstorming",
+                "Use when starting creative work",
+            )
+        ]
+        assert "Use when starting creative work" in format_plugin_skills_for_prompt(
+            skills
+        )
+
+    def test_empty_list_returns_empty_string(self) -> None:
+        """Empty skill list produces an empty string (no header)."""
+        assert format_plugin_skills_for_prompt([]) == ""
+
+    def test_mentions_skill_tool_usage(self) -> None:
+        """Output instructs the agent to invoke via the Skill tool."""
+        skills = [PluginSkill("superpowers", "brainstorming", "Use when...")]
+        output = format_plugin_skills_for_prompt(skills)
+        assert "Skill" in output

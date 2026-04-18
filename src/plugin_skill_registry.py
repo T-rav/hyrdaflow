@@ -128,3 +128,25 @@ def _extract_key(frontmatter: str, key: str) -> str | None:
                 j += 1
             return value or None
     return None
+
+
+def format_plugin_skills_for_prompt(skills: list[PluginSkill]) -> str:
+    """Format discovered skills as a prompt section for a factory agent.
+
+    Returns an empty string when ``skills`` is empty so callers can
+    unconditionally concatenate the result.
+    """
+    if not skills:
+        return ""
+    lines = [
+        "## Available Skills",
+        "",
+        "You have these Claude Code skills available via the `Skill` tool. "
+        'Invoke a skill with `Skill({skill: "plugin:name"})` when its '
+        "description matches your current task.",
+        "",
+    ]
+    for skill in skills:
+        lines.append(f"- **{skill.qualified_name}** — {skill.description}")
+    lines.append("")
+    return "\n".join(lines)
