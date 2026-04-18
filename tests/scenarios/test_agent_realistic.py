@@ -836,3 +836,22 @@ async def test_A19_code_scanning_alerts_reach_reviewer(tmp_path) -> None:
     # Pipeline ran and reviewer saw the alerts
     received = world._llm.alerts_received_by_reviewer(1)
     assert received == alerts, f"reviewer received {received!r}"
+
+
+async def test_A20_workspace_create_permission_failure(tmp_path) -> None:
+    """FakeWorkspace.fail_next_create raises PermissionError; pipeline handles gracefully.
+
+    The PermissionError from workspace creation is swallowed by the implement
+    phase's exception handler (non-allowlisted errors are caught and logged).
+    The issue therefore does not merge, and run_pipeline returns normally.
+    """
+    world = MockWorld(tmp_path, use_real_agent_runner=True)
+    world.add_issue(1, "t", "b", labels=["hydraflow-ready"])
+
+    # No worktree init needed — the failure happens BEFORE workspace creation.
+    world._workspace.fail_next_create(kind="permission")
+
+    result = await world.run_pipeline()
+
+    # Pipeline does not crash. Issue fails without merging.
+    assert not result.issue(1).merged, f"expected no merge; outcome={result.issue(1)}"
