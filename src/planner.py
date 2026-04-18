@@ -23,6 +23,10 @@ from plan_constants import (
 )
 from plan_scoring import score_actionability
 from plan_validation import run_phase_gates, validate_plan
+from plugin_skill_registry import (
+    discover_plugin_skills,
+    format_plugin_skills_for_prompt,
+)
 from prompt_builder import PromptBuilder
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 
@@ -542,6 +546,12 @@ ALREADY_SATISFIED_END
 This closes the issue automatically. False positives waste significant human time.
 
 {MEMORY_SUGGESTION_PROMPT.format(context="planning")}"""
+        plugin_skills_section = format_plugin_skills_for_prompt(
+            discover_plugin_skills(self._config.required_plugins)
+        )
+        if plugin_skills_section:
+            prompt = f"{prompt}\n\n{plugin_skills_section}"
+
         return prompt, builder.build_stats()
 
     def _detect_plan_scale(self, issue: Task) -> PlanScale:

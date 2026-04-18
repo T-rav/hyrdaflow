@@ -137,3 +137,29 @@ class TestTriageSkillInjection:
 
         assert "superpowers:brainstorming" in prompt
         assert "## Available Skills" in prompt
+
+
+class TestPlannerSkillInjection:
+    """Verify plugin skills are injected into the planner prompt."""
+
+    @pytest.mark.asyncio
+    async def test_plugin_skills_appear_in_planner_prompt(
+        self, config, event_bus
+    ) -> None:
+        """The formatted skills section appears in the planner prompt."""
+        from planner import PlannerRunner
+        from plugin_skill_registry import PluginSkill
+        from tests.conftest import TaskFactory
+
+        fake_skills = [
+            PluginSkill("superpowers", "writing-plans", "Use when writing a plan")
+        ]
+
+        issue = TaskFactory.create(id=1, title="t", body="b")
+        planner = PlannerRunner(config, event_bus)
+
+        with patch("planner.discover_plugin_skills", return_value=fake_skills):
+            prompt, _ = await planner._build_prompt_with_stats(issue)
+
+        assert "superpowers:writing-plans" in prompt
+        assert "## Available Skills" in prompt
