@@ -125,6 +125,41 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
         resp = MemoryContextResponse(items=items, query=query)
         return JSONResponse(resp.model_dump())
 
+    @router.get("/api/memory/pr/{pr_number}")
+    async def memory_for_pr(pr_number: int) -> JSONResponse:
+        """Return memory context relevant to a specific PR.
+
+        Queries Hindsight with the PR number as context so the human
+        operator can see which institutional knowledge was in play for
+        that PR.
+        """
+        if ctx.hindsight_client is None:
+            return JSONResponse(
+                MemoryContextResponse(query=f"PR #{pr_number}").model_dump(),
+            )
+
+        query = f"PR #{pr_number}"
+        try:
+            bank_results = await ctx.hindsight_client.recall_banks(query, limit=5)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "memory_for_pr: recall failed for PR #%d",
+                pr_number,
+                exc_info=True,
+            )
+            return JSONResponse(MemoryContextResponse(query=query).model_dump())
+
+        items: list[MemoryContextItem] = []
+        for b, memories in bank_results.items():
+            for mem in memories:
+                items.append(_memory_from_hindsight(b, mem))
+
+        items.sort(key=lambda x: x.relevance_score, reverse=True)
+        items = items[:5]
+
+        resp = MemoryContextResponse(items=items, query=query)
+        return JSONResponse(resp.model_dump())
+
     @router.get("/api/memory/hitl/{issue_number}")
     async def memory_for_hitl(issue_number: int) -> JSONResponse:
         """Return memory context for a HITL escalation.

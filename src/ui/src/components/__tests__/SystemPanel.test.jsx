@@ -83,7 +83,14 @@ describe('SystemPanel', () => {
       expect(metricsPanel.style.overflowY).toBe('auto')
     })
 
-    it('renders MemoryBrowser when Memory sub-tab selected', async () => {
+    it('mounts MemoryExplorer when Memory sub-tab is selected', () => {
+      mockUseHydraFlow.mockReturnValue(defaultMockContext({
+        memories: { total_items: 0 },
+        retrospectives: { total_entries: 0 },
+        reviewInsights: { total_reviews: 0 },
+        troubleshooting: { total_patterns: 0 },
+        harnessInsights: null,
+      }))
       const originalFetch = global.fetch
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -92,8 +99,7 @@ describe('SystemPanel', () => {
       try {
         render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
         fireEvent.click(screen.getByText('Memory'))
-        expect(screen.getByText('Memory Browser')).toBeInTheDocument()
-        expect(screen.getByTestId('memory-search-input')).toBeInTheDocument()
+        expect(screen.getByTestId('memory-explorer')).toBeInTheDocument()
       } finally {
         global.fetch = originalFetch
       }
