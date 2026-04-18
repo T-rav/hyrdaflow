@@ -353,6 +353,27 @@ class HydraFlowConfig(BaseModel):
     max_hitl_workers: int = Field(
         default=1, ge=1, le=5, description="Concurrent HITL correction agents"
     )
+    # Plugin skill registry — see docs/superpowers/specs/2026-04-18-dynamic-plugin-skill-registry-design.md
+    required_plugins: list[str] = Field(
+        default_factory=lambda: [
+            "superpowers",
+            "code-review",
+            "code-simplifier",
+            "frontend-design",
+            "playwright",
+        ],
+        description="Plugins that must be installed under ~/.claude/plugins/cache/ at startup",
+    )
+    language_plugins: dict[str, list[str]] = Field(
+        default_factory=lambda: {
+            "python": ["pyright-lsp"],
+            "typescript": ["typescript-lsp"],
+            "csharp": ["csharp-lsp"],
+            "go": ["gopls"],
+            "rust": ["rust-analyzer"],
+        },
+        description="Language-conditional plugins loaded only when the language is detected in a target repo",
+    )
     system_tool: Literal["inherit", "claude", "codex", "pi"] = Field(
         default="inherit",
         description="Optional global default tool for system agents; 'inherit' keeps per-agent defaults",
