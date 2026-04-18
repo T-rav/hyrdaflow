@@ -35,7 +35,9 @@ function RetrospectiveView({ data, searchQuery, onFocusEntity }) {
     return <div style={styles.empty}>No retrospective data yet.</div>
   }
   const entries = (data.entries || []).filter(
-    e => textContains(e.issue_number, searchQuery) || textContains(e.review_verdict, searchQuery),
+    e => textContains(e.issue_number, searchQuery)
+      || textContains(e.pr_number, searchQuery)
+      || textContains(e.review_verdict, searchQuery),
   )
   return (
     <>
@@ -80,7 +82,8 @@ function ReviewFeedbackView({ data, searchQuery, onFocusEntity }) {
     return <div style={styles.empty}>No review data yet.</div>
   }
   const patterns = (data.patterns || []).filter(
-    p => textContains(p.category, searchQuery),
+    p => textContains(p.category, searchQuery)
+      || textContains(p.category?.replace(/_/g, ' '), searchQuery),
   )
   return (
     <>

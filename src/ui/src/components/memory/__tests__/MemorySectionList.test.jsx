@@ -121,4 +121,16 @@ describe('MemorySectionList', () => {
     // Failure Patterns header is always visible
     expect(screen.getByText('Failure Patterns')).toBeInTheDocument()
   })
+
+  it('search query matches learning text', () => {
+    render(
+      <MemorySectionList
+        data={SAMPLE_CONTEXT}
+        searchQuery="Dolt"
+        bankFilter=""
+        onFocusEntity={() => {}}
+      />,
+    )
+    expect(screen.getByText(/Dolt must use/)).toBeInTheDocument()
+  })
 })
