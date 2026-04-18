@@ -68,6 +68,28 @@ class TestDiscoverPluginSkills:
 
         assert {s.plugin for s in result} == {"superpowers"}
 
+    def test_parses_folded_multiline_description(self, cache_root: Path) -> None:
+        """Join indented continuation lines of a description with spaces."""
+        _write_skill(
+            cache_root,
+            "official",
+            "superpowers",
+            "multi",
+            frontmatter=(
+                "name: multi\n"
+                "description: First line of description\n"
+                "  continues here\n"
+                "  and here"
+            ),
+        )
+
+        result = discover_plugin_skills(["superpowers"], cache_root=cache_root)
+
+        assert len(result) == 1
+        assert (
+            result[0].description == "First line of description continues here and here"
+        )
+
     def test_skips_malformed_frontmatter(
         self, cache_root: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
