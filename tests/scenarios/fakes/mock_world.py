@@ -61,6 +61,8 @@ class MockWorld:
         self._issues: dict[int, dict[str, Any]] = {}
         self._phase_hooks: list[tuple[str, Callable[[], None]]] = []
         self._ran = False
+        self._dashboard: Any = None
+        self._dashboard_url: str | None = None
 
         self._wire_targets(self._harness)
 
@@ -462,3 +464,79 @@ class MockWorld:
                 results[name] = stats
 
         return results
+
+    # --- Dashboard lifecycle ---
+
+    @property
+    def dashboard_url(self) -> str | None:
+        return self._dashboard_url
+
+    async def start_dashboard(self, *, with_orchestrator: bool = False) -> str:
+        """Boot HydraFlowDashboard in-process against this world's fakes.
+
+        Returns the base URL (e.g. 'http://127.0.0.1:54321'). Idempotent —
+        subsequent calls return the existing URL.
+
+        When ``with_orchestrator`` is True, MockWorld constructs a real
+        HydraFlowOrchestrator wired against the fakes (Task 9). Otherwise
+        the dashboard serves UI only (this task).
+        """
+        if self._dashboard_url is not None:
+            return self._dashboard_url
+
+        from dashboard import HydraFlowDashboard  # noqa: PLC0415
+        from events import EventBus, EventLog  # noqa: PLC0415
+        from service_registry import build_state_tracker  # noqa: PLC0415
+
+        config = self._harness.config
+        # Force ephemeral port; override static defaults from HydraFlowConfig.
+        config.dashboard_host = "127.0.0.1"
+        config.dashboard_port = 0
+
+        bus = EventBus(event_log=EventLog(self._tmp_path / "events.jsonl"))
+        state = build_state_tracker(config)
+
+        orchestrator = None
+        if with_orchestrator:
+            orchestrator = await self._build_wired_orchestrator(config, bus, state)
+
+        dashboard = HydraFlowDashboard(
+            config=config,
+            event_bus=bus,
+            state=state,
+            orchestrator=orchestrator,
+            hindsight_client=self._hindsight,
+        )
+        await dashboard.start()
+
+        port = await self._await_dashboard_port(dashboard)
+        self._dashboard = dashboard
+        self._dashboard_url = f"http://127.0.0.1:{port}"
+        return self._dashboard_url
+
+    async def stop_dashboard(self) -> None:
+        """Shut down uvicorn task, stop orchestrator if present."""
+        if self._dashboard is None:
+            return
+        try:
+            if self._dashboard._orchestrator and self._dashboard._orchestrator.running:
+                await self._dashboard._orchestrator.stop()
+            await asyncio.wait_for(self._dashboard.stop(), timeout=5)
+        finally:
+            self._dashboard = None
+            self._dashboard_url = None
+
+    async def _await_dashboard_port(self, dashboard: Any, timeout: float = 5.0) -> int:
+        """Poll ``dashboard._uvicorn_server`` for the bound port up to ``timeout`` seconds."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            uv_server = getattr(dashboard, "_uvicorn_server", None)
+            if uv_server and uv_server.started and uv_server.servers:
+                sock = uv_server.servers[0].sockets[0]
+                return int(sock.getsockname()[1])
+            await asyncio.sleep(0.05)
+        raise TimeoutError("dashboard did not bind a port within 5s")
+
+    async def _build_wired_orchestrator(self, config: Any, bus: Any, state: Any) -> Any:
+        """Stub — implemented in Task 9."""
+        raise NotImplementedError("with_orchestrator=True is implemented in Task 9")

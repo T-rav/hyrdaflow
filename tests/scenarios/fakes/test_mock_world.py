@@ -231,3 +231,32 @@ async def test_wire_targets_accepts_duck_typed_target(tmp_path):
     assert fake_target.prs.merge_pr == expected_merge_pr
     assert fake_target.triage_runner.evaluate == expected_evaluate
     assert fake_target.workspaces.create == expected_workspace_create
+
+
+async def test_start_dashboard_without_orchestrator_serves_root(tmp_path):
+    import httpx
+
+    from tests.scenarios.fakes.mock_world import MockWorld
+
+    world = MockWorld(tmp_path)
+    url = await world.start_dashboard()
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(url + "/")
+        assert response.status_code == 200
+        assert world.dashboard_url == url
+    finally:
+        await world.stop_dashboard()
+    assert world.dashboard_url is None
+
+
+async def test_start_dashboard_is_idempotent(tmp_path):
+    from tests.scenarios.fakes.mock_world import MockWorld
+
+    world = MockWorld(tmp_path)
+    url_a = await world.start_dashboard()
+    url_b = await world.start_dashboard()
+    try:
+        assert url_a == url_b
+    finally:
+        await world.stop_dashboard()
