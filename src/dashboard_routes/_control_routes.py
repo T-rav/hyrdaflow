@@ -38,6 +38,21 @@ from update_check import load_cached_update_result
 
 logger = logging.getLogger("hydraflow.dashboard")
 
+
+def _safe_error_message(exc: Exception) -> str:
+    """Return a validation-style message without leaking stack trace details.
+
+    For ``ValidationError``, surfaces ``loc: msg`` per field (safe; Pydantic
+    designs these strings for end-users). For everything else, returns a
+    generic string — callers should ``logger.exception`` separately to keep
+    diagnostic context on the server. CodeQL rule ``py/stack-trace-exposure``.
+    """
+    if isinstance(exc, ValidationError):
+        parts = [f"{e['loc'][-1]}: {e['msg']}" for e in exc.errors() if e.get("loc")]
+        return "; ".join(parts) if parts else "Invalid settings"
+    return "Invalid settings"
+
+
 # Known workers with human-friendly labels (pipeline loops + background)
 _bg_worker_defs = [
     (
@@ -551,9 +566,13 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
                 _cfg.staging_branch, base=_cfg.main_branch
             )
             protection = await pm.apply_staging_branch_protection(_cfg.staging_branch)
-        except RuntimeError as exc:
+        except RuntimeError:
+            logger.exception("setup_staging_branch failed")
             return JSONResponse(
-                {"status": "error", "message": str(exc)},
+                {
+                    "status": "error",
+                    "message": "Failed to configure staging branch; see server logs.",
+                },
                 status_code=502,
             )
         return JSONResponse(
@@ -654,7 +673,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
 
             new_settings = DependabotMergeSettings(**update)
         except (ValueError, ValidationError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
+            return JSONResponse({"error": _safe_error_message(exc)}, status_code=400)
 
         ctx.state.set_dependabot_merge_settings(new_settings)
         return JSONResponse({"status": "ok", **new_settings.model_dump()})
@@ -680,7 +699,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
 
             new_settings = StaleIssueSettings(**update)
         except (ValueError, ValidationError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
+            return JSONResponse({"error": _safe_error_message(exc)}, status_code=400)
         ctx.state.set_stale_issue_settings(new_settings)
         return JSONResponse({"status": "ok", **new_settings.model_dump()})
 
@@ -705,7 +724,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
 
             new_settings = SecurityPatchSettings(**update)
         except (ValueError, ValidationError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
+            return JSONResponse({"error": _safe_error_message(exc)}, status_code=400)
         ctx.state.set_security_patch_settings(new_settings)
         return JSONResponse({"status": "ok", **new_settings.model_dump()})
 
@@ -730,7 +749,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
 
             new_settings = CIMonitorSettings(**update)
         except (ValueError, ValidationError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
+            return JSONResponse({"error": _safe_error_message(exc)}, status_code=400)
         ctx.state.set_ci_monitor_settings(new_settings)
         return JSONResponse({"status": "ok", **new_settings.model_dump()})
 
@@ -760,6 +779,6 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
 
             new_settings = CodeGroomingSettings(**update)
         except (ValueError, ValidationError) as exc:
-            return JSONResponse({"error": str(exc)}, status_code=400)
+            return JSONResponse({"error": _safe_error_message(exc)}, status_code=400)
         ctx.state.set_code_grooming_settings(new_settings)
         return JSONResponse({"status": "ok", **new_settings.model_dump()})
