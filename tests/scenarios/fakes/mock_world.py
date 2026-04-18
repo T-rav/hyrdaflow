@@ -57,6 +57,7 @@ class MockWorld:
         self._http = FakeHTTP()
         self._issues: dict[int, dict[str, Any]] = {}
         self._phase_hooks: list[tuple[str, Callable[[], None]]] = []
+        self._ran = False
 
         self._wire_runners()
         self._wire_prs()
@@ -240,6 +241,13 @@ class MockWorld:
 
     async def run_pipeline(self) -> ScenarioResult:
         """Run all seeded issues through the full pipeline."""
+        if self._ran:
+            msg = (
+                "MockWorld.run_pipeline is single-shot; create a new MockWorld "
+                "to run again. Re-use would re-seed issues against stale fake state."
+            )
+            raise RuntimeError(msg)
+        self._ran = True
         h = self._harness
         start = time.monotonic()
 

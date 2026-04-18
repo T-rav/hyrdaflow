@@ -149,3 +149,17 @@ async def test_pipeline_harness_set_agents_rebuilds_implement_phase(tmp_path) ->
     harness.set_agents(sentinel)  # type: ignore[arg-type]
     assert harness.agents is sentinel
     assert harness.implement_phase._agents is sentinel
+
+
+async def test_run_pipeline_is_single_shot(tmp_path) -> None:
+    """Calling run_pipeline twice must raise — state would otherwise be stale."""
+    import pytest
+
+    from tests.scenarios.fakes.mock_world import MockWorld
+
+    world = MockWorld(tmp_path)
+    world.add_issue(1, "t", "b", labels=["hydraflow-ready"])
+    await world.run_pipeline()
+
+    with pytest.raises(RuntimeError, match="single-shot"):
+        await world.run_pipeline()
