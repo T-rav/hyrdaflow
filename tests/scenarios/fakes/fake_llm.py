@@ -169,6 +169,7 @@ class _FakeReviewRunner(_ScriptedRunner):
     def __init__(self, parent: FakeLLM) -> None:
         super().__init__()
         self._parent = parent
+        self._last_alerts_received: dict[int, list[Any]] = {}
 
     async def review(
         self,
@@ -182,8 +183,9 @@ class _FakeReviewRunner(_ScriptedRunner):
         bead_tasks: list[Any] | None = None,
         **_unused: Any,
     ) -> Any:
-        _ = (worker_id, code_scanning_alerts, bead_tasks)
+        _ = (worker_id, bead_tasks)
         issue_number = getattr(issue, "id", getattr(issue, "number", 0))
+        self._last_alerts_received[issue_number] = list(code_scanning_alerts or [])
         pr_number = getattr(pr, "number", 0)
         if not self._parent._consume_budget(issue_number):
             return ReviewResultFactory.create(
@@ -245,6 +247,10 @@ class FakeLLM:
 
     def script_review(self, issue_number: int, results: list[Any]) -> None:
         self.reviewers.add_script(issue_number, results)
+
+    def alerts_received_by_reviewer(self, issue_number: int) -> list[Any]:
+        """Return the code_scanning_alerts last passed to reviewers.review for this issue."""
+        return list(self.reviewers._last_alerts_received.get(issue_number, []))
 
     def set_token_budget(
         self,
