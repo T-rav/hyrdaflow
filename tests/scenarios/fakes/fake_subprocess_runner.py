@@ -8,6 +8,11 @@ The fake Process exposes: stdout/stderr (StreamReader), stdin
 (_SilentStdinWriter), pid (None), returncode, async wait(), kill(),
 terminate(). pid is None so ``terminate_processes`` in ``runner_utils`` skips
 ``killpg`` (no real process group exists for a fake process).
+
+``run_simple`` dispatches host-side utilities (``git``, ``make``) directly via
+``asyncio.create_subprocess_exec`` so that ``AgentRunner._count_commits`` and
+``_verify_quality`` observe the real worktree state.  All other commands
+(agent CLI invocations) are routed through FakeDocker.
 """
 
 from __future__ import annotations
@@ -20,6 +25,13 @@ from typing import Any, cast
 
 from execution import SimpleResult
 from tests.scenarios.fakes.fake_docker import FakeDocker
+
+# Commands that must run on the real host rather than through FakeDocker.
+# ``git`` is required so that AgentRunner._count_commits and _get_branch_diff
+# observe the actual worktree commits written by script_run_with_commits.
+# Other commands (``make``, agent CLI) go through FakeDocker so scenario tests
+# can script their results without spawning real processes.
+_HOST_COMMANDS: frozenset[str] = frozenset({"git"})
 
 
 class _SilentStdinWriter:
@@ -126,6 +138,13 @@ class FakeSubprocessRunner:
         timeout: float = 120.0,
         input: bytes | None = None,  # noqa: A002
     ) -> SimpleResult:
+        # Host-side utilities (git, make) run for real so that AgentRunner's
+        # commit-counting and quality-gate checks observe the actual worktree.
+        if cmd and cmd[0] in _HOST_COMMANDS:
+            return await self._run_on_host(
+                cmd, cwd=cwd, env=env, timeout=timeout, input=input
+            )
+
         _ = (cwd, timeout, input)
         event_iter = await self._docker.run_agent(command=list(cmd), env=env)
         lines: list[str] = []
@@ -138,6 +157,43 @@ class FakeSubprocessRunner:
             stdout="\n".join(lines),
             stderr="",
             returncode=returncode,
+        )
+
+    @staticmethod
+    async def _run_on_host(
+        cmd: Sequence[str],
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        timeout: float = 120.0,
+        input: bytes | None = None,  # noqa: A002
+    ) -> SimpleResult:
+        """Run *cmd* directly on the host via asyncio subprocess."""
+        stdin_pipe = asyncio.subprocess.PIPE if input is not None else None
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=cwd,
+            stdin=stdin_pipe,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        try:
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                proc.communicate(input=input), timeout=timeout
+            )
+        except TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise
+        return SimpleResult(
+            stdout=stdout_bytes.decode(errors="replace").strip()
+            if stdout_bytes
+            else "",
+            stderr=stderr_bytes.decode(errors="replace").strip()
+            if stderr_bytes
+            else "",
+            returncode=proc.returncode if proc.returncode is not None else -1,
         )
 
     async def cleanup(self) -> None:
