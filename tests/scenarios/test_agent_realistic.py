@@ -512,3 +512,43 @@ async def test_A12_multi_commit_implement(tmp_path) -> None:
     # Verify all 3 files exist
     for filename in ("a.py", "b.py", "c.py"):
         assert (worktree_cwd / filename).exists(), f"missing {filename}"
+
+
+async def test_A13_zero_diff_fails_without_merge(tmp_path) -> None:
+    """Agent claims success but commits nothing → WorkerResult failure, no merge.
+
+    Production ``AgentRunner._verify_result`` runs ``git rev-list --count``
+    (on host via FakeSubprocessRunner._HOST_COMMANDS).  Observing 0 commits
+    causes ``_verify_result`` to return
+    ``LoopResult(passed=False, summary="No commits found on branch")``,
+    which propagates to ``WorkerResult(success=False, error="No commits found
+    on branch", commits=0)``.
+
+    ``_handle_implementation_result`` then calls ``_is_zero_commit_failure``
+    (checks ``not result.success and result.error == "No commits found on
+    branch" and result.commits == 0``), which returns True, routing into
+    ``_handle_zero_commits`` — marking the issue failed without creating a PR
+    or merging.
+
+    The scripted stream uses ``script_run`` (not ``script_run_with_commits``)
+    so no real git commit is ever written to the worktree.  The success flag
+    in the stream event is irrelevant: ``_verify_result`` fails on the commit
+    count gate before the quality check even runs.
+    """
+    world = MockWorld(tmp_path, use_real_agent_runner=True)
+    world.add_issue(1, "t", "b", labels=["hydraflow-ready"])
+    worktree_cwd = tmp_path / "worktrees" / "issue-1"
+    init_test_worktree(worktree_cwd)
+
+    # Agent "succeeds" but writes no commits (plain script_run, not script_run_with_commits)
+    world.docker.script_run([{"type": "result", "success": True, "exit_code": 0}])
+
+    result = await world.run_pipeline()
+
+    # Issue must NOT merge — zero commits means _verify_result fails
+    assert not result.issue(1).merged, f"expected no merge; outcome={result.issue(1)}"
+
+    # WorkerResult should be present with success=False
+    wr = result.issue(1).worker_result
+    assert wr is not None, "expected a WorkerResult recording the failure"
+    assert wr.success is False, f"expected success=False; got {wr}"
