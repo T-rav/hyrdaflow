@@ -468,3 +468,47 @@ async def test_A11_review_fix_ci_loop_resolves(tmp_path) -> None:
 
     # 8 FakeDocker invocations: 1 agent + 4 skills + 2 pre-quality + 1 make-quality
     assert len(world.docker.invocations) >= 8
+
+
+async def test_A12_multi_commit_implement(tmp_path) -> None:
+    """Real agent produces 3 commits; `git rev-list --count` observes them.
+
+    Uses FakeDocker.script_run_with_multiple_commits to simulate an agent that
+    produces N distinct commits in a single run. Each batch is committed
+    separately with message `fake-commit-{i}`.
+    """
+    import subprocess
+
+    world = MockWorld(tmp_path, use_real_agent_runner=True)
+    world.add_issue(1, "t", "b", labels=["hydraflow-ready"])
+    worktree_cwd = tmp_path / "worktrees" / "issue-1"
+    init_test_worktree(worktree_cwd)
+
+    world.docker.script_run_with_multiple_commits(
+        events=[{"type": "result", "success": True, "exit_code": 0}],
+        commit_batches=[
+            [("a.py", "step 1")],
+            [("b.py", "step 2")],
+            [("c.py", "step 3")],
+        ],
+        cwd=worktree_cwd,
+    )
+
+    result = await world.run_pipeline()
+
+    assert result.issue(1).merged, f"expected merged=True; outcome={result.issue(1)}"
+
+    # Verify 3 agent-generated commits on the branch (excludes initial empty commit on main)
+    count = subprocess.run(
+        ["git", "rev-list", "--count", "origin/main..agent/issue-1"],
+        cwd=worktree_cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    observed = int(count.stdout.strip())
+    assert observed == 3, f"expected 3 commits on branch; observed {observed}"
+
+    # Verify all 3 files exist
+    for filename in ("a.py", "b.py", "c.py"):
+        assert (worktree_cwd / filename).exists(), f"missing {filename}"
