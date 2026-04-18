@@ -6,7 +6,6 @@ const TYPE_STYLES = {
   pr: { background: theme.purpleSubtle, color: theme.purple, border: theme.purple },
   category: { background: theme.surfaceInset, color: theme.textMuted, border: theme.border },
   pattern: { background: theme.surfaceInset, color: theme.textMuted, border: theme.border },
-  bank: { background: theme.purpleSubtle, color: theme.purple, border: theme.purple },
 }
 
 function renderLabel(type, value, label) {
@@ -16,15 +15,11 @@ function renderLabel(type, value, label) {
   return String(value)
 }
 
-export function EntityChip({ type, value, label, onFocusEntity, onToggleBankSection }) {
+export function EntityChip({ type, value, label, onFocusEntity }) {
   const palette = TYPE_STYLES[type] || TYPE_STYLES.category
 
   const handleClick = (e) => {
     e.stopPropagation()
-    if (type === 'bank') {
-      if (onToggleBankSection) onToggleBankSection(value)
-      return
-    }
     if (onFocusEntity) onFocusEntity({ type, value })
   }
 

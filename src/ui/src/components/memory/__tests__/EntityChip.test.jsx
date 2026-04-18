@@ -26,20 +26,4 @@ describe('EntityChip', () => {
     expect(onFocus).toHaveBeenCalledWith({ type: 'issue', value: 42 })
   })
 
-  it('bank chip does NOT call onFocusEntity', () => {
-    const onFocus = vi.fn()
-    const onToggleBank = vi.fn()
-    render(
-      <EntityChip
-        type="bank"
-        value="hydraflow-tribal"
-        label="TRIBAL"
-        onFocusEntity={onFocus}
-        onToggleBankSection={onToggleBank}
-      />,
-    )
-    fireEvent.click(screen.getByText('TRIBAL'))
-    expect(onFocus).not.toHaveBeenCalled()
-    expect(onToggleBank).toHaveBeenCalledWith('hydraflow-tribal')
-  })
 })
