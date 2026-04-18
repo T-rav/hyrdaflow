@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from playwright.async_api import async_playwright
 
-from tests.scenarios.fakes import MockWorld
+from tests.scenarios.fakes.mock_world import MockWorld
 
 pytestmark = pytest.mark.scenario_browser
 
@@ -60,5 +60,6 @@ async def world(tmp_path):
     try:
         yield w
     finally:
-        if w.dashboard_url is not None:
-            await w.stop_dashboard()
+        stop = getattr(w, "stop_dashboard", None)
+        if stop is not None:
+            await stop()
