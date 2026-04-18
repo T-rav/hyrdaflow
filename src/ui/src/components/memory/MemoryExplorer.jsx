@@ -14,9 +14,18 @@ export function MemoryExplorer() {
 
   useEffect(() => {
     fetch('/api/memory/banks')
-      .then((r) => (r.ok ? r.json() : { banks: [] }))
+      .then((r) => {
+        if (!r.ok) {
+          console.warn('memory/banks fetch non-ok:', r.status)
+          return { banks: [] }
+        }
+        return r.json()
+      })
       .then((d) => setBanks(d.banks || []))
-      .catch(() => setBanks([]))
+      .catch((err) => {
+        console.warn('memory/banks fetch failed:', err)
+        setBanks([])
+      })
   }, [])
 
   const clearFocus = useCallback(() => setFocusedEntity(null), [])
