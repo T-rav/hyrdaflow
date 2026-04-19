@@ -595,12 +595,7 @@ describe('HydraFlowProvider', () => {
 })
 
 describe('startRuntime compatibility flow', () => {
-  afterEach(() => {
-    delete window.__HYDRAFLOW_SEED_STATE__
-  })
-
   it('falls back to /api/repos when runtime registry start is unavailable', async () => {
-    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle' }
     vi.resetModules()
 
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
@@ -670,7 +665,6 @@ describe('startRuntime compatibility flow', () => {
   })
 
   it('falls back to /api/repos when runtime start returns 422 validation error', async () => {
-    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle' }
     vi.resetModules()
 
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
@@ -737,7 +731,6 @@ describe('startRuntime compatibility flow', () => {
     })
   })
   it('falls back to /api/repos/add by path when POST /api/repos is not supported', async () => {
-    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle' }
     vi.resetModules()
 
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
@@ -818,7 +811,6 @@ describe('startRuntime compatibility flow', () => {
   })
 
   it('uses provided repo path for /api/repos/add fallback without listing repos', async () => {
-    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle' }
     vi.resetModules()
 
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
@@ -880,6 +872,7 @@ describe('startRuntime compatibility flow', () => {
       )
     })
 
+    fetchSpy.mockClear()
     await act(async () => {
       await capturedState.startRuntime('demo', '/tmp/from-sidebar')
     })
@@ -902,7 +895,6 @@ describe('startRuntime compatibility flow', () => {
   })
 
   it('retries POST /api/repos with wrapped req payload when backend returns 422', async () => {
-    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle' }
     vi.resetModules()
 
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
@@ -981,7 +973,6 @@ describe('startRuntime compatibility flow', () => {
   })
 
   it('falls back to /api/repos/add when /api/repos variants fail with 422/500', async () => {
-    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle' }
     vi.resetModules()
 
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
@@ -1062,7 +1053,6 @@ describe('startRuntime compatibility flow', () => {
   })
 
   it('retries POST /api/repos/add with wrapped req payload on 422', async () => {
-    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle' }
     vi.resetModules()
 
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
@@ -1149,12 +1139,7 @@ describe('startRuntime compatibility flow', () => {
 })
 
 describe('start/stop orchestrator with repo selection', () => {
-  afterEach(() => {
-    delete window.__HYDRAFLOW_SEED_STATE__
-  })
-
   it('startOrchestrator delegates to runtime endpoint when repo selected', async () => {
-    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle', selectedRepoSlug: 'demo' }
     vi.resetModules()
 
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
@@ -1203,6 +1188,8 @@ describe('start/stop orchestrator with repo selection', () => {
     })
 
     fetchSpy.mockClear()
+    await act(async () => { captured.selectRepo('demo') })
+    fetchSpy.mockClear()
     await captured.startOrchestrator()
 
     const calledUrls = fetchSpy.mock.calls.map(([url]) => (typeof url === 'string' ? url : String(url)))
@@ -1211,7 +1198,6 @@ describe('start/stop orchestrator with repo selection', () => {
   })
 
   it('stopOrchestrator delegates to runtime endpoint when repo selected', async () => {
-    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle', selectedRepoSlug: 'demo' }
     vi.resetModules()
 
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
@@ -1260,82 +1246,13 @@ describe('start/stop orchestrator with repo selection', () => {
     })
 
     fetchSpy.mockClear()
+    await act(async () => { captured.selectRepo('demo') })
+    fetchSpy.mockClear()
     await captured.stopOrchestrator()
 
     const calledUrls = fetchSpy.mock.calls.map(([url]) => (typeof url === 'string' ? url : String(url)))
     expect(calledUrls).toContain('/api/runtimes/demo/stop')
     expect(calledUrls).not.toContain('/api/control/stop')
-  })
-})
-
-describe('seed state injection via __HYDRAFLOW_SEED_STATE__', () => {
-  afterEach(() => {
-    delete window.__HYDRAFLOW_SEED_STATE__
-  })
-
-  it('uses seed state as initial state when window.__HYDRAFLOW_SEED_STATE__ is set', async () => {
-    const seedData = {
-      connected: true,
-      phase: 'implement',
-      orchestratorStatus: 'running',
-      workers: { 42: { status: 'active', role: 'implementer', title: 'Issue #42', branch: 'agent/issue-42', transcript: [], pr: null } },
-      pipelineIssues: {
-        triage: [],
-        plan: [],
-        implement: [{ issue_number: 42, title: 'Seed issue', url: '', status: 'active' }],
-        review: [],
-        hitl: [],
-        merged: [],
-      },
-    }
-    window.__HYDRAFLOW_SEED_STATE__ = seedData
-
-    // Fresh import so the module re-evaluates with seed state
-    vi.resetModules()
-    const { HydraFlowProvider, useHydraFlow } = await import('../HydraFlowContext')
-
-    let capturedState = null
-    function StateCapture() {
-      capturedState = useHydraFlow()
-      return <div>seeded</div>
-    }
-
-    await act(async () => {
-      render(
-        <HydraFlowProvider>
-          <StateCapture />
-        </HydraFlowProvider>
-      )
-    })
-
-    expect(screen.getByText('seeded')).toBeInTheDocument()
-    expect(capturedState.phase).toBe('implement')
-    expect(capturedState.orchestratorStatus).toBe('running')
-    expect(capturedState.connected).toBe(true)
-  })
-
-  it('does not make network calls when seeded', async () => {
-    window.__HYDRAFLOW_SEED_STATE__ = { connected: true, phase: 'idle' }
-
-    vi.resetModules()
-    const fetchSpy = vi.spyOn(global, 'fetch')
-    const { HydraFlowProvider } = await import('../HydraFlowContext')
-
-    await act(async () => {
-      render(
-        <HydraFlowProvider>
-          <div>no-fetch</div>
-        </HydraFlowProvider>
-      )
-    })
-
-    // With seed state, only report status polling should fetch
-    // (report status is inherently dynamic and must always poll).
-    // All other API/WebSocket calls should be skipped.
-    const nonReportCalls = fetchSpy.mock.calls.filter(
-      ([url]) => !String(url).includes('/api/reports')
-    )
-    expect(nonReportCalls).toHaveLength(0)
   })
 })
 
@@ -2172,16 +2089,35 @@ describe('orchestrator_status session reset clears sessions', () => {
 })
 
 describe('HydraFlowProvider body[data-connected]', () => {
+  let originalWebSocket
+
+  beforeEach(() => {
+    originalWebSocket = global.WebSocket
+  })
+
   afterEach(() => {
-    delete window.__HYDRAFLOW_SEED_STATE__
+    global.WebSocket = originalWebSocket
     document.body.removeAttribute('data-connected')
     vi.resetModules()
   })
 
   it('sets data-connected on body when websocket connects', async () => {
-    // Use seed state with connected: true so the provider reflects it immediately
-    // without needing a real WebSocket connection.
-    window.__HYDRAFLOW_SEED_STATE__ = { connected: true }
+    // Mock WebSocket to fire onopen immediately so connected state becomes true.
+    // Provide a fetch mock that handles all endpoints triggered by onopen.
+    vi.spyOn(global, 'fetch').mockImplementation((input) => {
+      const url = typeof input === 'string' ? input : String(input)
+      if (url.includes('/api/system/workers')) return Promise.resolve({ ok: true, json: async () => ({ workers: [] }) })
+      if (url.includes('/api/sessions')) return Promise.resolve({ ok: true, json: async () => [] })
+      if (url.includes('/api/repos')) return Promise.resolve({ ok: true, json: async () => ({ repos: [] }) })
+      if (url.includes('/api/runtimes')) return Promise.resolve({ ok: true, json: async () => ({ runtimes: [] }) })
+      if (url.includes('/api/epics')) return Promise.resolve({ ok: true, json: async () => ({ epics: [] }) })
+      if (url.includes('/api/pipeline')) return Promise.resolve({ ok: true, json: async () => ({ stages: {} }) })
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    global.WebSocket = class MockWS {
+      constructor() { setTimeout(() => this.onopen && this.onopen(), 0) }
+      close() {}
+    }
 
     const { HydraFlowProvider, useHydraFlow } = await import('../HydraFlowContext')
 
@@ -2203,8 +2139,7 @@ describe('HydraFlowProvider body[data-connected]', () => {
   })
 
   it('sets data-connected to false when not connected', async () => {
-    window.__HYDRAFLOW_SEED_STATE__ = { connected: false }
-
+    // Default: WebSocket fails/errors, so connected stays false
     const { HydraFlowProvider, useHydraFlow } = await import('../HydraFlowContext')
 
     function Probe() {
