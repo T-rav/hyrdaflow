@@ -376,7 +376,24 @@ class RepoWikiStore:
         return result
 
     def list_repos(self) -> list[str]:
-        """Return slugs for all repos with wikis."""
+        """Return slugs for all repos with wikis.
+
+        Accepts either the legacy ``index.json`` (topic-level layout) or the
+        new ``index.md`` (per-entry layout, see docs/git-backed-wiki-design.md
+        Phase 2). During the migration window both coexist; after migration
+        only ``index.md`` remains.
+
+        **WARNING (Phase 2 transition):** Other methods on ``RepoWikiStore``
+        (``ingest``, ``query``, ``lint``, ``active_lint``, ``_ensure_repo_dir``,
+        ``_rebuild_index``, ``_load_topic_entries``) still hardcode the
+        legacy topic-level layout (``{topic}.md`` files + ``index.json``).
+        Pointing a live ``RepoWikiStore`` at a new-layout directory will
+        corrupt it: ``_ensure_repo_dir`` seeds topic ``.md`` files on top of
+        the new per-entry subdirectories.  Phase 3 refactors those methods.
+        Until then, the production runtime keeps pointing at the legacy
+        ``.hydraflow/repo_wiki/`` path; the tracked ``repo_wiki/`` is
+        populated by the migration script but not yet read at runtime.
+        """
         if not self._wiki_root.exists():
             return []
         repos: list[str] = []
@@ -384,7 +401,11 @@ class RepoWikiStore:
             if not owner_dir.is_dir():
                 continue
             for repo_dir in sorted(owner_dir.iterdir()):
-                if repo_dir.is_dir() and (repo_dir / "index.json").exists():
+                if not repo_dir.is_dir():
+                    continue
+                has_legacy = (repo_dir / "index.json").exists()
+                has_new = (repo_dir / "index.md").exists()
+                if has_legacy or has_new:
                     repos.append(f"{owner_dir.name}/{repo_dir.name}")
         return repos
 

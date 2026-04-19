@@ -461,3 +461,37 @@ class TestWikiIndexModel:
         assert data["repo_slug"] == "acme/widget"
         assert data["total_entries"] == 2
         assert "patterns" in data["topics"]
+
+
+class TestListReposLayoutCompat:
+    """list_repos must accept both legacy (index.json) and new (index.md) layouts.
+
+    The git-backed wiki migration lands index.md in a separate PR before
+    callers switch away from index.json, so during the migration window both
+    files may coexist.
+    """
+
+    def test_list_repos_accepts_new_layout_index_md(self, tmp_path: Path) -> None:
+        wiki_root = tmp_path / "w"
+        repo = wiki_root / "owner" / "repo"
+        repo.mkdir(parents=True)
+        (repo / "index.md").write_text("# index\n")
+
+        store = RepoWikiStore(wiki_root)
+        assert store.list_repos() == ["owner/repo"]
+
+    def test_list_repos_accepts_legacy_layout_index_json(self, tmp_path: Path) -> None:
+        wiki_root = tmp_path / "w"
+        repo = wiki_root / "legacy-owner" / "legacy-repo"
+        repo.mkdir(parents=True)
+        (repo / "index.json").write_text("{}")
+
+        store = RepoWikiStore(wiki_root)
+        assert store.list_repos() == ["legacy-owner/legacy-repo"]
+
+    def test_list_repos_skips_dirs_without_index(self, tmp_path: Path) -> None:
+        wiki_root = tmp_path / "w"
+        (wiki_root / "stale-owner" / "no-index").mkdir(parents=True)
+
+        store = RepoWikiStore(wiki_root)
+        assert store.list_repos() == []

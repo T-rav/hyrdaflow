@@ -63,6 +63,7 @@ exclude = [
     "htmlcov", "__pycache__", ".pytest_cache", ".ruff_cache",
     ".claude/worktrees", ".codex/worktrees",
     ".hydraflow",
+    "repo_wiki",
     "tests/regressions",
     "scripts/cost_report.py",
 ]
@@ -86,6 +87,10 @@ line-ending = "auto"
 # === Pyright ===
 [tool.pyright]
 pythonVersion = "3.11"
+# extraPaths puts `src/` on pyright's module search path so imports like
+# `from repo_wiki import RepoWikiStore` resolve to `src/repo_wiki.py` and
+# are not shadowed by the tracked `repo_wiki/` data directory at the root.
+extraPaths = ["src"]
 include = ["src", "."]
 exclude = [
     "tests",
@@ -105,6 +110,11 @@ exclude = [
     ".codex/worktrees/**",
     ".hydraflow",
     ".hydraflow/**",
+    # Tracked wiki data (markdown + YAML frontmatter). Not importable code —
+    # the `repo_wiki` Python module lives at src/repo_wiki.py and must not
+    # be shadowed by this directory.
+    "repo_wiki",
+    "repo_wiki/**",
 ]
 typeCheckingMode = "standard"
 reportMissingImports = false
