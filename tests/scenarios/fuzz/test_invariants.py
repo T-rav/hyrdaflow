@@ -30,6 +30,18 @@ _DEFAULT_SETTINGS = settings(
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 
+_ALL_VALID_LABELS = [
+    "hydraflow-find",
+    "hydraflow-triage",
+    "hydraflow-plan",
+    "hydraflow-ready",
+    "hydraflow-review",
+    "hydraflow-done",
+    "hydraflow-hitl",
+    "hydraflow-blocked",
+    "hydraflow-stale",
+]
+
 
 @given(builder=issue_builders())
 @_DEFAULT_SETTINGS
@@ -128,3 +140,77 @@ async def test_fake_github_pr_numbers_unique(num_prs: int) -> None:
             f"duplicate PR number {pr_info.number} on iteration {i}"
         )
         seen.add(pr_info.number)
+
+
+# ---------------------------------------------------------------------------
+# Task 3.19 — Issue labels ∈ valid label set
+# ---------------------------------------------------------------------------
+
+
+@given(
+    labels=st.lists(
+        st.sampled_from(_ALL_VALID_LABELS),
+        min_size=1,
+        max_size=5,
+        unique=True,
+    )
+)
+@_DEFAULT_SETTINGS
+def test_seed_issue_with_valid_labels_preserves_them(labels: list[str]) -> None:
+    """Seeding with valid labels round-trips through FakeGitHub unchanged."""
+    from tests.scenarios.fakes.fake_github import FakeGitHub
+
+    gh = FakeGitHub()
+    gh.add_issue(1, "t", "b", labels=labels)
+
+    stored = gh.issue(1).labels
+    for lbl in labels:
+        assert lbl in stored, f"label {lbl} missing after seed"
+
+
+# ---------------------------------------------------------------------------
+# Task 3.20 — FakeBeads dependency graph is a DAG
+# ---------------------------------------------------------------------------
+
+
+@given(n_tasks=st.integers(min_value=2, max_value=8))
+@_DEFAULT_SETTINGS
+def test_fake_beads_sequential_deps_form_dag(n_tasks: int) -> None:
+    """Creating N tasks with deps only on earlier tasks yields a DAG."""
+    fake_beads = pytest.importorskip(
+        "tests.scenarios.fakes.fake_beads",
+        reason="FakeBeads not available on this branch",
+    )
+    FakeBeads = fake_beads.FakeBeads  # noqa: N806
+
+    import asyncio
+    from pathlib import Path
+
+    cwd = Path("/tmp/fake-beads-dag-test")
+
+    async def run() -> None:
+        beads = FakeBeads()
+        await beads.init(cwd)
+        ids: list[str] = []
+        for i in range(n_tasks):
+            tid = await beads.create_task(title=f"t{i}", priority="2", cwd=cwd)
+            ids.append(tid)
+            # Each task (except first) depends on the immediately previous one
+            if i > 0:
+                await beads.add_dependency(child=tid, parent=ids[i - 1], cwd=cwd)
+
+        # Verify: DFS from any node cannot revisit itself (detect cycles)
+        for start in ids:
+            visited: set[str] = set()
+            stack = [start]
+            while stack:
+                node = stack.pop()
+                if node in visited:
+                    # Cycle detected — pure forward chain should never revisit
+                    assert node != start, f"cycle detected at {start}"
+                    continue
+                visited.add(node)
+                deps = beads._tasks[node].depends_on if node in beads._tasks else []
+                stack.extend(deps)
+
+    asyncio.run(run())
