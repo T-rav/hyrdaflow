@@ -73,3 +73,115 @@ class TestIngestFromReview:
 
     def test_short_feedback_skipped(self, store: RepoWikiStore) -> None:
         assert ingest_from_review(store, REPO, 1, "LGTM") == 0
+
+
+class TestGitBackedIngest:
+    """Phase 3: `git_backed=True` routes through per-entry writes + per-issue log."""
+
+    def test_plan_writes_per_entry_files_and_skips_legacy(
+        self, store: RepoWikiStore
+    ) -> None:
+        plan = (
+            "## Architecture\n"
+            + ("Service A talks to service B via a queue. " * 5)
+            + "\n\n## Testing\n"
+            + ("Run unit tests before integration tests. " * 5)
+        )
+        count = ingest_from_plan(store, REPO, 42, plan, git_backed=True)
+
+        assert count == 2
+        arch_dir = store._wiki_root / REPO / "architecture"
+        testing_dir = store._wiki_root / REPO / "testing"
+        assert len(list(arch_dir.glob("*.md"))) == 1
+        assert len(list(testing_dir.glob("*.md"))) == 1
+
+        arch_entry = next(arch_dir.glob("*.md")).read_text()
+        assert arch_entry.startswith("---\n")
+        assert "source_phase: plan" in arch_entry
+
+        # Legacy topic files should NOT have been written.
+        assert not (store._wiki_root / REPO / "architecture.md").exists()
+        assert not (store._wiki_root / REPO / "testing.md").exists()
+
+        # Per-issue log stamped with issue_number.
+        import json as _json
+
+        log = (
+            (store._wiki_root / REPO / "log" / "42.jsonl")
+            .read_text()
+            .strip()
+            .splitlines()
+        )
+        rec = _json.loads(log[0])
+        assert rec["phase"] == "plan"
+        assert rec["issue_number"] == 42
+        assert rec["entries"] == 2
+
+    def test_review_writes_single_patterns_entry(self, store: RepoWikiStore) -> None:
+        feedback = "Long review feedback body. " * 20
+        count = ingest_from_review(store, REPO, 101, feedback, git_backed=True)
+
+        assert count == 1
+        patterns_dir = store._wiki_root / REPO / "patterns"
+        files = list(patterns_dir.glob("*.md"))
+        assert len(files) == 1
+        entry_text = files[0].read_text()
+        assert "source_phase: review" in entry_text
+        assert "issue-101" in files[0].name
+
+        import json as _json
+
+        log = (
+            (store._wiki_root / REPO / "log" / "101.jsonl")
+            .read_text()
+            .strip()
+            .splitlines()
+        )
+        rec = _json.loads(log[0])
+        assert rec["phase"] == "review"
+        assert rec["issue_number"] == 101
+
+    def test_default_git_backed_false_preserves_legacy_path(
+        self, store: RepoWikiStore
+    ) -> None:
+        """Default path unchanged — existing callers see the legacy
+        topic-level layout until they explicitly opt in."""
+        plan = "## Architecture\n" + ("Service A talks to service B via a queue. " * 5)
+        count = ingest_from_plan(store, REPO, 50, plan)
+
+        assert count >= 1
+        assert (store._wiki_root / REPO / "architecture.md").exists()
+
+    def test_partial_failure_rolls_back_written_entries(
+        self, store: RepoWikiStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If one write_entry raises mid-loop, every prior write in the
+        batch is removed so orphans can't leak into future ingests.
+        """
+        plan = (
+            "## Architecture\n"
+            + ("Service A talks to service B via a queue. " * 5)
+            + "\n\n## Testing\n"
+            + ("Run unit tests before integration tests. " * 5)
+        )
+
+        calls: list[str] = []
+        original = store.write_entry
+
+        def flaky_write_entry(repo_slug: str, entry, *, topic: str):
+            calls.append(topic)
+            if topic == "testing":  # second call blows up
+                raise OSError("disk full")
+            return original(repo_slug, entry, topic=topic)
+
+        monkeypatch.setattr(store, "write_entry", flaky_write_entry)
+
+        with pytest.raises(OSError, match="disk full"):
+            ingest_from_plan(store, REPO, 77, plan, git_backed=True)
+
+        # First write landed on disk; rollback should have removed it.
+        arch_dir = store._wiki_root / REPO / "architecture"
+        assert arch_dir.is_dir() is False or list(arch_dir.glob("*.md")) == []
+
+        # No log record should exist — log append only runs after all writes.
+        assert not (store._wiki_root / REPO / "log" / "77.jsonl").exists()

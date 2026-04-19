@@ -1329,6 +1329,37 @@ class HydraFlowConfig(BaseModel):
         description="Git user.email for worktree commits; falls back to global git config if empty",
     )
 
+    # Git-backed repo wiki (see docs/git-backed-wiki-design.md)
+    repo_wiki_git_backed: bool = Field(
+        default=True,
+        description=(
+            "When True, RepoWikiStore writes per-entry markdown files with "
+            "YAML frontmatter under the tracked `repo_wiki/` layout; ingest "
+            "commits the new files inside the active worktree so wiki "
+            "updates ride the issue's PR. Feature flag for Phase 3 rollout."
+        ),
+    )
+    repo_wiki_path: str = Field(
+        default="repo_wiki",
+        description="Tracked root directory (relative to repo_root) for the per-entry wiki layout",
+    )
+    repo_wiki_maintenance_auto_merge: bool = Field(
+        default=True,
+        description=(
+            "When True, RepoWikiLoop enables auto-merge on its maintenance "
+            "PRs (chore(wiki): maintenance ...) so merges happen on green CI "
+            "without human approval. Phase 4."
+        ),
+    )
+    repo_wiki_maintenance_pr_coalesce: bool = Field(
+        default=True,
+        description=(
+            "When True, subsequent maintenance ticks append commits to an "
+            "already-open maintenance PR instead of opening a new one. "
+            "Phase 4."
+        ),
+    )
+
     # Paths (auto-detected)
     repo_root: Path = Field(default=Path("."), description="Repository root directory")
     workspace_base: Path = Field(
