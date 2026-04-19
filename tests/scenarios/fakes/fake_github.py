@@ -85,6 +85,29 @@ class FakeGitHub:
             labels=labels or [],
         )
 
+    def add_pr(
+        self,
+        *,
+        number: int,
+        issue_number: int,
+        branch: str,
+        ci_status: str = "pass",
+        merged: bool = False,
+    ) -> None:
+        """Directly insert a PR record (sync helper for test seeding).
+
+        The async ``create_pr`` handles the production path; this helper
+        exists so scenario seeds can set up a fully-populated world
+        synchronously.
+        """
+        self._prs[number] = FakePR(
+            number=number,
+            issue_number=issue_number,
+            branch=branch,
+            merged=merged,
+            ci_status=ci_status,
+        )
+
     def script_ci(self, pr_number: int, results: list[tuple[bool, str]]) -> None:
         self._ci_scripts[pr_number] = deque(results)
 
