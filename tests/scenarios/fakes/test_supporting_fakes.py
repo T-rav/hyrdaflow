@@ -88,3 +88,33 @@ class TestFakeClock:
         clock = FakeClock(start=1000.0)
         await clock.sleep(30.0)
         assert clock.now() == 1030.0
+
+
+class TestFakeWorkspaceFaults:
+    async def test_fail_next_create_permission(self, tmp_path) -> None:
+        ws = FakeWorkspace(tmp_path)
+        ws.fail_next_create(kind="permission")
+        with pytest.raises(PermissionError):
+            await ws.create(1, "agent/issue-1")
+
+    async def test_fail_next_create_disk_full(self, tmp_path) -> None:
+        ws = FakeWorkspace(tmp_path)
+        ws.fail_next_create(kind="disk_full")
+        with pytest.raises(OSError) as exc_info:
+            await ws.create(1, "agent/issue-1")
+        assert exc_info.value.errno == 28
+
+    async def test_fail_next_create_branch_conflict(self, tmp_path) -> None:
+        ws = FakeWorkspace(tmp_path)
+        ws.fail_next_create(kind="branch_conflict")
+        with pytest.raises(RuntimeError, match="already exists"):
+            await ws.create(1, "agent/issue-1")
+
+    async def test_fail_next_create_is_single_shot(self, tmp_path) -> None:
+        ws = FakeWorkspace(tmp_path)
+        ws.fail_next_create(kind="permission")
+        with pytest.raises(PermissionError):
+            await ws.create(1, "agent/issue-1")
+        # Second call succeeds
+        path = await ws.create(2, "agent/issue-2")
+        assert path is not None

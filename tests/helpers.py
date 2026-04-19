@@ -648,7 +648,7 @@ class CredentialsFactory:
 class PipelineHarness:
     """Utility for wiring all phases with shared real stores in tests."""
 
-    def __init__(self, tmp_path: Path, *, config=None):
+    def __init__(self, tmp_path: Path, *, config=None, wiki_store: Any = None):
         from events import EventBus
         from hitl_phase import HITLPhase
         from implement_phase import ImplementPhase
@@ -738,6 +738,7 @@ class PipelineHarness:
             self.prs,
             self.bus,
             self.stop_event,
+            wiki_store=wiki_store,
         )
         self._implement_phase_base_kwargs: dict[str, Any] = {
             "config": self.config,

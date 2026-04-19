@@ -240,3 +240,67 @@ async def test_script_run_with_commits_handles_nested_paths(tmp_path) -> None:
     events = [e async for e in await fake.run_agent(command=["agent"])]
     assert events[-1]["type"] == "result"
     assert (tmp_path / "src" / "foo" / "bar.py").read_text() == "body"
+
+
+async def test_script_run_with_multiple_commits_creates_N_commits(tmp_path) -> None:
+    """Each batch produces a separate commit with incrementing message."""
+    import subprocess
+
+    subprocess.run(
+        ["git", "init", "-b", "main"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "t@t"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "t"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-m", "init"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    fake = FakeDocker()
+    fake.script_run_with_multiple_commits(
+        events=[{"type": "result", "success": True, "exit_code": 0}],
+        commit_batches=[
+            [("a.py", "one")],
+            [("b.py", "two")],
+            [("c.py", "three")],
+        ],
+        cwd=tmp_path,
+    )
+
+    events = [e async for e in await fake.run_agent(command=["agent"])]
+    assert events[-1]["type"] == "result"
+
+    # Verify all 3 files exist with correct content
+    assert (tmp_path / "a.py").read_text() == "one"
+    assert (tmp_path / "b.py").read_text() == "two"
+    assert (tmp_path / "c.py").read_text() == "three"
+
+    # Verify 3 fake-commits (plus the init empty commit) = 4 total
+    log = subprocess.run(
+        ["git", "log", "--oneline"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    lines = log.stdout.strip().split("\n")
+    assert len(lines) == 4
+    # Most-recent first: fake-commit-3, fake-commit-2, fake-commit-1, init
+    assert "fake-commit-3" in lines[0]
+    assert "fake-commit-2" in lines[1]
+    assert "fake-commit-1" in lines[2]

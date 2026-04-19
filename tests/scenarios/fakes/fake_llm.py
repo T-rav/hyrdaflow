@@ -65,6 +65,14 @@ class _ScriptedRunner:
 
 
 class _FakeTriageRunner(_ScriptedRunner):
+    def __init__(self) -> None:
+        super().__init__()
+        self._decomposition_scripts: dict[int, EpicDecompResult] = {}
+
+    def script_decomposition(self, issue_number: int, result: EpicDecompResult) -> None:
+        """Script the EpicDecompResult returned for the given issue."""
+        self._decomposition_scripts[issue_number] = result
+
     async def evaluate(self, issue: Any, _worker_id: int = 0) -> Any:
         issue_number = getattr(issue, "id", getattr(issue, "number", 0))
         return self._pop(
@@ -72,10 +80,11 @@ class _FakeTriageRunner(_ScriptedRunner):
             lambda: TriageResultFactory.create(issue_number=issue_number, ready=True),
         )
 
-    async def run_decomposition(self, _task: Any) -> EpicDecompResult:
-        # Real decomposition is not exercised in scenario tests; return a
-        # no-op result so triage_phase.py can safely read should_decompose.
-        return EpicDecompResult(should_decompose=False)
+    async def run_decomposition(self, task: Any) -> EpicDecompResult:
+        issue_number = getattr(task, "id", getattr(task, "number", 0))
+        return self._decomposition_scripts.get(
+            issue_number, EpicDecompResult(should_decompose=False)
+        )
 
 
 class _FakePlannerRunner(_ScriptedRunner):
@@ -160,6 +169,7 @@ class _FakeReviewRunner(_ScriptedRunner):
     def __init__(self, parent: FakeLLM) -> None:
         super().__init__()
         self._parent = parent
+        self._last_alerts_received: dict[int, list[Any]] = {}
 
     async def review(
         self,
@@ -173,8 +183,9 @@ class _FakeReviewRunner(_ScriptedRunner):
         bead_tasks: list[Any] | None = None,
         **_unused: Any,
     ) -> Any:
-        _ = (worker_id, code_scanning_alerts, bead_tasks)
+        _ = (worker_id, bead_tasks)
         issue_number = getattr(issue, "id", getattr(issue, "number", 0))
+        self._last_alerts_received[issue_number] = list(code_scanning_alerts or [])
         pr_number = getattr(pr, "number", 0)
         if not self._parent._consume_budget(issue_number):
             return ReviewResultFactory.create(
@@ -211,6 +222,7 @@ class _FakeReviewRunner(_ScriptedRunner):
             issue_number=issue_number,
             verdict=ReviewVerdict.APPROVE,
             ci_passed=True,
+            fixes_made=True,
         )
 
 
@@ -235,6 +247,10 @@ class FakeLLM:
 
     def script_review(self, issue_number: int, results: list[Any]) -> None:
         self.reviewers.add_script(issue_number, results)
+
+    def alerts_received_by_reviewer(self, issue_number: int) -> list[Any]:
+        """Return the code_scanning_alerts last passed to reviewers.review for this issue."""
+        return list(self.reviewers._last_alerts_received.get(issue_number, []))
 
     def set_token_budget(
         self,

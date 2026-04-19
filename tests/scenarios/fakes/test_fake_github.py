@@ -124,3 +124,28 @@ class TestFakeGitHubRateLimit:
         gh.clear_rate_limit()
         await gh.add_labels(1, ["x"])  # no raise
         assert "x" in gh.issue(1).labels
+
+
+class TestFakeGitHubCodeScanningAlerts:
+    async def test_fetch_code_scanning_alerts_returns_scripted_list(self) -> None:
+        from models import CodeScanningAlert
+
+        gh = FakeGitHub()
+        alerts = [
+            CodeScanningAlert(
+                number=1,
+                severity="error",
+                security_severity="high",
+                path="src/x.py",
+                start_line=42,
+                rule="py/sql-injection",
+                message="potential injection",
+            ),
+        ]
+        gh.add_alerts(pr_number=100, alerts=alerts)
+        out = await gh.fetch_code_scanning_alerts(pr_number=100)
+        assert out == alerts
+
+    async def test_fetch_code_scanning_alerts_defaults_empty(self) -> None:
+        gh = FakeGitHub()
+        assert await gh.fetch_code_scanning_alerts(pr_number=999) == []

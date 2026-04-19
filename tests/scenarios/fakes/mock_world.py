@@ -41,10 +41,12 @@ class MockWorld:
         config: Any = None,
         install_subprocess_clock: bool = False,
         use_real_agent_runner: bool = False,
+        wiki_store: Any = None,
     ) -> None:
         self._tmp_path = tmp_path
         self._use_real_agent = use_real_agent_runner
-        self._harness = PipelineHarness(tmp_path, config=config)
+        self._wiki_store = wiki_store
+        self._harness = PipelineHarness(tmp_path, config=config, wiki_store=wiki_store)
         self._llm = FakeLLM()
         self._github = FakeGitHub()
         self._hindsight = FakeHindsight()

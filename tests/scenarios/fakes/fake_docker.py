@@ -54,6 +54,27 @@ class FakeDocker:
             [{"__commit_hook__": {"cwd": str(cwd), "files": commits}}, *events]
         )
 
+    def script_run_with_multiple_commits(
+        self,
+        *,
+        events: list[dict[str, Any]],
+        commit_batches: list[list[tuple[str, str]]],
+        cwd: Path,
+    ) -> None:
+        """Queue *events* but first apply each batch in *commit_batches* as a separate commit.
+
+        Each batch is a list of ``(relative_path, content)`` tuples. Files in a
+        batch are written together and committed with ``git commit -m fake-commit-{i}``
+        where ``i`` is 1-based within the script. The scripted ``events`` yield
+        AFTER all commits have been written.
+        """
+        self._scripts.append(
+            [
+                {"__multi_commit_hook__": {"cwd": str(cwd), "batches": commit_batches}},
+                *events,
+            ]
+        )
+
     def fail_next(self, *, kind: FaultKind) -> None:
         """Inject a single-shot fault into the next run_agent call."""
         self._next_fault = kind
@@ -115,26 +136,48 @@ async def _aiter_with_hooks(
     import subprocess
 
     for event in events:
-        hook = event.get("__commit_hook__") if isinstance(event, dict) else None
-        if hook:
-            cwd = Path(hook["cwd"])
-            for rel, content in hook["files"]:
-                dest = cwd / rel
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_text(content)
-            subprocess.run(
-                ["git", "add", "-A"],
-                cwd=cwd,
-                check=True,
-                capture_output=True,
-            )
-            subprocess.run(
-                ["git", "commit", "--allow-empty", "-m", "fake-commit"],
-                cwd=cwd,
-                check=True,
-                capture_output=True,
-            )
-            continue
+        if isinstance(event, dict):
+            hook = event.get("__commit_hook__")
+            multi_hook = event.get("__multi_commit_hook__")
+            if hook:
+                cwd = Path(hook["cwd"])
+                for rel, content in hook["files"]:
+                    dest = cwd / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_text(content)
+                subprocess.run(
+                    ["git", "add", "-A"],
+                    cwd=cwd,
+                    check=True,
+                    capture_output=True,
+                )
+                subprocess.run(
+                    ["git", "commit", "--allow-empty", "-m", "fake-commit"],
+                    cwd=cwd,
+                    check=True,
+                    capture_output=True,
+                )
+                continue
+            if multi_hook:
+                cwd = Path(multi_hook["cwd"])
+                for i, batch in enumerate(multi_hook["batches"], start=1):
+                    for rel, content in batch:
+                        dest = cwd / rel
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        dest.write_text(content)
+                    subprocess.run(
+                        ["git", "add", "-A"],
+                        cwd=cwd,
+                        check=True,
+                        capture_output=True,
+                    )
+                    subprocess.run(
+                        ["git", "commit", "--allow-empty", "-m", f"fake-commit-{i}"],
+                        cwd=cwd,
+                        check=True,
+                        capture_output=True,
+                    )
+                continue
         yield event
 
 
