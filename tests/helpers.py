@@ -648,7 +648,14 @@ class CredentialsFactory:
 class PipelineHarness:
     """Utility for wiring all phases with shared real stores in tests."""
 
-    def __init__(self, tmp_path: Path, *, config=None, wiki_store: Any = None):
+    def __init__(
+        self,
+        tmp_path: Path,
+        *,
+        config=None,
+        wiki_store: Any = None,
+        beads_manager: Any = None,
+    ):
         from events import EventBus
         from hitl_phase import HITLPhase
         from implement_phase import ImplementPhase
@@ -659,6 +666,7 @@ class PipelineHarness:
         from state import StateTracker
         from triage_phase import TriagePhase
 
+        self._beads_manager = beads_manager
         self.config = config or ConfigFactory.create(
             repo_root=tmp_path / "repo",
             workspace_base=tmp_path / "worktrees",
@@ -739,6 +747,7 @@ class PipelineHarness:
             self.bus,
             self.stop_event,
             wiki_store=wiki_store,
+            beads_manager=beads_manager,
         )
         self._implement_phase_base_kwargs: dict[str, Any] = {
             "config": self.config,
@@ -747,6 +756,7 @@ class PipelineHarness:
             "prs": self.prs,
             "store": self.store,
             "stop_event": self.stop_event,
+            "beads_manager": beads_manager,
         }
         self.implement_phase = ImplementPhase(
             agents=self.agents,
