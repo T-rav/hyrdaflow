@@ -260,3 +260,23 @@ async def test_start_dashboard_is_idempotent(tmp_path):
         assert url_a == url_b
     finally:
         await world.stop_dashboard()
+
+
+async def test_stop_dashboard_frees_port(tmp_path):
+    import socket
+
+    from tests.scenarios.fakes.mock_world import MockWorld
+
+    world = MockWorld(tmp_path)
+    url = await world.start_dashboard()
+    port = int(url.rsplit(":", 1)[1])
+
+    await world.stop_dashboard()
+
+    # After stop, the port must be reusable.
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        s.bind(("127.0.0.1", port))
+    finally:
+        s.close()

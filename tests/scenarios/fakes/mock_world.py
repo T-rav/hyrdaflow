@@ -521,6 +521,17 @@ class MockWorld:
         try:
             if self._dashboard._orchestrator and self._dashboard._orchestrator.running:
                 await self._dashboard._orchestrator.stop()
+
+            uv_server = getattr(self._dashboard, "_uvicorn_server", None)
+            if uv_server is not None:
+                uv_server.should_exit = True
+                # Close bound listener sockets synchronously so the port is
+                # released before we return. Uvicorn's graceful shutdown can
+                # take seconds; explicit close avoids flake.
+                for s in uv_server.servers:
+                    s.close()
+                    await s.wait_closed()
+
             await asyncio.wait_for(self._dashboard.stop(), timeout=5)
         finally:
             self._dashboard = None
