@@ -194,7 +194,8 @@ class TestMaybeOpenMaintenancePR:
         await loop._maybe_open_maintenance_pr(stats)
 
         assert captured["gh_token"] == "ghs_test"
-        assert captured["auto_merge"] is True
+        # Auto-merge is off — the loop reviews + merges itself after CI green.
+        assert captured["auto_merge"] is False
         assert captured["branch"].startswith("hydraflow/wiki-maint-")
         assert "chore(wiki): maintenance" in captured["pr_title"]
         assert captured["raise_on_failure"] is False
@@ -304,10 +305,221 @@ class TestQueueDrainIntegration:
         loop._wiki_compiler = None
         loop._state = None
 
-        # Stub _maybe_open_maintenance_pr so we don't try to open a PR.
+        # Stub both async PR hooks so we don't try to open/poll a PR.
         monkeypatch.setattr(loop, "_maybe_open_maintenance_pr", AsyncMock())
+        monkeypatch.setattr(loop, "_poll_and_merge_open_pr", AsyncMock())
 
         stats = await loop._do_work()
         assert stats is not None
         assert stats["queue_drained"] == 2
         assert queue.peek() == []  # drained
+
+
+class TestMaintenancePrLabeling:
+    @pytest.mark.asyncio
+    async def test_opens_pr_with_hydraflow_wiki_maintenance_label(
+        self, git_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict[str, Any] = {}
+
+        async def fake_open(**kwargs: Any) -> AutoPrResult:
+            captured.update(kwargs)
+            return AutoPrResult(
+                status="opened",
+                pr_url="https://github.com/x/y/pull/7",
+                branch=kwargs["branch"],
+            )
+
+        monkeypatch.setattr("repo_wiki_loop.open_automated_pr_async", fake_open)
+        (git_repo / "repo_wiki" / "new.md").write_text("new\n")
+
+        loop = _stub_loop(
+            _make_config(git_repo),
+            credentials=Credentials(gh_token="ghs_test"),
+        )
+        await loop._maybe_open_maintenance_pr({})
+
+        assert captured["labels"] == ["hydraflow-wiki-maintenance"]
+        # Auto-merge is off — the loop handles review/merge itself on the
+        # next ticks once CI is green.
+        assert captured["auto_merge"] is False
+
+
+class TestPollAndMergeOpenPR:
+    @pytest.mark.asyncio
+    async def test_no_op_when_nothing_tracked(
+        self, git_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        called = False
+
+        async def fake_run(*args: Any, **kwargs: Any) -> str:
+            del args, kwargs
+            nonlocal called
+            called = True
+            return ""
+
+        monkeypatch.setattr("repo_wiki_loop.run_subprocess", fake_run)
+
+        loop = _stub_loop(
+            _make_config(git_repo),
+            credentials=Credentials(gh_token="ghs_test"),
+        )
+        await loop._poll_and_merge_open_pr({})
+        assert called is False
+
+    @pytest.mark.asyncio
+    async def test_clears_state_when_pr_already_merged(
+        self, git_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*cmd: Any, **_: Any) -> str:
+            calls.append(tuple(str(c) for c in cmd))
+            if cmd[:3] == ("gh", "pr", "view"):
+                return '{"state":"MERGED","reviewDecision":"APPROVED","statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
+            return ""
+
+        monkeypatch.setattr("repo_wiki_loop.run_subprocess", fake_run)
+
+        loop = _stub_loop(
+            _make_config(git_repo),
+            credentials=Credentials(gh_token="ghs_test"),
+        )
+        loop._open_pr_url = "https://github.com/x/y/pull/9"
+        loop._open_pr_branch = "hydraflow/wiki-maint-xyz"
+
+        stats: dict[str, Any] = {}
+        await loop._poll_and_merge_open_pr(stats)
+
+        # gh pr view called, merge NOT called again (already merged).
+        assert any(c[:3] == ("gh", "pr", "view") for c in calls)
+        assert not any(c[:3] == ("gh", "pr", "merge") for c in calls)
+        assert loop._open_pr_url is None
+        assert stats["maintenance_pr_state"] == "MERGED"
+
+    @pytest.mark.asyncio
+    async def test_skips_when_ci_pending(
+        self, git_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def fake_run(*cmd: Any, **_: Any) -> str:
+            if cmd[:3] == ("gh", "pr", "view"):
+                # CI is in-progress / queued.
+                return (
+                    '{"state":"OPEN","reviewDecision":null,'
+                    '"statusCheckRollup":[{"conclusion":"","state":"PENDING"}]}'
+                )
+            raise AssertionError(f"unexpected cmd {cmd}")
+
+        monkeypatch.setattr("repo_wiki_loop.run_subprocess", fake_run)
+
+        loop = _stub_loop(
+            _make_config(git_repo),
+            credentials=Credentials(gh_token="ghs_test"),
+        )
+        loop._open_pr_url = "https://github.com/x/y/pull/10"
+
+        stats: dict[str, Any] = {}
+        await loop._poll_and_merge_open_pr(stats)
+
+        assert stats["maintenance_pr_ci"] == "pending"
+        assert loop._open_pr_url == "https://github.com/x/y/pull/10"  # retained
+
+    @pytest.mark.asyncio
+    async def test_approves_then_merges_when_ci_green(
+        self, git_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*cmd: Any, **_: Any) -> str:
+            calls.append(tuple(str(c) for c in cmd))
+            if cmd[:3] == ("gh", "pr", "view"):
+                return (
+                    '{"state":"OPEN","reviewDecision":null,'
+                    '"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
+                )
+            return ""
+
+        monkeypatch.setattr("repo_wiki_loop.run_subprocess", fake_run)
+
+        loop = _stub_loop(
+            _make_config(git_repo),
+            credentials=Credentials(gh_token="ghs_test"),
+        )
+        loop._open_pr_url = "https://github.com/x/y/pull/11"
+        loop._open_pr_branch = "hydraflow/wiki-maint-abc"
+
+        stats: dict[str, Any] = {}
+        await loop._poll_and_merge_open_pr(stats)
+
+        # Approve then merge.
+        review_idx = next(
+            i for i, c in enumerate(calls) if c[:3] == ("gh", "pr", "review")
+        )
+        merge_idx = next(
+            i for i, c in enumerate(calls) if c[:3] == ("gh", "pr", "merge")
+        )
+        assert review_idx < merge_idx
+        assert "--approve" in calls[review_idx]
+        assert "--squash" in calls[merge_idx]
+        assert loop._open_pr_url is None  # cleared after merge
+        assert stats["maintenance_pr_state"] == "MERGED"
+
+    @pytest.mark.asyncio
+    async def test_skips_approve_when_already_approved(
+        self, git_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*cmd: Any, **_: Any) -> str:
+            calls.append(tuple(str(c) for c in cmd))
+            if cmd[:3] == ("gh", "pr", "view"):
+                return (
+                    '{"state":"OPEN","reviewDecision":"APPROVED",'
+                    '"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
+                )
+            return ""
+
+        monkeypatch.setattr("repo_wiki_loop.run_subprocess", fake_run)
+
+        loop = _stub_loop(
+            _make_config(git_repo),
+            credentials=Credentials(gh_token="ghs_test"),
+        )
+        loop._open_pr_url = "https://github.com/x/y/pull/12"
+
+        await loop._poll_and_merge_open_pr({})
+
+        assert not any(c[:3] == ("gh", "pr", "review") for c in calls)
+        assert any(c[:3] == ("gh", "pr", "merge") for c in calls)
+
+    @pytest.mark.asyncio
+    async def test_ci_failure_skips_review_and_merge(
+        self, git_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[tuple[str, ...]] = []
+
+        async def fake_run(*cmd: Any, **_: Any) -> str:
+            calls.append(tuple(str(c) for c in cmd))
+            if cmd[:3] == ("gh", "pr", "view"):
+                return (
+                    '{"state":"OPEN","reviewDecision":null,'
+                    '"statusCheckRollup":[{"conclusion":"FAILURE"}]}'
+                )
+            return ""
+
+        monkeypatch.setattr("repo_wiki_loop.run_subprocess", fake_run)
+
+        loop = _stub_loop(
+            _make_config(git_repo),
+            credentials=Credentials(gh_token="ghs_test"),
+        )
+        loop._open_pr_url = "https://github.com/x/y/pull/13"
+
+        stats: dict[str, Any] = {}
+        await loop._poll_and_merge_open_pr(stats)
+
+        assert stats["maintenance_pr_ci"] == "failure"
+        # PR stays open for human triage.
+        assert loop._open_pr_url == "https://github.com/x/y/pull/13"
+        assert not any(c[:3] == ("gh", "pr", "review") for c in calls)
+        assert not any(c[:3] == ("gh", "pr", "merge") for c in calls)

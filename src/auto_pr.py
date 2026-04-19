@@ -151,6 +151,7 @@ def open_automated_pr(
     worktree_parent: Path | None = None,
     commit_author_name: str = BOT_NAME,
     commit_author_email: str = BOT_EMAIL,
+    labels: list[str] | None = None,
 ) -> AutoPrResult:
     """Open a PR for `files` on a fresh worktree branched from `origin/{base}`.
 
@@ -276,22 +277,22 @@ def open_automated_pr(
                 f"git push failed for branch {branch!r}: {exc.stderr}"
             ) from exc
 
-        create_proc = _run_gh(
-            [
-                "gh",
-                "pr",
-                "create",
-                "--title",
-                title,
-                "--body",
-                body,
-                "--base",
-                base,
-                "--head",
-                branch,
-            ],
-            cwd=worktree_path,
-        )
+        create_cmd = [
+            "gh",
+            "pr",
+            "create",
+            "--title",
+            title,
+            "--body",
+            body,
+            "--base",
+            base,
+            "--head",
+            branch,
+        ]
+        for label in labels or []:
+            create_cmd.extend(["--label", label])
+        create_proc = _run_gh(create_cmd, cwd=worktree_path)
         if create_proc.returncode != 0:
             raise AutoPrError(
                 f"gh pr create failed for branch {branch!r}: "
@@ -359,6 +360,7 @@ async def open_automated_pr_async(  # noqa: PLR0911 — linear step-by-step guar
     worktree_parent: Path | None = None,
     commit_author_name: str = BOT_NAME,
     commit_author_email: str = BOT_EMAIL,
+    labels: list[str] | None = None,
 ) -> AutoPrResult:
     """Async variant that routes subprocess calls through `run_subprocess`.
 
@@ -532,19 +534,24 @@ async def open_automated_pr_async(  # noqa: PLR0911 — linear step-by-step guar
             return _fail(f"git push failed for {branch!r}: {exc}")
 
         # Create the PR.
+        create_args: list[str] = [
+            "gh",
+            "pr",
+            "create",
+            "--title",
+            pr_title,
+            "--body",
+            pr_body,
+            "--base",
+            base,
+            "--head",
+            branch,
+        ]
+        for label in labels or []:
+            create_args.extend(["--label", label])
         try:
             create_stdout = await run_subprocess(
-                "gh",
-                "pr",
-                "create",
-                "--title",
-                pr_title,
-                "--body",
-                pr_body,
-                "--base",
-                base,
-                "--head",
-                branch,
+                *create_args,
                 cwd=worktree_path,
                 gh_token=gh_token,
             )

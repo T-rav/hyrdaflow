@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import subprocess
 from datetime import UTC, datetime
@@ -13,6 +14,7 @@ from auto_pr import open_automated_pr_async
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import Credentials, HydraFlowConfig
 from repo_wiki import DEFAULT_TOPICS, RepoWikiStore
+from subprocess_util import run_subprocess
 from wiki_maint_queue import MaintenanceQueue
 
 if TYPE_CHECKING:
@@ -156,13 +158,17 @@ class RepoWikiLoop(BaseBackgroundLoop):
                 len(repos),
             )
 
-        # Record the up-front queue drain and attempt to open a
-        # maintenance PR if the tracked layout has changes.  No-op today
-        # because Phase 4 does not yet teach ``active_lint`` /
-        # ``compile_topic`` to write into ``repo_root / repo_wiki/`` —
-        # those edits still land on the legacy gitignored store.  Once
-        # Phase 5 ports those paths, this block will start emitting PRs.
+        # Record the up-front queue drain, poll any open maintenance PR
+        # for CI-green → review + merge, then attempt to open a new one
+        # if the tracked layout has changes.  The open-then-poll order
+        # lets a single tick do both: merge the last cycle's PR (if
+        # ready) and emit this cycle's PR.  Phase 4 does not yet teach
+        # ``active_lint`` / ``compile_topic`` to write into
+        # ``repo_root / repo_wiki/`` — those edits still land on the
+        # legacy gitignored store — so the open path stays dormant
+        # until Phase 5 ports them.
         stats["queue_drained"] = len(drained)
+        await self._poll_and_merge_open_pr(stats)
         await self._maybe_open_maintenance_pr(stats)
 
         return stats
@@ -224,7 +230,12 @@ class RepoWikiLoop(BaseBackgroundLoop):
             pr_title=title,
             pr_body=body,
             base=self._config.base_branch(),
-            auto_merge=self._config.repo_wiki_maintenance_auto_merge,
+            # Auto-merge is disabled — the loop polls CI on subsequent
+            # ticks and calls ``gh pr review --approve`` + ``gh pr merge``
+            # itself once CI is green.  The label is how operators (and
+            # future factory loops) identify these PRs.
+            auto_merge=False,
+            labels=["hydraflow-wiki-maintenance"],
             gh_token=self._credentials.gh_token,
             raise_on_failure=False,
             commit_author_name=self._config.git_user_name,
@@ -246,6 +257,131 @@ class RepoWikiLoop(BaseBackgroundLoop):
                 branch,
                 result.error,
             )
+
+    async def _poll_and_merge_open_pr(  # noqa: PLR0911 — linear state-machine guards
+        self, stats: dict[str, Any]
+    ) -> None:
+        """Review + merge the currently-open maintenance PR when CI is green.
+
+        Runs every tick.  No-op when no PR is being tracked.  State
+        transitions handled:
+
+        - Remote state ``MERGED`` / ``CLOSED`` → clear tracked state
+          and record the outcome on ``stats``.
+        - Remote state ``OPEN``, CI green, not yet approved →
+          ``gh pr review --approve`` with an automation comment.
+        - Remote state ``OPEN``, CI green, already approved →
+          ``gh pr merge --squash``, then clear tracked state.
+        - Remote state ``OPEN``, CI pending / red → log and leave
+          for a future tick (red CI surfaces on the PR for humans).
+
+        Always fail-soft so a transient ``gh`` error doesn't crash
+        the loop or strand the PR's tracked state — the next tick
+        re-polls.
+        """
+        if self._open_pr_url is None or self._credentials is None:
+            return
+        gh_token = self._credentials.gh_token
+        if not gh_token:
+            return
+
+        pr_url = self._open_pr_url
+        try:
+            view_stdout = await run_subprocess(
+                "gh",
+                "pr",
+                "view",
+                pr_url,
+                "--json",
+                "state,reviewDecision,statusCheckRollup",
+                gh_token=gh_token,
+            )
+            view = json.loads(view_stdout)
+        except (RuntimeError, json.JSONDecodeError) as exc:
+            logger.warning("Wiki maintenance PR poll failed for %s: %s", pr_url, exc)
+            return
+
+        state = str(view.get("state", "")).upper()
+        if state in {"MERGED", "CLOSED"}:
+            logger.info(
+                "Wiki maintenance PR %s is %s; clearing tracked state",
+                pr_url,
+                state,
+            )
+            self._open_pr_url = None
+            self._open_pr_branch = None
+            stats["maintenance_pr_state"] = state
+            return
+
+        ci_state = _ci_rollup_state(view.get("statusCheckRollup") or [])
+        stats["maintenance_pr_ci"] = ci_state
+
+        if ci_state != "success":
+            logger.debug(
+                "Wiki maintenance PR %s CI=%s — skipping review/merge",
+                pr_url,
+                ci_state,
+            )
+            return
+
+        review_decision = str(view.get("reviewDecision") or "").upper()
+        if review_decision != "APPROVED":
+            try:
+                await run_subprocess(
+                    "gh",
+                    "pr",
+                    "review",
+                    pr_url,
+                    "--approve",
+                    "-b",
+                    "Automated approval — RepoWikiLoop wrote these maintenance "
+                    "edits and CI is green.",
+                    gh_token=gh_token,
+                )
+                logger.info("Wiki maintenance PR %s approved", pr_url)
+            except RuntimeError as exc:
+                logger.warning(
+                    "Wiki maintenance PR approve failed for %s: %s", pr_url, exc
+                )
+                return
+
+        try:
+            await run_subprocess(
+                "gh",
+                "pr",
+                "merge",
+                pr_url,
+                "--squash",
+                gh_token=gh_token,
+            )
+        except RuntimeError as exc:
+            logger.warning("Wiki maintenance PR merge failed for %s: %s", pr_url, exc)
+            return
+
+        logger.info("Wiki maintenance PR %s merged", pr_url)
+        self._open_pr_url = None
+        self._open_pr_branch = None
+        stats["maintenance_pr_state"] = "MERGED"
+
+
+def _ci_rollup_state(rollup: list[dict[str, Any]]) -> str:
+    """Collapse ``gh pr view --json statusCheckRollup`` into a single state.
+
+    - ``success`` — every check succeeded
+    - ``failure`` — at least one failed / errored / action-required
+    - ``pending`` — otherwise (queued, in-progress, or empty)
+    """
+    if not rollup:
+        return "pending"
+    statuses: list[str] = []
+    for check in rollup:
+        conclusion = check.get("conclusion") or check.get("state") or ""
+        statuses.append(str(conclusion).lower())
+    if any(s in {"failure", "error", "action_required", "cancelled"} for s in statuses):
+        return "failure"
+    if all(s in {"success", "neutral", "skipped"} for s in statuses):
+        return "success"
+    return "pending"
 
 
 def _porcelain_paths(repo_root: Path, path_prefix: str) -> list[str]:
