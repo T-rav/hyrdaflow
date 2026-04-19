@@ -1672,6 +1672,13 @@ export function HydraFlowProvider({ children }) {
     return () => { cancelled = true; clearInterval(interval) }
   }, [state.connected, isSeeded])
 
+  // Reflect WebSocket connection state as a DOM attribute so Playwright helpers
+  // (wait_for_ws_ready) can detect readiness without polling JS state.
+  useEffect(() => {
+    document.body.setAttribute('data-connected', String(state.connected))
+    return () => { document.body.removeAttribute('data-connected') }
+  }, [state.connected])
+
   // Fetch tracked reports on mount and periodically; also refresh
   // filed/stale statuses so the UI reflects actual issue outcomes.
   // Always poll regardless of isSeeded — report status is inherently

@@ -2170,3 +2170,56 @@ describe('orchestrator_status session reset clears sessions', () => {
     expect(next.sessions).toEqual(sessions)
   })
 })
+
+describe('HydraFlowProvider body[data-connected]', () => {
+  afterEach(() => {
+    delete window.__HYDRAFLOW_SEED_STATE__
+    document.body.removeAttribute('data-connected')
+    vi.resetModules()
+  })
+
+  it('sets data-connected on body when websocket connects', async () => {
+    // Use seed state with connected: true so the provider reflects it immediately
+    // without needing a real WebSocket connection.
+    window.__HYDRAFLOW_SEED_STATE__ = { connected: true }
+
+    const { HydraFlowProvider, useHydraFlow } = await import('../HydraFlowContext')
+
+    function Probe() {
+      const ctx = useHydraFlow()
+      return <div data-testid="connected">{String(ctx.connected)}</div>
+    }
+
+    await act(async () => {
+      render(
+        <HydraFlowProvider>
+          <Probe />
+        </HydraFlowProvider>
+      )
+    })
+
+    expect(document.body.getAttribute('data-connected')).toBe('true')
+    expect(screen.getByTestId('connected').textContent).toBe('true')
+  })
+
+  it('sets data-connected to false when not connected', async () => {
+    window.__HYDRAFLOW_SEED_STATE__ = { connected: false }
+
+    const { HydraFlowProvider, useHydraFlow } = await import('../HydraFlowContext')
+
+    function Probe() {
+      const ctx = useHydraFlow()
+      return <div data-testid="connected">{String(ctx.connected)}</div>
+    }
+
+    await act(async () => {
+      render(
+        <HydraFlowProvider>
+          <Probe />
+        </HydraFlowProvider>
+      )
+    })
+
+    expect(document.body.getAttribute('data-connected')).toBe('false')
+  })
+})
