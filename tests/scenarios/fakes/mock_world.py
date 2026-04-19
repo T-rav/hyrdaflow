@@ -549,5 +549,31 @@ class MockWorld:
         raise TimeoutError("dashboard did not bind a port within 5s")
 
     async def _build_wired_orchestrator(self, config: Any, bus: Any, state: Any) -> Any:
-        """Stub — implemented in Task 9."""
-        raise NotImplementedError("with_orchestrator=True is implemented in Task 9")
+        """Construct a real HydraFlowOrchestrator wired against this world's fakes.
+
+        Uses a small adapter class to map ServiceRegistry attribute names to
+        the shape _wire_targets expects (prs / triage_runner / planners /
+        agents / reviewers / workspaces).  ServiceRegistry uses ``triage``
+        instead of ``triage_runner``; the other five names already match.
+        """
+        from orchestrator import HydraFlowOrchestrator  # noqa: PLC0415
+
+        orch = HydraFlowOrchestrator(
+            config=config, event_bus=bus, state=state, pipeline_enabled=False
+        )
+
+        # Wrap the ServiceRegistry so _wire_targets sees the attribute shape
+        # it expects (prs / triage_runner / planners / agents / reviewers /
+        # workspaces). ServiceRegistry uses `triage` instead of
+        # `triage_runner`; the other five attribute names already match.
+        class _SvcAdapter:
+            def __init__(self, svc: Any) -> None:
+                self.prs = svc.prs
+                self.triage_runner = svc.triage  # renamed!
+                self.planners = svc.planners
+                self.agents = svc.agents
+                self.reviewers = svc.reviewers
+                self.workspaces = svc.workspaces
+
+        self._wire_targets(_SvcAdapter(orch._svc))
+        return orch

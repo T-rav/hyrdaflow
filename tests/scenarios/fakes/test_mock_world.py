@@ -280,3 +280,25 @@ async def test_stop_dashboard_frees_port(tmp_path):
         s.bind(("127.0.0.1", port))
     finally:
         s.close()
+
+
+async def test_start_dashboard_with_orchestrator_wires_fakes(tmp_path):
+    from tests.scenarios.fakes.mock_world import MockWorld
+
+    world = MockWorld(tmp_path)
+    world.add_issue(1, "Test issue", "Body", labels=["hydraflow-find"])
+
+    await world.start_dashboard(with_orchestrator=True)
+    try:
+        dashboard = world._dashboard
+        orch = dashboard._orchestrator
+        assert orch is not None
+        # PR methods on the real service registry must point at FakeGitHub.
+        # Use equality rather than identity because bound methods produce a
+        # new object on each attribute access.
+        assert orch._svc.prs.create_pr == world.github.create_pr
+        # Triage runner (exposed as `triage` on ServiceRegistry — NOT
+        # `triage_runner`) must point at FakeLLM.
+        assert orch._svc.triage.evaluate == world._llm.triage_runner.evaluate
+    finally:
+        await world.stop_dashboard()
