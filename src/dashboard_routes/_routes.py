@@ -1512,6 +1512,11 @@ def create_router(
 
     _register_crates(router, ctx)
 
+    # --- Wiki routes (Phase 5 of git-backed repo wiki) ---
+    from dashboard_routes._wiki_routes import register as _register_wiki
+
+    _register_wiki(router, ctx)
+
     # --- HITL routes (extracted to _hitl_routes.py) ---
     from dashboard_routes._hitl_routes import register as _register_hitl
 
