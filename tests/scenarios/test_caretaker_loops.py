@@ -20,26 +20,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from tests.scenarios.fakes.mock_world import MockWorld
+from tests.scenarios.helpers.loop_port_seeding import seed_ports as _seed_ports
 
 pytestmark = pytest.mark.scenario_loops
-
-
-def _seed_ports(world: MockWorld, extra: dict) -> None:
-    """Pre-initialise world._loop_ports with base fakes + caller-supplied mocks.
-
-    MockWorld lazily creates _loop_ports on the first run_with_loops() call.
-    By seeding it here we ensure our AsyncMocks are in place before the catalog
-    builder runs ``ports.get(key) or MagicMock()``.
-    """
-    if not hasattr(world, "_loop_ports"):
-        world._loop_ports = {
-            "github": world.github,
-            "workspace": world._workspace,
-            "hindsight": world._hindsight,
-            "sentry": world._sentry,
-            "clock": world._clock,
-        }
-    world._loop_ports.update(extra)
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +48,7 @@ class TestL9ADRReviewerLoop:
             "accepted": 1,
             "deferred": 1,
         }
-        _seed_ports(world, {"adr_reviewer": fake_reviewer})
+        _seed_ports(world, adr_reviewer=fake_reviewer)
 
         stats = await world.run_with_loops(["adr_reviewer"], cycles=1)
 
@@ -83,7 +66,7 @@ class TestL9ADRReviewerLoop:
 
         fake_reviewer = AsyncMock()
         fake_reviewer.review_proposed_adrs.return_value = None
-        _seed_ports(world, {"adr_reviewer": fake_reviewer})
+        _seed_ports(world, adr_reviewer=fake_reviewer)
 
         stats = await world.run_with_loops(["adr_reviewer"], cycles=1)
 
@@ -112,7 +95,7 @@ class TestL10MemorySyncLoop:
         fake_memory_sync = AsyncMock()
         fake_memory_sync.sync.return_value = sync_result
         fake_memory_sync.publish_sync_event.return_value = None
-        _seed_ports(world, {"memory_sync": fake_memory_sync})
+        _seed_ports(world, memory_sync=fake_memory_sync)
 
         stats = await world.run_with_loops(["memory_sync"], cycles=1)
 
@@ -134,7 +117,7 @@ class TestL10MemorySyncLoop:
         fake_memory_sync = AsyncMock()
         fake_memory_sync.sync.return_value = sync_result
         fake_memory_sync.publish_sync_event.return_value = None
-        _seed_ports(world, {"memory_sync": fake_memory_sync})
+        _seed_ports(world, memory_sync=fake_memory_sync)
 
         stats = await world.run_with_loops(["memory_sync"], cycles=1)
 
@@ -161,7 +144,7 @@ class TestL11RetrospectiveLoop:
 
         fake_queue = MagicMock()
         fake_queue.load.return_value = []
-        _seed_ports(world, {"retrospective_queue": fake_queue})
+        _seed_ports(world, retrospective_queue=fake_queue)
 
         stats = await world.run_with_loops(["retrospective"], cycles=1)
 
@@ -195,10 +178,8 @@ class TestL11RetrospectiveLoop:
 
         _seed_ports(
             world,
-            {
-                "retrospective_queue": fake_queue,
-                "retrospective": fake_retro,
-            },
+            retrospective_queue=fake_queue,
+            retrospective=fake_retro,
         )
 
         stats = await world.run_with_loops(["retrospective"], cycles=1)
@@ -229,10 +210,8 @@ class TestL12EpicSweeperLoop:
         fake_state.get_epic_state.return_value = None
         _seed_ports(
             world,
-            {
-                "issue_fetcher": fake_fetcher,
-                "epic_sweeper_state": fake_state,
-            },
+            issue_fetcher=fake_fetcher,
+            epic_sweeper_state=fake_state,
         )
 
         stats = await world.run_with_loops(["epic_sweeper"], cycles=1)
@@ -285,10 +264,8 @@ class TestL12EpicSweeperLoop:
 
         _seed_ports(
             world,
-            {
-                "issue_fetcher": fake_fetcher,
-                "epic_sweeper_state": fake_state,
-            },
+            issue_fetcher=fake_fetcher,
+            epic_sweeper_state=fake_state,
         )
 
         stats = await world.run_with_loops(["epic_sweeper"], cycles=1)
