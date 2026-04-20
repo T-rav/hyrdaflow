@@ -230,3 +230,42 @@ async def test_review_runner_no_alerts_captures_empty_list() -> None:
     await llm.reviewers.review(pr, task, Path("/tmp"), "")
 
     assert llm.alerts_received_by_reviewer(7) == []
+
+
+async def test_fix_ci_default_returns_fixes_made_true() -> None:
+    """Default fix_ci (no script) returns fixes_made=True."""
+    from tests.conftest import PRInfoFactory
+    from tests.scenarios.fakes.fake_llm import FakeLLM
+
+    llm = FakeLLM()
+    pr = PRInfoFactory.create(number=42, issue_number=1, branch="feat/x")
+    task = TaskFactory.create(id=1)
+    result = await llm.reviewers.fix_ci(pr, task, Path("/tmp"), "CI failed")
+
+    assert result.fixes_made is True
+    assert result.ci_passed is True
+
+
+async def test_fix_ci_scripted_result_overrides_default() -> None:
+    """script_fix_ci causes fix_ci to return the scripted result (fixes_made=False)."""
+    from models import ReviewVerdict
+    from tests.conftest import PRInfoFactory
+    from tests.scenarios.fakes.fake_llm import FakeLLM
+
+    llm = FakeLLM()
+    scripted = ReviewResultFactory.create(
+        pr_number=42,
+        issue_number=1,
+        verdict=ReviewVerdict.REQUEST_CHANGES,
+        fixes_made=False,
+        ci_passed=False,
+    )
+    llm.script_fix_ci(1, scripted)
+
+    pr = PRInfoFactory.create(number=42, issue_number=1, branch="feat/x")
+    task = TaskFactory.create(id=1)
+    result = await llm.reviewers.fix_ci(pr, task, Path("/tmp"), "CI failed")
+
+    assert result.fixes_made is False
+    assert result.ci_passed is False
+    assert result.verdict == ReviewVerdict.REQUEST_CHANGES

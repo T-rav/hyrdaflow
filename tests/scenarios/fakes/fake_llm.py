@@ -217,6 +217,9 @@ class _FakeReviewRunner(_ScriptedRunner):
     ) -> Any:
         issue_number = getattr(issue, "id", getattr(issue, "number", 0))
         pr_number = getattr(pr, "number", 0)
+        scripted = self._parent._fix_ci_scripts.get(issue_number)
+        if scripted is not None:
+            return scripted
         return ReviewResultFactory.create(
             pr_number=pr_number,
             issue_number=issue_number,
@@ -231,6 +234,7 @@ class FakeLLM:
 
     def __init__(self) -> None:
         self._token_budgets: dict[int, _BudgetState] = {}
+        self._fix_ci_scripts: dict[int, Any] = {}
         self.triage_runner = _FakeTriageRunner()
         self.planners = _FakePlannerRunner(self)
         self.agents = _FakeAgentRunner()
@@ -247,6 +251,15 @@ class FakeLLM:
 
     def script_review(self, issue_number: int, results: list[Any]) -> None:
         self.reviewers.add_script(issue_number, results)
+
+    def script_fix_ci(self, issue_number: int, result: Any) -> None:
+        """Script the ReviewResult returned by reviewers.fix_ci for an issue.
+
+        Default (no script): returns ReviewResult(verdict=APPROVE, fixes_made=True,
+        ci_passed=True). Scripting lets scenarios exercise the 'fix_ci gives up'
+        branch (fixes_made=False).
+        """
+        self._fix_ci_scripts[issue_number] = result
 
     def alerts_received_by_reviewer(self, issue_number: int) -> list[Any]:
         """Return the code_scanning_alerts last passed to reviewers.review for this issue."""
