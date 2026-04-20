@@ -469,6 +469,14 @@ async def test_A11_review_fix_ci_loop_resolves(tmp_path) -> None:
     # 8 FakeDocker invocations: 1 agent + 4 skills + 2 pre-quality + 1 make-quality
     assert len(world.docker.invocations) >= 8
 
+    # Defense: if PR numbering changes, wait_for_ci returns default success and
+    # the scripted fail/pass queue stays full. Assert it was consumed.
+    assert pr.number in world.github._ci_scripts
+    assert len(world.github._ci_scripts[pr.number]) == 0, (
+        "fix_ci loop did not consume the scripted CI queue — wait_for_ci may have "
+        "missed the PR entirely (check FakeGitHub._pr_counter initial value)"
+    )
+
 
 async def test_A12_multi_commit_implement(tmp_path) -> None:
     """Real agent produces 3 commits; `git rev-list --count` observes them.
