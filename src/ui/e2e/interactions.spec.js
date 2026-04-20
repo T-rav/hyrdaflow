@@ -191,6 +191,11 @@ test('UI-3: typing in the memory search box updates the displayed sections', asy
 
   // The text of the matching learning should appear in the DOM
   await expect(page.getByText(tribalLearning)).toBeVisible({ timeout: 5_000 })
+
+  // After filtering, entries that don't match "quality gate" must be hidden.
+  // "prefer small focused commits" is the second entry in the seeded memories
+  // above (issue_number: 205) and does not contain "quality gate".
+  await expect(page.getByText(/prefer small focused commits/i)).not.toBeVisible()
 })
 
 // ---------------------------------------------------------------------------
