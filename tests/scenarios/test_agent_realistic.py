@@ -855,18 +855,15 @@ async def test_A20_workspace_create_permission_failure(tmp_path) -> None:
     # Pipeline does not crash. Issue fails without merging.
     assert not result.issue(1).merged, f"expected no merge; outcome={result.issue(1)}"
 
-    # Workspace failure must be observable, not silently swallowed.
-    # The implement phase catches PermissionError; the issue never reaches the
-    # worker so worker_result is None. Observable signals: no PR created (the
-    # workspace exception prevented any work from landing), and either a comment
-    # was posted, the issue was escalated (hitl/find final_stage), OR the issue
-    # simply has no worker_result at all (workspace exception consumed it).
+    # Workspace failure must produce a concrete observable signal.
+    # Production wraps the PermissionError in a WorkerResult(success=False) via
+    # run_with_fatal_guard → the worker_result is set and records the error.
+    # Assert the three real-signal arms; the tautological `worker_result is None`
+    # arm has been removed — if none of these hold the test must fail loudly.
     outcome = result.issue(1)
     observed_failure = (
-        # Worker ran but recorded the failure (PermissionError surfaces as failed WorkerResult)
+        # Worker recorded the failure (PermissionError surfaces as failed WorkerResult)
         (outcome.worker_result is not None and outcome.worker_result.success is False)
-        # OR no worker ran at all — workspace failure consumed the implement slot
-        or outcome.worker_result is None
         # OR the issue was escalated / reset (HITL or find path)
         or outcome.final_stage in ("hitl", "find")
         # OR a comment was posted about the failure
