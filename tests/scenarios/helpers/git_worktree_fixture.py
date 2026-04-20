@@ -12,11 +12,19 @@ import subprocess
 from pathlib import Path
 
 
-def init_test_worktree(path: Path, *, branch: str = "agent/issue-1") -> None:
+def init_test_worktree(
+    path: Path,
+    *,
+    branch: str = "agent/issue-1",
+    origin: Path | None = None,
+) -> None:
     """Prepare *path* as a git repo suitable for scenario testing.
 
     Sets up:
-    - A bare ``origin.git`` sibling directory used as the remote.
+    - A bare origin directory used as the remote.  Defaults to
+      ``path.parent / "origin.git"`` if *origin* is not supplied.
+      Pass an explicit *origin* when multiple worktrees share the same
+      parent directory and would otherwise collide on the default name.
     - An initial commit on ``main`` (so ``origin/main`` is reachable).
     - The working branch *branch* checked out and pushed to origin.
 
@@ -24,7 +32,8 @@ def init_test_worktree(path: Path, *, branch: str = "agent/issue-1") -> None:
     will return ``"0"`` until a new commit is added on *branch*.
     """
     path.mkdir(parents=True, exist_ok=True)
-    origin = path.parent / "origin.git"
+    if origin is None:
+        origin = path.parent / "origin.git"
     origin.mkdir(parents=True, exist_ok=True)
 
     run = lambda *args, cwd=path: subprocess.run(  # noqa: E731

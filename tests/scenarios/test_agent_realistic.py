@@ -628,52 +628,24 @@ async def test_A14_three_issues_concurrent_realistic(tmp_path) -> None:
     issues. The scenario asserts overall pipeline success and worktree
     isolation (each issue's own file is present, others' are not).
 
-    Note: ``init_test_worktree`` places the bare origin at
-    ``path.parent / "origin.git"``. With 3 worktrees sharing the same
-    parent (``tmp_path / "worktrees"``), a single shared ``origin.git``
-    would conflict when the second and third repos try to push a different
-    ``main``. Each issue therefore gets its own origin under
-    ``tmp_path / "origins" / "issue-{n}.git"`` via inline git setup that
-    mirrors what ``init_test_worktree`` does but with an explicit origin path.
+    Each issue gets its own bare origin under ``tmp_path / "origins" /
+    "issue-{n}.git"`` via ``init_test_worktree(..., origin=...)``. This
+    avoids conflicts on the default ``origin.git`` name when multiple
+    worktrees share the same parent directory.
 
     If cross-contamination is observed (one issue gets another's file),
     this scenario would need keyed FakeDocker scripting — a separate fix.
     """
-    import subprocess
-
     world = MockWorld(tmp_path, use_real_agent_runner=True)
 
     for n in (1, 2, 3):
         world.add_issue(n, f"issue {n}", f"body {n}", labels=["hydraflow-ready"])
 
         wt = tmp_path / "worktrees" / f"issue-{n}"
-        wt.mkdir(parents=True, exist_ok=True)
-
         # Per-issue bare origin so that multiple repos don't conflict on push.
         origin = tmp_path / "origins" / f"issue-{n}.git"
-        origin.mkdir(parents=True, exist_ok=True)
 
-        branch = f"agent/issue-{n}"
-
-        def _git(*args: str, cwd) -> None:  # noqa: ANN001
-            subprocess.run(list(args), cwd=cwd, check=True, capture_output=True)
-
-        # Bare origin
-        subprocess.run(
-            ["git", "init", "--bare", str(origin)],
-            check=True,
-            capture_output=True,
-        )
-
-        # Worktree repo
-        _git("git", "init", "-b", "main", cwd=wt)
-        _git("git", "config", "user.email", "test@test", cwd=wt)
-        _git("git", "config", "user.name", "test", cwd=wt)
-        _git("git", "commit", "--allow-empty", "-m", "init", cwd=wt)
-        _git("git", "remote", "add", "origin", str(origin), cwd=wt)
-        _git("git", "push", "-u", "origin", "main", cwd=wt)
-        _git("git", "checkout", "-b", branch, cwd=wt)
-        _git("git", "push", "-u", "origin", branch, cwd=wt)
+        init_test_worktree(wt, branch=f"agent/issue-{n}", origin=origin)
 
         world.docker.script_run_with_commits(
             events=[{"type": "result", "success": True, "exit_code": 0}],
