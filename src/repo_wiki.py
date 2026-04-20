@@ -254,7 +254,15 @@ def active_lint_tracked(
     """Tracked-layout counterpart of ``RepoWikiStore.active_lint``.
 
     Scans per-entry files under ``{tracked_root}/{repo_slug}/{topic}/*.md``
-    and mutates them in place:
+    and mutates them in place.  Matches the legacy ``active_lint`` semantics:
+    the 90-day prune window is measured from ``created_at``, not from
+    stale-flag-timestamp — so an old active entry whose issue just closed
+    can be flipped stale and pruned in the same pass.  This is intentional:
+    ``created_at`` is a proxy for "still relevant," and a 120-day-old entry
+    whose source issue has closed is typically already superseded by a
+    ``WikiCompiler`` synthesis entry.
+
+    Actions:
 
     - Entries whose frontmatter ``source_issue`` is an int in
       *closed_issues* and current ``status == "active"`` are rewritten

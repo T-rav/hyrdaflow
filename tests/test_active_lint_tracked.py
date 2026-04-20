@@ -215,3 +215,31 @@ def test_counts_entries_across_topics(tmp_path: Path) -> None:
 
     assert result.total_entries == 3
     assert result.entries_marked_stale == 2
+
+
+def test_old_active_entry_gets_flipped_and_pruned_same_pass(tmp_path: Path) -> None:
+    """An active entry whose issue just closed AND is already past the
+    90-day window gets flipped stale AND pruned in the same pass.
+
+    Matches the legacy ``active_lint`` semantic (``created_at`` is the
+    prune clock, not a separate ``stale_since`` timestamp).  By the time
+    an entry is 120 days old it's typically already superseded by a
+    compiler synthesis entry, so the wiki stays compact.
+    """
+    root = tmp_path / "repo_wiki"
+    old_path = root / "acme" / "widget" / "patterns" / "0001-issue-42-stale-oldie.md"
+    long_ago = (datetime.now(UTC) - timedelta(days=120)).isoformat()
+    _write_entry(
+        old_path,
+        entry_id="0001",
+        topic="patterns",
+        source_issue=42,
+        status="active",
+        created_at=long_ago,
+    )
+
+    result = active_lint_tracked(root, REPO, {42})
+
+    assert not old_path.exists()
+    assert result.entries_marked_stale == 1
+    assert result.orphans_pruned == 1
