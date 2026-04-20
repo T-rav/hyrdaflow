@@ -711,3 +711,8 @@ class TestTrackedCompileStatsReporting:
         assert stats is not None
         # Must be 2 (post-synthesis), not 8 (active_count pre-fix).
         assert stats["entries_compiled"] == 2
+        # Defence-in-depth: if the 5-entry threshold is ever raised above
+        # our 8-entry fixture, the outer assertion would still pass with
+        # entries_compiled == 0 (0 != 2 → fail, but for the wrong reason).
+        # Pinning await_count guarantees the compiler was actually invoked.
+        compiler.compile_topic_tracked.assert_awaited_once()
