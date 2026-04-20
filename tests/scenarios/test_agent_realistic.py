@@ -912,18 +912,24 @@ async def test_A21_state_json_corruption_graceful_fallback(tmp_path) -> None:
 
 
 async def test_A22_wiki_populated_plan_consults_it(tmp_path) -> None:
-    """Pre-populated RepoWikiStore is consulted by PlanPhase.
+    """Pre-populated RepoWikiStore is wired to PlanPhase; wiki is accessible.
 
-    We pre-ingest a learning entry, run the pipeline, and verify the wiki
-    log records activity (either ingest or query) scoped to the test repo.
+    NOTE: The realistic-agent path uses FakeLLM for planning (scripted), so
+    ``plan_phase._wiki_ingest_plan`` runs with the default FakeLLM plan text
+    (``"## Plan\\n\\n1. Do the thing\\n2. Test the thing"``).  That text contains
+    no "architecture", "design", "risks", or "testing" sections, so
+    ``ingest_from_plan`` extracts 0 entries and writes no additional log entry.
+    Therefore ``post_count > pre_count`` would be a false gate on the scripted
+    path.
 
-    PipelineHarness defaults to repo slug "test-org/test-repo", so the wiki
-    log lives at {wiki_root}/test-org/test-repo/log.jsonl.  The pre-ingest
-    call writes at least one log entry; if PlanPhase queries/ingests again,
-    more entries appear.
+    Instead, this test verifies:
+    1. The wiki_store is correctly wired to PlanPhase (_wiki_store attribute is set).
+    2. The pre-ingest call wrote a log entry (wiki storage works end-to-end).
+    3. The pipeline ran to completion with the wiki in place (no crash from wiki wiring).
+
+    A stricter query-consultation test requires a real LLM planner that reads wiki
+    context before generating the plan — that is exercised in integration tests.
     """
-    import pytest
-
     from repo_wiki import RepoWikiStore, WikiEntry
     from tests.scenarios.helpers.git_worktree_fixture import init_test_worktree
 
@@ -952,18 +958,24 @@ async def test_A22_wiki_populated_plan_consults_it(tmp_path) -> None:
         cwd=worktree_cwd,
     )
 
+    # Verify wiki_store is wired to PlanPhase BEFORE running the pipeline
+    assert world.harness.plan_phase._wiki_store is wiki, (
+        "wiki_store not wired to PlanPhase — PipelineHarness did not pass it through"
+    )
+
     result = await world.run_pipeline()
 
-    # The pre-ingest call above always writes a log entry.  PlanPhase may add
-    # more (query or ingest) depending on whether plan text is available.
+    # The pre-ingest call above always writes a log entry — verify end-to-end
+    # storage works (log file exists and is non-empty).
     log_path = tmp_path / "wiki" / "test-org" / "test-repo" / "log.jsonl"
-    if log_path.exists():
-        content = log_path.read_text()
-        assert content, (
-            "wiki log exists but is empty — pre-ingest should have written it"
-        )
-    else:
-        # RepoWikiStore layout has changed; adjust expectations.
-        pytest.skip("wiki log not found; RepoWikiStore layout may have changed")
+    assert log_path.exists(), (
+        f"wiki log missing at {log_path} — RepoWikiStore layout may have changed"
+    )
+    assert log_path.read_text().strip(), (
+        "wiki log exists but is empty — pre-ingest should have written it"
+    )
 
-    assert result is not None
+    # Pipeline completed without crashing despite wiki being wired.
+    assert result.issue(1).merged, (
+        f"expected merged=True with wiki wired; outcome={result.issue(1)}"
+    )
