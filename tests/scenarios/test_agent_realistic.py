@@ -893,9 +893,22 @@ async def test_A21_state_json_corruption_graceful_fallback(tmp_path) -> None:
     # StateTracker.load() catches JSONDecodeError and falls back to StateData().
     result = await world.run_pipeline()
 
-    # The real StateTracker was exercised: construction did not raise and the
-    # pipeline ran to completion with a fresh empty state.
-    assert result is not None
+    # Verify StateTracker fell back to empty state — _data must be a valid
+    # StateData object, not None and not the corrupted JSON string.
+    from models import StateData  # noqa: PLC0415
+
+    state_data = world.harness.state._data
+    assert state_data is not None, "StateTracker._data is None after corrupt load"
+    assert isinstance(state_data, StateData), (
+        f"StateTracker._data is not a StateData instance after corrupt load: "
+        f"{type(state_data)!r}"
+    )
+
+    # The pipeline reached a terminal stage — corruption did not prevent processing.
+    outcome = result.issue(1)
+    assert outcome.final_stage in ("triage", "plan", "implement", "review", "done"), (
+        f"unexpected final_stage={outcome.final_stage!r} after corrupt state recovery"
+    )
 
 
 async def test_A22_wiki_populated_plan_consults_it(tmp_path) -> None:
