@@ -271,7 +271,10 @@ class TestL18RepoWikiLoop:
         stats = await world.run_with_loops(["repo_wiki"], cycles=1)
 
         result = stats["repo_wiki"]
-        assert result == {"repos": 0, "total_entries": 0}
+        # Assert required keys; allow additional keys as the loop stats evolve.
+        assert result is not None
+        assert result["repos"] == 0
+        assert result["total_entries"] == 0
 
     async def test_one_repo_lint_runs(self, tmp_path):
         """With one repo, active_lint is called and stats reflect its results."""

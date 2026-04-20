@@ -324,7 +324,9 @@ class FakeGitHub:
         self._maybe_rate_limit()
         return list(self._alerts.get(branch, []))
 
-    async def wait_for_ci(self, pr_number: int, **_kw: Any) -> tuple[bool, str]:
+    async def wait_for_ci(
+        self, pr_number: int, *_args: Any, **_kw: Any
+    ) -> tuple[bool, str]:
         self._maybe_rate_limit()
         q = self._ci_scripts.get(pr_number)
         if q:

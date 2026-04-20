@@ -410,6 +410,10 @@ async def test_A11_review_fix_ci_loop_resolves(tmp_path) -> None:
     wait_and_fix_ci catches the failure, invokes the scripted fix_ci (FakeLLM,
     always returns fixes_made=True), re-waits CI which now passes. Merge proceeds.
 
+    Requires max_ci_fix_attempts=1 — the CI gate is disabled by default
+    (ConfigFactory default is 0, which skips wait_for_ci entirely in
+    PostMergeHandler._run_ci_gate). We pass a custom config so the CI gate runs.
+
     FakeDocker invocations (8 total — quality passes first attempt):
       1. Initial agent _execute (streaming) — commits code
       2–5. Four post-implementation skill _execute calls — default success
@@ -422,7 +426,21 @@ async def test_A11_review_fix_ci_loop_resolves(tmp_path) -> None:
     CI fail/fix is handled by FakeGitHub.script_ci + FakeLLM.reviewers.fix_ci
     and does NOT consume FakeDocker slots.
     """
-    world = MockWorld(tmp_path, use_real_agent_runner=True)
+    from tests.helpers import ConfigFactory  # noqa: PLC0415
+
+    # max_ci_fix_attempts=1 enables the CI gate (PostMergeHandler._run_ci_gate
+    # returns True immediately if max_ci_fix_attempts == 0, skipping wait_for_ci).
+    config = ConfigFactory.create(
+        repo_root=tmp_path / "repo",
+        workspace_base=tmp_path / "worktrees",
+        state_file=tmp_path / "state.json",
+        max_workers=1,
+        max_planners=1,
+        max_reviewers=1,
+        visual_validation_enabled=False,
+        max_ci_fix_attempts=1,
+    )
+    world = MockWorld(tmp_path, use_real_agent_runner=True, config=config)
     world.add_issue(1, "t", "b", labels=["hydraflow-ready"])
     worktree_cwd = tmp_path / "worktrees" / "issue-1"
     init_test_worktree(worktree_cwd)
@@ -844,8 +862,10 @@ async def test_A20_workspace_create_permission_failure(tmp_path) -> None:
     # simply has no worker_result at all (workspace exception consumed it).
     outcome = result.issue(1)
     observed_failure = (
-        # No worker ran at all — workspace failure consumed the implement slot
-        outcome.worker_result is None
+        # Worker ran but recorded the failure (PermissionError surfaces as failed WorkerResult)
+        (outcome.worker_result is not None and outcome.worker_result.success is False)
+        # OR no worker ran at all — workspace failure consumed the implement slot
+        or outcome.worker_result is None
         # OR the issue was escalated / reset (HITL or find path)
         or outcome.final_stage in ("hitl", "find")
         # OR a comment was posted about the failure
