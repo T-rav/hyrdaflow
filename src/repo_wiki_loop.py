@@ -173,6 +173,36 @@ class RepoWikiLoop(BaseBackgroundLoop):
                                 exc_info=True,
                             )
 
+                # Phase 8: tracked-layout compilation — produces
+                # ``source_phase: synthesis`` per-entry files and marks
+                # their sources ``superseded`` under
+                # ``{repo_root}/{repo_wiki_path}/{slug}/{topic}/``.  When
+                # the layout has ≥ 5 active entries, LLM synthesis runs
+                # and its diffs surface in the next maintenance PR.
+                if tracked_root is not None:
+                    for topic in DEFAULT_TOPICS:
+                        topic_dir = tracked_root / slug / topic
+                        active_count = sum(
+                            1 for _ in _iter_tracked_active_files(topic_dir)
+                        )
+                        if active_count < 5:
+                            continue
+                        try:
+                            synthesized = (
+                                await self._wiki_compiler.compile_topic_tracked(
+                                    tracked_root, slug, topic
+                                )
+                            )
+                            if synthesized:
+                                total_compiled += active_count
+                        except Exception:  # noqa: BLE001
+                            logger.warning(
+                                "Wiki compile_tracked failed for %s/%s",
+                                slug,
+                                topic,
+                                exc_info=True,
+                            )
+
         stats = {
             "repos": len(repos),
             "total_entries": total_entries,
@@ -419,6 +449,35 @@ def _list_tracked_repos(tracked_root: Path) -> list[str]:
             if (repo_dir / "index.md").exists() or (repo_dir / "index.json").exists():
                 slugs.append(f"{owner_dir.name}/{repo_dir.name}")
     return slugs
+
+
+def _iter_tracked_active_files(topic_dir: Path):
+    """Yield per-entry file paths whose frontmatter ``status`` is
+    ``active``.  Used to count active entries before deciding to run
+    ``compile_topic_tracked`` — LLM calls are expensive, so we cap the
+    work at topics with a meaningful backlog.
+    """
+    if not topic_dir.is_dir():
+        return
+    for path in topic_dir.glob("*.md"):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if not text.startswith("---\n"):
+            continue
+        try:
+            end = text.index("\n---\n", 4)
+        except ValueError:
+            continue
+        block = text[4:end]
+        status = "active"
+        for line in block.splitlines():
+            if line.startswith("status:"):
+                status = line.split(":", 1)[1].strip() or "active"
+                break
+        if status == "active":
+            yield path
 
 
 def _ci_rollup_state(rollup: list[dict[str, Any]]) -> str:

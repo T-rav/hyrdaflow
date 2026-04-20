@@ -246,6 +246,109 @@ def _tracked_entry_age_days(fields: dict[str, str], now: datetime) -> int:
     return max(0, (now - ts).days)
 
 
+def _load_tracked_active_entries(topic_dir: Path) -> list[dict[str, Any]]:
+    """Return ``[{id, title, body, source_issue, source_phase, created_at,
+    path}]`` for every ``status: active`` entry in ``topic_dir``.
+
+    Used by ``WikiCompiler.compile_topic_tracked`` to build the LLM
+    prompt and to remember which files to mark superseded after the
+    synthesis output lands.
+    """
+    if not topic_dir.is_dir():
+        return []
+    out: list[dict[str, Any]] = []
+    for path in sorted(topic_dir.glob("*.md")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        fields, _block, body = _split_tracked_entry(text)
+        if not fields or fields.get("status", "active") != "active":
+            continue
+        title = body.lstrip().split("\n", 1)[0].lstrip("# ").strip() or path.stem
+        out.append(
+            {
+                "id": fields.get("id", ""),
+                "title": title,
+                "body": body.strip(),
+                "source_issue": fields.get("source_issue", ""),
+                "source_phase": fields.get("source_phase", ""),
+                "created_at": fields.get("created_at", ""),
+                "path": str(path),
+            }
+        )
+    return out
+
+
+def _write_tracked_synthesis_entry(
+    topic_dir: Path,
+    *,
+    entry: WikiEntry,
+    topic: str,
+    supersedes: list[str],
+) -> Path:
+    """Write a compiler-synthesized per-entry file with
+    ``source_phase: synthesis`` and a ``supersedes`` list in frontmatter.
+
+    The filename embeds ``issue-synthesis`` (not ``issue-{N}``) so
+    synthesis outputs are distinguishable from ingest entries at a
+    glance.  Returns the written path.
+    """
+    topic_dir.mkdir(parents=True, exist_ok=True)
+    next_id = _next_entry_id(topic_dir)
+    slug = _slugify(entry.title)
+    if slug == "untitled":
+        slug = "synthesis"
+    filename = f"{next_id:04d}-issue-synthesis-{slug}.md"
+    path = topic_dir / filename
+
+    now = datetime.now(UTC).isoformat()
+    safe_content = _sanitize_body_for_frontmatter(entry.content)
+    lines = [
+        "---",
+        f"id: {next_id:04d}",
+        f"topic: {topic}",
+        "source_issue: synthesis",
+        "source_phase: synthesis",
+        f"created_at: {now}",
+        "status: active",
+    ]
+    if supersedes:
+        lines.append("supersedes: " + ",".join(supersedes))
+    lines.append("---")
+    lines.append("")
+    lines.append(f"# {entry.title}")
+    lines.append("")
+    lines.append(safe_content)
+    lines.append("")
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+def _mark_tracked_entry_superseded(entry_path: Path, *, superseded_by: str) -> None:
+    """Flip ``status`` → ``superseded`` and add ``superseded_by`` in the
+    frontmatter.  No-op when the file has no frontmatter block.
+    """
+    try:
+        text = entry_path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    fields, _block, body = _split_tracked_entry(text)
+    if not fields:
+        return
+    fields["status"] = "superseded"
+    fields["superseded_by"] = superseded_by
+    rebuilt = (
+        "---\n" + "\n".join(f"{k}: {v}" for k, v in fields.items()) + "\n---\n" + body
+    )
+    try:
+        entry_path.write_text(rebuilt, encoding="utf-8")
+    except OSError:
+        logger.warning(
+            "mark_tracked_entry_superseded: failed to rewrite %s", entry_path
+        )
+
+
 def active_lint_tracked(
     tracked_root: Path,
     repo_slug: str,

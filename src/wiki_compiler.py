@@ -15,9 +15,13 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from repo_wiki import WikiEntry
+
+_SYNTHESIS_ID_RE = re.compile(r"^(\d+)-")
 
 if TYPE_CHECKING:
     from config import Credentials, HydraFlowConfig
@@ -186,6 +190,107 @@ class WikiCompiler:
             repo,
             topic,
             len(entries),
+            len(compiled),
+        )
+        return len(compiled)
+
+    async def compile_topic_tracked(
+        self,
+        tracked_root: Path,
+        repo: str,
+        topic: str,
+        *,
+        other_topics: list[str] | None = None,
+    ) -> int:
+        """Tracked-layout counterpart of ``compile_topic``.
+
+        Reads ``status: active`` per-entry files in
+        ``{tracked_root}/{repo}/{topic}/*.md``, asks the LLM to
+        synthesize / deduplicate, then:
+
+        - Writes each compiled entry as a new per-entry file with
+          ``source_phase: synthesis`` under a ``synthesis-<timestamp>``
+          suffix so the filename doesn't collide with issue-tagged
+          entries.
+        - Flips every input entry's ``status`` to ``superseded`` with a
+          ``superseded_by`` pointer to the first synthesis id (operators
+          looking at a superseded entry can find the replacement).
+
+        Returns the number of compiled entries written (0 if the LLM
+        call failed or the topic had fewer than 2 active entries).
+
+        The stale-flag path already writes to the tracked layout (Phase
+        7), so combining this method with ``_maybe_open_maintenance_pr``
+        lets ``RepoWikiLoop`` emit complete maintenance PRs without
+        needing a separate synthesis sub-loop.
+        """
+        from repo_wiki import (  # noqa: PLC0415
+            DEFAULT_TOPICS,
+            _load_tracked_active_entries,
+            _mark_tracked_entry_superseded,
+            _write_tracked_synthesis_entry,
+        )
+
+        topic_dir = tracked_root / repo / topic
+        active_entries = _load_tracked_active_entries(topic_dir)
+        if len(active_entries) < 2:
+            return 0
+
+        entries_text = "\n\n".join(
+            f"### {e['title']}\n{e['body']}\n"
+            f"Source: #{e['source_issue'] or 'N/A'} ({e['source_phase']})\n"
+            f"Created: {e['created_at']}"
+            for e in active_entries
+        )
+
+        if other_topics is None:
+            other_topics = [t for t in DEFAULT_TOPICS if t != topic]
+
+        prompt = _COMPILE_TOPIC_PROMPT.format(
+            topic=topic,
+            repo=repo,
+            entries_text=entries_text,
+            other_topics=", ".join(other_topics),
+        )
+
+        raw = await self._call_model(prompt)
+        if raw is None:
+            return 0
+
+        compiled = self._parse_entries(raw)
+        if not compiled:
+            logger.warning(
+                "Wiki compile_tracked for %s/%s produced no valid entries — "
+                "keeping originals",
+                repo,
+                topic,
+            )
+            return 0
+
+        superseded_ids = [e["id"] for e in active_entries]
+        synthesis_paths: list[Path] = []
+        for entry in compiled:
+            path = _write_tracked_synthesis_entry(
+                topic_dir,
+                entry=entry,
+                topic=topic,
+                supersedes=superseded_ids,
+            )
+            synthesis_paths.append(path)
+
+        if synthesis_paths:
+            m = _SYNTHESIS_ID_RE.match(synthesis_paths[0].name)
+            primary_id = m.group(1) if m else "unknown"
+            for entry in active_entries:
+                _mark_tracked_entry_superseded(
+                    Path(entry["path"]), superseded_by=primary_id
+                )
+
+        logger.info(
+            "Wiki compile_tracked %s/%s: %d active → %d synthesis",
+            repo,
+            topic,
+            len(active_entries),
             len(compiled),
         )
         return len(compiled)
