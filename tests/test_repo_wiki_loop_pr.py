@@ -523,3 +523,126 @@ class TestPollAndMergeOpenPR:
         assert loop._open_pr_url == "https://github.com/x/y/pull/13"
         assert not any(c[:3] == ("gh", "pr", "review") for c in calls)
         assert not any(c[:3] == ("gh", "pr", "merge") for c in calls)
+
+
+class TestTrackedActiveLintIntegration:
+    """Phase 7: the loop's lint pass now also writes to the tracked
+    layout, which turns into the diff that
+    ``_maybe_open_maintenance_pr`` picks up and opens a PR for.
+    """
+
+    @pytest.mark.asyncio
+    async def test_flips_entry_status_when_source_issue_closed(
+        self, git_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from datetime import UTC, datetime
+        from unittest.mock import AsyncMock, MagicMock
+
+        from repo_wiki import RepoWikiStore
+
+        tracked_root = git_repo / "repo_wiki"
+        entry_path = (
+            tracked_root / "acme" / "widget" / "patterns" / "0001-issue-42-x.md"
+        )
+        entry_path.parent.mkdir(parents=True)
+        entry_path.write_text(
+            "---\n"
+            "id: 0001\n"
+            "topic: patterns\n"
+            "source_issue: 42\n"
+            "source_phase: plan\n"
+            f"created_at: {datetime.now(UTC).isoformat()}\n"
+            "status: active\n"
+            "---\n\n# Entry\n\nBody.\n",
+            encoding="utf-8",
+        )
+        # index.md so _list_tracked_repos enumerates the repo.
+        (tracked_root / "acme" / "widget" / "index.md").write_text(
+            "# index\n", encoding="utf-8"
+        )
+
+        legacy_store = MagicMock(spec=RepoWikiStore)
+        legacy_store.list_repos.return_value = []
+        legacy_store.active_lint.return_value = MagicMock(
+            stale_entries=0,
+            orphan_entries=0,
+            total_entries=0,
+            entries_marked_stale=0,
+            orphans_pruned=0,
+            empty_topics=[],
+        )
+
+        state = MagicMock()
+        state.get_all_outcomes.return_value = {
+            "42": MagicMock(outcome="merged"),
+        }
+
+        loop = _stub_loop(_make_config(git_repo))
+        loop._wiki_store = legacy_store
+        loop._wiki_compiler = None
+        loop._state = state
+        monkeypatch.setattr(loop, "_maybe_open_maintenance_pr", AsyncMock())
+
+        stats = await loop._do_work()
+
+        text = entry_path.read_text(encoding="utf-8")
+        assert "status: stale" in text
+        assert "stale_reason: source issue #42 closed" in text
+        assert stats is not None
+        assert stats["entries_marked_stale"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_skips_tracked_lint_when_flag_disabled(
+        self, git_repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from datetime import UTC, datetime
+        from unittest.mock import AsyncMock, MagicMock
+
+        from repo_wiki import RepoWikiStore
+
+        tracked_root = git_repo / "repo_wiki"
+        entry_path = (
+            tracked_root / "acme" / "widget" / "patterns" / "0001-issue-42-x.md"
+        )
+        entry_path.parent.mkdir(parents=True)
+        entry_path.write_text(
+            "---\n"
+            "id: 0001\n"
+            "topic: patterns\n"
+            "source_issue: 42\n"
+            "source_phase: plan\n"
+            f"created_at: {datetime.now(UTC).isoformat()}\n"
+            "status: active\n"
+            "---\n\n# Entry\n",
+            encoding="utf-8",
+        )
+
+        legacy_store = MagicMock(spec=RepoWikiStore)
+        legacy_store.list_repos.return_value = []
+        legacy_store.active_lint.return_value = MagicMock(
+            stale_entries=0,
+            orphan_entries=0,
+            total_entries=0,
+            entries_marked_stale=0,
+            orphans_pruned=0,
+            empty_topics=[],
+        )
+
+        state = MagicMock()
+        state.get_all_outcomes.return_value = {
+            "42": MagicMock(outcome="merged"),
+        }
+
+        config = _make_config(git_repo)
+        object.__setattr__(config, "repo_wiki_git_backed", False)
+
+        loop = _stub_loop(config)
+        loop._wiki_store = legacy_store
+        loop._wiki_compiler = None
+        loop._state = state
+        monkeypatch.setattr(loop, "_maybe_open_maintenance_pr", AsyncMock())
+
+        await loop._do_work()
+
+        # Tracked file untouched — lint only scans when the flag is on.
+        assert "status: active" in entry_path.read_text(encoding="utf-8")

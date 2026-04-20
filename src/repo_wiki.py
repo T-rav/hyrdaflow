@@ -183,6 +183,158 @@ def _sanitize_body_for_frontmatter(content: str) -> str:
     return content
 
 
+_TRACKED_TOPICS: tuple[str, ...] = (
+    "architecture",
+    "patterns",
+    "gotchas",
+    "testing",
+    "dependencies",
+)
+_STALE_PRUNE_DAYS = 90
+
+
+def _split_tracked_entry(text: str) -> tuple[dict[str, str], str, str]:
+    """Split a tracked per-entry markdown file into frontmatter + body.
+
+    Returns ``(fields, raw_frontmatter_block, body)`` where ``fields`` is
+    a forgiving ``key: value`` parse of the frontmatter.  Files without
+    a frontmatter block return ``({}, "", text)``.
+    """
+    if not text.startswith("---\n"):
+        return {}, "", text
+    try:
+        end = text.index("\n---\n", 4)
+    except ValueError:
+        return {}, "", text
+    block = text[4:end]
+    body = text[end + len("\n---\n") :]
+    fields: dict[str, str] = {}
+    for line in block.splitlines():
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        fields[key.strip()] = value.strip()
+    return fields, block, body
+
+
+def _update_tracked_entry_status(
+    text: str, *, status: str, stale_reason: str | None = None
+) -> str | None:
+    """Rewrite the ``status:`` frontmatter line; add ``stale_reason`` when
+    provided.  Returns the new file text, or ``None`` if the file has no
+    frontmatter block (caller should skip).
+    """
+    fields, _block, body = _split_tracked_entry(text)
+    if not fields:
+        return None
+
+    fields["status"] = status
+    if stale_reason is not None:
+        fields["stale_reason"] = stale_reason
+    # Drop keys with empty values that pydantic would reject; keep order
+    # stable enough for readable diffs.
+    rebuilt_lines = [f"{k}: {v}" for k, v in fields.items()]
+    return "---\n" + "\n".join(rebuilt_lines) + "\n---\n" + body
+
+
+def _tracked_entry_age_days(fields: dict[str, str], now: datetime) -> int:
+    created = fields.get("created_at") or ""
+    try:
+        ts = datetime.fromisoformat(created)
+    except (ValueError, TypeError):
+        return 0
+    return max(0, (now - ts).days)
+
+
+def active_lint_tracked(
+    tracked_root: Path,
+    repo_slug: str,
+    closed_issues: set[int] | None = None,
+) -> LintResult:
+    """Tracked-layout counterpart of ``RepoWikiStore.active_lint``.
+
+    Scans per-entry files under ``{tracked_root}/{repo_slug}/{topic}/*.md``
+    and mutates them in place:
+
+    - Entries whose frontmatter ``source_issue`` is an int in
+      *closed_issues* and current ``status == "active"`` are rewritten
+      with ``status: stale`` and a ``stale_reason`` pointing at the
+      closed issue.
+    - Stale entries older than 90 days are deleted outright — their
+      source information is recoverable from git history.
+
+    Writes happen in the tracked dir so the subsequent
+    ``RepoWikiLoop._maybe_open_maintenance_pr`` tick will pick them up as
+    uncommitted diffs and open a ``chore(wiki): maintenance`` PR.
+
+    Returns a ``LintResult`` with the counts the loop already reports.
+    """
+    result = LintResult()
+    repo_dir = tracked_root / repo_slug
+    if not repo_dir.is_dir():
+        return result
+
+    closed = closed_issues or set()
+    now = datetime.now(UTC)
+
+    for topic_name in _TRACKED_TOPICS:
+        topic_dir = repo_dir / topic_name
+        if not topic_dir.is_dir():
+            result.empty_topics.append(topic_name)
+            continue
+
+        files = sorted(topic_dir.glob("*.md"))
+        if not files:
+            result.empty_topics.append(topic_name)
+            continue
+
+        for entry_path in files:
+            try:
+                text = entry_path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+
+            fields, _block, _body = _split_tracked_entry(text)
+            if not fields:
+                continue
+
+            result.total_entries += 1
+            status = fields.get("status", "active")
+            try:
+                source_issue: int | None = int(fields["source_issue"])
+            except (KeyError, ValueError):
+                source_issue = None
+
+            if (
+                status == "active"
+                and source_issue is not None
+                and source_issue in closed
+            ):
+                updated = _update_tracked_entry_status(
+                    text,
+                    status="stale",
+                    stale_reason=f"source issue #{source_issue} closed",
+                )
+                if updated is not None:
+                    entry_path.write_text(updated, encoding="utf-8")
+                    result.entries_marked_stale += 1
+                    status = "stale"
+
+            if status == "stale":
+                result.stale_entries += 1
+                if _tracked_entry_age_days(fields, now) > _STALE_PRUNE_DAYS:
+                    try:
+                        entry_path.unlink()
+                        result.orphans_pruned += 1
+                    except OSError:
+                        logger.warning(
+                            "active_lint_tracked: failed to prune %s",
+                            entry_path,
+                        )
+
+    return result
+
+
 class WikiEntry(BaseModel):
     """A single knowledge entry within a topic page."""
 

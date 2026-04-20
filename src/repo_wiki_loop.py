@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from auto_pr import open_automated_pr_async
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import Credentials, HydraFlowConfig
-from repo_wiki import DEFAULT_TOPICS, RepoWikiStore
+from repo_wiki import DEFAULT_TOPICS, RepoWikiStore, active_lint_tracked
 from subprocess_util import run_subprocess
 from wiki_maint_queue import MaintenanceQueue
 
@@ -89,6 +89,25 @@ class RepoWikiLoop(BaseBackgroundLoop):
             )
 
         repos = self._wiki_store.list_repos()
+
+        # Phase 7: when git-backed is on, lint the tracked per-entry
+        # layout under ``config.repo_root / config.repo_wiki_path``.  In
+        # that mode the store's ``active_lint`` still runs against the
+        # legacy gitignored layout — harmless read — but stale-flag
+        # writes only land on the tracked layout so they surface as
+        # uncommitted diffs for the maintenance PR.  Compute
+        # ``tracked_root`` and merge tracked repos in BEFORE the
+        # no-repos early-return — a freshly migrated repo may only
+        # exist in the tracked location.
+        tracked_root: Path | None = None
+        if self._config.repo_wiki_git_backed:
+            tracked_root = (
+                Path(self._config.repo_root) / self._config.repo_wiki_path
+            ).resolve()
+            for slug in _list_tracked_repos(tracked_root):
+                if slug not in repos:
+                    repos.append(slug)
+
         if not repos:
             return {
                 "repos": 0,
@@ -115,6 +134,22 @@ class RepoWikiLoop(BaseBackgroundLoop):
             total_marked_stale += result.entries_marked_stale
             total_pruned += result.orphans_pruned
             empty_topics.extend(f"{slug}:{t}" for t in result.empty_topics)
+
+            if tracked_root is not None:
+                tracked = await asyncio.to_thread(
+                    active_lint_tracked,
+                    tracked_root,
+                    slug,
+                    closed_issues,
+                )
+                # Tracked stats are additive — they observe a different
+                # set of files (per-entry markdown vs. legacy topic
+                # pages) so summing avoids double-counting of the same
+                # actions.
+                total_stale += tracked.stale_entries
+                total_entries += tracked.total_entries
+                total_marked_stale += tracked.entries_marked_stale
+                total_pruned += tracked.orphans_pruned
 
             # Phase 2: LLM compilation — synthesize topics with many entries
             if self._wiki_compiler is not None:
@@ -362,6 +397,28 @@ class RepoWikiLoop(BaseBackgroundLoop):
         self._open_pr_url = None
         self._open_pr_branch = None
         stats["maintenance_pr_state"] = "MERGED"
+
+
+def _list_tracked_repos(tracked_root: Path) -> list[str]:
+    """Return ``owner/repo`` slugs found directly under the tracked wiki
+    root, or an empty list when the root does not exist yet.
+
+    Mirrors ``RepoWikiStore.list_repos``' ``index.md`` / ``index.json``
+    gate so the tracked-layout enumeration and the legacy-layout
+    enumeration agree on what counts as a wiki-bearing repo.
+    """
+    if not tracked_root.is_dir():
+        return []
+    slugs: list[str] = []
+    for owner_dir in sorted(tracked_root.iterdir()):
+        if not owner_dir.is_dir():
+            continue
+        for repo_dir in sorted(owner_dir.iterdir()):
+            if not repo_dir.is_dir():
+                continue
+            if (repo_dir / "index.md").exists() or (repo_dir / "index.json").exists():
+                slugs.append(f"{owner_dir.name}/{repo_dir.name}")
+    return slugs
 
 
 def _ci_rollup_state(rollup: list[dict[str, Any]]) -> str:
