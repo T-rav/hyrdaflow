@@ -11,7 +11,7 @@ import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app_version import get_app_version
 from config import Credentials, HydraFlowConfig
@@ -82,6 +82,7 @@ class HydraFlowDashboard:
         self._server_task: asyncio.Task[None] | None = None
         self._run_task: asyncio.Task[None] | None = None
         self._app: FastAPI | None = None
+        self._uvicorn_server: Any = None
 
     def create_app(self) -> FastAPI:
         """Build and return the FastAPI application."""
@@ -166,6 +167,7 @@ class HydraFlowDashboard:
             log_level="warning",
         )
         server = uvicorn.Server(config)
+        self._uvicorn_server = server
 
         async def _serve_safe() -> None:
             try:

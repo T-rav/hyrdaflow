@@ -86,6 +86,29 @@ class FakeGitHub:
             labels=labels or [],
         )
 
+    def add_pr(
+        self,
+        *,
+        number: int,
+        issue_number: int,
+        branch: str,
+        ci_status: str = "pass",
+        merged: bool = False,
+    ) -> None:
+        """Directly insert a PR record (sync helper for test seeding).
+
+        The async ``create_pr`` handles the production path; this helper
+        exists so scenario seeds can set up a fully-populated world
+        synchronously.
+        """
+        self._prs[number] = FakePR(
+            number=number,
+            issue_number=issue_number,
+            branch=branch,
+            merged=merged,
+            ci_status=ci_status,
+        )
+
     def add_alerts(self, *, branch: str, alerts: list[Any]) -> None:
         """Script code-scanning alerts returned by fetch_code_scanning_alerts."""
         self._alerts[branch] = list(alerts)

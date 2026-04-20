@@ -816,13 +816,6 @@ export function reducer(state, action) {
 
 const HydraFlowContext = createContext(null)
 
-function getInitialState() {
-  if (typeof window !== 'undefined' && window.__HYDRAFLOW_SEED_STATE__) {
-    return { ...initialState, ...window.__HYDRAFLOW_SEED_STATE__ }
-  }
-  return initialState
-}
-
 function getReporterId() {
   if (typeof window === 'undefined') return ''
   const key = 'hydraflow-user-id'
@@ -860,8 +853,7 @@ export function getPipelineAction(event) {
 }
 
 export function HydraFlowProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, undefined, getInitialState)
-  const isSeeded = typeof window !== 'undefined' && !!window.__HYDRAFLOW_SEED_STATE__
+  const [state, dispatch] = useReducer(reducer, initialState)
   const wsRef = useRef(null)
   const reconnectTimer = useRef(null)
   const lastEventTsRef = useRef(null)
@@ -1555,7 +1547,6 @@ export function HydraFlowProvider({ children }) {
   }, [state.selectedRepoSlug, fetchLifetimeStats, fetchHitlItems, fetchGithubMetrics, fetchMetricsHistory, fetchPipeline, fetchPipelineStats, fetchEpics, fetchSessions, fetchRepos, fetchRuntimes, fetchWithRepo])
 
   useEffect(() => {
-    if (isSeeded) return
     const poll = () => {
       fetchWithRepo('/api/human-input')
         .then(r => r.ok ? r.json() : {})
@@ -1565,7 +1556,7 @@ export function HydraFlowProvider({ children }) {
     poll()
     const interval = setInterval(poll, 3000)
     return () => clearInterval(interval)
-  }, [fetchWithRepo, isSeeded])
+  }, [fetchWithRepo])
 
   // Pipeline polling — interval is editable via system worker controls.
   // When WebSocket is connected and pipeline_stats events are flowing,
@@ -1577,34 +1568,30 @@ export function HydraFlowProvider({ children }) {
   }, [state.backgroundWorkers, state.connected, state.pipelineStats])
 
   useEffect(() => {
-    if (isSeeded) return
     fetchPipeline()
     const interval = setInterval(fetchPipeline, pipelinePollerIntervalMs)
     return () => clearInterval(interval)
-  }, [fetchPipeline, pipelinePollerIntervalMs, isSeeded])
+  }, [fetchPipeline, pipelinePollerIntervalMs])
 
   useEffect(() => {
-    if (isSeeded) return
     connect()
     return () => {
       if (wsRef.current) wsRef.current.close()
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
     }
-  }, [connect, isSeeded])
+  }, [connect])
 
   useEffect(() => {
-    if (isSeeded) return
     fetchRepos()
     const interval = setInterval(fetchRepos, 15000)
     return () => clearInterval(interval)
-  }, [fetchRepos, isSeeded])
+  }, [fetchRepos])
 
   useEffect(() => {
-    if (isSeeded) return
     fetchRuntimes()
     const interval = setInterval(fetchRuntimes, 15000)
     return () => clearInterval(interval)
-  }, [fetchRuntimes, isSeeded])
+  }, [fetchRuntimes])
 
   const stageStatus = useMemo(
     () => deriveStageStatus(
@@ -1637,7 +1624,6 @@ export function HydraFlowProvider({ children }) {
 
   // Centralized polling for insights/history data (replaces per-component fetches)
   useEffect(() => {
-    if (isSeeded) return
     if (!state.connected) return
     let cancelled = false
 
@@ -1670,12 +1656,17 @@ export function HydraFlowProvider({ children }) {
     poll()
     const interval = setInterval(poll, 30_000)
     return () => { cancelled = true; clearInterval(interval) }
-  }, [state.connected, isSeeded])
+  }, [state.connected])
+
+  // Reflect WebSocket connection state as a DOM attribute so Playwright helpers
+  // (wait_for_ws_ready) can detect readiness without polling JS state.
+  useEffect(() => {
+    document.body.setAttribute('data-connected', String(state.connected))
+    return () => { document.body.removeAttribute('data-connected') }
+  }, [state.connected])
 
   // Fetch tracked reports on mount and periodically; also refresh
   // filed/stale statuses so the UI reflects actual issue outcomes.
-  // Always poll regardless of isSeeded — report status is inherently
-  // dynamic and seed snapshots go stale immediately.
   useEffect(() => {
     fetchTrackedReports()
     const interval = setInterval(() => {

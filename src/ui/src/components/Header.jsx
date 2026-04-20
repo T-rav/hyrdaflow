@@ -295,6 +295,7 @@ export function Header({ connected, orchestratorStatus }) {
         </div>
       </div>
       <div style={styles.controls}>
+        <span data-testid="orchestrator-status" className="sr-only">{orchestratorStatus}</span>
         {orchestratorStatus === 'running' ? (
           <button
             style={connected ? styles.controlStopBtn : controlBtnDisabled}

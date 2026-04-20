@@ -165,6 +165,145 @@ async def test_run_pipeline_is_single_shot(tmp_path) -> None:
         await world.run_pipeline()
 
 
+async def test_mock_world_accepts_iso_clock_start(tmp_path):
+    from tests.scenarios.fakes.mock_world import MockWorld
+
+    world = MockWorld(tmp_path, clock_start="2025-06-15T12:00:00Z")
+    assert world.clock.now() == 1_749_988_800.0
+
+
+async def test_mock_world_accepts_unix_clock_start(tmp_path):
+    from tests.scenarios.fakes.mock_world import MockWorld
+
+    world = MockWorld(tmp_path, clock_start=1_718_467_200.0)
+    assert world.clock.now() == 1_718_467_200.0
+
+
+async def test_mock_world_default_clock_start_uses_wall_time(tmp_path):
+    import time
+
+    from tests.scenarios.fakes.mock_world import MockWorld
+
+    before = time.time()
+    world = MockWorld(tmp_path)
+    after = time.time()
+
+    assert before <= world.clock.now() <= after + 1
+
+
+async def test_mock_world_add_repo_registers_in_store(tmp_path):
+    from repo_store import RepoRegistryStore
+    from tests.scenarios.fakes.mock_world import MockWorld
+
+    world = MockWorld(tmp_path)
+    world.add_repo("acme/app", str(tmp_path / "acme-app"))
+
+    store = RepoRegistryStore(tmp_path)
+    records = store.list()
+    assert any(r.slug == "acme/app" for r in records)
+
+
+async def test_wire_targets_accepts_duck_typed_target(tmp_path):
+    from unittest.mock import MagicMock
+
+    from tests.scenarios.fakes.mock_world import MockWorld
+
+    world = MockWorld(tmp_path)
+    fake_target = MagicMock()
+    fake_target.prs = MagicMock()
+    fake_target.triage_runner = MagicMock()
+    fake_target.planners = MagicMock()
+    fake_target.agents = MagicMock()
+    fake_target.reviewers = MagicMock()
+    fake_target.workspaces = MagicMock()
+
+    # Capture expected bound methods before wiring (bound methods are not
+    # identity-stable across repeated attribute accesses, so we snapshot them).
+    expected_create_pr = world.github.create_pr
+    expected_merge_pr = world.github.merge_pr
+    expected_evaluate = world._llm.triage_runner.evaluate
+    expected_workspace_create = world._workspace.create
+
+    world._wire_targets(fake_target)
+
+    # After wiring, PR methods must be FakeGitHub's bound methods
+    assert fake_target.prs.create_pr == expected_create_pr
+    assert fake_target.prs.merge_pr == expected_merge_pr
+    assert fake_target.triage_runner.evaluate == expected_evaluate
+    assert fake_target.workspaces.create == expected_workspace_create
+
+
+async def test_start_dashboard_without_orchestrator_serves_root(tmp_path):
+    import httpx
+
+    from tests.scenarios.fakes.mock_world import MockWorld
+
+    world = MockWorld(tmp_path)
+    url = await world.start_dashboard()
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(url + "/")
+        assert response.status_code == 200
+        assert world.dashboard_url == url
+    finally:
+        await world.stop_dashboard()
+    assert world.dashboard_url is None
+
+
+async def test_start_dashboard_is_idempotent(tmp_path):
+    from tests.scenarios.fakes.mock_world import MockWorld
+
+    world = MockWorld(tmp_path)
+    url_a = await world.start_dashboard()
+    url_b = await world.start_dashboard()
+    try:
+        assert url_a == url_b
+    finally:
+        await world.stop_dashboard()
+
+
+async def test_stop_dashboard_frees_port(tmp_path):
+    import socket
+
+    from tests.scenarios.fakes.mock_world import MockWorld
+
+    world = MockWorld(tmp_path)
+    url = await world.start_dashboard()
+    port = int(url.rsplit(":", 1)[1])
+
+    await world.stop_dashboard()
+
+    # After stop, the port must be reusable.
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        s.bind(("127.0.0.1", port))
+    finally:
+        s.close()
+
+
+async def test_start_dashboard_with_orchestrator_wires_fakes(tmp_path):
+    from tests.scenarios.fakes.mock_world import MockWorld
+
+    world = MockWorld(tmp_path)
+    world.add_issue(1, "Test issue", "Body", labels=["hydraflow-find"])
+
+    await world.start_dashboard(with_orchestrator=True)
+    try:
+        dashboard = world._dashboard
+        orch = dashboard._orchestrator
+        assert orch is not None
+        # PR methods on the real service registry must point at FakeGitHub.
+        # Use equality rather than identity because bound methods produce a
+        # new object on each attribute access.
+        assert orch._svc.prs.create_pr == world.github.create_pr
+        # Triage runner (exposed as `triage` on ServiceRegistry — NOT
+        # `triage_runner`) must point at FakeLLM.
+        assert orch._svc.triage.evaluate == world._llm.triage_runner.evaluate
+    finally:
+        await world.stop_dashboard()
+
+
 async def test_mockworld_wires_wiki_store_to_plan_phase(tmp_path) -> None:
     """MockWorld threads wiki_store through PipelineHarness to PlanPhase."""
     from repo_wiki import RepoWikiStore

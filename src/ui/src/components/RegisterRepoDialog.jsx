@@ -172,6 +172,7 @@ export function RegisterRepoDialog({ isOpen, onClose }) {
                 onChange={(e) => setPath(e.target.value)}
                 placeholder="/Users/me/projects/repo"
                 style={styles.input}
+                data-testid="repo-register-input"
               />
               {error && <div style={styles.error}>{error}</div>}
               <div style={styles.actions}>

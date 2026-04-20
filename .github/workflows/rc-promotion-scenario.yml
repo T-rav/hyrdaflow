@@ -92,3 +92,44 @@ jobs:
         run: make scenario
       - name: Scenario loops suite
         run: make scenario-loops
+
+  scenario-browser:
+    name: Browser Scenarios
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.pr_ref }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: src/ui/package-lock.json
+      - name: Install Python deps
+        run: uv sync --all-extras
+      - name: Build UI
+        working-directory: src/ui
+        run: |
+          npm ci
+          npm run build
+      - name: Install Chromium
+        run: uv run python -m playwright install --with-deps chromium
+      - name: Browser scenario suite
+        run: make scenario-browser
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-trace
+          path: tests/scenarios/browser/_artifacts/
+          retention-days: 14
