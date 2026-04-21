@@ -5,6 +5,7 @@ from __future__ import annotations
 from scripts.audit_prompts import (
     AuditTarget,
     Scorecard,
+    score,
     score_cot,
     score_edge_cases,
     score_examples,
@@ -312,3 +313,22 @@ def test_severity_low_when_clean():
         8: "Pass",
     }
     assert severity_for(Scorecard(scores=scores)) == "Low"
+
+
+# ---------------------------------------------------------------------------
+# Task 11 — Combined score() orchestrator
+# ---------------------------------------------------------------------------
+
+
+def test_score_returns_scorecard_with_all_eight_rules_applied():
+    rendered = "Classify the issue. <issue>body</issue><plan>p</plan><diff>d</diff> Return only JSON."
+    card = score(rendered)
+    assert set(card.scores.keys()) == {1, 2, 3, 4, 5, 6, 7, 8}
+
+
+def test_score_integrates_rules_and_severity():
+    rendered = (
+        "Classify.\n<issue>body</issue>\nReturn only JSON. If empty, return unknown."
+    )
+    card = score(rendered)
+    assert severity_for(card) in ("Low", "Medium")

@@ -264,6 +264,26 @@ def severity_for(card: Scorecard) -> str:
     return "Low"
 
 
+# ---------------------------------------------------------------------------
+# Combined score() — applies all eight rubric rules
+# ---------------------------------------------------------------------------
+
+
+def score(rendered: str) -> Scorecard:
+    return Scorecard(
+        scores={
+            1: score_leads_with_request(rendered),
+            2: score_specific(rendered),
+            3: score_xml_tags(rendered),
+            4: score_examples(rendered),
+            5: score_output_contract(rendered),
+            6: score_long_context_placement(rendered),
+            7: score_cot(rendered),
+            8: score_edge_cases(rendered),
+        }
+    )
+
+
 def main() -> None:
     raise NotImplementedError("wired up in later tasks")
 
