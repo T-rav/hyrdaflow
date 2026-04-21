@@ -215,7 +215,7 @@ def skills_for_phase(
 
 
 def format_plugin_skills_for_prompt(skills: list[PluginSkill]) -> str:
-    """Format discovered skills as a prompt section for a factory agent.
+    """Format discovered skills as a prompt section carrying the skill-use discipline.
 
     Returns an empty string when ``skills`` is empty so callers can
     unconditionally concatenate the result.
@@ -225,10 +225,22 @@ def format_plugin_skills_for_prompt(skills: list[PluginSkill]) -> str:
     lines = [
         "## Available Skills",
         "",
-        "You have these Claude Code skills available via the `Skill` tool. "
-        "Invoke one by calling the `Skill` tool with its qualified name "
-        '(e.g. `skill: "superpowers:brainstorming"`) when its description '
-        "matches your current task.",
+        (
+            "You have Claude Code skills available via the `Skill` tool. "
+            "**If any skill's description may apply to your current task — "
+            "even at 1% confidence — you MUST invoke it before proceeding.** "
+            "Skills encode proven discipline you would otherwise skip."
+        ),
+        "",
+        "Priority when multiple apply:",
+        "1. **Process skills first** (debugging, planning) — they shape *how* you work.",
+        "2. **Implementation skills second** (TDD, simplify) — they shape *what* you build.",
+        "",
+        (
+            "Do not rationalize past a skill because the task feels simple, "
+            'because you "remember" the skill, or because invoking it feels '
+            "like overhead. Invoke it."
+        ),
         "",
     ]
     for skill in skills:

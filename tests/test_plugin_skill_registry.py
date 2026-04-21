@@ -163,49 +163,30 @@ class TestPluginSkillQualifiedName:
         assert skill.qualified_name == "superpowers:brainstorming"
 
 
-class TestFormatPluginSkillsForPrompt:
-    """Verify format_plugin_skills_for_prompt emits the expected prompt section."""
+def test_format_plugin_skills_for_prompt_carries_discipline_preamble():
+    skills = [
+        PluginSkill(
+            plugin="superpowers",
+            name="test-driven-development",
+            description="Use when implementing any feature or bugfix",
+        ),
+    ]
+    out = format_plugin_skills_for_prompt(skills)
+    assert "## Available Skills" in out
+    # Discipline phrasing — subagents need the 1% rule.
+    assert "1% confidence" in out
+    assert "MUST invoke" in out
+    assert "Process skills first" in out
+    assert "Implementation skills second" in out
+    # Skill body still rendered verbatim from frontmatter.
+    assert (
+        "**superpowers:test-driven-development** — Use when implementing any feature or bugfix"
+        in out
+    )
 
-    def test_contains_skills_header(self) -> None:
-        """Output begins with a markdown section header."""
-        skills = [PluginSkill("superpowers", "brainstorming", "Use when...")]
-        assert "## Available Skills" in format_plugin_skills_for_prompt(skills)
 
-    def test_contains_qualified_names(self) -> None:
-        """Each skill's qualified_name appears verbatim."""
-        skills = [
-            PluginSkill(
-                "superpowers", "brainstorming", "Use when starting creative work"
-            ),
-            PluginSkill("code-review", "code-review", "Review a PR"),
-        ]
-        output = format_plugin_skills_for_prompt(skills)
-        assert "superpowers:brainstorming" in output
-        assert "code-review:code-review" in output
-
-    def test_contains_descriptions(self) -> None:
-        """Each skill's description appears in the output."""
-        skills = [
-            PluginSkill(
-                "superpowers",
-                "brainstorming",
-                "Use when starting creative work",
-            )
-        ]
-        assert "Use when starting creative work" in format_plugin_skills_for_prompt(
-            skills
-        )
-
-    def test_empty_list_returns_empty_string(self) -> None:
-        """Empty skill list produces an empty string (no header)."""
-        assert format_plugin_skills_for_prompt([]) == ""
-
-    def test_mentions_skill_tool_usage(self) -> None:
-        """Output tells the agent to invoke the Skill tool by qualified name."""
-        skills = [PluginSkill("superpowers", "brainstorming", "Use when...")]
-        output = format_plugin_skills_for_prompt(skills)
-        assert "`Skill` tool" in output
-        assert "qualified name" in output
+def test_format_plugin_skills_for_prompt_empty_returns_empty_string():
+    assert format_plugin_skills_for_prompt([]) == ""
 
 
 class TestDiscoveryCache:
