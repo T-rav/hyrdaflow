@@ -6,6 +6,7 @@ import asyncio
 import importlib
 import inspect
 import json
+import os
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -19,6 +20,8 @@ class AuditTarget:
     fixture_path: str
     category: str
     call_site: str
+    unrenderable: bool = False
+    unrenderable_reason: str = ""
 
 
 PROMPT_REGISTRY: list[AuditTarget] = [
@@ -823,7 +826,37 @@ def write_markdown(
 
 
 def main() -> None:
-    raise NotImplementedError("wired up in later tasks")
+    out_path = Path(
+        os.environ.get("PROMPT_AUDIT_OUT", "docs/prompt-audit-2026-04-20.md")
+    )
+    rubric_stub = Path(
+        os.environ.get("PROMPT_AUDIT_RUBRIC_STUB", "docs/_prompt_audit_rubric.md")
+    )
+    handoff_stub = Path(
+        os.environ.get("PROMPT_AUDIT_HANDOFF_STUB", "docs/_prompt_audit_handoff.md")
+    )
+
+    results: list[AuditResult] = []
+    for target in PROMPT_REGISTRY:
+        if target.unrenderable:
+            results.append(
+                AuditResult(
+                    target=target,
+                    rendered="",
+                    scorecard=Scorecard(scores=dict.fromkeys(range(1, 9), "N/A")),
+                )
+            )
+            continue
+        rendered = render_target(target)
+        results.append(
+            AuditResult(
+                target=target,
+                rendered=rendered,
+                scorecard=score(rendered),
+            )
+        )
+    write_markdown(results, out_path, rubric_stub, handoff_stub)
+    print(f"wrote {out_path}")
 
 
 if __name__ == "__main__":

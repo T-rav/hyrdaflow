@@ -606,3 +606,27 @@ def test_write_markdown_groups_scorecards_by_category_order(tmp_path):
     review_idx = content.find("## Review")
     assert triage_idx != -1 and review_idx != -1
     assert triage_idx < review_idx  # _CATEGORY_ORDER: Triage before Review
+
+
+# ---------------------------------------------------------------------------
+# Task 23 — CLI entry point (main)
+# ---------------------------------------------------------------------------
+
+
+def test_main_emits_report_to_expected_path(tmp_path, monkeypatch):
+    from scripts.audit_prompts import main
+
+    out = tmp_path / "prompt-audit-2026-04-20.md"
+    rubric_stub = tmp_path / "rubric.md"
+    handoff_stub = tmp_path / "handoff.md"
+    rubric_stub.write_text("## Rubric reference\n")
+    handoff_stub.write_text("## Handoff to sub-projects\n")
+    monkeypatch.setenv("PROMPT_AUDIT_OUT", str(out))
+    monkeypatch.setenv("PROMPT_AUDIT_RUBRIC_STUB", str(rubric_stub))
+    monkeypatch.setenv("PROMPT_AUDIT_HANDOFF_STUB", str(handoff_stub))
+    main()
+    assert out.exists()
+    content = out.read_text()
+    assert "## Summary" in content
+    assert "## Inventory" in content
+    assert "## Prioritized fix list" in content
