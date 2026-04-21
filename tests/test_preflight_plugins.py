@@ -51,18 +51,23 @@ class TestCheckPlugins:
         assert result.status == CheckStatus.PASS
 
     def test_fails_when_tier1_plugin_missing(self, cache_root: Path) -> None:
-        """FAIL when a Tier-1 plugin directory is not present."""
+        """FAIL when a Tier-1 plugin directory is not present.
+
+        With ``auto_install_plugins=False`` the check must not touch subprocess
+        and falls through to the rich manual-fix FAIL message.
+        """
         _make_plugin(cache_root, "superpowers")
 
         config = HydraFlowConfig(
             required_plugins=["superpowers", "code-review"],
             language_plugins={},
+            auto_install_plugins=False,
         )
         result = _check_plugins(config, cache_root=cache_root, detected_languages=set())
 
         assert result.status == CheckStatus.FAIL
         assert "code-review" in result.message
-        assert "/plugin install" in result.message
+        assert "claude plugin install" in result.message
 
     def test_fails_when_zero_skills_discovered(self, cache_root: Path) -> None:
         """FAIL when the allowlisted plugin has no skills."""
@@ -80,12 +85,17 @@ class TestCheckPlugins:
     def test_warns_when_tier2_missing_and_language_detected(
         self, cache_root: Path
     ) -> None:
-        """WARN when a language-conditional plugin is missing for a detected language."""
+        """WARN when a language-conditional plugin is missing for a detected language.
+
+        ``auto_install_plugins=False`` keeps this a pure unit test — we do not
+        want to shell out to ``claude plugin install`` here.
+        """
         _make_plugin(cache_root, "superpowers")
 
         config = HydraFlowConfig(
             required_plugins=["superpowers"],
             language_plugins={"python": ["pyright-lsp"]},
+            auto_install_plugins=False,
         )
         result = _check_plugins(
             config, cache_root=cache_root, detected_languages={"python"}
@@ -123,12 +133,17 @@ class TestCheckPlugins:
         assert "not a directory" in result.message
 
     def test_warn_message_includes_language_context(self, cache_root: Path) -> None:
-        """WARN message identifies which language triggered the missing plugin."""
+        """WARN message identifies which language triggered the missing plugin.
+
+        ``auto_install_plugins=False`` keeps this a pure unit test — we do not
+        want to shell out to ``claude plugin install`` here.
+        """
         _make_plugin(cache_root, "superpowers")
 
         config = HydraFlowConfig(
             required_plugins=["superpowers"],
             language_plugins={"python": ["pyright-lsp"]},
+            auto_install_plugins=False,
         )
         result = _check_plugins(
             config, cache_root=cache_root, detected_languages={"python"}
