@@ -485,3 +485,41 @@ def test_review_fixtures_render_cleanly():
     for target in targets:
         rendered = render_target(target)
         assert rendered, f"rendered output is empty for {target.name}"
+
+
+# ---------------------------------------------------------------------------
+# Task 19 — HITL fixture
+# ---------------------------------------------------------------------------
+
+
+def test_hitl_fixtures_render_cleanly():
+    from scripts.audit_prompts import PROMPT_REGISTRY, render_target
+
+    targets = [
+        t
+        for t in PROMPT_REGISTRY
+        if t.category == "HITL" and not getattr(t, "unrenderable", False)
+    ]
+    assert len(targets) >= 1
+    for target in targets:
+        rendered = render_target(target)
+        assert rendered, f"rendered output is empty for {target.name}"
+
+
+# ---------------------------------------------------------------------------
+# Task 20 — Adjacent fixtures
+# ---------------------------------------------------------------------------
+
+
+def test_adjacent_fixtures_render_cleanly():
+    from scripts.audit_prompts import PROMPT_REGISTRY, render_target
+
+    targets = [
+        t
+        for t in PROMPT_REGISTRY
+        if t.category == "Adjacent" and not getattr(t, "unrenderable", False)
+    ]
+    assert len(targets) >= 5  # lower bound — up to 4 may be marked unrenderable
+    for target in targets:
+        rendered = render_target(target)
+        assert rendered, f"rendered output is empty for {target.name}"

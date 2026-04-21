@@ -1,0 +1,14 @@
+{
+  "builder": "hitl_runner.HITLRunner._build_prompt_with_stats",
+  "args": {
+    "issue": {
+      "number": 42,
+      "title": "Retry transient S3 upload failures",
+      "body": "Planner could not generate a plan after 3 retries. Escalated to HITL.\n\nThe upload handler does not retry on transient 503 errors from S3. Each failure kills the job immediately instead of retrying with exponential backoff.",
+      "labels": ["hydraflow-hitl"]
+    },
+    "correction": "Please implement retry logic with exponential backoff (max 3 attempts, 1s/2s/4s delays) in src/upload.py. The S3 client already supports retries via boto3 config — wire it up.",
+    "cause": "CI test failures on upload_handler tests after merge."
+  },
+  "faked_deps": {}
+}

@@ -491,7 +491,7 @@ class LoadedFixture:
 
 
 def _coerce_task_dicts(args: dict) -> dict:
-    """Convert dict values that look like Tasks/PRInfo/GitHubIssue into real instances.
+    """Convert dict values that look like Tasks/PRInfo/GitHubIssue/EscalationContext.
 
     Builders that accept ``issue: Task`` expect a Pydantic model, not a raw dict.
     We detect fixture patterns and coerce automatically:
@@ -499,8 +499,9 @@ def _coerce_task_dicts(args: dict) -> dict:
     - dict with ``id`` + ``title`` → ``Task``
     - dict with ``number`` + ``branch`` → ``PRInfo``
     - dict with ``number`` + ``title`` (no ``id``) → ``GitHubIssue``
+    - dict with ``cause`` + ``origin_phase`` → ``EscalationContext``
     """
-    from models import GitHubIssue, PRInfo, Task  # noqa: PLC0415
+    from models import EscalationContext, GitHubIssue, PRInfo, Task  # noqa: PLC0415
 
     coerced = {}
     for key, value in args.items():
@@ -511,6 +512,8 @@ def _coerce_task_dicts(args: dict) -> dict:
                 coerced[key] = PRInfo(**value)
             elif "number" in value and "title" in value and "id" not in value:
                 coerced[key] = GitHubIssue(**value)
+            elif "cause" in value and "origin_phase" in value:
+                coerced[key] = EscalationContext(**value)
             else:
                 coerced[key] = value
         else:
@@ -595,6 +598,9 @@ class _MinimalConfig:
         self.repo = "owner/repo"
         self.review_insight_window = 50
         self.review_pattern_threshold = 3
+        # ADR reviewer fields
+        self.adr_review_approval_threshold = 2
+        self.adr_review_max_rounds = 3
 
     def data_path(self, *parts: object) -> object:
         return self.data_root.joinpath(*[str(p) for p in parts])
@@ -616,9 +622,7 @@ class _NullContextCache:
     stub avoids that by returning a safe empty result without raising.
     """
 
-    def get_or_load(
-        self, *, key: str, source_path: object, loader: object
-    ) -> tuple[str, bool]:
+    def get_or_load(self, **_kwargs: object) -> tuple[str, bool]:
         return "", False
 
 
