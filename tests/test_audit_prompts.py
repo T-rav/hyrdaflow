@@ -1,3 +1,7 @@
+"""Tests for scripts/audit_prompts.py — AuditTarget dataclass and prompt registry scaffold."""
+
+from __future__ import annotations
+
 from scripts.audit_prompts import AuditTarget
 
 
