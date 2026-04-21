@@ -7,21 +7,27 @@ from typing import Literal
 
 AgentTool = Literal["claude", "codex", "pi"]
 
-# Pre-cloned plugin directories baked into the Docker image.
-# Each entry becomes a ``--plugin-dir <path>`` flag on Claude CLI invocations.
-_DOCKER_PLUGIN_DIRS: tuple[str, ...] = (
-    "/opt/plugins/claude-plugins-official",
-    "/opt/plugins/superpowers",
-    "/opt/plugins/lightfactory",
-)
+# Base directory for plugins pre-cloned into the Docker image at build time
+# (see Dockerfile.agent-base). Each subdirectory is passed as ``--plugin-dir``
+# so the Claude CLI loads it for the session. On host machines this path
+# doesn't exist and no flags are emitted — host-installed plugins are
+# discovered via the default ``~/.claude/plugins/cache/`` path.
+_PRE_CLONED_PLUGIN_ROOT = Path("/opt/plugins")
 
 
 def _plugin_dir_flags() -> list[str]:
-    """Return ``--plugin-dir`` flags for plugin dirs that exist on disk."""
+    """Return ``--plugin-dir`` flags for every pre-cloned plugin directory.
+
+    Scans ``/opt/plugins/*`` dynamically so new plugins added to
+    ``Dockerfile.agent-base`` don't require a parallel edit here. Returns
+    an empty list when the root doesn't exist (host machines).
+    """
+    if not _PRE_CLONED_PLUGIN_ROOT.is_dir():
+        return []
     flags: list[str] = []
-    for d in _DOCKER_PLUGIN_DIRS:
-        if Path(d).is_dir():
-            flags.extend(["--plugin-dir", d])
+    for entry in sorted(_PRE_CLONED_PLUGIN_ROOT.iterdir()):
+        if entry.is_dir():
+            flags.extend(["--plugin-dir", str(entry)])
     return flags
 
 

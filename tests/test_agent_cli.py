@@ -293,65 +293,77 @@ class TestBuildLightweightCommand:
 class TestPluginDirFlags:
     """Tests for plugin directory injection into Claude commands."""
 
-    def test_plugin_dir_flags_returns_empty_when_dirs_missing(self) -> None:
-        """No flags when plugin directories don't exist on disk."""
+    def test_plugin_dir_flags_returns_empty_when_root_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """No flags when plugin root directory doesn't exist on disk."""
         from unittest.mock import patch
 
-        from agent_cli import _plugin_dir_flags
+        import agent_cli
 
-        with patch("agent_cli.Path.is_dir", return_value=False):
-            assert _plugin_dir_flags() == []
+        with patch.object(
+            agent_cli, "_PRE_CLONED_PLUGIN_ROOT", tmp_path / "does-not-exist"
+        ):
+            assert agent_cli._plugin_dir_flags() == []
 
-    def test_plugin_dir_flags_includes_existing_dirs(self, tmp_path: Path) -> None:
-        """Flags should include only directories that exist."""
+    def test_plugin_dir_flags_includes_existing_subdirs(self, tmp_path: Path) -> None:
+        """Flags should include subdirectories that exist under the root."""
         from unittest.mock import patch
 
-        from agent_cli import _plugin_dir_flags
+        import agent_cli
 
-        fake_dir = str(tmp_path / "lightfactory")
-        (tmp_path / "lightfactory").mkdir()
+        root = tmp_path / "plugins"
+        root.mkdir()
+        (root / "lightfactory").mkdir()
 
-        with patch("agent_cli._DOCKER_PLUGIN_DIRS", (fake_dir,)):
-            flags = _plugin_dir_flags()
+        with patch.object(agent_cli, "_PRE_CLONED_PLUGIN_ROOT", root):
+            flags = agent_cli._plugin_dir_flags()
 
-        assert flags == ["--plugin-dir", fake_dir]
+        assert flags == ["--plugin-dir", str(root / "lightfactory")]
 
-    def test_plugin_dir_flags_skips_missing_dirs(self, tmp_path: Path) -> None:
-        """Directories that don't exist should be skipped."""
+    def test_plugin_dir_flags_excludes_files(self, tmp_path: Path) -> None:
+        """Non-directory entries (files) under the root should be skipped."""
         from unittest.mock import patch
 
-        from agent_cli import _plugin_dir_flags
+        import agent_cli
 
-        existing = str(tmp_path / "exists")
-        (tmp_path / "exists").mkdir()
-        missing = str(tmp_path / "missing")
+        root = tmp_path / "plugins"
+        root.mkdir()
+        (root / "real-plugin").mkdir()
+        (root / "README.md").write_text("not a plugin dir")
 
-        with patch("agent_cli._DOCKER_PLUGIN_DIRS", (existing, missing)):
-            flags = _plugin_dir_flags()
+        with patch.object(agent_cli, "_PRE_CLONED_PLUGIN_ROOT", root):
+            flags = agent_cli._plugin_dir_flags()
 
-        assert flags == ["--plugin-dir", existing]
+        assert flags == ["--plugin-dir", str(root / "real-plugin")]
 
     def test_claude_agent_command_includes_plugin_dirs(self, tmp_path: Path) -> None:
         """build_agent_command for claude should include --plugin-dir flags."""
         from unittest.mock import patch
 
-        fake_dir = str(tmp_path / "superpowers")
-        (tmp_path / "superpowers").mkdir()
+        import agent_cli
 
-        with patch("agent_cli._DOCKER_PLUGIN_DIRS", (fake_dir,)):
+        root = tmp_path / "plugins"
+        root.mkdir()
+        (root / "superpowers").mkdir()
+
+        with patch.object(agent_cli, "_PRE_CLONED_PLUGIN_ROOT", root):
             cmd = build_agent_command(tool="claude", model="sonnet")
 
         assert "--plugin-dir" in cmd
-        assert cmd[cmd.index("--plugin-dir") + 1] == fake_dir
+        assert cmd[cmd.index("--plugin-dir") + 1] == str(root / "superpowers")
 
     def test_codex_command_does_not_include_plugin_dirs(self, tmp_path: Path) -> None:
         """Codex commands should not include --plugin-dir flags."""
         from unittest.mock import patch
 
-        fake_dir = str(tmp_path / "superpowers")
-        (tmp_path / "superpowers").mkdir()
+        import agent_cli
 
-        with patch("agent_cli._DOCKER_PLUGIN_DIRS", (fake_dir,)):
+        root = tmp_path / "plugins"
+        root.mkdir()
+        (root / "superpowers").mkdir()
+
+        with patch.object(agent_cli, "_PRE_CLONED_PLUGIN_ROOT", root):
             cmd = build_agent_command(tool="codex", model="o4-mini")
 
         assert "--plugin-dir" not in cmd
@@ -360,33 +372,37 @@ class TestPluginDirFlags:
         """build_lightweight_command for claude should include --plugin-dir flags."""
         from unittest.mock import patch
 
-        fake_dir = str(tmp_path / "lightfactory")
-        (tmp_path / "lightfactory").mkdir()
+        import agent_cli
 
-        with patch("agent_cli._DOCKER_PLUGIN_DIRS", (fake_dir,)):
+        root = tmp_path / "plugins"
+        root.mkdir()
+        (root / "lightfactory").mkdir()
+
+        with patch.object(agent_cli, "_PRE_CLONED_PLUGIN_ROOT", root):
             cmd, _ = build_lightweight_command(
                 tool="claude", model="sonnet", prompt="test"
             )
 
         assert "--plugin-dir" in cmd
-        assert cmd[cmd.index("--plugin-dir") + 1] == fake_dir
+        assert cmd[cmd.index("--plugin-dir") + 1] == str(root / "lightfactory")
 
     def test_lightweight_pi_excludes_plugin_dirs(self, tmp_path: Path) -> None:
         """build_lightweight_command for pi should not include --plugin-dir flags."""
         from unittest.mock import patch
 
-        fake_dir = str(tmp_path / "lightfactory")
-        (tmp_path / "lightfactory").mkdir()
+        import agent_cli
 
-        with patch("agent_cli._DOCKER_PLUGIN_DIRS", (fake_dir,)):
+        root = tmp_path / "plugins"
+        root.mkdir()
+        (root / "lightfactory").mkdir()
+
+        with patch.object(agent_cli, "_PRE_CLONED_PLUGIN_ROOT", root):
             cmd, _ = build_lightweight_command(tool="pi", model="pi-max", prompt="test")
 
         assert "--plugin-dir" not in cmd
 
-    def test_docker_plugin_dirs_constant_has_expected_entries(self) -> None:
-        """The constant should list all three plugin repos."""
-        from agent_cli import _DOCKER_PLUGIN_DIRS
+    def test_pre_cloned_plugin_root_points_at_opt_plugins(self) -> None:
+        """The constant should point at /opt/plugins (where Dockerfile bakes plugins)."""
+        from agent_cli import _PRE_CLONED_PLUGIN_ROOT
 
-        assert len(_DOCKER_PLUGIN_DIRS) == 3
-        paths = {d.rsplit("/", 1)[-1] for d in _DOCKER_PLUGIN_DIRS}
-        assert paths == {"claude-plugins-official", "superpowers", "lightfactory"}
+        assert Path("/opt/plugins") == _PRE_CLONED_PLUGIN_ROOT
