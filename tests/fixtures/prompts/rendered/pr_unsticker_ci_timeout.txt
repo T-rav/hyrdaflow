@@ -1,0 +1,58 @@
+You are fixing a CI timeout caused by hanging tests in a pull request.
+
+## Issue: Retry transient S3 upload failures
+Issue URL: https://github.com/owner/repo/issues/42
+PR URL: https://github.com/owner/repo/pull/77
+
+## Escalation Reason
+
+CI timed out after 10 minutes. The test suite hung waiting for an async event that was never set.
+
+## Test Isolation Output
+
+tests/test_upload.py::test_upload_retry_backoff STARTED
+... (no output for 8 minutes)
+process killed after timeout
+
+## Common Causes of Hanging Tests
+
+**General (any language):**
+- **Infinite polling loops**: Test mocks return a truthy "work available" value on every call, so a loop that skips sleep when work is done never yields. Fix: ensure mocks return "no work" (falsy/empty) by default.
+- **Unresolved async waits**: Tests await on events, futures, promises, or channels that never complete. Fix: ensure the mock or test setup triggers the completion signal.
+- **Deadlocks**: Multiple concurrent tasks/threads waiting on each other's locks or results.
+- **Missing teardown**: Servers, listeners, or background threads started in tests that never get shut down, preventing the test process from exiting.
+
+**Python-specific:**
+- **Truthy AsyncMock**: `AsyncMock()` without `return_value` returns a truthy MagicMock, causing `while await work_fn()` or `did_work = bool(await fn())` loops to spin forever. Fix: set `return_value` to a falsy value matching the function's return type — `return_value=0` for int, `return_value=[]` for list, `return_value=False` for bool.
+- **Missing event.set()**: Tests that wait on `asyncio.Event` objects that never get set.
+
+## Instructions
+
+1. Identify which test is hanging from the test output above (the last test that started running).
+2. Read the hanging test and the code it exercises.
+3. Fix the **root cause** — do NOT mask the problem with timeouts or skip markers.
+4. **Search the same file for other occurrences of the same pattern** (e.g., other mocks with the same issue). Fix ALL instances, not just the one that hangs — unfixed siblings will hang on the next CI run.
+5. Run `make quality` to verify all tests pass and no new issues are introduced.
+6. Commit fixes with a descriptive message.
+
+## Pattern Reporting
+
+If you identify a new hang pattern not already listed above, emit a structured block so it can be learned for future fixes:
+
+```
+TROUBLESHOOTING_PATTERN_START
+pattern_name: <short_key, e.g. truthy_asyncmock>
+description: <what causes the hang>
+fix_strategy: <how to fix it>
+TROUBLESHOOTING_PATTERN_END
+```
+
+## Rules
+
+- Follow the project's CLAUDE.md guidelines strictly.
+- NEVER delete or overwrite existing CLAUDE.md content. You may append new sections or
+  modify existing sections, but you must preserve all information already present.
+- Write tests for all new code — tests are mandatory.
+- Do NOT push to remote. Do NOT create pull requests.
+- Do NOT run `git push` or `gh pr create`.
+- Ensure `make quality` passes before committing.

@@ -1,0 +1,17 @@
+{
+  "builder": "pr_unsticker.PRUnsticker._build_ci_timeout_fix_prompt",
+  "args": {
+    "issue": {
+      "number": 42,
+      "title": "Retry transient S3 upload failures",
+      "body": "Intermittent 503s on large file uploads.",
+      "labels": ["bug", "hydraflow-in-progress"],
+      "url": "https://github.com/owner/repo/issues/42"
+    },
+    "pr_url": "https://github.com/owner/repo/pull/77",
+    "cause": "CI timed out after 10 minutes. The test suite hung waiting for an async event that was never set.",
+    "isolation_output": "tests/test_upload.py::test_upload_retry_backoff STARTED\n... (no output for 8 minutes)\nprocess killed after timeout",
+    "learned_patterns_section": ""
+  },
+  "faked_deps": {}
+}

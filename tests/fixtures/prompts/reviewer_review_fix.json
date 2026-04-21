@@ -1,0 +1,20 @@
+{
+  "builder": "reviewer.ReviewRunner._build_review_fix_prompt",
+  "args": {
+    "pr": {
+      "number": 77,
+      "issue_number": 42,
+      "branch": "issue-42-s3-retry",
+      "url": ""
+    },
+    "issue": {
+      "id": 42,
+      "title": "Retry transient S3 upload failures",
+      "body": "Intermittent 503s on large file uploads.",
+      "tags": ["bug"],
+      "comments": []
+    },
+    "review_summary": "1. Missing test for the backoff timing logic.\n2. Logger call uses wrong level — should be `warning` not `info` per project standards.\n3. `TransientError` is not imported; code will raise NameError at runtime."
+  },
+  "faked_deps": {}
+}

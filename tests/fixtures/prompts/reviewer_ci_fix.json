@@ -1,0 +1,23 @@
+{
+  "builder": "reviewer.ReviewRunner._build_ci_fix_prompt",
+  "args": {
+    "pr": {
+      "number": 77,
+      "issue_number": 42,
+      "branch": "issue-42-s3-retry",
+      "url": ""
+    },
+    "issue": {
+      "id": 42,
+      "title": "Retry transient S3 upload failures",
+      "body": "Intermittent 503s on large file uploads.",
+      "tags": ["bug"],
+      "comments": []
+    },
+    "failure_summary": "pytest tests/test_upload.py::test_upload_retry FAILED\nAssertionError: Expected 3 upload attempts, got 1.\n\nmypy src/upload.py:18: error: Name 'TransientError' is not defined",
+    "attempt": 1,
+    "ci_logs": "=== short test summary info ===\nFAILED tests/test_upload.py::test_upload_retry - AssertionError: Expected 3 upload attempts, got 1.",
+    "code_scanning_alerts": null
+  },
+  "faked_deps": {}
+}

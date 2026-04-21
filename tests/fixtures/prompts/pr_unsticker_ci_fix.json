@@ -1,0 +1,15 @@
+{
+  "builder": "pr_unsticker.PRUnsticker._build_ci_fix_prompt",
+  "args": {
+    "issue": {
+      "number": 42,
+      "title": "Retry transient S3 upload failures",
+      "body": "Intermittent 503s on large file uploads.",
+      "labels": ["bug", "hydraflow-in-progress"],
+      "url": "https://github.com/owner/repo/issues/42"
+    },
+    "pr_url": "https://github.com/owner/repo/pull/77",
+    "cause": "make quality FAILED: mypy error in src/upload.py:18 — Name 'TransientError' is not defined. Also pytest reports 2 failures in tests/test_upload.py."
+  },
+  "faked_deps": {}
+}
