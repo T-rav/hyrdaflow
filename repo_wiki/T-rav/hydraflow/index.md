@@ -146,6 +146,7 @@
 - [0141-issue-6301-review-patterns-from-6301](architecture/0141-issue-6301-review-patterns-from-6301.md)
 - [0142-issue-6331-review-patterns-from-6331](architecture/0142-issue-6331-review-patterns-from-6331.md)
 - [0143-issue-6334-review-patterns-from-6334](architecture/0143-issue-6334-review-patterns-from-6334.md)
+- [0144-issue-8376-prompt-structure-standard-audit-rubric-tag-vocabulary](architecture/0144-issue-8376-prompt-structure-standard-audit-rubric-tag-vocabulary.md)
 
 ## Patterns
 
@@ -167,6 +168,7 @@
 - [0007-issue-unknown-memory-system-filtering-budget-allocation-and-quer](gotchas/0007-issue-unknown-memory-system-filtering-budget-allocation-and-quer.md)
 - [0008-issue-unknown-adr-enforcement-commit-hooks-and-skills-management](gotchas/0008-issue-unknown-adr-enforcement-commit-hooks-and-skills-management.md)
 - [0009-issue-unknown-infrastructure-events-dispatch-and-parser-implemen](gotchas/0009-issue-unknown-infrastructure-events-dispatch-and-parser-implemen.md)
+- [0010-issue-8376-ruff-strips-unused-imports-mid-tdd-cycle](gotchas/0010-issue-8376-ruff-strips-unused-imports-mid-tdd-cycle.md)
 
 ## Testing
 

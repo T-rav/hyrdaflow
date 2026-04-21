@@ -55,6 +55,8 @@ Consequences), use `module:function_or_class` format (e.g. `src/config.py:HydraF
 | [0039](0039-stats-counter-placement-in-delegating-helpers.md) | Stats Counter Placement in Delegating Helpers | Rejected |
 | [0040](0040-adr-reviewer-proposed-only-filter.md) | ADR Reviewer Proposed-Only Filter and Validator Scope | Rejected |
 | [0041](0041-github-source-of-truth-cache-as-sidecar.md) | GitHub as Source of Truth, Local Cache as Sidecar | Accepted |
+| [0042](0042-two-tier-branch-release-promotion.md) | Two-tier branch model with automated release-candidate promotion | Accepted |
+| [0043](0043-prompt-structure-standard.md) | Prompt structure standard (XML tags, 8-criterion rubric, mechanical scoring) | Proposed |
 
 ## Adding a new ADR
 
