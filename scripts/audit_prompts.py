@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import importlib
+import inspect
 import json
 import re
 from dataclasses import dataclass, field
@@ -487,11 +490,31 @@ class LoadedFixture:
     faked_deps: dict
 
 
+def _coerce_task_dicts(args: dict) -> dict:
+    """Convert dict values that look like Tasks into real Task instances.
+
+    Builders that accept ``issue: Task`` or ``task: Task`` expect a Pydantic model,
+    not a raw dict.  We detect the common fixture pattern (dict with ``id`` + ``title``
+    keys) and coerce automatically so fixture authors don't have to import Task.
+    """
+    from models import Task  # noqa: PLC0415
+
+    coerced = {}
+    for key, value in args.items():
+        if isinstance(value, dict) and "id" in value and "title" in value:
+            coerced[key] = Task(**value)
+        else:
+            coerced[key] = value
+    return coerced
+
+
 def load_fixture(path: str) -> LoadedFixture:
     data = json.loads(Path(path).read_text())
+    raw_args = data.get("args", {})
+    coerced_args = _coerce_task_dicts(raw_args)
     return LoadedFixture(
         builder=data["builder"],
-        args=data.get("args", {}),
+        args=coerced_args,
         faked_deps=data.get("faked_deps", {}),
     )
 
@@ -512,16 +535,72 @@ def render(builder_callable, *, args: dict, faked_deps: dict) -> str:
         resolved[dep_name] = get_fake(dep_name, shape)
 
     result = builder_callable(**resolved)
+    if inspect.iscoroutine(result):
+        result = asyncio.run(result)
     if isinstance(result, tuple):
         result = result[0]
     if isinstance(result, list):
-        parts = []
+        parts_out = []
         for msg in result:
             role = msg.get("role", "user").upper()
-            parts.append(f"==={role}===")
-            parts.append(msg.get("content", ""))
-        return "\n".join(parts)
+            parts_out.append(f"==={role}===")
+            parts_out.append(msg.get("content", ""))
+        return "\n".join(parts_out)
     return str(result)
+
+
+# ---------------------------------------------------------------------------
+# Target resolution + rendering
+# ---------------------------------------------------------------------------
+
+
+class _MinimalConfig:
+    """Minimal stand-in for HydraFlowConfig — builders typically read only a
+    handful of ``max_*_chars`` fields and booleans. Extend as needed."""
+
+    def __init__(self) -> None:
+        self.dry_run = False
+        self.max_impl_plan_chars = 50_000
+        self.max_review_feedback_chars = 50_000
+        self.error_output_max_chars = 50_000
+        self.max_common_feedback_chars = 50_000
+        # Planner-specific fields
+        self.max_planner_comment_chars = 1_000
+        self.max_planner_line_chars = 500
+        self.max_planner_failed_plan_chars = 4_000
+        self.max_issue_body_chars = 10_000
+        self.find_label = ["hydraflow-find"]
+        self.required_plugins: list[str] = []
+
+    def __getattr__(self, name: str) -> object:
+        # Fallback: any unrecognized config attr resolves to a large int.
+        # Prevents AttributeError when builders reach for new max_* fields.
+        if name.startswith("max_") and name.endswith("_chars"):
+            return 50_000
+        raise AttributeError(name)
+
+
+def render_target(target: AuditTarget) -> str:
+    """Resolve qualname, load fixture, call the builder, return rendered text."""
+    fixture = load_fixture(target.fixture_path)
+    parts = target.builder_qualname.split(".")
+    module = importlib.import_module(parts[0])
+    if len(parts) == 2:
+        callable_obj = getattr(module, parts[1])
+    elif len(parts) == 3:
+        cls = getattr(module, parts[1])
+        descriptor = inspect.getattr_static(cls, parts[2])
+        if isinstance(descriptor, staticmethod | classmethod):
+            callable_obj = getattr(cls, parts[2])
+        else:
+            instance = cls.__new__(cls)
+            instance._config = _MinimalConfig()
+            instance._hindsight = None
+            instance._last_context_stats = {}
+            callable_obj = getattr(instance, parts[2])
+    else:
+        raise ValueError(f"unsupported qualname depth: {target.builder_qualname!r}")
+    return render(callable_obj, args=fixture.args, faked_deps=fixture.faked_deps)
 
 
 def main() -> None:

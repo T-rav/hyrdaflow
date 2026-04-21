@@ -416,3 +416,19 @@ def test_prompt_registry_entries_are_unique_by_name():
 
     names = [t.name for t in PROMPT_REGISTRY]
     assert len(names) == len(set(names)), "duplicate registry names detected"
+
+
+# ---------------------------------------------------------------------------
+# Task 15 — Triage fixtures
+# ---------------------------------------------------------------------------
+
+
+def test_triage_fixtures_render_cleanly():
+    from scripts.audit_prompts import PROMPT_REGISTRY, render_target
+
+    triage_targets = [t for t in PROMPT_REGISTRY if t.category == "Triage"]
+    assert len(triage_targets) >= 2
+
+    for target in triage_targets:
+        rendered = render_target(target)
+        assert rendered, f"rendered output is empty for {target.name}"

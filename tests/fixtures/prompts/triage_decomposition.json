@@ -1,0 +1,13 @@
+{
+  "builder": "triage.TriageRunner._build_decomposition_prompt",
+  "args": {
+    "task": {
+      "id": 99,
+      "title": "Replatform billing to Stripe",
+      "body": "Migrate from Paddle to Stripe. Includes subscription, invoicing, tax, webhooks, dashboard updates, docs.",
+      "tags": ["epic"],
+      "comments": []
+    }
+  },
+  "faked_deps": {}
+}

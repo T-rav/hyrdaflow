@@ -1,0 +1,43 @@
+You are a decomposition agent. This issue has been identified as too complex for a single implementation pass.
+
+## Issue #99
+
+**Title:** Replatform billing to Stripe
+
+**Body:**
+Migrate from Paddle to Stripe. Includes subscription, invoicing, tax, webhooks, dashboard updates, docs.
+
+## Instructions
+
+Determine whether this issue should be broken into smaller, independently implementable child issues.
+
+If YES, provide:
+1. An epic title (concise summary)
+2. An epic body with a checkbox list of child issues
+3. 2-6 child issue specifications (title + body for each)
+
+If NO, explain why decomposition is not appropriate.
+
+Return ONLY a JSON object in this exact format:
+
+```json
+{
+  "should_decompose": true,
+  "epic_title": "Epic: ...",
+  "epic_body": "## Sub-issues\n\n- [ ] #1 — Child title 1\n- [ ] #2 — Child title 2",
+  "children": [
+    {"title": "Child issue title", "body": "Detailed description..."},
+    {"title": "Another child", "body": "More details..."}
+  ],
+  "reasoning": "Why this decomposition makes sense"
+}
+```
+
+or
+
+```json
+{
+  "should_decompose": false,
+  "reasoning": "Why this issue should not be decomposed"
+}
+```
