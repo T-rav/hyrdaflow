@@ -118,6 +118,27 @@ def score_xml_tags(rendered: str) -> str:
     return "Fail"
 
 
+# ---------------------------------------------------------------------------
+# Rubric #4 — examples where applicable
+# ---------------------------------------------------------------------------
+
+_STRUCTURED_CUES = (
+    r"\bJSON\b",
+    r"\bschema\b",
+    r"format:",
+    r"fields:",
+    r"`[a-z_][a-z0-9_]*`",
+)
+_EXAMPLE_PRESENT = (r"<example>", r"\bExample:", r"<example ")
+
+
+def score_examples(rendered: str) -> str:
+    applicable = _any_hit(_STRUCTURED_CUES, rendered)
+    if not applicable:
+        return "N/A"
+    return "Pass" if _any_hit(_EXAMPLE_PRESENT, rendered) else "Fail"
+
+
 def main() -> None:
     raise NotImplementedError("wired up in later tasks")
 

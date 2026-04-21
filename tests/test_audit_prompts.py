@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from scripts.audit_prompts import (
     AuditTarget,
+    score_examples,
     score_leads_with_request,
     score_specific,
     score_xml_tags,
@@ -104,3 +105,28 @@ def test_score_xml_tags_fail_with_none():
 def test_score_xml_tags_excludes_thinking_and_scratchpad():
     prompt = "<thinking>step</thinking><scratchpad>note</scratchpad>"
     assert score_xml_tags(prompt) == "Fail"
+
+
+# ---------------------------------------------------------------------------
+# Task 5 — Rubric #4: examples where applicable
+# ---------------------------------------------------------------------------
+
+
+def test_score_examples_na_when_output_is_free_form():
+    prompt = "Write a short summary of the issue."
+    assert score_examples(prompt) == "N/A"
+
+
+def test_score_examples_pass_when_applicable_and_example_tag_present():
+    prompt = 'Produce a JSON object with fields.\n<example>{"ready": true}</example>'
+    assert score_examples(prompt) == "Pass"
+
+
+def test_score_examples_pass_when_applicable_and_example_header_present():
+    prompt = 'Produce a JSON object with fields.\n\nExample:\n{"ready": true}'
+    assert score_examples(prompt) == "Pass"
+
+
+def test_score_examples_fail_when_applicable_but_no_example():
+    prompt = "Produce a JSON object with fields `ready` and `reasons`."
+    assert score_examples(prompt) == "Fail"
