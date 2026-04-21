@@ -17,6 +17,7 @@ from models import LoopResult, Task, WorkerResult, WorkerStatus, WorkerUpdatePay
 from plugin_skill_registry import (
     discover_plugin_skills,
     format_plugin_skills_for_prompt,
+    skills_for_phase,
 )
 from prompt_builder import PromptBuilder
 from review_insights import (
@@ -731,7 +732,11 @@ Run through this checklist before your final commit:
         tools_section = format_tools_for_prompt(discover_tools(self._config.repo_root))
         skills_section = format_skills_for_prompt(get_skills())
         plugin_skills_section = format_plugin_skills_for_prompt(
-            discover_plugin_skills(self._config.required_plugins)
+            skills_for_phase(
+                "agent",
+                discover_plugin_skills(self._config.required_plugins),
+                self._config.phase_skills,
+            )
         )
 
         prompt = f"""You are implementing GitHub issue #{issue.id}.

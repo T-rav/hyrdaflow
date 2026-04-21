@@ -26,6 +26,7 @@ from plan_validation import run_phase_gates, validate_plan
 from plugin_skill_registry import (
     discover_plugin_skills,
     format_plugin_skills_for_prompt,
+    skills_for_phase,
 )
 from prompt_builder import PromptBuilder
 from runner_constants import MEMORY_SUGGESTION_PROMPT
@@ -547,7 +548,11 @@ This closes the issue automatically. False positives waste significant human tim
 
 {MEMORY_SUGGESTION_PROMPT.format(context="planning")}"""
         plugin_skills_section = format_plugin_skills_for_prompt(
-            discover_plugin_skills(self._config.required_plugins)
+            skills_for_phase(
+                "planner",
+                discover_plugin_skills(self._config.required_plugins),
+                self._config.phase_skills,
+            )
         )
         if plugin_skills_section:
             prompt = f"{prompt}\n\n{plugin_skills_section}"

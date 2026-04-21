@@ -14,6 +14,7 @@ from models import DiscoverResult
 from plugin_skill_registry import (
     discover_plugin_skills,
     format_plugin_skills_for_prompt,
+    skills_for_phase,
 )
 from runner_constants import MEMORY_SUGGESTION_PROMPT
 
@@ -234,7 +235,11 @@ Each opportunity should be:
 {MEMORY_SUGGESTION_PROMPT}
 """
         plugin_skills_section = format_plugin_skills_for_prompt(
-            discover_plugin_skills(self._config.required_plugins)
+            skills_for_phase(
+                "discover",
+                discover_plugin_skills(self._config.required_plugins),
+                self._config.phase_skills,
+            )
         )
         if plugin_skills_section:
             prompt = f"{prompt}\n\n{plugin_skills_section}"
