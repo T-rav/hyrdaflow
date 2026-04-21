@@ -13,7 +13,7 @@ from pathlib import Path
 
 from config import HydraFlowConfig
 from plugin_skill_registry import DEFAULT_CACHE_ROOT, parse_plugin_spec
-from preflight import _plugin_exists, install_plugin
+from preflight import install_plugin, plugin_exists
 
 logger = logging.getLogger("hydraflow.install_plugins_cli")
 
@@ -35,7 +35,7 @@ def run(config: HydraFlowConfig, *, cache_root: Path | None = None) -> int:
         except ValueError as exc:
             failures.append(str(exc))
             continue
-        if _plugin_exists(root, name):
+        if plugin_exists(root, name):
             logger.info("already installed: %s@%s", name, marketplace)
             continue
         ok, detail = install_plugin(name, marketplace)
@@ -45,8 +45,8 @@ def run(config: HydraFlowConfig, *, cache_root: Path | None = None) -> int:
             failures.append(f"{name}@{marketplace}: {detail}")
 
     if failures:
-        for f in failures:
-            logger.error(f)
+        for failure in failures:
+            logger.error("%s", failure)
         return 1
     return 0
 

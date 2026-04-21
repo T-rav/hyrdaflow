@@ -273,7 +273,7 @@ def _check_plugins(  # noqa: PLR0911 — linear gate checks, each with its own r
             tier2_specs.append((lang, name, marketplace))
 
     # Identify missing Tier-1 before any install attempt.
-    missing_tier1 = [(n, m) for n, m in tier1_specs if not _plugin_exists(root, n)]
+    missing_tier1 = [(n, m) for n, m in tier1_specs if not plugin_exists(root, n)]
 
     install_errors: list[str] = []
     if missing_tier1 and config.auto_install_plugins:
@@ -285,7 +285,7 @@ def _check_plugins(  # noqa: PLR0911 — linear gate checks, each with its own r
                 install_errors.append(f"{name}@{marketplace}: {detail}")
 
     # Re-check after install attempt.
-    still_missing = [(n, m) for n, m in tier1_specs if not _plugin_exists(root, n)]
+    still_missing = [(n, m) for n, m in tier1_specs if not plugin_exists(root, n)]
     if still_missing:
         pretty = ", ".join(f"{n}@{m}" for n, m in still_missing)
         if config.auto_install_plugins:
@@ -318,13 +318,13 @@ def _check_plugins(  # noqa: PLR0911 — linear gate checks, each with its own r
     tier2_install_errors: dict[str, str] = {}  # plugin_name → detail
     if config.auto_install_plugins:
         for _, name, marketplace in tier2_specs:
-            if not _plugin_exists(root, name):
+            if not plugin_exists(root, name):
                 ok, detail = install_plugin(name, marketplace)
                 if not ok:
                     tier2_install_errors[name] = detail
 
     missing_tier2 = [
-        (lang, n) for lang, n, _ in tier2_specs if not _plugin_exists(root, n)
+        (lang, n) for lang, n, _ in tier2_specs if not plugin_exists(root, n)
     ]
 
     all_plugin_names = [n for n, _ in tier1_specs] + [n for _, n, _ in tier2_specs]
@@ -357,7 +357,7 @@ def _check_plugins(  # noqa: PLR0911 — linear gate checks, each with its own r
     )
 
 
-def _plugin_exists(cache_root: Path, plugin: str) -> bool:
+def plugin_exists(cache_root: Path, plugin: str) -> bool:
     """Return True if ``plugin`` directory exists under any marketplace in ``cache_root``."""
     if not cache_root.is_dir():
         return False
