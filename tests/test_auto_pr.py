@@ -22,21 +22,16 @@ def local_repo(tmp_path: Path, bare_remote: Path) -> Path:
     local = tmp_path / "local"
     subprocess.run(["git", "clone", str(bare_remote), str(local)], check=True)
     subprocess.run(["git", "-C", str(local), "checkout", "-b", "main"], check=True)
+    # Persist identity in the repo-local config so worktrees created from this
+    # repo inherit it via the shared git dir. Tests that exercise the
+    # empty-commit-author fallback rely on this ambient config existing — CI
+    # runners have no global git config.
+    subprocess.run(["git", "-C", str(local), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(local), "config", "user.name", "t"], check=True)
     (local / "README.md").write_text("init\n")
     subprocess.run(["git", "-C", str(local), "add", "README.md"], check=True)
     subprocess.run(
-        [
-            "git",
-            "-C",
-            str(local),
-            "-c",
-            "user.email=t@t",
-            "-c",
-            "user.name=t",
-            "commit",
-            "-m",
-            "init",
-        ],
+        ["git", "-C", str(local), "commit", "-m", "init"],
         check=True,
     )
     subprocess.run(
