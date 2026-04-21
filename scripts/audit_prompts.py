@@ -603,6 +603,7 @@ class _MinimalConfig:
         self.max_issue_body_chars = 10_000
         self.find_label = ["hydraflow-find"]
         self.required_plugins: list[str] = []
+        self.phase_skills: dict[str, list[str]] = {}
         # Agent / reviewer fields
         self.test_command = "make test"
         self.repo_root = _Path(".")
