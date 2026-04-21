@@ -480,6 +480,15 @@ Use semantic tools first (before grep):
 5. Build a Task Graph with dependency-ordered phases (full plans only).
 6. Write behavioral test specs for each phase — describe observable outcomes, not test code.
 7. For UI work, call out reusable components/shared modules (`constants.js`, `types.js`, `theme.js`).
+8. **Audit the plan against `docs/agents/avoided-patterns.md`.** Every code snippet,
+   test fixture, and cross-module import in your plan must avoid the anti-patterns
+   listed there. Specifically check: symbols imported across modules do not start
+   with `_`; test helpers do not duplicate ones in `tests/conftest.py` (grep first);
+   `logger.error` / `logger.warning` calls pass a literal format string, not a bare
+   variable; hardcoded path lists that mirror filesystem or Dockerfile state are
+   replaced with runtime scans; loop variables use bare `_` for throwaways, not
+   `_name`. Catching these in the plan is orders of magnitude cheaper than catching
+   them in code review.
 
 ## Required Output
 

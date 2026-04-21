@@ -103,6 +103,143 @@ if self._hindsight is None:
 
 **Why:** `Mock()` objects are truthy by default, but a `Mock()` configured with `spec=SomeClass` that has `__bool__` can be falsy, and ordinary values like empty lists or dicts trigger the wrong branch. Explicit `is None` makes the intent unambiguous and matches the type annotation contract (`X | None`).
 
+## Underscore-prefixed names imported across modules
+
+If a symbol is imported from another module, it is part of that module's public API and must not start with `_`. The leading underscore is Python's "module-internal" convention; crossing the boundary lies about the contract and trips pyright's `reportPrivateUsage` / unused-symbol warnings.
+
+**Wrong:**
+
+```python
+# src/plugin_skill_registry.py
+def _parse_plugin_spec(spec: str) -> tuple[str, str]: ...
+
+# src/preflight.py
+from plugin_skill_registry import _parse_plugin_spec  # crosses the boundary
+```
+
+**Right:**
+
+```python
+# src/plugin_skill_registry.py
+def parse_plugin_spec(spec: str) -> tuple[str, str]: ...
+
+# src/preflight.py
+from plugin_skill_registry import parse_plugin_spec
+```
+
+**Why:** Pyright flags private-symbol imports and "defined but not used" warnings for `_`-prefixed names whose only consumers are other modules. Promotion to public is also a signal to future readers that the symbol is a load-bearing contract, not an implementation detail.
+
+**How to check:** Any symbol imported across module boundaries must not start with `_`. If it does, rename or refactor in the same change.
+
+## Writing a new test helper without checking conftest
+
+Before adding a helper function to a test file, grep `tests/conftest.py` (and any `tests/helpers*.py`) for similar helpers. Shared test fixtures belong in conftest; duplicating a helper locally causes drift when one copy is updated and the other is not.
+
+**Wrong:**
+
+```python
+# tests/test_my_feature.py
+def _write_fake_skill(cache_root, marketplace, plugin, skill):
+    skill_dir = cache_root / marketplace / plugin / "1.0.0" / "skills" / skill
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(f"---\nname: {skill}\n---\nbody\n")
+```
+
+(while `tests/conftest.py:write_plugin_skill` already does exactly this.)
+
+**Right:**
+
+```python
+# tests/test_my_feature.py
+from tests.conftest import write_plugin_skill
+```
+
+**Why:** Duplicated helpers drift silently. If `write_plugin_skill` in conftest gains a new parameter or changes its on-disk layout, the local copy stays stale and tests pass against a fiction.
+
+**How to check:** Before adding any `def _<something>` in a test file, run `rg "def <name>" tests/conftest.py tests/helpers*.py` for semantically-similar helpers.
+
+## `logger.error(value)` without a format string
+
+Logging calls must pass a format string as the first argument and the variable as the second. Passing a variable directly treats the variable as the format template — if it ever contains `%s`, `%d`, or `{...}`, logging either misformats or raises `TypeError` at runtime.
+
+**Wrong:**
+
+```python
+for failure in failures:
+    logger.error(failure)  # failure is the format string — unsafe
+```
+
+**Right:**
+
+```python
+for failure in failures:
+    logger.error("%s", failure)
+```
+
+**Why:** Latent logging-injection bug. `logger.error("got error: %s")` with a user-controlled string containing `%d` raises `TypeError: not enough arguments for format string` at runtime, not during testing. The `logger.error("%s", value)` form defers formatting to the logging machinery which handles it safely.
+
+**How to check:** `rg "logger\.(error|warning|info|debug)\(\w+\)" src/` — every match should have a literal string as the first argument.
+
+## Hardcoded path lists that duplicate filesystem state
+
+When multiple files (Dockerfile, Python constant, documentation) must agree on a list of paths or names, scan the authoritative source at runtime instead of hardcoding a parallel list that can drift.
+
+**Wrong:**
+
+```python
+# src/agent_cli.py
+_DOCKER_PLUGIN_DIRS: tuple[str, ...] = (
+    "/opt/plugins/claude-plugins-official",
+    "/opt/plugins/superpowers",
+    "/opt/plugins/lightfactory",
+)
+# Dockerfile.agent-base clones these three — but if a fourth is added
+# there, this tuple silently stays wrong.
+```
+
+**Right:**
+
+```python
+# src/agent_cli.py
+_PRE_CLONED_PLUGIN_ROOT = Path("/opt/plugins")
+
+def _plugin_dir_flags() -> list[str]:
+    if not _PRE_CLONED_PLUGIN_ROOT.is_dir():
+        return []
+    flags: list[str] = []
+    for entry in sorted(_PRE_CLONED_PLUGIN_ROOT.iterdir()):
+        if entry.is_dir():
+            flags.extend(["--plugin-dir", str(entry)])
+    return flags
+```
+
+**Why:** Two sources of truth decay. Every time someone edits the Dockerfile, CI passes but the Python list falls behind. Dynamic enumeration of the filesystem (or a single config source) eliminates the drift.
+
+**How to check:** Any hardcoded list that mirrors filesystem layout, Dockerfile state, or config file contents should raise a flag — can it be computed at runtime from the source of truth?
+
+## `_name` for unused loop variables (prefer bare `_`)
+
+Python's informal "unused by intent" convention is a bare `_`, not `_name`. Pyright and some strict linters treat `_name` as a named variable that happens to start with `_` and flag it as unused regardless.
+
+**Wrong:**
+
+```python
+for _lang, name, marketplace in specs:
+    install(name, marketplace)
+# Pyright: "_lang" is not accessed
+```
+
+**Right:**
+
+```python
+for _, name, marketplace in specs:
+    install(name, marketplace)
+```
+
+**Why:** Bare `_` is universally understood as "throwaway"; `_name` is not. Reserve `_name` only when documentation value is meaningful enough to keep a name alive. Otherwise use bare `_`.
+
+**How to check:** `rg "for _[a-z]" src/` — each match should justify why the underscore-prefixed name is more readable than bare `_`.
+
 ---
 
 ## Adding a new avoided pattern
