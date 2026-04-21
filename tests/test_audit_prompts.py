@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from scripts.audit_prompts import (
     AuditTarget,
+    Scorecard,
     score_cot,
     score_edge_cases,
     score_examples,
@@ -12,6 +13,7 @@ from scripts.audit_prompts import (
     score_output_contract,
     score_specific,
     score_xml_tags,
+    severity_for,
 )
 
 # ---------------------------------------------------------------------------
@@ -221,3 +223,92 @@ def test_score_edge_cases_pass_when_fallback_present():
 
 def test_score_edge_cases_fail_when_no_cues():
     assert score_edge_cases("Classify the issue and return JSON.") == "Fail"
+
+
+# ---------------------------------------------------------------------------
+# Task 10 — Severity classifier
+# ---------------------------------------------------------------------------
+
+
+def test_severity_high_when_two_fails():
+    scores = {
+        1: "Pass",
+        2: "Fail",
+        3: "Fail",
+        4: "Pass",
+        5: "Pass",
+        6: "Pass",
+        7: "N/A",
+        8: "Pass",
+    }
+    assert severity_for(Scorecard(scores=scores)) == "High"
+
+
+def test_severity_high_when_criterion_1_fails():
+    scores = {
+        1: "Fail",
+        2: "Pass",
+        3: "Pass",
+        4: "Pass",
+        5: "Pass",
+        6: "Pass",
+        7: "N/A",
+        8: "Pass",
+    }
+    assert severity_for(Scorecard(scores=scores)) == "High"
+
+
+def test_severity_high_when_criterion_6_fails():
+    scores = {
+        1: "Pass",
+        2: "Pass",
+        3: "Pass",
+        4: "Pass",
+        5: "Pass",
+        6: "Fail",
+        7: "N/A",
+        8: "Pass",
+    }
+    assert severity_for(Scorecard(scores=scores)) == "High"
+
+
+def test_severity_medium_on_one_fail():
+    scores = {
+        1: "Pass",
+        2: "Pass",
+        3: "Fail",
+        4: "Pass",
+        5: "Pass",
+        6: "Pass",
+        7: "N/A",
+        8: "Pass",
+    }
+    assert severity_for(Scorecard(scores=scores)) == "Medium"
+
+
+def test_severity_medium_on_three_partials():
+    scores = {
+        1: "Partial",
+        2: "Partial",
+        3: "Partial",
+        4: "Pass",
+        5: "Pass",
+        6: "Pass",
+        7: "N/A",
+        8: "Pass",
+    }
+    assert severity_for(Scorecard(scores=scores)) == "Medium"
+
+
+def test_severity_low_when_clean():
+    scores = {
+        1: "Pass",
+        2: "Pass",
+        3: "Pass",
+        4: "Pass",
+        5: "Pass",
+        6: "Pass",
+        7: "N/A",
+        8: "Pass",
+    }
+    assert severity_for(Scorecard(scores=scores)) == "Low"

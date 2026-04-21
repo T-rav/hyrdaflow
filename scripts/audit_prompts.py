@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -242,6 +242,26 @@ _EDGE_CASE_CUES = (
 
 def score_edge_cases(rendered: str) -> str:
     return "Pass" if _any_hit(_EDGE_CASE_CUES, rendered) else "Fail"
+
+
+# ---------------------------------------------------------------------------
+# Severity classifier
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Scorecard:
+    scores: dict[int, str] = field(default_factory=dict)
+
+
+def severity_for(card: Scorecard) -> str:
+    fails = [k for k, v in card.scores.items() if v == "Fail"]
+    partials = [k for k, v in card.scores.items() if v == "Partial"]
+    if len(fails) >= 2 or 1 in fails or 6 in fails:
+        return "High"
+    if len(fails) == 1 or len(partials) >= 3:
+        return "Medium"
+    return "Low"
 
 
 def main() -> None:
