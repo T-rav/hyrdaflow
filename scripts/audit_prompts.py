@@ -596,6 +596,7 @@ def render_target(target: AuditTarget) -> str:
             instance = cls.__new__(cls)
             instance._config = _MinimalConfig()
             instance._hindsight = None
+            instance._wiki_store = None
             instance._last_context_stats = {}
             callable_obj = getattr(instance, parts[2])
     else:

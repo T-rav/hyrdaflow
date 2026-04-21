@@ -432,3 +432,18 @@ def test_triage_fixtures_render_cleanly():
     for target in triage_targets:
         rendered = render_target(target)
         assert rendered, f"rendered output is empty for {target.name}"
+
+
+# ---------------------------------------------------------------------------
+# Task 16 — Plan fixtures
+# ---------------------------------------------------------------------------
+
+
+def test_plan_fixtures_render_cleanly():
+    from scripts.audit_prompts import PROMPT_REGISTRY, render_target
+
+    plan_targets = [t for t in PROMPT_REGISTRY if t.category == "Plan"]
+    assert len(plan_targets) >= 3
+    for target in plan_targets:
+        rendered = render_target(target)
+        assert rendered, f"rendered output is empty for {target.name}"

@@ -1,0 +1,57 @@
+You previously generated a plan for GitHub issue #42 but it failed validation.
+
+## Issue: Retry transient S3 upload failures
+
+Intermittent 503s from S3 during upload cause job failures. Expected: retry up to 3 times with exponential backoff. Observed: first failure kills the job. Affected: src/upload.py.
+
+## Previous Plan (FAILED VALIDATION)
+
+## Summary
+
+Add retry logic to the upload function.
+
+## Task Graph
+
+### P1 — Retry wrapper
+**Files:** src/upload.py (modify)
+**Tests:**
+- Upload with 503 retries up to 3 times
+**Depends on:** (none)
+
+…(truncated)
+
+## Validation Errors
+
+- Missing required section: ## Key Considerations
+- Missing required section: ## Acceptance Criteria
+
+## Instructions
+
+Please fix the plan to address ALL of the validation errors above.
+Your plan MUST include ALL of the following sections with these EXACT headers:
+
+- `## Files to Modify` — list each existing file and what changes are needed (must reference at least one file path)
+- `## New Files` — list new files to create, or state "None" if no new files needed
+- `## File Delta` — structured list of all planned file changes using this exact format:
+  ```
+  MODIFIED: path/to/file.py
+  ADDED: path/to/new_file.py
+  REMOVED: path/to/old_file.py
+  ```
+  Each line must start with MODIFIED:, ADDED:, or REMOVED: followed by the file path.
+- `## Task Graph` — dependency-ordered implementation phases using `### P{N} — Name` subsections. Each phase lists **Files:** (paths to create/modify), **Tests:** (behavioral specs — observable outcomes, not test code), and **Depends on:** (prior phase numbers or 'none'). Lower-numbered phases execute first; independent phases at the same level can run in parallel. Max 6 phases per plan.
+- `## Testing Strategy` — what tests to write and what to verify (must reference specific test file paths or patterns; do NOT defer testing)
+- `## Acceptance Criteria` — extracted or synthesized from the issue
+- `## Key Considerations` — edge cases, backward compatibility, dependencies
+
+If any requirement is ambiguous, mark it with `[NEEDS CLARIFICATION: <description>]`
+rather than guessing. Plans with 4+ markers will be escalated for human review.
+
+Output your corrected plan between these exact markers:
+
+PLAN_START
+<your corrected implementation plan here>
+PLAN_END
+
+Then provide a one-line summary:
+SUMMARY: <brief one-line description of the plan>

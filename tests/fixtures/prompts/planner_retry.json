@@ -1,0 +1,18 @@
+{
+  "builder": "planner.PlannerRunner._build_retry_prompt",
+  "args": {
+    "issue": {
+      "id": 42,
+      "title": "Retry transient S3 upload failures",
+      "body": "Intermittent 503s from S3 during upload cause job failures. Expected: retry up to 3 times with exponential backoff. Observed: first failure kills the job. Affected: src/upload.py.",
+      "tags": ["bug"],
+      "comments": []
+    },
+    "failed_plan": "## Summary\n\nAdd retry logic to the upload function.\n\n## Task Graph\n\n### P1 — Retry wrapper\n**Files:** src/upload.py (modify)\n**Tests:**\n- Upload with 503 retries up to 3 times\n**Depends on:** (none)\n",
+    "validation_errors": [
+      "Missing required section: ## Key Considerations",
+      "Missing required section: ## Acceptance Criteria"
+    ]
+  },
+  "faked_deps": {}
+}

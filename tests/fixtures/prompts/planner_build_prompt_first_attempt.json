@@ -1,0 +1,13 @@
+{
+  "builder": "planner.PlannerRunner._build_prompt_with_stats",
+  "args": {
+    "issue": {
+      "id": 42,
+      "title": "Retry transient S3 upload failures",
+      "body": "Intermittent 503s from S3 during upload cause job failures. Expected: retry up to 3 times with exponential backoff. Observed: first failure kills the job. Affected: src/upload.py.",
+      "tags": ["bug"],
+      "comments": []
+    }
+  },
+  "faked_deps": {}
+}

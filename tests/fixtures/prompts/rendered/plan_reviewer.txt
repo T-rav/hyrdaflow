@@ -1,0 +1,76 @@
+You are an adversarial plan reviewer for HydraFlow issue #42. Critique the implementation plan below across the dimensions listed. Be skeptical — your job is to find problems, not to validate work.
+
+## Issue
+
+**Title:** Retry transient S3 upload failures
+
+**Body:**
+Intermittent 503s from S3 during upload cause job failures. Expected: retry up to 3 times with exponential backoff. Observed: first failure kills the job. Affected: src/upload.py.
+
+## Plan to review
+
+## Summary
+
+Add exponential-backoff retry logic to the S3 upload path in `src/upload.py`.
+
+## Background
+
+The upload function currently raises immediately on any HTTP error. S3 transiently returns 503s under load and the right fix is a retry loop with jitter.
+
+## Acceptance Criteria
+
+- Upload retries up to 3 times on 503/429 responses
+- Backoff follows exponential schedule: 1s, 2s, 4s with ±20% jitter
+- Non-retryable errors (400, 403, 404) propagate immediately
+- Retry count and final status logged at INFO level
+
+## Key Considerations
+
+- Thread safety: the retry loop must not hold the GIL during sleep
+- Avoid retry storms: jitter is mandatory
+- Risk: if S3 SDK already has built-in retry, double-retrying may cause long delays
+
+## Task Graph
+
+### P1 — Retry utility
+**Files:** src/retry.py (create)
+**Tests:**
+- retry_with_backoff() calls fn up to max_attempts times on retryable errors
+- retry_with_backoff() propagates immediately on non-retryable errors
+- jitter stays within ±20% band
+**Depends on:** (none)
+
+### P2 — Wire into upload
+**Files:** src/upload.py (modify)
+**Tests:**
+- upload() with simulated 503 succeeds on third attempt
+- upload() with 403 raises immediately without retry
+**Depends on:** P1
+
+
+## Review dimensions
+
+- correctness
+- edge_cases
+- test_strategy
+- scope_creep
+- convention
+- security
+- reproduction
+
+## Severity scale
+
+- **critical** — the plan is wrong; if implemented as-is it will produce a broken system
+- **high** — the plan is incomplete in a way that will cause test failures or hidden bugs
+- **medium** — over-engineering, scope creep, missed convention
+- **low** — cosmetic or stylistic
+- **info** — observation only, not a finding
+
+## Output format
+
+Write findings between PLAN_REVIEW_START and PLAN_REVIEW_END markers. One finding per bullet, with the shape:
+```
+- [severity] dimension: short description of the problem
+  Suggestion: concrete remediation
+```
+The Suggestion line is optional but encouraged. If you have no findings, emit an empty markers block — that's a clean review.

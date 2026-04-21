@@ -1,0 +1,14 @@
+{
+  "builder": "plan_reviewer.PlanReviewer._build_prompt",
+  "args": {
+    "task": {
+      "id": 42,
+      "title": "Retry transient S3 upload failures",
+      "body": "Intermittent 503s from S3 during upload cause job failures. Expected: retry up to 3 times with exponential backoff. Observed: first failure kills the job. Affected: src/upload.py.",
+      "tags": ["bug"],
+      "comments": []
+    },
+    "plan": "## Summary\n\nAdd exponential-backoff retry logic to the S3 upload path in `src/upload.py`.\n\n## Background\n\nThe upload function currently raises immediately on any HTTP error. S3 transiently returns 503s under load and the right fix is a retry loop with jitter.\n\n## Acceptance Criteria\n\n- Upload retries up to 3 times on 503/429 responses\n- Backoff follows exponential schedule: 1s, 2s, 4s with ±20% jitter\n- Non-retryable errors (400, 403, 404) propagate immediately\n- Retry count and final status logged at INFO level\n\n## Key Considerations\n\n- Thread safety: the retry loop must not hold the GIL during sleep\n- Avoid retry storms: jitter is mandatory\n- Risk: if S3 SDK already has built-in retry, double-retrying may cause long delays\n\n## Task Graph\n\n### P1 — Retry utility\n**Files:** src/retry.py (create)\n**Tests:**\n- retry_with_backoff() calls fn up to max_attempts times on retryable errors\n- retry_with_backoff() propagates immediately on non-retryable errors\n- jitter stays within ±20% band\n**Depends on:** (none)\n\n### P2 — Wire into upload\n**Files:** src/upload.py (modify)\n**Tests:**\n- upload() with simulated 503 succeeds on third attempt\n- upload() with 403 raises immediately without retry\n**Depends on:** P1\n"
+  },
+  "faked_deps": {}
+}
