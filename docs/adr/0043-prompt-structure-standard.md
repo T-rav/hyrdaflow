@@ -20,17 +20,29 @@ headline finding: **25 of 26 prompts score High severity**, with the worst
 offenders being
 
 - **Criterion #3 (XML tag structure)** — zero content regions use named tags
-  across the entire factory. Fail rate: 100%.
+  across the entire factory. Fail rate: 100% (26/26).
 - **Criterion #8 (edge cases named)** — prompts rarely tell the model what to
-  do on empty / truncated / unclear input. Fail rate: 96%.
+  do on empty / truncated / unclear input. Fail rate: 85% (22/26).
 - **Criterion #1 (leads with the request)** — the imperative ("return a JSON
   object…", "produce an implementation patch…") lands mid-prompt, after
-  criteria / classification / context. Fail rate: ~70%.
+  criteria / classification / context. Fail rate: 69% (18/26).
 
-The implement prompt (`agent.AgentRunner._build_prompt_with_stats`) is the
-worst case: plan + review feedback + prior-failure trace + discussion + diff
-can stack to 14K+ characters before the final instruction, violating the
-long-context placement principle (#6).
+**Worst offenders** by fail count: `diagnostic_runner` and `expert_council_vote`
+each fail 6 of the 8 criteria, followed by `reviewer_ci_fix` and
+`triage_decomposition` at 5 each.
+
+**Known methodology limitation — #6 is under-reported.** Criterion #6
+(long-context placement) scored 0% fails against the audit fixtures, but
+that reflects fixture size, not production behavior. The fixtures hold
+hand-written ≤1KB issue bodies and truncated diffs so the PR diff stays
+reviewable. Under production inputs (real issue bodies, full diffs, multi-comment
+discussion threads, prior-failure traces), the implement prompt
+(`agent.AgentRunner._build_prompt_with_stats`) will routinely exceed the 10K
+threshold and, lacking any tagged content regions, is expected to fail #6.
+Sub-project 2's eval gate — which renders against realistic inputs captured
+from a canary repo — will be the authoritative measurement of #6 in
+production. The rubric itself is correct; the audit's fixtures are just too
+small to exercise it.
 
 No architectural decision has ever codified what a prompt in this codebase
 should look like. The audit's findings are not anyone's fault — they're the
@@ -91,10 +103,12 @@ The standard lands in four sub-projects tracked in
    builders to adopt; reduces drift.
 4. **Sub-project 4 — normalization PRs.** One PR per loop migrates its
    prompts to the standard. Each PR is reviewed against the eval gate
-   established in sub-project 2. Priority order (per the audit's
-   High-severity findings): `diagnostic_runner`, `expert_council_vote`,
-   `agent_build_prompt_with_prior_failure`, `agent_build_prompt_with_review_feedback`,
-   `reviewer_ci_fix`.
+   established in sub-project 2. Priority order (ranked by fail count in
+   the audit report): `diagnostic_runner` (6 fails), `expert_council_vote`
+   (6), `reviewer_ci_fix` (5), `triage_decomposition` (5), then the
+   `agent.*` variants (4 each). The implement-prompt variants should be
+   re-prioritized once sub-project 2's canary produces production-scale
+   renderings and #6 becomes measurable.
 
 ## Rationale — why mechanical scoring, not LLM-as-judge
 

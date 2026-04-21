@@ -45,20 +45,22 @@ Severity: **High** = 2+ Fails or any Fail on #1 or #6. **Medium** = 1 Fail or 3+
 
 ## Why this exists
 
-Prompt quality was previously an implicit convention — markdown headings, organic growth per loop, no cross-factory consistency. The audit in PR #8376 quantified the cost: across 26 prompts, **every single one fails criterion #3 (XML tags)**, most fail #8 (edge cases named), and the implement prompt fails #6 (long context placement) because plan + review feedback + prior-failure trace + diff routinely stack to 14K+ characters ahead of the final imperative.
+Prompt quality was previously an implicit convention — markdown headings, organic growth per loop, no cross-factory consistency. The audit in PR #8376 quantified the cost: across 26 prompts, **every single one fails criterion #3 (XML tags)** (100%), most fail #8 (edge cases named) (85%), and 69% fail #1 (imperative buried after context).
 
 Anthropic's published prompt-engineering guidance explicitly recommends XML-tagged content regions for structured inputs — the audit simply measured how far HydraFlow had drifted.
+
+**Important caveat about #6 (long-context placement).** The audit's fixtures hold ≤1KB synthetic issue bodies and truncated diffs for reviewability. Under real production inputs, the implement prompt (`agent.AgentRunner._build_prompt_with_stats`) routinely renders at 14K+ chars and — with no tagged content regions — is expected to fail #6. The audit measures 0% fails on #6 because fixtures don't trip the 10K threshold. Sub-project 2's canary will exercise the rule against realistic inputs.
 
 ## Enforcement
 
 - **Sub-project 2 (eval gate)** wires the audit's fixture + rendered-snapshot corpus into the staging→main promotion gate. A PR whose prompt changes violate parity is blocked.
 - **Sub-project 3 (shared template)** provides `src/prompt_template.py` — a thin utility codifying tag order and section headers. Adoption is voluntary; the gate enforces *output*, not *construction*.
-- **Sub-project 4 (normalization PRs)** migrates each loop one PR at a time. Priority order (from the audit's High-severity fails): `diagnostic_runner`, `expert_council_vote`, `agent_build_prompt_with_prior_failure`, `agent_build_prompt_with_review_feedback`, `reviewer_ci_fix`.
+- **Sub-project 4 (normalization PRs)** migrates each loop one PR at a time. Priority order (ranked by fail count): `diagnostic_runner` (6 fails), `expert_council_vote` (6), `reviewer_ci_fix` (5), `triage_decomposition` (5), then the `agent.*` variants (4 each). Implement-prompt priority will rise once sub-project 2's canary makes #6 measurable against production inputs.
 
 ## Current-state truth (as of 2026-04-21)
 
 - 26 prompts audited. 25 High severity. 1 Medium (`diff_sanity`). 0 Low.
-- Top failing criteria system-wide: #3 (XML tags), #8 (edge cases), #1 (buried imperative).
+- Top failing criteria system-wide: #3 (100%), #8 (85%), #1 (69%). #6 scored 0% fails but is under-measured by synthetic fixtures — see ADR-0043 for the production caveat.
 - Audit tool: `scripts/audit_prompts.py`. Regenerate report: `make audit-prompts`.
 - Report: `docs/prompt-audit-2026-04-20.md`.
 - Fixture corpus: `tests/fixtures/prompts/` (26 JSON fixtures + 26 rendered snapshots).
