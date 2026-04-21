@@ -26,6 +26,25 @@ _EXCLUDED_SKILL_NAMES: frozenset[str] = frozenset({"using-superpowers"})
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 _KEY_PREFIX_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$")
 
+_DEFAULT_MARKETPLACE = "claude-plugins-official"
+
+
+def _parse_plugin_spec(spec: str) -> tuple[str, str]:
+    """Parse a plugin spec into ``(name, marketplace)``.
+
+    Accepts ``"name"`` (default marketplace) or ``"name@marketplace"``.
+    Raises :class:`ValueError` on empty, double-``@``, or empty halves.
+    """
+    cleaned = spec.strip()
+    if not cleaned:
+        raise ValueError(f"Empty plugin spec: {spec!r}")
+    parts = [p.strip() for p in cleaned.split("@")]
+    if len(parts) == 1:
+        return parts[0], _DEFAULT_MARKETPLACE
+    if len(parts) == 2 and parts[0] and parts[1]:
+        return parts[0], parts[1]
+    raise ValueError(f"Malformed plugin spec: {spec!r}")
+
 
 @dataclass(frozen=True)
 class PluginSkill:
