@@ -447,3 +447,41 @@ def test_plan_fixtures_render_cleanly():
     for target in plan_targets:
         rendered = render_target(target)
         assert rendered, f"rendered output is empty for {target.name}"
+
+
+# ---------------------------------------------------------------------------
+# Task 17 — Implement fixtures
+# ---------------------------------------------------------------------------
+
+
+def test_implement_fixtures_render_cleanly():
+    from scripts.audit_prompts import PROMPT_REGISTRY, render_target
+
+    targets = [
+        t
+        for t in PROMPT_REGISTRY
+        if t.category == "Implement" and not getattr(t, "unrenderable", False)
+    ]
+    assert len(targets) >= 3  # lower bound; allows marking up to 3 unrenderable
+    for target in targets:
+        rendered = render_target(target)
+        assert rendered, f"rendered output is empty for {target.name}"
+
+
+# ---------------------------------------------------------------------------
+# Task 18 — Review fixtures
+# ---------------------------------------------------------------------------
+
+
+def test_review_fixtures_render_cleanly():
+    from scripts.audit_prompts import PROMPT_REGISTRY, render_target
+
+    targets = [
+        t
+        for t in PROMPT_REGISTRY
+        if t.category == "Review" and not getattr(t, "unrenderable", False)
+    ]
+    assert len(targets) >= 3  # lower bound
+    for target in targets:
+        rendered = render_target(target)
+        assert rendered, f"rendered output is empty for {target.name}"

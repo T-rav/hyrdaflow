@@ -1,0 +1,149 @@
+You are implementing GitHub issue #42.
+
+## Issue: Retry transient S3 upload failures
+
+Intermittent 503s on large file uploads. Expected: retry 3x with exponential backoff. Affected: src/upload.py.## Implementation Plan
+
+Follow this plan closely. It was created by a planner agent that already analyzed the codebase.
+
+1. Wrap upload in retry loop.
+2. Use exponential backoff (1s, 2s, 4s).
+3. Add test for retry behavior.## Prior Attempt Failure
+
+Your previous implementation attempt failed with the following error. Avoid repeating the same mistake:
+
+```
+pytest tests/test_upload.py::test_retries FAILED: AssertionError: expected upload to be called 3 times, got 1. Backoff not applied.
+```
+
+## Instructions — Test-Driven Development
+
+Follow TDD discipline: **tests first, then implementation**.
+
+1. Understand the issue and relevant code paths.
+2. **Plan tests** — list the tests you will write covering zero/empty, one, many,
+   boundary, interface, and exception cases (ZOMBIES heuristic).
+3. **RED** — Write one failing test. Predict the failure, run the test suite, confirm it fails.
+4. **GREEN** — Write the minimal code to make the test pass. No more.
+5. **Simplify** — For each line you added, ask: "Does a failing test require this?"
+   Remove anything not demanded by a test. Re-run tests after each removal.
+6. **Refactor** — Improve expressiveness and clarity while keeping tests green.
+7. Repeat steps 3-6 for each planned test.
+8. Run the available tools at their checkpoints (see below).
+9. Fix any issues found before proceeding.
+10. Commit with: "Fixes #42: <concise summary>"
+
+Key rules:
+- Write only one test at a time. See it fail before writing implementation.
+- Run **all** tests every cycle, not just the new one.
+- Never write implementation code that no test requires.
+
+## Available Tools
+
+You have these slash commands available. Run them before committing your work:
+
+- `/hf.adr` — Create ADR Draft Issue
+- `/hf.arch-compliance` — Architecture Compliance Check
+- `/hf.audit-architecture` — Architecture Audit
+- `/hf.audit-code` — Code Quality Audit
+- `/hf.audit-hooks` — Hooks & Workflow Audit
+- `/hf.audit-integration-tests` — Integration Test Audit
+- `/hf.audit-tests` — Test Audit
+- `/hf.diff-sanity` — Diff Sanity Check
+- `/hf.issue` — Create a GitHub Issue
+- `/hf.memory` — Capture Session Learnings as Memory Suggestions
+- `/hf.quality-gate` — Quality Gate
+- `/hf.test-adequacy` — Test Adequacy Check
+
+Run each tool before committing. If a tool reports issues, fix them before continuing.
+
+## Post-Implementation Skills
+
+The following checks run automatically after your implementation:
+
+- **diff-sanity** [blocking] — Review diff for accidental deletions, debug code, missing imports, scope creep, hardcoded secrets, and logic errors
+- **arch-compliance** [blocking] — Check diff for architectural layer violations, coupling, domain pollution, missing abstractions, and infrastructure bypass
+- **scope-check** [blocking] — Verify the diff only modifies files listed in the implementation plan
+- **plan-compliance** [non-blocking] — Verify implementation matches the planner's file deltas, task graph, and behavioral test specs
+- **test-adequacy** [non-blocking] — Assess whether changed production code has adequate test coverage, edge cases, and regression safety
+
+If a blocking skill fails, you will be asked to fix the issues and the skill will re-run.
+
+
+## Self-Check Before Committing
+
+Run through this checklist before your final commit:
+
+- [ ] **Tests cover all new/changed code** — every new function, branch, and edge case has a test
+- [ ] **New code is reachable** — every new function/method is actually called from production code; no dead code
+- [ ] **Tests verify issue requirements** — tests validate the specific behavior the issue asks for, not just helper code
+- [ ] **Failure paths are tested** — error cases, rejected inputs, and unhappy paths have explicit tests
+- [ ] **No missing imports** — all new symbols are imported; removed code has imports cleaned up
+- [ ] **Type hints are correct** — function signatures match actual usage; no `Any` where a concrete type exists
+- [ ] **Edge cases handled** — empty inputs, None values, boundary conditions are addressed
+- [ ] **No leftover debug code** — no print(), console.log(), or commented-out code
+- [ ] **Error messages are clear** — exceptions include context (what failed, what was expected)
+- [ ] **Existing tests still pass** — your changes don't break unrelated tests
+- [ ] **Commit message matches changes** — "Fixes #N: <summary>" accurately describes what changed
+
+
+## UI Guidelines
+
+- Before creating UI components, search `src/ui/src/components/` for existing patterns to reuse.
+- Import constants, types, and shared styles from centralized modules (e.g. `src/ui/src/constants.js`, `src/ui/src/theme.js`) — never duplicate.
+- Apply responsive design: set `minWidth` on layout containers, use `flexShrink: 0` on fixed-width panels.
+- Match existing spacing (4px grid), colors (CSS variables from `theme.js`), and component conventions.
+
+## Rules
+
+- Follow the project's CLAUDE.md guidelines strictly.
+- NEVER delete or overwrite existing CLAUDE.md content. You may append new sections or
+  modify existing sections, but you must preserve all information already present.
+- Tests are mandatory — follow the TDD process above. Run tests with: `make test`
+- Do NOT push to remote. Do NOT create pull requests.
+- Do NOT run `git push` or `gh pr create`.
+- Run `make quality-lite` (lint + typecheck + security, no tests) as a sense check.
+  CI runs the full test suite — you do not need to run `make quality` or `make test`.
+- ALWAYS commit your work with `git add <file>` and `git commit`.
+  The system runs its own quality gate after you finish — your job is to produce commits.
+- NEVER use interactive git commands (`git add -i`, `git add -p`, `git rebase -i`).
+  There is no TTY — interactive commands will hang. Use `git add <file>` or `git add -A`.
+- NEVER conclude that the issue is "already satisfied" or that no work is needed.
+  The planner already verified this issue requires implementation. Your job is to
+  write the code, not to second-guess the plan. Always produce commits.
+- Do NOT bundle unrelated refactoring with the assigned fix. For example, do not
+  migrate raw model constructors to factories, rename variables, or reformat code
+  in files you are not otherwise changing for the issue. Each concern is a separate PR.
+
+## Optional: Tribal-Knowledge Suggestion
+
+This implementation may have surfaced tribal knowledge — the kind of durable,
+hard-won fact a senior engineer would write on a whiteboard for a new hire
+on day one. If — and ONLY if — what you learned meets ALL of these criteria:
+
+  1. Durable: still true a year from now, across releases and refactors.
+  2. Non-obvious: a senior engineer would NOT figure it out by reading the code.
+  3. Load-bearing: ignoring it causes a real failure or wastes real time.
+  4. General: applies to a subsystem or pattern, not a single issue/PR.
+
+…then emit a single block at the end of your response:
+
+MEMORY_SUGGESTION_START
+principle: <the durable rule, one sentence>
+rationale: <why — historical incident, design constraint, or hard-won lesson>
+failure_mode: <what concretely breaks if this is ignored>
+scope: <subsystem path, file glob, or "all">
+MEMORY_SUGGESTION_END
+
+STRICT FORMATTING RULES:
+- DO NOT include issue numbers, PR numbers, commit hashes, dates, or other
+  short-lived references in any field. They will rot.
+- DO NOT emit a block for routine observations, refactor notes, code-review
+  nitpicks, or implementation details.
+- DO NOT restate facts that are already obvious from CLAUDE.md or the code.
+- All four fields are required and non-trivial. Blocks missing any field
+  (or with empty/placeholder values) are silently dropped.
+
+When in doubt, omit the block. The bar is "would I tell a new hire this on
+day one." Most implementation runs should produce no block at all — that is the
+expected and correct outcome.

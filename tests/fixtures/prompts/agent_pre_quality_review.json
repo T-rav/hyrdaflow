@@ -1,0 +1,14 @@
+{
+  "builder": "agent.AgentRunner._build_pre_quality_review_prompt",
+  "args": {
+    "issue": {
+      "id": 42,
+      "title": "Retry transient S3 upload failures",
+      "body": "Intermittent 503s on large file uploads. Expected: retry 3x with exponential backoff.",
+      "tags": ["bug"],
+      "comments": []
+    },
+    "attempt": 1
+  },
+  "faked_deps": {}
+}

@@ -491,18 +491,28 @@ class LoadedFixture:
 
 
 def _coerce_task_dicts(args: dict) -> dict:
-    """Convert dict values that look like Tasks into real Task instances.
+    """Convert dict values that look like Tasks/PRInfo/GitHubIssue into real instances.
 
-    Builders that accept ``issue: Task`` or ``task: Task`` expect a Pydantic model,
-    not a raw dict.  We detect the common fixture pattern (dict with ``id`` + ``title``
-    keys) and coerce automatically so fixture authors don't have to import Task.
+    Builders that accept ``issue: Task`` expect a Pydantic model, not a raw dict.
+    We detect fixture patterns and coerce automatically:
+
+    - dict with ``id`` + ``title`` → ``Task``
+    - dict with ``number`` + ``branch`` → ``PRInfo``
+    - dict with ``number`` + ``title`` (no ``id``) → ``GitHubIssue``
     """
-    from models import Task  # noqa: PLC0415
+    from models import GitHubIssue, PRInfo, Task  # noqa: PLC0415
 
     coerced = {}
     for key, value in args.items():
-        if isinstance(value, dict) and "id" in value and "title" in value:
-            coerced[key] = Task(**value)
+        if isinstance(value, dict):
+            if "id" in value and "title" in value:
+                coerced[key] = Task(**value)
+            elif "number" in value and "branch" in value:
+                coerced[key] = PRInfo(**value)
+            elif "number" in value and "title" in value and "id" not in value:
+                coerced[key] = GitHubIssue(**value)
+            else:
+                coerced[key] = value
         else:
             coerced[key] = value
     return coerced
@@ -559,6 +569,9 @@ class _MinimalConfig:
     handful of ``max_*_chars`` fields and booleans. Extend as needed."""
 
     def __init__(self) -> None:
+        import tempfile
+        from pathlib import Path as _Path
+
         self.dry_run = False
         self.max_impl_plan_chars = 50_000
         self.max_review_feedback_chars = 50_000
@@ -571,6 +584,20 @@ class _MinimalConfig:
         self.max_issue_body_chars = 10_000
         self.find_label = ["hydraflow-find"]
         self.required_plugins: list[str] = []
+        # Agent / reviewer fields
+        self.test_command = "make test"
+        self.repo_root = _Path(".")
+        self.data_root = _Path(tempfile.mkdtemp())
+        self.plans_dir = self.data_root / "plans"
+        self.memory_dir = self.data_root / "memory"
+        self.min_review_findings = 3
+        self.max_ci_fix_attempts = 3
+        self.repo = "owner/repo"
+        self.review_insight_window = 50
+        self.review_pattern_threshold = 3
+
+    def data_path(self, *parts: object) -> object:
+        return self.data_root.joinpath(*[str(p) for p in parts])
 
     def __getattr__(self, name: str) -> object:
         # Fallback: any unrecognized config attr resolves to a large int.
@@ -578,6 +605,21 @@ class _MinimalConfig:
         if name.startswith("max_") and name.endswith("_chars"):
             return 50_000
         raise AttributeError(name)
+
+
+class _NullContextCache:
+    """Stub for ContextSectionCache — always returns empty string (cache miss).
+
+    ``_get_review_feedback_section`` and ``_get_escalation_data`` call
+    ``get_or_load`` and treat errors as transient, but ``AttributeError`` on
+    ``None`` is classified as a bug by ``is_likely_bug`` and re-raised.  This
+    stub avoids that by returning a safe empty result without raising.
+    """
+
+    def get_or_load(
+        self, *, key: str, source_path: object, loader: object
+    ) -> tuple[str, bool]:
+        return "", False
 
 
 def render_target(target: AuditTarget) -> str:
@@ -598,6 +640,13 @@ def render_target(target: AuditTarget) -> str:
             instance._hindsight = None
             instance._wiki_store = None
             instance._last_context_stats = {}
+            # _insights: used by _get_escalation_data / _get_review_feedback_section.
+            # Those methods wrap everything in try/except and return [] / "" on error,
+            # so None is safe (AttributeError is caught as a transient failure there).
+            # _context_cache: must be a real stub — AttributeError on None is
+            # classified as a bug by is_likely_bug and re-raised.
+            instance._insights = None
+            instance._context_cache = _NullContextCache()
             callable_obj = getattr(instance, parts[2])
     else:
         raise ValueError(f"unsupported qualname depth: {target.builder_qualname!r}")

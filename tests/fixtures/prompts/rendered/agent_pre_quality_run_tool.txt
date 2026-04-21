@@ -1,0 +1,19 @@
+You are running the Run-Tool Skill for issue #42: Retry transient S3 upload failures.
+
+Attempt: 2
+
+Run these commands in order and fix failures:
+1. `make lint`
+2. `make test`
+3. `make quality-lite`
+
+Rules:
+- If a command fails, fix root causes and rerun from command 1
+- Do not skip tests or reduce quality gates
+- Keep changes scoped to this issue
+
+Required output:
+RUN_TOOL_RESULT: OK
+or
+RUN_TOOL_RESULT: RETRY
+SUMMARY: <one-line summary>

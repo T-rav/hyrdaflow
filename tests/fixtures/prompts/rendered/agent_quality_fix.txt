@@ -1,0 +1,18 @@
+You are fixing quality gate failures for issue #42: Retry transient S3 upload failures
+
+## Quality Gate Failure Output
+
+```
+FAILED tests/test_upload.py::test_retries - AssertionError: expected 3 retries, got 1
+mypy: src/upload.py:42: error: Argument 1 to 'upload' has incompatible type 'int'; expected 'str'
+```
+
+## Fix Attempt 1
+
+1. Read the failing output above carefully.
+2. Fix ALL lint, type-check, security, and test issues.
+3. Do NOT skip or disable tests, type checks, or lint rules.
+4. Run `make quality-lite` to verify your fixes pass lint, typecheck, and security.
+5. Commit your fixes with message: "quality-fix: <description> (#42)"
+
+Focus on fixing the root causes, not suppressing warnings.

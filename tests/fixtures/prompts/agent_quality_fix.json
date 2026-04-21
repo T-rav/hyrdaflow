@@ -1,0 +1,15 @@
+{
+  "builder": "agent.AgentRunner._build_quality_fix_prompt",
+  "args": {
+    "issue": {
+      "id": 42,
+      "title": "Retry transient S3 upload failures",
+      "body": "Intermittent 503s on large file uploads.",
+      "tags": ["bug"],
+      "comments": []
+    },
+    "error_output": "FAILED tests/test_upload.py::test_retries - AssertionError: expected 3 retries, got 1\nmypy: src/upload.py:42: error: Argument 1 to 'upload' has incompatible type 'int'; expected 'str'",
+    "attempt": 1
+  },
+  "faked_deps": {}
+}

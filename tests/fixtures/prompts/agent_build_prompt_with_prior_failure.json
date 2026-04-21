@@ -1,0 +1,18 @@
+{
+  "builder": "agent.AgentRunner._build_prompt_with_stats",
+  "args": {
+    "issue": {
+      "id": 42,
+      "title": "Retry transient S3 upload failures",
+      "body": "Intermittent 503s on large file uploads. Expected: retry 3x with exponential backoff. Affected: src/upload.py.",
+      "tags": ["bug"],
+      "comments": [
+        "## Implementation Plan\n\n1. Wrap upload in retry loop.\n2. Use exponential backoff (1s, 2s, 4s).\n3. Add test for retry behavior."
+      ]
+    },
+    "review_feedback": "",
+    "prior_failure": "pytest tests/test_upload.py::test_retries FAILED: AssertionError: expected upload to be called 3 times, got 1. Backoff not applied.",
+    "bead_mapping": null
+  },
+  "faked_deps": {}
+}
