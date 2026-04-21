@@ -630,3 +630,53 @@ def test_main_emits_report_to_expected_path(tmp_path, monkeypatch):
     assert "## Summary" in content
     assert "## Inventory" in content
     assert "## Prioritized fix list" in content
+
+
+# ---------------------------------------------------------------------------
+# Task 26 — Canary cross-check
+# ---------------------------------------------------------------------------
+
+
+def test_canary_cross_check_passes_when_every_trace_builder_registered(tmp_path):
+    import json
+    from pathlib import Path
+
+    from scripts.audit_prompts import cross_check_canary_coverage
+
+    snapshot = Path(
+        "tests/fixtures/prompts/rendered/triage_build_prompt.txt"
+    ).read_text()
+    trace = tmp_path / "trace.jsonl"
+    known_call_site = "at _build_prompt_with_stats in src/triage.py"
+    trace.write_text(
+        json.dumps(
+            {"prompt": snapshot, "cmd": ["claude"], "call_site": known_call_site}
+        )
+        + "\n"
+    )
+    errors = cross_check_canary_coverage(trace_path=trace)
+    assert errors == []
+
+
+def test_canary_cross_check_fails_when_unknown_builder_in_trace(tmp_path):
+    from scripts.audit_prompts import cross_check_canary_coverage
+
+    trace = tmp_path / "trace.jsonl"
+    trace.write_text(
+        '{"prompt":"x","cmd":["claude"],"call_site":"at _ghost_builder in src/nowhere.py"}\n'
+    )
+    errors = cross_check_canary_coverage(trace_path=trace)
+    assert any("_ghost_builder" in e for e in errors)
+
+
+def test_canary_cross_check_flags_drift_over_threshold(tmp_path):
+    from scripts.audit_prompts import cross_check_canary_coverage
+
+    trace = tmp_path / "trace.jsonl"
+    drastically_different = "x" * 2000
+    trace.write_text(
+        '{"prompt":"' + drastically_different + '","cmd":["claude"],'
+        '"call_site":"at _build_prompt_with_stats in src/triage.py"}\n'
+    )
+    errors = cross_check_canary_coverage(trace_path=trace)
+    assert any("drift" in e.lower() for e in errors)

@@ -825,6 +825,61 @@ def write_markdown(
     out_path.write_text("\n".join(lines))
 
 
+# ---------------------------------------------------------------------------
+# Canary cross-check
+# ---------------------------------------------------------------------------
+
+
+def _levenshtein_ratio(a: str, b: str) -> float:
+    """Return distance / max-length, in [0.0, 1.0]. Inline impl — no external dep."""
+    if not a and not b:
+        return 0.0
+    m, n = len(a), len(b)
+    prev = list(range(n + 1))
+    curr = [0] * (n + 1)
+    for i in range(1, m + 1):
+        curr[0] = i
+        for j in range(1, n + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            curr[j] = min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost)
+        prev, curr = curr, prev
+    return prev[n] / max(m, n)
+
+
+def cross_check_canary_coverage(trace_path: Path) -> list[str]:
+    errors: list[str] = []
+    trace_entries = [
+        json.loads(line) for line in trace_path.read_text().splitlines() if line.strip()
+    ]
+
+    registered_qualnames = {t.builder_qualname for t in PROMPT_REGISTRY}
+
+    for entry in trace_entries:
+        call_site: str = entry.get("call_site", "")
+        matching = [
+            q for q in registered_qualnames if q.rsplit(".", 1)[-1] in call_site
+        ]
+        if not matching:
+            errors.append(f"trace has unregistered builder in call_site: {call_site!r}")
+            continue
+        trace_prompt = entry.get("prompt", "")
+        best = 1.0
+        for target in PROMPT_REGISTRY:
+            if target.builder_qualname not in matching:
+                continue
+            snapshot_path = Path(f"tests/fixtures/prompts/rendered/{target.name}.txt")
+            if not snapshot_path.exists():
+                continue
+            ratio = _levenshtein_ratio(trace_prompt, snapshot_path.read_text())
+            best = min(best, ratio)
+        if best > 0.5:
+            errors.append(
+                f"drift >50% between trace and nearest snapshot for {call_site!r} "
+                f"(ratio={best:.2f})"
+            )
+    return errors
+
+
 def main() -> None:
     out_path = Path(
         os.environ.get("PROMPT_AUDIT_OUT", "docs/prompt-audit-2026-04-20.md")
@@ -857,6 +912,18 @@ def main() -> None:
         )
     write_markdown(results, out_path, rubric_stub, handoff_stub)
     print(f"wrote {out_path}")
+
+    trace_path = Path(
+        os.environ.get(
+            "PROMPT_AUDIT_TRACE", "tests/fixtures/prompts/canary-trace.jsonl"
+        )
+    )
+    if trace_path.exists():
+        errors = cross_check_canary_coverage(trace_path)
+        if errors:
+            print("canary cross-check warnings:")
+            for e in errors:
+                print(f"  - {e}")
 
 
 if __name__ == "__main__":
