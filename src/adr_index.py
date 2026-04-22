@@ -107,3 +107,50 @@ def _normalize_status(raw: str) -> str:
 def _extract_number_from_filename(path: Path) -> int:
     m = re.match(r"(\d{4})-", path.name)
     return int(m.group(1)) if m else 0
+
+
+def render_full(adrs: list[ADR]) -> str:
+    """Render the full ADR index for injection into plan-phase prompts."""
+    if not adrs:
+        return ""
+
+    accepted = [a for a in adrs if a.status == "Accepted"]
+    proposed = [a for a in adrs if a.status == "Proposed"]
+    superseded = [a for a in adrs if a.status == "Superseded"]
+
+    parts: list[str] = ["# Architecture Decisions (ADRs)"]
+
+    if accepted:
+        parts.append("\n## Accepted (load-bearing)")
+        for a in accepted:
+            parts.append(f"- ADR-{a.number:04d} {a.title} — {a.summary}")
+
+    if proposed:
+        parts.append("\n## Proposed (drafted, not yet accepted)")
+        for a in proposed:
+            parts.append(f"- ADR-{a.number:04d} {a.title} — {a.summary}")
+
+    if superseded:
+        parts.append("\n## Superseded")
+        for a in superseded:
+            ref = f" (superseded by {a.superseded_by})" if a.superseded_by else ""
+            parts.append(f"- ADR-{a.number:04d} {a.title}{ref}")
+
+    return "\n".join(parts)
+
+
+def render_titles_only(adrs: list[ADR]) -> str:
+    """Titles-only view for implement/review prompts (prompt-size conscious).
+
+    Excludes Superseded entries to reduce noise. Agents working in
+    implement/review shouldn't be reminded of rules that have been replaced.
+    """
+    accepted = [a for a in adrs if a.status == "Accepted"]
+    proposed = [a for a in adrs if a.status == "Proposed"]
+    visible = accepted + proposed
+    if not visible:
+        return ""
+    lines = ["# Architecture Decisions (titles only)"]
+    for a in visible:
+        lines.append(f"- ADR-{a.number:04d} {a.title}")
+    return "\n".join(lines)
