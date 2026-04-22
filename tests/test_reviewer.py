@@ -106,6 +106,29 @@ async def test_build_review_prompt_includes_issue_context(
 
 
 @pytest.mark.asyncio
+async def test_build_review_prompt_includes_arch_drift_checks(
+    config, event_bus, pr_info, task
+):
+    """Reviewer prompt must ask for architectural-drift signals. This is the
+    only general-purpose drift-prevention HydraFlow has on review now that
+    the hardcoded static layer checker is gone; regressions in the prompt
+    silently re-open the gap."""
+    runner = _make_runner(config, event_bus)
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, "some diff")
+
+    assert "Architectural drift" in prompt, (
+        "reviewer prompt no longer contains the Architectural drift bullet"
+    )
+    # Spot-check the three specific smells we care about.
+    assert "Layer jumps" in prompt
+    assert "Misplaced I/O" in prompt
+    assert "God-file creep" in prompt
+    # And the escape hatch for repos without recognisable architecture.
+    assert "Escape hatch" in prompt
+    assert "do not invent violations" in prompt
+
+
+@pytest.mark.asyncio
 async def test_build_review_prompt_includes_diff(config, event_bus, pr_info, task):
     runner = _make_runner(config, event_bus)
     diff = "diff --git a/foo.py b/foo.py\n+added line"

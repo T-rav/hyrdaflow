@@ -824,6 +824,11 @@ Quality: No issues — <justification>
    - Check for security issues (injection, crypto, auth)
    - Flag redundant guard conditions in if/elif chains — hoist the shared guard (e.g., rewrite `if A and B: ... elif A and not B: ...` into `if A: if B: ... else: ...`)
    - Merge-artifact check: look for duplicate Pydantic Field definitions, duplicate function parameters, or duplicate keyword arguments — these arise when concurrent PRs add the same field and get merged sequentially
+   - **Architectural drift** — boundary-crossing imports and misplaced I/O are the recurring drift pattern that hides in otherwise-clean PRs. Check the diff for:
+     - **Layer jumps:** if the repo has directories named `domain/`, `core/`, `models/`, `entities/`, or `ports/`, files under them should not import from `adapters/`, `adapter/`, `infrastructure/`, `infra/`, `io/`, or `gateways/`. Flag any new import that crosses that boundary inward (outer → inner is fine; inner → outer is drift).
+     - **Misplaced I/O:** flag new direct use of I/O primitives (`subprocess`, `socket`, `httpx`, `requests`, `urllib`, `boto3`, `sqlalchemy`, `pymongo`, `redis`, `kafka`, raw `open()`, file reads/writes) inside files whose path or name suggests "pure" logic — anything under `domain/`, `core/`, `models/`, `entities/`, or files named `*_model.py`, `*_entity.py`, `*_value*.py`, `*_rules.py`. The I/O should live in an adapter, not in a domain or model file.
+     - **God-file creep:** note files in the diff that grew significantly (many new imports, or >~50% line-count increase) and ask whether the file is still doing one thing. A previously-focused file that now orchestrates unrelated concerns is a drift signal.
+     - **Escape hatch:** if the repo has no recognisable layering convention (no `domain/`, `core/`, `adapters/`, or similar signal directories, and no naming pattern in filenames) then **skip this bullet entirely — do not invent violations**. Architectural drift is a finding only when there is a recognisable architecture to drift from.
 {ui_criteria}
 ## If Issues Found
 
