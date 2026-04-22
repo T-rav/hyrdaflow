@@ -542,10 +542,11 @@ class BaseRunner:
         Implement/review: titles-only (prompt-size conscious; excludes Superseded).
         Other phases: empty.
         """
-        if self._adr_index is None:
+        adr_index = getattr(self, "_adr_index", None)
+        if adr_index is None:
             return ""
 
-        adrs = self._adr_index.adrs()
+        adrs = adr_index.adrs()
         if not adrs:
             return ""
 

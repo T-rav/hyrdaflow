@@ -65,7 +65,7 @@ def test_scan_adr_directory_missing_returns_empty(tmp_path):
     assert scan_adr_directory(nonexistent) == []
 
 
-def test_render_full_groups_by_status(tmp_path):
+def test_render_full_groups_by_status():
     adrs = [
         ADR(number=1, title="A", status="Accepted", summary="a."),
         ADR(number=2, title="B", status="Proposed", summary="b."),
