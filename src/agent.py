@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from hindsight_wal import HindsightWAL
     from repo_wiki import RepoWikiStore
     from tracing_context import TracingContext
+    from tribal_wiki import TribalWikiStore
 
 logger = logging.getLogger("hydraflow.agent")
 
@@ -144,6 +145,7 @@ Run through this checklist before your final commit:
         wal: HindsightWAL | None = None,
         credentials: Credentials | None = None,
         wiki_store: RepoWikiStore | None = None,
+        tribal_wiki_store: TribalWikiStore | None = None,
     ) -> None:
         super().__init__(
             config,
@@ -152,6 +154,7 @@ Run through this checklist before your final commit:
             hindsight=hindsight,
             credentials=credentials,
             wiki_store=wiki_store,
+            tribal_wiki_store=tribal_wiki_store,
         )
         self._insights = ReviewInsightStore(
             config.memory_dir, hindsight=hindsight, dolt=dolt, wal=wal
