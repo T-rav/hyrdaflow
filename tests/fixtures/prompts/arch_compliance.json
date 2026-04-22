@@ -1,9 +1,0 @@
-{
-  "builder": "arch_compliance.build_arch_compliance_prompt",
-  "args": {
-    "issue_number": 42,
-    "issue_title": "Add S3 upload retry logic",
-    "diff": "diff --git a/src/upload.py b/src/upload.py\nindex abc1234..def5678 100644\n--- a/src/upload.py\n+++ b/src/upload.py\n@@ -1,8 +1,20 @@\n import boto3\n+import time\n \n def upload_file(bucket, key, data):\n-    client = boto3.client('s3')\n-    client.put_object(Bucket=bucket, Key=key, Body=data)\n+    client = boto3.client('s3')\n+    for attempt in range(3):\n+        try:\n+            client.put_object(Bucket=bucket, Key=key, Body=data)\n+            return\n+        except client.exceptions.ServiceUnavailable:\n+            if attempt < 2:\n+                time.sleep(2 ** attempt)\n+    raise RuntimeError('Upload failed after 3 retries')\n"
-  },
-  "faked_deps": {}
-}

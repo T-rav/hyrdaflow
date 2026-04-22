@@ -1014,7 +1014,7 @@ class TestScopeCheckLoop:
         config.max_scope_check_attempts = 0
         runner = AgentRunner(config, event_bus)
         result = await runner._run_skill(
-            BUILTIN_SKILLS[2], agent_task, tmp_path, "branch", worker_id=0
+            BUILTIN_SKILLS[1], agent_task, tmp_path, "branch", worker_id=0
         )
         assert result.passed is True
         assert "disabled" in result.summary
@@ -1043,7 +1043,7 @@ class TestScopeCheckLoop:
             ),
         ):
             result = await runner._run_skill(
-                BUILTIN_SKILLS[2],
+                BUILTIN_SKILLS[1],
                 agent_task,
                 tmp_path,
                 "branch",
@@ -1080,7 +1080,7 @@ class TestScopeCheckLoop:
             ),
         ):
             result = await runner._run_skill(
-                BUILTIN_SKILLS[2],
+                BUILTIN_SKILLS[1],
                 agent_task,
                 tmp_path,
                 "branch",
@@ -1115,7 +1115,7 @@ class TestScopeCheckLoop:
             ),
         ):
             result = await runner._run_skill(
-                BUILTIN_SKILLS[2],
+                BUILTIN_SKILLS[1],
                 agent_task,
                 tmp_path,
                 "branch",
@@ -1135,7 +1135,7 @@ class TestPlanComplianceLoop:
         config.max_plan_compliance_attempts = 0
         runner = AgentRunner(config, event_bus)
         result = await runner._run_skill(
-            BUILTIN_SKILLS[3], agent_task, tmp_path, "branch", worker_id=0
+            BUILTIN_SKILLS[2], agent_task, tmp_path, "branch", worker_id=0
         )
         assert result.passed is True
         assert "disabled" in result.summary
@@ -1160,7 +1160,7 @@ class TestPlanComplianceLoop:
             patch.object(runner, "_execute", new_callable=AsyncMock) as mock_execute,
         ):
             result = await runner._run_skill(
-                BUILTIN_SKILLS[3],
+                BUILTIN_SKILLS[2],
                 agent_task,
                 tmp_path,
                 "branch",
@@ -1195,7 +1195,7 @@ class TestPlanComplianceLoop:
             ),
         ):
             result = await runner._run_skill(
-                BUILTIN_SKILLS[3],
+                BUILTIN_SKILLS[2],
                 agent_task,
                 tmp_path,
                 "branch",
@@ -1228,7 +1228,7 @@ class TestPlanComplianceLoop:
             ),
         ):
             result = await runner._run_skill(
-                BUILTIN_SKILLS[3],
+                BUILTIN_SKILLS[2],
                 agent_task,
                 tmp_path,
                 "branch",
@@ -1249,7 +1249,7 @@ class TestTestAdequacyLoop:
         config.max_test_adequacy_attempts = 0
         runner = AgentRunner(config, event_bus)
         result = await runner._run_skill(
-            BUILTIN_SKILLS[4], agent_task, tmp_path, "branch", worker_id=0
+            BUILTIN_SKILLS[3], agent_task, tmp_path, "branch", worker_id=0
         )
         assert result.passed is True
         assert "disabled" in result.summary
@@ -1264,7 +1264,7 @@ class TestTestAdequacyLoop:
             runner, "_count_commits", new_callable=AsyncMock, return_value=0
         ):
             result = await runner._run_skill(
-                BUILTIN_SKILLS[4], agent_task, tmp_path, "branch", worker_id=0
+                BUILTIN_SKILLS[3], agent_task, tmp_path, "branch", worker_id=0
             )
         assert result.passed is True
         assert "No commits" in result.summary
@@ -1293,7 +1293,7 @@ class TestTestAdequacyLoop:
             ),
         ):
             result = await runner._run_skill(
-                BUILTIN_SKILLS[4], agent_task, tmp_path, "branch", worker_id=0
+                BUILTIN_SKILLS[3], agent_task, tmp_path, "branch", worker_id=0
             )
         assert result.passed is True
 
@@ -1321,7 +1321,7 @@ class TestTestAdequacyLoop:
             ),
         ):
             result = await runner._run_skill(
-                BUILTIN_SKILLS[4], agent_task, tmp_path, "branch", worker_id=0
+                BUILTIN_SKILLS[3], agent_task, tmp_path, "branch", worker_id=0
             )
         assert result.passed is False
         assert "missing tests" in result.summary
@@ -1355,7 +1355,7 @@ class TestTestAdequacyLoop:
             ),
         ):
             result = await runner._run_skill(
-                BUILTIN_SKILLS[4], agent_task, tmp_path, "branch", worker_id=0
+                BUILTIN_SKILLS[3], agent_task, tmp_path, "branch", worker_id=0
             )
         assert result.passed is True
         assert result.attempts == 2

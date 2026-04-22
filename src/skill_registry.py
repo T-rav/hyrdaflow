@@ -18,7 +18,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from arch_compliance import build_arch_compliance_prompt, parse_arch_compliance_result
 from diff_sanity import build_diff_sanity_prompt, parse_diff_sanity_result
 from plan_compliance import build_plan_compliance_prompt, parse_plan_compliance_result
 from scope_check import build_scope_check_prompt, parse_scope_check_result
@@ -67,14 +66,6 @@ BUILTIN_SKILLS: list[AgentSkill] = [
         blocking=True,
         prompt_builder=build_diff_sanity_prompt,
         result_parser=parse_diff_sanity_result,
-    ),
-    AgentSkill(
-        name="arch-compliance",
-        purpose="Check diff for architectural layer violations, coupling, domain pollution, missing abstractions, and infrastructure bypass",
-        config_key="max_arch_compliance_attempts",
-        blocking=True,
-        prompt_builder=build_arch_compliance_prompt,
-        result_parser=parse_arch_compliance_result,
     ),
     AgentSkill(
         name="scope-check",

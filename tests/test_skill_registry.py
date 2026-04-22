@@ -12,7 +12,7 @@ from skill_registry import (
 
 class TestAgentSkill:
     def test_builtin_skills_count(self):
-        assert len(BUILTIN_SKILLS) == 5
+        assert len(BUILTIN_SKILLS) == 4
 
     def test_diff_sanity_skill(self):
         skill = BUILTIN_SKILLS[0]
@@ -22,16 +22,8 @@ class TestAgentSkill:
         assert callable(skill.prompt_builder)
         assert callable(skill.result_parser)
 
-    def test_arch_compliance_skill(self):
-        skill = BUILTIN_SKILLS[1]
-        assert skill.name == "arch-compliance"
-        assert skill.blocking is True
-        assert skill.config_key == "max_arch_compliance_attempts"
-        assert callable(skill.prompt_builder)
-        assert callable(skill.result_parser)
-
     def test_scope_check_skill(self):
-        skill = BUILTIN_SKILLS[2]
+        skill = BUILTIN_SKILLS[1]
         assert skill.name == "scope-check"
         assert skill.blocking is True
         assert skill.config_key == "max_scope_check_attempts"
@@ -39,7 +31,7 @@ class TestAgentSkill:
         assert callable(skill.result_parser)
 
     def test_plan_compliance_skill(self):
-        skill = BUILTIN_SKILLS[3]
+        skill = BUILTIN_SKILLS[2]
         assert skill.name == "plan-compliance"
         assert skill.blocking is False
         assert skill.config_key == "max_plan_compliance_attempts"
@@ -47,7 +39,7 @@ class TestAgentSkill:
         assert callable(skill.result_parser)
 
     def test_test_adequacy_skill(self):
-        skill = BUILTIN_SKILLS[4]
+        skill = BUILTIN_SKILLS[3]
         assert skill.name == "test-adequacy"
         assert skill.blocking is False
         assert skill.config_key == "max_test_adequacy_attempts"
@@ -69,14 +61,13 @@ class TestGetSkills:
     def test_modifying_copy_doesnt_affect_builtin(self):
         skills = get_skills()
         skills.clear()
-        assert len(BUILTIN_SKILLS) == 5
+        assert len(BUILTIN_SKILLS) == 4
 
 
 class TestFormatSkillsForPrompt:
     def test_includes_all_skills(self):
         result = format_skills_for_prompt(get_skills())
         assert "diff-sanity" in result
-        assert "arch-compliance" in result
         assert "scope-check" in result
         assert "plan-compliance" in result
         assert "test-adequacy" in result
@@ -120,16 +111,8 @@ class TestSkillPromptBuilders:
         assert "issue #42" in prompt.lower() or "#42" in prompt
         assert "diff" in prompt.lower()
 
-    def test_arch_compliance_builder(self):
-        skill = BUILTIN_SKILLS[1]
-        prompt = skill.prompt_builder(
-            issue_number=57, issue_title="Arch check", diff="+ import pr_manager"
-        )
-        assert "#57" in prompt
-        assert "Layer" in prompt
-
     def test_scope_check_builder(self):
-        skill = BUILTIN_SKILLS[2]
+        skill = BUILTIN_SKILLS[1]
         prompt = skill.prompt_builder(
             issue_number=55,
             issue_title="Add scope",
@@ -140,7 +123,7 @@ class TestSkillPromptBuilders:
         assert "src/foo.py" in prompt
 
     def test_scope_check_builder_no_plan(self):
-        skill = BUILTIN_SKILLS[2]
+        skill = BUILTIN_SKILLS[1]
         prompt = skill.prompt_builder(
             issue_number=55,
             issue_title="Add scope",
@@ -150,7 +133,7 @@ class TestSkillPromptBuilders:
         assert "SCOPE_CHECK_RESULT: OK" in prompt
 
     def test_plan_compliance_builder_with_plan(self):
-        skill = BUILTIN_SKILLS[3]
+        skill = BUILTIN_SKILLS[2]
         prompt = skill.prompt_builder(
             issue_number=50,
             issue_title="Add feature",
@@ -161,7 +144,7 @@ class TestSkillPromptBuilders:
         assert "File Delta" in prompt
 
     def test_plan_compliance_builder_without_plan(self):
-        skill = BUILTIN_SKILLS[3]
+        skill = BUILTIN_SKILLS[2]
         prompt = skill.prompt_builder(
             issue_number=50,
             issue_title="Add feature",
@@ -171,7 +154,7 @@ class TestSkillPromptBuilders:
         assert prompt == ""
 
     def test_test_adequacy_builder(self):
-        skill = BUILTIN_SKILLS[4]
+        skill = BUILTIN_SKILLS[3]
         prompt = skill.prompt_builder(
             issue_number=99, issue_title="Add tests", diff="+ test code"
         )
@@ -198,25 +181,8 @@ class TestSkillResultParsers:
         assert passed is False
         assert len(findings) == 1
 
-    def test_arch_compliance_parser_ok(self):
-        skill = BUILTIN_SKILLS[1]
-        passed, summary, findings = skill.result_parser(
-            "ARCH_COMPLIANCE_RESULT: OK\nSUMMARY: No violations found"
-        )
-        assert passed is True
-        assert findings == []
-
-    def test_arch_compliance_parser_retry(self):
-        skill = BUILTIN_SKILLS[1]
-        passed, summary, findings = skill.result_parser(
-            "ARCH_COMPLIANCE_RESULT: RETRY\nSUMMARY: layer violation\n"
-            "VIOLATIONS:\n- [HIGH] src/planner.py:15 - imports pr_manager"
-        )
-        assert passed is False
-        assert len(findings) == 1
-
     def test_scope_check_parser_ok(self):
-        skill = BUILTIN_SKILLS[2]
+        skill = BUILTIN_SKILLS[1]
         passed, summary, unplanned = skill.result_parser(
             "SCOPE_CHECK_RESULT: OK\nSUMMARY: All planned"
         )
@@ -224,7 +190,7 @@ class TestSkillResultParsers:
         assert unplanned == []
 
     def test_scope_check_parser_retry(self):
-        skill = BUILTIN_SKILLS[2]
+        skill = BUILTIN_SKILLS[1]
         passed, summary, unplanned = skill.result_parser(
             "SCOPE_CHECK_RESULT: RETRY\nSUMMARY: scope creep\n"
             "UNPLANNED_FILES:\n- [FAIL] src/x.py — unrelated"
@@ -233,7 +199,7 @@ class TestSkillResultParsers:
         assert len(unplanned) == 1
 
     def test_plan_compliance_parser_ok(self):
-        skill = BUILTIN_SKILLS[3]
+        skill = BUILTIN_SKILLS[2]
         passed, summary, findings = skill.result_parser(
             "PLAN_COMPLIANCE_RESULT: OK\nSUMMARY: Matches plan"
         )
@@ -241,7 +207,7 @@ class TestSkillResultParsers:
         assert findings == []
 
     def test_plan_compliance_parser_retry(self):
-        skill = BUILTIN_SKILLS[3]
+        skill = BUILTIN_SKILLS[2]
         passed, summary, findings = skill.result_parser(
             "PLAN_COMPLIANCE_RESULT: RETRY\nSUMMARY: scope creep\n"
             "FINDINGS:\n- src/extra.py — unplanned"
@@ -250,14 +216,14 @@ class TestSkillResultParsers:
         assert len(findings) == 1
 
     def test_test_adequacy_parser_ok(self):
-        skill = BUILTIN_SKILLS[4]
+        skill = BUILTIN_SKILLS[3]
         passed, summary, gaps = skill.result_parser(
             "TEST_ADEQUACY_RESULT: OK\nSUMMARY: All covered"
         )
         assert passed is True
 
     def test_test_adequacy_parser_retry(self):
-        skill = BUILTIN_SKILLS[4]
+        skill = BUILTIN_SKILLS[3]
         passed, summary, gaps = skill.result_parser(
             "TEST_ADEQUACY_RESULT: RETRY\nSUMMARY: missing tests\nGAPS:\n- src/bar.py:func — needs test"
         )

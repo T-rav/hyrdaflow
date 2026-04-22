@@ -5,7 +5,7 @@
 ## Sequence before committing
 
 1. After each significant code change: `make lint` (auto-fixes formatting and imports)
-2. Before committing: `make quality` (lint + typecheck + security + tests + layer-check in parallel)
+2. Before committing: `make quality` (lint + typecheck + security + tests in parallel)
 3. If lint auto-fixes files, re-check for type errors introduced by removed imports
 4. Track your edits across files — avoid creating duplicate helpers or inconsistent naming when refactoring multiple test files
 5. Merge consecutive identical if-conditions so the shared guard is evaluated once. When you see redundant chains like `if A and B: ... elif A and not B: ...`, restructure them as `if A: if B: ... else: ...` to keep the shared condition centralized and avoid logic drift.

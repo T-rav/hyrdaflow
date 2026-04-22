@@ -255,11 +255,6 @@ security: deps
 	@cd $(HYDRAFLOW_DIR) && $(UV) bandit -c pyproject.toml -r . --severity-level medium
 	@echo "$(GREEN)Security scan passed$(RESET)"
 
-layer-check:
-	@echo "$(BLUE)Checking layer import direction...$(RESET)"
-	@cd $(HYDRAFLOW_DIR) && $(UV) python scripts/check_layer_imports.py
-	@echo "$(GREEN)Layer check passed$(RESET)"
-
 quality: deps
 	@echo "$(BLUE)Running quality checks in parallel...$(RESET)"
 	@cd $(HYDRAFLOW_DIR) && ( \
@@ -267,7 +262,6 @@ quality: deps
 		$(UV) pyright && echo "[typecheck OK]" & \
 		$(UV) bandit -c pyproject.toml -r . --severity-level medium && echo "[security OK]" & \
 		PYTHONPATH=src $(UV) pytest tests/ && echo "[tests OK]" & \
-		$(UV) python scripts/check_layer_imports.py && echo "[layer-check OK]" & \
 		wait_result=0; \
 		for job in $$(jobs -p); do wait $$job || wait_result=1; done; \
 		exit $$wait_result; \

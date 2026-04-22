@@ -163,13 +163,6 @@ PROMPT_REGISTRY: list[AuditTarget] = [
     ),
     # Adjacent
     AuditTarget(
-        "arch_compliance",
-        "arch_compliance.build_arch_compliance_prompt",
-        "tests/fixtures/prompts/arch_compliance.json",
-        "Adjacent",
-        "src/arch_compliance.py:15",
-    ),
-    AuditTarget(
         "diff_sanity",
         "diff_sanity.build_diff_sanity_prompt",
         "tests/fixtures/prompts/diff_sanity.json",
