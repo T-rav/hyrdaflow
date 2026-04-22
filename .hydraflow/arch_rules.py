@@ -63,12 +63,10 @@ LAYERS = LayerMap(
 
 ALLOWLIST = Allowlist(
     {
-        # Ported verbatim from FILE_ALLOWLIST in scripts/check_layer_imports.py
-        "src/implement_phase.py": {
-            "src/agent.py",
-            "src/planner.py",
-            "src/pr_manager.py",
-        },
+        # Ported verbatim from FILE_ALLOWLIST in scripts/check_layer_imports.py.
+        # Cross-cutting modules and the composition root are exempted implicitly
+        # by not appearing in LAYERS.
+        "src/implement_phase.py": {"src/agent.py"},
         "src/plan_phase.py": {"src/planner.py", "src/research_runner.py"},
         "src/review_phase.py": {
             "src/reviewer.py",
@@ -81,20 +79,7 @@ ALLOWLIST = Allowlist(
         "src/shape_phase.py": {"src/shape_runner.py", "src/pr_manager.py"},
         "src/base_background_loop.py": {"src/runner_utils.py"},
         "src/code_grooming_loop.py": {"src/runner_utils.py"},
-        "src/report_issue_loop.py": {"src/runner_utils.py", "src/pr_manager.py"},
-        # Deferred/nested imports (TYPE_CHECKING blocks, function-scoped) that the
-        # old checker silently skips because it only walks top-level AST children.
-        # These are intentional architectural exceptions already present in the codebase.
-        "src/diagnostic_loop.py": {"src/diagnostic_runner.py", "src/workspace.py"},
-        "src/github_cache_loop.py": {"src/pr_manager.py"},
-        "src/pr_unsticker.py": {
-            "src/agent.py",
-            "src/hitl_runner.py",
-            "src/merge_conflict_resolver.py",
-            "src/polyglot_prep.py",
-        },
-        "src/sentry_loop.py": {"src/pr_manager.py", "src/runner_utils.py"},
-        "src/stale_issue_loop.py": {"src/pr_manager.py"},
+        "src/report_issue_loop.py": {"src/runner_utils.py"},
     }
 )
 

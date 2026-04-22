@@ -31,7 +31,11 @@ def python_ast_extractor(repo_path: str) -> ImportGraph:
             tree = ast.parse(f.read_text(encoding="utf-8"), filename=str(f))
         except SyntaxError:
             continue
-        for node in ast.walk(tree):
+        # Only top-level imports are architectural dependencies worth checking.
+        # Imports inside `if TYPE_CHECKING:`, function bodies, or try/except
+        # are intentional deferrals (runtime optional, circular-break, etc.)
+        # and are not evidence of a module-level coupling.
+        for node in ast.iter_child_nodes(tree):
             names: list[str] = []
             if isinstance(node, ast.Import):
                 names.extend(alias.name.split(".")[0] for alias in node.names)
