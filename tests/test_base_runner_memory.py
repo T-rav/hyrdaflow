@@ -142,3 +142,34 @@ def test_inject_adr_index_unknown_phase_returns_empty(tmp_path):
     runner._adr_index = ADRIndex(adr_dir)
     runner._phase_name = "unknown"  # type: ignore[misc]
     assert runner._inject_adr_index() == ""
+
+
+def test_inject_repo_wiki_includes_tribal_content(tmp_path):
+    from unittest.mock import MagicMock
+
+    from base_runner import BaseRunner
+    from repo_wiki import RepoWikiStore, WikiEntry
+    from tribal_wiki import TribalWikiStore
+
+    per_repo = RepoWikiStore(tmp_path / "per")
+    tribal = TribalWikiStore(tmp_path / "global")
+    tribal.ingest(
+        [
+            WikiEntry(
+                title="Use dataclasses",
+                content="Prefer dataclasses for config.",
+                source_type="librarian",
+                topic="patterns",
+            )
+        ]
+    )
+
+    runner = BaseRunner.__new__(BaseRunner)
+    runner._wiki_store = per_repo
+    runner._tribal_wiki_store = tribal
+    runner._config = MagicMock()
+    runner._config.repo = "acme/widget"
+    runner._config.max_repo_wiki_chars = 15_000
+
+    section = runner._inject_repo_wiki()
+    assert "Use dataclasses" in section

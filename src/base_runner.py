@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from execution import SubprocessRunner
     from hindsight import HindsightClient
     from repo_wiki import RepoWikiStore  # noqa: TCH004
+    from tribal_wiki import TribalWikiStore
 
 
 class BaseRunner:
@@ -55,6 +56,7 @@ class BaseRunner:
         hindsight: HindsightClient | None = None,
         credentials: Credentials | None = None,
         wiki_store: RepoWikiStore | None = None,
+        tribal_wiki_store: TribalWikiStore | None = None,
     ) -> None:
         self._config = config
         self._bus = event_bus
@@ -75,6 +77,7 @@ class BaseRunner:
         self._trace_subprocess_counter: int = 0
         self._credentials = credentials or Credentials()
         self._wiki_store = wiki_store
+        self._tribal_wiki_store = tribal_wiki_store
         # ADR runtime index — injected into plan/implement/review prompts.
         # Relative path from the worktree cwd. None-safe at read time.
         self._adr_index: ADRIndex | None = ADRIndex(Path("docs/adr"))
@@ -502,14 +505,14 @@ class BaseRunner:
         return memory_section
 
     def _inject_repo_wiki(self, *, query_context: str = "") -> str:
-        """Load compiled repo wiki context for the current target repo.
+        """Load compiled repo wiki + tribal wiki context for the current target repo.
 
-        Returns a markdown string with relevant wiki pages, or empty
-        string if no wiki exists for this repo.
+        Returns concatenated markdown with a blank-line separator. Empty
+        string when neither per-repo wiki nor tribal wiki is configured
+        or both return empty.
         """
         if self._wiki_store is None:
             return ""
-
         repo = self._config.repo
         if not repo:
             return ""
@@ -519,14 +522,24 @@ class BaseRunner:
             if query_context
             else None
         )
-        wiki_section = self._wiki_store.query(
+        per_repo_section = self._wiki_store.query(
             repo,
             keywords=keywords,
             max_chars=self._config.max_repo_wiki_chars,
         )
-        if wiki_section:
-            return f"\n\n{wiki_section}"
-        return ""
+
+        tribal = getattr(self, "_tribal_wiki_store", None)
+        tribal_section = ""
+        if tribal is not None:
+            tribal_section = tribal.query(
+                keywords=keywords,
+                max_chars=self._config.max_repo_wiki_chars,
+            )
+
+        parts = [s for s in (per_repo_section, tribal_section) if s]
+        if not parts:
+            return ""
+        return "\n\n" + "\n\n".join(parts)
 
     #: Prompt-size budget for the rendered ADR index section. If render_full
     #: exceeds this, we fall back to the titles-only view (which is bounded by
