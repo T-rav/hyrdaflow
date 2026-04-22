@@ -278,6 +278,9 @@ class BaseRunner:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
+            self._log.debug(
+                "_save_transcript called outside event loop — ADR-draft pipeline skipped"
+            )
             return
         loop.create_task(self._process_transcript_for_adr_draft(transcript))
 
