@@ -7,10 +7,19 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
+import tree_sitter as _ts  # type: ignore[import-untyped]
 import tree_sitter_languages  # type: ignore[import-untyped]
-from tree_sitter import Language, Parser, Query, QueryCursor
 
 from arch.models import ImportGraph, ModuleUnit
+
+# tree_sitter ships runtime classes but no py.typed marker; on some pyright
+# configurations Language/Parser/Query/QueryCursor resolve as modules rather
+# than classes. Aliasing through Any erases the bogus type so annotations and
+# call sites don't trip pyright, while preserving runtime behaviour.
+Language: Any = _ts.Language
+Parser: Any = _ts.Parser
+Query: Any = _ts.Query
+QueryCursor: Any = _ts.QueryCursor
 
 # tree_sitter_languages 1.10.2 ships a bundled .so; load it directly so we can
 # call the C-level tree_sitter_<lang>() functions.  This avoids the broken
@@ -20,7 +29,7 @@ _TSL_SO = next(pathlib.Path(next(iter(tree_sitter_languages.__path__))).glob("*.
 _TSL_LIB = ctypes.cdll.LoadLibrary(str(_TSL_SO))
 
 
-def _load_language(name: str) -> Language:
+def _load_language(name: str) -> Any:
     """Return a tree_sitter.Language for *name* using the bundled .so."""
     fn = getattr(_TSL_LIB, f"tree_sitter_{name}", None)
     if fn is None:
