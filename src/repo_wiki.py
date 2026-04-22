@@ -473,7 +473,7 @@ class WikiEntry(BaseModel):
         description="Which topic page this entry lives under (architecture/patterns/gotchas/testing/dependencies/harness)",
     )
     source_type: str = Field(
-        description="plan|implement|review|hitl|reflection|librarian|manual"
+        description="Where the knowledge came from: plan, implement, review, hitl, reflection, librarian, manual"
     )
     source_issue: int | None = Field(
         default=None, description="GitHub issue number, if applicable"
@@ -495,7 +495,10 @@ class WikiEntry(BaseModel):
     superseded_by: str | None = Field(
         default=None, description="id of newer entry that replaces this one"
     )
-    superseded_reason: str | None = Field(default=None)
+    superseded_reason: str | None = Field(
+        default=None,
+        description="Freeform reason paired with superseded_by",
+    )
     confidence: Literal["high", "medium", "low"] = Field(default="medium")
     stale: bool = Field(
         default=False,
