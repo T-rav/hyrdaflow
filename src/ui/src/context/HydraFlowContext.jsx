@@ -41,7 +41,6 @@ export const initialState = {
   pipelinePollerLastRun: null,
   sessions: [],
   currentSessionId: null,
-  selectedSessionId: null,
   selectedRepoSlug: null,
   selectedRepoSlugRaw: null,
   canRegisterRepos: false,
@@ -740,9 +739,6 @@ export function reducer(state, action) {
           : [],
       }
 
-    case 'SELECT_SESSION':
-      return { ...state, selectedSessionId: action.data.sessionId }
-
     case 'SELECT_REPO': {
       const newSlug = normalizeRepoSlug(action.data.slug)
       const changed = newSlug !== state.selectedRepoSlug
@@ -750,7 +746,6 @@ export function reducer(state, action) {
         ...state,
         selectedRepoSlug: newSlug,
         selectedRepoSlugRaw: action.data.slug ?? null,
-        selectedSessionId: null,
         ...(changed && {
           pipelineIssues: { ...emptyPipeline },
           hitlItems: [],
@@ -799,15 +794,6 @@ export function reducer(state, action) {
 
     case 'SET_TRACKED_REPORTS':
       return { ...state, trackedReports: action.data || [] }
-
-    case 'DELETE_SESSION':
-      return {
-        ...state,
-        sessions: state.sessions.filter(s => s.id !== action.data.sessionId),
-        selectedSessionId: state.selectedSessionId === action.data.sessionId
-          ? null
-          : state.selectedSessionId,
-      }
 
     default:
       return addEvent(state, action)
@@ -960,28 +946,9 @@ export function HydraFlowProvider({ children }) {
       .catch(() => {})
   }, [fetchWithRepo])
 
-  const selectSession = useCallback((sessionId) => {
-    dispatch({ type: 'SELECT_SESSION', data: { sessionId } })
-  }, [])
-
   const selectRepo = useCallback((slug) => {
     dispatch({ type: 'SELECT_REPO', data: { slug } })
   }, [])
-
-  const deleteSession = useCallback(async (sessionId) => {
-    dispatch({ type: 'DELETE_SESSION', data: { sessionId } })
-    try {
-      const res = await fetch(applyRepoParam(`/api/sessions/${encodeURIComponent(sessionId)}`), {
-        method: 'DELETE',
-      })
-      if (!res.ok) {
-        // Revert optimistic delete by re-fetching
-        fetchSessions()
-      }
-    } catch {
-      fetchSessions()
-    }
-  }, [applyRepoParam, fetchSessions])
 
   const fetchRepos = useCallback(async () => {
     try {
@@ -1613,18 +1580,6 @@ export function HydraFlowProvider({ children }) {
     })
   }, [state.sessions, state.selectedRepoSlug])
 
-  const selectedSession = useMemo(() => {
-    if (!state.selectedSessionId) return null
-    return state.sessions.find(s => s.id === state.selectedSessionId) ?? null
-  }, [state.selectedSessionId, state.sessions])
-
-  const filteredEvents = useMemo(() => {
-    if (!selectedSession) return state.events
-    const start = selectedSession.started_at
-    const end = selectedSession.ended_at || new Date().toISOString()
-    return state.events.filter(e => e.timestamp && e.timestamp >= start && e.timestamp <= end)
-  }, [state.events, selectedSession])
-
   // Centralized polling for insights/history data (replaces per-component fetches)
   useEffect(() => {
     if (!state.connected) return
@@ -1680,9 +1635,7 @@ export function HydraFlowProvider({ children }) {
 
   const value = {
     ...state,
-    events: filteredEvents,
     sessions: repoFilteredSessions,
-    selectedSession,
     stageStatus,
     resetSession,
     submitIntent,
@@ -1699,9 +1652,7 @@ export function HydraFlowProvider({ children }) {
     dismissSystemAlert: useCallback(() => dispatch({ type: 'CLEAR_SYSTEM_ALERT' }), [dispatch]),
     refreshCreditStatus,
     refreshHitl: fetchHitlItems,
-    selectSession,
     selectRepo,
-    deleteSession,
     addRepoBySlug,
     addRepoByPath,
     fetchRepos,
