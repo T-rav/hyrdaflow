@@ -1542,7 +1542,10 @@ export function HydraFlowProvider({ children }) {
       reconnectTimer.current = setTimeout(connect, 2000)
     }
 
-    ws.onerror = () => ws.close()
+    // Don't force-close on error — browsers fire `close` after `error`
+    // automatically, and calling close() here races a frame still in flight
+    // through the Vite dev proxy, producing EPIPE noise during reconnect.
+    ws.onerror = () => {}
     wsRef.current = ws
   }, [state.selectedRepoSlug, fetchLifetimeStats, fetchHitlItems, fetchGithubMetrics, fetchMetricsHistory, fetchPipeline, fetchPipelineStats, fetchEpics, fetchSessions, fetchRepos, fetchRuntimes, fetchWithRepo])
 
