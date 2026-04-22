@@ -51,3 +51,23 @@ def test_broken_rule_module_exits_two(tmp_path) -> None:
     rc, _, stderr = _run(tmp_path)
     assert rc == 2
     assert "SyntaxError" in stderr or "invalid syntax" in stderr
+
+
+def test_validate_config_error_exits_two_not_one(tmp_path) -> None:
+    """A Fitness rule with outside_layer absent from LayerMap is a config bug,
+    not a violation. Must surface as exit 2 so CI doesn't conflate it with a
+    real violation and swallow the diagnostic."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("x = 1\n")
+    (tmp_path / ".hydraflow").mkdir()
+    (tmp_path / ".hydraflow" / "arch_rules.py").write_text(
+        "from hydraflow.arch import LayerMap, Allowlist, Fitness, python_ast_extractor\n"
+        "EXTRACTOR = python_ast_extractor\n"
+        "LAYERS = LayerMap({'src/a.py': 1})\n"
+        "ALLOWLIST = Allowlist({})\n"
+        "FITNESS = [Fitness.forbidden_symbol('junk', outside_layer=99)]\n"
+    )
+    rc, _, stderr = _run(tmp_path)
+    assert rc == 2, f"expected exit 2, got {rc}; stderr:\n{stderr}"
+    assert "VALIDATE_ERROR" in stderr
+    assert "outside_layer" in stderr
