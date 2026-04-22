@@ -157,3 +157,34 @@ def test_cache_handles_directory_creation_after_instantiation(tmp_path):
     _write_adr(missing, 1, "A", "Accepted", "a.")
     refreshed = index.adrs()
     assert len(refreshed) == 1
+
+
+def test_scan_real_adr_directory_produces_valid_output():
+    """Smoke test against the real docs/adr/ — guards against regression
+    if an ADR file's format drifts from the expected template."""
+    import pytest
+
+    adr_dir = Path(__file__).resolve().parents[1] / "docs" / "adr"
+    if not adr_dir.exists():
+        pytest.skip("docs/adr not present in this checkout")
+
+    adrs = scan_adr_directory(adr_dir)
+    assert len(adrs) > 0
+
+    for a in adrs:
+        assert a.number > 0
+        assert a.title
+        assert a.status in {
+            "Accepted",
+            "Proposed",
+            "Superseded",
+            "Deprecated",
+            "Unknown",
+        }
+
+    full = render_full(adrs)
+    titles = render_titles_only(adrs)
+    assert full
+    assert titles
+    # Titles-only should be strictly smaller
+    assert len(titles) < len(full)
