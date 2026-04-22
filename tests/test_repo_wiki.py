@@ -740,3 +740,63 @@ def test_loads_pre_phase1_wiki_on_disk(tmp_path):
     # Query must work and return the entry (it's current).
     out = store.query("legacy/repo", topics=["patterns"])
     assert "old" in out
+
+
+# ---------------------------------------------------------------------------
+# mark_superseded
+# ---------------------------------------------------------------------------
+
+
+def test_mark_superseded_sets_fields_and_returns_true(store):
+    store.ingest(
+        REPO,
+        [
+            WikiEntry(
+                id="01HQ9999999999999999999999",
+                title="original",
+                content="v1",
+                source_type="plan",
+                topic="patterns",
+            ),
+        ],
+    )
+    ok = store.mark_superseded(
+        REPO,
+        entry_id="01HQ9999999999999999999999",
+        superseded_by="01HQ0000000000000000000000",
+        reason="obsoleted",
+    )
+    assert ok is True
+
+    # Find the entry across topics and verify fields
+    for topic_name in [
+        "architecture",
+        "patterns",
+        "gotchas",
+        "testing",
+        "dependencies",
+    ]:
+        p = store._repo_dir(REPO) / f"{topic_name}.md"
+        if not p.exists():
+            continue
+        for e in store._load_topic_entries(p):
+            if e.id == "01HQ9999999999999999999999":
+                assert e.superseded_by == "01HQ0000000000000000000000"
+                assert e.superseded_reason == "obsoleted"
+                return
+    raise AssertionError("entry not found after mark_superseded")
+
+
+def test_mark_superseded_missing_entry_returns_false(store):
+    store.ingest(
+        REPO, [WikiEntry(title="x", content="y", source_type="plan", topic="patterns")]
+    )
+    assert (
+        store.mark_superseded(
+            REPO,
+            entry_id="01HQ_DOES_NOT_EXIST_NOPE_NOPE",
+            superseded_by="01HQ0000000000000000000000",
+            reason="x",
+        )
+        is False
+    )

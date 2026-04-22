@@ -831,6 +831,48 @@ class RepoWikiStore:
         self._append_log(repo_slug, "active_lint", result.model_dump())
         return result
 
+    def mark_superseded(
+        self,
+        repo_slug: str,
+        entry_id: str,
+        *,
+        superseded_by: str,
+        reason: str,
+    ) -> bool:
+        """Set superseded_by/superseded_reason on an existing entry.
+
+        Searches all topic pages for the entry by id. Returns True if the
+        entry was found and updated; False otherwise. Does not delete or
+        move the entry. Callers emit events.
+        """
+        repo_dir = self._repo_dir(repo_slug)
+        if not repo_dir.exists():
+            return False
+
+        now = datetime.now(UTC).isoformat()
+        for topic_name in DEFAULT_TOPICS:
+            topic_path = repo_dir / f"{topic_name}.md"
+            if not topic_path.exists():
+                continue
+            entries = self._load_topic_entries(topic_path)
+            for i, e in enumerate(entries):
+                if e.id == entry_id:
+                    entries[i] = e.model_copy(
+                        update={
+                            "superseded_by": superseded_by,
+                            "superseded_reason": reason,
+                            "updated_at": now,
+                        }
+                    )
+                    self._write_topic_page(topic_path, topic_name, entries)
+                    self._append_log(
+                        repo_slug,
+                        "mark_superseded",
+                        {"entry_id": entry_id, "superseded_by": superseded_by},
+                    )
+                    return True
+        return False
+
     def list_repos(self) -> list[str]:
         """Return slugs for all repos with wikis.
 

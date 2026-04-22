@@ -185,3 +185,73 @@ class TestGitBackedIngest:
 
         # No log record should exist — log append only runs after all writes.
         assert not (store._wiki_root / REPO / "log" / "77.jsonl").exists()
+
+
+# ---------------------------------------------------------------------------
+# ingest_phase_output — end-to-end contradiction detection
+# ---------------------------------------------------------------------------
+
+
+async def test_ingest_phase_output_marks_contradicted_siblings(tmp_path: Path) -> None:
+    """End-to-end: ingest entry A, then ingest contradicting B → A.superseded_by = B.id."""
+    from unittest.mock import AsyncMock
+
+    from repo_wiki import RepoWikiStore, WikiEntry
+    from repo_wiki_ingest import ingest_phase_output
+    from wiki_compiler import ContradictedEntry, ContradictionCheck
+
+    store = RepoWikiStore(tmp_path / "wiki")
+
+    # First ingest: one entry, no contradictions.
+    entry_a = WikiEntry(
+        id="01HQ0000000000000000000000",
+        title="Use X always",
+        content="Always use X.",
+        source_type="plan",
+        topic="patterns",
+    )
+    compiler = AsyncMock()
+    compiler.detect_contradictions = AsyncMock(return_value=ContradictionCheck())
+    await ingest_phase_output(
+        store=store,
+        repo="acme/widget",
+        entries=[entry_a],
+        compiler=compiler,
+    )
+
+    # Second ingest: entry contradicts A.
+    contradiction_reply = ContradictionCheck(
+        contradicts=[
+            ContradictedEntry(
+                id="01HQ0000000000000000000000",
+                reason="reverses guidance",
+            )
+        ]
+    )
+    entry_b = WikiEntry(
+        id="01HQ1111111111111111111111",
+        title="Never use X",
+        content="Never use X; prefer Y.",
+        source_type="plan",
+        topic="patterns",
+    )
+    compiler.detect_contradictions = AsyncMock(return_value=contradiction_reply)
+    result = await ingest_phase_output(
+        store=store,
+        repo="acme/widget",
+        entries=[entry_b],
+        compiler=compiler,
+    )
+    assert result.contradictions_marked == 1
+
+    # A now has superseded_by set.
+    topic_path = store._repo_dir("acme/widget") / "patterns.md"
+    on_disk = store._load_topic_entries(topic_path)
+    a_on_disk = next(e for e in on_disk if e.id == entry_a.id)
+    assert a_on_disk.superseded_by == entry_b.id
+    assert a_on_disk.superseded_reason == "reverses guidance"
+
+    # query() excludes superseded A, keeps current B
+    out = store.query("acme/widget", topics=["patterns"])
+    assert "Never use X" in out
+    assert "Use X always" not in out
