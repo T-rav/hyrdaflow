@@ -10,4 +10,5 @@ from . import (
     p2_architecture,  # noqa: F401
     p3_testing,  # noqa: F401
     p4_quality,  # noqa: F401
+    p5_ci,  # noqa: F401
 )
