@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -467,9 +469,6 @@ class TestWikiIndexModel:
         assert "patterns" in data["topics"]
 
 
-import re
-
-
 def test_wiki_entry_auto_generates_id():
     e = WikiEntry(title="t", content="c", source_type="plan")
     assert re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", e.id) is not None
@@ -587,10 +586,8 @@ def test_wiki_entry_backward_compat_loads_old_shape():
 # Staleness filtering in query()
 # ---------------------------------------------------------------------------
 
-from datetime import UTC, datetime, timedelta
 
-
-def test_query_excludes_superseded_entries(store, tmp_path):
+def test_query_excludes_superseded_entries(store):
     store.ingest(
         REPO,
         [
