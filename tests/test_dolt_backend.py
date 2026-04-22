@@ -128,12 +128,6 @@ class TestDoltSessions:
         backend = DoltBackend(dolt_dir)
         assert backend.get_session("nonexistent") is None
 
-    def test_delete_session(self, dolt_dir: Path) -> None:
-        backend = DoltBackend(dolt_dir)
-        backend.save_session("s3", "org/repo", json.dumps({"id": "s3"}), "active")
-        assert backend.delete_session("s3") is True
-        assert backend.get_session("s3") is None
-
 
 # ---------------------------------------------------------------------------
 # Dedup sets

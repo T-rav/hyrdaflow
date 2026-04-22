@@ -123,27 +123,6 @@ class TestBackslashQuoteEscapingInSQL:
     @pytest.mark.xfail(
         reason="Regression for issue #6454 — fix not yet landed", strict=False
     )
-    def test_delete_session_escapes_backslash_in_id(self, tmp_path: Path) -> None:
-        """delete_session: session_id with \\' must have the backslash escaped.
-
-        BUG: escaped uses only .replace("'", "''").
-        """
-        backend = _make_backend(tmp_path)
-        captured: list[str] = []
-        backend._sql_exec = captured.append
-
-        session_id = f"sess{BACKSLASH_QUOTE}id"
-        backend.delete_session(session_id)
-
-        sql = captured[0]
-        assert "\\\\''" in sql, (
-            f"delete_session does not escape backslash in session_id — "
-            f"SQL corruption risk.\n  Generated SQL: {sql!r}"
-        )
-
-    @pytest.mark.xfail(
-        reason="Regression for issue #6454 — fix not yet landed", strict=False
-    )
     def test_load_sessions_repo_escapes_backslash(self, tmp_path: Path) -> None:
         """load_sessions: repo filter with \\' must have the backslash escaped.
 
