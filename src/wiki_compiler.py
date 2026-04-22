@@ -19,9 +19,26 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from pydantic import BaseModel, Field
+
 from repo_wiki import WikiEntry
 
 _SYNTHESIS_ID_RE = re.compile(r"^(\d+)-")
+
+
+# ---------------------------------------------------------------------------
+# Contradiction-check models
+# ---------------------------------------------------------------------------
+
+
+class ContradictedEntry(BaseModel):
+    id: str = Field(description="ULID of the sibling entry that is contradicted")
+    reason: str = Field(description="One-sentence explanation")
+
+
+class ContradictionCheck(BaseModel):
+    contradicts: list[ContradictedEntry] = Field(default_factory=list)
+
 
 if TYPE_CHECKING:
     from config import Credentials, HydraFlowConfig
@@ -67,6 +84,38 @@ Return a JSON array of compiled entries. Each entry must be a JSON object with t
 Return ONLY the JSON array, no other text.
 """
 
+_CONTRADICTION_PROMPT = """\
+You are a technical knowledge librarian. A new wiki entry has been written to the
+**{topic}** topic of repository **{repo}**. Identify which existing sibling entries
+(if any) it contradicts — meaning the new entry's advice is incompatible with an
+existing entry's advice, not merely different in emphasis.
+
+## New entry
+
+title: {new_title}
+content:
+{new_content}
+
+## Existing sibling entries (current only)
+
+{siblings_text}
+
+## Instructions
+
+Return a JSON object with one key, "contradicts", mapping to an array of
+{{"id": <sibling_id>, "reason": <one-sentence>}} objects.
+
+Only include a sibling if the new entry **directly contradicts** it — e.g.,
+"use X" vs "never use X", or "Python 3.11 minimum" vs "Python 3.10 minimum".
+Do NOT include siblings that are merely related or complementary.
+
+Return ONLY the JSON object, no other text.
+
+Example valid outputs:
+  {{"contradicts": []}}
+  {{"contradicts": [{{"id":"01HQ...","reason":"new entry says X, this one said not-X"}}]}}
+"""
+
 _SYNTHESIZE_INGEST_PROMPT = """\
 You are a technical knowledge librarian. A {source_type} phase just completed for \
 issue #{issue_number} in repository {repo}.
@@ -106,6 +155,32 @@ Return ONLY the JSON array, no other text.
 
 class WikiCompiler:
     """LLM-powered wiki compilation and synthesis."""
+
+    @staticmethod
+    def _parse_contradiction_output(raw: str) -> ContradictionCheck:
+        """Parse contradiction-check LLM output. Never raises."""
+        text = raw.strip()
+        if text.startswith("```"):
+            lines = text.split("\n")
+            text = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1:
+            return ContradictionCheck()
+
+        try:
+            obj = json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            return ContradictionCheck()
+
+        if not isinstance(obj, dict) or "contradicts" not in obj:
+            return ContradictionCheck()
+
+        try:
+            return ContradictionCheck.model_validate(obj)
+        except Exception:  # noqa: BLE001
+            return ContradictionCheck()
 
     def __init__(
         self,

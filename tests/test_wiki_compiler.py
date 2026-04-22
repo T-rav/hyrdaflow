@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from repo_wiki import RepoWikiStore, WikiEntry
-from wiki_compiler import WikiCompiler
+from wiki_compiler import ContradictionCheck, WikiCompiler
 
 
 @pytest.fixture
@@ -223,3 +223,41 @@ class TestSynthesizeIngest:
 
         entries = await compiler.synthesize_ingest(REPO, 1, "plan", "x" * 200)
         assert entries == []
+
+
+# ---------------------------------------------------------------------------
+# Contradiction output parser
+# ---------------------------------------------------------------------------
+
+
+def test_parse_contradiction_output_valid():
+    raw = '{"contradicts":[{"id":"01HQ0000000000000000000000","reason":"replaced"}]}'
+    result = WikiCompiler._parse_contradiction_output(raw)
+    assert isinstance(result, ContradictionCheck)
+    assert len(result.contradicts) == 1
+    assert result.contradicts[0].id == "01HQ0000000000000000000000"
+    assert result.contradicts[0].reason == "replaced"
+
+
+def test_parse_contradiction_output_empty_list():
+    raw = '{"contradicts":[]}'
+    result = WikiCompiler._parse_contradiction_output(raw)
+    assert result.contradicts == []
+
+
+def test_parse_contradiction_output_with_markdown_fence():
+    raw = '```json\n{"contradicts":[]}\n```'
+    result = WikiCompiler._parse_contradiction_output(raw)
+    assert result.contradicts == []
+
+
+def test_parse_contradiction_output_invalid_json_returns_empty():
+    raw = "not json"
+    result = WikiCompiler._parse_contradiction_output(raw)
+    assert result.contradicts == []
+
+
+def test_parse_contradiction_output_missing_key_returns_empty():
+    raw = '{"other":"shape"}'
+    result = WikiCompiler._parse_contradiction_output(raw)
+    assert result.contradicts == []
