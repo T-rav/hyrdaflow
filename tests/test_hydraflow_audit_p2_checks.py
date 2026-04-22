@@ -149,25 +149,22 @@ def test_allowlist_absent_warns(tmp_path: Path) -> None:
 
 
 _ANAEMIC_MODELS = """
-from dataclasses import dataclass
-
-@dataclass
 class Issue:
-    id: int
-    title: str
+    def __init__(self, id: int, title: str) -> None:
+        self.id = id
+        self.title = title
 
-@dataclass
 class Task:
-    name: str
+    def __init__(self, name: str) -> None:
+        self.name = name
 """
 
 _RICH_MODELS = """
-from dataclasses import dataclass
-
-@dataclass
 class Issue:
-    id: int
-    title: str
+    def __init__(self, id: int, title: str) -> None:
+        self.id = id
+        self.title = title
+        self.closed = False
 
     def close(self) -> None:
         self.closed = True
@@ -175,9 +172,9 @@ class Issue:
     def reopen(self) -> None:
         self.closed = False
 
-@dataclass
 class Task:
-    name: str
+    def __init__(self, name: str) -> None:
+        self.name = name
 
     def run(self) -> None:
         pass

@@ -79,21 +79,28 @@ def _repo_wiki_dir(ctx: CheckContext) -> Finding:
 
 @register("P7.3a")
 def _wiki_three_layer_shape(ctx: CheckContext) -> Finding:
+    """Check the three layers exist without prescribing specific filenames.
+
+    Index can be markdown (`index.md`) or JSON (`index.json` / `_manifest.json`).
+    Raw sources can be an explicit `_log.jsonl` *or* per-page front-matter /
+    filename convention that names the originating issue — either gives a
+    traceable audit trail.
+    """
     wiki = ctx.root / "repo_wiki"
     if not wiki.is_dir():
         return finding(
             "P7.3a", Status.NA, "repo_wiki/ missing — upstream check covers this"
         )
-    has_index = any(wiki.rglob("index.json")) or any(wiki.rglob("_manifest.json"))
-    has_log = any(wiki.rglob("_log.jsonl")) or any(wiki.rglob("_log*.json*"))
-    has_pages = any(p for p in wiki.rglob("*.md") if p.name not in {"README.md"})
+    has_index = _has_wiki_index(wiki)
+    has_pages = _has_wiki_pages(wiki)
+    has_raw_trail = _has_wiki_raw_trail(wiki)
     missing: list[str] = []
     if not has_pages:
-        missing.append("synthesised wiki pages (*.md)")
+        missing.append("synthesised wiki pages (per-topic *.md)")
     if not has_index:
-        missing.append("index/manifest (index.json / _manifest.json)")
-    if not has_log:
-        missing.append("raw-sources log (_log.jsonl)")
+        missing.append("index (index.md / index.json / _manifest.json)")
+    if not has_raw_trail:
+        missing.append("traceable raw source (operation log or page front-matter)")
     if not missing:
         return finding("P7.3a", Status.PASS)
     return finding(
@@ -101,6 +108,50 @@ def _wiki_three_layer_shape(ctx: CheckContext) -> Finding:
         Status.WARN,
         f"repo_wiki/ missing layers: {', '.join(missing)}",
     )
+
+
+def _has_wiki_index(wiki: Path) -> bool:
+    for name in ("index.md", "index.json", "_manifest.json"):
+        if any(wiki.rglob(name)):
+            return True
+    return False
+
+
+def _has_wiki_pages(wiki: Path) -> bool:
+    """True when at least one topic subdirectory contains per-entry pages."""
+    for md in wiki.rglob("*.md"):
+        rel = md.relative_to(wiki)
+        parts = rel.parts
+        if parts[-1] in {"README.md", "index.md"}:
+            continue
+        if len(parts) >= 2:  # <owner>/<repo>/<topic>/<page>.md or <topic>/<page>.md
+            return True
+    return False
+
+
+def _has_wiki_raw_trail(wiki: Path) -> bool:
+    """Either an explicit log file, or per-page front-matter naming the source."""
+    if any(wiki.rglob("_log.jsonl")) or any(wiki.rglob("_log*.json*")):
+        return True
+    checked = 0
+    for md in wiki.rglob("*.md"):
+        if md.name in {"README.md", "index.md"}:
+            continue
+        # HydraFlow filename convention: `0001-issue-<number>-<slug>.md`.
+        if re.match(r"^\d{4}-issue-", md.name):
+            return True
+        try:
+            head = md.read_text(encoding="utf-8", errors="replace")[:400]
+        except OSError:
+            continue
+        if re.search(
+            r"^(issue|source|pr|origin)\s*:", head, re.MULTILINE | re.IGNORECASE
+        ):
+            return True
+        checked += 1
+        if checked >= 20:
+            break
+    return False
 
 
 _WIKI_OPS_RE = re.compile(r"\b(ingest|query|lint)\b")

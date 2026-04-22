@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -66,12 +67,106 @@ def _pre_commit_hook(ctx: CheckContext) -> Finding:
 
 
 @register("P5.5")
-def _branch_protection_cultural(_: CheckContext) -> Finding:
-    return finding(
-        "P5.5",
-        Status.WARN,
-        "branch protection cannot be verified offline — confirm via GitHub repo settings",
+def _branch_protection_cultural(ctx: CheckContext) -> Finding:  # noqa: PLR0911 — each fast-path WARN has a distinct reason
+    """Probe the remote for branch protection when `gh` is available.
+
+    If `gh api` reports protection on main (with required status checks or
+    required reviews) we upgrade the finding to PASS. Offline or
+    unauthenticated environments fall back to the original WARN, keeping
+    the CULTURAL spirit of the check intact.
+    """
+    if not (ctx.root / ".git").exists():
+        return _branch_protection_warn(
+            "not a git repo — cannot query remote protection"
+        )
+    main_branch = _detect_main_branch(ctx.root)
+    if main_branch is None:
+        return _branch_protection_warn("no main/master branch detected locally")
+    remote_slug = _detect_github_slug(ctx.root)
+    if remote_slug is None:
+        return _branch_protection_warn("no github.com remote — cannot query protection")
+    try:
+        result = subprocess.run(
+            ["gh", "api", f"repos/{remote_slug}/branches/{main_branch}/protection"],
+            check=False,
+            cwd=ctx.root,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return _branch_protection_warn(
+            "`gh api` unavailable — confirm via GitHub repo settings"
+        )
+    if result.returncode != 0:
+        detail = (result.stderr or "").strip()
+        # A 404 from the protection endpoint is a definite "no protection";
+        # anything else (auth, rate-limit, network) is an audit-infrastructure
+        # issue we cannot diagnose.
+        if "HTTP 404" in detail or "Branch not protected" in detail:
+            return _branch_protection_warn(
+                f"`main` branch on {remote_slug} is NOT protected (HTTP 404 from gh) — "
+                "enable protection in Settings → Branches → main"
+            )
+        last = detail.splitlines()[-1:] or ["unknown error"]
+        return _branch_protection_warn(
+            f"`gh api` could not verify protection ({last[0]}) — confirm in GitHub settings"
+        )
+    body = result.stdout.lower()
+    if '"required_status_checks"' in body or '"required_pull_request_reviews"' in body:
+        return finding(
+            "P5.5", Status.PASS, f"remote branch protection active on {main_branch}"
+        )
+    return _branch_protection_warn(
+        f"`gh api` returned a protection object for {main_branch} without required checks/reviews"
     )
+
+
+def _branch_protection_warn(message: str) -> Finding:
+    return finding("P5.5", Status.WARN, message)
+
+
+def _detect_main_branch(root: Path) -> str | None:
+    for candidate in ("main", "master"):
+        ref = root / ".git" / "refs" / "heads" / candidate
+        if ref.exists():
+            return candidate
+    try:
+        result = subprocess.run(
+            ["git", "symbolic-ref", "--short", "HEAD"],
+            check=False,
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    branch = result.stdout.strip()
+    return branch or None
+
+
+def _detect_github_slug(root: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            check=False,
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    url = result.stdout.strip()
+    match = re.search(r"github\.com[:/]([^/]+/[^/.]+)(?:\.git)?/?$", url)
+    if not match:
+        return None
+    return match.group(1)
 
 
 @register("P5.6")

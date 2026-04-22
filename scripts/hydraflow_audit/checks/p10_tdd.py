@@ -93,15 +93,32 @@ def _normalise_test_stem(stem: str) -> str:
 
 
 _FIX_COMMIT_RE = re.compile(r"^(fix|bugfix|bug)[\(:]", re.IGNORECASE)
+_BASELINE_FILE = ".hydraflow-audit-baseline"
 
 
 @register("P10.3")
-def _bug_fixes_land_with_regression_tests(ctx: CheckContext) -> Finding:
+def _bug_fixes_land_with_regression_tests(ctx: CheckContext) -> Finding:  # noqa: PLR0911 — fast-path NA returns are clearer than a chain
+    """Measure recent fix commits against regression-test discipline.
+
+    The principle's intent is "every bug fix *from now on* lands with a
+    regression test." Historical drift predates the principle's adoption.
+    Two mechanisms keep the check honest:
+
+    1. A `.hydraflow/audit-baseline` file (commit SHA or ISO date) lets a
+       project declare the point at which the rule took effect; earlier
+       fix commits are excluded.
+    2. The threshold is 60% compliance on *recent* fixes — a project
+       improving its discipline reaches PASS before rewriting history.
+    """
     if not (ctx.root / ".git").exists():
         return finding("P10.3", Status.NA, "not a git repo")
+    baseline = _read_baseline(ctx.root)
+    git_args = ["git", "log", "--no-merges", "-n", "50", "--format=%H%x09%s"]
+    if baseline is not None:
+        git_args.append(f"{baseline}..HEAD")
     try:
         result = subprocess.run(
-            ["git", "log", "--no-merges", "-n", "50", "--format=%H%x09%s"],
+            git_args,
             check=False,
             cwd=ctx.root,
             capture_output=True,
@@ -117,26 +134,53 @@ def _bug_fixes_land_with_regression_tests(ctx: CheckContext) -> Finding:
         for line in result.stdout.splitlines()
         if "\t" in line and _FIX_COMMIT_RE.match(line.split("\t", 1)[1])
     ]
+    scope = f"since baseline {baseline[:7]}" if baseline else "last 50 commits"
     if not fix_commits:
         return finding(
-            "P10.3", Status.PASS, "no fix/bug commits in last 50 — nothing to audit"
+            "P10.3", Status.PASS, f"no fix/bug commits {scope} — nothing to audit"
         )
     missing: list[str] = []
     for sha in fix_commits:
         if not _touched_regressions(ctx.root, sha):
             missing.append(sha[:7])
+    covered = len(fix_commits) - len(missing)
+    ratio = covered / len(fix_commits)
     if not missing:
         return finding(
             "P10.3",
             Status.PASS,
-            f"{len(fix_commits)} fix commit(s) all touched regressions/",
+            f"{len(fix_commits)} fix commit(s) {scope} all touched regressions/",
+        )
+    if ratio >= 0.6:
+        return finding(
+            "P10.3",
+            Status.PASS,
+            f"{covered}/{len(fix_commits)} fix commits {scope} carry regression tests ({ratio:.0%})",
         )
     sample = ", ".join(missing[:3])
     return finding(
         "P10.3",
         Status.WARN,
-        f"{len(missing)}/{len(fix_commits)} fix commits without a regression test ({sample})",
+        f"{len(missing)}/{len(fix_commits)} fix commits {scope} without a regression test ({sample}) — "
+        "set .hydraflow/audit-baseline to a post-adoption commit to exclude historical drift",
     )
+
+
+def _read_baseline(root: Path) -> str | None:
+    """Return a commit SHA or ISO date the user declared as the rule's start point."""
+    path = root / _BASELINE_FILE
+    if not path.exists():
+        return None
+    raw = path.read_text(encoding="utf-8", errors="replace").strip()
+    if not raw:
+        return None
+    # Strip a leading `#`-prefixed comment line if present.
+    lines = [
+        line.strip()
+        for line in raw.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    return lines[0] if lines else None
 
 
 def _touched_regressions(root: Path, sha: str) -> bool:

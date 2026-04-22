@@ -150,11 +150,13 @@ def _domain_layer_purity(ctx: CheckContext) -> Finding:
 
 @register("P2.8")
 def _domain_types_carry_behaviour(ctx: CheckContext) -> Finding:
-    """Warn when domain model files contain only anaemic classes.
+    """Warn when domain classes that are NOT DTOs have no behaviour.
 
-    Heuristic: for each candidate file (src/models.py, src/domain/*.py),
-    count public classes and how many have at least one method beyond
-    dunder methods. If ≥60% of classes are anaemic across the sample, warn.
+    ADR-0044 P2: "anaemic Pydantic models that only hold fields belong in
+    DTOs, not the domain." So we explicitly exclude Pydantic BaseModel
+    subclasses, TypedDicts, and `@dataclass(frozen=True)` value objects
+    from the anaemic check — they are deliberately data-only. What we care
+    about is domain entities that ought to model behaviour but don't.
     """
     candidates = _domain_files(ctx.root)
     if not candidates:
@@ -162,26 +164,74 @@ def _domain_types_carry_behaviour(ctx: CheckContext) -> Finding:
             "P2.8", Status.NA, "no src/models.py or src/domain/ — nothing to sample"
         )
     anaemic = 0
-    total = 0
+    entity_total = 0
     for path in candidates:
         for cls in _public_classes(path):
-            total += 1
+            if _looks_like_dto(cls):
+                continue
+            entity_total += 1
             if not _has_real_method(cls):
                 anaemic += 1
-    if total == 0:
-        return finding("P2.8", Status.NA, "no public classes in domain candidates")
-    ratio = anaemic / total
+    if entity_total == 0:
+        return finding(
+            "P2.8",
+            Status.NA,
+            "all sampled domain classes are DTOs (Pydantic / TypedDict / frozen dataclass) — nothing to evaluate",
+        )
+    ratio = anaemic / entity_total
     if ratio < 0.6:
         return finding(
             "P2.8",
             Status.PASS,
-            f"{anaemic}/{total} domain classes anaemic ({ratio:.0%})",
+            f"{anaemic}/{entity_total} non-DTO domain classes anaemic ({ratio:.0%})",
         )
     return finding(
         "P2.8",
         Status.WARN,
-        f"{anaemic}/{total} domain classes have no behaviour — logic may be leaking to application/infra",
+        f"{anaemic}/{entity_total} non-DTO domain classes have no behaviour — logic may be leaking to application/infra",
     )
+
+
+_DTO_BASE_NAMES = {
+    "BaseModel",
+    "TypedDict",
+    "NamedTuple",
+    "Protocol",
+    "Enum",
+    "IntEnum",
+    "StrEnum",
+    "Flag",
+}
+
+
+def _looks_like_dto(cls: ast.ClassDef) -> bool:
+    """Classes that are *designed* to be data holders are exempt from P2.8.
+
+    Matches:
+      - Pydantic `BaseModel` (direct or via `pydantic.BaseModel`)
+      - `TypedDict`, `NamedTuple`, `Protocol`, `Enum`, `IntEnum`, `StrEnum`, `Flag`
+      - Any `@dataclass`-decorated class (frozen or not — plain dataclasses
+        are idiomatic parameter-grouping DTOs in Python)
+    """
+    for base in cls.bases:
+        name = ""
+        if isinstance(base, ast.Name):
+            name = base.id
+        elif isinstance(base, ast.Attribute):
+            name = base.attr
+        if name in _DTO_BASE_NAMES or name.endswith("BaseModel"):
+            return True
+    return any(_is_dataclass(decorator) for decorator in cls.decorator_list)
+
+
+def _is_dataclass(decorator: ast.expr) -> bool:
+    """True for `@dataclass`, `@dataclass(...)`, or `dataclasses.dataclass` forms."""
+    target = decorator.func if isinstance(decorator, ast.Call) else decorator
+    if isinstance(target, ast.Name):
+        return target.id == "dataclass"
+    if isinstance(target, ast.Attribute):
+        return target.attr == "dataclass"
+    return False
 
 
 @register("P2.9")
