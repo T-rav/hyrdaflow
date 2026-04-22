@@ -190,6 +190,78 @@ Return ONLY the JSON array, no other text.
 
 
 # ---------------------------------------------------------------------------
+# ADR draft suggestion parser
+# ---------------------------------------------------------------------------
+
+_ADR_DRAFT_HEADER_RE = re.compile(r"^ADR_DRAFT_SUGGESTION:\s*$", re.MULTILINE)
+
+
+def parse_adr_draft_suggestion(transcript: str) -> dict | None:
+    """Parse an ADR_DRAFT_SUGGESTION block from a transcript.
+
+    Returns a dict with keys: title, context, decision, consequences,
+    evidence_issues (list[int]), evidence_wiki_entries (list[str]).
+    Returns None when no block is found or parsing fails.
+    """
+    header = _ADR_DRAFT_HEADER_RE.search(transcript)
+    if header is None:
+        return None
+
+    tail = transcript[header.end() :]
+    fields: dict[str, str | list] = {
+        "title": "",
+        "context": "",
+        "decision": "",
+        "consequences": "",
+        "evidence_issues": [],
+        "evidence_wiki_entries": [],
+    }
+    current_key: str | None = None
+    in_evidence = False
+    for line in tail.split("\n"):
+        if not line.strip():
+            if current_key in {"title"}:
+                current_key = None
+            continue
+        stripped = line.rstrip()
+        # Field heading like "title: Foo"
+        m = re.match(
+            r"^(title|context|decision|consequences|evidence):\s*(.*)$", stripped
+        )
+        if m:
+            key = m.group(1)
+            rest = m.group(2).strip()
+            if key == "evidence":
+                in_evidence = True
+                current_key = None
+                continue
+            in_evidence = False
+            current_key = key
+            fields[key] = rest
+            continue
+
+        if in_evidence:
+            sm = re.match(r"^\s*-\s*issue:\s*(\d+)\s*$", stripped)
+            if sm:
+                fields["evidence_issues"].append(int(sm.group(1)))
+                continue
+            sm = re.match(r"^\s*-\s*wiki_entry:\s*([0-9A-Z]{26})\s*$", stripped)
+            if sm:
+                fields["evidence_wiki_entries"].append(sm.group(1))
+                continue
+            # End of evidence list (non-bullet line that isn't indented)
+            if not line.startswith((" ", "\t")):
+                in_evidence = False
+
+        if current_key and line.startswith("  "):
+            fields[current_key] = (fields[current_key] + " " + stripped.strip()).strip()
+
+    if not fields["title"]:
+        return None
+    return fields
+
+
+# ---------------------------------------------------------------------------
 # Compiler
 # ---------------------------------------------------------------------------
 
