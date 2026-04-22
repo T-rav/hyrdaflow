@@ -14,4 +14,5 @@ from . import (
     p6_agents,  # noqa: F401
     p7_observability,  # noqa: F401
     p8_superpowers,  # noqa: F401
+    p9_persistence,  # noqa: F401
 )
