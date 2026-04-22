@@ -336,9 +336,7 @@ class MergeConflictResolver:
             verify = await self._agents._verify_result(new_wt, pr.branch)
             if verify.passed:
                 await self._maybe_summarize_conflict(transcript, issue.id, pr.number)
-                from pr_manager import PRManager  # pure-function helper; not an IO port
-
-                expected_title = PRManager.expected_pr_title(issue.id, issue.title)
+                expected_title = self._prs.expected_pr_title(issue.id, issue.title)
                 await self._prs.update_pr_title(pr.number, expected_title)
                 logger.info("Fresh branch rebuild succeeded for PR #%d", pr.number)
                 return True

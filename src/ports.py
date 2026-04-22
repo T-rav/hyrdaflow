@@ -288,9 +288,10 @@ class PRPort(Protocol):
         """Return whether *branch* has commits ahead of configured main branch."""
         ...
 
-    # NOTE: `PRManager.expected_pr_title` is a pure function, not an IO
-    # operation, so it deliberately does *not* belong on the port. Call it
-    # directly via ``from pr_manager import PRManager`` at the use site.
+    @staticmethod
+    def expected_pr_title(issue_number: int, issue_title: str) -> str:
+        """Return the canonical PR title for an issue: ``Fixes #N: <title>``."""
+        ...
 
     async def update_pr_title(self, pr_number: int, title: str) -> bool:
         """Update the title of an existing PR. Returns True on success."""
