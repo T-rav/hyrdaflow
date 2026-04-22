@@ -2020,9 +2020,14 @@ def _resolve_base_paths(config: HydraFlowConfig) -> None:
         object.__setattr__(
             config, "workspace_base", config.workspace_base.expanduser().resolve()
         )
-    env_home = os.environ.get("HYDRAFLOW_HOME", "").strip()
-    if env_home:
-        data_root = Path(env_home).expanduser().resolve()
+    # HYDRAFLOW_DATA_ROOT is the canonical override; HYDRAFLOW_HOME is kept
+    # as a legacy alias so existing deployments continue to work.
+    env_data_root = (
+        os.environ.get("HYDRAFLOW_DATA_ROOT", "").strip()
+        or os.environ.get("HYDRAFLOW_HOME", "").strip()
+    )
+    if env_data_root:
+        data_root = Path(env_data_root).expanduser().resolve()
     elif config.data_root == Path("."):
         data_root = (config.repo_root / ".hydraflow").resolve()
     else:
