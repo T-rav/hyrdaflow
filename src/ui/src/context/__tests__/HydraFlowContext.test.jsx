@@ -41,7 +41,6 @@ const initialState = {
   pipelinePollerLastRun: null,
   sessions: [],
   currentSessionId: null,
-  selectedSessionId: null,
   selectedRepoSlug: null,
   supervisedRepos: [],
   selectedRepoSlugRaw: null,
@@ -1551,39 +1550,6 @@ describe('SESSIONS reducer', () => {
   })
 })
 
-describe('SELECT_SESSION reducer', () => {
-  it('sets selectedSessionId', () => {
-    const result = reducer(initialState, {
-      type: 'SELECT_SESSION',
-      data: { sessionId: 'sess-123' },
-    })
-    expect(result.selectedSessionId).toBe('sess-123')
-  })
-
-  it('clears selectedSessionId when null', () => {
-    const state = { ...initialState, selectedSessionId: 'sess-123' }
-    const result = reducer(state, {
-      type: 'SELECT_SESSION',
-      data: { sessionId: null },
-    })
-    expect(result.selectedSessionId).toBeNull()
-  })
-
-  it('does not reset sessions or currentSessionId', () => {
-    const state = {
-      ...initialState,
-      sessions: [{ id: 's1', repo: 'a/b' }],
-      currentSessionId: 's1',
-    }
-    const result = reducer(state, {
-      type: 'SELECT_SESSION',
-      data: { sessionId: 's1' },
-    })
-    expect(result.sessions).toHaveLength(1)
-    expect(result.currentSessionId).toBe('s1')
-  })
-})
-
 describe('SELECT_REPO reducer', () => {
   it('normalizes owner/repo slugs for filtering', () => {
     const result = reducer(initialState, {
@@ -1592,7 +1558,6 @@ describe('SELECT_REPO reducer', () => {
     })
     expect(result.selectedRepoSlug).toBe('8thlight-insightmesh')
      expect(result.selectedRepoSlugRaw).toBe('8thlight/insightmesh')
-    expect(result.selectedSessionId).toBeNull()
   })
 
   it('clears raw slug when deselecting', () => {

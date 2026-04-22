@@ -102,30 +102,6 @@ class TestGetSessionCorruptLines:
         assert tracker.get_session("any-id") is None
 
 
-class TestDeleteSessionCorruptLines:
-    """Verify delete_session skips corrupt JSONL lines with debug logging."""
-
-    def test_skips_corrupt_line_deletes_target(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Corrupt lines are skipped; the target session is still deleted."""
-        import logging
-
-        tracker = make_tracker(tmp_path)
-        session = _make_session("sess-3")
-        sessions_path = tracker._sessions_path
-        _write_sessions(
-            sessions_path,
-            ["corrupt garbage", session.model_dump_json()],
-        )
-
-        with caplog.at_level(logging.DEBUG, logger="hydraflow.state"):
-            deleted = tracker.delete_session("sess-3")
-
-        assert deleted is True
-        assert "Skipping corrupt session line" in caplog.text
-
-
 class TestPruneSessionsCorruptLines:
     """Verify prune_sessions skips corrupt JSONL lines with debug logging."""
 

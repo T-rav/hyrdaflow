@@ -1,9 +1,8 @@
 """Regression test for issue #6454.
 
 Bug: DoltBackend constructs SQL by manual string escaping.  Several methods
-(add_to_dedup_set, save_session repo param, get_session, delete_session,
-load_sessions) only escape single-quotes via .replace("'", "''") but do NOT
-escape backslashes.
+(add_to_dedup_set, save_session repo param, get_session, load_sessions) only
+escape single-quotes via .replace("'", "''") but do NOT escape backslashes.
 
 In MySQL/Dolt (default sql_mode without NO_BACKSLASH_ESCAPES), \\' is an
 escape sequence for a literal single-quote.  So a value containing a
@@ -21,10 +20,10 @@ Example with add_to_dedup_set("s", "x\\' bad"):
 
 from __future__ import annotations
 
-import pytest
-
 import sys
 from pathlib import Path
+
+import pytest
 
 SRC_ROOT = Path(__file__).resolve().parent.parent.parent / "src"
 sys.path.insert(0, str(SRC_ROOT))
@@ -51,7 +50,9 @@ class TestBackslashQuoteEscapingInSQL:
     quote but leave the backslash intact, producing \\' in the SQL literal
     which MySQL/Dolt interprets as an escaped quote."""
 
-    @pytest.mark.xfail(reason="Regression for issue #6454 — fix not yet landed", strict=False)
+    @pytest.mark.xfail(
+        reason="Regression for issue #6454 — fix not yet landed", strict=False
+    )
     def test_add_to_dedup_set_escapes_backslash(self, tmp_path: Path) -> None:
         """add_to_dedup_set: value with \\' must have the backslash escaped.
 
@@ -75,7 +76,9 @@ class TestBackslashQuoteEscapingInSQL:
             f"SQL injection / corruption risk.\n  Generated SQL: {sql!r}"
         )
 
-    @pytest.mark.xfail(reason="Regression for issue #6454 — fix not yet landed", strict=False)
+    @pytest.mark.xfail(
+        reason="Regression for issue #6454 — fix not yet landed", strict=False
+    )
     def test_save_session_repo_escapes_backslash(self, tmp_path: Path) -> None:
         """save_session: repo param with \\' must have the backslash escaped.
 
@@ -96,7 +99,9 @@ class TestBackslashQuoteEscapingInSQL:
             f"SQL corruption risk.\n  Generated SQL: {sql!r}"
         )
 
-    @pytest.mark.xfail(reason="Regression for issue #6454 — fix not yet landed", strict=False)
+    @pytest.mark.xfail(
+        reason="Regression for issue #6454 — fix not yet landed", strict=False
+    )
     def test_get_session_escapes_backslash_in_id(self, tmp_path: Path) -> None:
         """get_session: session_id with \\' must have the backslash escaped.
 
@@ -115,26 +120,9 @@ class TestBackslashQuoteEscapingInSQL:
             f"SQL corruption risk.\n  Generated SQL: {sql!r}"
         )
 
-    @pytest.mark.xfail(reason="Regression for issue #6454 — fix not yet landed", strict=False)
-    def test_delete_session_escapes_backslash_in_id(self, tmp_path: Path) -> None:
-        """delete_session: session_id with \\' must have the backslash escaped.
-
-        BUG: escaped uses only .replace("'", "''").
-        """
-        backend = _make_backend(tmp_path)
-        captured: list[str] = []
-        backend._sql_exec = captured.append
-
-        session_id = f"sess{BACKSLASH_QUOTE}id"
-        backend.delete_session(session_id)
-
-        sql = captured[0]
-        assert "\\\\''" in sql, (
-            f"delete_session does not escape backslash in session_id — "
-            f"SQL corruption risk.\n  Generated SQL: {sql!r}"
-        )
-
-    @pytest.mark.xfail(reason="Regression for issue #6454 — fix not yet landed", strict=False)
+    @pytest.mark.xfail(
+        reason="Regression for issue #6454 — fix not yet landed", strict=False
+    )
     def test_load_sessions_repo_escapes_backslash(self, tmp_path: Path) -> None:
         """load_sessions: repo filter with \\' must have the backslash escaped.
 
@@ -158,7 +146,9 @@ class TestSQLInjectionViaBackslashQuote:
     """Demonstrate that a crafted backslash-quote payload can break out of
     the SQL string literal and inject arbitrary SQL."""
 
-    @pytest.mark.xfail(reason="Regression for issue #6454 — fix not yet landed", strict=False)
+    @pytest.mark.xfail(
+        reason="Regression for issue #6454 — fix not yet landed", strict=False
+    )
     def test_add_to_dedup_set_injection_payload(self, tmp_path: Path) -> None:
         """A value like  x\\'; DROP TABLE sessions; --  must NOT produce
         executable SQL after the value literal.

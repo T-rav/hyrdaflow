@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from events import EventBus
-from models import SessionStatus
 from tests.helpers import find_endpoint, make_dashboard_router
 
 # ---------------------------------------------------------------------------
@@ -358,69 +357,6 @@ class TestRequestChangesEndpoint:
         assert state.get_hitl_origin(7) == config.planner_label[0]
 
         pr_mgr.swap_pipeline_labels.assert_awaited_once_with(7, config.hitl_label[0])
-
-
-class TestDeleteSessionEndpoint:
-    """Tests for DELETE /api/sessions/{session_id}."""
-
-    @pytest.mark.asyncio
-    async def test_delete_session_success(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        from models import SessionLog
-
-        state.save_session(
-            SessionLog(
-                id="s1",
-                repo="org/repo",
-                started_at="2024-01-01T00:00:00",
-                status=SessionStatus.COMPLETED,
-            )
-        )
-        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
-        delete_endpoint = find_endpoint(
-            router, "/api/sessions/{session_id}", method="DELETE"
-        )
-        assert delete_endpoint is not None
-        response = await delete_endpoint("s1")
-        data = json.loads(response.body)
-        assert data["status"] == "ok"
-
-    @pytest.mark.asyncio
-    async def test_delete_session_not_found(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
-        delete_endpoint = find_endpoint(
-            router, "/api/sessions/{session_id}", method="DELETE"
-        )
-        assert delete_endpoint is not None
-        response = await delete_endpoint("nonexistent")
-        assert response.status_code == 404
-
-    @pytest.mark.asyncio
-    async def test_delete_active_session_returns_400(
-        self, config, event_bus, state, tmp_path
-    ) -> None:
-        from models import SessionLog
-
-        state.save_session(
-            SessionLog(
-                id="active-s",
-                repo="org/repo",
-                started_at="2024-01-01T00:00:00",
-                status=SessionStatus.ACTIVE,
-            )
-        )
-        router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
-        delete_endpoint = find_endpoint(
-            router, "/api/sessions/{session_id}", method="DELETE"
-        )
-        assert delete_endpoint is not None
-        response = await delete_endpoint("active-s")
-        assert response.status_code == 400
-        data = json.loads(response.body)
-        assert "active" in data["error"].lower()
 
 
 # ---------------------------------------------------------------------------

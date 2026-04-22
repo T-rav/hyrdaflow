@@ -212,17 +212,17 @@ class TestSessionPersistence:
         assert result.status == "completed"
         assert result.ended_at == "2024-03-15T15:00:00+00:00"
 
-    def test_corrupt_lines_logged_in_delete_and_prune(
+    def test_corrupt_lines_logged_in_prune(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Corrupt JSONL lines produce warning logs in delete/prune paths."""
+        """Corrupt JSONL lines produce warning logs in the prune path."""
         tracker = make_state(tmp_path)
         sessions_file = tmp_path / "sessions.jsonl"
         s1 = make_session(id="valid", status=SessionStatus.COMPLETED)
         with open(sessions_file, "w") as f:
             f.write("{ corrupt line }\n")
             f.write(s1.model_dump_json() + "\n")
-        tracker.delete_session("valid")
+        tracker.prune_sessions(s1.repo, max_keep=0)
         assert "Skipping corrupt session line" in caplog.text
 
     def test_corrupt_lines_are_skipped(self, tmp_path: Path) -> None:
@@ -331,94 +331,6 @@ class TestSessionPruning:
 
 
 # ---------------------------------------------------------------------------
-# Session Deletion
-# ---------------------------------------------------------------------------
-
-
-class TestSessionDeletion:
-    def test_delete_completed_session(self, tmp_path: Path) -> None:
-        tracker = make_state(tmp_path)
-        s1 = make_session(
-            id="s1", status=SessionStatus.COMPLETED, started_at="2024-01-01T00:00:00"
-        )
-        s2 = make_session(
-            id="s2", status=SessionStatus.COMPLETED, started_at="2024-01-02T00:00:00"
-        )
-        tracker.save_session(s1)
-        tracker.save_session(s2)
-        result = tracker.delete_session("s1")
-        assert result is True
-        sessions = tracker.load_sessions()
-        assert len(sessions) == 1
-        assert sessions[0].id == "s2"
-
-    def test_delete_nonexistent_returns_false(self, tmp_path: Path) -> None:
-        tracker = make_state(tmp_path)
-        tracker.save_session(make_session(id="s1", status=SessionStatus.COMPLETED))
-        result = tracker.delete_session("nonexistent")
-        assert result is False
-
-    def test_delete_active_session_raises(self, tmp_path: Path) -> None:
-        tracker = make_state(tmp_path)
-        tracker.save_session(make_session(id="s1", status=SessionStatus.ACTIVE))
-        with pytest.raises(ValueError, match="Cannot delete active session"):
-            tracker.delete_session("s1")
-
-    def test_delete_returns_false_when_no_file(self, tmp_path: Path) -> None:
-        tracker = make_state(tmp_path)
-        result = tracker.delete_session("anything")
-        assert result is False
-
-    def test_delete_preserves_other_sessions(self, tmp_path: Path) -> None:
-        tracker = make_state(tmp_path)
-        for i in range(3):
-            tracker.save_session(
-                make_session(
-                    id=f"s{i}",
-                    status=SessionStatus.COMPLETED,
-                    started_at=f"2024-01-0{i + 1}T00:00:00",
-                )
-            )
-        tracker.delete_session("s1")
-        sessions = tracker.load_sessions()
-        assert len(sessions) == 2
-        ids = {s.id for s in sessions}
-        assert ids == {"s0", "s2"}
-
-    def test_delete_deduplicates_before_removal(self, tmp_path: Path) -> None:
-        """Session saved twice (start + end) should be fully removed."""
-        tracker = make_state(tmp_path)
-        session = make_session(id="s1", status=SessionStatus.ACTIVE)
-        tracker.save_session(session)
-        session.status = SessionStatus.COMPLETED
-        session.ended_at = "2024-03-15T15:00:00+00:00"
-        tracker.save_session(session)
-
-        result = tracker.delete_session("s1")
-        assert result is True
-        sessions = tracker.load_sessions()
-        assert len(sessions) == 0
-
-    def test_delete_persists_across_reload(self, tmp_path: Path) -> None:
-        tracker = make_state(tmp_path)
-        tracker.save_session(make_session(id="s1", status=SessionStatus.COMPLETED))
-        tracker.save_session(
-            make_session(
-                id="s2",
-                status=SessionStatus.COMPLETED,
-                started_at="2024-01-02T00:00:00",
-            )
-        )
-        tracker.delete_session("s1")
-
-        # Reload from fresh tracker
-        tracker2 = make_state(tmp_path)
-        sessions = tracker2.load_sessions()
-        assert len(sessions) == 1
-        assert sessions[0].id == "s2"
-
-
-# ---------------------------------------------------------------------------
 # Config validation
 # ---------------------------------------------------------------------------
 
@@ -513,26 +425,6 @@ class TestNarrowedExceptionHandling:
 
         assert result is not None
         assert result.id == "target"
-        assert "Skipping corrupt session line" in caplog.text
-
-    def test_delete_session_logs_debug_for_corrupt_lines(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """delete_session should log debug for corrupt lines."""
-        import logging
-
-        tracker = make_state(tmp_path)
-        sessions_file = tmp_path / "sessions.jsonl"
-        sessions_file.parent.mkdir(parents=True, exist_ok=True)
-        valid = make_session(id="s1", status=SessionStatus.COMPLETED)
-        with open(sessions_file, "w") as f:
-            f.write("corrupt\n")
-            f.write(valid.model_dump_json() + "\n")
-
-        with caplog.at_level(logging.DEBUG, logger="hydraflow.state"):
-            result = tracker.delete_session("s1")
-
-        assert result is True
         assert "Skipping corrupt session line" in caplog.text
 
     def test_prune_sessions_logs_debug_for_corrupt_lines(

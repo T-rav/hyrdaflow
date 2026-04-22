@@ -1898,24 +1898,6 @@ def create_router(
         data["events"] = session_events
         return JSONResponse(data)
 
-    @router.delete("/api/sessions/{session_id}")
-    async def delete_session(
-        session_id: str,
-        repo: RepoSlugParam = None,
-    ) -> JSONResponse:
-        """Delete a session by ID. Returns 400 if active, 404 if not found."""
-        _cfg, _state, _bus, _get_orch = _resolve_runtime(repo)
-        try:
-            deleted = _state.delete_session(session_id)
-        except ValueError as exc:
-            logger.warning("Failed to delete session %s: %s", session_id, exc)
-            return JSONResponse(
-                {"error": "Cannot delete active session"}, status_code=400
-            )
-        if not deleted:
-            return JSONResponse({"error": "Session not found"}, status_code=404)
-        return JSONResponse({"status": "ok"})
-
     @router.websocket("/ws")
     async def websocket_endpoint(ws: WebSocket) -> None:
         """Stream event history then live events over a WebSocket connection."""

@@ -225,15 +225,6 @@ class DoltBackend:
         ):
             return None
 
-    def delete_session(self, session_id: str) -> bool:
-        """Delete a session. Returns True if a row was deleted."""
-        escaped = session_id.replace("\\", "\\\\").replace("'", "''")
-        try:
-            self._sql_exec(f"DELETE FROM sessions WHERE session_id = '{escaped}';")  # nosec B608
-            return True
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            return False
-
     # --- Dedup sets (replaces JSON array files) ---
 
     def get_dedup_set(self, set_name: str) -> set[str]:

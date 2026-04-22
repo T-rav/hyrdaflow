@@ -1,585 +1,142 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen } from '@testing-library/react'
 
-const mockUseHydraFlow = vi.fn()
+const mockContext = {
+  sessions: [],
+  currentSessionId: null,
+  selectedRepoSlug: null,
+  stageStatus: null,
+  orchestratorStatus: 'stopped',
+  selectRepo: vi.fn(),
+  supervisedRepos: [],
+  runtimes: [],
+  startRuntime: vi.fn(),
+  stopRuntime: vi.fn(),
+  removeRepoShortcut: vi.fn(),
+}
 
 vi.mock('../../context/HydraFlowContext', () => ({
-  useHydraFlow: (...args) => mockUseHydraFlow(...args),
+  useHydraFlow: () => mockContext,
 }))
 
 const { SessionSidebar } = await import('../SessionSidebar')
 
-function defaultContext(overrides = {}) {
-  return {
-    sessions: [],
-    currentSessionId: null,
-    selectedSessionId: null,
-    selectedRepoSlug: null,
-    orchestratorStatus: 'idle',
-    stageStatus: { workload: { total: 0, active: 0, done: 0, failed: 0 } },
-    selectSession: vi.fn(),
-    selectRepo: vi.fn(),
-    deleteSession: vi.fn(),
-    supervisedRepos: [],
-    runtimes: [],
-    startRuntime: vi.fn(),
-    stopRuntime: vi.fn(),
-    addRepoByPath: vi.fn(),
-    removeRepoShortcut: vi.fn(),
-    ...overrides,
-  }
-}
-
-beforeEach(() => {
-  mockUseHydraFlow.mockReturnValue(defaultContext())
-})
-
-const SESSION_A = {
-  id: 'org-repo-20240315T142530',
-  repo: 'org/repo',
-  started_at: '2024-03-15T14:25:30+00:00',
-  ended_at: '2024-03-15T15:00:00+00:00',
-  issues_processed: [1, 2, 3],
-  issues_succeeded: 2,
-  issues_failed: 1,
-  status: 'completed',
-}
-
-const SESSION_B = {
-  id: 'org-repo-20240316T100000',
-  repo: 'org/repo',
-  started_at: '2024-03-16T10:00:00+00:00',
-  ended_at: null,
-  issues_processed: [],
-  issues_succeeded: 0,
-  issues_failed: 0,
-  status: 'active',
-}
-
-const SESSION_OTHER = {
-  id: 'other-repo-20240315T090000',
-  repo: 'other-org/other-repo',
-  started_at: '2024-03-15T09:00:00+00:00',
-  ended_at: '2024-03-15T09:30:00+00:00',
-  issues_processed: [10],
-  issues_succeeded: 1,
-  issues_failed: 0,
-  status: 'completed',
-}
-
-const SUPERVISED_REPO = {
-  slug: 'demo',
-  path: '/repos/demo',
-  running: true,
-}
-
-// ---------------------------------------------------------------------------
-// Empty state
-// ---------------------------------------------------------------------------
-
-describe('SessionSidebar with no sessions', () => {
-  it('renders "Sessions" header', () => {
-    render(<SessionSidebar />)
-    expect(screen.getByText('Sessions')).toBeDefined()
-  })
-
-  it('shows empty state message when no sessions', () => {
-    render(<SessionSidebar />)
-    expect(screen.getByText('No sessions yet')).toBeDefined()
-  })
-
-  it('does not show count badge when sessions is empty', () => {
-    render(<SessionSidebar />)
-    // count badge only appears if sessions.length > 0
-    expect(screen.queryByText('0')).toBeNull()
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Sessions rendering
-// ---------------------------------------------------------------------------
-
-describe('SessionSidebar with sessions', () => {
+describe('SessionSidebar last-run summary', () => {
   beforeEach(() => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ sessions: [SESSION_A, SESSION_B] })
-    )
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-22T12:00:00Z'))
+    mockContext.sessions = []
+    mockContext.supervisedRepos = []
+    mockContext.runtimes = []
+    mockContext.orchestratorStatus = 'stopped'
+    mockContext.stageStatus = null
+    mockContext.currentSessionId = null
   })
+  afterEach(() => { vi.useRealTimers() })
 
-  it('renders repo group header', () => {
+  it('shows "never run" for a repo with no sessions', () => {
+    mockContext.supervisedRepos = [{ slug: 'owner/alpha', path: '/p/alpha', running: false }]
     render(<SessionSidebar />)
-    expect(screen.getByText('org/repo')).toBeDefined()
+    expect(screen.getByText(/never run/i)).toBeInTheDocument()
   })
 
-  it('shows issue count pill for sessions with processed issues', () => {
+  it('shows "ran Xago · Yduration · N ✓ M ✗" for a completed session with failures', () => {
+    mockContext.supervisedRepos = [{ slug: 'owner/beta', path: '/p/beta', running: false }]
+    mockContext.sessions = [{
+      id: 'owner-beta-20260422T090000',
+      repo: 'owner/beta',
+      started_at: '2026-04-22T09:00:00Z',
+      ended_at: '2026-04-22T09:42:00Z',
+      status: 'completed',
+      issues_succeeded: 12,
+      issues_failed: 2,
+      issues_processed: [],
+    }]
     render(<SessionSidebar />)
-    // SESSION_A has 3 issues_processed
-    expect(screen.getByText('3')).toBeDefined()
+    expect(screen.getByText(/ran 2h ago · 42min · 12 ✓ 2 ✗/)).toBeInTheDocument()
   })
 
-  it('shows success count for sessions with successes', () => {
+  it('omits zero counts for a clean completed session', () => {
+    mockContext.supervisedRepos = [{ slug: 'owner/gamma', path: '/p/gamma', running: false }]
+    mockContext.sessions = [{
+      id: 'owner-gamma-20260422T103000',
+      repo: 'owner/gamma',
+      started_at: '2026-04-22T10:30:00Z',
+      ended_at: '2026-04-22T11:00:00Z',
+      status: 'completed',
+      issues_succeeded: 0,
+      issues_failed: 0,
+      issues_processed: [],
+    }]
     render(<SessionSidebar />)
-    // SESSION_A has 2 successes
-    expect(screen.getByText('2✓')).toBeDefined()
+    expect(screen.getByText(/ran 1h ago · 30min$/)).toBeInTheDocument()
+    expect(screen.queryByText(/✓|✗/)).toBeNull()
   })
 
-  it('shows fail count for sessions with failures', () => {
+  it('shows "running · duration · N ✓" when session is active and runtime is running', () => {
+    mockContext.orchestratorStatus = 'running'
+    mockContext.supervisedRepos = [{ slug: 'owner/delta', path: '/p/delta', running: true }]
+    mockContext.runtimes = [{ slug: 'owner/delta', running: true }]
+    mockContext.currentSessionId = 'owner-delta-20260422T115200'
+    mockContext.stageStatus = { workload: { done: 5, failed: 0 } }
+    mockContext.sessions = [{
+      id: 'owner-delta-20260422T115200',
+      repo: 'owner/delta',
+      started_at: '2026-04-22T11:52:00Z',
+      ended_at: null,
+      status: 'active',
+      issues_succeeded: 0,
+      issues_failed: 0,
+      issues_processed: [],
+    }]
     render(<SessionSidebar />)
-    // SESSION_A has 1 failure
-    expect(screen.getByText('1✗')).toBeDefined()
+    expect(screen.getByText(/running · 8min · 5 ✓/)).toBeInTheDocument()
   })
 
-  it('shows total session count badge in header', () => {
+  it('shows "last run ended" for an ACTIVE session whose runtime is stopped', () => {
+    mockContext.orchestratorStatus = 'stopped'
+    mockContext.supervisedRepos = [{ slug: 'owner/eps', path: '/p/eps', running: false }]
+    mockContext.runtimes = [{ slug: 'owner/eps', running: false }]
+    mockContext.sessions = [{
+      id: 'owner-eps-20260422T080000',
+      repo: 'owner/eps',
+      started_at: '2026-04-22T08:00:00Z',
+      ended_at: null,
+      status: 'active',
+      issues_succeeded: 0,
+      issues_failed: 0,
+      issues_processed: [],
+    }]
     render(<SessionSidebar />)
-    // Both header badge and repo count show '2', verify at least one exists
-    expect(screen.getAllByText('2').length).toBeGreaterThanOrEqual(1)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Multi-repo grouping
-// ---------------------------------------------------------------------------
-
-describe('SessionSidebar with multiple repos', () => {
-  beforeEach(() => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ sessions: [SESSION_A, SESSION_OTHER] })
-    )
+    expect(screen.getByText(/last run ended — 4h ago/)).toBeInTheDocument()
   })
 
-  it('renders both repo group headers', () => {
+  it('picks the latest session when the repo has multiple', () => {
+    mockContext.supervisedRepos = [{ slug: 'owner/zeta', path: '/p/zeta', running: false }]
+    mockContext.sessions = [
+      {
+        id: 'old',
+        repo: 'owner/zeta',
+        started_at: '2026-04-20T09:00:00Z',
+        ended_at: '2026-04-20T09:05:00Z',
+        status: 'completed',
+        issues_succeeded: 1,
+        issues_failed: 0,
+        issues_processed: [],
+      },
+      {
+        id: 'new',
+        repo: 'owner/zeta',
+        started_at: '2026-04-22T11:00:00Z',
+        ended_at: '2026-04-22T11:10:00Z',
+        status: 'completed',
+        issues_succeeded: 4,
+        issues_failed: 0,
+        issues_processed: [],
+      },
+    ]
     render(<SessionSidebar />)
-    expect(screen.getByText('org/repo')).toBeDefined()
-    expect(screen.getByText('other-org/other-repo')).toBeDefined()
-  })
-
-  it('renders add repo button and disconnect button per supervised repo', () => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({
-        sessions: [SESSION_A],
-        supervisedRepos: [{ slug: 'repo', path: 'org/repo', running: false }],
-      })
-    )
-    render(<SessionSidebar />)
-    expect(screen.getByLabelText('Disconnect repo')).toBeDefined()
-  })
-
-  it('does not render disconnect button for session-only repos', () => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ sessions: [SESSION_A] })
-    )
-    render(<SessionSidebar />)
-    expect(screen.queryByLabelText('Disconnect repo')).toBeNull()
-  })
-
-  it('merges session and supervised repo groups for owner/repo slugs', () => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({
-        sessions: [
-          {
-            ...SESSION_A,
-            repo: '8thlight/insightmesh',
-            id: '8thlight-insightmesh-20260303T120000',
-          },
-        ],
-        supervisedRepos: [
-          {
-            slug: '8thlight/insightmesh',
-            path: '/Users/travisf/Documents/projects/insightmesh',
-            running: true,
-          },
-        ],
-      }),
-    )
-    render(<SessionSidebar />)
-    expect(screen.getAllByText('8thlight/insightmesh')).toHaveLength(1)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Supervised repos fallback
-// ---------------------------------------------------------------------------
-
-describe('SessionSidebar supervised repo state', () => {
-  it('renders supervised repo even when no sessions exist', () => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ supervisedRepos: [SUPERVISED_REPO] })
-    )
-    render(<SessionSidebar />)
-    expect(screen.getByText('demo')).toBeDefined()
-    expect(screen.getByText('/repos/demo')).toBeDefined()
-  })
-
-  it('does not show per-repo Start/Stop buttons', () => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({
-        supervisedRepos: [{ ...SUPERVISED_REPO, running: false }],
-      })
-    )
-    render(<SessionSidebar />)
-    expect(screen.queryByText('Start')).toBeNull()
-    expect(screen.queryByText('Stop')).toBeNull()
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Selection
-// ---------------------------------------------------------------------------
-
-describe('SessionSidebar selection', () => {
-  it('clears repo filter when clicking selected repo header again', () => {
-    const selectRepo = vi.fn()
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({
-        sessions: [SESSION_A],
-        selectRepo,
-        selectedRepoSlug: 'org-repo',
-      })
-    )
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByText('org/repo'))
-    expect(selectRepo).toHaveBeenCalledWith(null)
-  })
-
-  it('calls selectSession with session id when clicking a session row', () => {
-    const selectSession = vi.fn()
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ sessions: [SESSION_A], selectSession })
-    )
-    render(<SessionSidebar />)
-    // session time is shown as relative text; click the row using test-id workaround
-    // The session row includes the relativeTime + meta; click anywhere in the list
-    const repoGroup = screen.getByText('org/repo')
-    // The session row is rendered after the repo group; find session-specific text
-    // Since SESSION_A has 3 issues and 2 succeeded, clicking the success count fires selectSession
-    fireEvent.click(screen.getByText('2✓'))
-    expect(selectSession).toHaveBeenCalledWith(SESSION_A.id)
-  })
-
-  it('calls selectRepo with raw slug when clicking repo header', () => {
-    const selectRepo = vi.fn()
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ sessions: [SESSION_A], selectRepo })
-    )
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByText('org/repo'))
-    expect(selectRepo).toHaveBeenCalledWith('org/repo')
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Repo collapse / expand
-// ---------------------------------------------------------------------------
-
-describe('SessionSidebar collapsible repo sections', () => {
-  beforeEach(() => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ sessions: [SESSION_A] })
-    )
-  })
-
-  it('sessions are visible when repo section is expanded (default)', () => {
-    render(<SessionSidebar />)
-    // Issue count pill for SESSION_A should be visible
-    expect(screen.getByText('3')).toBeDefined()
-  })
-
-  it('sessions are hidden after collapsing repo section', () => {
-    render(<SessionSidebar />)
-    // Click the repo expand/collapse arrow (not the RepoSelector chevron)
-    const arrows = screen.getAllByText('▾')
-    // The repo section arrow has the arrow style (width: 12px); find the right one
-    const repoArrow = arrows.find(el => el.style.width === '12px')
-    fireEvent.click(repoArrow)
-    // Issue count pill should no longer be in the DOM
-    expect(screen.queryByText('3')).toBeNull()
-  })
-
-  it('toggle arrow changes on collapse/expand', () => {
-    render(<SessionSidebar />)
-    // Find the repo section arrow (not the RepoSelector chevron)
-    const arrows = screen.getAllByText('▾')
-    const repoArrow = arrows.find(el => el.style.width === '12px')
-    expect(repoArrow).toBeDefined()
-    fireEvent.click(repoArrow)
-    // After collapse — right arrow
-    expect(screen.getByText('▸')).toBeDefined()
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Active session highlighting
-// ---------------------------------------------------------------------------
-
-describe('SessionSidebar active session state', () => {
-  it('currentSessionId is reflected (session with active status rendered)', () => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({
-        sessions: [SESSION_B],
-        currentSessionId: SESSION_B.id,
-        selectedSessionId: null,
-        orchestratorStatus: 'running',
-      })
-    )
-    render(<SessionSidebar />)
-    // Active session has status 'active' — no issue pill since issues_processed is empty
-    // The repo header should be visible
-    expect(screen.getByText('org/repo')).toBeDefined()
-  })
-
-  it('shows live success/fail counts for current active session', () => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({
-        sessions: [SESSION_B],
-        currentSessionId: SESSION_B.id,
-        orchestratorStatus: 'running',
-        stageStatus: { workload: { total: 9, active: 2, done: 4, failed: 1 } },
-      })
-    )
-    render(<SessionSidebar />)
-    expect(screen.getByText('4✓')).toBeDefined()
-    expect(screen.getByText('1✗')).toBeDefined()
-    // issue pill uses done+failed for live active session
-    expect(screen.getByText('5')).toBeDefined()
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Session naming: date/time instead of relative time
-// ---------------------------------------------------------------------------
-
-describe('SessionSidebar session naming', () => {
-  it('displays formatted date/time instead of relative time', () => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ sessions: [SESSION_A] })
-    )
-    render(<SessionSidebar />)
-    // Should show toLocaleString() output for the session's started_at
-    const expected = new Date(SESSION_A.started_at).toLocaleString()
-    expect(screen.getByText(expected)).toBeDefined()
-  })
-
-  it('does not show relative time strings', () => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ sessions: [SESSION_A] })
-    )
-    render(<SessionSidebar />)
-    // Relative time strings like "Xm ago", "Xh ago", "Xd ago" should not appear
-    expect(screen.queryByText(/\d+[mhd] ago/)).toBeNull()
-    expect(screen.queryByText('just now')).toBeNull()
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Repo slug in session row
-// ---------------------------------------------------------------------------
-
-describe('SessionSidebar repo slug display', () => {
-  it('shows short repo name in each session row', () => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ sessions: [SESSION_A] })
-    )
-    render(<SessionSidebar />)
-    // Short repo slug "repo" should appear in session row
-    expect(screen.getByText('repo')).toBeDefined()
-  })
-
-  it('shows short repo name for multi-segment repo', () => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ sessions: [SESSION_OTHER] })
-    )
-    render(<SessionSidebar />)
-    // Short slug for 'other-org/other-repo' is 'other-repo'
-    expect(screen.getByText('other-repo')).toBeDefined()
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Delete button
-// ---------------------------------------------------------------------------
-
-describe('SessionSidebar delete button', () => {
-  it('shows delete button on hover for completed session', () => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ sessions: [SESSION_A] })
-    )
-    render(<SessionSidebar />)
-    // Find the session row by its success count
-    const successEl = screen.getByText('2✓')
-    const sessionRow = successEl.closest('[style]')
-    // Simulate hover
-    fireEvent.mouseEnter(sessionRow)
-    expect(screen.getByLabelText('Delete session')).toBeDefined()
-  })
-
-  it('does not show delete button for active session', () => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({
-        sessions: [SESSION_B],
-        currentSessionId: SESSION_B.id,
-      })
-    )
-    render(<SessionSidebar />)
-    // SESSION_B is active — no delete button should exist
-    expect(screen.queryByLabelText('Delete session')).toBeNull()
-  })
-
-  it('calls deleteSession when clicking delete button', () => {
-    const deleteSession = vi.fn()
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ sessions: [SESSION_A], deleteSession })
-    )
-    render(<SessionSidebar />)
-    // Hover to reveal delete button
-    const successEl = screen.getByText('2✓')
-    const sessionRow = successEl.closest('[style]')
-    fireEvent.mouseEnter(sessionRow)
-    const deleteBtn = screen.getByLabelText('Delete session')
-    fireEvent.click(deleteBtn)
-    expect(deleteSession).toHaveBeenCalledWith(SESSION_A.id)
-  })
-
-  it('delete button click does not trigger selectSession', () => {
-    const selectSession = vi.fn()
-    const deleteSession = vi.fn()
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({ sessions: [SESSION_A], selectSession, deleteSession })
-    )
-    render(<SessionSidebar />)
-    const successEl = screen.getByText('2✓')
-    const sessionRow = successEl.closest('[style]')
-    fireEvent.mouseEnter(sessionRow)
-    const deleteBtn = screen.getByLabelText('Delete session')
-    // Reset selectSession calls (hovering may have triggered mouseEnter)
-    selectSession.mockClear()
-    fireEvent.click(deleteBtn)
-    // selectSession should not have been called by the click on the delete button
-    expect(selectSession).not.toHaveBeenCalled()
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Disconnect repo button ("−" per repo row)
-// ---------------------------------------------------------------------------
-
-describe('SessionSidebar disconnect repo button', () => {
-  it('renders disconnect button only for supervised repos', () => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({
-        sessions: [SESSION_A, SESSION_OTHER],
-        supervisedRepos: [
-          { slug: 'repo', path: 'org/repo', running: false },
-          { slug: 'other-repo', path: 'other-org/other-repo', running: false },
-        ],
-      })
-    )
-    render(<SessionSidebar />)
-    const btns = screen.getAllByLabelText('Disconnect repo')
-    expect(btns.length).toBe(2)
-  })
-
-  it('does not render disconnect button for session-only repos without supervised entry', () => {
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({
-        sessions: [SESSION_A, SESSION_OTHER],
-      })
-    )
-    render(<SessionSidebar />)
-    expect(screen.queryByLabelText('Disconnect repo')).toBeNull()
-  })
-
-  it('calls removeRepoShortcut when disconnect button is clicked on a stopped repo', () => {
-    const removeRepoShortcut = vi.fn()
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({
-        supervisedRepos: [{ ...SUPERVISED_REPO, running: false }],
-        removeRepoShortcut,
-      })
-    )
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Disconnect repo'))
-    expect(removeRepoShortcut).toHaveBeenCalledWith('demo')
-  })
-
-  it('shows confirmation before disconnecting a running repo', () => {
-    const removeRepoShortcut = vi.fn()
-    window.confirm = vi.fn(() => false)
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({
-        supervisedRepos: [SUPERVISED_REPO],
-        runtimes: [{ slug: 'demo', running: true }],
-        removeRepoShortcut,
-      })
-    )
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Disconnect repo'))
-    expect(window.confirm).toHaveBeenCalled()
-    // Declined — should not call removeRepoShortcut
-    expect(removeRepoShortcut).not.toHaveBeenCalled()
-  })
-
-  it('proceeds with disconnect when running repo confirmation is accepted', () => {
-    const removeRepoShortcut = vi.fn()
-    window.confirm = vi.fn(() => true)
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({
-        supervisedRepos: [SUPERVISED_REPO],
-        runtimes: [{ slug: 'demo', running: true }],
-        removeRepoShortcut,
-      })
-    )
-    render(<SessionSidebar />)
-    fireEvent.click(screen.getByLabelText('Disconnect repo'))
-    expect(window.confirm).toHaveBeenCalled()
-    expect(removeRepoShortcut).toHaveBeenCalledWith('demo')
-  })
-
-  it('disconnect click does not trigger selectRepo', () => {
-    const selectRepo = vi.fn()
-    const removeRepoShortcut = vi.fn()
-    mockUseHydraFlow.mockReturnValue(
-      defaultContext({
-        supervisedRepos: [{ ...SUPERVISED_REPO, running: false }],
-        selectRepo,
-        removeRepoShortcut,
-      })
-    )
-    render(<SessionSidebar />)
-    selectRepo.mockClear()
-    fireEvent.click(screen.getByLabelText('Disconnect repo'))
-    expect(selectRepo).not.toHaveBeenCalled()
-  })
-})
-
-// ---------------------------------------------------------------------------
-// RepoSelector in sidebar
-// ---------------------------------------------------------------------------
-
-describe('SessionSidebar contains RepoSelector', () => {
-  it('renders repo selector trigger in sidebar', () => {
-    render(<SessionSidebar />)
-    expect(screen.getByTestId('repo-selector-trigger')).toBeInTheDocument()
-  })
-
-  it('shows "All repos" label by default', () => {
-    render(<SessionSidebar />)
-    expect(screen.getByText('All repos')).toBeInTheDocument()
-  })
-
-  it('opens RegisterRepoDialog when "Register repo" is clicked from RepoSelector', async () => {
-    mockUseHydraFlow.mockReturnValue(defaultContext({
-      canRegisterRepos: true,
-      addRepoBySlug: vi.fn().mockResolvedValue({ ok: true }),
-      addRepoByPath: vi.fn().mockResolvedValue({ ok: true }),
-    }))
-    render(<SessionSidebar />)
-    // Open the dropdown
-    fireEvent.click(screen.getByTestId('repo-selector-trigger'))
-    // Click the register button inside the dropdown
-    fireEvent.click(screen.getByText('+ Register repo'))
-    // The RegisterRepoDialog should now be visible
-    await waitFor(() =>
-      expect(screen.getByTestId('register-repo-overlay')).toBeInTheDocument()
-    )
+    expect(screen.getByText(/ran 50m ago · 10min · 4 ✓/)).toBeInTheDocument()
+    expect(screen.queryByText(/· 1 ✓/)).toBeNull()
   })
 })

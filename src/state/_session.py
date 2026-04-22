@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from pydantic import ValidationError
 
 from file_util import atomic_write
-from models import SessionCounters, SessionLog, SessionStatus
+from models import SessionCounters, SessionLog
 
 if TYPE_CHECKING:
     from models import StateData
@@ -169,27 +169,6 @@ class SessionStateMixin:
         over the initial entry written at session start (status=active).
         """
         return self._load_sessions_deduped().get(session_id)
-
-    def delete_session(self, session_id: str) -> bool:
-        """Delete a single session by ID from sessions.jsonl.
-
-        Returns True if the session was found and deleted, False otherwise.
-        Raises ValueError if the session is currently active.
-        """
-        seen = self._load_sessions_deduped()
-        if not seen:
-            return False
-
-        target = seen.get(session_id)
-        if target is None:
-            return False
-        if target.status == SessionStatus.ACTIVE:
-            msg = f"Cannot delete active session {session_id}"
-            raise ValueError(msg)
-
-        del seen[session_id]
-        self._write_sessions(list(seen.values()))
-        return True
 
     def prune_sessions(self, repo: str, max_keep: int) -> None:
         """Remove oldest sessions for *repo* beyond *max_keep*.

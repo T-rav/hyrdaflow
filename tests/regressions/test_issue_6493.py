@@ -66,10 +66,12 @@ def backend(tmp_path: Path) -> DoltBackend:
 class TestRunExceptionType:
     """_run() must raise RuntimeError on non-zero exit, not CalledProcessError."""
 
-    @pytest.mark.xfail(reason="Regression for issue #6493 — fix not yet landed", strict=False)
+    @pytest.mark.xfail(
+        reason="Regression for issue #6493 — fix not yet landed", strict=False
+    )
     def test_run_raises_runtime_error_on_failure(self, backend: DoltBackend) -> None:
         """BUG (current): _run() calls result.check_returncode() which raises
-        subprocess.CalledProcessError.  Callers (e.g. load_state, delete_session)
+        subprocess.CalledProcessError.  Callers (e.g. load_state)
         catch CalledProcessError directly, but the pattern implies RuntimeError
         was intended.
 
@@ -85,7 +87,9 @@ class TestRunExceptionType:
             with pytest.raises(RuntimeError):
                 backend._run("status")
 
-    @pytest.mark.xfail(reason="Regression for issue #6493 — fix not yet landed", strict=False)
+    @pytest.mark.xfail(
+        reason="Regression for issue #6493 — fix not yet landed", strict=False
+    )
     def test_run_error_includes_stderr_in_message(self, backend: DoltBackend) -> None:
         """The RuntimeError message should include the stderr output for debugging."""
         with patch("dolt_backend.subprocess.run") as mock_run:
@@ -108,7 +112,9 @@ class TestBinaryRemovedAfterInit:
     """If dolt binary disappears after construction, _run() should raise
     FileNotFoundError, not TypeError from subprocess.run receiving None."""
 
-    @pytest.mark.xfail(reason="Regression for issue #6493 — fix not yet landed", strict=False)
+    @pytest.mark.xfail(
+        reason="Regression for issue #6493 — fix not yet landed", strict=False
+    )
     def test_none_dolt_raises_file_not_found_error(self, backend: DoltBackend) -> None:
         """BUG (current): setting _dolt to None (simulating binary removal)
         and calling _run() causes subprocess.run([None, ...]) which raises
@@ -130,7 +136,9 @@ class TestSchemaFileReadError:
     """_ensure_repo() must catch OSError from read_text() and re-raise as
     FileNotFoundError with the migrations path for diagnostics."""
 
-    @pytest.mark.xfail(reason="Regression for issue #6493 — fix not yet landed", strict=False)
+    @pytest.mark.xfail(
+        reason="Regression for issue #6493 — fix not yet landed", strict=False
+    )
     def test_permission_error_raises_file_not_found_with_path(
         self, tmp_path: Path
     ) -> None:
