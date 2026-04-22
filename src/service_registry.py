@@ -274,7 +274,10 @@ def build_services(
     repo_wiki_store = RepoWikiStore(
         wiki_root=config.data_path("repo_wiki"),
     )
+    from tribal_wiki import TribalWikiStore  # noqa: PLC0415
     from wiki_compiler import WikiCompiler  # noqa: PLC0415
+
+    tribal_wiki_store = TribalWikiStore(config.data_path("tribal"))
 
     wiki_compiler = WikiCompiler(
         config=config,
@@ -290,6 +293,7 @@ def build_services(
         wal=hindsight_wal,
         credentials=credentials,
         wiki_store=repo_wiki_store,
+        tribal_wiki_store=tribal_wiki_store,
     )
     planners = PlannerRunner(
         config,
@@ -298,6 +302,7 @@ def build_services(
         hindsight=hindsight_client,
         credentials=credentials,
         wiki_store=repo_wiki_store,
+        tribal_wiki_store=tribal_wiki_store,
     )
     researcher = ResearchRunner(
         config,
@@ -306,6 +311,7 @@ def build_services(
         hindsight=hindsight_client,
         credentials=credentials,
         wiki_store=repo_wiki_store,
+        tribal_wiki_store=tribal_wiki_store,
     )
     prs = PRManager(config, event_bus, credentials=credentials)
     reviewers = ReviewRunner(
@@ -315,6 +321,7 @@ def build_services(
         hindsight=hindsight_client,
         credentials=credentials,
         wiki_store=repo_wiki_store,
+        tribal_wiki_store=tribal_wiki_store,
     )
     hitl_runner = HITLRunner(
         config,
@@ -323,6 +330,7 @@ def build_services(
         hindsight=hindsight_client,
         credentials=credentials,
         wiki_store=repo_wiki_store,
+        tribal_wiki_store=tribal_wiki_store,
     )
     triage = TriageRunner(
         config,
@@ -331,6 +339,7 @@ def build_services(
         hindsight=hindsight_client,
         credentials=credentials,
         wiki_store=repo_wiki_store,
+        tribal_wiki_store=tribal_wiki_store,
     )
     summarizer = TranscriptSummarizer(
         config, prs, event_bus, state, runner=subprocess_runner, credentials=credentials
@@ -627,6 +636,8 @@ def build_services(
         update_bg_worker_status=callbacks.update_status,
         epic_manager=epic_manager,
         store=store,
+        wiki_store=repo_wiki_store,
+        wiki_compiler=wiki_compiler,
     )
     # ReviewInsightStore shared between AgentRunner and ReviewPhase
     review_insights = ReviewInsightStore(
@@ -781,6 +792,7 @@ def build_services(
         wiki_compiler=wiki_compiler,
         state=state,
         credentials=credentials,
+        tribal_store=tribal_wiki_store,
     )
     diagnostic_runner = DiagnosticRunner(config=config, event_bus=event_bus)
     diagnostic_loop = DiagnosticLoop(

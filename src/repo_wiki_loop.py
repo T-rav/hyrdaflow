@@ -15,6 +15,7 @@ from auto_pr import open_automated_pr_async
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import Credentials, HydraFlowConfig
 from events import EventType, HydraFlowEvent
+from knowledge_metrics import metrics as _metrics
 from repo_wiki import DEFAULT_TOPICS, RepoWikiStore, WikiEntry, active_lint_tracked
 from staleness import evaluate as evaluate_staleness
 from subprocess_util import run_subprocess
@@ -106,6 +107,7 @@ async def run_generalization_pass(
                         reason="promoted to tribal wiki",
                     )
                 result.promoted += 1
+                _metrics.increment("tribal_promotions")
 
                 if event_bus is not None:
                     event = HydraFlowEvent(

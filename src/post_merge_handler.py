@@ -12,6 +12,7 @@ from acceptance_criteria import AcceptanceCriteriaGenerator
 from config import HydraFlowConfig
 from epic import EpicCompletionChecker
 from events import EventBus, EventType, HydraFlowEvent
+from knowledge_metrics import metrics as _metrics
 
 if TYPE_CHECKING:
     from epic import EpicManager
@@ -85,6 +86,7 @@ async def _bridge_reflections_to_wiki(
                 event_bus=event_bus,
             )
         clear_reflections(config, issue_number)
+        _metrics.increment("reflections_bridged")
     except Exception:  # noqa: BLE001
         logger.warning(
             "reflection bridge failed for issue #%d; log kept for retry",
@@ -143,11 +145,15 @@ class PostMergeHandler:
         update_bg_worker_status: StatusCallback | None = None,
         epic_manager: EpicManager | None = None,
         store: IssueStorePort | None = None,
+        *,
+        wiki_store: RepoWikiStore | None = None,
+        wiki_compiler: WikiCompiler | None = None,
     ) -> None:
         self._config = config
         self._state = state
         self._prs = prs
         self._bus = event_bus
+        self._event_bus = event_bus  # Named exposure for reflection-bridge hook
         self._ac_generator = ac_generator
         self._retrospective = retrospective
         self._verification_judge = verification_judge
@@ -156,6 +162,8 @@ class PostMergeHandler:
         self._prompt_telemetry = PromptTelemetry(config)
         self._epic_manager = epic_manager
         self._store = store
+        self._wiki_store = wiki_store
+        self._wiki_compiler = wiki_compiler
 
     def _should_defer_merge(self, issue_number: int) -> bool:
         """Return True if merge should be deferred for bundled epic strategy."""
@@ -564,19 +572,16 @@ class PostMergeHandler:
                         exc_info=True,
                     )
 
-        if (
-            getattr(self, "_wiki_store", None) is not None
-            and getattr(self, "_wiki_compiler", None) is not None
-        ):
+        if self._wiki_store is not None and self._wiki_compiler is not None:
             await self._safe_hook(
                 "reflection bridge",
                 _bridge_reflections_to_wiki(
                     config=self._config,
                     issue_number=pr.issue_number,
                     repo=self._config.repo or "",
-                    store=getattr(self, "_wiki_store", None),
-                    compiler=getattr(self, "_wiki_compiler", None),
-                    event_bus=getattr(self, "_event_bus", None),
+                    store=self._wiki_store,
+                    compiler=self._wiki_compiler,
+                    event_bus=self._event_bus,
                 ),
                 pr.issue_number,
             )

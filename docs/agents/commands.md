@@ -58,3 +58,47 @@ make lint && make test
 # Before committing
 make quality
 ```
+
+## Hindsight recall — disable / re-enable
+
+Phase 3 PR 9 ships with `hindsight_recall_enabled=True` by default. To
+flip off during the 2-week observation window while validating that the
+wiki-based system catches everything Hindsight was catching:
+
+```bash
+export HYDRAFLOW_HINDSIGHT_RECALL_ENABLED=false
+```
+
+To re-enable (rollback):
+
+```bash
+unset HYDRAFLOW_HINDSIGHT_RECALL_ENABLED
+```
+
+Retains (writes to Hindsight) remain active — only reads are gated. The
+archive keeps accumulating so nothing is lost during the observation
+window.
+
+Metrics to watch on the dashboard (`/api/wiki/metrics`):
+
+- `wiki_entries_ingested` should climb at approximately the rate of
+  plan/implement/review cycles.
+- `wiki_supersedes` should be non-zero within a few days (proves the
+  contradiction detector is active).
+- `tribal_promotions` will be zero until ≥2 active target repos share
+  a principle (may stay zero indefinitely with only one managed repo).
+- `reflections_bridged` should increment once per target-repo issue
+  merge.
+- `adr_drafts_judged` / `adr_drafts_opened` are non-zero only when
+  agents have emitted `ADR_DRAFT_SUGGESTION` blocks.
+
+Also watch `/api/wiki/health` — `store: populated` and (with ≥2 repos)
+`tribal: populated` indicate the stores are being used.
+
+Issue auto-merge rate should be stable within ±10% of the pre-change
+baseline. Error rate should not change.
+
+If divergence or regressions appear, unset the env var and file an
+issue; do not proceed to the Hindsight deletion (Phase 3 PR 10) until
+the gap is understood.
+

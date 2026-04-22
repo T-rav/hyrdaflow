@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel
 
 from events import EventType, HydraFlowEvent
+from knowledge_metrics import metrics as _metrics
 from repo_wiki import WikiEntry, classify_topic
 from staleness import evaluate as evaluate_staleness
 
@@ -270,6 +271,7 @@ async def ingest_phase_output(
             f"ingest_phase_output entries must have unique ids; duplicate: {duplicates!r}"
         )
     ingest_result = store.ingest(repo, entries)
+    _metrics.increment("wiki_entries_ingested", len(entries))
     result = IngestWithContradictionsResult(
         entries_added=ingest_result.entries_added,
         entries_updated=ingest_result.entries_updated,
@@ -325,6 +327,7 @@ async def _emit_wiki_supersedes(
     reason: str,
 ) -> None:
     """Publish a WIKI_SUPERSEDES event. Swallows errors."""
+    _metrics.increment("wiki_supersedes")
     event = HydraFlowEvent(
         type=EventType.WIKI_SUPERSEDES,
         data={

@@ -333,3 +333,120 @@ class TestAdminEndpoints:
         )
         handler = find_endpoint(r, "/api/wiki/admin/run-now", "POST")
         assert handler()["status"] == "acknowledged"
+
+
+def test_get_wiki_metrics_returns_snapshot_including_counters():
+    """The metrics endpoint returns a JSON snapshot of all counters."""
+    from unittest.mock import MagicMock
+
+    from fastapi import APIRouter
+    from fastapi.testclient import TestClient
+
+    from dashboard_routes._wiki_routes import register
+    from knowledge_metrics import metrics
+
+    metrics.reset()
+    metrics.increment("wiki_supersedes", 3)
+    metrics.increment("tribal_promotions", 1)
+
+    router = APIRouter()
+    ctx = MagicMock()
+    ctx.get_orchestrator = lambda: None  # no running loop — not needed for /metrics
+    register(router, ctx)
+
+    # Build a test app
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    app.include_router(router)
+
+    client = TestClient(app)
+    resp = client.get("/api/wiki/metrics")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["wiki_supersedes"] == 3
+    assert body["tribal_promotions"] == 1
+    assert body["adr_drafts_opened"] == 0
+
+    metrics.reset()
+
+
+def test_get_wiki_health_reports_unconfigured_when_no_loop():
+    """When the orchestrator isn't running, health reports 'unconfigured'."""
+    from unittest.mock import MagicMock
+
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+
+    from dashboard_routes._wiki_routes import register
+
+    router = APIRouter()
+    ctx = MagicMock()
+    ctx.get_orchestrator = lambda: None
+    register(router, ctx)
+
+    app = FastAPI()
+    app.include_router(router)
+    resp = TestClient(app).get("/api/wiki/health")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["store"] == "unconfigured"
+    assert body["tribal"] == "unconfigured"
+
+
+def test_get_wiki_health_reports_populated_when_loop_has_stores(tmp_path):
+    """When the loop exposes wiki + tribal stores, health reports their status."""
+    from unittest.mock import MagicMock
+
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+
+    from dashboard_routes._wiki_routes import register
+    from repo_wiki import RepoWikiStore, WikiEntry
+    from tribal_wiki import TribalWikiStore
+
+    store = RepoWikiStore(tmp_path / "per")
+    store.ingest(
+        "acme/widget",
+        [
+            WikiEntry(
+                title="x",
+                content="y",
+                source_type="plan",
+                topic="patterns",
+            )
+        ],
+    )
+    tribal = TribalWikiStore(tmp_path / "tribal")
+    tribal.ingest(
+        [
+            WikiEntry(
+                title="z",
+                content="w",
+                source_type="librarian",
+                topic="patterns",
+            )
+        ]
+    )
+
+    loop = MagicMock()
+    loop._wiki_store = store
+    loop._tribal_store = tribal
+
+    orch = MagicMock()
+    orch._svc = MagicMock()
+    orch._svc.repo_wiki_loop = loop
+
+    router = APIRouter()
+    ctx = MagicMock()
+    ctx.get_orchestrator = lambda: orch
+    register(router, ctx)
+
+    app = FastAPI()
+    app.include_router(router)
+    resp = TestClient(app).get("/api/wiki/health")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["store"] == "populated"
+    assert body["repos"] == 1
+    assert body["tribal"] == "populated"

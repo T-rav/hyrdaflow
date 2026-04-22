@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
+from knowledge_metrics import metrics as _metrics
 from repo_wiki import WikiEntry
 
 _SYNTHESIS_ID_RE = re.compile(r"^(\d+)-")
@@ -606,6 +607,7 @@ class WikiCompiler:
         tribal: TribalWikiStore,
     ) -> ADRDraftDecision:
         """Evaluate the 4 gates for an ADR_DRAFT_SUGGESTION."""
+        _metrics.increment("adr_drafts_judged")
         decision = ADRDraftDecision()
 
         # Gate 1 — evidence list has ≥2 distinct issues

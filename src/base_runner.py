@@ -278,6 +278,9 @@ class BaseRunner:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
+            self._log.debug(
+                "_save_transcript called outside event loop — ADR-draft pipeline skipped"
+            )
             return
         loop.create_task(self._process_transcript_for_adr_draft(transcript))
 
@@ -344,7 +347,11 @@ class BaseRunner:
         dedup_items_removed = 0
         dedup_chars_saved = 0
 
-        if self._hindsight is not None and query_context:
+        if (
+            self._hindsight is not None
+            and query_context
+            and getattr(self._config, "hindsight_recall_enabled", True)
+        ):
             from hindsight import Bank, format_memories_as_markdown, recall_safe
 
             max_chars = self._config.max_memory_prompt_chars

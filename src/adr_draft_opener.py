@@ -13,6 +13,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from knowledge_metrics import metrics as _metrics
+
 if TYPE_CHECKING:
     from wiki_compiler import ADRDraftDecision
 
@@ -67,5 +69,6 @@ async def open_adr_draft_issue(
 
     if not isinstance(response, dict):
         return None
+    _metrics.increment("adr_drafts_opened")
     number = response.get("number")
     return int(number) if number is not None else None
