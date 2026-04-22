@@ -463,6 +463,38 @@ class TestWikiIndexModel:
         assert "patterns" in data["topics"]
 
 
+import re
+
+
+def test_wiki_entry_auto_generates_id():
+    e = WikiEntry(title="t", content="c", source_type="plan")
+    assert re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", e.id) is not None
+
+
+def test_wiki_entry_two_entries_get_distinct_ids():
+    a = WikiEntry(title="t", content="c", source_type="plan")
+    b = WikiEntry(title="t", content="c", source_type="plan")
+    assert a.id != b.id
+
+
+def test_wiki_entry_accepts_topic_and_source_repo():
+    e = WikiEntry(
+        title="t",
+        content="c",
+        source_type="plan",
+        topic="architecture",
+        source_repo="acme/widget",
+    )
+    assert e.topic == "architecture"
+    assert e.source_repo == "acme/widget"
+
+
+def test_wiki_entry_topic_and_source_repo_default_to_none():
+    e = WikiEntry(title="t", content="c", source_type="plan")
+    assert e.topic is None
+    assert e.source_repo is None
+
+
 class TestListReposLayoutCompat:
     """list_repos must accept both legacy (index.json) and new (index.md) layouts.
 

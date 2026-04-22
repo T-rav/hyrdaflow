@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
+from ulid import ULID
 
 if TYPE_CHECKING:
     from dedup_store import DedupStore
@@ -461,13 +462,25 @@ def active_lint_tracked(
 class WikiEntry(BaseModel):
     """A single knowledge entry within a topic page."""
 
+    id: str = Field(
+        default_factory=lambda: str(ULID()),
+        description="Stable ULID used for supersedes references",
+    )
     title: str = Field(description="Short summary of the insight")
     content: str = Field(description="Full explanation")
+    topic: str | None = Field(
+        default=None,
+        description="Which topic page this entry lives under (architecture/patterns/gotchas/testing/dependencies/harness)",
+    )
     source_type: str = Field(
-        description="Where the knowledge came from: plan, implement, review, hitl"
+        description="Where the knowledge came from: plan, implement, review, hitl, reflection, librarian, manual"
     )
     source_issue: int | None = Field(
         default=None, description="GitHub issue number, if applicable"
+    )
+    source_repo: str | None = Field(
+        default=None,
+        description="owner/repo slug, or 'global' for tribal entries",
     )
     created_at: str = Field(
         default_factory=lambda: datetime.now(UTC).isoformat(),
@@ -475,7 +488,10 @@ class WikiEntry(BaseModel):
     updated_at: str = Field(
         default_factory=lambda: datetime.now(UTC).isoformat(),
     )
-    stale: bool = Field(default=False, description="Flagged as potentially outdated")
+    stale: bool = Field(
+        default=False,
+        description="Flagged as potentially outdated (legacy; see superseded_by)",
+    )
 
 
 class WikiIndex(BaseModel):
