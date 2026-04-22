@@ -538,6 +538,7 @@ class LintResult(BaseModel):
     total_entries: int = 0
     entries_marked_stale: int = 0
     orphans_pruned: int = 0
+    review_candidates_flagged: int = 0  # stale + age > 90d (no longer pruned)
     index_rebuilt: bool = False
 
 
@@ -797,16 +798,15 @@ class RepoWikiStore:
 
                 if current.stale:
                     result.stale_entries += 1
-                    # Prune stale entries older than threshold
                     try:
                         created = datetime.fromisoformat(current.created_at)
                         age_days = (now - created).days
                     except (ValueError, TypeError):
                         age_days = 0
                     if age_days > _STALE_PRUNE_DAYS:
-                        result.orphans_pruned += 1
-                        topic_modified = True
-                        continue  # skip — don't keep this entry
+                        # Phase 1 change: flag as review candidate; do NOT prune.
+                        # Staleness is now content-based (superseded_by), not time-based.
+                        result.review_candidates_flagged += 1
 
                 new_entries.append(current)
 

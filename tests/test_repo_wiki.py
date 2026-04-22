@@ -328,7 +328,10 @@ class TestActiveLint:
         assert result.entries_marked_stale == 1
         assert result.stale_entries == 1
 
-    def test_prunes_old_stale_entries(self, store: RepoWikiStore) -> None:
+    def test_flags_old_stale_entries_instead_of_pruning(
+        self, store: RepoWikiStore
+    ) -> None:
+        # Phase 1: 90-day hard-prune replaced by review_candidates_flagged counter.
         store.ingest(
             REPO,
             [
@@ -342,7 +345,8 @@ class TestActiveLint:
             ],
         )
         result = store.active_lint(REPO)
-        assert result.orphans_pruned == 1
+        assert result.orphans_pruned == 0
+        assert result.review_candidates_flagged >= 1
 
     def test_preserves_fresh_stale_entries(self, store: RepoWikiStore) -> None:
         store.ingest(
@@ -634,3 +638,65 @@ def test_query_includes_current_entries(store):
     store.ingest(REPO, [current])
     out = store.query(REPO, topics=["patterns"])
     assert "current rule" in out
+
+
+def test_active_lint_does_not_prune_old_entries(store):
+    old_date = (datetime.now(UTC) - timedelta(days=120)).isoformat()
+    old_entry = WikiEntry(
+        title="ancient rule",
+        content="A",
+        source_type="plan",
+        topic="patterns",
+        created_at=old_date,
+        updated_at=old_date,
+        stale=True,  # stale marker set
+    )
+    store.ingest(REPO, [old_entry])
+
+    result = store.active_lint(REPO, closed_issues=set())
+    assert result.orphans_pruned == 0
+    # Entry is still on disk
+    topic_path = store._repo_dir(REPO) / "patterns.md"
+    entries = store._load_topic_entries(topic_path)
+    assert any(e.title == "ancient rule" for e in entries)
+
+
+def test_active_lint_still_marks_stale_when_source_issue_closed(store):
+    e = WikiEntry(
+        title="closed issue entry",
+        content="Architecture detail.",
+        source_type="plan",
+        topic="architecture",
+        source_issue=42,
+    )
+    store.ingest(REPO, [e])
+
+    result = store.active_lint(REPO, closed_issues={42})
+    assert result.entries_marked_stale == 1
+
+    # Find entry across all topic pages (classifier picks the actual topic)
+    repo_dir = store._repo_dir(REPO)
+    all_entries = []
+    for topic_file in repo_dir.glob("*.md"):
+        if topic_file.stem in ("index",):
+            continue
+        all_entries.extend(store._load_topic_entries(topic_file))
+    assert any(e.title == "closed issue entry" and e.stale for e in all_entries)
+
+
+def test_active_lint_flags_old_entries_in_result_but_keeps_them(store):
+    old_date = (datetime.now(UTC) - timedelta(days=120)).isoformat()
+    old_entry = WikiEntry(
+        title="ancient rule",
+        content="A",
+        source_type="plan",
+        topic="patterns",
+        created_at=old_date,
+        updated_at=old_date,
+        stale=True,
+    )
+    store.ingest(REPO, [old_entry])
+
+    result = store.active_lint(REPO, closed_issues=set())
+    # New semantics: report flagged count, do not prune
+    assert getattr(result, "review_candidates_flagged", 0) >= 1
