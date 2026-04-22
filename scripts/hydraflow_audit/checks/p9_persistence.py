@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -152,28 +153,29 @@ def _data_root_in_gitignore(ctx: CheckContext) -> Finding:
     )
 
 
-_WRITE_IN_SRC_RE = re.compile(r"\bopen\s*\(\s*[^,)]+,\s*['\"][wa]")
-
-
 @register("P9.8")
 def _no_writes_in_src(ctx: CheckContext) -> Finding:
+    """Flag only string-literal write paths under src/.
+
+    Variable paths are undecidable statically — they often derive from
+    `data_root` or config. A string literal `open("foo.txt", "w")` is the
+    unambiguous signal of a write outside the store abstractions.
+    """
     src = ctx.root / "src"
     if not src.is_dir():
         return finding("P9.8", Status.NA, "no src/")
     offenders: list[str] = []
     for py in src.rglob("*.py"):
-        text = py.read_text(encoding="utf-8", errors="replace")
-        for match in _WRITE_IN_SRC_RE.finditer(text):
-            # Filter out obvious data_root usage: if data_root / ... is in the
-            # open() call, skip.
-            excerpt = text[max(0, match.start() - 80) : match.end() + 20]
-            if (
-                "data_root" in excerpt
-                or "tmp" in excerpt.lower()
-                or "cache" in excerpt.lower()
-            ):
+        try:
+            tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
                 continue
-            offenders.append(f"{py.relative_to(ctx.root)}: {match.group(0).strip()}")
+            if not _is_literal_write_open(node):
+                continue
+            offenders.append(f"{py.relative_to(ctx.root)}:{node.lineno}")
             if len(offenders) >= 5:
                 break
         if len(offenders) >= 5:
@@ -183,5 +185,28 @@ def _no_writes_in_src(ctx: CheckContext) -> Finding:
     return finding(
         "P9.8",
         Status.WARN,
-        f"file opens in src/ may escape data_root: {'; '.join(offenders)}",
+        f"literal-path writes in src/: {'; '.join(offenders)}",
     )
+
+
+def _is_literal_write_open(node: ast.Call) -> bool:
+    """True for `open("literal", "w"|"a")` with a string-literal first arg."""
+    func = node.func
+    if not (isinstance(func, ast.Name) and func.id == "open"):
+        return False
+    if not node.args:
+        return False
+    first = node.args[0]
+    if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
+        return False
+    mode = ""
+    if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
+        value = node.args[1].value
+        if isinstance(value, str):
+            mode = value
+    for kw in node.keywords:
+        if kw.arg == "mode" and isinstance(kw.value, ast.Constant):
+            value = kw.value.value
+            if isinstance(value, str):
+                mode = value
+    return any(flag in mode for flag in ("w", "a", "x"))

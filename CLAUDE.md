@@ -44,3 +44,43 @@ Load the file relevant to your task before acting.
 | UI standards | [`docs/agents/ui-standards.md`](docs/agents/ui-standards.md) | Touching `ui/src/` |
 | Commands reference | [`docs/agents/commands.md`](docs/agents/commands.md) | Looking up a `make` target |
 | Architecture decisions | [`docs/adr/README.md`](docs/adr/README.md) | Understanding *why* something is the way it is |
+
+## Workflow — superpowers skills
+
+HydraFlow treats agent work as disciplined engineering. Default to the
+following skills; the priority order matches the `superpowers:using-superpowers`
+contract (process skills first, implementation skills second).
+
+| When | Skill |
+|------|-------|
+| Starting any creative work (feature, component, API) | `superpowers:brainstorming` |
+| Implementing any feature or bugfix | `superpowers:test-driven-development` — write the failing test first |
+| Hitting a bug, test failure, or unexpected behaviour | `superpowers:systematic-debugging` |
+| Multi-step changes that touch more than one file | `superpowers:writing-plans` |
+| Before declaring work complete or opening a PR | `superpowers:verification-before-completion` |
+| Before merging a significant change | `superpowers:requesting-code-review` |
+
+**TDD is the default**, not an escalation. Every feature and every bug fix
+lands through red → green → refactor; bug fixes land with a regression test
+in `tests/regressions/`. See [`docs/agents/testing.md`](docs/agents/testing.md)
+and ADR-0044 P10 for the full contract.
+
+## Domain vocabulary (ubiquitous language)
+
+The names below are load-bearing — they appear identically in code, docs,
+PRs, and conversation. If you catch yourself translating between "issue"
+and "task" or between "loop" and "worker," fix the drift instead of
+paraphrasing. See [`docs/agents/architecture.md`](docs/agents/architecture.md)
+for the full catalog.
+
+- `HydraFlowConfig` — the frozen configuration snapshot resolved at startup
+- `StateTracker` / `StateData` — persisted per-issue pipeline state
+- `EventBus` — in-process publish/subscribe wiring between phases
+- `SessionLog` — per-run transcript summary captured by runners
+- `ReviewResult` — structured outcome of a review phase pass
+- `BaseBackgroundLoop` — contract every caretaker/observer loop implements
+- `RepoWikiStore` — LLM-readable knowledge base per target repo
+- `PRPort` / `WorkspacePort` / `IssueStorePort` — hexagonal boundaries
+- `AgentRunner` / `PlannerRunner` / `ReviewRunner` — per-phase CLI subprocess drivers
+- `WorktreeManager` — git worktree lifecycle adapter behind `WorkspacePort`
+

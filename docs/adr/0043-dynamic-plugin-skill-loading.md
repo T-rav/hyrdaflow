@@ -60,7 +60,7 @@ Marketplace is expressed inline in `required_plugins` (`"name@marketplace"`), de
 
 **Host mode (2026-04-21):** probed by running `claude -p --output-format stream-json --verbose --permission-mode bypassPermissions --model claude-sonnet-4-6 --max-turns 3` with a prompt instructing the model to invoke `superpowers:systematic-debugging` via the `Skill` tool. Output stream included a `tool_use` event with `"name":"Skill","input":{"skill":"superpowers:systematic-debugging"}`, confirming the Skill tool is exposed in `-p` mode and routes to installed plugins discovered from `~/.claude/plugins/cache/`.
 
-**Docker mode (not separately probed):** `src/docker_runner.py:430-435` mounts the host's `~/.claude/` into the container at `/home/hydraflow/.claude/` (rw) and sets `CLAUDE_CONFIG_DIR=/home/hydraflow/.claude`. Claude's plugin discovery reads the same filesystem layout via that env var, so the host probe's conclusions extend to Docker subagents. Additional `--plugin-dir /opt/plugins/*` flags are emitted dynamically by `agent_cli._plugin_dir_flags()` (see test `tests/test_agent_cli_plugin_dirs.py`) for plugins pre-cloned at image build time.
+**Docker mode (not separately probed):** `src/docker_runner.py:_mount_claude_home` mounts the host's `~/.claude/` into the container at `/home/hydraflow/.claude/` (rw) and sets `CLAUDE_CONFIG_DIR=/home/hydraflow/.claude`. Claude's plugin discovery reads the same filesystem layout via that env var, so the host probe's conclusions extend to Docker subagents. Additional `--plugin-dir /opt/plugins/*` flags are emitted dynamically by `agent_cli._plugin_dir_flags()` (see test `tests/test_agent_cli_plugin_dirs.py`) for plugins pre-cloned at image build time.
 
 ## References
 

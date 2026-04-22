@@ -155,6 +155,13 @@ markers = [
     "scenario_loops: scenario tests exercising background loops (Tier B)",
     "scenario_browser: scenario tests driving the real dashboard via Playwright (Tier C)",
 ]
+# ADR-0044 P5.7: async lifecycle bugs manifest as RuntimeWarning or
+# PytestUnraisableExceptionWarning. Treat both as errors so CI fails red
+# instead of silently accumulating drift.
+filterwarnings = [
+    "error::RuntimeWarning",
+    "error::pytest.PytestUnraisableExceptionWarning",
+]
 
 [tool.coverage.run]
 source = ["src"]

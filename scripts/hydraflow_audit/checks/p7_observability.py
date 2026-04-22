@@ -184,19 +184,24 @@ def _is_bare_except_pass(handler: ast.ExceptHandler) -> bool:
     return len(handler.body) == 1 and isinstance(handler.body[0], ast.Pass)
 
 
-_BARE_VALUE_LOGGER_ERROR = re.compile(r"logger\.error\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)")
-
-
 @register("P7.5")
 def _logger_error_has_format(ctx: CheckContext) -> Finding:
+    """Use AST so matches inside string literals and comments don't count."""
     src = ctx.root / "src"
     if not src.is_dir():
         return finding("P7.5", Status.NA, "no src/ directory")
     offenders: list[str] = []
     for py in src.rglob("*.py"):
-        text = py.read_text(encoding="utf-8", errors="replace")
-        for match in _BARE_VALUE_LOGGER_ERROR.finditer(text):
-            offenders.append(f"{py.relative_to(ctx.root)}: {match.group(0)}")
+        try:
+            tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if not _is_bare_value_logger_error(node):
+                continue
+            offenders.append(f"{py.relative_to(ctx.root)}:{node.lineno}")
             if len(offenders) >= 5:
                 break
         if len(offenders) >= 5:
@@ -208,6 +213,18 @@ def _logger_error_has_format(ctx: CheckContext) -> Finding:
         Status.WARN,
         f"logger.error(value) without format string: {'; '.join(offenders)}",
     )
+
+
+def _is_bare_value_logger_error(node: ast.Call) -> bool:
+    """True for `logger.error(some_variable)` — no format string, no args."""
+    func = node.func
+    if not isinstance(func, ast.Attribute) or func.attr != "error":
+        return False
+    if not isinstance(func.value, ast.Name) or func.value.id != "logger":
+        return False
+    if len(node.args) != 1 or node.keywords:
+        return False
+    return isinstance(node.args[0], ast.Name)
 
 
 # ---------------------------------------------------------------------------

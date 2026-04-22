@@ -270,9 +270,10 @@ def _public_classes(path: Path) -> list[ast.ClassDef]:
 
 def _has_real_method(cls: ast.ClassDef) -> bool:
     for node in cls.body:
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            if not (node.name.startswith("__") and node.name.endswith("__")):
-                return True
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and not (
+            node.name.startswith("__") and node.name.endswith("__")
+        ):
+            return True
     return False
 
 

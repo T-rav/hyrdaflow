@@ -257,14 +257,28 @@ def test_integration_file_missing_fails(tmp_path: Path) -> None:
     assert _run("P3.18", _ctx(tmp_path)).status is Status.FAIL
 
 
+_PYPROJECT_WITH_OPTIONAL = (
+    '[project]\nname = "p"\nversion = "0"\n'
+    '[project.optional-dependencies]\nextras = ["httpx>=0.27"]\n'
+)
+
+
 def test_top_level_optional_import_warns(tmp_path: Path) -> None:
+    _write(tmp_path / "pyproject.toml", _PYPROJECT_WITH_OPTIONAL)
     _write(tmp_path / "tests" / "test_http.py", "import httpx\n\ndef test_x(): pass\n")
     assert _run("P3.19", _ctx(tmp_path)).status is Status.WARN
 
 
 def test_inline_optional_import_passes(tmp_path: Path) -> None:
+    _write(tmp_path / "pyproject.toml", _PYPROJECT_WITH_OPTIONAL)
     _write(
         tmp_path / "tests" / "test_http.py",
         "def test_x():\n    import httpx  # inline — fine\n    assert httpx\n",
     )
     assert _run("P3.19", _ctx(tmp_path)).status is Status.PASS
+
+
+def test_no_optional_deps_makes_check_na(tmp_path: Path) -> None:
+    _write(tmp_path / "pyproject.toml", '[project]\nname = "p"\nversion = "0"\n')
+    _write(tmp_path / "tests" / "test_http.py", "import httpx\n\ndef test_x(): pass\n")
+    assert _run("P3.19", _ctx(tmp_path)).status is Status.NA

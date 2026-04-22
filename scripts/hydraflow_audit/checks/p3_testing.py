@@ -309,14 +309,23 @@ def _integration_test_file(ctx: CheckContext) -> Finding:
     )
 
 
-_OPTIONAL_DEPS = ("httpx", "hindsight", "sentry_sdk")
-
-
 @register("P3.19")
 def _no_top_level_optional_imports_in_tests(ctx: CheckContext) -> Finding:
+    """Flag module-level imports of deps that aren't in `[project.dependencies]`.
+
+    An "optional" dep here is one the project itself marks as optional — via
+    `[project.optional-dependencies]` or any `[dependency-groups]` table —
+    rather than a fixed list. If pyproject declares no optional deps the
+    check is NA.
+    """
     tests_dir = ctx.root / "tests"
     if not tests_dir.is_dir():
         return finding("P3.19", Status.NA, "no tests/ directory")
+    optional = _discover_optional_deps(ctx.root)
+    if not optional:
+        return finding(
+            "P3.19", Status.NA, "pyproject.toml declares no optional dependencies"
+        )
     offenders: list[str] = []
     for py in tests_dir.rglob("*.py"):
         try:
@@ -324,7 +333,7 @@ def _no_top_level_optional_imports_in_tests(ctx: CheckContext) -> Finding:
         except SyntaxError:
             continue
         for node in tree.body:
-            if _imports_optional_dep(node, _OPTIONAL_DEPS):
+            if _imports_optional_dep(node, optional):
                 offenders.append(py.relative_to(ctx.root).as_posix())
                 break
     if not offenders:
@@ -335,6 +344,50 @@ def _no_top_level_optional_imports_in_tests(ctx: CheckContext) -> Finding:
         Status.WARN,
         f"{len(offenders)} test file(s) import optional deps at module level: {sample}",
     )
+
+
+_TEST_EXTRA_NAMES = {"test", "tests", "testing", "dev", "develop", "development"}
+
+
+def _discover_optional_deps(root: Path) -> tuple[str, ...]:
+    """Collect optional deps, excluding the test/dev extras.
+
+    Test-extra packages (pytest, hypothesis, etc.) are installed by definition
+    whenever tests run — a module-level import of pytest is not an audit
+    concern. The pattern we care about is deps that may or may not be present
+    at test-collection time (runtime-only extras, platform extras).
+    """
+    data = _load_pyproject(root)
+    if data is None:
+        return ()
+    declared: set[str] = set()
+    project = data.get("project", {})
+    for name, extras in project.get("optional-dependencies", {}).items():
+        if name.lower() in _TEST_EXTRA_NAMES:
+            continue
+        declared.update(_package_names(extras))
+    for name, group in data.get("dependency-groups", {}).items():
+        if name.lower() in _TEST_EXTRA_NAMES:
+            continue
+        declared.update(_package_names(group))
+    return tuple(sorted(declared))
+
+
+_DEP_NAME_RE = re.compile(r"^([A-Za-z0-9_.\-]+)")
+
+
+def _package_names(items: object) -> set[str]:
+    if not isinstance(items, list):
+        return set()
+    names: set[str] = set()
+    for item in items:
+        if not isinstance(item, str):
+            continue
+        match = _DEP_NAME_RE.match(item)
+        if match:
+            # Normalise to module-import shape: `sentry-sdk` imports as `sentry_sdk`.
+            names.add(match.group(1).replace("-", "_"))
+    return names
 
 
 # ---------------------------------------------------------------------------
