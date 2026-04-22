@@ -224,16 +224,8 @@ async def _run_with_dashboard(config: HydraFlowConfig) -> None:
 
     credentials = build_credentials(config)
 
-    # Build shared Hindsight client for dashboard routes (if configured).
+    # Hindsight client removed in Phase 3 cutover.
     hindsight_client = None
-    if credentials.hindsight_url:
-        from hindsight import HindsightClient  # noqa: PLC0415
-
-        hindsight_client = HindsightClient(
-            credentials.hindsight_url,
-            api_key=credentials.hindsight_api_key,
-            timeout=config.hindsight_timeout,
-        )
     dashboard = HydraFlowDashboard(
         config=config,
         event_bus=bus,

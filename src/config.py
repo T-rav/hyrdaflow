@@ -39,14 +39,6 @@ class Credentials(BaseModel):
         default="",
         description="GitHub token for gh CLI auth",
     )
-    hindsight_url: str = Field(
-        default="",
-        description="Base URL for the Hindsight REST API",
-    )
-    hindsight_api_key: str = Field(
-        default="",
-        description="API key for Hindsight authentication",
-    )
     sentry_auth_token: str = Field(
         default="",
         description="Sentry API auth token for reading issues",
@@ -160,7 +152,6 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
         "HYDRAFLOW_MAX_VERIFICATION_INSTRUCTIONS_CHARS",
         50_000,
     ),
-    ("hindsight_timeout", "HYDRAFLOW_HINDSIGHT_TIMEOUT", 30),
     ("health_monitor_interval", "HYDRAFLOW_HEALTH_MONITOR_INTERVAL", 7200),
     ("stale_issue_interval", "HYDRAFLOW_STALE_ISSUE_INTERVAL", 86400),
     ("sentry_poll_interval", "SENTRY_POLL_INTERVAL", 600),
@@ -253,7 +244,6 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ),
     ("collaborator_check_enabled", "HYDRAFLOW_COLLABORATOR_CHECK_ENABLED", True),
     ("memory_auto_approve", "HYDRAFLOW_MEMORY_AUTO_APPROVE", False),
-    ("hindsight_recall_enabled", "HYDRAFLOW_HINDSIGHT_RECALL_ENABLED", True),
     ("visual_gate_enabled", "HYDRAFLOW_VISUAL_GATE_ENABLED", False),
     ("visual_gate_bypass", "HYDRAFLOW_VISUAL_GATE_BYPASS", False),
     ("visual_validation_enabled", "HYDRAFLOW_VISUAL_VALIDATION_ENABLED", True),
@@ -1097,23 +1087,7 @@ class HydraFlowConfig(BaseModel):
         description="Timeout in seconds for wiki compilation LLM calls",
     )
 
-    # Hindsight semantic memory
-    hindsight_timeout: int = Field(
-        default=30,
-        ge=5,
-        le=120,
-        description="HTTP timeout in seconds for Hindsight API calls",
-    )
-
-    hindsight_recall_enabled: bool = Field(
-        default=True,
-        description=(
-            "When False, base_runner skips Hindsight recall injection at "
-            "prompt-build time. Retains remain active; only reads are gated. "
-            "Phase 3 rollout knob — set to False via "
-            "HYDRAFLOW_HINDSIGHT_RECALL_ENABLED for the observation window."
-        ),
-    )
+    # Hindsight + memory_auto_approve knobs removed in Phase 3 cutover.
 
     memory_auto_approve: bool = Field(
         default=False,
@@ -1929,8 +1903,6 @@ def build_credentials(config: HydraFlowConfig) -> Credentials:
     )
     return Credentials(
         gh_token=gh_token,
-        hindsight_url=os.environ.get("HYDRAFLOW_HINDSIGHT_URL", ""),
-        hindsight_api_key=os.environ.get("HYDRAFLOW_HINDSIGHT_API_KEY", ""),
         sentry_auth_token=os.environ.get("SENTRY_AUTH_TOKEN", ""),
         whatsapp_token=os.environ.get("HYDRAFLOW_WHATSAPP_TOKEN", ""),
         whatsapp_phone_id=os.environ.get("HYDRAFLOW_WHATSAPP_PHONE_ID", ""),

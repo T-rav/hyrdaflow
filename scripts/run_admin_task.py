@@ -25,7 +25,6 @@ from admin_tasks import (  # noqa: E402
     run_compact,
     run_ensure_labels,
     run_prep,
-    run_prune_memory,
     run_scaffold,
 )
 from config import HydraFlowConfig  # noqa: E402
@@ -34,7 +33,6 @@ _TASKS = {
     "clean": run_clean,
     "compact": run_compact,
     "prep": run_prep,
-    "prune-memory": run_prune_memory,
     "scaffold": run_scaffold,
     "ensure-labels": run_ensure_labels,
 }

@@ -42,8 +42,6 @@ from implement_phase import ImplementPhase
 from issue_cache import IssueCache
 from issue_fetcher import GitHubTaskFetcher, IssueFetcher
 from issue_store import IssueStore
-from memory import MemorySyncWorker
-from memory_sync_loop import MemorySyncLoop
 from merge_conflict_resolver import MergeConflictResolver
 from models import StatusCallback
 from plan_phase import PlanPhase
@@ -130,7 +128,6 @@ class ServiceRegistry:
     run_recorder: RunRecorder
     metrics_manager: MetricsManager
     pr_unsticker: PRUnsticker
-    memory_sync: MemorySyncWorker
     retrospective: RetrospectiveCollector
     ac_generator: AcceptanceCriteriaGenerator
     verification_judge: VerificationJudge
@@ -142,7 +139,6 @@ class ServiceRegistry:
     github_cache_loop: GitHubCacheLoop
 
     # Background loops
-    memory_sync_bg: MemorySyncLoop
     pr_unsticker_loop: PRUnstickerLoop
     report_issue_loop: ReportIssueLoop
     epic_monitor_loop: EpicMonitorLoop
@@ -543,14 +539,6 @@ def build_services(
         store=store,
         credentials=credentials,
     )
-    memory_sync = MemorySyncWorker(
-        config,
-        state,
-        event_bus,
-        runner=subprocess_runner,
-        prs=prs,
-        dolt=dolt_backend,
-    )
     retrospective_queue = RetrospectiveQueue(
         config.data_path("memory", "retrospective_queue.jsonl"),
     )
@@ -628,7 +616,6 @@ def build_services(
         enabled_cb=callbacks.is_enabled,
         interval_cb=callbacks.get_interval,
     )
-    memory_sync_bg = MemorySyncLoop(config, memory_sync, deps=loop_deps)
     pr_unsticker_loop = PRUnstickerLoop(config, pr_unsticker, prs, deps=loop_deps)
     report_issue_loop = ReportIssueLoop(
         config=config,
@@ -779,13 +766,11 @@ def build_services(
         run_recorder=run_recorder,
         metrics_manager=metrics_manager,
         pr_unsticker=pr_unsticker,
-        memory_sync=memory_sync,
         retrospective=retrospective,
         ac_generator=ac_generator,
         verification_judge=verification_judge,
         epic_checker=epic_checker,
         epic_manager=epic_manager,
-        memory_sync_bg=memory_sync_bg,
         pr_unsticker_loop=pr_unsticker_loop,
         report_issue_loop=report_issue_loop,
         epic_monitor_loop=epic_monitor_loop,

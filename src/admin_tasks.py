@@ -702,103 +702,11 @@ async def run_compact(config: HydraFlowConfig) -> TaskResult:
     return TaskResult(success=True, log=log, warnings=warnings)
 
 
-async def run_prune_memory(
-    config: HydraFlowConfig,
-    *,
-    judge: Any | None = None,
-) -> TaskResult:
-    """Run the tribal-memory judge over items.jsonl, archive failures.
-
-    Survivors stay in items.jsonl; failures (and pre-tribal v0 items
-    with no ``principle`` field) are appended to items_archive.jsonl
-    with their judge score and reason. Returns a TaskResult with
-    counts in the log.
-    """
-    import json as _json  # noqa: PLC0415
-
-    from execution import get_default_runner  # noqa: PLC0415
-    from memory_judge import MemoryJudge  # noqa: PLC0415
-
-    log: list[str] = ["Running tribal-memory prune..."]
-    warnings: list[str] = []
-
-    if judge is None:
-        judge = MemoryJudge(config=config, runner=get_default_runner())
-
-    items_path = config.memory_dir / "items.jsonl"
-    archive_path = config.memory_dir / "items_archive.jsonl"
-
-    if not items_path.exists():
-        log.append("No items.jsonl found — nothing to prune.")
-        return TaskResult(success=True, log=log)
-
-    kept: list[dict[str, Any]] = []
-    archived: list[dict[str, Any]] = []
-    legacy_count = 0
-
-    # Stream-decode the file. We accept both true JSONL (one object per line,
-    # written by the new tribal pipeline) AND concatenated pretty-printed JSON
-    # objects (the legacy format that pre-tribal writers produced). raw_decode
-    # advances through the buffer one object at a time and skips intervening
-    # whitespace, so both formats parse identically.
-    text = items_path.read_text(encoding="utf-8")
-    decoder = _json.JSONDecoder()
-    pos = 0
-    while pos < len(text):
-        while pos < len(text) and text[pos] in " \t\r\n":
-            pos += 1
-        if pos >= len(text):
-            break
-        try:
-            item, end = decoder.raw_decode(text, pos)
-        except _json.JSONDecodeError:
-            warnings.append(f"Skipping malformed JSON near offset {pos}")
-            break
-        pos = end
-        if not isinstance(item, dict):
-            continue
-        # Pre-tribal items (no `principle`) go straight to archive.
-        if "principle" not in item:
-            archived.append({**item, "judge_reason": "pre-tribal schema"})
-            legacy_count += 1
-            continue
-        verdict = await judge.evaluate(
-            principle=item.get("principle", ""),
-            rationale=item.get("rationale", ""),
-            failure_mode=item.get("failure_mode", ""),
-            scope=item.get("scope", ""),
-        )
-        if verdict.accepted:
-            kept.append(item)
-        else:
-            archived.append(
-                {**item, "judge_score": verdict.score, "judge_reason": verdict.reason}
-            )
-
-    items_path.write_text(
-        "\n".join(_json.dumps(i) for i in kept) + ("\n" if kept else ""),
-        encoding="utf-8",
-    )
-    archive_path.parent.mkdir(parents=True, exist_ok=True)
-    with archive_path.open("a", encoding="utf-8") as f:
-        for item in archived:
-            f.write(_json.dumps(item) + "\n")
-
-    log.append(
-        f"Pruned: kept={len(kept)}, archived={len(archived)} "
-        f"(of which legacy_v0={legacy_count})"
-    )
-    if archived:
-        log.append(f"Archive written to {archive_path}")
-    return TaskResult(success=True, log=log, warnings=warnings)
-
-
 __all__ = [
     "TaskResult",
     "run_clean",
     "run_compact",
     "run_ensure_labels",
     "run_prep",
-    "run_prune_memory",
     "run_scaffold",
 ]

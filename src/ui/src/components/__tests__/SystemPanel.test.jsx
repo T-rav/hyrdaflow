@@ -83,27 +83,7 @@ describe('SystemPanel', () => {
       expect(metricsPanel.style.overflowY).toBe('auto')
     })
 
-    it('mounts MemoryExplorer when Memory sub-tab is selected', () => {
-      mockUseHydraFlow.mockReturnValue(defaultMockContext({
-        memories: { total_items: 0 },
-        retrospectives: { total_entries: 0 },
-        reviewInsights: { total_reviews: 0 },
-        troubleshooting: { total_patterns: 0 },
-        harnessInsights: null,
-      }))
-      const originalFetch = global.fetch
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ banks: [] }),
-      })
-      try {
-        render(<SystemPanel backgroundWorkers={mockBgWorkers} />)
-        fireEvent.click(screen.getByText('Memory'))
-        expect(screen.getByTestId('memory-explorer')).toBeInTheDocument()
-      } finally {
-        global.fetch = originalFetch
-      }
-    })
+    // MemoryExplorer tab removed in Phase 3 cutover — wiki is the new primary.
   })
 
   describe('Background Workers', () => {
