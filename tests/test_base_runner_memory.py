@@ -173,3 +173,74 @@ def test_inject_repo_wiki_includes_tribal_content(tmp_path):
 
     section = runner._inject_repo_wiki()
     assert "Use dataclasses" in section
+
+
+# ---------------------------------------------------------------------------
+# ADR draft wiring in _save_transcript (Task 6.4)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_process_transcript_for_adr_draft_opens_issue(tmp_path):
+    """End-to-end: transcript contains ADR_DRAFT_SUGGESTION → issue opened."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from base_runner import BaseRunner
+    from repo_wiki import WikiEntry
+    from tribal_wiki import TribalWikiStore
+    from wiki_compiler import ADRDraftDecision
+
+    tribal = TribalWikiStore(tmp_path / "tribal")
+    tid = "01HQ0000000000000000000000"
+    tribal.ingest(
+        [
+            WikiEntry(
+                id=tid,
+                title="pattern",
+                content="x",
+                source_type="librarian",
+                topic="patterns",
+            )
+        ]
+    )
+
+    transcript = f"""Work log.
+ADR_DRAFT_SUGGESTION:
+title: Use Pydantic
+context: C
+decision: D
+consequences: W
+evidence:
+  - issue: 1
+  - issue: 2
+  - wiki_entry: {tid}
+"""
+
+    runner = BaseRunner.__new__(BaseRunner)
+    runner._tribal_wiki_store = tribal
+    compiler = MagicMock()
+    compiler.judge_adr_draft = AsyncMock(
+        return_value=ADRDraftDecision(
+            two_plus_issues=True,
+            in_tribal=True,
+            architectural=True,
+            load_bearing=True,
+            draft_ok=True,
+        )
+    )
+    runner._wiki_compiler = compiler
+    gh = AsyncMock()
+    gh.create_issue = AsyncMock(return_value={"number": 7777})
+    runner._gh_client = gh
+    runner._bus = MagicMock()
+    runner._bus.publish = AsyncMock()
+    runner._log = MagicMock()
+
+    await runner._process_transcript_for_adr_draft(transcript)
+    gh.create_issue.assert_called_once()
+    runner._bus.publish.assert_called_once()
+    event = runner._bus.publish.call_args.args[0]
+    from events import EventType
+
+    assert event.type == EventType.ADR_DRAFT_OPENED
+    assert event.data["issue_number"] == 7777

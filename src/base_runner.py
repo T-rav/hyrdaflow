@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
+from adr_draft_opener import open_adr_draft_issue
 from adr_index import (  # noqa: F401 — used in _inject_adr_index
     ADRIndex,
     render_full,
@@ -27,6 +28,7 @@ from runner_utils import (
     terminate_processes,
 )
 from tracing_context import TracingContext
+from wiki_compiler import parse_adr_draft_suggestion
 
 if TYPE_CHECKING:
     from execution import SubprocessRunner
@@ -269,6 +271,55 @@ class BaseRunner:
             self._log.warning(
                 "Could not save transcript to %s",
                 log_dir,
+                exc_info=True,
+            )
+        asyncio.ensure_future(self._process_transcript_for_adr_draft(transcript))
+
+    async def _process_transcript_for_adr_draft(self, transcript: str) -> None:
+        """Scan transcript for ADR_DRAFT_SUGGESTION and run the 4-gate pipeline.
+
+        Non-blocking: failures are logged and swallowed. No-ops silently when
+        any required dependency is missing.
+        """
+        compiler = getattr(self, "_wiki_compiler", None)
+        tribal = getattr(self, "_tribal_wiki_store", None)
+        gh = getattr(self, "_gh_client", None)
+        bus = getattr(self, "_bus", None)
+        if compiler is None or tribal is None or gh is None:
+            return
+
+        try:
+            suggestion = parse_adr_draft_suggestion(transcript)
+            if suggestion is None:
+                return
+            decision = await compiler.judge_adr_draft(
+                suggestion=suggestion,
+                tribal=tribal,
+            )
+            if not decision.draft_ok:
+                return
+            issue_number = await open_adr_draft_issue(
+                suggestion=suggestion,
+                decision=decision,
+                gh_client=gh,
+            )
+            if issue_number is None or bus is None:
+                return
+            from events import EventType, HydraFlowEvent  # noqa: PLC0415
+
+            await bus.publish(
+                HydraFlowEvent(
+                    type=EventType.ADR_DRAFT_OPENED,
+                    data={
+                        "issue_number": issue_number,
+                        "title": suggestion.get("title", ""),
+                        "reason": decision.reason,
+                    },
+                )
+            )
+        except Exception:  # noqa: BLE001
+            self._log.warning(
+                "ADR draft pipeline failed — transcript ignored",
                 exc_info=True,
             )
 
