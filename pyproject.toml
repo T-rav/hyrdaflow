@@ -67,6 +67,7 @@ exclude = [
     ".hydraflow",
     "repo_wiki",
     "tests/regressions",
+    "tests/arch/fixtures",
     "scripts/cost_report.py",
 ]
 
