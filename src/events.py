@@ -93,6 +93,7 @@ class EventType(StrEnum):
     SYSTEM_REROUTE = "system_reroute"
     DIAGNOSTIC_UPDATE = "diagnostic_update"
     RETROSPECTIVE_UPDATE = "retrospective_update"
+    WIKI_SUPERSEDES = "wiki_supersedes"
 
 
 _T = TypeVar("_T")
