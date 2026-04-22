@@ -50,6 +50,8 @@ _EVENT_STRING_CASES: list[tuple[EventType, str]] = [
     (EventType.VISUAL_GATE, "visual_gate"),
     (EventType.BASELINE_UPDATE, "baseline_update"),
     (EventType.WIKI_SUPERSEDES, "wiki_supersedes"),
+    (EventType.TRIBAL_PROMOTION, "tribal_promotion"),
+    (EventType.ADR_DRAFT_OPENED, "adr_draft_opened"),
 ]
 
 
@@ -97,6 +99,8 @@ class TestEventTypeEnum:
             "DIAGNOSTIC_UPDATE",
             "RETROSPECTIVE_UPDATE",
             "WIKI_SUPERSEDES",
+            "TRIBAL_PROMOTION",
+            "ADR_DRAFT_OPENED",
         }
         actual = {member.name for member in EventType}
         assert expected == actual

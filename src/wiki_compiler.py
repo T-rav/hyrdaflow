@@ -17,7 +17,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -40,10 +40,27 @@ class ContradictionCheck(BaseModel):
     contradicts: list[ContradictedEntry] = Field(default_factory=list)
 
 
+class GeneralizationCheck(BaseModel):
+    same_principle: bool = False
+    generalized_title: str = ""
+    generalized_body: str = ""
+    confidence: Literal["high", "medium", "low"] = "low"
+
+
+class ADRDraftDecision(BaseModel):
+    two_plus_issues: bool = False
+    in_tribal: bool = False
+    architectural: bool = False
+    load_bearing: bool = False
+    draft_ok: bool = False
+    reason: str = ""
+
+
 if TYPE_CHECKING:
     from config import Credentials, HydraFlowConfig
     from execution import SubprocessRunner
     from repo_wiki import RepoWikiStore
+    from tribal_wiki import TribalWikiStore
 
 logger = logging.getLogger("hydraflow.wiki_compiler")
 
@@ -116,6 +133,40 @@ Example valid outputs:
   {{"contradicts": [{{"id":"01HQ...","reason":"new entry says X, this one said not-X"}}]}}
 """
 
+_GENERALIZATION_PROMPT = """\
+You are a technical knowledge librarian comparing two wiki entries from
+different repositories, both on topic **{topic}**. Decide whether they
+encode the **same underlying principle** (not merely the same keywords).
+
+## Entry A (repo: {repo_a})
+
+title: {title_a}
+content:
+{content_a}
+
+## Entry B (repo: {repo_b})
+
+title: {title_b}
+content:
+{content_b}
+
+## Instructions
+
+Return a JSON object with these keys:
+- same_principle: bool — true only if both entries advise the same rule in
+  a way that would generalize across any Python project
+- generalized_title: str — if same_principle is true, a short neutral title
+- generalized_body: str — if same_principle is true, merged content that drops
+  repo-specific details
+- confidence: "high" | "medium" | "low" — how sure you are
+
+Return ONLY the JSON object, no other text.
+
+Example outputs:
+  {{"same_principle": false, "generalized_title": "", "generalized_body": "", "confidence": "low"}}
+  {{"same_principle": true, "generalized_title": "Pytest async mode", "generalized_body": "Configure pytest-asyncio with mode=auto.", "confidence": "high"}}
+"""
+
 _SYNTHESIZE_INGEST_PROMPT = """\
 You are a technical knowledge librarian. A {source_type} phase just completed for \
 issue #{issue_number} in repository {repo}.
@@ -146,6 +197,102 @@ Return a JSON array of entries. Each entry must be:
 
 Return ONLY the JSON array, no other text.
 """
+
+
+_ADR_DRAFT_JUDGE_PROMPT = """\
+You are a technical knowledge librarian evaluating whether a pattern rises to
+ADR-worthy architectural status. Review the proposed ADR draft below and
+answer two questions strictly:
+
+1. **architectural**: does it change a system-level invariant (loop topology,
+   state machine, persistence layout, promotion flow, module boundary)?
+   Operational tips, style conventions, and per-phase workflows are NOT
+   architectural.
+2. **load_bearing**: if this decision were reversed tomorrow, would multiple
+   components need to change?
+
+## Proposed ADR
+
+title: {title}
+context: {context}
+decision: {decision}
+consequences: {consequences}
+
+Return ONLY a JSON object:
+  {{"architectural": <bool>, "load_bearing": <bool>, "reason": "<1 sentence>"}}
+"""
+
+
+# ---------------------------------------------------------------------------
+# ADR draft suggestion parser
+# ---------------------------------------------------------------------------
+
+_ADR_DRAFT_HEADER_RE = re.compile(r"^ADR_DRAFT_SUGGESTION:\s*$", re.MULTILINE)
+
+
+def parse_adr_draft_suggestion(transcript: str) -> dict | None:
+    """Parse an ADR_DRAFT_SUGGESTION block from a transcript.
+
+    Returns a dict with keys: title, context, decision, consequences,
+    evidence_issues (list[int]), evidence_wiki_entries (list[str]).
+    Returns None when no block is found or parsing fails.
+    """
+    header = _ADR_DRAFT_HEADER_RE.search(transcript)
+    if header is None:
+        return None
+
+    tail = transcript[header.end() :]
+    fields: dict[str, Any] = {
+        "title": "",
+        "context": "",
+        "decision": "",
+        "consequences": "",
+        "evidence_issues": [],
+        "evidence_wiki_entries": [],
+    }
+    current_key: str | None = None
+    in_evidence = False
+    for line in tail.split("\n"):
+        if not line.strip():
+            if current_key in {"title"}:
+                current_key = None
+            continue
+        stripped = line.rstrip()
+        # Field heading like "title: Foo"
+        m = re.match(
+            r"^(title|context|decision|consequences|evidence):\s*(.*)$", stripped
+        )
+        if m:
+            key = m.group(1)
+            rest = m.group(2).strip()
+            if key == "evidence":
+                in_evidence = True
+                current_key = None
+                continue
+            in_evidence = False
+            current_key = key
+            fields[key] = rest
+            continue
+
+        if in_evidence:
+            sm = re.match(r"^\s*-\s*issue:\s*(\d+)\s*$", stripped)
+            if sm:
+                fields["evidence_issues"].append(int(sm.group(1)))
+                continue
+            sm = re.match(r"^\s*-\s*wiki_entry:\s*([0-9A-Z]{26})\s*$", stripped)
+            if sm:
+                fields["evidence_wiki_entries"].append(sm.group(1))
+                continue
+            # End of evidence list (non-bullet line that isn't indented)
+            if not line.startswith((" ", "\t")):
+                in_evidence = False
+
+        if current_key and line.startswith("  "):
+            fields[current_key] = (fields[current_key] + " " + stripped.strip()).strip()
+
+    if not fields["title"]:
+        return None
+    return fields
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +328,29 @@ class WikiCompiler:
             return ContradictionCheck.model_validate(obj)
         except Exception:  # noqa: BLE001
             return ContradictionCheck()
+
+    @staticmethod
+    def _parse_generalization_output(raw: str) -> GeneralizationCheck:
+        """Parse generalization-check LLM output. Never raises."""
+        text = raw.strip()
+        if text.startswith("```"):
+            lines = text.split("\n")
+            text = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1:
+            return GeneralizationCheck()
+        try:
+            obj = json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            return GeneralizationCheck()
+        if not isinstance(obj, dict):
+            return GeneralizationCheck()
+        try:
+            return GeneralizationCheck.model_validate(obj)
+        except Exception:  # noqa: BLE001
+            return GeneralizationCheck()
 
     def __init__(
         self,
@@ -401,6 +571,108 @@ class WikiCompiler:
         if raw is None:
             return ContradictionCheck()
         return self._parse_contradiction_output(raw)
+
+    async def generalize_pair(
+        self,
+        *,
+        entry_a: WikiEntry,
+        entry_b: WikiEntry,
+        topic: str,
+    ) -> GeneralizationCheck:
+        """Ask the LLM whether two entries encode the same principle.
+
+        Returns an empty GeneralizationCheck on LLM failure — never raises.
+        Caller decides whether to act on ``same_principle`` given
+        ``confidence``.
+        """
+        prompt = _GENERALIZATION_PROMPT.format(
+            topic=topic,
+            repo_a=entry_a.source_repo or "unknown",
+            title_a=entry_a.title,
+            content_a=entry_a.content,
+            repo_b=entry_b.source_repo or "unknown",
+            title_b=entry_b.title,
+            content_b=entry_b.content,
+        )
+        raw = await self._call_model(prompt)
+        if raw is None:
+            return GeneralizationCheck()
+        return self._parse_generalization_output(raw)
+
+    async def judge_adr_draft(
+        self,
+        *,
+        suggestion: dict,
+        tribal: TribalWikiStore,
+    ) -> ADRDraftDecision:
+        """Evaluate the 4 gates for an ADR_DRAFT_SUGGESTION."""
+        decision = ADRDraftDecision()
+
+        # Gate 1 — evidence list has ≥2 distinct issues
+        issues = suggestion.get("evidence_issues", [])
+        decision.two_plus_issues = len(set(issues)) >= 2
+        if not decision.two_plus_issues:
+            decision.reason = "needs ≥2 distinct issues as evidence"
+            return decision
+
+        # Gate 2 — at least one cited wiki entry lives in tribal
+        wiki_ids = suggestion.get("evidence_wiki_entries", [])
+        if not wiki_ids:
+            decision.reason = "no tribal wiki entry cited"
+            return decision
+        from repo_wiki import DEFAULT_TOPICS  # noqa: PLC0415
+
+        tribal_ids: set[str] = set()
+        tribal_repo_dir = tribal.repo_dir()
+        for topic_name in DEFAULT_TOPICS:
+            topic_path = tribal_repo_dir / f"{topic_name}.md"
+            if topic_path.exists():
+                for entry in tribal.load_topic_entries(topic_path):
+                    tribal_ids.add(entry.id)
+        decision.in_tribal = any(wid in tribal_ids for wid in wiki_ids)
+        if not decision.in_tribal:
+            decision.reason = "referenced wiki entry not present in tribal store"
+            return decision
+
+        # Gates 3 + 4 (LLM)
+        prompt = _ADR_DRAFT_JUDGE_PROMPT.format(
+            title=suggestion.get("title", ""),
+            context=suggestion.get("context", ""),
+            decision=suggestion.get("decision", ""),
+            consequences=suggestion.get("consequences", ""),
+        )
+        raw = await self._call_model(prompt)
+        if raw is None:
+            decision.reason = "llm unavailable"
+            return decision
+        parsed = self._parse_adr_judge_output(raw)
+        decision.architectural = bool(parsed.get("architectural", False))
+        decision.load_bearing = bool(parsed.get("load_bearing", False))
+        decision.reason = str(parsed.get("reason", ""))
+
+        decision.draft_ok = (
+            decision.two_plus_issues
+            and decision.in_tribal
+            and decision.architectural
+            and decision.load_bearing
+        )
+        return decision
+
+    @staticmethod
+    def _parse_adr_judge_output(raw: str) -> dict:
+        text = raw.strip()
+        if text.startswith("```"):
+            lines = text.split("\n")
+            text = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1:
+            return {}
+        try:
+            obj = json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            return {}
+        return obj if isinstance(obj, dict) else {}
 
     async def synthesize_ingest(
         self,

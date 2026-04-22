@@ -319,3 +319,98 @@ async def test_ingest_phase_output_emits_wiki_supersedes_event(tmp_path):
     assert event.data["superseded_id"] == entry_a.id
     assert event.data["superseded_by"] == entry_b.id
     assert event.data["reason"] == "reverses"
+
+
+async def test_ingest_phase_output_rejects_duplicate_ids(tmp_path):
+    from unittest.mock import AsyncMock
+
+    from repo_wiki import RepoWikiStore, WikiEntry
+    from repo_wiki_ingest import ingest_phase_output
+
+    store = RepoWikiStore(tmp_path / "wiki")
+    dup = WikiEntry(
+        id="01HQ0000000000000000000000",
+        title="x",
+        content="y",
+        source_type="plan",
+        topic="patterns",
+    )
+    dup2 = WikiEntry(
+        id="01HQ0000000000000000000000",  # same id — invalid
+        title="z",
+        content="w",
+        source_type="plan",
+        topic="patterns",
+    )
+    compiler = AsyncMock()
+    with pytest.raises(ValueError, match="duplicate"):
+        await ingest_phase_output(
+            store=store,
+            repo="acme/widget",
+            entries=[dup, dup2],
+            compiler=compiler,
+        )
+
+
+# ---------------------------------------------------------------------------
+# entries_from_reflections_log
+# ---------------------------------------------------------------------------
+
+
+def test_entries_from_reflections_log_splits_by_phase_marker():
+    from repo_wiki_ingest import entries_from_reflections_log
+
+    log = (
+        "--- plan | 2026-04-01 10:00 UTC ---\n"
+        "Architecture: always use dependency injection for service modules.\n"
+        "\n"
+        "--- implement | 2026-04-01 11:00 UTC ---\n"
+        "Gotcha: the auth middleware caches tokens for 5 minutes, breaking\n"
+        "local-dev hot reload unless you restart uvicorn.\n"
+    )
+    entries = entries_from_reflections_log(
+        log=log,
+        repo="acme/widget",
+        issue_number=42,
+    )
+    assert len(entries) == 2
+    assert entries[0].source_type == "reflection"
+    assert entries[0].source_issue == 42
+    assert entries[0].source_repo == "acme/widget"
+    assert "dependency injection" in entries[0].content
+    assert entries[1].source_type == "reflection"
+    assert "auth middleware" in entries[1].content
+
+
+def test_entries_from_reflections_log_empty_input_returns_empty():
+    from repo_wiki_ingest import entries_from_reflections_log
+
+    assert entries_from_reflections_log(log="", repo="x/y", issue_number=1) == []
+    assert (
+        entries_from_reflections_log(log="   \n\n  ", repo="x/y", issue_number=1) == []
+    )
+
+
+def test_entries_from_reflections_log_drops_blocks_with_no_content():
+    from repo_wiki_ingest import entries_from_reflections_log
+
+    log = (
+        "--- plan | 2026-04-01 10:00 UTC ---\n"
+        "\n"
+        "--- implement | 2026-04-01 11:00 UTC ---\n"
+        "Actual content here.\n"
+    )
+    entries = entries_from_reflections_log(log=log, repo="x/y", issue_number=1)
+    assert len(entries) == 1
+    assert "Actual content" in entries[0].content
+
+
+def test_entries_from_reflections_log_distinct_ids_per_block():
+    from repo_wiki_ingest import entries_from_reflections_log
+
+    log = (
+        "--- plan | 2026-04-01 10:00 UTC ---\nA.\n"
+        "--- implement | 2026-04-01 11:00 UTC ---\nB.\n"
+    )
+    entries = entries_from_reflections_log(log=log, repo="x/y", issue_number=1)
+    assert entries[0].id != entries[1].id

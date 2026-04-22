@@ -36,13 +36,63 @@ from models import (
     VisualValidationPolicy,
 )
 from prompt_telemetry import PromptTelemetry
+from reflections import clear_reflections, read_reflections
+from repo_wiki_ingest import entries_from_reflections_log, ingest_phase_output
 from retrospective import RetrospectiveCollector
 from state import StateTracker
 from verification_judge import VerificationJudge
 
+if TYPE_CHECKING:
+    from repo_wiki import RepoWikiStore
+    from wiki_compiler import WikiCompiler
+
 logger = logging.getLogger("hydraflow.post_merge_handler")
 
 _T = TypeVar("_T")
+
+
+async def _bridge_reflections_to_wiki(
+    *,
+    config: HydraFlowConfig,
+    issue_number: int,
+    repo: str,
+    store: RepoWikiStore | None,
+    compiler: WikiCompiler | None,
+    event_bus: EventBus | None = None,
+) -> None:
+    """On merge: promote the issue's Reflexion log into wiki entries, then clear.
+
+    Silent no-op when store or compiler is None (wiki disabled). Swallows
+    wiki failures — we must not block the merge path on wiki trouble.
+    """
+    if store is None or compiler is None:
+        return
+
+    log = read_reflections(config, issue_number)
+    if not log or not log.strip():
+        return
+
+    try:
+        entries = entries_from_reflections_log(
+            log=log, repo=repo, issue_number=issue_number
+        )
+        if entries:
+            await ingest_phase_output(
+                store=store,
+                repo=repo,
+                entries=entries,
+                compiler=compiler,
+                event_bus=event_bus,
+            )
+        clear_reflections(config, issue_number)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "reflection bridge failed for issue #%d; log kept for retry",
+            issue_number,
+            exc_info=True,
+        )
+
+
 _MANUAL_VERIFY_KEYWORDS = (
     "ui",
     "ux",
@@ -513,6 +563,23 @@ class PostMergeHandler:
                         pr.issue_number,
                         exc_info=True,
                     )
+
+        if (
+            getattr(self, "_wiki_store", None) is not None
+            and getattr(self, "_wiki_compiler", None) is not None
+        ):
+            await self._safe_hook(
+                "reflection bridge",
+                _bridge_reflections_to_wiki(
+                    config=self._config,
+                    issue_number=pr.issue_number,
+                    repo=self._config.repo or "",
+                    store=getattr(self, "_wiki_store", None),
+                    compiler=getattr(self, "_wiki_compiler", None),
+                    event_bus=getattr(self, "_event_bus", None),
+                ),
+                pr.issue_number,
+            )
 
         verdict: JudgeVerdict | None = None
         if self._verification_judge:

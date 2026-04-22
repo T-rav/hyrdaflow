@@ -329,3 +329,71 @@ class TestDetectContradictions:
             new_entry=new, siblings=[sibling], repo="acme/widget"
         )
         assert result.contradicts == []
+
+
+# ---------------------------------------------------------------------------
+# Generalization judge (Task 5.2)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_generalization_output_valid():
+    from wiki_compiler import GeneralizationCheck, WikiCompiler
+
+    raw = (
+        '{"same_principle": true, "generalized_title": "X",'
+        ' "generalized_body": "Y.", "confidence": "high"}'
+    )
+    result = WikiCompiler._parse_generalization_output(raw)
+    assert isinstance(result, GeneralizationCheck)
+    assert result.same_principle is True
+    assert result.confidence == "high"
+
+
+def test_parse_generalization_output_invalid_returns_empty():
+    from wiki_compiler import WikiCompiler
+
+    result = WikiCompiler._parse_generalization_output("garbage")
+    assert result.same_principle is False
+    assert result.confidence == "low"
+
+
+@pytest.mark.asyncio
+async def test_generalize_pair_returns_check(compiler: WikiCompiler) -> None:
+    raw = (
+        '{"same_principle": true, "generalized_title": "Pytest async",'
+        ' "generalized_body": "Use mode=auto.", "confidence": "high"}'
+    )
+    compiler._call_model = AsyncMock(return_value=raw)
+    a = WikiEntry(
+        title="a",
+        content="A.",
+        source_type="plan",
+        topic="testing",
+        source_repo="acme/widget",
+    )
+    b = WikiEntry(
+        title="b",
+        content="B.",
+        source_type="plan",
+        topic="testing",
+        source_repo="other/thing",
+    )
+    result = await compiler.generalize_pair(entry_a=a, entry_b=b, topic="testing")
+    assert result.same_principle is True
+    assert result.generalized_title == "Pytest async"
+
+
+@pytest.mark.asyncio
+async def test_generalize_pair_llm_failure_returns_empty(
+    compiler: WikiCompiler,
+) -> None:
+    compiler._call_model = AsyncMock(return_value=None)
+    e = WikiEntry(
+        title="x",
+        content="x",
+        source_type="plan",
+        topic="patterns",
+        source_repo="a/b",
+    )
+    result = await compiler.generalize_pair(entry_a=e, entry_b=e, topic="patterns")
+    assert result.same_principle is False

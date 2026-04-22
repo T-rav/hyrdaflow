@@ -800,3 +800,24 @@ def test_mark_superseded_missing_entry_returns_false(store):
         )
         is False
     )
+
+
+def test_repo_dir_is_public_api(store, tmp_path):
+    p = store.repo_dir(REPO)
+    assert isinstance(p, Path)
+    # Private alias still works and returns the same path
+    assert store._repo_dir(REPO) == p
+
+
+def test_load_topic_entries_is_public_api(store):
+    store.ingest(
+        REPO,
+        [
+            WikiEntry(title="x", content="y", source_type="plan", topic="patterns"),
+        ],
+    )
+    topic_path = store.repo_dir(REPO) / "patterns.md"
+    public_entries = store.load_topic_entries(topic_path)
+    private_entries = store._load_topic_entries(topic_path)
+    assert len(public_entries) == 1
+    assert public_entries == private_entries

@@ -8,6 +8,7 @@ output and produces ``WikiEntry`` objects for the store.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -15,7 +16,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel
 
 from events import EventType, HydraFlowEvent
-from repo_wiki import WikiEntry
+from repo_wiki import WikiEntry, classify_topic
 from staleness import evaluate as evaluate_staleness
 
 if TYPE_CHECKING:
@@ -262,6 +263,12 @@ async def ingest_phase_output(
     for every contradiction marked. Publish failures are swallowed — wiki
     events are non-critical.
     """
+    ids = [e.id for e in entries]
+    if len(set(ids)) != len(ids):
+        duplicates = [i for i in set(ids) if ids.count(i) > 1]
+        raise ValueError(
+            f"ingest_phase_output entries must have unique ids; duplicate: {duplicates!r}"
+        )
     ingest_result = store.ingest(repo, entries)
     result = IngestWithContradictionsResult(
         entries_added=ingest_result.entries_added,
@@ -272,10 +279,10 @@ async def ingest_phase_output(
     for new_entry in entries:
         if new_entry.topic is None:
             continue
-        topic_path = store._repo_dir(repo) / f"{new_entry.topic}.md"
+        topic_path = store.repo_dir(repo) / f"{new_entry.topic}.md"
         if not topic_path.exists():
             continue
-        all_entries = store._load_topic_entries(topic_path)
+        all_entries = store.load_topic_entries(topic_path)
         siblings = [
             e
             for e in all_entries
@@ -331,3 +338,49 @@ async def _emit_wiki_supersedes(
         await event_bus.publish(event)
     except Exception:  # noqa: BLE001
         logger.debug("wiki event publish failed; continuing")
+
+
+_REFLECTION_BLOCK_RE = re.compile(
+    r"^---\s+(?P<phase>[\w-]+)\s*\|\s*[^\n]*---\s*\n",
+    flags=re.MULTILINE,
+)
+
+
+def entries_from_reflections_log(
+    *,
+    log: str,
+    repo: str,
+    issue_number: int,
+) -> list[WikiEntry]:
+    """Split a Reflexion log into one WikiEntry per phase block.
+
+    The reflections log is written by ``append_reflection`` in
+    ``src/reflections.py`` with the marker format
+    ``--- {phase} | YYYY-MM-DD HH:MM UTC ---`` between blocks.
+
+    Empty or whitespace-only blocks are skipped. Each entry gets a
+    fresh ULID (default_factory on ``WikiEntry``).
+    """
+    if not log or not log.strip():
+        return []
+
+    matches = list(_REFLECTION_BLOCK_RE.finditer(log))
+    if not matches:
+        return []
+
+    entries: list[WikiEntry] = []
+    for i, m in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(log)
+        body = log[m.end() : end].strip()
+        if not body:
+            continue
+        entry = WikiEntry(
+            title=f"Reflection from #{issue_number} ({m.group('phase')})",
+            content=body,
+            source_type="reflection",
+            source_issue=issue_number,
+            source_repo=repo,
+        )
+        entry.topic = classify_topic(entry)
+        entries.append(entry)
+    return entries

@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import subprocess
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -13,18 +14,114 @@ from typing import TYPE_CHECKING, Any
 from auto_pr import open_automated_pr_async
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import Credentials, HydraFlowConfig
-from repo_wiki import DEFAULT_TOPICS, RepoWikiStore, active_lint_tracked
+from events import EventType, HydraFlowEvent
+from repo_wiki import DEFAULT_TOPICS, RepoWikiStore, WikiEntry, active_lint_tracked
+from staleness import evaluate as evaluate_staleness
 from subprocess_util import run_subprocess
 from wiki_maint_queue import MaintenanceQueue
 
 if TYPE_CHECKING:
+    from events import EventBus
     from state import StateTracker
+    from tribal_wiki import TribalWikiStore
     from wiki_compiler import WikiCompiler
 
 logger = logging.getLogger("hydraflow.repo_wiki_loop")
 
 # Terminal outcome types — issues with these outcomes are considered closed.
 _TERMINAL_OUTCOMES = frozenset({"merged", "hitl_closed", "failed", "manual_close"})
+
+
+@dataclass
+class GeneralizationPassResult:
+    promoted: int = 0
+    considered_pairs: int = 0
+
+
+async def run_generalization_pass(
+    *,
+    per_repo: RepoWikiStore,
+    tribal: TribalWikiStore,
+    compiler: WikiCompiler,
+    event_bus: EventBus | None = None,
+) -> GeneralizationPassResult:
+    """Scan per-repo wikis, promote matching principles to tribal store.
+
+    For each topic, gather current entries across all repos. For any
+    cross-repo pair, ask the compiler to judge; if ``same_principle`` and
+    ``confidence`` is high or medium, write to tribal and mark per-repo
+    copies superseded. Publishes a ``TRIBAL_PROMOTION`` event per
+    promotion when an ``event_bus`` is provided.
+
+    Conservative by design: each pair only considered once; promotion is
+    skipped if confidence is "low".
+    """
+    result = GeneralizationPassResult()
+    now = datetime.now(UTC)
+
+    for topic in DEFAULT_TOPICS:
+        per_topic_entries: list[tuple[str, WikiEntry]] = []
+        for repo in per_repo.list_repos():
+            topic_path = per_repo.repo_dir(repo) / f"{topic}.md"
+            if not topic_path.exists():
+                continue
+            for e in per_repo.load_topic_entries(topic_path):
+                if evaluate_staleness(e, now=now) == "current":
+                    per_topic_entries.append((repo, e))
+
+        # Consider cross-repo pairs only. Avoid re-judging the same pair.
+        seen_pair_ids: set[tuple[str, str]] = set()
+        for i, (repo_a, ent_a) in enumerate(per_topic_entries):
+            for repo_b, ent_b in per_topic_entries[i + 1 :]:
+                if repo_a == repo_b:
+                    continue
+                pair_key = tuple(sorted((ent_a.id, ent_b.id)))
+                if pair_key in seen_pair_ids:
+                    continue
+                seen_pair_ids.add(pair_key)  # type: ignore[arg-type]
+                result.considered_pairs += 1
+
+                check = await compiler.generalize_pair(
+                    entry_a=ent_a,
+                    entry_b=ent_b,
+                    topic=topic,
+                )
+                if not check.same_principle or check.confidence == "low":
+                    continue
+
+                tribal_entry = WikiEntry(
+                    title=check.generalized_title,
+                    content=check.generalized_body,
+                    source_type="librarian",
+                    topic=topic,
+                    source_repo="global",
+                    confidence=check.confidence,
+                )
+                tribal.ingest([tribal_entry])
+                for repo_x, ent_x in ((repo_a, ent_a), (repo_b, ent_b)):
+                    per_repo.mark_superseded(
+                        repo_x,
+                        entry_id=ent_x.id,
+                        superseded_by=tribal_entry.id,
+                        reason="promoted to tribal wiki",
+                    )
+                result.promoted += 1
+
+                if event_bus is not None:
+                    event = HydraFlowEvent(
+                        type=EventType.TRIBAL_PROMOTION,
+                        data={
+                            "repo_a": repo_a,
+                            "repo_b": repo_b,
+                            "tribal_id": tribal_entry.id,
+                            "topic": topic,
+                        },
+                    )
+                    try:
+                        await event_bus.publish(event)
+                    except Exception:  # noqa: BLE001
+                        logger.debug("tribal promotion event publish failed")
+    return result
 
 
 class RepoWikiLoop(BaseBackgroundLoop):
@@ -46,12 +143,14 @@ class RepoWikiLoop(BaseBackgroundLoop):
         state: StateTracker | None = None,
         credentials: Credentials | None = None,
         maintenance_queue: MaintenanceQueue | None = None,
+        tribal_store: TribalWikiStore | None = None,
     ) -> None:
         super().__init__(worker_name="repo_wiki", config=config, deps=deps)
         self._wiki_store = wiki_store
         self._wiki_compiler = wiki_compiler
         self._state = state
         self._credentials = credentials
+        self._tribal_store = tribal_store
         # Queue lives under the gitignored data path — single-host only
         # in Phase 4 (multi-host coordination is an open question in the
         # design doc).  ``maintenance_queue`` is injectable so tests can
@@ -242,6 +341,18 @@ class RepoWikiLoop(BaseBackgroundLoop):
         stats["queue_drained"] = len(drained)
         await self._poll_and_merge_open_pr(stats)
         await self._maybe_open_maintenance_pr(stats)
+
+        tribal_store = getattr(self, "_tribal_store", None)
+        if tribal_store is not None and self._wiki_compiler is not None:
+            try:
+                await run_generalization_pass(
+                    per_repo=self._wiki_store,
+                    tribal=tribal_store,
+                    compiler=self._wiki_compiler,
+                    event_bus=getattr(self, "_bus", None),
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning("generalization pass failed", exc_info=True)
 
         return stats
 

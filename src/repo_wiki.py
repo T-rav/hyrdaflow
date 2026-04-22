@@ -1096,6 +1096,16 @@ class RepoWikiStore:
             check=True,
         )
 
+    # -- public API --------------------------------------------------------
+
+    def repo_dir(self, repo_slug: str) -> Path:
+        """Public: return the on-disk directory for a repo's wiki."""
+        return self._repo_dir(repo_slug)
+
+    def load_topic_entries(self, topic_path: Path) -> list[WikiEntry]:
+        """Public: parse entries from a topic page on disk."""
+        return self._load_topic_entries(topic_path)
+
     # -- internal ----------------------------------------------------------
 
     def _repo_dir(self, repo_slug: str) -> Path:

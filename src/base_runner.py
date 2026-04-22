@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
+from adr_draft_opener import open_adr_draft_issue
 from adr_index import (  # noqa: F401 — used in _inject_adr_index
     ADRIndex,
     render_full,
@@ -27,11 +28,13 @@ from runner_utils import (
     terminate_processes,
 )
 from tracing_context import TracingContext
+from wiki_compiler import parse_adr_draft_suggestion
 
 if TYPE_CHECKING:
     from execution import SubprocessRunner
     from hindsight import HindsightClient
     from repo_wiki import RepoWikiStore  # noqa: TCH004
+    from tribal_wiki import TribalWikiStore
 
 
 class BaseRunner:
@@ -55,6 +58,7 @@ class BaseRunner:
         hindsight: HindsightClient | None = None,
         credentials: Credentials | None = None,
         wiki_store: RepoWikiStore | None = None,
+        tribal_wiki_store: TribalWikiStore | None = None,
     ) -> None:
         self._config = config
         self._bus = event_bus
@@ -75,6 +79,7 @@ class BaseRunner:
         self._trace_subprocess_counter: int = 0
         self._credentials = credentials or Credentials()
         self._wiki_store = wiki_store
+        self._tribal_wiki_store = tribal_wiki_store
         # ADR runtime index — injected into plan/implement/review prompts.
         # Relative path from the worktree cwd. None-safe at read time.
         self._adr_index: ADRIndex | None = ADRIndex(Path("docs/adr"))
@@ -266,6 +271,61 @@ class BaseRunner:
             self._log.warning(
                 "Could not save transcript to %s",
                 log_dir,
+                exc_info=True,
+            )
+        # Schedule ADR-draft processing if we're inside a running event loop.
+        # Called from sync test contexts there is no loop — skip gracefully.
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(self._process_transcript_for_adr_draft(transcript))
+
+    async def _process_transcript_for_adr_draft(self, transcript: str) -> None:
+        """Scan transcript for ADR_DRAFT_SUGGESTION and run the 4-gate pipeline.
+
+        Non-blocking: failures are logged and swallowed. No-ops silently when
+        any required dependency is missing.
+        """
+        compiler = getattr(self, "_wiki_compiler", None)
+        tribal = getattr(self, "_tribal_wiki_store", None)
+        gh = getattr(self, "_gh_client", None)
+        bus = getattr(self, "_bus", None)
+        if compiler is None or tribal is None or gh is None:
+            return
+
+        try:
+            suggestion = parse_adr_draft_suggestion(transcript)
+            if suggestion is None:
+                return
+            decision = await compiler.judge_adr_draft(
+                suggestion=suggestion,
+                tribal=tribal,
+            )
+            if not decision.draft_ok:
+                return
+            issue_number = await open_adr_draft_issue(
+                suggestion=suggestion,
+                decision=decision,
+                gh_client=gh,
+            )
+            if issue_number is None or bus is None:
+                return
+            from events import EventType, HydraFlowEvent  # noqa: PLC0415
+
+            await bus.publish(
+                HydraFlowEvent(
+                    type=EventType.ADR_DRAFT_OPENED,
+                    data={
+                        "issue_number": issue_number,
+                        "title": suggestion.get("title", ""),
+                        "reason": decision.reason,
+                    },
+                )
+            )
+        except Exception:  # noqa: BLE001
+            self._log.warning(
+                "ADR draft pipeline failed — transcript ignored",
                 exc_info=True,
             )
 
@@ -502,14 +562,14 @@ class BaseRunner:
         return memory_section
 
     def _inject_repo_wiki(self, *, query_context: str = "") -> str:
-        """Load compiled repo wiki context for the current target repo.
+        """Load compiled repo wiki + tribal wiki context for the current target repo.
 
-        Returns a markdown string with relevant wiki pages, or empty
-        string if no wiki exists for this repo.
+        Returns concatenated markdown with a blank-line separator. Empty
+        string when neither per-repo wiki nor tribal wiki is configured
+        or both return empty.
         """
         if self._wiki_store is None:
             return ""
-
         repo = self._config.repo
         if not repo:
             return ""
@@ -519,14 +579,24 @@ class BaseRunner:
             if query_context
             else None
         )
-        wiki_section = self._wiki_store.query(
+        per_repo_section = self._wiki_store.query(
             repo,
             keywords=keywords,
             max_chars=self._config.max_repo_wiki_chars,
         )
-        if wiki_section:
-            return f"\n\n{wiki_section}"
-        return ""
+
+        tribal = getattr(self, "_tribal_wiki_store", None)
+        tribal_section = ""
+        if tribal is not None:
+            tribal_section = tribal.query(
+                keywords=keywords,
+                max_chars=self._config.max_repo_wiki_chars,
+            )
+
+        parts = [s for s in (per_repo_section, tribal_section) if s]
+        if not parts:
+            return ""
+        return "\n\n" + "\n\n".join(parts)
 
     #: Prompt-size budget for the rendered ADR index section. If render_full
     #: exceeds this, we fall back to the titles-only view (which is bounded by
