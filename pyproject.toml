@@ -22,6 +22,7 @@ dependencies = [
     "httpx>=0.27.0",
     "python-dotenv>=1.0",
     "sentry-sdk[fastapi]>=2.0",
+    "tree-sitter-languages>=1.10.2",
 ]
 
 [project.scripts]
