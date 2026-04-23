@@ -253,7 +253,7 @@ class GeminiActivityParser:
     def _parse_tool_result(self, event: dict[str, Any]) -> AgentActivityPayload | None:
         output = event.get("output", "")
         status = str(event.get("status", ""))
-        preview_source = str(output) if isinstance(output, str) else status
+        preview_source = str(output) if output else status
         preview = preview_source[:80].replace("\n", " ") if preview_source else "(done)"
         return {
             "activity_type": "tool_result",

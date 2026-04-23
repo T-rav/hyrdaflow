@@ -136,6 +136,8 @@ def build_lightweight_command(
         return cmd, None
 
     # Gemini: `-p <prompt>` for small prompts, `-p -` + stdin for large ones.
+    # Mirrors claude/pi inline pattern (not the codex delegation pattern) —
+    # lightweight callers deliberately omit --output-format stream-json.
     if tool == "gemini":
         prompt_bytes = prompt.encode()
         if len(prompt_bytes) > 100_000:

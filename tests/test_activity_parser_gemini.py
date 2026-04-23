@@ -89,3 +89,20 @@ def test_gemini_dedups_tool_use_by_id() -> None:
     )
     assert parser.parse(raw) is not None
     assert parser.parse(raw) is None  # dedup
+
+
+def test_gemini_tool_result_handles_missing_output() -> None:
+    """Live Gemini runs sometimes emit tool_result without an `output` field."""
+    parser = GeminiActivityParser()
+    raw = json.dumps(
+        {
+            "type": "tool_result",
+            "tool_id": "t1",
+            "status": "success",
+        }
+    )
+    activity = parser.parse(raw)
+    assert activity is not None
+    assert activity["activity_type"] == "tool_result"
+    # Falls back to status for the preview
+    assert "success" in activity["summary"]

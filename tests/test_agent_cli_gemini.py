@@ -51,3 +51,5 @@ def test_build_lightweight_command_gemini_uses_stdin_for_large_prompt() -> None:
     assert "-p" in cmd
     p_idx = cmd.index("-p")
     assert cmd[p_idx + 1] == "-"
+    assert "--model" in cmd
+    assert cmd[cmd.index("--model") + 1] == "gemini-3-pro"
