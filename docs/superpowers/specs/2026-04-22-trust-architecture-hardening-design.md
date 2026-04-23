@@ -160,10 +160,28 @@ no "waits for human review" default on the happy path.
   happens only on green. This stance skips *human approval*, not
   *review itself*.
 
-This stance overrides individual subsystem descriptions. If §4.1–§4.3
+This stance overrides individual subsystem descriptions. If §4.1–§4.11
 appear to describe a human gate anywhere on the happy path, that is a
 drafting bug — treat §3.2 as authoritative and auto-merge with
 guardrails.
+
+**Escalation lifecycle.** Every `hitl-escalation` issue follows one
+lifecycle: the loop files it, a human closes it (with or without a
+fix), and the associated dedup key in `src/dedup_store.py:DedupStore`
+clears on issue close (subscribe to the GitHub `issues.closed` event
+via the existing issue-watcher path, or poll closed issues on a
+cadence). Without this, a loop that escalates once stays paralyzed:
+the dedup key blocks re-fire, but the escalation has already been
+resolved. Every loop's plan must wire this lifecycle.
+
+**Kill-switch contract.** Every loop this spec introduces must honor
+a `<loop_name>_enabled` config field (default `True`) that, when set
+`False`, causes the loop's tick to exit immediately. Operators flip
+the switch via the System tab when a loop misbehaves. This is
+load-bearing for operability: a loop bug that opens 100 revert PRs
+per hour must have a faster stop than "ship a fix through the
+pipeline." Matches `ADR-0044` P5 (operator control) and the existing
+`*_enabled` config pattern (see `src/config.py` for conventions).
 
 ## 4. Subsystems
 
@@ -283,6 +301,27 @@ production-code change. The self-validation gate proves the case
 actually catches what it claims to catch; `make quality` enforces the
 usual quality bar. The risk profile is low; holding these PRs for
 human review contradicts §3.2.
+
+**Correlated-failure mitigation.** The loop uses an LLM to synthesize
+cases for skill failures the LLM family may share. Without a cross-check
+the corpus can accumulate cases that share the originating model's
+blind spots — false trust. Mitigate with two mechanisms:
+
+1. **Cross-model validation.** Self-validation gate 3 (the
+   "actually trips the expected_catcher" check) runs the case through
+   the skill using a **different model** from the synthesizer. Config
+   fields: `corpus_learning_synthesis_model` (default `sonnet`) and
+   `corpus_learning_validation_model` (default `opus`, or any model
+   distinct from synthesis). If the same model is configured for both,
+   the validation gate logs a warning and proceeds — but the signal is
+   weaker.
+2. **Provenance tagging + periodic sample audit.** Every auto-generated
+   case has `provenance: learning-loop` recorded in its
+   `README.md` front-matter. `SkillPromptEvalLoop` (§4.6) samples 10%
+   of learning-loop cases each week and flags cases whose
+   `expected_catcher` skill passes them unexpectedly (indicating the
+   case may be too weak) — files a `hydraflow-find` with label
+   `corpus-case-weak` for human review.
 
 **Five-checkpoint wiring** per `docs/agents/background-loops.md`:
 
@@ -457,6 +496,37 @@ trust a wrong fake. The loop's responsibility is the full contract
 whichever side broke. Test-infrastructure code (fakes) is lower risk
 than production code and fits the §3.2 happy path.
 
+**PR ordering for cassette + fake drift.** When both sides drifted,
+the refresh PR (new cassettes) and the companion fake-repair PR (fake
+edits) must not merge independently or the tree goes red between
+them. Mechanism: the refresh PR stays as draft until the companion
+`fake-drift` issue closes (its fix PR merges); once the fake fix is
+on `staging`, the refresh PR converts to ready and auto-merges in the
+next cycle. Alternatively — and simpler — the companion repair lands
+*on the refresh PR's branch* (the implementer is dispatched against
+that branch, not `staging`), so both changes merge atomically. Plan
+picks; recommend the atomic-branch option.
+
+**Rate-limit and cost discipline.** Weekly recording against live
+`gh` CLI, `git`, `docker`, and `claude` per-adapter consumes real
+API/CLI budget. For HydraFlow-self this is cheap; at multi-repo scale
+(§11) this compounds. Constraints the plan must encode:
+
+- Throttle: at most one `ContractRefreshLoop` run per adapter per
+  24h, regardless of how many managed repos are registered (cassettes
+  are shared across repos — see §11.2, one cassette set covers all).
+- Scatter: when recording M adapters, sleep `throttle_between_adapters_s`
+  (default 30s) between recordings to avoid rate-limit bursts on any
+  single provider.
+- Telemetry: each recording call emits to `src/prompt_telemetry.py`
+  (for `claude`) and `src/trace_collector.py` (for subprocesses) so
+  the per-loop cost dashboard in §4.11 shows `ContractRefreshLoop` as
+  a line item.
+- Alert: if a weekly recording fails due to rate limit or auth, file
+  `hydraflow-find` with label `contract-refresh-throttled`; the loop
+  backs off and retries next cycle. No escalation until 3 consecutive
+  failures.
+
 **Five-checkpoint wiring** (same five slots as §4.1). Config interval
 field: `contract_refresh_interval`, default `604800` seconds (7 days).
 No per-worker LLM model override — the loop itself does not call the
@@ -490,10 +560,15 @@ plan adds the emission.
 **On fire.**
 
 1. **Flake filter.** Before bisecting, re-run the RC gate's
-   scenario suite once against the RC PR's head. If the second run
-   passes, the red was a flake; log at `warning`, increment a
-   `flake_reruns_total` counter in state, and exit. No bisect, no
-   revert.
+   scenario suite against the RC PR's head up to **two additional
+   times** (default; config `staging_bisect_flake_reruns`, default
+   2). Apply 2-out-of-3 logic: if either retry passes and the
+   original failed, treat as flake (log `warning`, increment
+   `flake_reruns_total`, exit — no bisect, no revert). If both
+   retries also fail, the red is confirmed and bisect proceeds.
+   Single-retry flake filters miscall ~50% of flakes as real
+   regressions and over-trigger auto-revert; 2-of-3 is the minimum
+   defensible bar.
 2. **Bisect.** Read `last_green_rc_sha` from
    `src/state/__init__.py:StateTracker` (written by
    `StagingPromotionLoop` on each successful promotion — see §8).
@@ -512,14 +587,33 @@ plan adds the emission.
 3. **Attribution.** Parse bisect output. First-bad commit = the
    culprit. Resolve the containing PR via
    `gh api repos/.../commits/<sha>/pulls`; call the PR number `N`.
-4. **Safety guardrail.** `StateTracker` tracks `rc_cycle_id` and
-   `auto_reverts_in_cycle` (count). If `auto_reverts_in_cycle > 0`,
-   **do not revert again.** A second red after a first revert means
-   either the bisect was wrong or the damage is broader than one PR —
-   escalate: file `hitl-escalation`, `rc-red-bisect-exhausted` with
-   both bisect logs and stop. Reset the counter only when a green RC
-   promotes.
-5. **Revert PR.** Create branch
+4. **Safety guardrail (per-cycle).** `StateTracker` tracks
+   `rc_cycle_id` and `auto_reverts_in_cycle` (count). If
+   `auto_reverts_in_cycle > 0`, **do not revert again in this cycle.**
+   A second red after a first revert means either the bisect was
+   wrong or the damage is broader than one PR — escalate: file
+   `hitl-escalation`, `rc-red-bisect-exhausted` with both bisect logs
+   and stop. Reset the counter only when a green RC promotes.
+
+5. **Safety guardrail (per-work-item lifetime cap).** Every retry
+   issue carries a `retry_lineage_id` in its body (a UUID, or — simpler
+   — the SHA of the originally-reverted commit that started the
+   lineage). When filing a new retry issue, increment a lineage
+   counter in `StateTracker.retry_lineage_attempts[lineage_id]`. If
+   the counter would exceed `max_retry_lineage_attempts` (default
+   **2**), do NOT revert and do NOT retry again — escalate:
+   `hitl-escalation`, `retry-lineage-exhausted`, naming the lineage
+   and linking all prior retry/revert PRs. Bounds the worst case
+   where a bug is intrinsic to the work, not the commit: original →
+   revert → retry → red → revert → retry → red → human. Without this,
+   the loop can churn on an un-automatable task indefinitely.
+
+6. **Reverting a revert.** A bisect that identifies an earlier
+   `auto-revert/*` commit as the culprit is anomalous (the revert
+   itself triggered the red) — escalate:
+   `hitl-escalation`, `bisect-culprit-is-auto-revert`. Do not
+   un-revert; a human must disentangle.
+7. **Revert PR.** Create branch
    `auto-revert/pr-{N}-rc-{YYYYMMDDHHMM}` off `staging`. Run
    `git revert <culprit_sha>` for a single commit, or
    `git revert -m 1 <merge_sha>` for a merge commit. Push. Open PR
@@ -529,18 +623,32 @@ plan adds the emission.
      `git show <sha> --stat`, bisect log, link to the retry issue
      (step 6).
    - Labels: `hydraflow-find`, `auto-revert`, `rc-red-attribution`.
-6. **Retry issue.** Simultaneously file a new `hydraflow-find` issue
-   via `src/pr_manager.py:PRManager.create_issue`:
+8. **Retry issue (with full context carry-over).** Simultaneously
+   file a new `hydraflow-find` issue via
+   `src/pr_manager.py:PRManager.create_issue`:
    - Title: `Retry: <original PR title>`
-   - Body: link to the reverted PR, full bisect log, failing test
-     names, time bounds (start SHA → end SHA → duration).
-   - Labels: `hydraflow-find`, `rc-red-retry`. The standard pipeline
-     picks up `hydraflow-find` issues; the factory re-does the work.
-7. **Auto-merge path (per §3.2).** The revert PR flows through the
+   - Body MUST include:
+     - Link to the reverted PR and its merged commit SHA.
+     - Link to the **original issue** the reverted PR addressed
+       (resolved via `gh api repos/.../pulls/{N}` → `body` /
+       closing-keywords parser; if unresolvable, leave the field
+       with `unresolved`).
+     - Link to the **plan doc** if one exists for the original issue
+       (`docs/superpowers/plans/` — find by grepping for the issue
+       number).
+     - Full bisect log, failing test names, time bounds.
+     - `retry_lineage_id` (the original culprit SHA or a UUID,
+       recorded in `StateTracker`).
+   - Labels: carry over any labels from the original issue except
+     `hydraflow-*` state labels — preserves epic, priority, area
+     tags. Always add `hydraflow-find`, `rc-red-retry`. The standard
+     pipeline picks up `hydraflow-find` issues; the factory re-does
+     the work with original-context intact.
+9. **Auto-merge path (per §3.2).** The revert PR flows through the
    standard agent-reviewer + quality-gate + auto-merge path. The
    retry issue flows through the standard implement/review pipeline.
    No human approval on either happy path.
-8. **Outcome verification.** After the revert merges, the next
+10. **Outcome verification.** After the revert merges, the next
    `StagingPromotionLoop` cycle creates a fresh RC. The loop waits
    (bounded watchdog: default 2 RC cycles or 8 hours, whichever is
    shorter) for the RC to go green.
@@ -555,7 +663,7 @@ plan adds the emission.
    - **Watchdog timeout:** escalate
      `hitl-escalation`, `rc-red-verify-timeout` — RC pipeline may be
      stalled for unrelated reasons; the human can disambiguate.
-9. **Cleanup.** `git worktree remove --force` on the bisect worktree
+11. **Cleanup.** `git worktree remove --force` on the bisect worktree
    regardless of outcome.
 
 **Revert edge cases.**
@@ -592,6 +700,14 @@ self-heal them.
 field: `staging_bisect_interval`. The loop is event-driven, not
 polling, so the interval acts as a watchdog poll for missed events;
 default `600` seconds. No per-worker LLM model override (no LLM call).
+
+**Probe/RC-gate sync test.** `make bisect-probe` must mirror the RC
+gate's scenario steps. A scenario-loop-only regression won't bisect
+if probe runs `make scenario` alone. Add a test at
+`tests/test_bisect_probe_sync.py` that parses both `Makefile`
+(bisect-probe target) and `.github/workflows/rc-promotion-scenario.yml`
+(scenario steps), extracts the called targets/commands, and asserts
+equality — flags drift before bisect silently runs a subset.
 
 ### 4.4 Principles audit + drift detector (foundational)
 
@@ -630,23 +746,60 @@ onboarding.
 5. On successful remediation + audit green, update the last-green
    snapshot for that repo.
 
-**Onboarding gate.** When a new target repo is registered with the
-factory (plan picks the signal — new `managed_repos` config entry,
-new registration API, or a label on a `hydraflow-onboard` issue):
+**Onboarding gate.** A new managed target repo is signaled by an
+entry in `src/config.py:managed_repos` (the spec picks this
+mechanism; not a label, not a separate API — one place in config,
+one source of truth). On each loop tick, `PrinciplesAuditLoop`
+compares `managed_repos` to the set it has already audited; new
+entries trigger an onboarding audit:
 
-- Before the factory installs any trust subsystem (§4.1–§4.3, §4.5–§4.9)
-  against the new repo, the loop runs `make audit --json` and reads
-  the result.
-- **P1–P5 FAILs block onboarding.** These are load-bearing
-  (documentation contract, layers, testing rings, quality gates, CI +
-  branch protection). File a `hydraflow-find` issue labeled
-  `onboarding-blocked` naming the failing checks. Factory dispatches
-  the implementer to remediate (or routes to `make init` for
-  greenfield scaffolding). The repo does not receive trust
-  subsystems until P1–P5 go green.
+- The loop runs `make audit --json` against a shallow checkout of the
+  new repo.
+- **P1–P5 FAILs block the factory pipeline, not just trust
+  subsystems.** The gate writes `managed_repos_onboarding_status[slug] = "blocked"`
+  to `StateTracker`. The orchestrator (`src/orchestrator.py`) reads
+  this field and skips the repo in its pipeline dispatch loop until
+  status flips to `ready`. This is the stronger enforcement: without
+  it, the factory could still run pipelines on a non-conformant repo
+  while the trust subsystems abstain — cargo-cult selectivity. P1–P5
+  (documentation contract, layers, testing rings, quality gates,
+  CI + branch protection) are the load-bearing set.
+- File `hydraflow-find` labeled `onboarding-blocked` with the
+  specific failing checks. Factory dispatches the implementer to
+  remediate (or routes to `make init` for greenfield scaffolding).
+  When remediation merges and a re-audit passes P1–P5,
+  `managed_repos_onboarding_status[slug]` flips to `ready` and the
+  factory begins processing.
 - **P6–P10 FAILs warn but do not block.** P6 (loops/labels) is
   optional for non-orchestration repos; P7–P10 are high-value but
   not structurally required for the trust gates to function.
+
+**HydraFlow-self CI gate.** A regression on HydraFlow's own principles
+between weekly audits must not be able to land. Add an `audit` job to
+`.github/workflows/ci.yml` (every PR to staging, not just the RC
+promotion — this is the one gate that runs everywhere because
+principles must hold on every commit):
+
+```yaml
+audit:
+  name: Principles Audit
+  needs: changes
+  if: needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true'
+  runs-on: ubuntu-latest
+  timeout-minutes: 5
+  steps:
+    - uses: actions/checkout@v4
+    - uses: astral-sh/setup-uv@v4
+    - uses: actions/setup-python@v5
+      with: { python-version: "3.11" }
+    - run: uv sync --all-extras
+    - run: make audit
+```
+
+Failing `make audit` fails the PR. The `.hydraflow-audit-baseline`
+file anchors P10.3 to exclude historical drift; other checks are
+absolute. This gate is the machinery that enforces §11.1's "principles
+as foundation" for HydraFlow-self.
 
 **Escalation.** STRUCTURAL/BEHAVIORAL regressions: after 3 repair
 attempts, label `hitl-escalation`, `principles-stuck`. CULTURAL
@@ -733,11 +886,17 @@ compounds rather than stagnating at whatever was cassetted on day one.
 **On fire.**
 
 1. Introspect each fake class under `tests/scenarios/fakes/` via the
-   AST (`ast.parse` on the file; read public methods — those not
-   prefixed `_`).
+   AST (`ast.parse`). Read **two method sets**: (a) public methods
+   not prefixed `_` — the methods that mirror the real adapter's
+   surface; (b) test-facing helpers — `script_*`, `fail_service`,
+   `heal_service`, `set_state`, and any other non-private method that
+   scenarios reach into. Both sets are part of the contract (the
+   first with the real adapter, the second with scenario tests); gaps
+   in either deserve a report.
 2. Parse all cassettes under `tests/trust/contracts/cassettes/<adapter>/`
    and collect the real-adapter method invoked by each (`input.command`
-   is the source of truth).
+   is the source of truth). Separately, grep `tests/scenarios/` for
+   calls to the test-facing helpers to assert they're exercised.
 3. Compute coverage: a fake method is covered if at least one cassette
    exercises its real-adapter counterpart.
 4. For each uncovered method, file a `hydraflow-find`:
@@ -765,13 +924,20 @@ Runs after each RC CI completion (watchdog cadence `14400`).
 **On fire.**
 
 1. Read the last 30 days of RC runs via `gh api`, extract per-run
-   wall-clock duration.
-2. Compute rolling median.
-3. If current run exceeds `rc_budget_threshold_ratio * median`
-   (default `1.5`), file a `hydraflow-find`:
-   - Title: `RC gate duration regression: {current_s}s vs {median_s}s median`.
+   wall-clock duration. Separately read the most recent 5 runs for
+   spike detection.
+2. Compute rolling median (slow signal) **and** max of recent 5
+   (fast signal). A single bad commit can jump duration 5× overnight;
+   a median alone takes weeks to reflect that.
+3. File a `hydraflow-find` if **either** threshold trips:
+   - `current > rc_budget_threshold_ratio * rolling_median` (default
+     `1.5`) — gradual bloat.
+   - `current > rc_budget_spike_ratio * max(recent 5, excluding current)`
+     (default `2.0`) — sudden spike.
+   Issue body names which threshold tripped:
+   - Title: `RC gate duration regression: {current_s}s vs {baseline}s {spike|median}`.
    - Body: per-job breakdown of the slow run, top-10 slowest tests,
-     previous 5 runs for comparison.
+     previous 5 runs for comparison, both threshold values.
    - Labels: `hydraflow-find`, `rc-duration-regression`.
 4. Factory dispatches implementer; standard repair path identifies the
    bloat source — parallelization, test split, fixture optimization.
@@ -795,10 +961,19 @@ plus each managed repo's.
 **On fire — per repo.**
 
 1. Load `repo_wiki/<repo_slug>/*.md` entries via `src/repo_wiki.py:RepoWikiStore`.
-2. For each entry, extract cited `module:symbol` references (pattern:
-   `\b([a-zA-Z_/.]+\.py):([a-zA-Z_][a-zA-Z0-9_]*)`).
-3. Verify each cite against the repo's HEAD — the file exists and the
-   symbol is defined (grep for `def symbol|class symbol`).
+2. For each entry, extract cited code references using a broader set
+   of patterns (regex alone is insufficient):
+   - `path/to/module.py:symbol` (file-colon-symbol, the house style)
+   - `src.module.Class` and `src.module.function` (dotted import
+     paths — some wiki entries use these)
+   - Bare function/class names within fenced-code `python` blocks
+     that look like cites (ambiguous; treat as hints not hard cites)
+3. Verify each cite against the repo's HEAD by **AST introspection**,
+   not grep: parse the module with `ast.parse`, walk for
+   `FunctionDef`/`AsyncFunctionDef`/`ClassDef` definitions, and
+   check symbol presence — catches re-exports, `__init__.py`
+   re-bindings, and imports-as-public-API that grep misses. Fall
+   back to grep for markdown files or non-Python cites (rare).
 4. For each broken cite, file a `hydraflow-find`:
    - Title: `Wiki rot: {wiki_entry} cites missing {module}:{symbol}`.
    - Body: wiki entry excerpt, broken cite, suggested replacement from
@@ -833,16 +1008,51 @@ parameterization, `expected_catcher.txt`, keyword assertion) is the
 same; the evaluator skills are new.
 
 **New evaluator skills** (registered in `src/skill_registry.py` the
-same way post-impl skills are — `BUILTIN_SKILLS` list, phase-scoped):
+same way post-impl skills are — `BUILTIN_SKILLS` list, phase-scoped).
+Each is a prompt+parser pair matching the existing skill contract.
+The rubrics below are the spec; the plan authors the exact prompt
+text but must enforce these criteria.
 
-- `discover-completeness` — evaluates a Discover brief. Asserts the
-  brief has the required sections (intent, affected area, acceptance
-  criteria, open questions) and that each is non-trivial (length >
-  threshold, no placeholder tokens, acceptance criteria are concrete).
-- `shape-coherence` — evaluates a Shape proposal. Asserts options are
-  mutually exclusive (no two options overlap > threshold), each
-  option has concrete scope bounds + named trade-offs, and at least
-  one "do nothing / defer" option is present.
+- **`discover-completeness`** — evaluates a Discover brief. Returns
+  RETRY if any of the following fails; RETRY reason must name which:
+  - **Structure:** brief contains named sections for *Intent*,
+    *Affected area*, *Acceptance criteria*, *Open questions*, *Known
+    unknowns*. Missing section → RETRY keyword
+    `missing-section:<name>`.
+  - **Non-trivial content:** each section has ≥50 characters of prose
+    (or ≥3 bulleted items for Acceptance criteria / Open questions).
+    Short section → RETRY keyword `shallow-section:<name>`.
+  - **No paraphrase-only:** at least one section adds information not
+    present in the original issue body (evaluator compares the brief
+    to the issue). Paraphrase-only → RETRY keyword `paraphrase-only`.
+  - **Concrete acceptance criteria:** each bullet is testable —
+    names an observable outcome, not a vague aspiration ("the app is
+    faster" fails; "page-load p95 drops below 800ms" passes). Vague
+    → RETRY keyword `vague-criterion`.
+  - **Open questions exist when input is ambiguous:** if the brief
+    claims zero open questions but the issue body contains
+    ambiguity markers ("maybe", "could be", "not sure", "it depends"),
+    RETRY with keyword `hid-ambiguity`.
+
+- **`shape-coherence`** — evaluates a Shape proposal. Returns RETRY
+  if any of the following fails:
+  - **≥2 substantive options.** At least two options beyond
+    "do nothing"; each has distinct scope. Fewer → RETRY keyword
+    `too-few-options`.
+  - **Do-nothing option present.** "Defer" / "no-op" / "accept
+    status quo" is always one of the options. Missing → RETRY
+    keyword `missing-defer`.
+  - **Mutually exclusive scope.** Options must not overlap in the
+    code areas they touch beyond a threshold (evaluator compares
+    option scopes pairwise). Overlap > 50% → RETRY keyword
+    `options-overlap`.
+  - **Trade-offs named per option.** Each option lists at least one
+    concrete cost/risk/trade-off. Missing → RETRY keyword
+    `missing-tradeoffs`.
+  - **Reconciles Discover ambiguities.** If the upstream Discover
+    brief named open questions, the Shape proposal must address each
+    (pick a position or explicitly punt with rationale). Un-addressed
+    → RETRY keyword `dropped-discover-question`.
 
 Both are lightweight prompt+parser skills following the `BUILTIN_SKILLS`
 contract. Both return `RETRY` with a reason + keyword when the
@@ -906,6 +1116,203 @@ process vague work — every bad brief would need a human to catch.
 This is the first place autonomy fails without product-phase trust.
 Same pattern, same harness, two new skills.
 
+### 4.11 Factory cost & diagnostics waterfall
+
+**Purpose.** A dark factory you can't see into is a factory you can't
+operate. Before any scale beyond HydraFlow-self, operators must know
+per issue: how many tokens were spent, what that cost in dollars, how
+long the issue took end-to-end, and where the time and money went —
+which phase, which skill, which subagent call, which loop. "Full
+waterfall" on one screen in the Diagnostics tab.
+
+**Current state — what already exists.** HydraFlow has substantial
+telemetry already: `src/model_pricing.py:ModelPricing.estimate_cost`
+(per-model input/output/cache token pricing),
+`src/prompt_telemetry.py` (prompt-level tracking),
+`src/trace_collector.py` (phase subprocess traces),
+`src/factory_metrics.py`, `src/metrics_manager.py`, and diagnostics
+routes `/overview`, `/tools`, `/skills`, `/subagents`,
+`/cost-by-phase`, `/issues`, `/issue/{issue}/{phase}`. The data is
+flowing. The gap is **one unified waterfall view per issue** plus
+**per-loop telemetry** for the new trust loops this spec introduces.
+
+**What this subsystem adds.**
+
+1. **`/api/diagnostics/issue/{issue}/waterfall` endpoint** — a single
+   call returning a rollup of one issue across every phase and
+   sub-action. Shape:
+
+   ```
+   {
+     "issue": 1234,
+     "title": "...",
+     "labels": [...],
+     "total": {
+       "tokens_in": 123456,
+       "tokens_out": 45678,
+       "cache_read_tokens": 234567,
+       "cache_write_tokens": 7890,
+       "cost_usd": 1.234,
+       "wall_clock_seconds": 827,
+       "first_seen": "...",
+       "merged_at": "..."
+     },
+     "phases": [
+       {
+         "phase": "triage",
+         "tokens_in": ..., "tokens_out": ..., "cost_usd": ...,
+         "wall_clock_seconds": ...,
+         "actions": [
+           {"kind": "llm", "model": "sonnet-4-6", "tokens_in": ..., ...},
+           {"kind": "skill", "skill": "diff-sanity", "tokens_in": ..., ...},
+           {"kind": "subprocess", "command": "...", "duration_ms": ...},
+           {"kind": "loop", "loop": "CorpusLearningLoop", "tokens_in": ..., ...}
+         ]
+       },
+       {"phase": "discover", ...},
+       {"phase": "shape", ...},
+       {"phase": "plan", ...},
+       {"phase": "implement", ...},
+       {"phase": "review", ...},
+       {"phase": "merge", ...}
+     ]
+   }
+   ```
+
+   Phases appear in execution order. Each phase's `actions` are ordered
+   chronologically. Cost is computed on the fly from stored token
+   counts via `ModelPricing.estimate_cost` so pricing-sheet updates
+   retroactively re-price historical issues correctly.
+
+2. **Diagnostics tab — Waterfall view.** `src/ui/src/` gains a
+   "Waterfall" sub-tab under Diagnostics (or extends the existing
+   per-issue drill-down view at `/issue/{issue}/{phase}`). Renders:
+   - Top header: total tokens / cost / wall-clock / issue labels.
+   - Stacked horizontal bar per phase, proportional to wall-clock
+     duration, colored by phase.
+   - Clicking a phase expands the actions list with per-action
+     tokens/cost/duration.
+   - Cost column sortable. "Top 10 expensive issues this week" link
+     drills into the waterfall.
+
+3. **Per-loop telemetry for trust loops.** Every new loop in this
+   spec (`CorpusLearningLoop`, `ContractRefreshLoop`,
+   `StagingBisectLoop`, `PrinciplesAuditLoop`, `FlakeTrackerLoop`,
+   `SkillPromptEvalLoop`, `FakeCoverageAuditorLoop`, `RCBudgetLoop`,
+   `WikiRotDetectorLoop`) must emit telemetry to
+   `src/prompt_telemetry.py` when they call the LLM, and to
+   `src/trace_collector.py` when they run subprocesses. Loop names
+   appear as `{"kind": "loop", "loop": "<LoopClassName>"}` actions in
+   the waterfall so operators see the full cost of the trust fleet,
+   not just the pipeline.
+
+4. **Aggregate rollups.** Extend the existing diagnostics router with:
+   - `/api/diagnostics/cost/rolling-24h` — cost burned in last 24h,
+     breakdown by phase + by loop.
+   - `/api/diagnostics/cost/top-issues?range=7d&limit=10` — most
+     expensive recent issues.
+   - `/api/diagnostics/cost/by-loop?range=7d` — per-loop cost share,
+     so `ContractRefreshLoop` recording against live services shows up
+     as a line item, not hidden in telemetry.
+
+5. **Per-loop cost dashboard (separate from the per-issue
+   waterfall).** The waterfall is an *issue-level* view; operators
+   also need a *machinery-level* view — what does it cost to **run
+   the factory**, independent of any single issue? This is a
+   distinct dashboard, not a sub-tab of the waterfall.
+
+   **Endpoint**: `/api/diagnostics/loops/cost?range=7d|30d|90d`
+   returning:
+
+   ```
+   {
+     "range": "7d",
+     "total": {
+       "cost_usd": 42.18,
+       "tokens_in": 5400000, "tokens_out": 800000,
+       "llm_calls": 312,
+       "wall_clock_seconds": 4860
+     },
+     "loops": [
+       {
+         "loop": "CorpusLearningLoop",
+         "cost_usd": 8.42, "tokens_in": ..., "llm_calls": 47,
+         "issues_filed": 3, "issues_closed": 2, "escalations": 0,
+         "ticks": 52, "tick_cost_avg_usd": 0.16,
+         "wall_clock_seconds": 840
+       },
+       {"loop": "ContractRefreshLoop", ...},
+       {"loop": "StagingBisectLoop", ...},
+       ... (all loops including existing pipeline loops)
+     ]
+   }
+   ```
+
+   **UI surface**: new "Factory Cost" dashboard tab (separate from
+   Diagnostics/Waterfall):
+   - Top-line: total machinery cost today / this week / this month.
+   - Sortable per-loop table with all fields above plus sparkline of
+     cost-per-day per loop (catches a loop that suddenly 10×'s its
+     burn).
+   - Highlight rows where `tick_cost_avg_usd` grew > 2× vs
+     prior-period (a prompt regression that doubles token usage
+     surfaces here before it burns the budget).
+   - Coverage: **every** loop — the 5 pipeline loops (ADR-0001) and
+     the 9 new trust loops in this spec and any existing caretaker
+     loops (retrospective, report, sentry, etc.). Drop-downs filter
+     by loop class.
+
+   **Why separate from the issue waterfall:** issues are the
+   factory's *output*; loops are the factory's *operating cost*. A
+   loop that burns money without filing useful issues should stand
+   out in the machinery view — in the issue view it would be diluted
+   or invisible. Different questions, different screens.
+
+5. **Cost budget alerts (lightweight).** Config fields
+   `daily_cost_budget_usd` (default off) and
+   `issue_cost_alert_usd` (default off). When set and crossed, a
+   `hydraflow-find` issue with label `cost-budget-exceeded` fires.
+   Not a blocker — an observability signal. Operators decide whether
+   to tune, throttle, or approve. Matches §3.2: autonomous detection,
+   operator in the loop only on exceptional conditions.
+
+**What it does NOT add.** This subsystem does not introduce new
+pricing logic, new telemetry capture, or parallel state stores. It
+composes what exists into one view and ensures the new loops feed
+into it. If `src/model_pricing.py` is missing a model, the plan adds
+that model — but the pricing mechanism stays.
+
+**Fail modes.**
+
+| Gate | Failure mode | Autonomous action | Escalates? | Label(s) |
+|---|---|---|---|---|
+| Waterfall endpoint | Missing telemetry for a phase | Return partial rollup with `missing_phases` field; log at `warning` | No (observability, not correctness) | — |
+| Cost budget | Daily cost exceeds `daily_cost_budget_usd` | File issue | No (operator signal) | `hydraflow-find`, `cost-budget-exceeded` |
+| Issue cost | Single-issue cost exceeds `issue_cost_alert_usd` | File issue | No | `hydraflow-find`, `issue-cost-spike` |
+
+**Testing.**
+
+- Unit: `tests/test_diagnostics_waterfall.py` — waterfall endpoint
+  against a fixture issue with recorded traces; asserts structure,
+  phase ordering, cost totals match `ModelPricing`.
+- MockWorld scenario: an issue runs through the full pipeline; the
+  waterfall endpoint returns all seven phases in order with non-zero
+  costs.
+- Existing UI snapshot tests under `src/ui/` cover the new tab.
+
+**Dependencies / prerequisites.**
+
+- Existing telemetry infra listed above.
+- Each new loop (§4.1–§4.10) must feed `prompt_telemetry` +
+  `trace_collector`. Add this to each loop's implementation plan as a
+  task.
+
+**Why this goes in this spec and not a follow-on.** The trust fleet
+and the pipeline will both burn tokens. A dark factory cannot be
+operated — or even *decided to keep running* — without knowing what
+it costs to do a unit of work. Observability and cost are
+prerequisites to scaling beyond HydraFlow-self (goals 4, 7, 9, 10).
+
 ## 5. Shared infrastructure
 
 **Directory tree:**
@@ -965,7 +1372,13 @@ reinvent issue filing; do not introduce a parallel dedup layer —
 Per §3.2, every row resolves to either **autonomous repair** or
 **HITL escalation**; "waits for human review" is not a state.
 
-| Gate | Failure mode | Autonomous action | Blocks RC until fix? | Escalates? | Label(s) |
+Column "Blocks RC" means: does this specific failure mode red-fail the
+RC promotion PR (and therefore block release)? "No" means the loop
+files a signal and the factory repairs asynchronously. "No" is NOT
+the same as "this failure is harmless" — correctness depends on the
+repair landing in a reasonable window.
+
+| Gate | Failure mode | Autonomous action | Red-fails RC? | Escalates? | Label(s) |
 |---|---|---|---|---|---|
 | `adversarial` corpus (RC gate) | Skill fails to flag a case | Standard CI-red retry; factory dispatches implementer against the failing skill | Yes | On retry exhaustion | `hydraflow-find`, `skill-regression` → `hitl-escalation`, `skill-repair-stuck` |
 | `CorpusLearningLoop` | Synthesized case self-validation fails | Retry per escape issue | No | After 3× on same escape | `hitl-escalation`, `corpus-learning-stuck` |
@@ -1229,7 +1642,7 @@ extension path, with principle conformance as the gate:
 | Contract tests (§4.2) | Fakes live in HydraFlow (they simulate HydraFlow's adapters), so a single contract suite covers all managed repos. One cassette set is enough | The `ContractRefreshLoop` remains a single caretaker |
 | Staging-red bisect (§4.3) | Per managed repo that adopts `ADR-0042`'s two-tier model. The loop runs N instances (one per repo with a staging branch), each bisecting that repo's own promotion | Requires per-repo `last_green_rc_sha` state keys; straightforward with current `StateTracker` repo-slug scoping (`ADR-0021` P9) |
 
-### 11.3 The caretaker fleet — compounding trust over time
+### 11.3 The caretaker fleet — compounding trust over time (see §12 for operability)
 
 The nine subsystems in §4 are this spec's trust fleet. §4.1–§4.3 are
 primary RC-boundary gates; §4.4 is the foundational principles
@@ -1255,3 +1668,146 @@ each follows the same pattern: a `BaseBackgroundLoop` subclass,
 five-checkpoint wiring, autonomous repair via `hydraflow-find`,
 escalation on 3-attempt failure per §3.2. The pattern compounds; the
 fleet grows.
+
+## 12. Operability — watching the watchers, pausing the loops, measuring success
+
+Autonomy without observability is a black box you can't safely run.
+This section defines the operator contract for the trust fleet:
+what operators see, how they intervene, and how we measure whether
+the whole thing works.
+
+### 12.1 Meta-observability — loops watching loops
+
+§4.11 gives the per-loop cost dashboard. §12 adds the per-loop
+**behavior** view: what did each loop *do*, not just what did it
+*cost*. Endpoint: `/api/trust/fleet?range=7d|30d`.
+
+Per loop:
+- `ticks_total`, `ticks_errored` (tick exit non-zero), `last_tick_at`.
+- `issues_filed_total`, `issues_closed_total`, `issues_open_escalated`.
+- `repair_attempts_total`, `repair_successes_total`,
+  `repair_failures_total`.
+- Loop-specific: `reverts_merged` (bisect), `cases_added` (learning),
+  `cassettes_refreshed` (contract), `principles_regressions`
+  (audit), etc.
+
+**Trust-loop sanity caretaker.** A new tenth loop,
+**`TrustFleetSanityLoop`** (`src/trust_fleet_sanity_loop.py`), watches
+the above metrics. Who watches the watchers — the watchers watch each
+other. On any of the following anomalies, it files a
+`hitl-escalation` issue with label `trust-loop-anomaly`:
+
+- A loop files > `loop_anomaly_issues_per_hour` (default 10) issues
+  in an hour.
+- A loop's `repair_failures_total` over 24h exceeds
+  `repair_successes_total` × 2 — it's churning, not fixing.
+- A loop's `ticks_errored / ticks_total` ratio exceeds 0.2 over the
+  last 24h — it's broken.
+- A loop hasn't ticked in > `loop_staleness_s` (default 2 ×
+  interval) and is `enabled` — its scheduler dropped it.
+- A loop's cost spikes > 5× its 30-day median (this reads from
+  §4.11).
+
+The sanity loop itself is watched by **inverted self-check**: if
+`TrustFleetSanityLoop` stops ticking, the existing `HealthMonitor`
+(`src/health_monitor.py`) detects it and files a conventional health
+issue. This breaks the recursion at the health layer — health is the
+root of trust; without it, the operator has nothing to stand on.
+
+`TrustFleetSanityLoop` follows the same five-checkpoint wiring. Add
+to `tests/test_loop_wiring_completeness.py`. Adds Loop #10 to the
+§4 subsystem count.
+
+### 12.2 Kill-switch / pause contract
+
+Every loop in §4 and §12.1 must honor a `<loop_name>_enabled` config
+field (default `True`). When `False`, the loop's tick returns
+immediately; its state is preserved; no issues are filed. Operators
+flip this via the dashboard's System tab (existing surface) when a
+loop misbehaves. This is load-bearing for operability — a loop bug
+that creates 100 revert PRs per hour must have a faster stop than
+"ship a fix through the pipeline."
+
+Consistent naming:
+- `corpus_learning_enabled`
+- `contract_refresh_enabled`
+- `staging_bisect_enabled`
+- `principles_audit_enabled`
+- `flake_tracker_enabled`
+- `skill_prompt_eval_enabled`
+- `fake_coverage_auditor_enabled`
+- `rc_budget_enabled`
+- `wiki_rot_detector_enabled`
+- `trust_fleet_sanity_enabled`
+
+Env overrides follow the existing `HYDRAFLOW_*_ENABLED` pattern.
+
+### 12.3 Dashboard surfaces — the operator's trust panel
+
+The existing Diagnostics tab is the anchor. This spec adds three
+companion panels:
+
+- **Factory Cost** (§4.11) — per-issue waterfall + per-loop cost
+  dashboard.
+- **Trust Fleet** (§12.1) — per-loop behavior metrics, kill switches,
+  recent escalations, anomaly indicator.
+- **Principles** (§4.4) — current audit status for HydraFlow-self and
+  every managed repo, regression history, last-audit timestamp.
+
+All three panels read from existing persistence (`StateTracker`,
+`trace_collector`, `prompt_telemetry`) via new read-only endpoints
+under `/api/trust/*` and `/api/diagnostics/*`. No new stores.
+
+### 12.4 Success metrics — what "working" looks like
+
+Qualitative "lights-off" needs quantitative targets. Baseline-then-
+target mapping after the spec lands:
+
+**30-day targets** (measured on HydraFlow-self):
+- **Skill escape rate**: zero bugs merged to `main` that the
+  adversarial corpus *could* have caught (a post-hoc review, logged
+  in a monthly retro). The number is zero because every caught
+  escape should have gone through `CorpusLearningLoop` → new case.
+- **Fake drift**: all four adapters have a refresh PR cycle completed
+  successfully at least twice — proves the `ContractRefreshLoop` is
+  closing loops end-to-end.
+- **RC-red MTTR** (time from red RC detected → green RC): p50 < 2h
+  (auto-revert + retry cycle), p95 < 8h (watchdog cap). Before this
+  spec: indeterminate / manual.
+- **Principles conformance**: zero regressions on P1–P5 unfixed for
+  more than 24h.
+
+**90-day targets**:
+- **HITL escalation rate**: < 3 per week across the fleet. Above that
+  means autonomy isn't holding; the escalations need design-level
+  fixes, not just case-by-case handling.
+- **Factory burn rate**: defined and trending — operators can answer
+  "what does an issue cost" from the Waterfall in < 30 seconds, and
+  "what does the machinery cost per day" from Factory Cost in < 10
+  seconds.
+- **Cross-repo readiness**: at least one target repo beyond
+  HydraFlow-self has passed `PrinciplesAuditLoop` onboarding and
+  received all applicable trust subsystems.
+
+Targets are aspirational and written into a monthly retro doc
+(`docs/retros/YYYY-MM-trust-fleet.md`). Missed targets are not
+failures — they are inputs to the next spec iteration. The
+`RetrospectiveLoop` (existing) automates retro scaffolding; the
+targets become queryable from the `/api/trust/fleet` endpoint so
+retros are data-driven.
+
+### 12.5 Escalation lifecycle — closing the operator loop
+
+Reiterating §3.2 for explicit operational clarity. Every
+`hitl-escalation` issue:
+
+1. Loop files it.
+2. Human sees it via the Trust Fleet panel (§12.3) alert or the
+   normal issue queue.
+3. Human closes it (with or without a merged fix).
+4. On close, the associated dedup key in
+   `src/dedup_store.py:DedupStore` clears — the loop is free to
+   re-fire on the *next* drift. State is never sticky past a close.
+
+This close→clear mechanism must be unit-tested per loop. Without it
+a closed escalation silently muzzles the loop forever.
