@@ -6,6 +6,7 @@ import asyncio
 import logging
 
 from config import HydraFlowConfig
+from dedup_store import DedupStore
 from discover_runner import DiscoverRunner
 from events import EventBus, EventType, HydraFlowEvent
 from issue_store import IssueStore
@@ -48,6 +49,12 @@ class DiscoverPhase:
         self._bus = event_bus
         self._stop_event = stop_event
         self._runner = discover_runner
+        if self._runner is not None:
+            dedup = DedupStore(
+                "hitl_escalations",
+                config.data_root / "memory" / "hitl_escalations_dedup.json",
+            )
+            self._runner.bind_escalation_deps(self._prs, dedup)
 
     async def discover_issues(self) -> bool:
         """Process discover-labeled issues. Returns True if work was done."""

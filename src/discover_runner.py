@@ -17,9 +17,12 @@ from plugin_skill_registry import (
     skills_for_phase,
 )
 from runner_constants import MEMORY_SUGGESTION_PROMPT
+from skill_registry import BUILTIN_SKILLS
 
 if TYPE_CHECKING:
+    from dedup_store import DedupStore
     from models import Task
+    from pr_manager import PRManager
 
 logger = logging.getLogger("hydraflow.discover")
 
@@ -27,6 +30,11 @@ logger = logging.getLogger("hydraflow.discover")
 _DISCOVER_START = "DISCOVER_START"
 _DISCOVER_END = "DISCOVER_END"
 _JSON_BLOCK_RE = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
+
+# Evaluator skill + escalation label constants (§4.10)
+_SKILL_NAME = "discover-completeness"
+_ESCALATION_LABEL_STUCK = "discover-stuck"
+_ESCALATION_LABEL_HITL = "hitl-escalation"
 
 
 class DiscoverRunner(BaseRunner):
@@ -40,18 +48,65 @@ class DiscoverRunner(BaseRunner):
 
     _log = logger
 
-    async def discover(self, task: Task, worker_id: int = 0) -> DiscoverResult:
-        """Run product discovery research for *task*.
+    def bind_escalation_deps(
+        self, prs: PRManager, dedup: DedupStore | None = None
+    ) -> None:
+        """Wire issue-filing + dedup deps used by evaluator escalation.
 
-        Returns a :class:`DiscoverResult` with research findings.
+        Called by :class:`DiscoverPhase` after construction. Without
+        binding, escalation logs a warning and returns — evaluator
+        dispatch and bounded retry still run.
+        """
+        self._prs = prs
+        self._dedup = dedup
+
+    async def discover(self, task: Task, worker_id: int = 0) -> DiscoverResult:
+        """Run product discovery with post-output evaluation (§4.10).
+
+        When ``config.max_discover_attempts > 0`` the runner evaluates
+        each produced brief via the ``discover-completeness`` skill; on
+        RETRY it re-runs discovery up to the budget, then escalates via
+        ``hitl-escalation`` / ``discover-stuck`` and returns the last
+        (best-available) brief so the phase can still post a comment.
         """
         result = DiscoverResult(issue_number=task.id)
-        transcript = ""
-
         if self._config.dry_run:
             logger.info("[dry-run] Would run discovery for issue #%d", task.id)
             result.research_brief = "Dry-run: discovery skipped"
             return result
+
+        max_attempts = max(1, self._config.max_discover_attempts or 1)
+        evaluator_enabled = self._config.max_discover_attempts > 0
+        last_summary = ""
+        last_findings: list[str] = []
+        for attempt in range(1, max_attempts + 1):
+            result = await self._run_discovery_once(task, attempt)
+            if not evaluator_enabled:
+                return result
+            passed, summary, findings = await self._evaluate_brief(
+                task, result.research_brief
+            )
+            last_summary, last_findings = summary, findings
+            if passed:
+                return result
+            logger.warning(
+                "Discover brief rejected for #%d attempt %d/%d: %s",
+                task.id,
+                attempt,
+                max_attempts,
+                summary,
+            )
+        await self._escalate_stuck(task, last_summary, last_findings, max_attempts)
+        return result
+
+    async def _run_discovery_once(self, task: Task, attempt: int) -> DiscoverResult:
+        """Run a single discovery pass — produces one :class:`DiscoverResult`.
+
+        Factored from the original single-shot ``discover`` body so the
+        outer loop can invoke it once per attempt.
+        """
+        result = DiscoverResult(issue_number=task.id)
+        transcript = ""
 
         try:
             cmd = self._build_command()
@@ -83,7 +138,7 @@ class DiscoverRunner(BaseRunner):
                 cmd,
                 prompt,
                 self._config.repo_root,
-                {"issue": task.id, "source": "discover"},
+                {"issue": task.id, "source": f"discover:attempt-{attempt}"},
                 on_output=_check_complete,
             )
 
@@ -110,7 +165,9 @@ class DiscoverRunner(BaseRunner):
             )
 
         try:
-            self._save_transcript("discover-issue", task.id, transcript)
+            self._save_transcript(
+                f"discover-issue-attempt{attempt}", task.id, transcript
+            )
         except OSError:
             logger.warning(
                 "Failed to save discovery transcript for issue #%d",
@@ -119,6 +176,93 @@ class DiscoverRunner(BaseRunner):
             )
 
         return result
+
+    async def _evaluate_brief(
+        self, task: Task, brief: str
+    ) -> tuple[bool, str, list[str]]:
+        """Dispatch ``discover-completeness`` against *brief*.
+
+        A missing skill (registry disabled) fails open so this extension
+        never blocks discovery on its own absence.
+        """
+        skill = next((s for s in BUILTIN_SKILLS if s.name == _SKILL_NAME), None)
+        if skill is None:
+            return True, f"{_SKILL_NAME} not registered — fail open", []
+        prompt = skill.prompt_builder(
+            issue_number=task.id,
+            issue_title=task.title,
+            issue_body=task.body or "",
+            brief=brief or "",
+        )
+        try:
+            transcript = await self._execute(
+                self._build_command(),
+                prompt,
+                self._config.repo_root,
+                {"issue": task.id, "source": "discover:evaluator"},
+            )
+        except Exception as exc:
+            reraise_on_credit_or_bug(exc)
+            logger.warning(
+                "discover-completeness dispatch failed for #%d: %s", task.id, exc
+            )
+            return True, f"evaluator dispatch failed: {exc!r}", []
+        return skill.result_parser(transcript)
+
+    async def _escalate_stuck(
+        self, task: Task, summary: str, findings: list[str], attempts: int
+    ) -> None:
+        """File hitl-escalation / discover-stuck with dedup.
+
+        Dedup key ``discover_runner:{task.id}`` in the shared
+        ``hitl_escalations`` set. Closing the escalation issue clears
+        the key (per §3.2) so the runner can retry on the next cycle.
+        """
+        prs: PRManager | None = getattr(self, "_prs", None)
+        dedup: DedupStore | None = getattr(self, "_dedup", None)
+        key = f"discover_runner:{task.id}"
+        if dedup is not None and key in dedup.get():
+            logger.info("discover-stuck for #%d already filed (dedup)", task.id)
+            return
+        if prs is None:
+            logger.warning(
+                "discover-stuck for #%d but PRManager not bound; logging only. "
+                "attempts=%d summary=%s",
+                task.id,
+                attempts,
+                summary,
+            )
+            return
+        body_lines = [
+            f"Discover-completeness evaluator rejected {attempts} bounded "
+            f"retries for issue #{task.id}.",
+            "",
+            f"**Last summary:** {summary}",
+        ]
+        if findings:
+            body_lines.append("")
+            body_lines.append("**Last findings:**")
+            for finding in findings[:10]:
+                body_lines.append(f"- {finding}")
+        body_lines += [
+            "",
+            "Action: a human must review the issue body, clarify the "
+            "ambiguity that blocked the brief, and either retry Discover "
+            "manually or accept the current brief. Closing this issue "
+            "clears the dedup key so the runner can retry.",
+        ]
+        issue_number = await prs.create_issue(
+            title=f"[discover-stuck] #{task.id} — {task.title}",
+            body="\n".join(body_lines),
+            labels=[_ESCALATION_LABEL_HITL, _ESCALATION_LABEL_STUCK],
+        )
+        if issue_number and dedup is not None:
+            dedup.add(key)
+            logger.info(
+                "Filed discover-stuck escalation #%d for task #%d",
+                issue_number,
+                task.id,
+            )
 
     def _build_command(self, _worktree_path=None) -> list[str]:  # type: ignore[override]
         """Construct the CLI invocation for product discovery.
