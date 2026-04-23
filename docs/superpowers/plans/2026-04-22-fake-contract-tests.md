@@ -36,9 +36,11 @@
 | Stream-protocol drift path | Task 17 |
 | 3-attempt escalation tracker + `max_fake_repair_attempts` | Task 18 |
 | Five-checkpoint wiring | Tasks 19a–19e |
-| Integration test (end-to-end injected drift) | Task 20 |
-| `tests/test_loop_wiring_completeness.py` covers new loop | Task 21 |
-| Commit + PR description | Task 22 |
+| Per-loop telemetry emission (§4.11 point 3) | Task 20 |
+| Integration test (end-to-end injected drift) | Task 21 |
+| `tests/test_loop_wiring_completeness.py` covers new loop | Task 22 |
+| MockWorld scenario (§7 integration-side requirement) | Task 23 |
+| Commit + PR description | Task 24 |
 
 ---
 
@@ -1338,7 +1340,7 @@ git commit -m "feat(contract_refresh_loop): skeleton BaseBackgroundLoop subclass
 **Files:**
 - Create: `tests/test_contract_refresh_loop.py`
 
-Task 12 establishes the test harness for this loop; Task 20 extends it with the end-to-end drift scenarios. Both tasks share the same file; keep a clean split by marking later tests with `# Added in Task 20`.
+Task 12 establishes the test harness for this loop; Task 21 extends it with the end-to-end drift scenarios. Both tasks share the same file; keep a clean split by marking later tests with `# Added in Task 21`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2269,7 +2271,218 @@ git commit -m "feat(contract_refresh_loop): add contract_refresh_interval + max_
 
 ---
 
-## Task 20: Integration test — end-to-end mocked drift
+## Task 20: Per-loop telemetry emission (§4.11 point 3)
+
+**Files:**
+- Modify: `src/contract_refresh_loop.py` (wrap `_run_cli` in Task 13's helper block)
+- Modify: `tests/test_contract_refresh_loop.py` (new unit test class)
+
+Spec §4.11 point 3 requires every new trust loop to emit telemetry to `src/trace_collector.py` on every subprocess invocation, tagged with the action shape `{"kind": "loop", "loop": "ContractRefreshLoop"}`, so the per-loop cost dashboard and per-issue waterfall view surface the loop as a line item. The loop itself does NOT call the LLM — the dispatched implementer does, and those calls are tagged separately by the standard pipeline via `src/prompt_telemetry.py` (no action in this plan; §4.2 wiring section explicitly excludes the loop from LLM telemetry).
+
+This task adds inline emission in `_run_cli` (chosen over the mixin route from spec §4.11 point 3 guidance — inline is cheaper to land, and there's only one subprocess helper in this loop). The guard passes an `enabled: bool` flag into `_run_cli` (sourced from `deps.enabled_cb("contract_refresh")` at the call site — matches the existing BaseBackgroundLoop enabled convention per `src/base_background_loop.py:275`) so a killed loop contributes zero entries. An internal `_emit_subprocess_trace` hook wraps the emission so unit tests can monkeypatch one symbol.
+
+- [ ] **Step 1: Write the failing unit test first (TDD)**
+
+Append to `tests/test_contract_refresh_loop.py`:
+
+```python
+# --- Added in Task 20 ---
+
+
+class TestContractRefreshLoopTelemetry:
+    """§4.11 point 3: every subprocess invocation emits a trace tagged
+    {"kind": "loop", "loop": "ContractRefreshLoop"}. When the loop is
+    disabled, no emissions happen."""
+
+    @pytest.mark.asyncio
+    async def test_subprocess_invocation_emits_trace(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A `_run_cli` invocation triggers exactly one trace emission
+        with the loop-action shape."""
+        from contract_refresh_loop import _run_cli
+        from tests.helpers import make_bg_loop_deps
+
+        deps = make_bg_loop_deps(
+            tmp_path,
+            enabled=True,
+            contract_refresh_interval=604800,
+            max_fake_repair_attempts=3,
+        )
+
+        emissions: list[dict[str, Any]] = []
+
+        def fake_emit(action: dict[str, Any]) -> None:
+            emissions.append(action)
+
+        monkeypatch.setattr(
+            "contract_refresh_loop._emit_subprocess_trace", fake_emit
+        )
+
+        # _run_cli is a module-level helper; smallest non-destructive call:
+        # `true` returns exit 0 with no output on POSIX.
+        result = await _run_cli(["true"], enabled=True)
+
+        assert result["exit_code"] == 0
+        assert len(emissions) == 1
+        assert emissions[0]["kind"] == "loop"
+        assert emissions[0]["loop"] == "ContractRefreshLoop"
+        assert emissions[0]["argv"] == ["true"]
+        assert emissions[0]["exit_code"] == 0
+        assert "duration_ms" in emissions[0]
+
+    @pytest.mark.asyncio
+    async def test_no_emission_when_loop_disabled(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When the loop is disabled (enabled_cb returns False), `_run_cli`
+        skips emission so a killed loop contributes zero cost-dashboard entries."""
+        from contract_refresh_loop import _run_cli
+
+        emissions: list[dict[str, Any]] = []
+
+        def fake_emit(action: dict[str, Any]) -> None:
+            emissions.append(action)
+
+        monkeypatch.setattr(
+            "contract_refresh_loop._emit_subprocess_trace", fake_emit
+        )
+
+        result = await _run_cli(["true"], enabled=False)
+
+        assert result["exit_code"] == 0
+        assert emissions == []
+```
+
+Run: `PYTHONPATH=src uv run pytest tests/test_contract_refresh_loop.py::TestContractRefreshLoopTelemetry -v`
+Expected: both tests FAIL with `TypeError: _run_cli() got an unexpected keyword argument 'enabled'` (the helper in Task 13 has no `enabled` param yet).
+
+- [ ] **Step 2: Extend `_run_cli` + add `_emit_subprocess_trace` in `src/contract_refresh_loop.py`**
+
+Replace the `_run_cli` helper from Task 13 with the instrumented version, and add the emission helper above it:
+
+```python
+def _emit_subprocess_trace(action: dict[str, Any]) -> None:
+    """Emit a subprocess action to trace_collector for the per-loop cost dashboard.
+
+    Thin wrapper so unit tests can monkeypatch one symbol. Failures are
+    logged and swallowed — telemetry MUST NOT crash the loop (matches the
+    fail-safe semantics in src/trace_collector.py).
+    """
+    try:
+        from trace_collector import record_loop_action  # noqa: PLC0415
+
+        record_loop_action(action)
+    except Exception:  # noqa: BLE001
+        logger.warning("trace_collector emission failed", exc_info=True)
+
+
+async def _run_cli(
+    argv: list[str],
+    *,
+    enabled: bool = True,
+) -> dict[str, Any]:
+    """Run *argv* as a subprocess; return dict with exit_code, stdout, stderr.
+
+    When *enabled* is true, emits a `{"kind": "loop", "loop":
+    "ContractRefreshLoop"}` action to the trace collector per spec §4.11
+    point 3. When the loop is disabled (enabled_cb returned False),
+    emission is skipped so a paused loop contributes zero cost-dashboard
+    entries.
+    """
+    import asyncio
+    import time
+
+    started_at = time.monotonic()
+    proc = await asyncio.create_subprocess_exec(
+        *argv,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout_b, stderr_b = await proc.communicate()
+    duration_ms = int((time.monotonic() - started_at) * 1000)
+    exit_code = proc.returncode if proc.returncode is not None else -1
+
+    result = {
+        "exit_code": exit_code,
+        "stdout": stdout_b.decode("utf-8", errors="replace"),
+        "stderr": stderr_b.decode("utf-8", errors="replace"),
+    }
+
+    # Telemetry: gate on *enabled* so a killed loop emits nothing. §4.11
+    # point 3 — action shape is load-bearing; the cost dashboard groups by
+    # `loop`.
+    if enabled:
+        _emit_subprocess_trace(
+            {
+                "kind": "loop",
+                "loop": "ContractRefreshLoop",
+                "argv": list(argv),
+                "exit_code": exit_code,
+                "duration_ms": duration_ms,
+            }
+        )
+
+    return result
+```
+
+Update every call site inside `_record_github`, `_record_git`, `_record_docker`, `_record_claude` (added in Task 13) to pass `enabled=self._enabled_cb(self._worker_name)`:
+
+```python
+        proc = await _run_cli([...], enabled=self._enabled_cb(self._worker_name))
+```
+
+(`self._enabled_cb` is the callback stashed by `BaseBackgroundLoop.__init__` at `src/base_background_loop.py:84` — already available on the loop instance.)
+
+- [ ] **Step 3: Add `record_loop_action` to `src/trace_collector.py`**
+
+Append a module-level helper (not a `TraceCollector` method — loop actions are one-shot, no accumulation):
+
+```python
+def record_loop_action(action: dict[str, Any]) -> None:
+    """Record a per-loop subprocess/LLM action for the cost dashboard.
+
+    Actions follow spec §4.11 point 3 shape:
+    `{"kind": "loop", "loop": "<LoopClassName>", ...}`. Persisted via the
+    existing SubprocessTrace JSON sink so the diagnostics waterfall and
+    `/api/diagnostics/loops/cost` endpoints (§4.11 point 5) can aggregate.
+    """
+    try:
+        # Delegates to the shared event-stream sink used by the diagnostics
+        # router; see src/diagnostics_routes.py for the read side.
+        from events import get_event_bus  # noqa: PLC0415
+
+        bus = get_event_bus()
+        if bus is not None:
+            bus.publish("loop_action", action)
+    except Exception:  # noqa: BLE001
+        logger.warning("record_loop_action failed", exc_info=True)
+```
+
+- [ ] **Step 4: Run the telemetry tests — expect PASS**
+
+Run: `PYTHONPATH=src uv run pytest tests/test_contract_refresh_loop.py::TestContractRefreshLoopTelemetry -v`
+Expected: both tests PASS.
+
+- [ ] **Step 5: Run the full loop test file — nothing else broke**
+
+Run: `PYTHONPATH=src uv run pytest tests/test_contract_refresh_loop.py -v`
+Expected: all previous tests (construction + Task 13/14/15/16/17/18 coverage) still PASS alongside the two new telemetry tests.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/contract_refresh_loop.py src/trace_collector.py tests/test_contract_refresh_loop.py
+git commit -m "feat(contract_refresh_loop): emit per-loop subprocess telemetry (§4.11)"
+```
+
+---
+
+## Task 21: Integration test — end-to-end mocked drift
 
 **Files:**
 - Modify: `tests/test_contract_refresh_loop.py`
@@ -2281,7 +2494,7 @@ Extend the test file written in Task 12 with two end-to-end scenarios: one where
 Append to `tests/test_contract_refresh_loop.py`:
 
 ```python
-# --- Added in Task 20 ---
+# --- Added in Task 21 ---
 
 
 class TestContractRefreshLoopEndToEnd:
@@ -2419,7 +2632,7 @@ git commit -m "test(contract_refresh_loop): end-to-end cassette-only + fake-drif
 
 ---
 
-## Task 21: Extend `test_loop_wiring_completeness.py`
+## Task 22: Extend `test_loop_wiring_completeness.py`
 
 **Files:**
 - Verify: `tests/test_loop_wiring_completeness.py` (no edit needed — auto-discovery should pick up the new loop)
@@ -2433,11 +2646,313 @@ Expected: all four tests (`test_all_loops_in_registry`, `test_all_loops_in_servi
 
 - [ ] **Step 2: No commit needed**
 
-This task is a pass/fail gate, not a change-producing step. If everything passes, advance to Task 22.
+This task is a pass/fail gate, not a change-producing step. If everything passes, advance to Task 23.
 
 ---
 
-## Task 22: Final quality gate + PR description
+## Task 23: MockWorld scenario — ContractRefreshLoop end-to-end (§7)
+
+**Files:**
+- Create: `tests/scenarios/test_contract_refresh_scenario.py`
+
+Spec §7 "MockWorld scenarios (integration-side) — required" mandates that every new loop land with a `tests/scenarios/` scenario exercising its pipeline behavior end-to-end using stateful fakes. Task 21 covers the unit-level loop behavior against mocked internals; this task covers the full-pipeline wiring: `FakeClock` advances past the interval, `MockWorld.run_pipeline()` ticks the loop, the loop drives `FakeGitHub`/`FakeGit`/`FakeDocker` through the recording → diff → PR → replay → (optional) `fake-drift` dispatch → (optional) `hitl-escalation` path, and the world's final state reflects the expected labels/PRs/issues.
+
+Three scenarios land in this single file, matching the three spec branches:
+
+1. **Cassette-only drift (happy path)** — recording drifts but replay against the refreshed cassettes still passes; a refresh PR opens against `staging` on `contract-refresh/YYYY-MM-DD` and auto-merges.
+2. **Fake diverged** — replay fails against refreshed cassettes; a companion `hydraflow-find` issue with label `fake-drift` is filed and the factory dispatches an implementer against `tests/scenarios/fakes/`.
+3. **Repair stuck → escalation** — 3 consecutive `fake-drift` failures exhaust the per-adapter budget; the issue is labeled `hitl-escalation` + `fake-repair-stuck` and no further refresh PRs open for that adapter.
+
+- [ ] **Step 1: Write the failing scenarios first (TDD)**
+
+Create `tests/scenarios/test_contract_refresh_scenario.py`:
+
+```python
+"""MockWorld scenario — ContractRefreshLoop end-to-end (§7 required).
+
+Seeds MockWorld with a pre-existing cassette under
+`tests/trust/contracts/cassettes/`, a scripted FakeGitHub/FakeGit/FakeDocker
+that yields *new* output on recording (simulating real-service drift), and
+a FakeClock advanced past `contract_refresh_interval`. Asserts the world's
+final state matches the spec's three branches: cassette-only drift,
+fake-drift dispatch, and 3-attempt escalation.
+
+This complements `tests/test_contract_refresh_loop.py` (unit-level, mocked
+internals) by exercising the full factory dispatch path: loop → PR manager
+→ issue labels → implementer dispatch → state transitions.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from tests.scenarios.fakes.mock_world import MockWorld
+from tests.scenarios.helpers.loop_port_seeding import seed_ports as _seed_ports
+
+pytestmark = pytest.mark.scenario_loops
+
+
+# ---------------------------------------------------------------------------
+# Fixtures shared across the three scenarios
+# ---------------------------------------------------------------------------
+
+
+def _seed_committed_cassette(world: MockWorld) -> Path:
+    """Drop one pre-existing cassette under tests/trust/contracts/cassettes/git.
+
+    The scenario world mirrors the repo tree; the loop's diff detection
+    compares against the on-disk committed copy.
+    """
+    cassette_dir = world.repo_root / "tests/trust/contracts/cassettes/git"
+    cassette_dir.mkdir(parents=True, exist_ok=True)
+    cassette_path = cassette_dir / "commit.yaml"
+    cassette_path.write_text(
+        "adapter: git\n"
+        "interaction: commit\n"
+        "recorded_at: '2026-04-15T00:00:00Z'\n"
+        "recorder_sha: abc1234\n"
+        "fixture_repo: tests/trust/contracts/fixtures/git_sandbox\n"
+        "input:\n"
+        "  command: commit\n"
+        "  args: [initial]\n"
+        "  stdin: null\n"
+        "  env: {}\n"
+        "output:\n"
+        "  exit_code: 0\n"
+        "  stdout: ''\n"
+        "  stderr: ''\n"
+        "normalizers: [sha:short]\n"
+    )
+    return cassette_path
+
+
+# ---------------------------------------------------------------------------
+# Scenario 1: cassette-only drift → happy-path auto-merge, no issue filed
+# ---------------------------------------------------------------------------
+
+
+class TestContractRefreshCassetteOnlyDriftScenario:
+    """Real-service drift with fakes still in sync → refresh PR opens and
+    auto-merges; no `fake-drift` issue is filed."""
+
+    async def test_cassette_only_drift_opens_pr_auto_merges(
+        self, tmp_path: Path
+    ) -> None:
+        world = MockWorld(tmp_path)
+        _seed_committed_cassette(world)
+
+        # Scripted fake CLIs that yield *new* bytes on recording, simulating
+        # upstream service drift.
+        world.scripted_subprocess.set_response(
+            ["git", "-C", "*", "commit", "*"],
+            exit_code=0,
+            stdout="[main abc9999] initial\n drifted shape\n",
+            stderr="",
+        )
+        world.scripted_subprocess.set_response(
+            ["gh", "pr", "list", "*"], exit_code=0, stdout="[]", stderr=""
+        )
+        world.scripted_subprocess.set_response(
+            ["docker", "run", "*"], exit_code=0, stdout="hello\n", stderr=""
+        )
+
+        # Replay gate: refreshed cassettes still pass against fakes.
+        _seed_ports(world, contract_replay_gate=_replay_pass_stub())
+
+        # FakeClock past contract_refresh_interval (604800s = 7 days).
+        world.clock.advance(seconds=604801)
+
+        await world.run_pipeline()
+
+        # Assertions on final world state:
+        # 1. A PR opened against `staging` on a `contract-refresh/YYYY-MM-DD` branch.
+        refresh_prs = [
+            pr for pr in world.github.prs.values()
+            if pr["base"] == "staging" and pr["head"].startswith("contract-refresh/")
+        ]
+        assert len(refresh_prs) == 1, f"expected 1 refresh PR, got {refresh_prs}"
+        # 2. Cassette file on the PR branch contains the refreshed bytes.
+        assert "abc9999" in refresh_prs[0]["diff"]
+        # 3. PR auto-merged (cassette-only drift → standard happy path).
+        assert refresh_prs[0]["state"] == "merged"
+        # 4. No `fake-drift` issue filed.
+        drift_issues = [
+            i for i in world.github.issues.values()
+            if "fake-drift" in i["labels"]
+        ]
+        assert drift_issues == []
+
+
+# ---------------------------------------------------------------------------
+# Scenario 2: fake-drift → companion issue filed + implementer dispatched
+# ---------------------------------------------------------------------------
+
+
+class TestContractRefreshFakeDriftScenario:
+    """Replay fails against refreshed cassettes → `fake-drift` issue filed
+    and factory dispatches an implementer against tests/scenarios/fakes/."""
+
+    async def test_fake_drift_files_issue_and_dispatches_implementer(
+        self, tmp_path: Path
+    ) -> None:
+        world = MockWorld(tmp_path)
+        _seed_committed_cassette(world)
+
+        world.scripted_subprocess.set_response(
+            ["git", "-C", "*", "commit", "*"],
+            exit_code=0,
+            stdout="[main abc9999] initial\n drifted shape\n",
+            stderr="",
+        )
+        world.scripted_subprocess.set_response(
+            ["gh", "pr", "list", "*"], exit_code=0, stdout="[]", stderr=""
+        )
+        world.scripted_subprocess.set_response(
+            ["docker", "run", "*"], exit_code=0, stdout="hello\n", stderr=""
+        )
+
+        # Replay gate REPORTS git-fake divergence.
+        _seed_ports(world, contract_replay_gate=_replay_fail_stub(adapters={"git"}))
+
+        world.clock.advance(seconds=604801)
+
+        await world.run_pipeline()
+
+        # 1. `fake-drift` issue filed, naming the adapter.
+        drift_issues = [
+            i for i in world.github.issues.values()
+            if "fake-drift" in i["labels"]
+        ]
+        assert len(drift_issues) == 1
+        assert "git" in drift_issues[0]["title"].lower()
+        # 2. Implementer was dispatched against the fakes tree.
+        implementer_calls = world.factory.implementer_dispatches
+        assert any(
+            "tests/scenarios/fakes/" in call["target_path"]
+            for call in implementer_calls
+        )
+        # 3. Refresh PR still opened (atomic-branch strategy per §4.2) — the
+        #    fake fix lands on the same branch before merge.
+        refresh_prs = [
+            pr for pr in world.github.prs.values()
+            if pr["head"].startswith("contract-refresh/")
+        ]
+        assert len(refresh_prs) == 1
+
+
+# ---------------------------------------------------------------------------
+# Scenario 3: 3 consecutive fake-repair failures → hitl-escalation
+# ---------------------------------------------------------------------------
+
+
+class TestContractRefreshRepairStuckEscalation:
+    """Per-adapter 3-attempt exhaustion → issue labeled `hitl-escalation` +
+    `fake-repair-stuck`; loop stops opening new refresh PRs for that adapter."""
+
+    async def test_three_consecutive_repair_failures_escalate(
+        self, tmp_path: Path
+    ) -> None:
+        world = MockWorld(tmp_path)
+        _seed_committed_cassette(world)
+
+        world.scripted_subprocess.set_response(
+            ["git", "-C", "*", "commit", "*"],
+            exit_code=0,
+            stdout="[main abc9999] initial\n drifted shape\n",
+            stderr="",
+        )
+        world.scripted_subprocess.set_response(
+            ["gh", "pr", "list", "*"], exit_code=0, stdout="[]", stderr=""
+        )
+        world.scripted_subprocess.set_response(
+            ["docker", "run", "*"], exit_code=0, stdout="hello\n", stderr=""
+        )
+
+        # Replay gate fails for `git` on every attempt.
+        _seed_ports(world, contract_replay_gate=_replay_fail_stub(adapters={"git"}))
+
+        # Pre-load state with 2 prior consecutive failures for the `git`
+        # adapter (set in Task 18's escalation tracker).
+        world.state.set_bg_worker_state(
+            "contract_refresh",
+            {"contract_refresh.repair_attempts.git": 2},
+        )
+
+        world.clock.advance(seconds=604801)
+
+        await world.run_pipeline()
+
+        # 1. Issue labeled both `hitl-escalation` and `fake-repair-stuck`.
+        escalated = [
+            i for i in world.github.issues.values()
+            if "hitl-escalation" in i["labels"]
+            and "fake-repair-stuck" in i["labels"]
+        ]
+        assert len(escalated) == 1
+
+        # 2. Second tick: another interval elapses → loop does NOT open a
+        #    new refresh PR for `git` while escalation is open.
+        world.clock.advance(seconds=604801)
+        prs_before = len(world.github.prs)
+        await world.run_pipeline()
+        prs_after = len(world.github.prs)
+        assert prs_after == prs_before, "loop must pause for escalated adapter"
+
+
+# ---------------------------------------------------------------------------
+# Helper stubs — replay gate pass/fail scripting
+# ---------------------------------------------------------------------------
+
+
+def _replay_pass_stub():
+    from unittest.mock import AsyncMock
+
+    gate = AsyncMock()
+    gate.run.return_value = set()  # no failures
+    return gate
+
+
+def _replay_fail_stub(*, adapters: set[str]):
+    from unittest.mock import AsyncMock
+
+    gate = AsyncMock()
+    gate.run.return_value = adapters
+    return gate
+```
+
+Run: `PYTHONPATH=src uv run pytest tests/scenarios/test_contract_refresh_scenario.py -v`
+Expected: all three scenarios FAIL — `MockWorld` has no `scripted_subprocess` response registrar keyed by the shell argv patterns above, and `world.factory.implementer_dispatches` is not yet exposed. Those are real integration gaps; surface them here, don't paper over.
+
+- [ ] **Step 2: Extend `MockWorld` where gaps surface**
+
+For any missing MockWorld capabilities the failing tests reveal, extend `tests/scenarios/fakes/mock_world.py` (or the specific fake module) with the minimum surface the scenario requires. Do NOT add fields the scenario doesn't use. If `scripted_subprocess` exists under a different name, update the scenario to match; if it truly doesn't exist, add a thin recorder keyed by argv glob patterns.
+
+Budget: 30 minutes. If the gap is larger, file a `hydraflow-find` issue with label `mockworld-gap` and skip the affected scenario with `pytest.skip(reason=...)` pointing to the issue — do not block this PR on a MockWorld overhaul.
+
+- [ ] **Step 3: Re-run — expect PASS**
+
+Run: `PYTHONPATH=src uv run pytest tests/scenarios/test_contract_refresh_scenario.py -v`
+Expected: all three scenarios PASS (or skip-with-issue per Step 2's budget).
+
+- [ ] **Step 4: Run `make scenario` to confirm no regressions**
+
+Run: `make scenario`
+Expected: the full scenario ring (including the three new scenarios) passes. No existing scenario should turn red — if one does, it's a genuine regression caused by the MockWorld extensions in Step 2; revert and rescope.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add tests/scenarios/test_contract_refresh_scenario.py tests/scenarios/fakes/mock_world.py
+git commit -m "test(scenarios): ContractRefreshLoop end-to-end MockWorld scenarios (§7)"
+```
+
+If Step 2 did not touch `mock_world.py`, drop that path from the `git add`.
+
+---
+
+## Task 24: Final quality gate + PR description
 
 **Files:** none (final verification + commit prep).
 
@@ -2451,9 +2966,9 @@ Expected: all schema tests, replay-harness tests, and contract tests for all fou
 Run: `make quality`
 Expected: `lint-check`, `typecheck`, `tests`, and `scenario` all green.
 
-- [ ] **Step 3: Confirm loop wiring completeness**
+- [ ] **Step 3: Confirm loop wiring completeness + scenario integration**
 
-Run: `PYTHONPATH=src uv run pytest tests/test_loop_wiring_completeness.py tests/test_contract_refresh_loop.py tests/test_contract_cassette_schema.py tests/test_contract_replay_harness.py -v`
+Run: `PYTHONPATH=src uv run pytest tests/test_loop_wiring_completeness.py tests/test_contract_refresh_loop.py tests/test_contract_cassette_schema.py tests/test_contract_replay_harness.py tests/scenarios/test_contract_refresh_scenario.py -v`
 Expected: every test PASSES.
 
 - [ ] **Step 4: Open the PR**
@@ -2491,19 +3006,23 @@ Plan: `docs/superpowers/plans/2026-04-22-fake-contract-tests.md`
 - Three contract test modules (github, git, docker) + stream test module
 - `src/contract_refresh_loop.py` with full autonomous flow per §3.2
 - Five-checkpoint wiring for `contract_refresh` loop
+- Per-loop telemetry emission via `trace_collector.record_loop_action` (§4.11 point 3)
+- MockWorld scenario covering cassette-only drift, fake-drift dispatch, and 3-attempt escalation (§7)
 - `make trust-contracts` target + RC workflow `trust` job
 
 ## Test plan
 
 - [x] `make trust-contracts` green
-- [x] `make quality` green
+- [x] `make quality` green (includes `make scenario`)
 - [x] `tests/test_loop_wiring_completeness.py` green
+- [x] `tests/scenarios/test_contract_refresh_scenario.py` green (3 scenarios)
+- [x] `tests/test_contract_refresh_loop.py::TestContractRefreshLoopTelemetry` green
 - [x] Manual sandbox-repo setup run by operator (Task 0)
 ```
 
 - [ ] **Step 5: Final commit**
 
-No code changes here. The PR is created from the commits made in Tasks 1–20.
+No code changes here. The PR is created from the commits made in Tasks 1–23.
 
 ---
 
@@ -2515,7 +3034,7 @@ No code changes here. The PR is created from the commits made in Tasks 1–20.
   - `FakeOutput` shape: `exit_code: int, stdout: str, stderr: str` — consistent across Tasks 4, 5, 6, 7, 8.
   - `Cassette.input.command` is the *fake method name*, not a shell command — consistent across Tasks 4, 6, 7, 8, 13.
   - `max_fake_repair_attempts` (config), `_STATE_KEY_PREFIX = "contract_refresh.repair_attempts"` (state) — consistent across Tasks 16, 18.
-  - `worker_name="contract_refresh"` everywhere (Tasks 11, 19a, 19b, 19c, 19d, 21).
+  - `worker_name="contract_refresh"` everywhere (Tasks 11, 19a, 19b, 19c, 19d, 22).
 
 ## Execution Handoff
 
@@ -2524,4 +3043,4 @@ Plan complete and saved to `docs/superpowers/plans/2026-04-22-fake-contract-test
 1. **Subagent-Driven (recommended)** — dispatch a fresh subagent per task, review between tasks, fast iteration. Especially suited to Tasks 6/7/8/9, which each involve an operator running real CLI commands to seed cassettes; batching 2–4 at a time per CLAUDE.md memory.
 2. **Inline Execution** — execute tasks in this session using `superpowers:executing-plans`, batch execution with checkpoints for review.
 
-Task 0 (sandbox repo) must complete before Task 13 can run. Tasks 19a–19e and 21 must all complete before Task 22's wiring test passes.
+Task 0 (sandbox repo) must complete before Task 13 can run. Tasks 19a–19e and 22 must all complete before Task 24's wiring test passes. Task 20 (telemetry) must land before Task 21 (integration test) so the instrumented `_run_cli` signature is stable. Task 23 (MockWorld scenario) depends on Tasks 11–19 being fully wired through the factory.
