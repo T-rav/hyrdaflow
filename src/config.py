@@ -313,7 +313,6 @@ _ENV_COMBO_OVERRIDES: list[tuple[str, str, str]] = [
     ("HYDRAFLOW_PLANNER", "planner_tool", "planner_model"),
     ("HYDRAFLOW_TRIAGE", "triage_tool", "triage_model"),
     ("HYDRAFLOW_AC", "ac_tool", "ac_model"),
-    ("HYDRAFLOW_VERIFICATION_JUDGE", "verification_judge_tool", "ac_model"),
     (
         "HYDRAFLOW_TRANSCRIPT_SUMMARY",
         "transcript_summary_tool",
@@ -1985,14 +1984,20 @@ def _harmonize_tool_model_defaults(config: HydraFlowConfig) -> None:
       - Any ``*-flash*`` model in any role (quality guard for the factory).
       - Cross-provider mismatches (e.g. ``codex`` + ``opus``,
         ``gemini`` + ``gpt-5-codex``).
+
+    Also auto-syncs ``verification_judge_tool`` to ``review_tool`` because
+    the two share ``review_model`` — the tools MUST agree, so we pick the
+    review side as the source of truth and let the ``review`` pair check
+    catch the underlying model mismatch if one exists.
     """
+    object.__setattr__(config, "verification_judge_tool", config.review_tool)
+
     stage_pairs: list[tuple[str, str, str]] = [
         ("implementation", config.implementation_tool, config.model),
         ("review", config.review_tool, config.review_model),
         ("planner", config.planner_tool, config.planner_model),
         ("triage", config.triage_tool, config.triage_model),
         ("ac", config.ac_tool, config.ac_model),
-        ("verification_judge", config.verification_judge_tool, config.ac_model),
         ("subskill", config.subskill_tool, config.subskill_model),
         ("debug", config.debug_tool, config.debug_model),
         (

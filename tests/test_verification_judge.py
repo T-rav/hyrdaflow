@@ -154,6 +154,7 @@ class TestBuildCommand:
     def test_supports_codex_backend(self, tmp_path):
         cfg = ConfigFactory.create(
             verification_judge_tool="codex",
+            review_tool="codex",
             review_model="gpt-5-codex",
             repo_root=tmp_path / "repo",
             workspace_base=tmp_path / "wt",
