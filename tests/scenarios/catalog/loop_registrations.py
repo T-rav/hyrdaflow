@@ -288,6 +288,60 @@ def _build_flake_tracker(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     return loop
 
 
+def _build_skill_prompt_eval(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build SkillPromptEvalLoop for scenarios (spec §4.6).
+
+    The loop's external surface — ``_run_corpus`` (subprocess
+    ``make trust-adversarial``) and ``_reconcile_closed_escalations``
+    (``gh issue list``) — cannot run inside a scenario. Tests pre-seed
+    two port keys which this builder monkey-patches onto the instance:
+
+    * ``skill_corpus_runner`` → ``_run_corpus``
+    * ``skill_reconcile_closed`` → ``_reconcile_closed_escalations``
+
+    ``state`` and ``dedup`` default to MagicMocks that behave like a
+    clean slate (empty last-green snapshot, zero attempts, no prior
+    dedup keys). Tests may override by seeding ``skill_prompt_state`` /
+    ``skill_prompt_dedup`` explicitly — mirrors the F7 FlakeTracker
+    pattern.
+    """
+    from skill_prompt_eval_loop import SkillPromptEvalLoop  # noqa: PLC0415
+
+    state = ports.get("skill_prompt_state")
+    if state is None:
+        state = MagicMock()
+        state.get_skill_prompt_last_green.return_value = {}
+        state.get_skill_prompt_attempts.return_value = 0
+        state.inc_skill_prompt_attempts.return_value = 1
+        ports["skill_prompt_state"] = state
+
+    dedup = ports.get("skill_prompt_dedup")
+    if dedup is None:
+        dedup = MagicMock()
+        dedup.get.return_value = set()
+        ports["skill_prompt_dedup"] = dedup
+
+    pr_manager = ports.get("pr_manager") or ports["github"]
+
+    loop = SkillPromptEvalLoop(
+        config=config,
+        state=state,
+        pr_manager=pr_manager,
+        dedup=dedup,
+        deps=deps,
+    )
+
+    # Rewire external I/O to seeded async callables (if provided).
+    corpus = ports.get("skill_corpus_runner")
+    if corpus is not None:
+        loop._run_corpus = corpus  # type: ignore[method-assign]
+    reconcile = ports.get("skill_reconcile_closed")
+    if reconcile is not None:
+        loop._reconcile_closed_escalations = reconcile  # type: ignore[method-assign]
+
+    return loop
+
+
 _BUILDERS: dict[str, Any] = {
     # phase 1
     "ci_monitor": _build_ci_monitor,
@@ -311,8 +365,9 @@ _BUILDERS: dict[str, Any] = {
     "security_patch": _build_security_patch,
     "stale_issue": _build_stale_issue,
     "epic_monitor": _build_epic_monitor,
-    # trust fleet (spec §4.5)
+    # trust fleet (spec §4.5 + §4.6)
     "flake_tracker": _build_flake_tracker,
+    "skill_prompt_eval": _build_skill_prompt_eval,
 }
 
 
