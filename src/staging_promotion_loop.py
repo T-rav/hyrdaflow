@@ -21,6 +21,7 @@ from config import HydraFlowConfig
 
 if TYPE_CHECKING:
     from ports import PRPort
+    from state import StateTracker
 
 logger = logging.getLogger("hydraflow.staging_promotion_loop")
 
@@ -34,9 +35,11 @@ class StagingPromotionLoop(BaseBackgroundLoop):
         config: HydraFlowConfig,
         prs: PRPort,
         deps: LoopDeps,
+        state: StateTracker | None = None,
     ) -> None:
         super().__init__(worker_name="staging_promotion", config=config, deps=deps)
         self._prs = prs
+        self._state = state
 
     def _get_default_interval(self) -> int:
         return self._config.staging_promotion_interval
@@ -70,6 +73,19 @@ class StagingPromotionLoop(BaseBackgroundLoop):
             merged = await self._prs.merge_promotion_pr(pr_number)
             if merged:
                 logger.info("Promoted RC PR #%d to main", pr_number)
+                if self._state is not None:
+                    try:
+                        head_sha = await self._prs.get_pr_head_sha(pr_number)
+                    except Exception:  # noqa: BLE001
+                        logger.debug(
+                            "Could not read head SHA for promoted PR #%d",
+                            pr_number,
+                            exc_info=True,
+                        )
+                        head_sha = ""
+                    if head_sha:
+                        self._state.set_last_green_rc_sha(head_sha)
+                        self._state.reset_auto_reverts_in_cycle()
                 return {"status": "promoted", "pr": pr_number}
             logger.warning("Promotion merge failed for PR #%d", pr_number)
             return {"status": "merge_failed", "pr": pr_number}
