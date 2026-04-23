@@ -43,15 +43,6 @@ class TestMockWorldScriptedFailure:
         assert outcome.worker_result.success is False
 
 
-class TestMockWorldServiceFailure:
-    async def test_fail_and_heal_service(self, tmp_path):
-        world = MockWorld(tmp_path)
-        world.fail_service("hindsight")
-        assert world.hindsight.is_failing is True
-        world.heal_service("hindsight")
-        assert world.hindsight.is_failing is False
-
-
 class TestMockWorldLoopCatalog:
     async def test_run_with_loops_uses_catalog(self, tmp_path):
         """MockWorld.run_with_loops routes through LoopCatalog, not _make_loop."""

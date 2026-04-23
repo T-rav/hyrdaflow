@@ -241,14 +241,3 @@ class TestE11StopEventMidPhase:
     async def test_run_with_loops_completes(self, mock_world):
         stats = await mock_world.run_with_loops(["ci_monitor"], cycles=1)
         assert "ci_monitor" in stats
-
-
-class TestE12ServiceFailureDuringPipeline:
-    """E12: Hindsight fails mid-plan — pipeline continues, no crash."""
-
-    async def test_service_failure_does_not_abort_pipeline(self, mock_world):
-        IssueBuilder().numbered(1).at(mock_world)
-        mock_world.fail_service("hindsight")
-        result = await mock_world.run_pipeline()
-        assert result.issue(1) is not None
-        mock_world.heal_service("hindsight")

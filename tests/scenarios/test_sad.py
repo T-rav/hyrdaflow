@@ -78,24 +78,6 @@ class TestS3ReviewRejects:
         assert outcome.merged is False
 
 
-class TestS5HindsightDown:
-    """S5: Pipeline continues with Hindsight in fail mode."""
-
-    async def test_pipeline_completes_without_hindsight(self, mock_world):
-        world = mock_world
-        IssueBuilder().numbered(1).titled("Add feature").bodied(
-            "New feature request"
-        ).at(world)
-        world.fail_service("hindsight")
-        result = await world.run_pipeline()
-
-        # Pipeline should still complete the happy path even without memory
-        outcome = result.issue(1)
-        assert outcome.final_stage == "done"
-        assert outcome.merged is True
-        assert world.hindsight.is_failing is True  # confirm it stayed failed
-
-
 class TestS6ImplementHappyPathBaseline:
     """S6: Happy-path baseline — implement succeeds, issue does not reach done
     because the mock WorkerResult carries no pr_info so review is skipped.

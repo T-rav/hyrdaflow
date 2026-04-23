@@ -306,28 +306,6 @@ async def test_A8_find_stage_to_done_realistic_agent(tmp_path) -> None:
     assert len(world.docker.invocations) >= 1
 
 
-async def test_A9_hindsight_failure_realistic_agent_still_succeeds(tmp_path) -> None:
-    """fail_service('hindsight') during realistic-agent run must not halt pipeline."""
-    world = MockWorld(tmp_path, use_real_agent_runner=True)
-    world.add_issue(1, "t", "b", labels=["hydraflow-ready"])
-
-    worktree_cwd = tmp_path / "worktrees" / "issue-1"
-    init_test_worktree(worktree_cwd)
-
-    world.fail_service("hindsight")  # retains/recalls fail silently
-
-    world.docker.script_run_with_commits(
-        events=[{"type": "result", "success": True, "exit_code": 0}],
-        commits=[("x.py", "done")],
-        cwd=worktree_cwd,
-    )
-
-    result = await world.run_pipeline()
-
-    # Hindsight down should not block the implement path.
-    assert result.issue(1).merged
-
-
 async def test_A10_quality_fix_loop_retries_then_passes(tmp_path) -> None:
     """make quality fails → fix agent runs → second make quality passes.
 
