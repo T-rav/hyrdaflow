@@ -187,6 +187,25 @@ jobs:
       - name: Run regression tests
         run: PYTHONPATH=src uv run pytest tests/regressions/ -q
 
+  audit:
+    name: Principles Audit
+    needs: changes
+    if: needs.changes.outputs.python == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: uv sync --all-extras
+      - name: Run principles audit
+        run: make audit
+
   ui-build:
     name: Dashboard Build
     needs: changes
