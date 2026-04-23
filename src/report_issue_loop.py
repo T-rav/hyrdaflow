@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 from agent_cli import build_agent_command
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import Credentials, HydraFlowConfig
+from dedup_store import DedupStore
 from exception_classify import reraise_on_credit_or_bug
 from execution import SubprocessRunner
 from models import PendingReport, TranscriptEventData
@@ -36,6 +37,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger("hydraflow.report_issue_loop")
 
 _MAX_REPORT_ATTEMPTS = 5
+
+
+# Lazy-bound wrappers for the daily-budget sweep (spec §4.11 Task 9).
+# Importing ``dashboard_routes._cost_rollups`` at module load time triggers
+# the ``dashboard_routes`` package ``__init__`` which circularly imports
+# this module. Deferring until first call breaks the cycle. These names
+# live at module level so tests can monkeypatch them.
+def check_daily_budget(*args: Any, **kwargs: Any) -> Any:
+    """Forward to :func:`cost_budget_alerts.check_daily_budget` (lazy)."""
+    from cost_budget_alerts import check_daily_budget as _impl  # noqa: PLC0415
+
+    return _impl(*args, **kwargs)
+
+
+def build_rolling_24h(config: HydraFlowConfig) -> dict[str, Any]:
+    """Forward to :func:`dashboard_routes._cost_rollups.build_rolling_24h` (lazy)."""
+    from dashboard_routes._cost_rollups import (  # noqa: PLC0415
+        build_rolling_24h as _impl,
+    )
+
+    return _impl(config)
 
 
 class ReportIssueLoop(BaseBackgroundLoop):
@@ -212,6 +234,26 @@ class ReportIssueLoop(BaseBackgroundLoop):
 
         report = self._state.peek_report()
         if report is None:
+            # Daily cost-budget sweep (spec §4.11 Task 9). Piggybacks on
+            # the report-issue loop cadence: runs once per tick when the
+            # queue is empty. Wrapped in a blanket try/except so a broken
+            # rollup read never aborts the loop tick.
+            try:
+                dedup = DedupStore(
+                    "cost_budget_alerts",
+                    self._config.data_root / "dedup" / "cost_budget_alerts.json",
+                )
+                payload = build_rolling_24h(self._config)
+                total_cost_24h = float(payload["total"]["cost_usd"])
+                await check_daily_budget(
+                    self._config,
+                    pr_manager=self._pr_manager,
+                    dedup=dedup,
+                    event_bus=self._bus,
+                    total_cost_24h=total_cost_24h,
+                )
+            except Exception:
+                logger.warning("Daily cost-budget sweep failed", exc_info=True)
             return None
 
         # Transition tracked report to "in-progress" so the UI reflects
