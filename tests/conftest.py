@@ -3,12 +3,39 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+
+def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None) -> None:  # noqa: ARG001 — nextitem required by pytest hook signature
+    """Fail any test that leaves a ``MagicMock/`` directory in the repo root.
+
+    Caused by passing a bare ``MagicMock()`` where production code expects a
+    ``Path`` / config and calls ``.mkdir()`` on the result — the str() of the
+    mock becomes the first path segment (``MagicMock``), subsequent
+    attribute-access calls become further segments (``mock.data_path()``),
+    and the real filesystem picks them up. The dirs then get swept into
+    commits accidentally.
+
+    Fail fast so the offending test is immediately obvious. The remediation
+    is usually ``MagicMock(spec=HydraFlowConfig)`` or a real
+    ``tmp_path``-backed config (see ``ConfigFactory``).
+    """
+    root = Path(item.config.rootpath)
+    polluted = root / "MagicMock"
+    if polluted.exists():
+        shutil.rmtree(polluted, ignore_errors=True)
+        pytest.fail(
+            f"Mock-path pollution: test {item.nodeid} left {polluted} on disk. "
+            "A MagicMock was used where a Path/config was expected. "
+            "Use `MagicMock(spec=HydraFlowConfig)` or a real tmp_path-backed config."
+        )
+
 
 # Ensure source modules are importable from src/ layout.
 _REPO_ROOT = Path(__file__).parent.parent

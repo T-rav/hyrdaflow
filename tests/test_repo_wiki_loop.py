@@ -25,11 +25,28 @@ def _make_deps() -> LoopDeps:
 
 
 def _make_loop(wiki_root: Path) -> RepoWikiLoop:
+    config = _make_config(wiki_root)
+    store = RepoWikiStore(wiki_root)
+    return RepoWikiLoop(config=config, wiki_store=store, deps=_make_deps())
+
+
+def _make_config(wiki_root: Path) -> MagicMock:
+    """Minimal config mock that does not pollute the filesystem.
+
+    `RepoWikiLoop.__init__` calls `config.data_path(...)` to derive the
+    maintenance-queue path. A bare MagicMock returns a mock that, once
+    `.parent.mkdir()` fires via `MaintenanceQueue._save`, materialises a
+    `MagicMock/mock.data_path()/<id>/` directory at repo root. Pinning
+    `data_path.return_value` to a tmp path keeps writes inside the test's
+    sandbox, and disabling `repo_wiki_git_backed` avoids the `repo_root`
+    path that would repeat the same mistake.
+    """
     config = MagicMock()
     config.repo_wiki_interval = 3600
     config.dry_run = False
-    store = RepoWikiStore(wiki_root)
-    return RepoWikiLoop(config=config, wiki_store=store, deps=_make_deps())
+    config.repo_wiki_git_backed = False
+    config.data_path.return_value = wiki_root / "wiki_maint_queue.json"
+    return config
 
 
 class TestDefaultInterval:
@@ -61,9 +78,7 @@ class TestDoWork:
             ],
         )
 
-        config = MagicMock()
-        config.repo_wiki_interval = 3600
-        config.dry_run = False
+        config = _make_config(wiki_root)
         loop = RepoWikiLoop(config=config, wiki_store=store, deps=_make_deps())
 
         result = await loop._do_work()
@@ -87,9 +102,7 @@ class TestDoWork:
             ],
         )
 
-        config = MagicMock()
-        config.repo_wiki_interval = 3600
-        config.dry_run = False
+        config = _make_config(wiki_root)
 
         # Mock StateTracker with a terminal outcome for issue 42
         from models import IssueOutcome, IssueOutcomeType
@@ -131,9 +144,7 @@ class TestDoWork:
             ],
         )
 
-        config = MagicMock()
-        config.repo_wiki_interval = 3600
-        config.dry_run = False
+        config = _make_config(wiki_root)
 
         compiler = MagicMock()
         compiler.compile_topic = AsyncMock(return_value=3)  # 5 → 3
@@ -166,9 +177,7 @@ class TestDoWork:
             ],
         )
 
-        config = MagicMock()
-        config.repo_wiki_interval = 3600
-        config.dry_run = False
+        config = _make_config(wiki_root)
 
         compiler = MagicMock()
         compiler.compile_topic = AsyncMock()
