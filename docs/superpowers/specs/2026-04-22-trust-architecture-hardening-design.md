@@ -890,11 +890,17 @@ cadence default `14400` = 4h, matching `rc_cadence_hours`).
 
 1. Query the last 20 RC workflow runs via `gh api`. For each run,
    extract per-test pass/fail via the JUnit XML artifacts the CI
-   uploads (the plan adds artifact emission if not already present).
+   uploads. The plan must either (a) verify the existing RC workflow
+   already uploads `pytest --junitxml=<path>` via
+   `actions/upload-artifact@v4` and name the artifact path in the
+   plan, or (b) add the upload as a prerequisite task before the loop
+   can read JUnit data. Do not leave "if not already present" as an
+   unresolved conditional.
 2. For each test with a mixed pass/fail record inside the window,
    increment `flake_count[test_name]` in `StateTracker`.
-3. When `flake_count[test_name] > flake_threshold` (default: 3 fails
-   in 20 runs), file a `hydraflow-find`:
+3. When `flake_count[test_name] >= flake_threshold` (default: **3**
+   — meaning 3 fails in 20 runs triggers; use `>=` not `>` so the
+   threshold value matches its prose meaning), file a `hydraflow-find`:
    - Title: `Flaky test: {test_name} (flake rate: {N}/20)`.
    - Body: run URLs, stack traces per occurrence, time span.
    - Labels: `hydraflow-find`, `flaky-test`.
@@ -909,10 +915,20 @@ cadence default `14400` = 4h, matching `rc_cadence_hours`).
 
 ### 4.6 Skill-prompt eval
 
-**Purpose.** Catch slow drift in post-impl skill behavior that the
-RC-time sampled adversarial corpus misses. The RC gate runs a sampled
-subset; this loop runs the full corpus against current prompts on a
-cadence.
+**Purpose.** Two roles, both anchored in the corpus:
+
+1. **Backstop against RC-gate sampling.** v1 has the RC gate run the
+   full corpus (~20-25 cases). Once the corpus grows past
+   `trust_rc_subset_size` (default `50`) the RC gate shifts to a
+   random sample of that size and `SkillPromptEvalLoop` runs the full
+   corpus weekly to catch regressions not in that week's sample. On
+   day one the loop is redundant with the RC gate; it becomes
+   load-bearing as the corpus grows.
+2. **Corpus health / weak-case audit.** Samples 10% of
+   `provenance: learning-loop` cases each week and flags any whose
+   `expected_catcher` skill passes them unexpectedly — these are the
+   weak-case signal §4.1 v2 depends on. Files
+   `hydraflow-find`, `corpus-case-weak` for human review.
 
 **Depends on §4.1.** The adversarial corpus must exist.
 
@@ -963,14 +979,25 @@ compounds rather than stagnating at whatever was cassetted on day one.
    and collect the real-adapter method invoked by each (`input.command`
    is the source of truth). Separately, grep `tests/scenarios/` for
    calls to the test-facing helpers to assert they're exercised.
-3. Compute coverage: a fake method is covered if at least one cassette
-   exercises its real-adapter counterpart.
-4. For each uncovered method, file a `hydraflow-find`:
-   - Title: `Un-cassetted adapter method: {Fake}.{method}`.
-   - Body: method signature, suggested interaction shape for recording.
-   - Labels: `hydraflow-find`, `fake-coverage-gap`.
+3. Compute coverage per method set:
+   - **Real-adapter surface**: a public method is covered if at
+     least one cassette under `tests/trust/contracts/cassettes/<adapter>/`
+     exercises its real-adapter counterpart (`input.command` names
+     the method).
+   - **Test-facing helpers**: a helper is covered if at least one
+     scenario test under `tests/scenarios/` calls it (grep-based
+     search against the method name).
+4. For each uncovered method in either set, file a `hydraflow-find`:
+   - Title: `Un-cassetted adapter method: {Fake}.{method}` or
+     `Un-exercised test helper: {Fake}.{method}`.
+   - Body: method signature, which method set, suggested interaction
+     shape for recording (real-adapter) or suggested scenario to
+     invoke it (test-facing).
+   - Labels: `hydraflow-find`, `fake-coverage-gap`,
+     `{adapter-surface|test-helper}`.
 5. Factory dispatches implementer; standard repair path records a new
-   cassette against the real adapter and commits it.
+   cassette (real-adapter) or adds a scenario call (test-facing)
+   and commits.
 
 **Escalation.** After 3 repair attempts, `hitl-escalation`,
 `fake-coverage-stuck`.
@@ -1011,8 +1038,11 @@ Runs after each RC CI completion (watchdog cadence `14400`).
 **Escalation.** After 3 repair attempts, `hitl-escalation`,
 `rc-duration-stuck`.
 
-**Five-checkpoint wiring**. Config `rc_budget_interval` default
-`14400`; `rc_budget_threshold_ratio` default `1.5`.
+**Five-checkpoint wiring**. Config fields all on `src/config.py`:
+`rc_budget_interval` default `14400`, `rc_budget_threshold_ratio`
+default `1.5`, `rc_budget_spike_ratio` default `2.0`. Env overrides
+follow `_ENV_FLOAT_OVERRIDES` / `_ENV_INT_OVERRIDES` per existing
+conventions.
 
 ### 4.9 Managed-repo wiki rot detector
 
