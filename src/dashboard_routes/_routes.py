@@ -1542,6 +1542,29 @@ def create_router(
 
     router.include_router(build_diagnostics_router(config))
 
+    # --- Trust-fleet routes (§12.1; Plan 5b-3 schema) -----------------------
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from dashboard_routes._trust_routes import build_trust_router  # noqa: PLC0415
+
+    def _trust_deps_factory() -> SimpleNamespace:
+        """Return the event_bus/bg_workers/state trio for the trust router.
+
+        The orchestrator owns the live ``BGWorkerManager``; tests that
+        don't construct an orchestrator get ``bg_workers=None``, which
+        the trust handler treats as "all workers disabled" rather than
+        failing the request.
+        """
+        orch = ctx.get_orchestrator()
+        bg_workers = getattr(orch, "_bg_workers", None) if orch is not None else None
+        return SimpleNamespace(
+            event_bus=ctx.event_bus,
+            bg_workers=bg_workers,
+            state=ctx.state,
+        )
+
+    router.include_router(build_trust_router(config, deps_factory=_trust_deps_factory))
+
     # --- Factory health routes (longitudinal retrospective analysis) ---
     from dashboard_routes._factory_health_routes import build_factory_health_router
 
