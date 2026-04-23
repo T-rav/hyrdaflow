@@ -217,6 +217,12 @@ scenario-loops: deps
 	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) pytest tests/scenarios/ -m scenario_loops -v
 	@echo "$(GREEN)Scenario loop tests passed$(RESET)"
 
+bisect-probe: deps
+	@echo "$(BLUE)Running bisect probe (mirrors rc-promotion-scenario.yml)...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && $(MAKE) scenario
+	@cd $(HYDRAFLOW_DIR) && $(MAKE) scenario-loops
+	@echo "$(GREEN)Bisect probe passed$(RESET)"
+
 scenario-browser: deps
 	@echo "$(BLUE)Running browser scenario tests...$(RESET)"
 	@cd $(HYDRAFLOW_DIR)src/ui && $(HYDRAFLOW_DIR)scripts/ui-npm.sh ci && $(HYDRAFLOW_DIR)scripts/ui-npm.sh run build
