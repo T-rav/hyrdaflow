@@ -22,6 +22,7 @@ from config import HydraFlowConfig
 
 if TYPE_CHECKING:
     from hindsight import HindsightClient
+
     from ports import PRPort
     from retrospective_queue import RetrospectiveQueue
 
@@ -473,7 +474,7 @@ class HealthMonitorLoop(BaseBackgroundLoop):
             if not suggestions_path.exists():
                 return
 
-            from memory import file_memory_suggestion  # noqa: PLC0415
+            from phase_utils import file_memory_suggestion  # noqa: PLC0415
 
             raw_suggestions = (
                 suggestions_path.read_text(encoding="utf-8").strip().splitlines()

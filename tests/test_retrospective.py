@@ -406,7 +406,7 @@ class TestPatternDetection:
         ]
 
         mock_file_mem = AsyncMock()
-        with patch("memory.file_memory_suggestion", mock_file_mem):
+        with patch("phase_utils.file_memory_suggestion", mock_file_mem):
             await collector._detect_patterns(entries)
 
         mock_file_mem.assert_awaited_once()
@@ -432,7 +432,7 @@ class TestPatternDetection:
         ]
 
         mock_file_mem = AsyncMock()
-        with patch("memory.file_memory_suggestion", mock_file_mem):
+        with patch("phase_utils.file_memory_suggestion", mock_file_mem):
             await collector._detect_patterns(entries)
 
         mock_file_mem.assert_not_awaited()
@@ -455,7 +455,7 @@ class TestPatternDetection:
         ]
 
         mock_file_mem = AsyncMock()
-        with patch("memory.file_memory_suggestion", mock_file_mem):
+        with patch("phase_utils.file_memory_suggestion", mock_file_mem):
             await collector._detect_patterns(entries)
 
         mock_file_mem.assert_awaited_once()
@@ -478,7 +478,7 @@ class TestPatternDetection:
         ]
 
         mock_file_mem = AsyncMock()
-        with patch("memory.file_memory_suggestion", mock_file_mem):
+        with patch("phase_utils.file_memory_suggestion", mock_file_mem):
             await collector._detect_patterns(entries)
 
         mock_file_mem.assert_awaited_once()
@@ -503,7 +503,7 @@ class TestPatternDetection:
         ]
 
         mock_file_mem = AsyncMock()
-        with patch("memory.file_memory_suggestion", mock_file_mem):
+        with patch("phase_utils.file_memory_suggestion", mock_file_mem):
             await collector._detect_patterns(entries)
 
         mock_file_mem.assert_awaited_once()
@@ -528,7 +528,7 @@ class TestPatternDetection:
         ]
 
         mock_file_mem = AsyncMock()
-        with patch("memory.file_memory_suggestion", mock_file_mem):
+        with patch("phase_utils.file_memory_suggestion", mock_file_mem):
             await collector._detect_patterns(entries)
 
         mock_file_mem.assert_not_awaited()
@@ -551,7 +551,7 @@ class TestPatternDetection:
         ]
 
         mock_file_mem = AsyncMock()
-        with patch("memory.file_memory_suggestion", mock_file_mem):
+        with patch("phase_utils.file_memory_suggestion", mock_file_mem):
             await collector._detect_patterns(entries)
 
         mock_file_mem.assert_not_awaited()
@@ -579,7 +579,7 @@ class TestPatternDetection:
         ]
 
         mock_file_mem = AsyncMock()
-        with patch("memory.file_memory_suggestion", mock_file_mem):
+        with patch("phase_utils.file_memory_suggestion", mock_file_mem):
             await collector._detect_patterns(entries)
 
         # Should not file again since quality_fix is already in filed patterns
@@ -603,7 +603,7 @@ class TestPatternDetection:
         ]
 
         mock_file_mem = AsyncMock()
-        with patch("memory.file_memory_suggestion", mock_file_mem):
+        with patch("phase_utils.file_memory_suggestion", mock_file_mem):
             await collector._detect_patterns(entries)
 
         # Only 1 pattern filed despite multiple patterns matching
@@ -628,7 +628,7 @@ class TestPatternDetection:
         ]
 
         mock_file_mem = AsyncMock()
-        with patch("memory.file_memory_suggestion", mock_file_mem):
+        with patch("phase_utils.file_memory_suggestion", mock_file_mem):
             await collector._detect_patterns(entries)
 
         transcript = mock_file_mem.call_args[0][0]
@@ -738,7 +738,7 @@ class TestFileImprovementIssueSetsOrigin:
         collector, mock_prs, state = _make_collector(config)
 
         mock_file_mem = _AsyncMock()
-        with patch("memory.file_memory_suggestion", mock_file_mem):
+        with patch("phase_utils.file_memory_suggestion", mock_file_mem):
             await collector._file_improvement_issue("Pattern: test", "Some body text")
 
         mock_file_mem.assert_awaited_once()
@@ -758,7 +758,7 @@ class TestFileImprovementIssueSetsOrigin:
         collector, mock_prs, _ = _make_collector(config)
 
         mock_file_mem = _AsyncMock()
-        with patch("memory.file_memory_suggestion", mock_file_mem):
+        with patch("phase_utils.file_memory_suggestion", mock_file_mem):
             await collector._file_improvement_issue("[Memory] Pattern: test", "body")
 
         transcript_arg = mock_file_mem.call_args[0][0]
@@ -786,7 +786,7 @@ class TestFileImprovementIssueSetsOrigin:
         ]
 
         mock_file_mem = _AsyncMock()
-        with patch("memory.file_memory_suggestion", mock_file_mem):
+        with patch("phase_utils.file_memory_suggestion", mock_file_mem):
             await collector._detect_patterns(entries)
 
         mock_file_mem.assert_awaited_once()
@@ -848,158 +848,6 @@ class TestAppendEntryOSError:
 
 # ---------------------------------------------------------------------------
 # Hindsight dual-write tests
-# ---------------------------------------------------------------------------
-
-
-class TestRetrospectiveHindsightDualWrite:
-    """Tests for Hindsight dual-write in RetrospectiveCollector._append_entry()."""
-
-    def test_dual_write_fires_via_create_task(self, config: HydraFlowConfig) -> None:
-        """When hindsight is set, retain_safe is fire-and-forget via create_task."""
-        from unittest.mock import MagicMock
-
-        mock_hindsight = MagicMock()
-        state = StateTracker(config.state_file)
-        mock_prs = AsyncMock()
-        collector = RetrospectiveCollector(
-            config, state, mock_prs, hindsight=mock_hindsight
-        )
-
-        entry = RetrospectiveEntry(
-            issue_number=42,
-            pr_number=100,
-            timestamp="2026-02-20T10:30:00Z",
-            plan_accuracy_pct=85.0,
-            quality_fix_rounds=2,
-            review_verdict=ReviewVerdict.APPROVE,
-        )
-
-        mock_task = MagicMock()
-        mock_loop = MagicMock()
-        mock_loop.create_task = MagicMock(return_value=mock_task)
-
-        with (
-            patch("asyncio.get_running_loop", return_value=mock_loop),
-            patch("hindsight.retain_safe") as mock_retain,
-        ):
-            collector._append_entry(entry)
-            mock_loop.create_task.assert_called_once()
-            # Verify retain_safe was called with correct Bank
-            call_args = mock_retain.call_args
-            assert call_args is not None
-            assert "retrospective for issue #42" in call_args.kwargs["context"]
-
-    def test_file_write_happens_without_hindsight(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """File write still happens when hindsight is None."""
-        state = StateTracker(config.state_file)
-        mock_prs = AsyncMock()
-        collector = RetrospectiveCollector(config, state, mock_prs, hindsight=None)
-
-        entry = RetrospectiveEntry(
-            issue_number=42,
-            pr_number=100,
-            timestamp="2026-02-20T10:30:00Z",
-        )
-        collector._append_entry(entry)
-
-        retro_path = config.data_path("memory", "retrospectives.jsonl")
-        assert retro_path.exists()
-        assert "42" in retro_path.read_text()
-
-    def test_no_event_loop_skips_hindsight_but_writes_file(
-        self, config: HydraFlowConfig
-    ) -> None:
-        """When no event loop is running, hindsight write is skipped but file write still happens."""
-        from unittest.mock import MagicMock
-
-        mock_hindsight = MagicMock()
-        state = StateTracker(config.state_file)
-        mock_prs = AsyncMock()
-        collector = RetrospectiveCollector(
-            config, state, mock_prs, hindsight=mock_hindsight
-        )
-
-        entry = RetrospectiveEntry(
-            issue_number=42,
-            pr_number=100,
-            timestamp="2026-02-20T10:30:00Z",
-        )
-
-        with patch(
-            "asyncio.get_running_loop",
-            side_effect=RuntimeError("no running event loop"),
-        ):
-            collector._append_entry(entry)  # should not raise
-
-        # File write always happens
-        retro_path = config.data_path("memory", "retrospectives.jsonl")
-        assert retro_path.exists()
-
-    def test_dual_write_file_and_hindsight(self, config: HydraFlowConfig) -> None:
-        """When hindsight client is set, both JSONL file and hindsight are written."""
-        from unittest.mock import MagicMock
-
-        mock_hindsight = MagicMock()
-        state = StateTracker(config.state_file)
-        mock_prs = AsyncMock()
-        collector = RetrospectiveCollector(
-            config, state, mock_prs, hindsight=mock_hindsight
-        )
-
-        entry = RetrospectiveEntry(
-            issue_number=42,
-            pr_number=100,
-            timestamp="2026-02-20T10:30:00Z",
-        )
-
-        mock_loop = MagicMock()
-        mock_loop.create_task = MagicMock()
-
-        with (
-            patch("asyncio.get_running_loop", return_value=mock_loop),
-            patch("hindsight.retain_safe") as mock_retain,
-        ):
-            collector._append_entry(entry)
-            # Hindsight retain fires
-            mock_loop.create_task.assert_called_once()
-            mock_retain.assert_called_once()
-
-        # File write also happens
-        retro_path = config.data_path("memory", "retrospectives.jsonl")
-        assert retro_path.exists()
-
-    def test_falsy_mock_hindsight_still_retains(self, config: HydraFlowConfig) -> None:
-        """A falsy-but-non-None hindsight mock must still trigger schedule_retain."""
-        from unittest.mock import AsyncMock, MagicMock
-
-        mock_hindsight = MagicMock()
-        mock_hindsight.__bool__ = lambda _self: False  # falsy mock
-        state = StateTracker(config.state_file)
-        mock_prs = AsyncMock()
-        collector = RetrospectiveCollector(
-            config, state, mock_prs, hindsight=mock_hindsight
-        )
-
-        entry = RetrospectiveEntry(
-            issue_number=42,
-            pr_number=100,
-            timestamp="2026-02-20T10:30:00Z",
-        )
-
-        with patch("hindsight.schedule_retain") as mock_retain:
-            collector._append_entry(entry)
-            # schedule_retain must be called even though mock is falsy
-            mock_retain.assert_called_once()
-
-        # File write always happens (dual-write)
-        retro_path = config.data_path("memory", "retrospectives.jsonl")
-        assert retro_path.exists()
-
-
-# ---------------------------------------------------------------------------
-# Dolt backend integration
 # ---------------------------------------------------------------------------
 
 

@@ -361,7 +361,7 @@ class RetrospectiveCollector:
 
     async def _file_improvement_issue(self, title: str, body: str) -> None:
         """Write a retrospective pattern suggestion to local JSONL memory store."""
-        from memory import file_memory_suggestion  # noqa: PLC0415
+        from phase_utils import file_memory_suggestion  # noqa: PLC0415
 
         clean_title = title.removeprefix("[Memory] ").strip()
         # Map retrospective pattern → tribal-memory schema fields.

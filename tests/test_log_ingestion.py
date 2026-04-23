@@ -564,7 +564,7 @@ class TestFileLogPatterns:
         patterns = [self._make_pattern(f"fp <N> {i}", count=4) for i in range(5)]
 
         mock_file_mem = _AsyncMock()
-        with patch("memory.file_memory_suggestion", mock_file_mem):
+        with patch("phase_utils.file_memory_suggestion", mock_file_mem):
             result = await file_log_patterns(patterns, known, config)
 
         assert result.total_patterns == 5
@@ -587,7 +587,7 @@ class TestFileLogPatterns:
         pattern = self._make_pattern()
 
         mock_file_mem = _AsyncMock()
-        with patch("memory.file_memory_suggestion", mock_file_mem):
+        with patch("phase_utils.file_memory_suggestion", mock_file_mem):
             result = await file_log_patterns([pattern], known, config)
 
         assert result.filed == 1
@@ -656,7 +656,7 @@ class TestFileLogPatterns:
         mock_file_mem = _AsyncMock()
         with (
             patch.dict("sys.modules", {"sentry_sdk": mock_sentry}),
-            patch("memory.file_memory_suggestion", mock_file_mem),
+            patch("phase_utils.file_memory_suggestion", mock_file_mem),
         ):
             await file_log_patterns([pattern], known, config)
 
