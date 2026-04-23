@@ -1764,6 +1764,14 @@ class StateData(BaseModel):
     trace_runs: dict[str, dict[str, object]] = Field(
         default_factory=lambda: {"active": {}, "next_run_id": {}}
     )
+    # StagingBisectLoop state (spec §4.3 + §8). Written by StagingPromotionLoop
+    # on each promotion outcome; polled + mutated by StagingBisectLoop.
+    last_green_rc_sha: str = ""
+    last_rc_red_sha: str = ""
+    rc_cycle_id: int = 0
+    auto_reverts_in_cycle: int = 0
+    auto_reverts_successful: int = 0
+    flake_reruns_total: int = 0
     last_updated: str | None = None
 
 
