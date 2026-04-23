@@ -23,7 +23,7 @@ def test_implementation_tool_accepts_gemini() -> None:
 
 
 def test_system_tool_accepts_gemini() -> None:
-    cfg = HydraFlowConfig(system_tool="gemini")
+    cfg = HydraFlowConfig(system_tool="gemini", system_model="gemini-3-pro")
     assert cfg.system_tool == "gemini"
 
 
@@ -139,3 +139,41 @@ def test_legacy_debug_escalation_env_var_is_ignored() -> None:
             cfg.debug_escalation_enabled
             == HydraFlowConfig.model_fields["debug_escalation_enabled"].default
         )
+
+
+def test_harmonize_rejects_gemini_flash_model() -> None:
+    with pytest.raises(ValueError, match="flash"):
+        HydraFlowConfig(
+            implementation_tool="gemini",
+            model="gemini-3-flash-preview",
+        )
+
+
+def test_harmonize_rejects_flash_in_triage() -> None:
+    with pytest.raises(ValueError, match="flash"):
+        HydraFlowConfig(triage_tool="gemini", triage_model="gemini-3-flash-preview")
+
+
+def test_harmonize_rejects_claude_model_on_gemini_tool() -> None:
+    with pytest.raises(ValueError, match="mismatched"):
+        HydraFlowConfig(implementation_tool="gemini", model="opus")
+
+
+def test_harmonize_rejects_codex_model_on_claude_tool() -> None:
+    with pytest.raises(ValueError, match="mismatched"):
+        HydraFlowConfig(implementation_tool="claude", model="gpt-5-codex")
+
+
+def test_harmonize_allows_claude_opus() -> None:
+    cfg = HydraFlowConfig(implementation_tool="claude", model="opus")
+    assert cfg.model == "opus"
+
+
+def test_harmonize_allows_gemini_pro() -> None:
+    cfg = HydraFlowConfig(implementation_tool="gemini", model="gemini-3-pro")
+    assert cfg.model == "gemini-3-pro"
+
+
+def test_harmonize_allows_codex_gpt() -> None:
+    cfg = HydraFlowConfig(implementation_tool="codex", model="gpt-5-codex")
+    assert cfg.model == "gpt-5-codex"

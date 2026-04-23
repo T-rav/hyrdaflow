@@ -1678,7 +1678,9 @@ class TestAgentToolFields:
             workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             system_tool="codex",
+            system_model="gpt-5-codex",
             background_tool="codex",
+            background_model="gpt-5-codex",
         )
         assert cfg.implementation_tool == "codex"
         assert cfg.model == "gpt-5-codex"
@@ -1696,7 +1698,9 @@ class TestAgentToolFields:
             repo_root=tmp_path,
             workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
+            system_tool="codex",
             system_model="gpt-5-codex",
+            background_tool="codex",
             background_model="gpt-5-codex",
         )
         assert cfg.model == "gpt-5-codex"

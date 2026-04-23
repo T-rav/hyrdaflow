@@ -1958,14 +1958,73 @@ def _apply_profile_overrides(config: HydraFlowConfig) -> None:
             _apply_if_default(field, config.background_model)
 
 
-def _harmonize_tool_model_defaults(config: HydraFlowConfig) -> None:
-    """Align tool/model defaults when model remains implicit.
+# Model prefix → required tool. Any model starting with a listed prefix
+# MUST pair with the given tool; any other pairing is rejected.
+_MODEL_TOOL_REQUIRED: list[tuple[str, str]] = [
+    ("gemini", "gemini"),
+    ("gpt-", "codex"),
+    ("opus", "claude"),
+    ("sonnet", "claude"),
+    ("haiku", "claude"),
+    ("claude-", "claude"),
+]
 
-    Prevent Codex runs from inheriting the Claude-oriented implementation model
-    default (`opus`) when no explicit implementation model was provided.
+
+def _required_tool_for_model(model: str) -> str | None:
+    m = model.lower()
+    for prefix, tool in _MODEL_TOOL_REQUIRED:
+        if m.startswith(prefix):
+            return tool
+    return None
+
+
+def _harmonize_tool_model_defaults(config: HydraFlowConfig) -> None:
+    """Validate that every (tool, model) pair is internally consistent.
+
+    Rejects:
+      - Any ``*-flash*`` model in any role (quality guard for the factory).
+      - Cross-provider mismatches (e.g. ``codex`` + ``opus``,
+        ``gemini`` + ``gpt-5-codex``).
     """
-    if config.implementation_tool == "codex" and config.model == "opus":
-        object.__setattr__(config, "model", "gpt-5-codex")
+    stage_pairs: list[tuple[str, str, str]] = [
+        ("implementation", config.implementation_tool, config.model),
+        ("review", config.review_tool, config.review_model),
+        ("planner", config.planner_tool, config.planner_model),
+        ("triage", config.triage_tool, config.triage_model),
+        ("ac", config.ac_tool, config.ac_model),
+        ("verification_judge", config.verification_judge_tool, config.ac_model),
+        ("subskill", config.subskill_tool, config.subskill_model),
+        ("debug", config.debug_tool, config.debug_model),
+        (
+            "transcript_summary",
+            config.transcript_summary_tool,
+            config.transcript_summary_model,
+        ),
+        (
+            "wiki_compilation",
+            config.wiki_compilation_tool,
+            config.wiki_compilation_model,
+        ),
+        ("report_issue", config.report_issue_tool, config.report_issue_model),
+    ]
+
+    for stage, tool, model in stage_pairs:
+        if not model:
+            continue  # empty — inherited/unset
+        if "flash" in model.lower():
+            msg = (
+                f"{stage}: model {model!r} is a *flash* variant; "
+                "flash models are rejected for the factory (insufficient "
+                "reasoning quality). Use a pro-tier model instead."
+            )
+            raise ValueError(msg)
+        required = _required_tool_for_model(model)
+        if required is not None and required != tool:
+            msg = (
+                f"{stage}: mismatched pair {tool!r}+{model!r}; "
+                f"model {model!r} requires tool {required!r}"
+            )
+            raise ValueError(msg)
 
 
 def _resolve_base_paths(config: HydraFlowConfig) -> None:
