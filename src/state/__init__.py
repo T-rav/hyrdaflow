@@ -30,6 +30,7 @@ from ._code_grooming import CodeGroomingStateMixin
 from ._dependabot_merge import DependabotMergeStateMixin
 from ._diagnostic import DiagnosticStateMixin
 from ._epic import EpicStateMixin
+from ._fake_coverage import FakeCoverageStateMixin
 from ._flake_tracker import FlakeTrackerStateMixin
 from ._hitl import HITLStateMixin
 from ._issue import IssueStateMixin
@@ -80,6 +81,7 @@ class StateTracker(
     TraceRunsMixin,
     FlakeTrackerStateMixin,
     SkillPromptEvalStateMixin,
+    FakeCoverageStateMixin,
 ):
     """JSON-file backed state for crash recovery.
 
