@@ -382,3 +382,33 @@ class TestRevertPR:
                 bisect_log="l",
                 retry_issue_number=0,
             )
+
+
+class TestRetryIssue:
+    @pytest.mark.asyncio
+    async def test_file_retry_issue_title_and_labels(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, prs, _state = _make_loop(tmp_path, monkeypatch)
+        prs.create_issue = AsyncMock(return_value=654)
+
+        issue = await loop._file_retry_issue(  # type: ignore[attr-defined]
+            culprit_pr=321,
+            culprit_pr_title="Feature: widgets",
+            culprit_sha="culprit_sha",
+            green_sha="green_sha",
+            red_sha="red_sha",
+            failing_tests="test_foo",
+            bisect_log="log",
+            revert_pr_url="https://github.com/o/r/pull/900",
+        )
+
+        assert issue == 654
+        prs.create_issue.assert_awaited_once()
+        title, body, labels = prs.create_issue.await_args.args
+        assert title == "Retry: Feature: widgets"
+        assert "hydraflow-find" in labels
+        assert "rc-red-retry" in labels
+        assert "pull/900" in body
+        assert "green_sha" in body
+        assert "red_sha" in body

@@ -502,3 +502,34 @@ class StagingBisectLoop(BaseBackgroundLoop):
             labels=["hydraflow-find", "auto-revert", "rc-red-attribution"],
         )
         return pr_number, branch
+
+    async def _file_retry_issue(
+        self,
+        *,
+        culprit_pr: int,
+        culprit_pr_title: str,
+        culprit_sha: str,
+        green_sha: str,
+        red_sha: str,
+        failing_tests: str,
+        bisect_log: str,
+        revert_pr_url: str,
+    ) -> int:
+        """File a ``hydraflow-find`` retry issue and return its number."""
+        title = f"Retry: {culprit_pr_title or f'PR #{culprit_pr}'}"
+        body = (
+            "## Retry request\n\n"
+            f"Original PR #{culprit_pr} (`{culprit_sha}`) was auto-reverted "
+            f"after bisect attributed it to the red RC "
+            f"({green_sha[:12]}..{red_sha[:12]}).\n\n"
+            f"- Reverted PR: {revert_pr_url}\n"
+            f"- Failing tests: {failing_tests}\n"
+            f"- Time bounds: `{green_sha}` (last green) → `{red_sha}` (red)\n\n"
+            "### Bisect log\n\n"
+            f"```\n{bisect_log[:5000]}\n```\n\n"
+            "_Factory picks up `hydraflow-find` issues; the work re-enters "
+            "the standard implement/review pipeline._"
+        )
+        return await self._prs.create_issue(
+            title, body, ["hydraflow-find", "rc-red-retry"]
+        )
