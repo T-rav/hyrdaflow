@@ -190,6 +190,10 @@ _DOCKER_ENV_PASSTHROUGH_KEYS = (
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",
     "GOOGLE_GENERATIVE_AI_API_KEY",
+    # Gemini auth-method selection / Vertex project for non-API-key flows
+    "GOOGLE_GENAI_USE_VERTEXAI",
+    "GOOGLE_GENAI_USE_GCA",
+    "GOOGLE_CLOUD_PROJECT",
     "XAI_API_KEY",
     "DEEPSEEK_API_KEY",
     "MISTRAL_API_KEY",

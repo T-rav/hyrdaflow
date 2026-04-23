@@ -284,7 +284,7 @@ def _parse_combo(env_key: str, value: str) -> tuple[str, str]:
     if ":" not in stripped:
         msg = (
             f"{env_key}={value!r} must be 'tool:model' "
-            f"(e.g. claude:opus, gemini:gemini-3-pro) or 'inherit'"
+            f"(e.g. claude:opus, gemini:gemini-2.5-pro) or 'inherit'"
         )
         raise ValueError(msg)
     tool, _, model = stripped.partition(":")
@@ -776,7 +776,7 @@ class HydraFlowConfig(BaseModel):
         description="CLI backend for triage agents",
     )
     triage_model: str = Field(
-        default="gemini-3-pro", description="Model for triage evaluation (fast/cheap)"
+        default="gemini-2.5-pro", description="Model for triage evaluation (fast/cheap)"
     )
     min_plan_words: int = Field(
         default=200,
@@ -1963,6 +1963,9 @@ def _apply_profile_overrides(config: HydraFlowConfig) -> None:
 _MODEL_TOOL_REQUIRED: list[tuple[str, str]] = [
     ("gemini", "gemini"),
     ("gpt-", "codex"),
+    ("o1", "codex"),
+    ("o3", "codex"),
+    ("o4", "codex"),
     ("opus", "claude"),
     ("sonnet", "claude"),
     ("haiku", "claude"),
@@ -1989,8 +1992,19 @@ def _harmonize_tool_model_defaults(config: HydraFlowConfig) -> None:
     Also auto-syncs ``verification_judge_tool`` to ``review_tool`` because
     the two share ``review_model`` — the tools MUST agree, so we pick the
     review side as the source of truth and let the ``review`` pair check
-    catch the underlying model mismatch if one exists.
+    catch the underlying model mismatch if one exists. Emits a warning
+    when an explicit ``verification_judge_tool`` is being overridden so
+    the user isn't surprised.
     """
+    if config.verification_judge_tool != config.review_tool:
+        logger.warning(
+            "verification_judge_tool=%r does not match review_tool=%r; "
+            "the two share review_model so they must agree. "
+            "Overriding verification_judge_tool to %r.",
+            config.verification_judge_tool,
+            config.review_tool,
+            config.review_tool,
+        )
     object.__setattr__(config, "verification_judge_tool", config.review_tool)
 
     stage_pairs: list[tuple[str, str, str]] = [
