@@ -1,0 +1,4 @@
+TEST_ADEQUACY_RESULT: RETRY
+SUMMARY: test is a tautology and does not verify reset behavior
+FINDINGS:
+- tests/test_counter.py::test_reset_exists — `assert c is not None` is a tautology; missing `assert c.value == 0` after reset

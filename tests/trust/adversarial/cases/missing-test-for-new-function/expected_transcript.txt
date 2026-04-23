@@ -1,0 +1,4 @@
+TEST_ADEQUACY_RESULT: RETRY
+SUMMARY: no test added for new public function format_slug
+FINDINGS:
+- src/formatter.py — `format_slug` has no test coverage in the diff

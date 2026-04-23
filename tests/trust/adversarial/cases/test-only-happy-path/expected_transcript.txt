@@ -1,0 +1,5 @@
+TEST_ADEQUACY_RESULT: RETRY
+SUMMARY: new raising branches in parse() lack edge case test coverage
+FINDINGS:
+- tests/test_parser.py — no test for `parse("")` ValueError path
+- tests/test_parser.py — no test for `parse("abc")` ValueError path

@@ -1,0 +1,4 @@
+TEST_ADEQUACY_RESULT: RETRY
+SUMMARY: new public class RateLimiter has no test coverage
+FINDINGS:
+- src/pipeline.py — `RateLimiter` and `RateLimiter.allow` are new public surface with no test
