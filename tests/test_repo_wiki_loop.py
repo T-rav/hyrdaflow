@@ -183,3 +183,147 @@ class TestDoWork:
         assert result is not None
         assert result["entries_compiled"] == 0
         compiler.compile_topic.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_generalization_promotes_pair_to_tribal(tmp_path):
+    """Two per-repo entries on same topic → tribal entry + per-repo cross-refs."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from repo_wiki import RepoWikiStore, WikiEntry
+    from repo_wiki_loop import run_generalization_pass
+    from tribal_wiki import TribalWikiStore
+    from wiki_compiler import GeneralizationCheck
+
+    per_repo = RepoWikiStore(tmp_path / "per_repo")
+    tribal = TribalWikiStore(tmp_path / "tribal")
+
+    # Two entries, same topic, different repos. Content contains
+    # words that classify_topic routes to "testing".
+    per_repo.ingest(
+        "acme/a",
+        [
+            WikiEntry(
+                id="01HQA00000000000000000000A",
+                title="Use pytest-asyncio",
+                content="Testing: configure pytest-asyncio with mode=auto.",
+                source_type="plan",
+                topic="testing",
+                source_repo="acme/a",
+            )
+        ],
+    )
+    per_repo.ingest(
+        "other/b",
+        [
+            WikiEntry(
+                id="01HQB00000000000000000000B",
+                title="Async test mode",
+                content="Testing: pytest-asyncio mode=auto works.",
+                source_type="plan",
+                topic="testing",
+                source_repo="other/b",
+            )
+        ],
+    )
+
+    compiler = MagicMock()
+    compiler.generalize_pair = AsyncMock(
+        return_value=GeneralizationCheck(
+            same_principle=True,
+            generalized_title="Pytest async mode",
+            generalized_body="Configure pytest-asyncio with mode=auto.",
+            confidence="high",
+        )
+    )
+
+    result = await run_generalization_pass(
+        per_repo=per_repo,
+        tribal=tribal,
+        compiler=compiler,
+    )
+    assert result.promoted == 1
+
+    # Tribal has the generalized entry.
+    out = tribal.query()
+    assert "Pytest async mode" in out
+
+    # Per-repo entries are marked with supersedes pointing at the tribal id.
+    for repo in ("acme/a", "other/b"):
+        entries = per_repo.load_topic_entries(per_repo.repo_dir(repo) / "testing.md")
+        assert all(e.superseded_by for e in entries), (
+            f"per-repo entries in {repo} should be marked superseded"
+        )
+
+
+@pytest.mark.asyncio
+async def test_generalization_emits_tribal_promotion_event(tmp_path):
+    """When event_bus is provided, every promotion publishes TRIBAL_PROMOTION."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from events import EventBus, EventType, HydraFlowEvent
+    from repo_wiki import RepoWikiStore, WikiEntry
+    from repo_wiki_loop import run_generalization_pass
+    from tribal_wiki import TribalWikiStore
+    from wiki_compiler import GeneralizationCheck
+
+    per_repo = RepoWikiStore(tmp_path / "per_repo")
+    tribal = TribalWikiStore(tmp_path / "tribal")
+
+    per_repo.ingest(
+        "acme/a",
+        [
+            WikiEntry(
+                id="01HQA00000000000000000000A",
+                title="Use pytest-asyncio",
+                content="Testing: configure pytest-asyncio with mode=auto.",
+                source_type="plan",
+                topic="testing",
+                source_repo="acme/a",
+            )
+        ],
+    )
+    per_repo.ingest(
+        "other/b",
+        [
+            WikiEntry(
+                id="01HQB00000000000000000000B",
+                title="Async test mode",
+                content="Testing: pytest-asyncio mode=auto works.",
+                source_type="plan",
+                topic="testing",
+                source_repo="other/b",
+            )
+        ],
+    )
+
+    compiler = MagicMock()
+    compiler.generalize_pair = AsyncMock(
+        return_value=GeneralizationCheck(
+            same_principle=True,
+            generalized_title="Pytest async mode",
+            generalized_body="Configure pytest-asyncio with mode=auto.",
+            confidence="high",
+        )
+    )
+
+    event_bus = EventBus()
+    published: list[HydraFlowEvent] = []
+
+    async def capture(event):
+        published.append(event)
+
+    event_bus.publish = capture  # type: ignore[method-assign]
+
+    result = await run_generalization_pass(
+        per_repo=per_repo,
+        tribal=tribal,
+        compiler=compiler,
+        event_bus=event_bus,
+    )
+    assert result.promoted == 1
+    assert len(published) == 1
+    event = published[0]
+    assert event.type == EventType.TRIBAL_PROMOTION
+    assert event.data["topic"] == "testing"
+    assert {event.data["repo_a"], event.data["repo_b"]} == {"acme/a", "other/b"}

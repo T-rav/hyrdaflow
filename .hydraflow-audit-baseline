@@ -1,0 +1,8 @@
+# P10.3 audit baseline — fix commits AFTER this point must carry a
+# regression test under `tests/regressions/`. Earlier commits predate the
+# principle's adoption and are excluded from the check.
+#
+# Format: the first non-comment line is either a commit SHA or an ISO-8601
+# date. Update this when you re-anchor the rule (e.g. after a major
+# repository restructure).
+1d312635

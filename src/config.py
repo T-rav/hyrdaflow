@@ -252,6 +252,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ),
     ("collaborator_check_enabled", "HYDRAFLOW_COLLABORATOR_CHECK_ENABLED", True),
     ("memory_auto_approve", "HYDRAFLOW_MEMORY_AUTO_APPROVE", False),
+    ("hindsight_recall_enabled", "HYDRAFLOW_HINDSIGHT_RECALL_ENABLED", True),
     ("visual_gate_enabled", "HYDRAFLOW_VISUAL_GATE_ENABLED", False),
     ("visual_gate_bypass", "HYDRAFLOW_VISUAL_GATE_BYPASS", False),
     ("visual_validation_enabled", "HYDRAFLOW_VISUAL_VALIDATION_ENABLED", True),
@@ -1095,6 +1096,16 @@ class HydraFlowConfig(BaseModel):
         ge=5,
         le=120,
         description="HTTP timeout in seconds for Hindsight API calls",
+    )
+
+    hindsight_recall_enabled: bool = Field(
+        default=True,
+        description=(
+            "When False, base_runner skips Hindsight recall injection at "
+            "prompt-build time. Retains remain active; only reads are gated. "
+            "Phase 3 rollout knob — set to False via "
+            "HYDRAFLOW_HINDSIGHT_RECALL_ENABLED for the observation window."
+        ),
     )
 
     memory_auto_approve: bool = Field(
@@ -2002,9 +2013,14 @@ def _resolve_base_paths(config: HydraFlowConfig) -> None:
         object.__setattr__(
             config, "workspace_base", config.workspace_base.expanduser().resolve()
         )
-    env_home = os.environ.get("HYDRAFLOW_HOME", "").strip()
-    if env_home:
-        data_root = Path(env_home).expanduser().resolve()
+    # HYDRAFLOW_DATA_ROOT is the canonical override; HYDRAFLOW_HOME is kept
+    # as a legacy alias so existing deployments continue to work.
+    env_data_root = (
+        os.environ.get("HYDRAFLOW_DATA_ROOT", "").strip()
+        or os.environ.get("HYDRAFLOW_HOME", "").strip()
+    )
+    if env_data_root:
+        data_root = Path(env_data_root).expanduser().resolve()
     elif config.data_root == Path("."):
         data_root = (config.repo_root / ".hydraflow").resolve()
     else:

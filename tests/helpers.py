@@ -839,6 +839,13 @@ class PipelineHarness:
                 branch=branch,
             )
 
+        # `expected_pr_title` is the one synchronous method on PRPort; leaving
+        # it as the default AsyncMock.__call__ returns an unawaited coroutine
+        # from post_merge_handler.handle_approved, which surfaces as a
+        # PytestUnraisableExceptionWarning once warnings-as-errors is enabled.
+        from pr_manager import PRManager
+
+        self.prs.expected_pr_title = MagicMock(side_effect=PRManager.expected_pr_title)
         self.prs.transition = AsyncMock()
         self.prs.swap_pipeline_labels = AsyncMock()
         self.prs.add_labels = AsyncMock()

@@ -12,6 +12,7 @@ from acceptance_criteria import AcceptanceCriteriaGenerator
 from config import HydraFlowConfig
 from epic import EpicCompletionChecker
 from events import EventBus, EventType, HydraFlowEvent
+from knowledge_metrics import metrics as _metrics
 
 if TYPE_CHECKING:
     from epic import EpicManager
@@ -36,13 +37,64 @@ from models import (
     VisualValidationPolicy,
 )
 from prompt_telemetry import PromptTelemetry
+from reflections import clear_reflections, read_reflections
+from repo_wiki_ingest import entries_from_reflections_log, ingest_phase_output
 from retrospective import RetrospectiveCollector
 from state import StateTracker
 from verification_judge import VerificationJudge
 
+if TYPE_CHECKING:
+    from repo_wiki import RepoWikiStore
+    from wiki_compiler import WikiCompiler
+
 logger = logging.getLogger("hydraflow.post_merge_handler")
 
 _T = TypeVar("_T")
+
+
+async def _bridge_reflections_to_wiki(
+    *,
+    config: HydraFlowConfig,
+    issue_number: int,
+    repo: str,
+    store: RepoWikiStore | None,
+    compiler: WikiCompiler | None,
+    event_bus: EventBus | None = None,
+) -> None:
+    """On merge: promote the issue's Reflexion log into wiki entries, then clear.
+
+    Silent no-op when store or compiler is None (wiki disabled). Swallows
+    wiki failures — we must not block the merge path on wiki trouble.
+    """
+    if store is None or compiler is None:
+        return
+
+    log = read_reflections(config, issue_number)
+    if not log or not log.strip():
+        return
+
+    try:
+        entries = entries_from_reflections_log(
+            log=log, repo=repo, issue_number=issue_number
+        )
+        if entries:
+            await ingest_phase_output(
+                store=store,
+                repo=repo,
+                entries=entries,
+                compiler=compiler,
+                event_bus=event_bus,
+            )
+        clear_reflections(config, issue_number)
+        _metrics.increment("reflections_bridged")
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "reflection bridge failed for issue #%d; log kept for retry",
+            issue_number,
+            exc_info=True,
+        )
+
+
 _MANUAL_VERIFY_KEYWORDS = (
     "ui",
     "ux",
@@ -93,11 +145,15 @@ class PostMergeHandler:
         update_bg_worker_status: StatusCallback | None = None,
         epic_manager: EpicManager | None = None,
         store: IssueStorePort | None = None,
+        *,
+        wiki_store: RepoWikiStore | None = None,
+        wiki_compiler: WikiCompiler | None = None,
     ) -> None:
         self._config = config
         self._state = state
         self._prs = prs
         self._bus = event_bus
+        self._event_bus = event_bus  # Named exposure for reflection-bridge hook
         self._ac_generator = ac_generator
         self._retrospective = retrospective
         self._verification_judge = verification_judge
@@ -106,6 +162,8 @@ class PostMergeHandler:
         self._prompt_telemetry = PromptTelemetry(config)
         self._epic_manager = epic_manager
         self._store = store
+        self._wiki_store = wiki_store
+        self._wiki_compiler = wiki_compiler
 
     def _should_defer_merge(self, issue_number: int) -> bool:
         """Return True if merge should be deferred for bundled epic strategy."""
@@ -513,6 +571,20 @@ class PostMergeHandler:
                         pr.issue_number,
                         exc_info=True,
                     )
+
+        if self._wiki_store is not None and self._wiki_compiler is not None:
+            await self._safe_hook(
+                "reflection bridge",
+                _bridge_reflections_to_wiki(
+                    config=self._config,
+                    issue_number=pr.issue_number,
+                    repo=self._config.repo or "",
+                    store=self._wiki_store,
+                    compiler=self._wiki_compiler,
+                    event_bus=self._event_bus,
+                ),
+                pr.issue_number,
+            )
 
         verdict: JudgeVerdict | None = None
         if self._verification_judge:

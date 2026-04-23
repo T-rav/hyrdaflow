@@ -21,9 +21,12 @@ import logging
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from ulid import ULID
+
+from staleness import evaluate as evaluate_staleness
 
 if TYPE_CHECKING:
     from dedup_store import DedupStore
@@ -461,21 +464,54 @@ def active_lint_tracked(
 class WikiEntry(BaseModel):
     """A single knowledge entry within a topic page."""
 
+    id: str = Field(
+        default_factory=lambda: str(ULID()),
+        description="Stable ULID used for supersedes references",
+    )
     title: str = Field(description="Short summary of the insight")
     content: str = Field(description="Full explanation")
+    topic: str | None = Field(
+        default=None,
+        description="Which topic page this entry lives under (architecture/patterns/gotchas/testing/dependencies/harness)",
+    )
     source_type: str = Field(
-        description="Where the knowledge came from: plan, implement, review, hitl"
+        description="Where the knowledge came from: plan, implement, review, hitl, reflection, librarian, manual"
     )
     source_issue: int | None = Field(
         default=None, description="GitHub issue number, if applicable"
     )
-    created_at: str = Field(
-        default_factory=lambda: datetime.now(UTC).isoformat(),
+    source_repo: str | None = Field(
+        default=None,
+        description="owner/repo slug, or 'global' for tribal entries",
     )
-    updated_at: str = Field(
-        default_factory=lambda: datetime.now(UTC).isoformat(),
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    valid_from: str | None = Field(
+        default=None,
+        description="ISO8601; defaults to created_at if unset",
     )
-    stale: bool = Field(default=False, description="Flagged as potentially outdated")
+    valid_to: str | None = Field(
+        default=None,
+        description="ISO8601 absolute date OR null=indefinite. Durations resolved at ingest.",
+    )
+    superseded_by: str | None = Field(
+        default=None, description="id of newer entry that replaces this one"
+    )
+    superseded_reason: str | None = Field(
+        default=None,
+        description="Freeform reason paired with superseded_by",
+    )
+    confidence: Literal["high", "medium", "low"] = Field(default="medium")
+    stale: bool = Field(
+        default=False,
+        description="Legacy marker; see superseded_by for canonical staleness",
+    )
+
+    @model_validator(mode="after")
+    def _default_valid_from(self) -> WikiEntry:
+        if self.valid_from is None:
+            self.valid_from = self.created_at
+        return self
 
 
 class WikiIndex(BaseModel):
@@ -502,6 +538,7 @@ class LintResult(BaseModel):
     total_entries: int = 0
     entries_marked_stale: int = 0
     orphans_pruned: int = 0
+    review_candidates_flagged: int = 0  # stale + age > 90d (no longer pruned)
     index_rebuilt: bool = False
 
 
@@ -629,6 +666,12 @@ class RepoWikiStore:
             if not entries:
                 continue
 
+            # Staleness filtering — only inject current entries into prompts
+            now = datetime.now(UTC)
+            entries = [
+                e for e in entries if evaluate_staleness(e, now=now) == "current"
+            ]
+
             # Keyword filtering within topic
             if keywords:
                 entries = [
@@ -755,16 +798,15 @@ class RepoWikiStore:
 
                 if current.stale:
                     result.stale_entries += 1
-                    # Prune stale entries older than threshold
                     try:
                         created = datetime.fromisoformat(current.created_at)
                         age_days = (now - created).days
                     except (ValueError, TypeError):
                         age_days = 0
                     if age_days > _STALE_PRUNE_DAYS:
-                        result.orphans_pruned += 1
-                        topic_modified = True
-                        continue  # skip — don't keep this entry
+                        # Phase 1 change: flag as review candidate; do NOT prune.
+                        # Staleness is now content-based (superseded_by), not time-based.
+                        result.review_candidates_flagged += 1
 
                 new_entries.append(current)
 
@@ -788,6 +830,48 @@ class RepoWikiStore:
 
         self._append_log(repo_slug, "active_lint", result.model_dump())
         return result
+
+    def mark_superseded(
+        self,
+        repo_slug: str,
+        entry_id: str,
+        *,
+        superseded_by: str,
+        reason: str,
+    ) -> bool:
+        """Set superseded_by/superseded_reason on an existing entry.
+
+        Searches all topic pages for the entry by id. Returns True if the
+        entry was found and updated; False otherwise. Does not delete or
+        move the entry. Callers emit events.
+        """
+        repo_dir = self._repo_dir(repo_slug)
+        if not repo_dir.exists():
+            return False
+
+        now = datetime.now(UTC).isoformat()
+        for topic_name in DEFAULT_TOPICS:
+            topic_path = repo_dir / f"{topic_name}.md"
+            if not topic_path.exists():
+                continue
+            entries = self._load_topic_entries(topic_path)
+            for i, e in enumerate(entries):
+                if e.id == entry_id:
+                    entries[i] = e.model_copy(
+                        update={
+                            "superseded_by": superseded_by,
+                            "superseded_reason": reason,
+                            "updated_at": now,
+                        }
+                    )
+                    self._write_topic_page(topic_path, topic_name, entries)
+                    self._append_log(
+                        repo_slug,
+                        "mark_superseded",
+                        {"entry_id": entry_id, "superseded_by": superseded_by},
+                    )
+                    return True
+        return False
 
     def list_repos(self) -> list[str]:
         """Return slugs for all repos with wikis.
@@ -1011,6 +1095,16 @@ class RepoWikiStore:
             ],
             check=True,
         )
+
+    # -- public API --------------------------------------------------------
+
+    def repo_dir(self, repo_slug: str) -> Path:
+        """Public: return the on-disk directory for a repo's wiki."""
+        return self._repo_dir(repo_slug)
+
+    def load_topic_entries(self, topic_path: Path) -> list[WikiEntry]:
+        """Public: parse entries from a topic page on disk."""
+        return self._load_topic_entries(topic_path)
 
     # -- internal ----------------------------------------------------------
 

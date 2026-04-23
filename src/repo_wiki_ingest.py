@@ -8,15 +8,35 @@ output and produces ``WikiEntry`` objects for the store.
 from __future__ import annotations
 
 import logging
+import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from repo_wiki import WikiEntry
+from pydantic import BaseModel
+
+from events import EventType, HydraFlowEvent
+from knowledge_metrics import metrics as _metrics
+from repo_wiki import WikiEntry, classify_topic
+from staleness import evaluate as evaluate_staleness
 
 if TYPE_CHECKING:
+    from events import EventBus
     from repo_wiki import RepoWikiStore
+    from wiki_compiler import WikiCompiler
 
 logger = logging.getLogger("hydraflow.repo_wiki_ingest")
+
+
+# ---------------------------------------------------------------------------
+# Result model for ingest_phase_output
+# ---------------------------------------------------------------------------
+
+
+class IngestWithContradictionsResult(BaseModel):
+    entries_added: int = 0
+    entries_updated: int = 0
+    contradictions_marked: int = 0
 
 
 def ingest_from_plan(
@@ -220,3 +240,150 @@ def _extract_sections(text: str) -> dict[str, str]:
         sections[current_heading] = "\n".join(current_lines).strip()
 
     return sections
+
+
+# ---------------------------------------------------------------------------
+# Async helper: ingest with contradiction detection
+# ---------------------------------------------------------------------------
+
+
+async def ingest_phase_output(
+    *,
+    store: RepoWikiStore,
+    repo: str,
+    entries: list[WikiEntry],
+    compiler: WikiCompiler,
+    event_bus: EventBus | None = None,
+) -> IngestWithContradictionsResult:
+    """Ingest entries and run contradiction detection on each.
+
+    Contradicted siblings have their ``superseded_by``/``superseded_reason``
+    set via :meth:`RepoWikiStore.mark_superseded`. Entries are never deleted.
+
+    When ``event_bus`` is provided, a ``WIKI_SUPERSEDES`` event is published
+    for every contradiction marked. Publish failures are swallowed — wiki
+    events are non-critical.
+    """
+    ids = [e.id for e in entries]
+    if len(set(ids)) != len(ids):
+        duplicates = [i for i in set(ids) if ids.count(i) > 1]
+        raise ValueError(
+            f"ingest_phase_output entries must have unique ids; duplicate: {duplicates!r}"
+        )
+    ingest_result = store.ingest(repo, entries)
+    _metrics.increment("wiki_entries_ingested", len(entries))
+    result = IngestWithContradictionsResult(
+        entries_added=ingest_result.entries_added,
+        entries_updated=ingest_result.entries_updated,
+    )
+
+    now = datetime.now(UTC)
+    for new_entry in entries:
+        if new_entry.topic is None:
+            continue
+        topic_path = store.repo_dir(repo) / f"{new_entry.topic}.md"
+        if not topic_path.exists():
+            continue
+        all_entries = store.load_topic_entries(topic_path)
+        siblings = [
+            e
+            for e in all_entries
+            if e.id != new_entry.id and evaluate_staleness(e, now=now) == "current"
+        ]
+        if not siblings:
+            continue
+
+        check = await compiler.detect_contradictions(
+            new_entry=new_entry,
+            siblings=siblings,
+            repo=repo,
+        )
+        for flagged in check.contradicts:
+            if store.mark_superseded(
+                repo,
+                entry_id=flagged.id,
+                superseded_by=new_entry.id,
+                reason=flagged.reason,
+            ):
+                result.contradictions_marked += 1
+                if event_bus is not None:
+                    await _emit_wiki_supersedes(
+                        event_bus=event_bus,
+                        repo=repo,
+                        superseded_id=flagged.id,
+                        superseded_by=new_entry.id,
+                        reason=flagged.reason,
+                    )
+
+    return result
+
+
+async def _emit_wiki_supersedes(
+    *,
+    event_bus: EventBus,
+    repo: str,
+    superseded_id: str,
+    superseded_by: str,
+    reason: str,
+) -> None:
+    """Publish a WIKI_SUPERSEDES event. Swallows errors."""
+    _metrics.increment("wiki_supersedes")
+    event = HydraFlowEvent(
+        type=EventType.WIKI_SUPERSEDES,
+        data={
+            "repo": repo,
+            "superseded_id": superseded_id,
+            "superseded_by": superseded_by,
+            "reason": reason,
+        },
+    )
+    try:
+        await event_bus.publish(event)
+    except Exception:  # noqa: BLE001
+        logger.debug("wiki event publish failed; continuing")
+
+
+_REFLECTION_BLOCK_RE = re.compile(
+    r"^---\s+(?P<phase>[\w-]+)\s*\|\s*[^\n]*---\s*\n",
+    flags=re.MULTILINE,
+)
+
+
+def entries_from_reflections_log(
+    *,
+    log: str,
+    repo: str,
+    issue_number: int,
+) -> list[WikiEntry]:
+    """Split a Reflexion log into one WikiEntry per phase block.
+
+    The reflections log is written by ``append_reflection`` in
+    ``src/reflections.py`` with the marker format
+    ``--- {phase} | YYYY-MM-DD HH:MM UTC ---`` between blocks.
+
+    Empty or whitespace-only blocks are skipped. Each entry gets a
+    fresh ULID (default_factory on ``WikiEntry``).
+    """
+    if not log or not log.strip():
+        return []
+
+    matches = list(_REFLECTION_BLOCK_RE.finditer(log))
+    if not matches:
+        return []
+
+    entries: list[WikiEntry] = []
+    for i, m in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(log)
+        body = log[m.end() : end].strip()
+        if not body:
+            continue
+        entry = WikiEntry(
+            title=f"Reflection from #{issue_number} ({m.group('phase')})",
+            content=body,
+            source_type="reflection",
+            source_issue=issue_number,
+            source_repo=repo,
+        )
+        entry.topic = classify_topic(entry)
+        entries.append(entry)
+    return entries

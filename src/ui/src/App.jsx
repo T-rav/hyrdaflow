@@ -139,37 +139,11 @@ function ConfigWarningBanner({ warning }) {
   )
 }
 
-function SessionFilterBanner({ session, onClear, liveStats }) {
-  if (!session) return null
-  const d = new Date(session.started_at)
-  const startDate = Number.isNaN(d.getTime()) ? '-' : d.toLocaleString()
-  const succeeded = liveStats?.issues_succeeded ?? session.issues_succeeded ?? 0
-  const failed = liveStats?.issues_failed ?? session.issues_failed ?? 0
-  const issueCount = liveStats?.issues_processed_count ?? (session.issues_processed?.length ?? 0)
-  return (
-    <div style={styles.sessionBanner}>
-      <span style={session.status === 'active' ? styles.sessionDotActive : styles.sessionDotCompleted} />
-      <span style={styles.sessionBannerText}>
-        Session from {startDate}
-      </span>
-      <span style={styles.sessionBannerMeta}>
-        {issueCount} {issueCount === 1 ? 'issue' : 'issues'}
-        {succeeded > 0 && ` · ${succeeded} passed`}
-        {failed > 0 && ` · ${failed} failed`}
-      </span>
-      <span role="button" tabIndex={0} onClick={onClear} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClear() } }} style={styles.sessionBannerClear}>Clear filter</span>
-    </div>
-  )
-}
-
 function AppContent() {
   const {
     connected, orchestratorStatus, workers, prs,
     hitlItems, humanInputRequests, submitHumanInput, refreshHitl,
     backgroundWorkers, systemAlert, dismissSystemAlert, refreshCreditStatus, intents, toggleBgWorker, triggerBgWorker, updateBgWorkerInterval,
-    selectedSession, selectSession,
-    currentSessionId,
-    stageStatus,
     requestChanges,
     config,
     reporterId,
@@ -186,17 +160,6 @@ function AppContent() {
     return ok
   }, [requestChanges])
 
-  const selectedSessionLiveStats = useMemo(() => {
-    if (!selectedSession || selectedSession.status !== 'active') return null
-    if (selectedSession.id !== currentSessionId) return null
-    const done = stageStatus?.workload?.done ?? 0
-    const failed = stageStatus?.workload?.failed ?? 0
-    return {
-      issues_processed_count: done + failed,
-      issues_succeeded: done,
-      issues_failed: failed,
-    }
-  }, [selectedSession, currentSessionId, stageStatus])
   const configWarning = useMemo(() => detectConfigWarning(config), [config])
 
   return (
@@ -210,11 +173,6 @@ function AppContent() {
       <SessionSidebar />
 
       <div style={styles.main}>
-        <SessionFilterBanner
-          session={selectedSession}
-          onClear={() => selectSession(null)}
-          liveStats={selectedSessionLiveStats}
-        />
         <SystemAlertBanner alert={systemAlert} onDismiss={dismissSystemAlert} onRefreshCredit={refreshCreditStatus} />
         <ConfigWarningBanner warning={configWarning} />
         <HumanInputBanner requests={humanInputRequests} onSubmit={submitHumanInput} />
@@ -420,44 +378,6 @@ const styles = {
     fontSize: 11,
     fontWeight: 700,
     flexShrink: 0,
-  },
-  sessionBanner: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '8px 16px',
-    background: theme.accentSubtle,
-    borderBottom: `1px solid ${theme.accent}`,
-    fontSize: 12,
-  },
-  sessionDotActive: {
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    background: theme.green,
-    flexShrink: 0,
-  },
-  sessionDotCompleted: {
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    background: theme.textMuted,
-    flexShrink: 0,
-  },
-  sessionBannerText: {
-    fontWeight: 600,
-    color: theme.accent,
-  },
-  sessionBannerMeta: {
-    color: theme.textMuted,
-    fontSize: 11,
-  },
-  sessionBannerClear: {
-    marginLeft: 'auto',
-    color: theme.accent,
-    cursor: 'pointer',
-    fontSize: 11,
-    fontWeight: 600,
   },
 }
 

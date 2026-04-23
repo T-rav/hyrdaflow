@@ -7,6 +7,7 @@ import re
 import shutil
 import time
 from pathlib import Path
+from typing import ClassVar
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
@@ -42,6 +43,7 @@ class PlannerRunner(BaseRunner):
     """
 
     _log = logger
+    _phase_name: ClassVar[str] = "plan"
 
     async def plan(
         self,

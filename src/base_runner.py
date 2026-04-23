@@ -9,6 +9,12 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
+from adr_draft_opener import open_adr_draft_issue
+from adr_index import (  # noqa: F401 — used in _inject_adr_index
+    ADRIndex,
+    render_full,
+    render_titles_only,
+)
 from agent_cli import build_agent_command
 from config import Credentials, HydraFlowConfig
 from events import EventBus
@@ -22,11 +28,13 @@ from runner_utils import (
     terminate_processes,
 )
 from tracing_context import TracingContext
+from wiki_compiler import parse_adr_draft_suggestion
 
 if TYPE_CHECKING:
     from execution import SubprocessRunner
     from hindsight import HindsightClient
     from repo_wiki import RepoWikiStore  # noqa: TCH004
+    from tribal_wiki import TribalWikiStore
 
 
 class BaseRunner:
@@ -39,6 +47,7 @@ class BaseRunner:
     """
 
     _log: ClassVar[logging.Logger]
+    _phase_name: ClassVar[str] = "unknown"
 
     def __init__(
         self,
@@ -49,6 +58,7 @@ class BaseRunner:
         hindsight: HindsightClient | None = None,
         credentials: Credentials | None = None,
         wiki_store: RepoWikiStore | None = None,
+        tribal_wiki_store: TribalWikiStore | None = None,
     ) -> None:
         self._config = config
         self._bus = event_bus
@@ -69,6 +79,10 @@ class BaseRunner:
         self._trace_subprocess_counter: int = 0
         self._credentials = credentials or Credentials()
         self._wiki_store = wiki_store
+        self._tribal_wiki_store = tribal_wiki_store
+        # ADR runtime index — injected into plan/implement/review prompts.
+        # Relative path from the worktree cwd. None-safe at read time.
+        self._adr_index: ADRIndex | None = ADRIndex(Path("docs/adr"))
 
     @property
     def active_count(self) -> int:
@@ -259,6 +273,64 @@ class BaseRunner:
                 log_dir,
                 exc_info=True,
             )
+        # Schedule ADR-draft processing if we're inside a running event loop.
+        # Called from sync test contexts there is no loop — skip gracefully.
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._log.debug(
+                "_save_transcript called outside event loop — ADR-draft pipeline skipped"
+            )
+            return
+        loop.create_task(self._process_transcript_for_adr_draft(transcript))
+
+    async def _process_transcript_for_adr_draft(self, transcript: str) -> None:
+        """Scan transcript for ADR_DRAFT_SUGGESTION and run the 4-gate pipeline.
+
+        Non-blocking: failures are logged and swallowed. No-ops silently when
+        any required dependency is missing.
+        """
+        compiler = getattr(self, "_wiki_compiler", None)
+        tribal = getattr(self, "_tribal_wiki_store", None)
+        gh = getattr(self, "_gh_client", None)
+        bus = getattr(self, "_bus", None)
+        if compiler is None or tribal is None or gh is None:
+            return
+
+        try:
+            suggestion = parse_adr_draft_suggestion(transcript)
+            if suggestion is None:
+                return
+            decision = await compiler.judge_adr_draft(
+                suggestion=suggestion,
+                tribal=tribal,
+            )
+            if not decision.draft_ok:
+                return
+            issue_number = await open_adr_draft_issue(
+                suggestion=suggestion,
+                decision=decision,
+                gh_client=gh,
+            )
+            if issue_number is None or bus is None:
+                return
+            from events import EventType, HydraFlowEvent  # noqa: PLC0415
+
+            await bus.publish(
+                HydraFlowEvent(
+                    type=EventType.ADR_DRAFT_OPENED,
+                    data={
+                        "issue_number": issue_number,
+                        "title": suggestion.get("title", ""),
+                        "reason": decision.reason,
+                    },
+                )
+            )
+        except Exception:  # noqa: BLE001
+            self._log.warning(
+                "ADR draft pipeline failed — transcript ignored",
+                exc_info=True,
+            )
 
     async def _inject_memory(self, *, query_context: str = "") -> str:
         """Load the memory digest via Hindsight semantic recall.
@@ -275,7 +347,11 @@ class BaseRunner:
         dedup_items_removed = 0
         dedup_chars_saved = 0
 
-        if self._hindsight is not None and query_context:
+        if (
+            self._hindsight is not None
+            and query_context
+            and getattr(self._config, "hindsight_recall_enabled", True)
+        ):
             from hindsight import Bank, format_memories_as_markdown, recall_safe
 
             max_chars = self._config.max_memory_prompt_chars
@@ -469,6 +545,11 @@ class BaseRunner:
         if wiki_section:
             memory_section += wiki_section
 
+        # Append ADR index (load-bearing architectural decisions)
+        adr_section = self._inject_adr_index()
+        if adr_section:
+            memory_section += adr_section
+
         self._last_context_stats = {
             "cache_hits": 0,
             "cache_misses": 0,
@@ -480,6 +561,7 @@ class BaseRunner:
                 + len(harness_insights_raw)
             ),
             "context_chars_after": len(memory_section),
+            "adr_chars": len(adr_section),
             "dedup_items_removed": dedup_items_removed,
             "dedup_chars_saved": dedup_chars_saved,
         }
@@ -487,14 +569,14 @@ class BaseRunner:
         return memory_section
 
     def _inject_repo_wiki(self, *, query_context: str = "") -> str:
-        """Load compiled repo wiki context for the current target repo.
+        """Load compiled repo wiki + tribal wiki context for the current target repo.
 
-        Returns a markdown string with relevant wiki pages, or empty
-        string if no wiki exists for this repo.
+        Returns concatenated markdown with a blank-line separator. Empty
+        string when neither per-repo wiki nor tribal wiki is configured
+        or both return empty.
         """
         if self._wiki_store is None:
             return ""
-
         repo = self._config.repo
         if not repo:
             return ""
@@ -504,14 +586,58 @@ class BaseRunner:
             if query_context
             else None
         )
-        wiki_section = self._wiki_store.query(
+        per_repo_section = self._wiki_store.query(
             repo,
             keywords=keywords,
             max_chars=self._config.max_repo_wiki_chars,
         )
-        if wiki_section:
-            return f"\n\n{wiki_section}"
-        return ""
+
+        tribal = getattr(self, "_tribal_wiki_store", None)
+        tribal_section = ""
+        if tribal is not None:
+            tribal_section = tribal.query(
+                keywords=keywords,
+                max_chars=self._config.max_repo_wiki_chars,
+            )
+
+        parts = [s for s in (per_repo_section, tribal_section) if s]
+        if not parts:
+            return ""
+        return "\n\n" + "\n\n".join(parts)
+
+    #: Prompt-size budget for the rendered ADR index section. If render_full
+    #: exceeds this, we fall back to the titles-only view (which is bounded by
+    #: ADR count, not summary length). Prevents large ADR corpora from
+    #: dominating the plan prompt.
+    _MAX_ADR_SECTION_CHARS: ClassVar[int] = 4000
+
+    def _inject_adr_index(self) -> str:
+        """Inject the ADR index into the current phase's prompt.
+
+        Plan phase: full index (with summaries) — or titles-only if the full
+        view would exceed ``_MAX_ADR_SECTION_CHARS``.
+        Implement/review: titles-only (prompt-size conscious; excludes Superseded).
+        Other phases: empty.
+        """
+        adr_index = getattr(self, "_adr_index", None)
+        if adr_index is None:
+            return ""
+
+        adrs = adr_index.adrs()
+        if not adrs:
+            return ""
+
+        phase = self._phase_name
+        if phase == "plan":
+            body = render_full(adrs)
+            if len(body) > self._MAX_ADR_SECTION_CHARS:
+                body = render_titles_only(adrs)
+        elif phase in ("implement", "review"):
+            body = render_titles_only(adrs)
+        else:
+            return ""
+
+        return f"\n\n{body}" if body else ""
 
     def _consume_context_stats(self) -> dict[str, int]:
         stats = dict(self._last_context_stats)

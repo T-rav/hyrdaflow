@@ -1,37 +1,74 @@
 import React, { useState, useCallback, useMemo } from 'react'
 import { useHydraFlow } from '../context/HydraFlowContext'
 import { theme } from '../theme'
-import { PULSE_ANIMATION, canonicalRepoSlug } from '../constants'
+import { canonicalRepoSlug } from '../constants'
 import { RepoSelector } from './RepoSelector'
 import { RegisterRepoDialog } from './RegisterRepoDialog'
+import { formatRelative, formatDuration } from '../utils/timeFormat'
 
-function shortRepo(repo) {
-  const parts = (repo || '').split('/')
-  return parts.length > 1 ? parts[parts.length - 1] : repo
+function pickLatestSession(sessions) {
+  if (!sessions || sessions.length === 0) return null
+  let latest = sessions[0]
+  for (let i = 1; i < sessions.length; i++) {
+    if ((sessions[i].started_at || '') > (latest.started_at || '')) {
+      latest = sessions[i]
+    }
+  }
+  return latest
+}
+
+function LastRunLine({ session, repoRunning, stageStatus }) {
+  if (!session) {
+    return <span style={styles.lastRunMuted}>never run</span>
+  }
+
+  const isActive = session.status === 'active'
+  const succeededRaw = session.issues_succeeded ?? 0
+  const failedRaw = session.issues_failed ?? 0
+
+  if (isActive && repoRunning) {
+    const now = new Date().toISOString()
+    const duration = formatDuration(session.started_at, now)
+    const succeeded = stageStatus?.workload?.done ?? succeededRaw
+    const failed = stageStatus?.workload?.failed ?? failedRaw
+    const parts = [`running · ${duration}`]
+    if (succeeded > 0) parts.push(`${succeeded} ✓`)
+    if (failed > 0) parts.push(`${failed} ✗`)
+    return <span style={styles.lastRunRunning}>{parts.join(' · ')}</span>
+  }
+
+  if (isActive && !repoRunning) {
+    const ago = formatRelative(session.started_at)
+    return <span style={styles.lastRunMuted}>last run ended — {ago}</span>
+  }
+
+  const ago = formatRelative(session.ended_at || session.started_at)
+  const duration = formatDuration(session.started_at, session.ended_at)
+  const mainParts = [`ran ${ago}`]
+  if (duration) mainParts.push(duration)
+  const countParts = []
+  if (succeededRaw > 0) countParts.push(`${succeededRaw} ✓`)
+  if (failedRaw > 0) countParts.push(`${failedRaw} ✗`)
+  const text = countParts.length > 0
+    ? `${mainParts.join(' · ')} · ${countParts.join(' ')}`
+    : mainParts.join(' · ')
+  return <span style={styles.lastRunCompleted}>{text}</span>
 }
 
 export function SessionSidebar() {
   const {
     sessions,
-    currentSessionId,
-    selectedSessionId,
     selectedRepoSlug,
     stageStatus,
     orchestratorStatus,
-    selectSession,
     selectRepo,
-    deleteSession,
     supervisedRepos = [],
     runtimes = [],
     startRuntime,
     stopRuntime,
     removeRepoShortcut,
   } = useHydraFlow()
-  const [expandedRepos, setExpandedRepos] = useState({})
-  const [hoveredSession, setHoveredSession] = useState(null)
-  const [hoveredDeleteId, setHoveredDeleteId] = useState(null)
   const [registerModalOpen, setRegisterModalOpen] = useState(false)
-
   const openRegister = useCallback(() => setRegisterModalOpen(true), [])
   const closeRegister = useCallback(() => setRegisterModalOpen(false), [])
 
@@ -77,43 +114,28 @@ export function SessionSidebar() {
           repo.slug || rawSlug || repo.path || entryKey,
         )
       }
-      if (repo.slug) {
-        entry.repoSlug = repo.slug
-      }
+      if (repo.slug) entry.repoSlug = repo.slug
       entry.repoPath = repo.path || entry.repoPath
-      if (!entry.filterSlug) {
-        entry.filterSlug = filterSlug
-      }
+      if (!entry.filterSlug) entry.filterSlug = filterSlug
       entry.info = repo
-      if (filterSlug && !slugIndex.has(filterSlug)) {
-        slugIndex.set(filterSlug, entry.key)
-      }
+      if (filterSlug && !slugIndex.has(filterSlug)) slugIndex.set(filterSlug, entry.key)
       if (!entry.displayName && (repo.slug || repo.path)) {
         entry.displayName = repo.slug || repo.path
       }
     }
 
-    // Merge runtime status into entries
     const runtimeMap = new Map(
       (runtimes || []).map((rt) => [canonicalRepoSlug(rt.slug), rt]),
     )
     for (const entry of entries.values()) {
       entry.runtime = runtimeMap.get(entry.filterSlug) || null
+      entry.latestSession = pickLatestSession(entry.sessions)
     }
 
     return Array.from(entries.values()).sort((a, b) =>
       (a.displayName || '').localeCompare(b.displayName || '')
     )
   }, [sessions, supervisedRepos, runtimes])
-
-  const toggleRepo = (repoKey) => {
-    setExpandedRepos(prev => ({ ...prev, [repoKey]: prev[repoKey] === false }))
-  }
-
-  const handleDelete = (e, sessionId) => {
-    e.stopPropagation()
-    deleteSession(sessionId)
-  }
 
   const handleDisconnect = (e, slug, isRunning) => {
     e.stopPropagation()
@@ -122,9 +144,7 @@ export function SessionSidebar() {
         return
       }
     }
-    if (removeRepoShortcut) {
-      removeRepoShortcut(slug)
-    }
+    if (removeRepoShortcut) removeRepoShortcut(slug)
   }
 
   return (
@@ -132,67 +152,49 @@ export function SessionSidebar() {
       <div style={styles.repoSelectorSection}>
         <RepoSelector onOpenRegister={openRegister} />
       </div>
-      <div style={styles.header}>
-        <span style={styles.headerLabel}>Sessions</span>
-        {sessions.length > 0 && (
-          <span style={styles.countBadge}>{sessions.length}</span>
-        )}
-      </div>
 
       <div style={styles.list}>
         {repoEntries.map(entry => {
-          const repoSessions = entry.sessions
-          const isExpanded = expandedRepos[entry.key] !== false
           const isRepoSelected = selectedRepoSlug === entry.filterSlug
           const rt = entry.runtime
           const isRunning = rt?.running ?? entry.info?.running ?? false
+          const orchRunning = orchestratorStatus === 'running'
+          const disabled = !orchRunning && !isRunning
+          const slug = entry.repoSlug || entry.displayName
 
           return (
-            <div key={entry.key}>
-              <div
-                onClick={() => selectRepo(isRepoSelected ? null : entry.repoSlug)}
-                style={isRepoSelected ? repoHeaderSelected : styles.repoHeader}
-              >
-                <div style={styles.repoTitle}>
-                  <span
-                    onClick={(e) => { e.stopPropagation(); toggleRepo(entry.key) }}
-                    style={styles.arrow}
-                  >
-                    {isExpanded ? '▾' : '▸'}
-                  </span>
-                  <span style={isRunning ? styles.repoDotRunning : styles.repoDotStopped} />
-                  <div style={styles.repoText}>
-                    <span style={styles.repoName}>{entry.displayName}</span>
-                    {entry.info?.path && entry.info.path !== entry.displayName && (
-                      <span style={styles.repoSubLabel}>{entry.info.path}</span>
-                    )}
-                  </div>
+            <div
+              key={entry.key}
+              onClick={() => selectRepo(isRepoSelected ? null : entry.repoSlug)}
+              style={isRepoSelected ? repoRowSelected : styles.repoRow}
+            >
+              <div style={styles.repoLineOne}>
+                <span style={isRunning ? styles.repoDotRunning : styles.repoDotStopped} />
+                <div style={styles.repoText}>
+                  <span style={styles.repoName}>{entry.displayName}</span>
+                  {entry.info?.path && entry.info.path !== entry.displayName && (
+                    <span style={styles.repoSubLabel}>{entry.info.path}</span>
+                  )}
                 </div>
-                <div style={styles.repoMeta}>
-                  <span style={styles.repoCount}>{repoSessions.length}</span>
-                  {(entry.info || entry.runtime) && (() => {
-                    const orchRunning = orchestratorStatus === 'running'
-                    const disabled = !orchRunning && !isRunning
-                    return (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (disabled) return
-                          const slug = entry.repoSlug || entry.displayName
-                          if (isRunning) { stopRuntime(slug) } else { startRuntime(slug) }
-                        }}
-                        disabled={disabled}
-                        style={isRunning ? styles.runtimeStopBtn : disabled ? styles.runtimeDisabledBtn : styles.runtimeStartBtn}
-                        aria-label={isRunning ? 'Stop repo' : 'Start repo'}
-                        title={disabled ? 'Start the orchestrator first' : isRunning ? 'Stop processing' : 'Start processing'}
-                      >
-                        {isRunning ? '■' : '▶'}
-                      </button>
-                    )
-                  })()}
+                <div style={styles.repoControls}>
+                  {(entry.info || entry.runtime) && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (disabled) return
+                        if (isRunning) stopRuntime(slug); else startRuntime(slug)
+                      }}
+                      disabled={disabled}
+                      style={isRunning ? styles.runtimeStopBtn : disabled ? styles.runtimeDisabledBtn : styles.runtimeStartBtn}
+                      aria-label={isRunning ? 'Stop repo' : 'Start repo'}
+                      title={disabled ? 'Start the orchestrator first' : isRunning ? 'Stop processing' : 'Start processing'}
+                    >
+                      {isRunning ? '■' : '▶'}
+                    </button>
+                  )}
                   {entry.info && (
                     <button
-                      onClick={(e) => handleDisconnect(e, entry.repoSlug || entry.displayName, isRunning)}
+                      onClick={(e) => handleDisconnect(e, slug, isRunning)}
                       style={styles.disconnectBtn}
                       aria-label="Disconnect repo"
                       title="Disconnect repo"
@@ -202,75 +204,19 @@ export function SessionSidebar() {
                   )}
                 </div>
               </div>
-
-              {isExpanded && repoSessions.map(session => {
-                const isActive = session.status === 'active' && orchestratorStatus === 'running'
-                const isCurrent = session.id === currentSessionId
-                const isSelected = session.id === selectedSessionId
-                const isHovered = session.id === hoveredSession
-                const isLiveSession = isActive && isCurrent
-                const liveSucceeded = isLiveSession
-                  ? (stageStatus?.workload?.done ?? session.issues_succeeded ?? 0)
-                  : (session.issues_succeeded ?? 0)
-                const liveFailed = isLiveSession
-                  ? (stageStatus?.workload?.failed ?? session.issues_failed ?? 0)
-                  : (session.issues_failed ?? 0)
-                const issueCount = isLiveSession
-                  ? (liveSucceeded + liveFailed)
-                  : (session.issues_processed?.length ?? 0)
-
-                let rowStyle = styles.sessionRow
-                if (isCurrent && isSelected) rowStyle = sessionRowCurrentSelected
-                else if (isCurrent) rowStyle = sessionRowCurrent
-                else if (isSelected) rowStyle = sessionRowSelected
-
-                return (
-                  <div
-                    key={session.id}
-                    onClick={() => selectSession(session.id)}
-                    onMouseEnter={() => setHoveredSession(session.id)}
-                    onMouseLeave={() => setHoveredSession(null)}
-                    style={rowStyle}
-                  >
-                    <span style={isLiveSession ? styles.dotActive : styles.dotCompleted} />
-                    <div style={styles.sessionInfo}>
-                      <span style={styles.sessionRepo}>{shortRepo(session.repo)}</span>
-                      <span style={styles.sessionTime}>
-                        {session.started_at ? new Date(session.started_at).toLocaleString() : ''}
-                      </span>
-                      <div style={styles.sessionMeta}>
-                        {issueCount > 0 && (
-                          <span style={styles.issuePill}>{issueCount}</span>
-                        )}
-                        {liveSucceeded > 0 && (
-                          <span style={styles.successCount}>{liveSucceeded}✓</span>
-                        )}
-                        {liveFailed > 0 && (
-                          <span style={styles.failCount}>{liveFailed}✗</span>
-                        )}
-                      </div>
-                    </div>
-                    {!isActive && isHovered && (
-                      <button
-                        onClick={(e) => handleDelete(e, session.id)}
-                        onMouseEnter={() => setHoveredDeleteId(session.id)}
-                        onMouseLeave={() => setHoveredDeleteId(null)}
-                        style={hoveredDeleteId === session.id ? deleteButtonHovered : styles.deleteButton}
-                        aria-label="Delete session"
-                        title="Delete session"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                )
-              })}
+              <div style={styles.repoLineTwo}>
+                <LastRunLine
+                  session={entry.latestSession}
+                  repoRunning={isRunning}
+                  stageStatus={stageStatus}
+                />
+              </div>
             </div>
           )
         })}
 
         {repoEntries.length === 0 && (
-          <div style={styles.empty}>No sessions yet</div>
+          <div style={styles.empty}>No repos connected</div>
         )}
       </div>
       <RegisterRepoDialog isOpen={registerModalOpen} onClose={closeRegister} />
@@ -291,27 +237,71 @@ const styles = {
   repoSelectorSection: {
     padding: '12px 12px 0',
   },
-  header: {
+  list: {
+    flex: 1,
+    overflowY: 'auto',
+    padding: '4px 0',
+  },
+  repoRow: {
     display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '12px 12px 8px',
+    flexDirection: 'column',
+    gap: 2,
+    padding: '8px 12px',
+    cursor: 'pointer',
     borderBottom: `1px solid ${theme.border}`,
   },
-  headerLabel: {
-    fontSize: 12,
-    fontWeight: 600,
-    color: theme.textBright,
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px',
+  repoLineOne: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    minWidth: 0,
   },
-  countBadge: {
+  repoLineTwo: {
     fontSize: 10,
-    fontWeight: 700,
-    borderRadius: 8,
-    padding: '1px 6px',
-    background: theme.accentSubtle,
-    color: theme.accent,
+    color: theme.textMuted,
+    paddingLeft: 14,
+  },
+  repoText: {
+    display: 'flex',
+    flexDirection: 'column',
+    minWidth: 0,
+    flex: 1,
+  },
+  repoName: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: theme.text,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  repoSubLabel: {
+    fontSize: 10,
+    fontWeight: 500,
+    color: theme.textMuted,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  repoControls: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
+  },
+  repoDotRunning: {
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    background: theme.green,
+    flexShrink: 0,
+  },
+  repoDotStopped: {
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    background: theme.textMuted,
+    flexShrink: 0,
   },
   runtimeStartBtn: {
     background: 'none',
@@ -322,7 +312,6 @@ const styles = {
     padding: '0 4px',
     lineHeight: 1,
     borderRadius: 4,
-    transition: 'color 0.15s',
   },
   runtimeStopBtn: {
     background: 'none',
@@ -333,7 +322,6 @@ const styles = {
     padding: '0 4px',
     lineHeight: 1,
     borderRadius: 4,
-    transition: 'color 0.15s',
   },
   runtimeDisabledBtn: {
     background: 'none',
@@ -356,166 +344,17 @@ const styles = {
     padding: '0 4px',
     lineHeight: 1,
     borderRadius: 4,
-    transition: 'color 0.15s',
     flexShrink: 0,
   },
-  list: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: '4px 0',
-  },
-  repoHeader: {
-    display: 'grid',
-    gridTemplateColumns: 'minmax(0, 1fr) auto',
-    alignItems: 'flex-start',
-    gap: 6,
-    padding: '8px 12px',
-    cursor: 'pointer',
-    fontSize: 11,
-    fontWeight: 600,
-    color: theme.text,
-  },
-  repoTitle: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    minWidth: 0,
-  },
-  repoText: {
-    display: 'flex',
-    flexDirection: 'column',
-    minWidth: 0,
-  },
-  arrow: {
-    fontSize: 9,
-    color: theme.textMuted,
-    width: 12,
-    textAlign: 'center',
-  },
-  repoName: {
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  repoSubLabel: {
-    fontSize: 10,
-    fontWeight: 500,
-    color: theme.textMuted,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  repoCount: {
-    fontSize: 10,
-    fontWeight: 700,
-    borderRadius: 8,
-    padding: '0 6px',
-    background: theme.surface,
-    border: `1px solid ${theme.border}`,
-  },
-  repoMeta: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-  },
-  repoDotRunning: {
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    background: theme.green,
-    flexShrink: 0,
-    marginTop: 2,
-  },
-  repoDotStopped: {
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    background: theme.textMuted,
-    flexShrink: 0,
-    marginTop: 2,
-  },
-  sessionRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '6px 12px 6px 28px',
-    cursor: 'pointer',
-    transition: 'background 0.15s',
-    borderLeft: '3px solid transparent',
-    position: 'relative',
-  },
-  dotActive: {
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    background: theme.green,
-    flexShrink: 0,
-    animation: PULSE_ANIMATION,
-  },
-  dotCompleted: {
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    background: theme.textMuted,
-    flexShrink: 0,
-    opacity: 0.5,
-  },
-  sessionInfo: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 2,
-    minWidth: 0,
-  },
-  sessionRepo: {
-    fontSize: 10,
-    fontWeight: 600,
-    color: theme.textMuted,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  sessionTime: {
-    fontSize: 10,
+  lastRunMuted: {
     color: theme.textMuted,
   },
-  sessionMeta: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 4,
+  lastRunCompleted: {
+    color: theme.textMuted,
   },
-  issuePill: {
-    fontSize: 9,
-    fontWeight: 700,
-    borderRadius: 8,
-    padding: '1px 6px',
-    background: theme.accentSubtle,
-    color: theme.accent,
-  },
-  successCount: {
-    fontSize: 9,
+  lastRunRunning: {
     color: theme.green,
-  },
-  failCount: {
-    fontSize: 9,
-    color: theme.red,
-  },
-  deleteButton: {
-    position: 'absolute',
-    right: 8,
-    top: '50%',
-    transform: 'translateY(-50%)',
-    background: 'none',
-    border: 'none',
-    color: theme.textMuted,
-    fontSize: 14,
-    fontWeight: 700,
-    cursor: 'pointer',
-    padding: '0 4px',
-    lineHeight: 1,
-    borderRadius: 4,
-    transition: 'color 0.15s, background 0.15s',
-    flexShrink: 0,
+    fontWeight: 600,
   },
   empty: {
     padding: '16px 12px',
@@ -525,9 +364,4 @@ const styles = {
   },
 }
 
-// Pre-computed row style variants (avoids object spread in .map())
-const repoHeaderSelected = { ...styles.repoHeader, background: theme.accentSubtle }
-const sessionRowSelected = { ...styles.sessionRow, background: theme.accentSubtle }
-const sessionRowCurrent = { ...styles.sessionRow, borderLeft: `3px solid ${theme.accent}` }
-const sessionRowCurrentSelected = { ...sessionRowCurrent, background: theme.accentSubtle }
-const deleteButtonHovered = { ...styles.deleteButton, color: theme.red, background: theme.redSubtle }
+const repoRowSelected = { ...styles.repoRow, background: theme.accentSubtle }

@@ -577,3 +577,20 @@ class ReviewInsightStorePort(Protocol):
     def load_proposal_metadata(self) -> dict[str, ProposalMetadata]: ...
 
     def update_proposal_verified(self, category: str, *, verified: bool) -> None: ...
+
+
+@runtime_checkable
+class ObservabilityPort(Protocol):
+    """Observability boundary (ADR-0044 P7.7).
+
+    The concrete adapter today is Sentry-backed (see ``src/server.py``); the
+    port exists so a future OTLP, structured-log, or sidecar adapter can slot
+    in without editing call sites. Keep the surface minimal — rich APIs drag
+    every backend into the union.
+    """
+
+    def capture_exception(self, exc: BaseException) -> None: ...
+
+    def breadcrumb(self, category: str, message: str, **data: object) -> None: ...
+
+    def flush(self, timeout_ms: int = 2000) -> bool: ...

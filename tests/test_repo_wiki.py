@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -328,7 +330,10 @@ class TestActiveLint:
         assert result.entries_marked_stale == 1
         assert result.stale_entries == 1
 
-    def test_prunes_old_stale_entries(self, store: RepoWikiStore) -> None:
+    def test_flags_old_stale_entries_instead_of_pruning(
+        self, store: RepoWikiStore
+    ) -> None:
+        # Phase 1: 90-day hard-prune replaced by review_candidates_flagged counter.
         store.ingest(
             REPO,
             [
@@ -342,7 +347,8 @@ class TestActiveLint:
             ],
         )
         result = store.active_lint(REPO)
-        assert result.orphans_pruned == 1
+        assert result.orphans_pruned == 0
+        assert result.review_candidates_flagged >= 1
 
     def test_preserves_fresh_stale_entries(self, store: RepoWikiStore) -> None:
         store.ingest(
@@ -463,6 +469,35 @@ class TestWikiIndexModel:
         assert "patterns" in data["topics"]
 
 
+def test_wiki_entry_auto_generates_id():
+    e = WikiEntry(title="t", content="c", source_type="plan")
+    assert re.fullmatch(r"[0-9A-HJKMNP-TV-Z]{26}", e.id) is not None
+
+
+def test_wiki_entry_two_entries_get_distinct_ids():
+    a = WikiEntry(title="t", content="c", source_type="plan")
+    b = WikiEntry(title="t", content="c", source_type="plan")
+    assert a.id != b.id
+
+
+def test_wiki_entry_accepts_topic_and_source_repo():
+    e = WikiEntry(
+        title="t",
+        content="c",
+        source_type="plan",
+        topic="architecture",
+        source_repo="acme/widget",
+    )
+    assert e.topic == "architecture"
+    assert e.source_repo == "acme/widget"
+
+
+def test_wiki_entry_topic_and_source_repo_default_to_none():
+    e = WikiEntry(title="t", content="c", source_type="plan")
+    assert e.topic is None
+    assert e.source_repo is None
+
+
 class TestListReposLayoutCompat:
     """list_repos must accept both legacy (index.json) and new (index.md) layouts.
 
@@ -495,3 +530,294 @@ class TestListReposLayoutCompat:
 
         store = RepoWikiStore(wiki_root)
         assert store.list_repos() == []
+
+
+def test_wiki_entry_temporal_defaults():
+    e = WikiEntry(title="t", content="c", source_type="plan")
+    assert e.valid_from == e.created_at
+    assert e.valid_to is None
+    assert e.superseded_by is None
+    assert e.superseded_reason is None
+    assert e.confidence == "medium"
+
+
+def test_wiki_entry_temporal_explicit_values():
+    e = WikiEntry(
+        title="t",
+        content="c",
+        source_type="plan",
+        valid_from="2026-01-01T00:00:00+00:00",
+        valid_to="2027-01-01T00:00:00+00:00",
+        superseded_by="01HQ0000000000000000000000",
+        superseded_reason="replaced by X",
+        confidence="high",
+    )
+    assert e.valid_to == "2027-01-01T00:00:00+00:00"
+    assert e.superseded_by == "01HQ0000000000000000000000"
+    assert e.confidence == "high"
+
+
+def test_wiki_entry_confidence_rejects_invalid():
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        WikiEntry(title="t", content="c", source_type="plan", confidence="maybe")
+
+
+def test_wiki_entry_backward_compat_loads_old_shape():
+    # Simulate loading an entry missing temporal fields (old on-disk format)
+    e = WikiEntry.model_validate(
+        {
+            "title": "legacy",
+            "content": "c",
+            "source_type": "plan",
+            "created_at": "2025-06-01T00:00:00+00:00",
+            "updated_at": "2025-06-01T00:00:00+00:00",
+            "stale": False,
+        }
+    )
+    assert e.valid_from == e.created_at  # defaulted from created_at
+    assert e.valid_to is None
+    assert e.superseded_by is None
+    assert e.confidence == "medium"
+
+
+# ---------------------------------------------------------------------------
+# Staleness filtering in query()
+# ---------------------------------------------------------------------------
+
+
+def test_query_excludes_superseded_entries(store):
+    store.ingest(
+        REPO,
+        [
+            WikiEntry(
+                title="old rule", content="A", source_type="plan", topic="patterns"
+            ),
+        ],
+    )
+    # Simulate another ingest that supersedes the first (we'll wire the
+    # contradiction detector in PR 2; here we set superseded_by directly)
+    index_dir = store._repo_dir(REPO)
+    topic_path = index_dir / "patterns.md"
+    entries = store._load_topic_entries(topic_path)
+    assert len(entries) == 1
+    superseded = entries[0].model_copy(
+        update={"superseded_by": "01HQ0000000000000000000000"}
+    )
+    store._write_topic_page(topic_path, "patterns", [superseded])
+
+    out = store.query(REPO, topics=["patterns"])
+    assert "old rule" not in out
+
+
+def test_query_excludes_expired_entries(store):
+    past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    expired = WikiEntry(
+        title="expired rule",
+        content="A",
+        source_type="plan",
+        topic="patterns",
+        valid_to=past,
+    )
+    store.ingest(REPO, [expired])
+    out = store.query(REPO, topics=["patterns"])
+    assert "expired rule" not in out
+
+
+def test_query_includes_current_entries(store):
+    current = WikiEntry(
+        title="current rule",
+        content="A",
+        source_type="plan",
+        topic="patterns",
+    )
+    store.ingest(REPO, [current])
+    out = store.query(REPO, topics=["patterns"])
+    assert "current rule" in out
+
+
+def test_active_lint_does_not_prune_old_entries(store):
+    old_date = (datetime.now(UTC) - timedelta(days=120)).isoformat()
+    old_entry = WikiEntry(
+        title="ancient rule",
+        content="A",
+        source_type="plan",
+        topic="patterns",
+        created_at=old_date,
+        updated_at=old_date,
+        stale=True,  # stale marker set
+    )
+    store.ingest(REPO, [old_entry])
+
+    result = store.active_lint(REPO, closed_issues=set())
+    assert result.orphans_pruned == 0
+    # Entry is still on disk
+    topic_path = store._repo_dir(REPO) / "patterns.md"
+    entries = store._load_topic_entries(topic_path)
+    assert any(e.title == "ancient rule" for e in entries)
+
+
+def test_active_lint_still_marks_stale_when_source_issue_closed(store):
+    e = WikiEntry(
+        title="closed issue entry",
+        content="Architecture detail.",
+        source_type="plan",
+        topic="architecture",
+        source_issue=42,
+    )
+    store.ingest(REPO, [e])
+
+    result = store.active_lint(REPO, closed_issues={42})
+    assert result.entries_marked_stale == 1
+
+    # Find entry across all topic pages (classifier picks the actual topic)
+    repo_dir = store._repo_dir(REPO)
+    all_entries = []
+    for topic_file in repo_dir.glob("*.md"):
+        if topic_file.stem in ("index",):
+            continue
+        all_entries.extend(store._load_topic_entries(topic_file))
+    assert any(e.title == "closed issue entry" and e.stale for e in all_entries)
+
+
+def test_active_lint_flags_old_entries_in_result_but_keeps_them(store):
+    old_date = (datetime.now(UTC) - timedelta(days=120)).isoformat()
+    old_entry = WikiEntry(
+        title="ancient rule",
+        content="A",
+        source_type="plan",
+        topic="patterns",
+        created_at=old_date,
+        updated_at=old_date,
+        stale=True,
+    )
+    store.ingest(REPO, [old_entry])
+
+    result = store.active_lint(REPO, closed_issues=set())
+    # New semantics: report flagged count, do not prune
+    assert getattr(result, "review_candidates_flagged", 0) >= 1
+
+
+def test_loads_pre_phase1_wiki_on_disk(tmp_path):
+    """Wikis written before Phase 1 lack temporal fields. They must still load."""
+    from repo_wiki import RepoWikiStore
+
+    root = tmp_path / "repo_wiki"
+    repo_dir = root / "legacy" / "repo"
+    repo_dir.mkdir(parents=True)
+
+    # Minimal pre-Phase-1 on-disk layout: index.json + one topic page.
+    (repo_dir / "index.json").write_text(
+        '{"repo_slug":"legacy/repo","topics":{"patterns":["old"]},'
+        '"total_entries":1,"last_updated":"2025-06-01T00:00:00+00:00",'
+        '"last_lint":null}'
+    )
+    # Topic page uses the current ```json:entry``` code-block format but with
+    # old-style JSON that lacks Phase-1 temporal fields (valid_from, valid_to,
+    # superseded_by, superseded_reason, confidence, id, topic, source_repo).
+    (repo_dir / "patterns.md").write_text(
+        "# Patterns\n\n"
+        "## old\n\n"
+        "x\n\n"
+        "```json:entry\n"
+        '{"title":"old","content":"x","source_type":"plan",'
+        '"source_issue":null,"created_at":"2025-06-01T00:00:00+00:00",'
+        '"updated_at":"2025-06-01T00:00:00+00:00","stale":false}\n'
+        "```\n"
+    )
+
+    store = RepoWikiStore(root)
+    # Should not raise — legacy entries gain defaulted temporal fields.
+    entries = store._load_topic_entries(repo_dir / "patterns.md")
+    assert len(entries) == 1
+    assert entries[0].title == "old"
+    assert entries[0].valid_from == entries[0].created_at
+    assert entries[0].valid_to is None
+    assert entries[0].superseded_by is None
+    assert entries[0].confidence == "medium"
+
+    # Query must work and return the entry (it's current).
+    out = store.query("legacy/repo", topics=["patterns"])
+    assert "old" in out
+
+
+# ---------------------------------------------------------------------------
+# mark_superseded
+# ---------------------------------------------------------------------------
+
+
+def test_mark_superseded_sets_fields_and_returns_true(store):
+    store.ingest(
+        REPO,
+        [
+            WikiEntry(
+                id="01HQ9999999999999999999999",
+                title="original",
+                content="v1",
+                source_type="plan",
+                topic="patterns",
+            ),
+        ],
+    )
+    ok = store.mark_superseded(
+        REPO,
+        entry_id="01HQ9999999999999999999999",
+        superseded_by="01HQ0000000000000000000000",
+        reason="obsoleted",
+    )
+    assert ok is True
+
+    # Find the entry across topics and verify fields
+    for topic_name in [
+        "architecture",
+        "patterns",
+        "gotchas",
+        "testing",
+        "dependencies",
+    ]:
+        p = store._repo_dir(REPO) / f"{topic_name}.md"
+        if not p.exists():
+            continue
+        for e in store._load_topic_entries(p):
+            if e.id == "01HQ9999999999999999999999":
+                assert e.superseded_by == "01HQ0000000000000000000000"
+                assert e.superseded_reason == "obsoleted"
+                return
+    raise AssertionError("entry not found after mark_superseded")
+
+
+def test_mark_superseded_missing_entry_returns_false(store):
+    store.ingest(
+        REPO, [WikiEntry(title="x", content="y", source_type="plan", topic="patterns")]
+    )
+    assert (
+        store.mark_superseded(
+            REPO,
+            entry_id="01HQ_DOES_NOT_EXIST_NOPE_NOPE",
+            superseded_by="01HQ0000000000000000000000",
+            reason="x",
+        )
+        is False
+    )
+
+
+def test_repo_dir_is_public_api(store, tmp_path):
+    p = store.repo_dir(REPO)
+    assert isinstance(p, Path)
+    # Private alias still works and returns the same path
+    assert store._repo_dir(REPO) == p
+
+
+def test_load_topic_entries_is_public_api(store):
+    store.ingest(
+        REPO,
+        [
+            WikiEntry(title="x", content="y", source_type="plan", topic="patterns"),
+        ],
+    )
+    topic_path = store.repo_dir(REPO) / "patterns.md"
+    public_entries = store.load_topic_entries(topic_path)
+    private_entries = store._load_topic_entries(topic_path)
+    assert len(public_entries) == 1
+    assert public_entries == private_entries

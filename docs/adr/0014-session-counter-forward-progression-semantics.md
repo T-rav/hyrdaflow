@@ -21,7 +21,7 @@ one. Failures, escalations to HITL, and retries do not increment.
 | `planned` | Plan posted and label swapped to `ready`, or issue closed as already satisfied | Plan completion path |
 | `implemented` | PR created and issue transitions to `review` | `result.success` is `True` |
 
-The **review** stage counter in `_record_review_outcome` (`review_phase.py:440`)
+The **review** stage counter in `_record_review_outcome` (`review_phase.py:_record_review_outcome`)
 increments only when the verdict is `APPROVE`. This is semantically correct
 for forward-progression — non-approved reviews (REQUEST_CHANGES, NEEDS_CHANGES)
 represent retry loops, not successful exits from the stage. An earlier version
@@ -31,7 +31,7 @@ rounds. The current code guards on `APPROVE`, aligning with the
 forward-progression pattern.
 
 A secondary risk exists in `session_counter_map` inside `build_pipeline_stats`
-(`orchestrator.py:443`). This dict maps dashboard stage names to
+(`orchestrator.py:build_pipeline_stats`). This dict maps dashboard stage names to
 `SessionCounters` field names. If an unknown stage is added and mapped to
 another stage's field name (e.g., mapping `"hitl"` to `"reviewed"` instead of
 `""`), that stage's count leaks into the wrong display column. The current code

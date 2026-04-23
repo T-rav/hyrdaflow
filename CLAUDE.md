@@ -44,3 +44,20 @@ Load the file relevant to your task before acting.
 | UI standards | [`docs/agents/ui-standards.md`](docs/agents/ui-standards.md) | Touching `ui/src/` |
 | Commands reference | [`docs/agents/commands.md`](docs/agents/commands.md) | Looking up a `make` target |
 | Architecture decisions | [`docs/adr/README.md`](docs/adr/README.md) | Understanding *why* something is the way it is |
+
+## Workflow skills (ADR-0044 P8/P10)
+
+TDD is the default: `superpowers:brainstorming` → `superpowers:writing-plans`
+→ `superpowers:test-driven-development` (red/green/refactor) → `superpowers:verification-before-completion` → `superpowers:requesting-code-review`.
+Use `superpowers:systematic-debugging` on failures. Bug fixes land with a
+regression test in `tests/regressions/`. See [`docs/agents/testing.md`](docs/agents/testing.md).
+
+## Ubiquitous language (ADR-0044 P2.9)
+
+Names are load-bearing — don't paraphrase. Full catalog in [`docs/agents/architecture.md`](docs/agents/architecture.md).
+
+- `HydraFlowConfig`, `StateTracker` / `StateData`, `EventBus`, `SessionLog`, `ReviewResult`
+- `BaseBackgroundLoop`, `RepoWikiStore`
+- `PRPort` / `WorkspacePort` / `IssueStorePort` — hexagonal boundaries
+- `AgentRunner` / `PlannerRunner` / `ReviewRunner`, `WorktreeManager`
+

@@ -202,6 +202,43 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
     mutate the wiki directly.
     """
 
+    @router.get("/api/wiki/metrics")
+    async def get_wiki_metrics() -> dict:
+        """Return current knowledge-system counters as a JSON snapshot."""
+        from knowledge_metrics import metrics as _metrics  # noqa: PLC0415
+
+        return _metrics.snapshot()
+
+    @router.get("/api/wiki/health")
+    async def get_wiki_health() -> dict:
+        """Report wiki + tribal store presence and rough sizing.
+
+        Reads the RepoWikiLoop's store and tribal_store attributes so the
+        dashboard can show whether the knowledge system is populated.
+        """
+        result: dict = {"store": "unconfigured", "tribal": "unconfigured"}
+        loop = _wiki_loop(ctx)
+        if loop is None:
+            return result
+
+        store = getattr(loop, "_wiki_store", None)
+        if store is not None:
+            try:
+                repos = store.list_repos()
+            except Exception:  # noqa: BLE001
+                repos = []
+            result["store"] = "populated" if repos else "empty"
+            result["repos"] = len(repos)
+
+        tribal = getattr(loop, "_tribal_store", None)
+        if tribal is not None:
+            try:
+                out = tribal.query()
+            except Exception:  # noqa: BLE001
+                out = ""
+            result["tribal"] = "populated" if out else "empty"
+        return result
+
     @router.get("/api/wiki/repos")
     def list_wiki_repos() -> list[dict[str, str]]:
         root = _wiki_root(ctx)

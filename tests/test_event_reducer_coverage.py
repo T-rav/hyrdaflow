@@ -56,6 +56,12 @@ SKIP_LIST: set[str] = {
     "diagnostic_update",
     # Retrospective events are consumed server-side (post-merge learning)
     "retrospective_update",
+    # Wiki supersedes events are consumed server-side (audit log for temporal
+    # invalidation); no direct dashboard reducer case.
+    "wiki_supersedes",
+    # Tribal promotion events are consumed server-side for audit; no
+    # dashboard reducer case.
+    "tribal_promotion",
 }
 
 

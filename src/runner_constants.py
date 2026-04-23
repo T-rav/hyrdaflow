@@ -41,3 +41,23 @@ When in doubt, omit the block. The bar is "would I tell a new hire this on
 day one." Most {context} runs should produce no block at all — that is the
 expected and correct outcome.
 """
+
+ADR_DRAFT_SUGGESTION_PROMPT = """\
+If you believe this work reveals an architectural decision that should be
+captured as an ADR, emit a block in this exact format at the end of your
+transcript:
+
+ADR_DRAFT_SUGGESTION:
+title: <short title>
+context: <paragraph or two>
+decision: <the decision>
+consequences: <consequences>
+evidence:
+  - issue: <github_issue_number>
+  - issue: <github_issue_number>
+  - wiki_entry: <ulid>
+
+Only emit this if the pattern has been observed in ≥2 distinct issues and
+feels load-bearing. The librarian will gate it further before opening an
+ADR-draft issue.
+"""

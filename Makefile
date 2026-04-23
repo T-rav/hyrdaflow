@@ -255,6 +255,35 @@ security: deps
 	@cd $(HYDRAFLOW_DIR) && $(UV) bandit -c pyproject.toml -r . --severity-level medium
 	@echo "$(GREEN)Security scan passed$(RESET)"
 
+# --------------------------------------------------------------------------
+# Principles audit (ADR-0044). Targets `.` by default; override with DIR=.
+#   make audit                         # audit this repo
+#   make audit DIR=../other-repo       # audit a sibling project
+#   make audit-json                    # JSON only, no terminal summary
+# --------------------------------------------------------------------------
+
+audit:
+	@cd $(HYDRAFLOW_DIR) && $(UV) python -m scripts.hydraflow_audit $(or $(DIR),.)
+
+audit-json:
+	@cd $(HYDRAFLOW_DIR) && $(UV) python -m scripts.hydraflow_audit $(or $(DIR),.) --json
+
+# --------------------------------------------------------------------------
+# Adoption plan — reads the audit report, emits a superpowers-chained prompt.
+#   make init                              # stdout, current dir, mode auto-detected
+#   make init DIR=../new-repo              # target a different repo
+#   make init OUT=plan.md                  # write to file
+#   make init PRINCIPLE=P3                 # scope to a single principle
+#   make init ARGS="--skip-brainstorm"     # override greenfield brainstorm step
+# --------------------------------------------------------------------------
+
+init:
+	@cd $(HYDRAFLOW_DIR) && $(UV) python -m scripts.hydraflow_init $(or $(DIR),.) \
+		$(if $(OUT),--out $(OUT)) \
+		$(if $(PRINCIPLE),--principle $(PRINCIPLE)) \
+		$(ARGS)
+
+
 quality: deps
 	@echo "$(BLUE)Running quality checks in parallel...$(RESET)"
 	@cd $(HYDRAFLOW_DIR) && ( \

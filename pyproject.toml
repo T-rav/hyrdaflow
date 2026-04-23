@@ -21,6 +21,7 @@ dependencies = [
     "websockets>=12.0",
     "httpx>=0.27.0",
     "python-dotenv>=1.0",
+    "python-ulid>=3.0.0",
     "sentry-sdk[fastapi]>=2.0",
 ]
 
@@ -153,6 +154,19 @@ markers = [
     "scenario: scenario tests with MockWorld (full pipeline, deterministic)",
     "scenario_loops: scenario tests exercising background loops (Tier B)",
     "scenario_browser: scenario tests driving the real dashboard via Playwright (Tier C)",
+]
+# ADR-0044 P5.7: async lifecycle bugs manifest as RuntimeWarning.
+# Treat them as errors so CI fails red instead of silently accumulating
+# drift. The AsyncMock-plumbing exemption below tolerates coroutines from
+# `unittest.mock.AsyncMockMixin._execute_mock_call` that leak when a bare
+# `AsyncMock()` stands in for a port with sync methods — a test-fixture
+# smell, not a production async bug. Fix those at the mock-creation site
+# (use `spec=<Protocol>` or override sync methods explicitly) to tighten
+# the bar further.
+filterwarnings = [
+    "error::RuntimeWarning",
+    "default:coroutine 'AsyncMock.*' was never awaited:RuntimeWarning",
+    "default::pytest.PytestUnraisableExceptionWarning",
 ]
 
 [tool.coverage.run]
