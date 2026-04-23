@@ -1,0 +1,4 @@
+SHAPE_COHERENCE_RESULT: RETRY
+SUMMARY: dropped-discover-question — "Grandfather existing Pro subscribers or migrate them?" is not addressed
+FINDINGS:
+- dropped-discover-question — Discover question "Grandfather existing Pro subscribers or migrate them?" is not picked or punted in any option

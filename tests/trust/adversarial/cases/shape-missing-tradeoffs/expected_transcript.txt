@@ -1,0 +1,5 @@
+SHAPE_COHERENCE_RESULT: RETRY
+SUMMARY: missing-tradeoffs — Options A and B list no costs or risks
+FINDINGS:
+- missing-tradeoffs — Option A lists only "best option" with no downside
+- missing-tradeoffs — Option B lists only "easiest path" with no downside

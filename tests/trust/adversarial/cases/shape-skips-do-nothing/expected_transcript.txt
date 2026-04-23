@@ -1,0 +1,4 @@
+SHAPE_COHERENCE_RESULT: RETRY
+SUMMARY: missing-defer — no do-nothing option present
+FINDINGS:
+- missing-defer — proposal lists three options but omits "Defer" / "No-op" / "accept status quo"

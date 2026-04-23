@@ -1,0 +1,4 @@
+SHAPE_COHERENCE_RESULT: RETRY
+SUMMARY: options-overlap — Option A and Option B both edit the same two files
+FINDINGS:
+- options-overlap — A and B both touch src/search/query.py and src/search/index.py (100% overlap)
