@@ -37,6 +37,20 @@ class AuthenticationRetryError(RuntimeError):
     """
 
 
+# Backend-specific auth-failure signatures. Keep these conservative —
+# false positives turn real agent output into spurious retries.
+_AUTH_FAILURE_PATTERNS = (
+    "authentication_failed",  # claude-code stream-json
+    "Please set an Auth method",  # gemini-cli startup
+    "AuthenticationError",  # generic SDK exceptions
+)
+
+
+def _is_auth_failure(text: str) -> bool:
+    """Check if *text* indicates a retryable authentication failure."""
+    return any(pattern in text for pattern in _AUTH_FAILURE_PATTERNS)
+
+
 @dataclass(frozen=True, slots=True)
 class StreamConfig:
     """Rarely-varying options for :func:`stream_claude_process`."""
@@ -106,10 +120,12 @@ def _post_stream_result(
     # Skip auth/credit checks when early_killed — killing the process can cause
     # in-flight API requests to fail with spurious errors.
     raw_output = "\n".join(raw_lines)
-    if not early_killed and "authentication_failed" in raw_output:
+    combined_for_auth = f"{stderr_text}\n{raw_output}"
+    if not early_killed and _is_auth_failure(combined_for_auth):
         raise AuthenticationRetryError(
-            "Agent CLI authentication failed — check "
-            "ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN"
+            "Agent CLI authentication failed — check the provider's auth "
+            "(ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN / GEMINI_API_KEY / "
+            "~/.gemini/settings.json / CODEX_HOME)"
         )
 
     combined = f"{stderr_text}\n{accumulated_text}"
