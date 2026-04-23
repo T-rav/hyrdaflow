@@ -249,7 +249,7 @@ export const WORKER_PRESETS = {
 /**
  * Workers whose interval can be edited from the UI.
  */
-export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'pr_unsticker', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer', 'epic_sweeper', 'dependabot_merge', 'staging_promotion', 'staging_bisect', 'stale_issue', 'security_patch', 'ci_monitor', 'code_grooming', 'sentry_ingest', 'retrospective', 'principles_audit', 'flake_tracker'])
+export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'pr_unsticker', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer', 'epic_sweeper', 'dependabot_merge', 'staging_promotion', 'staging_bisect', 'stale_issue', 'security_patch', 'ci_monitor', 'code_grooming', 'sentry_ingest', 'retrospective', 'principles_audit', 'flake_tracker', 'skill_prompt_eval'])
 
 /**
  * Default intervals (in seconds) for system workers.
@@ -274,6 +274,7 @@ export const SYSTEM_WORKER_INTERVALS = {
   retrospective: 1800,
   principles_audit: 604800,
   flake_tracker: 14400,
+  skill_prompt_eval: 604800,
 }
 
 /**
@@ -316,6 +317,7 @@ export const BACKGROUND_WORKERS = [
   { key: 'diagnostic', label: 'Diagnostic Agent', description: 'Analyzes escalated issues, classifies severity, and attempts targeted fixes before HITL.', color: theme.blue, system: true, group: 'operations', tags: ['recovery'] },
   { key: 'principles_audit', label: 'Principles Audit', description: 'Weekly audit of managed repos and HydraFlow-self against ADR-0044 principles. Gates onboarding and detects drift regressions.', color: theme.purple, group: 'learning', tags: ['insights'] },
   { key: 'flake_tracker', label: 'Flake Tracker', description: 'Detects persistently flaky tests across the last 20 RC runs and files fix-or-quarantine issues.', color: theme.yellow, group: 'repo_health', tags: ['quality'] },
+  { key: 'skill_prompt_eval', label: 'Skill Prompt Eval', description: 'Runs the full adversarial skill corpus weekly and files drift + weak-case issues.', color: theme.blue, group: 'learning', tags: ['quality'] },
 ]
 
 /**

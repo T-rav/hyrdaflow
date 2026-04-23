@@ -165,6 +165,7 @@ class HydraFlowOrchestrator:
             "retrospective": svc.retrospective_loop,
             "principles_audit": svc.principles_audit_loop,
             "flake_tracker": svc.flake_tracker_loop,
+            "skill_prompt_eval": svc.skill_prompt_eval_loop,
         }
         self._bg_workers = BGWorkerManager(config, self._state, bg_loop_registry)
         self._hitl_ctrl = HITLController(svc.hitl_phase, svc.fetcher, config.hitl_label)
@@ -941,6 +942,7 @@ class HydraFlowOrchestrator:
             ("retrospective", self._svc.retrospective_loop.run),
             ("principles_audit", self._svc.principles_audit_loop.run),
             ("flake_tracker", self._svc.flake_tracker_loop.run),
+            ("skill_prompt_eval", self._svc.skill_prompt_eval_loop.run),
         ]
 
         # Optional: WAL replay loop for Hindsight crash recovery

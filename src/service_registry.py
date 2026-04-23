@@ -74,6 +74,7 @@ from security_patch_loop import SecurityPatchLoop  # noqa: TCH001
 from sentry_loop import SentryLoop  # noqa: TCH001 — used in dataclass field
 from shape_phase import ShapePhase  # noqa: TCH001
 from shape_runner import ShapeRunner
+from skill_prompt_eval_loop import SkillPromptEvalLoop
 from staging_bisect_loop import StagingBisectLoop
 from staging_promotion_loop import StagingPromotionLoop
 from stale_issue_gc_loop import StaleIssueGCLoop  # noqa: TCH001
@@ -173,6 +174,7 @@ class ServiceRegistry:
     retrospective_queue: RetrospectiveQueue
     principles_audit_loop: PrinciplesAuditLoop
     flake_tracker_loop: FlakeTrackerLoop
+    skill_prompt_eval_loop: SkillPromptEvalLoop
 
     # Optional integrations
     hindsight: HindsightClient | None = None
@@ -841,6 +843,17 @@ def build_services(
         dedup=flake_tracker_dedup,
         deps=loop_deps,
     )
+    skill_prompt_eval_dedup = DedupStore(
+        "skill_prompt_eval",
+        config.data_root / "dedup" / "skill_prompt_eval.json",
+    )
+    skill_prompt_eval_loop = SkillPromptEvalLoop(  # noqa: F841
+        config=config,
+        state=state,
+        pr_manager=prs,
+        dedup=skill_prompt_eval_dedup,
+        deps=loop_deps,
+    )
 
     return ServiceRegistry(
         workspaces=workspaces,
@@ -903,4 +916,5 @@ def build_services(
         retrospective_queue=retrospective_queue,
         principles_audit_loop=principles_audit_loop,
         flake_tracker_loop=flake_tracker_loop,
+        skill_prompt_eval_loop=skill_prompt_eval_loop,
     )
