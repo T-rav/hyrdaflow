@@ -58,6 +58,7 @@ from pr_unsticker import PRUnsticker
 from pr_unsticker_loop import PRUnstickerLoop
 from precondition_gate import PreconditionGate
 from principles_audit_loop import PrinciplesAuditLoop
+from rc_budget_loop import RCBudgetLoop
 from repo_wiki import RepoWikiStore
 from repo_wiki_loop import RepoWikiLoop  # noqa: TCH001
 from report_issue_loop import ReportIssueLoop
@@ -177,6 +178,7 @@ class ServiceRegistry:
     flake_tracker_loop: FlakeTrackerLoop
     skill_prompt_eval_loop: SkillPromptEvalLoop
     fake_coverage_auditor_loop: FakeCoverageAuditorLoop
+    rc_budget_loop: RCBudgetLoop
 
     # Optional integrations
     hindsight: HindsightClient | None = None
@@ -868,6 +870,18 @@ def build_services(
         deps=loop_deps,
     )
 
+    rc_budget_dedup = DedupStore(
+        "rc_budget",
+        config.data_root / "dedup" / "rc_budget.json",
+    )
+    rc_budget_loop = RCBudgetLoop(  # noqa: F841
+        config=config,
+        state=state,
+        pr_manager=prs,
+        dedup=rc_budget_dedup,
+        deps=loop_deps,
+    )
+
     return ServiceRegistry(
         workspaces=workspaces,
         subprocess_runner=subprocess_runner,
@@ -931,4 +945,5 @@ def build_services(
         flake_tracker_loop=flake_tracker_loop,
         skill_prompt_eval_loop=skill_prompt_eval_loop,
         fake_coverage_auditor_loop=fake_coverage_auditor_loop,
+        rc_budget_loop=rc_budget_loop,
     )
