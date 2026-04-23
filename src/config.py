@@ -231,6 +231,8 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ),
     ("rc_budget_interval", "HYDRAFLOW_RC_BUDGET_INTERVAL", 14400),
     ("wiki_rot_detector_interval", "HYDRAFLOW_WIKI_ROT_DETECTOR_INTERVAL", 604800),
+    ("trust_fleet_sanity_interval", "HYDRAFLOW_TRUST_FLEET_SANITY_INTERVAL", 600),
+    ("loop_anomaly_issues_per_hour", "HYDRAFLOW_LOOP_ANOMALY_ISSUES_PER_HOUR", 10),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -272,6 +274,14 @@ _ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
     ("visual_retry_delay", "HYDRAFLOW_VISUAL_RETRY_DELAY", 2.0),
     ("rc_budget_threshold_ratio", "HYDRAFLOW_RC_BUDGET_THRESHOLD_RATIO", 1.5),
     ("rc_budget_spike_ratio", "HYDRAFLOW_RC_BUDGET_SPIKE_RATIO", 2.0),
+    ("loop_anomaly_repair_ratio", "HYDRAFLOW_LOOP_ANOMALY_REPAIR_RATIO", 2.0),
+    ("loop_anomaly_tick_error_ratio", "HYDRAFLOW_LOOP_ANOMALY_TICK_ERROR_RATIO", 0.2),
+    (
+        "loop_anomaly_staleness_multiplier",
+        "HYDRAFLOW_LOOP_ANOMALY_STALENESS_MULTIPLIER",
+        2.0,
+    ),
+    ("loop_anomaly_cost_spike_ratio", "HYDRAFLOW_LOOP_ANOMALY_COST_SPIKE_RATIO", 5.0),
 ]
 
 # Float overrides with tight [0, 1] bounds — handled separately from the
@@ -1767,6 +1777,59 @@ class HydraFlowConfig(BaseModel):
         ge=86400,
         le=2_592_000,
         description="Seconds between WikiRotDetectorLoop ticks (default 7d)",
+    )
+
+    # Trust fleet — TrustFleetSanityLoop (spec §12.1)
+    trust_fleet_sanity_interval: int = Field(
+        default=600,
+        ge=60,
+        le=3600,
+        description="Seconds between TrustFleetSanityLoop ticks (default 10m)",
+    )
+    loop_anomaly_issues_per_hour: int = Field(
+        default=10,
+        ge=1,
+        le=1000,
+        description=(
+            "TrustFleetSanityLoop: files an escalation when any watched loop "
+            "exceeds this many issues/hour (spec §12.1)."
+        ),
+    )
+    loop_anomaly_repair_ratio: float = Field(
+        default=2.0,
+        ge=0.1,
+        le=100.0,
+        description=(
+            "TrustFleetSanityLoop: `repair_failures_total / repair_successes_total` "
+            "over 24h breach threshold (spec §12.1)."
+        ),
+    )
+    loop_anomaly_tick_error_ratio: float = Field(
+        default=0.2,
+        ge=0.01,
+        le=1.0,
+        description=(
+            "TrustFleetSanityLoop: `ticks_errored / ticks_total` over 24h "
+            "breach threshold (spec §12.1)."
+        ),
+    )
+    loop_anomaly_staleness_multiplier: float = Field(
+        default=2.0,
+        ge=1.0,
+        le=100.0,
+        description=(
+            "TrustFleetSanityLoop: staleness breach when an enabled loop has not "
+            "ticked in > this × its interval (spec §12.1)."
+        ),
+    )
+    loop_anomaly_cost_spike_ratio: float = Field(
+        default=5.0,
+        ge=1.0,
+        le=100.0,
+        description=(
+            "TrustFleetSanityLoop: current-day cost breach when > this × "
+            "30-day median (spec §12.1; reads §4.11 cost endpoint, tolerates absence)."
+        ),
     )
 
     # Managed repos + principles audit (spec §4.4)
