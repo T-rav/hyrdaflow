@@ -45,6 +45,10 @@ class BisectHarnessError(RuntimeError):
     """Raised when git bisect itself errors for reasons unrelated to the probe."""
 
 
+class RevertConflictError(RuntimeError):
+    """Raised when ``git revert`` produced a merge conflict."""
+
+
 class StagingBisectLoop(BaseBackgroundLoop):
     """Watchdog that reacts to RC-red state transitions. See ADR-0042 §4.3."""
 
@@ -352,3 +356,149 @@ class StagingBisectLoop(BaseBackgroundLoop):
         issue = await self._prs.create_issue(title, body, labels)
         logger.error("StagingBisectLoop: guardrail tripped — escalated #%d", issue)
         return {"status": "guardrail_escalated", "escalation_issue": issue}
+
+    async def _is_merge_commit(self, sha: str) -> bool:
+        """Return True if *sha* has two or more parents."""
+        rc, out, _err = await self._run_git(
+            ["git", "rev-list", "--parents", "-n", "1", sha],
+            cwd=self._config.repo_root,
+            timeout=30,
+        )
+        if rc != 0:
+            return False
+        # Output is "<sha> <parent1> [<parent2> ...]"
+        parts = out.strip().split()
+        return len(parts) >= 3
+
+    async def _create_pr_via_gh(
+        self,
+        *,
+        title: str,
+        body: str,
+        branch: str,
+        labels: list[str],
+    ) -> int:
+        """Open a PR via ``gh pr create``; return the PR number (0 on failure)."""
+        import re  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+        from pathlib import Path  # noqa: PLC0415
+
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as body_fh:
+            body_path = Path(body_fh.name)
+            body_fh.write(body)
+        try:
+            cmd = [
+                "gh",
+                "pr",
+                "create",
+                "--repo",
+                self._config.repo,
+                "--head",
+                branch,
+                "--base",
+                self._config.staging_branch,
+                "--title",
+                title,
+                "--body-file",
+                str(body_path),
+            ]
+            for label in labels:
+                cmd.extend(["--label", label])
+            out = await self._run_gh(cmd)
+            match = re.search(r"/pull/(\d+)", out)
+            return int(match.group(1)) if match else 0
+        finally:
+            body_path.unlink(missing_ok=True)
+
+    async def _create_revert_pr(
+        self,
+        *,
+        culprit_sha: str,
+        culprit_pr: int,
+        failing_tests: str,
+        rc_pr_url: str,
+        bisect_log: str,
+        retry_issue_number: int,
+    ) -> tuple[int, str]:
+        """Create the auto-revert branch + PR. Return (pr_number, branch)."""
+        from datetime import UTC, datetime  # noqa: PLC0415
+
+        now = datetime.now(UTC)
+        branch = f"auto-revert/pr-{culprit_pr}-rc-{now.strftime('%Y%m%d%H%M')}"
+
+        # Create branch off staging
+        await self._run_git(
+            ["git", "fetch", "origin", self._config.staging_branch],
+            cwd=self._config.repo_root,
+            timeout=60,
+        )
+        await self._run_git(
+            [
+                "git",
+                "checkout",
+                "-b",
+                branch,
+                f"origin/{self._config.staging_branch}",
+            ],
+            cwd=self._config.repo_root,
+            timeout=30,
+        )
+
+        # Run revert with -m 1 for merge commits
+        is_merge = await self._is_merge_commit(culprit_sha)
+        revert_cmd = ["git", "revert", "--no-edit"]
+        if is_merge:
+            revert_cmd += ["-m", "1"]
+        revert_cmd.append(culprit_sha)
+        rc, _out, err = await self._run_git(
+            revert_cmd, cwd=self._config.repo_root, timeout=60
+        )
+        if rc != 0:
+            # Abort any partial revert state
+            await self._run_git(
+                ["git", "revert", "--abort"],
+                cwd=self._config.repo_root,
+                timeout=30,
+            )
+            raise RevertConflictError(
+                f"git revert failed for {culprit_sha}: {err[:500]}"
+            )
+
+        # Push branch
+        await self._run_git(
+            ["git", "push", "origin", branch],
+            cwd=self._config.repo_root,
+            timeout=120,
+        )
+
+        # Open PR
+        title = f"Auto-revert: PR #{culprit_pr} — RC-red attribution on {failing_tests}"
+        show_rc, show_out, _show_err = await self._run_git(
+            ["git", "show", culprit_sha, "--stat"],
+            cwd=self._config.repo_root,
+            timeout=30,
+        )
+        stat_block = show_out if show_rc == 0 else "(git show failed)"
+        retry_link = (
+            f"- Retry issue: #{retry_issue_number}\n" if retry_issue_number else ""
+        )
+        body = (
+            "## Auto-revert (StagingBisectLoop)\n\n"
+            f"- Culprit SHA: `{culprit_sha}`\n"
+            f"- Originating PR: #{culprit_pr}\n"
+            f"- Failing tests: {failing_tests}\n"
+            f"- Red RC PR: {rc_pr_url}\n"
+            f"{retry_link}\n"
+            "### `git show --stat`\n\n"
+            f"```\n{stat_block[:3000]}\n```\n\n"
+            "### Bisect log\n\n"
+            f"```\n{bisect_log[:5000]}\n```\n\n"
+            "_Filed per spec §4.3. Auto-merges on green per §3.2._"
+        )
+        pr_number = await self._create_pr_via_gh(
+            title=title,
+            body=body,
+            branch=branch,
+            labels=["hydraflow-find", "auto-revert", "rc-red-attribution"],
+        )
+        return pr_number, branch

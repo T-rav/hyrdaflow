@@ -300,3 +300,85 @@ class TestGuardrail:
 
         assert result is None
         prs.create_issue.assert_not_awaited()
+
+
+class TestRevertPR:
+    @pytest.mark.asyncio
+    async def test_create_revert_pr_merge_commit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, prs, _state = _make_loop(tmp_path, monkeypatch)
+        prs.create_issue = AsyncMock()
+        prs._run_gh = AsyncMock(
+            return_value="https://github.com/o/r/pull/900"
+        )  # not used
+        loop._run_git = AsyncMock(return_value=(0, "", ""))  # type: ignore[attr-defined]
+        loop._is_merge_commit = AsyncMock(return_value=True)  # type: ignore[attr-defined]
+        loop._create_pr_via_gh = AsyncMock(return_value=900)  # type: ignore[attr-defined]
+
+        pr_number, branch = await loop._create_revert_pr(  # type: ignore[attr-defined]
+            culprit_sha="culprit_sha",
+            culprit_pr=321,
+            failing_tests="test_foo, test_bar",
+            rc_pr_url="https://github.com/o/r/pull/77",
+            bisect_log="log",
+            retry_issue_number=654,
+        )
+
+        assert pr_number == 900
+        assert branch.startswith("auto-revert/pr-321-rc-")
+        # Verify git revert -m 1 was invoked
+        calls = [c.args[0] for c in loop._run_git.await_args_list]  # type: ignore[attr-defined]
+        revert_cmds = [c for c in calls if len(c) >= 2 and c[1] == "revert"]
+        assert revert_cmds
+        assert "-m" in revert_cmds[0] and "1" in revert_cmds[0]
+
+    @pytest.mark.asyncio
+    async def test_create_revert_pr_single_commit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, prs, _state = _make_loop(tmp_path, monkeypatch)
+        prs.create_issue = AsyncMock()
+        loop._run_git = AsyncMock(return_value=(0, "", ""))  # type: ignore[attr-defined]
+        loop._is_merge_commit = AsyncMock(return_value=False)  # type: ignore[attr-defined]
+        loop._create_pr_via_gh = AsyncMock(return_value=901)  # type: ignore[attr-defined]
+
+        await loop._create_revert_pr(  # type: ignore[attr-defined]
+            culprit_sha="c",
+            culprit_pr=321,
+            failing_tests="t",
+            rc_pr_url="u",
+            bisect_log="l",
+            retry_issue_number=0,
+        )
+
+        calls = [c.args[0] for c in loop._run_git.await_args_list]  # type: ignore[attr-defined]
+        revert_cmds = [c for c in calls if len(c) >= 2 and c[1] == "revert"]
+        assert revert_cmds
+        assert "-m" not in revert_cmds[0]
+
+    @pytest.mark.asyncio
+    async def test_revert_conflict_escalates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from staging_bisect_loop import RevertConflictError
+
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+        loop._is_merge_commit = AsyncMock(return_value=True)  # type: ignore[attr-defined]
+
+        async def fake_git(cmd, **_kw):
+            if len(cmd) >= 2 and cmd[1] == "revert":
+                return (1, "", "CONFLICT (content): Merge conflict in foo.py")
+            return (0, "", "")
+
+        loop._run_git = AsyncMock(side_effect=fake_git)  # type: ignore[attr-defined]
+
+        with pytest.raises(RevertConflictError):
+            await loop._create_revert_pr(  # type: ignore[attr-defined]
+                culprit_sha="c",
+                culprit_pr=321,
+                failing_tests="t",
+                rc_pr_url="u",
+                bisect_log="l",
+                retry_issue_number=0,
+            )
