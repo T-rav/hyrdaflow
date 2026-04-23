@@ -128,6 +128,44 @@ def test_branch_protection_is_cultural_warn(tmp_path: Path) -> None:
     assert _run("P5.5", _ctx(tmp_path)).status is Status.WARN
 
 
+def test_extract_ruleset_types_finds_each_type() -> None:
+    from scripts.hydraflow_audit.checks.p5_ci import _extract_ruleset_types
+
+    body = (
+        '[{"type":"deletion","ruleset_id":1},'
+        '{"type":"non_fast_forward","ruleset_id":1},'
+        '{"type":"pull_request","parameters":{},"ruleset_id":1}]'
+    )
+    assert _extract_ruleset_types(body) == {
+        "deletion",
+        "non_fast_forward",
+        "pull_request",
+    }
+
+
+def test_extract_ruleset_types_empty_on_empty_list() -> None:
+    from scripts.hydraflow_audit.checks.p5_ci import _extract_ruleset_types
+
+    assert _extract_ruleset_types("[]") == set()
+
+
+def test_default_branch_from_origin_head_symlink(tmp_path: Path) -> None:
+    """When origin/HEAD points at main, _resolve_origin_head returns 'main'."""
+    from scripts.hydraflow_audit.checks.p5_ci import _resolve_origin_head
+
+    head_dir = tmp_path / ".git" / "refs" / "remotes" / "origin"
+    head_dir.mkdir(parents=True)
+    (head_dir / "HEAD").write_text("ref: refs/remotes/origin/main\n", encoding="utf-8")
+    assert _resolve_origin_head(tmp_path) == "main"
+
+
+def test_default_branch_missing_origin_head_returns_none(tmp_path: Path) -> None:
+    from scripts.hydraflow_audit.checks.p5_ci import _resolve_origin_head
+
+    (tmp_path / ".git").mkdir()
+    assert _resolve_origin_head(tmp_path) is None
+
+
 def test_warnings_as_errors_configured_passes(tmp_path: Path) -> None:
     _write(
         tmp_path / "pyproject.toml",

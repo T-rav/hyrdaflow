@@ -100,14 +100,13 @@ def _branch_protection_cultural(ctx: CheckContext) -> Finding:  # noqa: PLR0911 
         )
     if result.returncode != 0:
         detail = (result.stderr or "").strip()
-        # A 404 from the protection endpoint is a definite "no protection";
-        # anything else (auth, rate-limit, network) is an audit-infrastructure
-        # issue we cannot diagnose.
+        # A 404 on the classic endpoint just means no classic rule is set;
+        # GitHub's newer Rulesets system lives at a different path. Query it
+        # before concluding the branch is unprotected. Anything else (auth,
+        # rate-limit, network) is an audit-infrastructure issue we can't
+        # diagnose, so fall through to WARN.
         if "HTTP 404" in detail or "Branch not protected" in detail:
-            return _branch_protection_warn(
-                f"`main` branch on {remote_slug} is NOT protected (HTTP 404 from gh) — "
-                "enable protection in Settings → Branches → main"
-            )
+            return _branch_protection_from_rulesets(ctx.root, remote_slug, main_branch)
         last = detail.splitlines()[-1:] or ["unknown error"]
         return _branch_protection_warn(
             f"`gh api` could not verify protection ({last[0]}) — confirm in GitHub settings"
@@ -115,11 +114,78 @@ def _branch_protection_cultural(ctx: CheckContext) -> Finding:  # noqa: PLR0911 
     body = result.stdout.lower()
     if '"required_status_checks"' in body or '"required_pull_request_reviews"' in body:
         return finding(
-            "P5.5", Status.PASS, f"remote branch protection active on {main_branch}"
+            "P5.5", Status.PASS, f"classic branch protection active on {main_branch}"
         )
     return _branch_protection_warn(
         f"`gh api` returned a protection object for {main_branch} without required checks/reviews"
     )
+
+
+_RULESET_MEANINGFUL_TYPES = {
+    "pull_request",
+    "required_status_checks",
+    "non_fast_forward",
+    "deletion",
+    "required_signatures",
+    "code_scanning",
+    "code_quality",
+    "required_linear_history",
+    "required_deployments",
+}
+
+
+def _branch_protection_from_rulesets(
+    root: Path, remote_slug: str, main_branch: str
+) -> Finding:
+    """Fall back to the GitHub Rulesets endpoint when classic protection is absent.
+
+    Rulesets are the modern replacement for branch protection rules and do
+    not surface through ``/branches/<b>/protection``. The
+    ``/repos/<owner>/<repo>/rules/branches/<branch>`` endpoint lists the
+    *effective* rules on a branch regardless of which system declared them.
+    """
+    try:
+        result = subprocess.run(
+            ["gh", "api", f"repos/{remote_slug}/rules/branches/{main_branch}"],
+            check=False,
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return _branch_protection_warn(
+            f"`main` branch on {remote_slug} has no classic protection and rulesets "
+            "endpoint did not respond — confirm in GitHub Settings → Rules → Rulesets"
+        )
+    if result.returncode != 0:
+        return _branch_protection_warn(
+            f"`main` branch on {remote_slug} is NOT protected (no classic rule and "
+            "rulesets query failed) — enable in GitHub Settings → Rules"
+        )
+    present = _extract_ruleset_types(result.stdout)
+    meaningful = present & _RULESET_MEANINGFUL_TYPES
+    if not meaningful:
+        return _branch_protection_warn(
+            f"`main` branch on {remote_slug} is NOT protected (no classic rule and "
+            "no meaningful ruleset entries) — enable in GitHub Settings → Rules"
+        )
+    summary = ", ".join(sorted(meaningful))
+    return finding(
+        "P5.5",
+        Status.PASS,
+        f"ruleset protection active on {main_branch}: {summary}",
+    )
+
+
+def _extract_ruleset_types(body: str) -> set[str]:
+    """Parse the ``rules/branches/<b>`` JSON payload without importing json.
+
+    The response shape is a list of ``{"type": "...", "ruleset_id": N, ...}``
+    objects. A regex scan is safer than full JSON parsing here because the
+    endpoint returns extra per-rule metadata we do not need to interpret.
+    """
+    return {match.group(1) for match in re.finditer(r'"type"\s*:\s*"([^"]+)"', body)}
 
 
 def _branch_protection_warn(message: str) -> Finding:
@@ -127,13 +193,31 @@ def _branch_protection_warn(message: str) -> Finding:
 
 
 def _detect_main_branch(root: Path) -> str | None:
+    """Return the repo's default branch name, not the worktree's current HEAD.
+
+    Order of preference:
+      1. ``git remote show origin | HEAD branch`` — authoritative when online.
+      2. A local ref to ``main`` or ``master`` (works in the primary checkout).
+      3. The symbolic ref of ``origin/HEAD`` (a locally cached remote HEAD).
+    """
+    remote_default = _default_branch_from_remote(root)
+    if remote_default:
+        return remote_default
     for candidate in ("main", "master"):
-        ref = root / ".git" / "refs" / "heads" / candidate
-        if ref.exists():
+        # Primary checkouts keep ``refs/heads/<name>`` on disk; worktrees
+        # do not, so fall through to the packed-refs / origin/HEAD lookup.
+        if (root / ".git" / "refs" / "heads" / candidate).exists():
             return candidate
+    origin_head = _resolve_origin_head(root)
+    if origin_head:
+        return origin_head
+    return None
+
+
+def _default_branch_from_remote(root: Path) -> str | None:
     try:
         result = subprocess.run(
-            ["git", "symbolic-ref", "--short", "HEAD"],
+            ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
             check=False,
             cwd=root,
             capture_output=True,
@@ -144,8 +228,24 @@ def _detect_main_branch(root: Path) -> str | None:
         return None
     if result.returncode != 0:
         return None
-    branch = result.stdout.strip()
-    return branch or None
+    # ``origin/main`` → ``main``.
+    value = result.stdout.strip()
+    return value.split("/", 1)[1] if value.startswith("origin/") else None
+
+
+def _resolve_origin_head(root: Path) -> str | None:
+    head_file = root / ".git" / "refs" / "remotes" / "origin" / "HEAD"
+    if not head_file.exists():
+        return None
+    try:
+        content = head_file.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return None
+    # Format: ``ref: refs/remotes/origin/<branch>``.
+    if content.startswith("ref:"):
+        target = content.split()[-1]
+        return target.rsplit("/", 1)[-1] or None
+    return None
 
 
 def _detect_github_slug(root: Path) -> str | None:
