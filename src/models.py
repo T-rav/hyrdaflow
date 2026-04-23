@@ -1758,6 +1758,8 @@ class StateData(BaseModel):
     # Trust fleet — RCBudgetLoop (spec §4.8)
     rc_budget_duration_history: list[dict[str, Any]] = Field(default_factory=list)
     rc_budget_attempts: dict[str, int] = Field(default_factory=dict)
+    # Trust fleet — WikiRotDetectorLoop (spec §4.9)
+    wiki_rot_attempts: dict[str, int] = Field(default_factory=dict)
     # Trust fleet — caretaker loops (Plan 5)
     flake_counts: dict[str, int] = Field(default_factory=dict)
     flake_attempts: dict[str, int] = Field(default_factory=dict)

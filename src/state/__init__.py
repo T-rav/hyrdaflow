@@ -48,6 +48,7 @@ from ._skill_prompt_eval import SkillPromptEvalStateMixin
 from ._staging_bisect import StagingBisectStateMixin
 from ._stale_issue import StaleIssueStateMixin
 from ._trace_runs import TraceRunsMixin
+from ._wiki_rot_detector import WikiRotDetectorStateMixin
 from ._worker import WorkerStateMixin
 from ._workspace import WorkspaceStateMixin
 
@@ -84,6 +85,7 @@ class StateTracker(
     SkillPromptEvalStateMixin,
     FakeCoverageStateMixin,
     RCBudgetStateMixin,
+    WikiRotDetectorStateMixin,
 ):
     """JSON-file backed state for crash recovery.
 
