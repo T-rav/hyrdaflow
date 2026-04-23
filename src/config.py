@@ -229,6 +229,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
         "HYDRAFLOW_FAKE_COVERAGE_AUDITOR_INTERVAL",
         604800,
     ),
+    ("rc_budget_interval", "HYDRAFLOW_RC_BUDGET_INTERVAL", 14400),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -268,6 +269,8 @@ _ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
     ("docker_cpu_limit", "HYDRAFLOW_DOCKER_CPU_LIMIT", 2.0),
     ("docker_spawn_delay", "HYDRAFLOW_DOCKER_SPAWN_DELAY", 2.0),
     ("visual_retry_delay", "HYDRAFLOW_VISUAL_RETRY_DELAY", 2.0),
+    ("rc_budget_threshold_ratio", "HYDRAFLOW_RC_BUDGET_THRESHOLD_RATIO", 1.5),
+    ("rc_budget_spike_ratio", "HYDRAFLOW_RC_BUDGET_SPIKE_RATIO", 2.0),
 ]
 
 # Float overrides with tight [0, 1] bounds — handled separately from the
@@ -1730,6 +1733,31 @@ class HydraFlowConfig(BaseModel):
         ge=86400,
         le=2_592_000,
         description="Seconds between FakeCoverageAuditorLoop ticks (default 7d)",
+    )
+
+    # Trust fleet — RCBudgetLoop (spec §4.8)
+    rc_budget_interval: int = Field(
+        default=14400,
+        ge=3600,
+        le=604800,
+        description="Seconds between RCBudgetLoop ticks (default 4h)",
+    )
+    rc_budget_threshold_ratio: float = Field(
+        default=1.5,
+        ge=1.0,
+        le=5.0,
+        description=(
+            "Multiplier vs. 30-day rolling median; current_s >= ratio * median_s fires."
+        ),
+    )
+    rc_budget_spike_ratio: float = Field(
+        default=2.0,
+        ge=1.0,
+        le=10.0,
+        description=(
+            "Multiplier vs. max(recent 5 excl. current); "
+            "current_s >= ratio * recent_max fires."
+        ),
     )
 
     # Managed repos + principles audit (spec §4.4)
