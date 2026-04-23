@@ -69,6 +69,43 @@ class Credentials(BaseModel):
     )
 
 
+class ManagedRepo(BaseModel):
+    """A GitHub repo under HydraFlow factory management.
+
+    Source of truth for which repos the orchestrator dispatches
+    pipelines against and which repos ``PrinciplesAuditLoop`` audits
+    for drift + onboarding. See spec §4.4.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    slug: str = Field(description="GitHub slug 'owner/repo'")
+    staging_branch: str = "staging"
+    main_branch: str = "main"
+    labels_namespace: str = ""
+    enabled: bool = Field(
+        default=True,
+        description="Operator kill-switch per repo; disabled repos are skipped",
+    )
+
+    @field_validator("slug")
+    @classmethod
+    def _validate_slug(cls, v: str) -> str:
+        parts = v.split("/")
+        if len(parts) != 2 or not all(parts):
+            raise ValueError(f"invalid slug {v!r}; expected 'owner/repo'")
+        if not re.fullmatch(r"[\w.-]+/[\w.-]+", v):
+            raise ValueError(f"invalid slug {v!r}; expected 'owner/repo'")
+        return v
+
+    @field_validator("staging_branch", "main_branch")
+    @classmethod
+    def _validate_branch(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("branch name must be non-empty")
+        return v
+
+
 # Data-driven env-var override tables.
 # Each tuple: (field_name, env_var_key, default_value)
 _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
@@ -172,6 +209,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("max_repo_wiki_chars", "HYDRAFLOW_MAX_REPO_WIKI_CHARS", 15_000),
     ("diagnostic_interval", "HYDRAFLOW_DIAGNOSTIC_INTERVAL", 30),
     ("retrospective_interval", "HYDRAFLOW_RETROSPECTIVE_INTERVAL", 1800),
+    ("principles_audit_interval", "HYDRAFLOW_PRINCIPLES_AUDIT_INTERVAL", 604800),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -1618,6 +1656,20 @@ class HydraFlowConfig(BaseModel):
         description="Poll interval in seconds for retrospective analysis loop",
     )
 
+    # Managed repos + principles audit (spec §4.4)
+    managed_repos: list[ManagedRepo] = Field(
+        default_factory=list,
+        description="Repos under HydraFlow factory management (spec §4.4)",
+    )
+    principles_audit_interval: int = Field(
+        default=604800,
+        ge=60,
+        description=(
+            "Seconds between PrinciplesAuditLoop ticks. "
+            "Default 604800 = 7 days (spec §4.4)."
+        ),
+    )
+
     # Credit pause
     credit_pause_buffer_minutes: int = Field(
         default=1,
@@ -2464,6 +2516,20 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
             )
             if labels:
                 object.__setattr__(config, field_name, labels)
+
+    # JSON-shaped overrides (spec §4.4 — managed repos)
+    mr_raw = _get_env("HYDRAFLOW_MANAGED_REPOS")
+    if mr_raw:
+        try:
+            decoded = json.loads(mr_raw)
+            if isinstance(decoded, list):
+                object.__setattr__(
+                    config,
+                    "managed_repos",
+                    [ManagedRepo(**item) for item in decoded],
+                )
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            logger.warning("Ignoring malformed HYDRAFLOW_MANAGED_REPOS: %s", exc)
 
 
 def _validate_docker(config: HydraFlowConfig) -> None:
