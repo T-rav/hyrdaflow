@@ -127,6 +127,40 @@ class _CodexUsageExtractor(_UsageExtractor):
         return str(event.get("type", "")) in {"turn.completed", "result"}
 
 
+class _GeminiUsageExtractor(_UsageExtractor):
+    backend = "gemini"
+    _EVENT_TYPES = {"init", "message", "tool_use", "tool_result", "result"}
+
+    def extract(
+        self, event: dict[str, Any]
+    ) -> tuple[dict[str, int], list[dict[str, Any]]]:
+        if str(event.get("type", "")) not in self._EVENT_TYPES:
+            return {}, []
+        totals: dict[str, int] = {}
+        raw: list[dict[str, Any]] = []
+
+        # The result event carries final stats: {total, input, output, cached, ...}
+        stats_obj = event.get("stats")
+        if isinstance(stats_obj, dict):
+            mapped = _map_usage_payload(stats_obj)
+            if mapped:
+                totals.update(mapped)
+            raw.append(
+                {
+                    "backend": self.backend,
+                    "event_type": str(event.get("type", "")),
+                    "path": "stats",
+                    "payload": stats_obj,
+                }
+            )
+        return totals, raw
+
+    def is_final_event(self, event: dict[str, Any]) -> bool:
+        return str(event.get("type", "")) == "result" and isinstance(
+            event.get("stats"), dict
+        )
+
+
 class _PiUsageExtractor(_UsageExtractor):
     backend = "pi"
     _EVENT_TYPES = {
@@ -237,13 +271,28 @@ class StreamParser:
         if event_type == "assistant":
             display = self._parse_assistant(event)
         elif event_type == "result":
-            result = event.get("result", "")
+            # Disambiguate claude vs gemini result events by payload shape.
+            if isinstance(event.get("stats"), dict) and not isinstance(
+                event.get("result"), str
+            ):
+                result = self._last_result_text
+            else:
+                result = event.get("result", "")
         elif event_type == "user":
             display = self._parse_user(event)
         elif event_type == "item.completed":
             display = self._parse_codex_item(event)
         elif event_type == "turn.completed":
             result = self._last_result_text
+        elif event_type == "init":
+            # Gemini session meta — no transcript line, just lock backend.
+            display = ""
+        elif event_type == "message":
+            display = self._parse_gemini_message(event)
+        elif event_type == "tool_use":
+            display = self._parse_gemini_tool_use(event)
+        elif event_type == "tool_result":
+            display = self._parse_gemini_tool_result(event)
         elif event_type == "message_update":
             display = self._parse_pi_message_update(event)
         elif event_type == "message_end":
@@ -369,6 +418,39 @@ class StreamParser:
             return f"  → {item_type}"
         return ""
 
+    def _parse_gemini_message(self, event: dict[str, Any]) -> str:
+        """Parse a Gemini message event (role=user|assistant, delta?)."""
+        role = event.get("role", "")
+        content = str(event.get("content", ""))
+        if role != "assistant" or not content:
+            return ""
+        # Assistant deltas accumulate into _last_result_text so the final
+        # `result` event can emit the full message as transcript output.
+        self._last_result_text += content
+        return content
+
+    def _parse_gemini_tool_use(self, event: dict[str, Any]) -> str:
+        """Parse a Gemini tool_use event into a transcript line."""
+        tool_id = event.get("tool_id", "")
+        if tool_id and tool_id in self._seen_tool_ids:
+            return ""
+        if tool_id:
+            self._seen_tool_ids.add(tool_id)
+        name = str(event.get("tool_name", "?"))
+        params = event.get("parameters", {})
+        if not isinstance(params, dict):
+            params = {}
+        return f"  → {name}: {_summarize_input(name, params)}"
+
+    def _parse_gemini_tool_result(self, event: dict[str, Any]) -> str:
+        """Parse a Gemini tool_result event into a brief transcript line."""
+        output = event.get("output", "")
+        status = str(event.get("status", ""))
+        if isinstance(output, str) and output.strip():
+            preview = output.strip().replace("\n", " ")[:80]
+            return f"    ← {preview}{'…' if len(output.strip()) > 80 else ''}"
+        return f"    ← ({status or 'done'})"
+
     def _parse_pi_message_update(self, event: dict[str, Any]) -> str:
         """Extract text deltas from Pi JSON `message_update` events."""
         update = event.get("assistantMessageEvent", {})
@@ -446,6 +528,13 @@ def _pick_usage_extractor(
     current: _UsageExtractor, event: dict[str, Any]
 ) -> _UsageExtractor:
     event_type = str(event.get("type", ""))
+    # Gemini's `init` is unique — lock the backend as soon as we see it.
+    if event_type == "init":
+        return _GeminiUsageExtractor()
+    # Once gemini is locked, keep it — gemini's other event types overlap with
+    # claude's ("result", "message").
+    if isinstance(current, _GeminiUsageExtractor):
+        return current
     if event_type in {
         "message_update",
         "message_end",
@@ -523,6 +612,7 @@ def _canonical_usage_key(raw_key: str) -> str:
         "cache_read_tokens",
         "cached_tokens",
         "cached_input_tokens",
+        "cached",
         "cachereadinputtokens",
         "cacheread",
     }:
@@ -546,7 +636,7 @@ def _summarize_input(name: str, tool_input: dict[str, Any]) -> str:  # noqa: PLR
         pattern = tool_input.get("pattern", "")
         path = tool_input.get("path", ".")
         return f"/{pattern}/ in {path}"[:120]
-    if name in ("Bash", "bash"):
+    if name in ("Bash", "bash", "run_shell_command"):
         return tool_input.get("command", str(tool_input))[:120]
     if name in ("Task", "task"):
         desc = tool_input.get("description", "")
