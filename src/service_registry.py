@@ -87,6 +87,7 @@ from triage import TriageRunner
 from triage_phase import TriagePhase
 from troubleshooting_store import TroubleshootingPatternStore
 from verification_judge import VerificationJudge
+from wiki_rot_detector_loop import WikiRotDetectorLoop
 from workspace import WorkspaceManager
 from workspace_gc_loop import WorkspaceGCLoop
 
@@ -179,6 +180,7 @@ class ServiceRegistry:
     skill_prompt_eval_loop: SkillPromptEvalLoop
     fake_coverage_auditor_loop: FakeCoverageAuditorLoop
     rc_budget_loop: RCBudgetLoop
+    wiki_rot_detector_loop: WikiRotDetectorLoop
 
     # Optional integrations
     hindsight: HindsightClient | None = None
@@ -882,6 +884,19 @@ def build_services(
         deps=loop_deps,
     )
 
+    wiki_rot_dedup = DedupStore(
+        "wiki_rot_detector",
+        config.data_root / "dedup" / "wiki_rot_detector.json",
+    )
+    wiki_rot_detector_loop = WikiRotDetectorLoop(  # noqa: F841
+        config=config,
+        state=state,
+        pr_manager=prs,
+        dedup=wiki_rot_dedup,
+        wiki_store=repo_wiki_store,
+        deps=loop_deps,
+    )
+
     return ServiceRegistry(
         workspaces=workspaces,
         subprocess_runner=subprocess_runner,
@@ -946,4 +961,5 @@ def build_services(
         skill_prompt_eval_loop=skill_prompt_eval_loop,
         fake_coverage_auditor_loop=fake_coverage_auditor_loop,
         rc_budget_loop=rc_budget_loop,
+        wiki_rot_detector_loop=wiki_rot_detector_loop,
     )

@@ -168,6 +168,7 @@ class HydraFlowOrchestrator:
             "skill_prompt_eval": svc.skill_prompt_eval_loop,
             "fake_coverage_auditor": svc.fake_coverage_auditor_loop,
             "rc_budget": svc.rc_budget_loop,
+            "wiki_rot_detector": svc.wiki_rot_detector_loop,
         }
         self._bg_workers = BGWorkerManager(config, self._state, bg_loop_registry)
         self._hitl_ctrl = HITLController(svc.hitl_phase, svc.fetcher, config.hitl_label)
@@ -947,6 +948,7 @@ class HydraFlowOrchestrator:
             ("skill_prompt_eval", self._svc.skill_prompt_eval_loop.run),
             ("fake_coverage_auditor", self._svc.fake_coverage_auditor_loop.run),
             ("rc_budget", self._svc.rc_budget_loop.run),
+            ("wiki_rot_detector", self._svc.wiki_rot_detector_loop.run),
         ]
 
         # Optional: WAL replay loop for Hindsight crash recovery
