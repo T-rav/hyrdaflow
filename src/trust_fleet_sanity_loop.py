@@ -22,10 +22,12 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from models import WorkCycleResult
+from trust_fleet_anomaly_detectors import TRUST_LOOP_WORKERS
 
 if TYPE_CHECKING:
     from bg_worker_manager import BGWorkerManager
@@ -114,6 +116,28 @@ _TITLE_RE = re.compile(
 )
 
 
+def _parse_iso(value: str | None) -> datetime | None:
+    """Tolerant ISO-8601 parser — returns None on anything unparseable."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _empty_metrics_bucket() -> dict[str, Any]:
+    return {
+        "ticks_total": 0,
+        "ticks_errored": 0,
+        "issues_filed_day": 0,
+        "issues_filed_hour": 0,
+        "repaired_day": 0,
+        "failed_day": 0,
+        "last_seen_iso": None,
+    }
+
+
 class TrustFleetSanityLoop(BaseBackgroundLoop):
     """Meta-observability loop — watches the nine trust loops (spec §12.1)."""
 
@@ -154,3 +178,98 @@ class TrustFleetSanityLoop(BaseBackgroundLoop):
     async def _reconcile_closed_escalations(self) -> None:
         """Task 5."""
         return None
+
+    # ------------------------------------------------------------------
+    # Task 4 — metrics readers
+    # ------------------------------------------------------------------
+
+    async def _collect_window_metrics(self) -> dict[str, dict[str, Any]]:
+        """Walk the event log's last 24h and tally per-worker counters.
+
+        Returns a dict keyed by worker_name → metric dict with:
+        ``ticks_total``, ``ticks_errored``, ``issues_filed_day``,
+        ``issues_filed_hour``, ``repaired_day``, ``failed_day``,
+        ``last_seen_iso``.
+
+        The dict is pre-seeded with :data:`TRUST_LOOP_WORKERS` so every
+        known trust loop has a zero-valued bucket even when no events
+        have been emitted yet (Task 5 detectors rely on the presence of
+        every known worker). Workers outside the registry but present
+        in the event stream are still accumulated — the dashboard
+        (Plan 6b) surfaces them too.
+        """
+        now = datetime.now(UTC)
+        day_cutoff = now - timedelta(seconds=_DAY_SECONDS)
+        hour_cutoff = now - timedelta(seconds=_HOUR_SECONDS)
+
+        events = await self._load_events_since(day_cutoff)
+
+        out: dict[str, dict[str, Any]] = {
+            w: _empty_metrics_bucket() for w in TRUST_LOOP_WORKERS
+        }
+        # Local import to match the event-type enum without a module-level
+        # cycle (events.py imports ripple through several subsystems).
+        from events import EventType  # noqa: PLC0415
+
+        for ev in events:
+            if getattr(ev, "type", None) != EventType.BACKGROUND_WORKER_STATUS:
+                continue
+            data = getattr(ev, "data", {}) or {}
+            if not isinstance(data, dict):
+                continue
+            worker = data.get("worker")
+            if not isinstance(worker, str) or not worker:
+                continue
+            ts_raw = getattr(ev, "timestamp", None)
+            ts = _parse_iso(ts_raw) if isinstance(ts_raw, str) else None
+            if ts is None or ts < day_cutoff:
+                continue
+            bucket = out.setdefault(worker, _empty_metrics_bucket())
+            bucket["ticks_total"] += 1
+            if data.get("status") == "error":
+                bucket["ticks_errored"] += 1
+            details = data.get("details") or {}
+            if not isinstance(details, dict):
+                details = {}
+            filed = int(details.get("filed", 0) or 0)
+            bucket["issues_filed_day"] += filed
+            if ts >= hour_cutoff:
+                bucket["issues_filed_hour"] += filed
+            bucket["repaired_day"] += int(details.get("repaired", 0) or 0)
+            bucket["failed_day"] += int(details.get("failed", 0) or 0)
+            seen = bucket["last_seen_iso"]
+            if seen is None or (isinstance(ts_raw, str) and ts_raw > seen):
+                bucket["last_seen_iso"] = ts_raw
+        return out
+
+    async def _load_events_since(self, since: datetime) -> list[Any]:
+        """Wrap ``EventBus.load_events_since`` with robust defaults.
+
+        Returns ``[]`` when the bus has no ``event_log`` attached (tests
+        often pass a vanilla ``EventBus()``) or when the call raises.
+        """
+        try:
+            loaded = await self._source_bus.load_events_since(since)
+        except Exception:  # noqa: BLE001
+            logger.debug("load_events_since failed", exc_info=True)
+            return []
+        return loaded or []
+
+    def _load_cost_reader(self) -> Any | None:
+        """Lazy-import the §4.11 cost reader.
+
+        Returns the module object (which must expose
+        ``get_loop_cost_today(worker) -> float`` and
+        ``get_loop_cost_30d_median(worker) -> float``) or ``None`` if
+        absent. Absence is not an error — Plan 6b lands the module.
+        """
+        try:
+            import trust_fleet_cost_reader as module  # noqa: PLC0415
+        except ImportError:
+            logger.info(
+                "trust_fleet_cost_reader unavailable — cost-spike detector disabled"
+            )
+            return None
+        if module is None:
+            return None
+        return module

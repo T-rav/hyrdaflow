@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -10,8 +11,8 @@ import pytest
 
 from base_background_loop import LoopDeps
 from config import HydraFlowConfig
-from events import EventBus
-from trust_fleet_sanity_loop import TrustFleetSanityLoop
+from events import EventBus, EventType, HydraFlowEvent
+from trust_fleet_sanity_loop import _DAY_SECONDS, TrustFleetSanityLoop
 
 
 def _deps(stop: asyncio.Event, enabled: bool = True) -> LoopDeps:
@@ -78,3 +79,83 @@ async def test_kill_switch_short_circuits(loop_env) -> None:
     loop._reconcile_closed_escalations = AsyncMock(return_value=None)
     stats = await loop._do_work()
     assert stats["status"] == "disabled"
+
+
+# ---------------------------------------------------------------------------
+# Task 4 — metrics-reader helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_status_event(
+    worker: str,
+    status: str,
+    *,
+    ago_s: int,
+    filed: int = 0,
+    repaired: int = 0,
+    failed: int = 0,
+) -> HydraFlowEvent:
+    ts = datetime.now(UTC) - timedelta(seconds=ago_s)
+    return HydraFlowEvent(
+        type=EventType.BACKGROUND_WORKER_STATUS,
+        timestamp=ts.isoformat(),
+        data={
+            "worker": worker,
+            "status": status,
+            "last_run": ts.isoformat(),
+            "details": {
+                "filed": filed,
+                "repaired": repaired,
+                "failed": failed,
+            },
+        },
+    )
+
+
+async def test_collect_window_metrics_tallies_events(loop_env) -> None:
+    loop = _loop(loop_env)
+    events = [
+        # Inside the hourly window (< 3600s ago).
+        _make_status_event("rc_budget", "ok", ago_s=600, filed=2),
+        # Outside the hourly window but inside the daily window.
+        _make_status_event("rc_budget", "ok", ago_s=4000, filed=3),
+        _make_status_event("rc_budget", "error", ago_s=5000),
+        _make_status_event("wiki_rot_detector", "ok", ago_s=300, repaired=1),
+        # Outside daily window — must be excluded entirely.
+        _make_status_event("rc_budget", "ok", ago_s=_DAY_SECONDS + 120, filed=99),
+    ]
+
+    async def fake_load(since: datetime) -> list[HydraFlowEvent]:
+        return [e for e in events if datetime.fromisoformat(e.timestamp) >= since]
+
+    loop._source_bus.load_events_since = fake_load  # type: ignore[method-assign]
+    metrics = await loop._collect_window_metrics()
+    rc = metrics["rc_budget"]
+    assert rc["ticks_total"] == 3
+    assert rc["ticks_errored"] == 1
+    assert rc["issues_filed_day"] == 5
+    # Only the 600s-ago event falls inside the 1-hour window; the
+    # 4000s-ago event is outside it but still counted in the daily tally.
+    assert rc["issues_filed_hour"] == 2
+    assert metrics["wiki_rot_detector"]["repaired_day"] == 1
+
+
+async def test_collect_window_metrics_empty_when_bus_has_no_log(loop_env) -> None:
+    loop = _loop(loop_env)
+    # Vanilla EventBus().load_events_since returns None → helper yields [].
+    metrics = await loop._collect_window_metrics()
+    # All known workers present but zero-valued.
+    for worker in ("rc_budget", "wiki_rot_detector", "corpus_learning"):
+        assert worker in metrics
+        assert metrics[worker]["ticks_total"] == 0
+        assert metrics[worker]["issues_filed_day"] == 0
+        assert metrics[worker]["last_seen_iso"] is None
+
+
+def test_lazy_cost_reader_tolerates_missing_module(loop_env, monkeypatch) -> None:
+    import sys
+
+    loop = _loop(loop_env)
+    monkeypatch.setitem(sys.modules, "trust_fleet_cost_reader", None)
+    reader = loop._load_cost_reader()
+    assert reader is None
