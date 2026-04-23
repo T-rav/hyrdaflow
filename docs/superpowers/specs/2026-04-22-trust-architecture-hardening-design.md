@@ -174,8 +174,12 @@ tests/trust/adversarial/
   reproduce the bug class — typically 1–4 files in each of `before/` and
   `after/`. Harness synthesizes the diff as `git diff before/ after/`
   equivalent.
-- `expected_catcher.txt` contains exactly one of the four skill names,
-  newline-terminated.
+- `expected_catcher.txt` contains exactly one registered post-impl skill
+  name (read from the live skill registry at harness start —
+  `src/skill_registry.py` or equivalent), newline-terminated, plus the
+  sentinel `none` for pass-through cases (see §7 "End-to-end per
+  subsystem"). Adding a new post-impl skill does not require a spec
+  edit; the harness validates against whatever the registry returns.
 - `README.md` describes the bug class in one paragraph and names at least
   one **keyword** the skill's RETRY reason must contain (so the assertion
   is stronger than "skill said RETRY"; it also says "skill saw the right
@@ -217,15 +221,23 @@ v1 ships first as an RC gate (`make trust-adversarial` → wired into
 and proposes a new case for each.
 
 **Escape-signal source (default).** `hydraflow-find` issues tagged with
-the `skill-escape` label. Alternative sources are listed in §9.
+the `skill-escape` label. The label is not hard-coded: a config knob
+`corpus_learning_signal_label` (default `skill-escape`) lets operators
+flip to a different label without a code change. Alternative source
+mechanisms are listed in §9.
 
 **Per-escape workflow.**
 
 1. Read the escape issue body and the reverted commit (or the fix PR)
    from the linked references.
-2. Dispatch a sub-agent prompt that synthesizes a minimal
-   `before/after` pair reproducing the class of bug, picks the
-   `expected_catcher`, and drafts the `README.md`.
+2. Synthesize a minimal `before/after` pair reproducing the class of
+   bug, pick the `expected_catcher`, and draft the `README.md`. **The
+   plan picks the synthesis mechanism** — two viable options: (a) the
+   loop dispatches an LLM call in-process through `src/base_runner.py`
+   (lower latency, self-contained), or (b) the loop files a routing
+   issue with label `corpus-synthesis-task` and lets the standard
+   implement phase handle it (higher latency, reuses existing
+   infrastructure). Either is consistent with §3.2.
 3. **Self-validation gate.** Before opening a PR, the loop verifies:
    1. The synthesized `before/` + `after/` parses (Python syntax, no
       import errors).
@@ -335,17 +347,21 @@ output matches the cassette's `output` field-by-field, after
 normalizers. This catches *fake regressions*: the fake no longer
 matches the recorded real-service behavior.
 
-**Freshness side (`ContractRefreshLoop`, weekly).** Invoke the **real
-adapter** — `gh`, `git`, or `docker run <pinned-image>` — against the
-cassette's `fixture_repo` (or scratch container). Diff the real
-output against the cassette. **Diffs do not fail the gate.** Instead,
-the loop files a `hydraflow-find` issue with label `cassette-drift`
-listing each changed field. The cassette remains authoritative until a
-human rotates it through the refresh PR (below).
+**Freshness side (`ContractRefreshLoop`, weekly).** The refresh loop
+is the freshness monitor — see the `ContractRefreshLoop` section below
+for the full flow. Summary: it invokes the **real adapter** — `gh`,
+`git`, or `docker run <pinned-image>` — against the cassette's
+`fixture_repo` (or scratch container) and diffs the real output against
+the committed cassette. Diffs do not fail the RC gate; they trigger the
+autonomous refresh workflow below. Per §3.2, refresh PRs auto-merge
+when the replay side still passes with the new cassette; when it
+doesn't, a companion `fake-drift` issue routes repair through the
+factory. No human approval on the happy path.
 
 Rationale for non-blocking freshness: `gh` CLI releases, `git`
 behavior, and `docker` output are not change-controlled by us. A
-third-party version bump must be a signal, not a page.
+third-party version bump is a signal that triggers the autonomous
+refresh, not a page that blocks the RC.
 
 #### `FakeLLM` is different
 
@@ -405,7 +421,9 @@ the fix. Humans enter only on escalation.
    `src/stream_parser.py` itself.
 6. **Escalation.** If the implementer loop fails to close a
    `fake-drift` or `stream-protocol-drift` issue after 3 attempts
-   (`src/config.py:max_attempts` applies), the issue gets labeled
+   (governed by the existing factory retry budget — the plan picks
+   the correct config field, likely `max_issue_attempts` or a
+   dedicated `max_fake_repair_attempts`), the issue gets labeled
    `hitl-escalation`, `fake-repair-stuck` (or `stream-parser-stuck`)
    and the `ContractRefreshLoop` stops opening new refresh PRs for
    that adapter until the escalation closes.
@@ -449,18 +467,26 @@ plan adds the emission.
 
 **On fire.**
 
-1. **Flake filter.** Before bisecting, re-run `make scenario` once
-   against the RC PR's head. If the second run passes, the red was a
-   flake; log at `warning`, increment a `flake_reruns_total` counter
-   in state, and exit. No bisect, no revert.
+1. **Flake filter.** Before bisecting, re-run the RC gate's
+   scenario suite once against the RC PR's head. If the second run
+   passes, the red was a flake; log at `warning`, increment a
+   `flake_reruns_total` counter in state, and exit. No bisect, no
+   revert.
 2. **Bisect.** Read `last_green_rc_sha` from
-   `src/state_tracker.py:StateTracker` (written by
+   `src/state/__init__.py:StateTracker` (written by
    `StagingPromotionLoop` on each successful promotion — see §8).
    Read `current_red_rc_sha` from the RC PR's head. In a dedicated
    worktree under `<data_root>/<repo_slug>/bisect/<rc_ref>/`
    (`ADR-0021` P9 persistence):
    - `git bisect start <current_red_rc_sha> <last_green_rc_sha>`
-   - `git bisect run make scenario`
+   - `git bisect run` against the RC gate's full scenario command
+     set — at minimum `make scenario && make scenario-loops` per the
+     current `rc-promotion-scenario.yml` steps. The plan adds a
+     dedicated Makefile target (e.g. `make bisect-probe`) that mirrors
+     the RC gate's scenario commands so changes to the RC gate
+     automatically update what bisect runs. Critical: the bisect
+     probe must match the RC gate exactly; a scenario-loops-only
+     regression won't bisect if the probe runs `make scenario` alone.
 3. **Attribution.** Parse bisect output. First-bad commit = the
    culprit. Resolve the containing PR via
    `gh api repos/.../commits/<sha>/pulls`; call the PR number `N`.
@@ -664,7 +690,7 @@ per loop; missing any entry is a hard test failure per
   hooks here.
 - `src/pr_manager.py:PRManager.create_issue` — issue filing.
 - `src/dedup_store.py:DedupStore` — idempotency.
-- `src/state_tracker.py:StateTracker` — `last_green_rc_sha` read
+- `src/state/__init__.py:StateTracker` — `last_green_rc_sha` read
   (subsystem §4.3).
 - `src/base_runner.py` — skill dispatch path (subsystem §4.1 harness).
 - `src/diff_sanity.py`, `src/scope_check.py`, `src/test_adequacy.py`,
@@ -744,3 +770,50 @@ per loop; missing any entry is a hard test failure per
 - `ADR-0044` — HydraFlow Principles. P3 (testing rings, MockWorld), P5
   (CI and branch protection), P8 (superpowers skills) are load-bearing
   here; the audit table rows these checks map to live in that ADR.
+
+## 11. Scope: HydraFlow-self today, managed repos later
+
+**Today (v1).** Every subsystem in this spec operates on HydraFlow's
+own repository: the adversarial corpus tests HydraFlow's own skill
+chain, the contract tests guard HydraFlow's own fakes, the bisect loop
+watches HydraFlow's own RC promotion. This matches `ADR-0042`'s
+negative consequence ("Single-repo scope today; revisit when the
+multi-repo factory lands").
+
+**Tomorrow.** HydraFlow's goal is to build and maintain **real
+software**, not just itself. As the factory scales to N managed
+target repos, the trust architecture must follow. Each subsystem has a
+per-repo extension path:
+
+| Subsystem | Per-managed-repo extension | Notes |
+|---|---|---|
+| Adversarial skill corpus (§4.1) | Each managed repo gets its own corpus under its repo slug (e.g. `tests/trust/adversarial/cases/<repo_slug>/`), plus a shared-core corpus for universal bug classes (syntax errors, missing tests, scope creep) | The harness reads the skill registry; no spec change needed to onboard a new repo's corpus |
+| Contract tests (§4.2) | Fakes live in HydraFlow (they simulate HydraFlow's adapters), so a single contract suite covers all managed repos. One cassette set is enough | The `ContractRefreshLoop` remains a single caretaker |
+| Staging-red bisect (§4.3) | Per managed repo that adopts `ADR-0042`'s two-tier model. The loop runs N instances (one per repo with a staging branch), each bisecting that repo's own promotion | Requires per-repo `last_green_rc_sha` state keys; straightforward with current `StateTracker` repo-slug scoping (`ADR-0021` P9) |
+
+**What "lots of caretaking" means.** The three loops in this spec are
+a beachhead. The long-term vision is a caretaker fleet — each loop a
+bounded, auditable trust-building job that keeps some aspect of the
+system honest. Obvious next caretakers, out of scope for this spec but
+worth naming so future plans know where to slot in:
+
+- **Flake tracker** — tallies flakes across RCs, files repair issues
+  when the flake rate crosses a threshold per test.
+- **Skill-prompt eval** — periodically re-runs the full adversarial
+  corpus against current skill prompts to detect slow drift that the
+  RC gate's sampled corpus misses.
+- **Fake coverage auditor** — inspects each adapter's method surface
+  and flags un-cassetted methods.
+- **RC wall-clock budget** — tracks RC gate duration and escalates
+  when it exceeds a budget (prevents the "scenario gate silently
+  bloats to 30 min" failure mode).
+- **Managed-repo wiki rot detector** — for every managed repo, checks
+  `repo_wiki/<slug>/` entries against actual file paths and symbols
+  they cite; files repair issues for broken cites (`ADR-0032`).
+
+Each of these is its own future spec. This spec scopes to the three
+subsystems that close the most load-bearing gaps first — skill
+regressions (every PR HydraFlow ships), fake drift (every scenario
+assertion), RC-red attribution (every release). Caretakers compound;
+we start with these because their return on trust is highest per
+unit of implementation.
