@@ -234,3 +234,58 @@ async def test_reconcile_closed_escalations_clears_dedup(loop_env, monkeypatch) 
     assert "rc_budget:median" not in remaining
     assert "rc_budget:spike" in remaining
     state.clear_rc_budget_attempts.assert_called_once_with("median")
+
+
+async def test_kill_switch_short_circuits_run(loop_env) -> None:
+    cfg, state, pr, dedup = loop_env
+    stop = asyncio.Event()
+    deps = LoopDeps(
+        event_bus=EventBus(),
+        stop_event=stop,
+        status_cb=lambda *a, **k: None,
+        enabled_cb=lambda name: name != "rc_budget",
+    )
+    loop = RCBudgetLoop(config=cfg, state=state, pr_manager=pr, dedup=dedup, deps=deps)
+    # Belt + braces: a guarded _do_work must not be entered by the dispatcher.
+    loop._fetch_recent_runs = AsyncMock(side_effect=AssertionError("must not run"))
+
+    # Drive one cycle via the public run loop; tick the stop event after.
+    async def driver():
+        await asyncio.sleep(0.01)
+        stop.set()
+        loop.trigger()
+
+    await asyncio.gather(loop.run(), driver())
+    pr.create_issue.assert_not_awaited()
+
+
+async def test_both_signals_fire_concurrently(loop_env) -> None:
+    loop = _loop(loop_env)
+    # median=300, recent_max=320, current=1000 -> both trip.
+    runs = [
+        {
+            "databaseId": 99,
+            "duration_s": 1000,
+            "createdAt": "2026-04-20T00:00:00Z",
+            "conclusion": "success",
+            "url": "u",
+        },
+        *[
+            {
+                "databaseId": i,
+                "duration_s": (300 if i != 5 else 320),
+                "createdAt": f"2026-04-{10 + i:02d}T00:00:00Z",
+                "conclusion": "success",
+                "url": f"u{i}",
+            }
+            for i in range(1, 7)
+        ],
+    ]
+    loop._fetch_recent_runs = AsyncMock(return_value=runs)
+    loop._reconcile_closed_escalations = AsyncMock(return_value=None)
+    loop._fetch_job_breakdown = AsyncMock(return_value=[])
+    loop._fetch_junit_tests = AsyncMock(return_value=[])
+    stats = await loop._do_work()
+    assert stats["filed"] == 2
+    _, _, _, dedup = loop_env
+    assert dedup.set_all.call_count == 2
