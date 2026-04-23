@@ -1742,17 +1742,26 @@ Resolved by later spec sections (tracked here to close the loop):
 
 ## 10. Related
 
-- `ADR-0001` — Five concurrent async loops (context for existing loop
-  count; the three new loops here are `BaseBackgroundLoop` auxiliaries,
-  not pipeline loops).
-- `ADR-0022` — MockWorld integration-test architecture. Subsystem §4.2
-  guards the fakes this ADR introduced.
-- `ADR-0029` — Caretaker loop pattern. All three new loops follow it.
-- `ADR-0042` — Two-tier branch model + RC promotion. The promotion PR
-  is where §4.1 v1 and §4.2 replay gates land.
-- `ADR-0044` — HydraFlow Principles. P3 (testing rings, MockWorld), P5
-  (CI and branch protection), P8 (superpowers skills) are load-bearing
-  here; the audit table rows these checks map to live in that ADR.
+- `ADR-0001` — Five concurrent async loops. The ten new loops in this
+  spec are `BaseBackgroundLoop` auxiliaries, not additional pipeline
+  loops; they coexist with the pipeline's existing 5.
+- `ADR-0021` — Persistence architecture. State (StateTracker,
+  DedupStore, audit snapshots) sits under `<data_root>` per the P9
+  layout; §4.4, §4.7, §11.2 extend it per repo slug.
+- `ADR-0022` — MockWorld integration-test architecture. §4.2 guards
+  its fakes; §4.7 audits their coverage; §7 requires a MockWorld
+  scenario per new loop.
+- `ADR-0029` — Caretaker loop pattern. All ten new loops follow it.
+- `ADR-0032` — Per-repo wiki knowledge base. §4.9 monitors its
+  freshness.
+- `ADR-0042` — Two-tier branch model + RC promotion. §4.1 v1 and
+  §4.2 replay gates land on the RC PR; §4.3 bisects on RC red;
+  §4.4's per-PR CI audit is the only gate this spec adds outside
+  the RC promotion path.
+- `ADR-0044` — HydraFlow Principles. P3 (testing rings, MockWorld),
+  P4 (quality gates), P5 (CI + branch protection), P7 (observability),
+  P8 (skills integration), P9 (persistence) are all load-bearing;
+  the audit table rows these subsystems rely on live in that ADR.
 
 ## 11. Scope: HydraFlow-self today, managed repos later
 
@@ -1787,9 +1796,10 @@ trust — the gate runs but guards a shape that does not exist.
 (`scripts/hydraflow_init/`) scaffolds missing pieces for greenfield
 adoption. Neither is wired as a hard gate: no CI job fails on audit
 regression, no onboarding flow refuses to manage a non-conformant
-target repo, no caretaker detects principle drift over time. See
-§11.3 for the drift detector this initiative adds to the named
-follow-on caretaker list.
+target repo, no caretaker detects principle drift over time. **This
+spec closes that gap** via §4.4 `PrinciplesAuditLoop` (weekly drift
+detection + per-PR CI audit gate on HydraFlow-self) plus the
+onboarding-blocked factory gate (§4.4) for managed repos.
 
 ### 11.2 Per-subsystem extension path
 
@@ -1808,36 +1818,51 @@ extension path, with principle conformance as the gate:
 
 | Subsystem | Per-managed-repo extension | Notes |
 |---|---|---|
-| Adversarial skill corpus (§4.1) | Each managed repo gets its own corpus under its repo slug (e.g. `tests/trust/adversarial/cases/<repo_slug>/`), plus a shared-core corpus for universal bug classes (syntax errors, missing tests, scope creep) | The harness reads the skill registry; no spec change needed to onboard a new repo's corpus |
-| Contract tests (§4.2) | Fakes live in HydraFlow (they simulate HydraFlow's adapters), so a single contract suite covers all managed repos. One cassette set is enough | The `ContractRefreshLoop` remains a single caretaker |
-| Staging-red bisect (§4.3) | Per managed repo that adopts `ADR-0042`'s two-tier model. The loop runs N instances (one per repo with a staging branch), each bisecting that repo's own promotion | Requires per-repo `last_green_rc_sha` state keys; straightforward with current `StateTracker` repo-slug scoping (`ADR-0021` P9) |
+| Adversarial corpus (§4.1) | Each managed repo gets its own corpus under its repo slug (e.g. `tests/trust/adversarial/cases/<repo_slug>/`), plus a shared-core corpus for universal bug classes (syntax errors, missing tests, scope creep) | Harness reads the skill registry; no spec change to onboard a new repo |
+| Contract tests (§4.2) | Fakes live in HydraFlow (they simulate HydraFlow's adapters), so a single contract suite covers all managed repos | `ContractRefreshLoop` remains a single caretaker |
+| Staging-red bisect (§4.3) | Per managed repo that adopts `ADR-0042`'s two-tier model. Loop runs N instances (one per repo with a staging branch), each bisecting that repo's own promotion | Per-repo `last_green_rc_sha` state keys; straightforward with `StateTracker` repo-slug scoping (`ADR-0021` P9) |
+| Principles audit (§4.4) | Already per-repo by design — the loop audits HydraFlow-self and every entry in `managed_repos` config | Onboarding gate blocks factory dispatch until P1–P5 green |
+| Flake tracker (§4.5) | Per managed repo with an RC workflow (reads that repo's JUnit artifacts) | Requires per-repo `flake_count[repo_slug][test_name]` state |
+| Skill-prompt eval (§4.6) | Global — one corpus, one eval pass covers all repos | No per-repo extension; the corpus itself is shared-core + slug (§11.2 row 1) |
+| Fake coverage auditor (§4.7) | Global — one fake set, one coverage pass | Same as §4.6 — HydraFlow's fakes are global |
+| RC wall-clock budget (§4.8) | Per managed repo with an RC workflow | Per-repo `rc_duration_history[repo_slug]` state |
+| Wiki rot detector (§4.9) | Per managed repo (reads `repo_wiki/<slug>/`) | Already per-repo in the original spec |
+| Product-phase evaluators (§4.10) | Global — evaluator skills in the registry apply to every repo's Discover/Shape runs | No per-repo extension |
+| Cost waterfall + loop dashboard (§4.11) | Cost attribution naturally scales: issues on managed repos attribute to that repo in the waterfall; per-loop costs aggregate globally since loops are machinery, not per-repo | Drill-down filter by `repo_slug` is a plan detail |
+| Trust fleet sanity (§12.1) | Global — watches the loop fleet regardless of how many repos they serve | No per-repo extension |
 
-### 11.3 The caretaker fleet — compounding trust over time (see §12 for operability)
+### 11.3 The trust fleet — compounding over time (see §12 for operability)
 
-The nine subsystems in §4 are this spec's trust fleet. §4.1–§4.3 are
-primary RC-boundary gates; §4.4 is the foundational principles
-enforcer that everything else rests on; §4.5–§4.9 are caretakers that
-compound trust over time by watching narrower failure modes (flakes,
-prompt drift, cassette coverage, RC duration, wiki rot).
+The eleven subsystems in §4 plus `TrustFleetSanityLoop` in §12.1
+compose this initiative's trust fleet: ten loops, two non-loop
+subsystems (§4.10 evaluator skills + §4.11 cost dashboards). §4.1–§4.3
+are primary RC-boundary gates; §4.4 is the foundational principles
+enforcer everything rests on; §4.5–§4.9 are narrower-focus caretakers;
+§4.10 extends adversarial coverage upstream to Discover/Shape; §4.11
+gives operators visibility; §12.1 watches the fleet itself.
 
 **Implementation priority.**
 
 1. **§4.4 PrinciplesAuditLoop first** — nothing else guards anything
    without it (§11.1).
 2. **§4.1–§4.3 primary gates next** — they close the largest
-   observable gaps.
-3. **§4.5–§4.9 caretakers last** — they compound on top of the
-   primary gates' outputs (e.g., `SkillPromptEvalLoop` reuses the
+   observable gaps and anchor the rest of the fleet.
+3. **§4.10 product-phase trust + §4.11 cost dashboard alongside** —
+   both reuse §4.1's harness / pipeline. Landing them in the same
+   wave as §4.1–§4.3 avoids repeatedly re-plumbing the harness.
+4. **§4.5–§4.9 + §12.1 caretakers last** — they compound on top of
+   the primary gates' outputs (`SkillPromptEvalLoop` reuses the
    corpus §4.1 creates; `FakeCoverageAuditorLoop` reuses the
-   cassettes §4.2 creates).
+   cassettes §4.2 creates; `TrustFleetSanityLoop` reads the metrics
+   §4.11 captures).
 
-**Future caretakers beyond this spec.** The nine here cover every
-failure mode this spec's authors can currently name. When new ones
-emerge — almost certainly from production incident retrospectives —
-each follows the same pattern: a `BaseBackgroundLoop` subclass,
-five-checkpoint wiring, autonomous repair via `hydraflow-find`,
-escalation on 3-attempt failure per §3.2. The pattern compounds; the
-fleet grows.
+**Future trust subsystems beyond this spec.** The twelve items here
+cover every failure mode this spec's authors can currently name. When
+new ones emerge — almost certainly from production incident
+retrospectives — each follows the same pattern: a `BaseBackgroundLoop`
+subclass, five-checkpoint wiring, autonomous repair via
+`hydraflow-find`, escalation on 3-attempt failure per §3.2, telemetry
+emission per §4.11. The pattern compounds; the fleet grows.
 
 ## 12. Operability — watching the watchers, pausing the loops, measuring success
 
@@ -1903,12 +1928,12 @@ accept that sanity-loop misbehavior is a human-visible fire rather
 than an autonomously-caught one.
 
 `TrustFleetSanityLoop` follows the same five-checkpoint wiring. Adds
-to `tests/test_loop_wiring_completeness.py`. Counts as Loop #10 in
-the §4 subsystem family (§4.1–§4.9 are nine; `TrustFleetSanityLoop`
-is the tenth, documented here in §12.1 because it is the operability
-meta-layer, not a primary trust gate). **Implementation lands in
-Plan 5 (caretaker fleet bundle) so the shared loop-pattern work is
-consolidated.**
+to `tests/test_loop_wiring_completeness.py`. It is the tenth new
+loop (§4.1–§4.9 introduce nine loops; §4.10 and §4.11 are non-loop
+subsystems; this is the tenth loop, documented here in §12.1 because
+it is the operability meta-layer, not a primary trust gate).
+**Implementation lands in Plan 5 (caretaker fleet bundle) so the
+shared loop-pattern work is consolidated.**
 
 ### 12.2 Kill-switch / pause contract
 
