@@ -120,3 +120,66 @@ async def test_do_work_files_issue_when_threshold_hit(loop_env, monkeypatch) -> 
     assert "test_flake" in title
     labels = pr.create_issue.await_args.args[2]
     assert "flaky-test" in labels
+
+
+async def test_escalation_fires_after_three_attempts(loop_env, monkeypatch) -> None:
+    cfg, state, pr, dedup = loop_env
+    state.get_flake_attempts.return_value = 2  # next inc → 3
+    state.inc_flake_attempts.return_value = 3
+    stop = asyncio.Event()
+    loop = FlakeTrackerLoop(
+        config=cfg, state=state, pr_manager=pr, dedup=dedup, deps=_deps(stop)
+    )
+
+    async def fake_fetch():
+        return [{"databaseId": 0, "url": "u"}]
+
+    async def fake_dl(_):
+        return {
+            "tests.scenarios.test_bad": "fail",
+            "tests.scenarios.test_other": "pass",
+        }
+
+    async def fake_reconcile():
+        return None
+
+    # Threshold=1 so a single fail-in-mixed-set triggers.
+    cfg.flake_threshold = 1
+    monkeypatch.setattr(loop, "_fetch_recent_runs", fake_fetch)
+    monkeypatch.setattr(loop, "_download_junit", fake_dl)
+    monkeypatch.setattr(loop, "_reconcile_closed_escalations", fake_reconcile)
+
+    stats = await loop._do_work()
+    assert stats["escalated"] == 1
+    labels = pr.create_issue.await_args.args[2]
+    assert "hitl-escalation" in labels
+    assert "flaky-test-stuck" in labels
+
+
+async def test_reconcile_closed_escalations_clears_dedup(loop_env, monkeypatch) -> None:
+    cfg, state, pr, dedup = loop_env
+    dedup.get.return_value = {"flake_tracker:tests.foo.test_bar"}
+    stop = asyncio.Event()
+    loop = FlakeTrackerLoop(
+        config=cfg, state=state, pr_manager=pr, dedup=dedup, deps=_deps(stop)
+    )
+
+    class FakeProc:
+        returncode = 0
+
+        async def communicate(self):
+            return (
+                b'[{"title": "HITL: flaky test tests.foo.test_bar unresolved after 3 attempts"}]',
+                b"",
+            )
+
+    async def fake_subproc(*args, **kwargs):
+        return FakeProc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_subproc)
+
+    await loop._reconcile_closed_escalations()
+    dedup.set_all.assert_called_once()
+    remaining = dedup.set_all.call_args.args[0]
+    assert "flake_tracker:tests.foo.test_bar" not in remaining
+    state.clear_flake_attempts.assert_called_once_with("tests.foo.test_bar")
