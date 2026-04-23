@@ -1,0 +1,5 @@
+DISCOVER_COMPLETENESS_RESULT: RETRY
+SUMMARY: paraphrase-only — brief restates the issue without new information
+FINDINGS:
+- paraphrase-only — no new files, metrics, competitors, or personas named
+- vague-criterion — "the homepage is faster" lacks a metric

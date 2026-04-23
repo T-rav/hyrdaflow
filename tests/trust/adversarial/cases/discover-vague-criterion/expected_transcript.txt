@@ -1,0 +1,6 @@
+DISCOVER_COMPLETENESS_RESULT: RETRY
+SUMMARY: vague-criterion — all three acceptance bullets are aspirations, not observable outcomes
+FINDINGS:
+- vague-criterion — "the search is faster" has no metric (ms? p95?)
+- vague-criterion — "users are happier" has no signal (NPS? retention?)
+- vague-criterion — "power users love it" has no measurable surface

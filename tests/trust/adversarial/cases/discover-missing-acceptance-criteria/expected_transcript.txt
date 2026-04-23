@@ -1,0 +1,4 @@
+DISCOVER_COMPLETENESS_RESULT: RETRY
+SUMMARY: missing-section:acceptance-criteria — brief omits Acceptance criteria entirely
+FINDINGS:
+- missing-section:acceptance-criteria — no section named "Acceptance criteria" in the brief

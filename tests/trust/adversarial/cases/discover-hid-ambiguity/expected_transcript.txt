@@ -1,0 +1,5 @@
+DISCOVER_COMPLETENESS_RESULT: RETRY
+SUMMARY: hid-ambiguity — issue contains "maybe", "not sure", "could be", "it depends" but brief lists zero open questions
+FINDINGS:
+- hid-ambiguity — ambiguity markers in issue: "maybe", "not sure", "could be", "it depends"
+- hid-ambiguity — Open questions section says "(none)" despite ambiguous input
