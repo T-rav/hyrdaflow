@@ -39,3 +39,24 @@ def test_flake_threshold_bounds() -> None:
         HydraFlowConfig(flake_threshold=1)  # below 2 minimum
     with pytest.raises(ValueError):
         HydraFlowConfig(flake_threshold=100)  # above 20 max
+
+
+def test_skill_prompt_eval_interval_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HYDRAFLOW_SKILL_PROMPT_EVAL_INTERVAL", raising=False)
+    cfg = HydraFlowConfig()
+    assert cfg.skill_prompt_eval_interval == 604800
+
+
+def test_skill_prompt_eval_interval_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HYDRAFLOW_SKILL_PROMPT_EVAL_INTERVAL", "86400")
+    cfg = HydraFlowConfig()
+    assert cfg.skill_prompt_eval_interval == 86400
+
+
+def test_skill_prompt_eval_interval_bounds() -> None:
+    with pytest.raises(ValueError):
+        HydraFlowConfig(skill_prompt_eval_interval=60)  # below 86400 minimum
+    with pytest.raises(ValueError):
+        HydraFlowConfig(skill_prompt_eval_interval=10_000_000)  # above 30d max
