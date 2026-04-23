@@ -156,11 +156,11 @@ class TrustFleetSanityLoop(BaseBackgroundLoop):
         *,
         config: HydraFlowConfig,
         state: StateTracker,
-        bg_workers: BGWorkerManager,
         pr_manager: PRManager,
         dedup: DedupStore,
         event_bus: EventBus,
         deps: LoopDeps,
+        bg_workers: BGWorkerManager | None = None,
     ) -> None:
         super().__init__(
             worker_name="trust_fleet_sanity",
@@ -169,10 +169,17 @@ class TrustFleetSanityLoop(BaseBackgroundLoop):
             run_on_startup=False,
         )
         self._state = state
-        self._bg_workers = bg_workers
+        # BGWorkerManager is constructed *after* loops in the orchestrator
+        # (it takes the loop registry). Accept None at construction time
+        # and inject post-hoc via ``set_bg_workers``.
+        self._bg_workers: BGWorkerManager | None = bg_workers
         self._pr = pr_manager
         self._dedup = dedup
         self._source_bus = event_bus  # separate handle for load_events_since
+
+    def set_bg_workers(self, bg_workers: BGWorkerManager) -> None:
+        """Late-binding for the post-ctor BGWorkerManager wiring."""
+        self._bg_workers = bg_workers
 
     def _get_default_interval(self) -> int:
         return self._config.trust_fleet_sanity_interval
@@ -241,9 +248,10 @@ class TrustFleetSanityLoop(BaseBackgroundLoop):
 
             hb = heartbeats.get(worker) or {}
             last_run_iso = hb.get("last_run") if isinstance(hb, dict) else None
-            interval_s = int(
-                self._bg_workers.get_interval(worker)
-                if hasattr(self._bg_workers, "get_interval")
+            bg = self._bg_workers
+            interval_s = (
+                int(bg.get_interval(worker))
+                if bg is not None and hasattr(bg, "get_interval")
                 else 86400
             )
             is_enabled = bool(enabled_map.get(worker, True))

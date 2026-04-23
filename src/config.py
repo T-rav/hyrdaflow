@@ -275,7 +275,6 @@ _ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
     ("rc_budget_threshold_ratio", "HYDRAFLOW_RC_BUDGET_THRESHOLD_RATIO", 1.5),
     ("rc_budget_spike_ratio", "HYDRAFLOW_RC_BUDGET_SPIKE_RATIO", 2.0),
     ("loop_anomaly_repair_ratio", "HYDRAFLOW_LOOP_ANOMALY_REPAIR_RATIO", 2.0),
-    ("loop_anomaly_tick_error_ratio", "HYDRAFLOW_LOOP_ANOMALY_TICK_ERROR_RATIO", 0.2),
     (
         "loop_anomaly_staleness_multiplier",
         "HYDRAFLOW_LOOP_ANOMALY_STALENESS_MULTIPLIER",
@@ -290,6 +289,7 @@ _ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
 _ENV_FLOAT_RATIO_OVERRIDES: list[tuple[str, str, float]] = [
     ("visual_warn_threshold", "HYDRAFLOW_VISUAL_WARN_THRESHOLD", 0.05),
     ("visual_fail_threshold", "HYDRAFLOW_VISUAL_FAIL_THRESHOLD", 0.15),
+    ("loop_anomaly_tick_error_ratio", "HYDRAFLOW_LOOP_ANOMALY_TICK_ERROR_RATIO", 0.2),
 ]
 
 _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [

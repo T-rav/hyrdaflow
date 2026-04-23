@@ -86,6 +86,7 @@ from transcript_summarizer import TranscriptSummarizer
 from triage import TriageRunner
 from triage_phase import TriagePhase
 from troubleshooting_store import TroubleshootingPatternStore
+from trust_fleet_sanity_loop import TrustFleetSanityLoop
 from verification_judge import VerificationJudge
 from wiki_rot_detector_loop import WikiRotDetectorLoop
 from workspace import WorkspaceManager
@@ -181,6 +182,7 @@ class ServiceRegistry:
     fake_coverage_auditor_loop: FakeCoverageAuditorLoop
     rc_budget_loop: RCBudgetLoop
     wiki_rot_detector_loop: WikiRotDetectorLoop
+    trust_fleet_sanity_loop: TrustFleetSanityLoop
 
     # Optional integrations
     hindsight: HindsightClient | None = None
@@ -897,6 +899,22 @@ def build_services(
         deps=loop_deps,
     )
 
+    trust_fleet_sanity_dedup = DedupStore(
+        "trust_fleet_sanity",
+        config.data_root / "dedup" / "trust_fleet_sanity.json",
+    )
+    trust_fleet_sanity_loop = TrustFleetSanityLoop(  # noqa: F841
+        config=config,
+        state=state,
+        pr_manager=prs,
+        dedup=trust_fleet_sanity_dedup,
+        event_bus=event_bus,
+        deps=loop_deps,
+        # bg_workers is injected post-construction by the orchestrator
+        # (BGWorkerManager takes the loop registry, so it must be built
+        # after all loops).
+    )
+
     return ServiceRegistry(
         workspaces=workspaces,
         subprocess_runner=subprocess_runner,
@@ -962,4 +980,5 @@ def build_services(
         fake_coverage_auditor_loop=fake_coverage_auditor_loop,
         rc_budget_loop=rc_budget_loop,
         wiki_rot_detector_loop=wiki_rot_detector_loop,
+        trust_fleet_sanity_loop=trust_fleet_sanity_loop,
     )

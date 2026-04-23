@@ -169,8 +169,13 @@ class HydraFlowOrchestrator:
             "fake_coverage_auditor": svc.fake_coverage_auditor_loop,
             "rc_budget": svc.rc_budget_loop,
             "wiki_rot_detector": svc.wiki_rot_detector_loop,
+            "trust_fleet_sanity": svc.trust_fleet_sanity_loop,
         }
         self._bg_workers = BGWorkerManager(config, self._state, bg_loop_registry)
+        # TrustFleetSanityLoop needs a reference to the BGWorkerManager
+        # but cannot take one at construction time (chicken-and-egg:
+        # BGWorkerManager takes the loop registry). Inject it now.
+        svc.trust_fleet_sanity_loop.set_bg_workers(self._bg_workers)
         self._hitl_ctrl = HITLController(svc.hitl_phase, svc.fetcher, config.hitl_label)
         self._state_restorer = StateRestorer(self._state, self._bus, self._bg_workers)
 
@@ -949,6 +954,7 @@ class HydraFlowOrchestrator:
             ("fake_coverage_auditor", self._svc.fake_coverage_auditor_loop.run),
             ("rc_budget", self._svc.rc_budget_loop.run),
             ("wiki_rot_detector", self._svc.wiki_rot_detector_loop.run),
+            ("trust_fleet_sanity", self._svc.trust_fleet_sanity_loop.run),
         ]
 
         # Optional: WAL replay loop for Hindsight crash recovery

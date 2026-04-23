@@ -99,6 +99,28 @@ class TestInitialization:
             "sentry_creation_attempts",
             "trace_runs",
             "route_back_counts",
+            # Trust-arch-hardening mixins (spec §4.1–§4.9 + §12.1)
+            "auto_reverts_in_cycle",
+            "auto_reverts_successful",
+            "fake_coverage_attempts",
+            "fake_coverage_last_known",
+            "flake_attempts",
+            "flake_counts",
+            "flake_reruns_total",
+            "last_green_audit",
+            "last_green_rc_sha",
+            "last_rc_red_sha",
+            "managed_repos_onboarding_status",
+            "principles_drift_attempts",
+            "rc_budget_attempts",
+            "rc_budget_duration_history",
+            "rc_cycle_id",
+            "skill_prompt_attempts",
+            "skill_prompt_last_green",
+            "trust_fleet_sanity_attempts",
+            "trust_fleet_sanity_last_run",
+            "trust_fleet_sanity_last_seen_counts",
+            "wiki_rot_attempts",
         }
         assert set(d.keys()) == expected_keys
 

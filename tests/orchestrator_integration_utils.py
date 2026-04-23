@@ -56,6 +56,9 @@ class FakeBackgroundLoop:
         self.run_count += 1
         await asyncio.sleep(0)
 
+    def set_bg_workers(self, bg_workers: object) -> None:
+        """Post-ctor BGWorkerManager injection hook (TrustFleetSanityLoop)."""
+
 
 class FakeWorkspaceManager:
     """Tracks worktree cleanup calls."""
@@ -474,6 +477,7 @@ def build_scripted_services(
     services.health_monitor_loop = FakeBackgroundLoop()
     services.dependabot_merge_loop = FakeBackgroundLoop()
     services.staging_promotion_loop = FakeBackgroundLoop()
+    services.staging_bisect_loop = FakeBackgroundLoop()
     services.stale_issue_loop = FakeBackgroundLoop()
     services.sentry_loop = FakeBackgroundLoop()
     services.stale_issue_gc_loop = FakeBackgroundLoop()
@@ -483,6 +487,14 @@ def build_scripted_services(
     services.repo_wiki_loop = FakeBackgroundLoop()
     services.diagnostic_loop = FakeBackgroundLoop()
     services.retrospective_loop = FakeBackgroundLoop()
+    # Trust-arch-hardening loops (spec §4.1–§4.9 + §12.1)
+    services.principles_audit_loop = FakeBackgroundLoop()
+    services.flake_tracker_loop = FakeBackgroundLoop()
+    services.skill_prompt_eval_loop = FakeBackgroundLoop()
+    services.fake_coverage_auditor_loop = FakeBackgroundLoop()
+    services.rc_budget_loop = FakeBackgroundLoop()
+    services.wiki_rot_detector_loop = FakeBackgroundLoop()
+    services.trust_fleet_sanity_loop = FakeBackgroundLoop()
     services.repo_wiki_store = SimpleNamespace(
         is_ingested=MagicMock(return_value=False),
         mark_ingested=MagicMock(),
