@@ -413,7 +413,7 @@ class HydraFlowConfig(BaseModel):
             )
         return v
 
-    system_tool: Literal["inherit", "claude", "codex", "pi"] = Field(
+    system_tool: Literal["inherit", "claude", "codex", "gemini", "pi"] = Field(
         default="inherit",
         description="Optional global default tool for system agents; 'inherit' keeps per-agent defaults",
     )
@@ -421,7 +421,7 @@ class HydraFlowConfig(BaseModel):
         default="",
         description="Optional global default model for system agents; empty keeps per-agent defaults",
     )
-    background_tool: Literal["inherit", "claude", "codex", "pi"] = Field(
+    background_tool: Literal["inherit", "claude", "codex", "gemini", "pi"] = Field(
         default="inherit",
         description="Optional global default tool for background workers; 'inherit' keeps per-worker defaults",
     )
@@ -429,14 +429,14 @@ class HydraFlowConfig(BaseModel):
         default="",
         description="Optional global default model for background workers; empty keeps per-worker defaults",
     )
-    implementation_tool: Literal["claude", "codex", "pi"] = Field(
+    implementation_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for implementation agents",
     )
     model: str = Field(default="opus", description="Model for implementation agents")
 
     # Review configuration
-    review_tool: Literal["claude", "codex", "pi"] = Field(
+    review_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for review agents",
     )
@@ -751,7 +751,7 @@ class HydraFlowConfig(BaseModel):
         default=["hydraflow-plan"],
         description="Labels for issues needing plans (OR logic)",
     )
-    planner_tool: Literal["claude", "codex", "pi"] = Field(
+    planner_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for planning agents",
     )
@@ -761,7 +761,7 @@ class HydraFlowConfig(BaseModel):
         ge=0,
         description="Max fix attempts per TDD REFACTOR sub-agent before reporting failure",
     )
-    triage_tool: Literal["claude", "codex", "pi"] = Field(
+    triage_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for triage agents",
     )
@@ -833,7 +833,7 @@ class HydraFlowConfig(BaseModel):
     )
 
     # Agent prompt configuration
-    subskill_tool: Literal["claude", "codex", "pi"] = Field(
+    subskill_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for low-tier subskill/tool-chain passes",
     )
@@ -851,7 +851,7 @@ class HydraFlowConfig(BaseModel):
         default=True,
         description="Enable automatic escalation to debug model when low-tier prechecks signal risk/ambiguity",
     )
-    debug_tool: Literal["claude", "codex", "pi"] = Field(
+    debug_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for debug escalation passes",
     )
@@ -1068,7 +1068,7 @@ class HydraFlowConfig(BaseModel):
         default="haiku",
         description="Model for wiki compilation and synthesis",
     )
-    wiki_compilation_tool: Literal["claude", "codex", "pi"] = Field(
+    wiki_compilation_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for wiki compilation",
     )
@@ -1272,7 +1272,7 @@ class HydraFlowConfig(BaseModel):
         default="haiku",
         description="Cheap model for summarising agent transcripts into structured learnings",
     )
-    transcript_summary_tool: Literal["claude", "codex", "pi"] = Field(
+    transcript_summary_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for transcript summarization",
     )
@@ -1283,7 +1283,7 @@ class HydraFlowConfig(BaseModel):
         description="Max transcript characters to send for summarization (truncated from end)",
     )
     # Report issue worker
-    report_issue_tool: Literal["claude", "codex", "pi"] = Field(
+    report_issue_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for report-issue worker",
     )
@@ -1551,11 +1551,11 @@ class HydraFlowConfig(BaseModel):
         default="sonnet",
         description="Model for acceptance criteria generation (post-merge)",
     )
-    ac_tool: Literal["claude", "codex", "pi"] = Field(
+    ac_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for acceptance criteria generation",
     )
-    verification_judge_tool: Literal["claude", "codex", "pi"] = Field(
+    verification_judge_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for verification judge agents",
     )
