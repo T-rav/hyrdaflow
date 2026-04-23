@@ -19,7 +19,7 @@ from base_background_loop import BaseBackgroundLoop, LoopDeps
 from models import WorkCycleResult
 
 if TYPE_CHECKING:
-    from config import HydraFlowConfig
+    from config import HydraFlowConfig, ManagedRepo
     from pr_manager import PRManager
     from state import StateTracker
 
@@ -106,4 +106,51 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
         """Audit the HydraFlow working tree and persist the dated snapshot."""
         report = await self._run_audit(_HYDRAFLOW_SELF, self._config.repo_root)
         self._save_snapshot(_HYDRAFLOW_SELF, report)
+        return self._snapshot_from_report(report)
+
+    async def _run_git(self, *args: str, cwd: Path | None = None) -> tuple[int, str]:
+        """Run a git subcommand; returns ``(exit_code, combined_output)``."""
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            *args,
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        out, _ = await proc.communicate()
+        return proc.returncode or 0, out.decode(errors="replace")
+
+    async def _refresh_checkout(self, mr: ManagedRepo) -> Path:
+        """Shallow-clone or fetch the managed repo. Returns the checkout root."""
+        checkout = self._config.data_root / mr.slug / "audit-checkout"
+        if checkout.exists():
+            code, out = await self._run_git(
+                "fetch", "--depth", "1", "origin", mr.main_branch, cwd=checkout
+            )
+            if code != 0:
+                raise RuntimeError(f"git fetch failed for {mr.slug}: {out[:400]}")
+            await self._run_git(
+                "reset", "--hard", f"origin/{mr.main_branch}", cwd=checkout
+            )
+        else:
+            checkout.parent.mkdir(parents=True, exist_ok=True)
+            url = f"https://github.com/{mr.slug}.git"
+            code, out = await self._run_git(
+                "clone",
+                "--depth",
+                "1",
+                "--branch",
+                mr.main_branch,
+                url,
+                str(checkout),
+            )
+            if code != 0:
+                raise RuntimeError(f"git clone failed for {mr.slug}: {out[:400]}")
+        return checkout
+
+    async def _audit_managed_repo(self, mr: ManagedRepo) -> dict[str, str]:
+        """Refresh the checkout, run the audit, save the snapshot (spec §4.4)."""
+        checkout = await self._refresh_checkout(mr)
+        report = await self._run_audit(mr.slug, checkout)
+        self._save_snapshot(mr.slug, report)
         return self._snapshot_from_report(report)
