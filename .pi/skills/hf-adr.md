@@ -14,7 +14,7 @@ Create a draft ADR issue and queue it into HydraFlow's normal pipeline.
 1. Resolve repo/assignee/label defaults:
    - repo: `HYDRAFLOW_GITHUB_REPO` or git origin slug
    - assignee: `HYDRAFLOW_GITHUB_ASSIGNEE` or repo owner
-   - label: `HYDRAFLOW_LABEL_FIND` or `hydraflow-find`
+   - label: `hydraflow-find`
 2. Create issue with title format: `[ADR] <title>`.
 3. Ensure body includes:
    - `## Context`
@@ -27,5 +27,5 @@ Create a draft ADR issue and queue it into HydraFlow's normal pipeline.
 ## Notes
 
 - ADR shape is validated in HydraFlow triage/review phases.
-- Use `hydraflow-find` to queue ADR work into the pipeline.
+- Use `hydraflow-find` to queue ADR work into the pipeline (the canonical label for this purpose).
 - Keep decisions explicit, bounded, and actionable.

@@ -1448,6 +1448,7 @@ class TestExecuteOrchestrator:
         config = ConfigFactory.create(
             repo_root=tmp_path / "repo",
             background_tool="codex",
+            background_model="gpt-5-codex",
         )
         from events import EventBus
 

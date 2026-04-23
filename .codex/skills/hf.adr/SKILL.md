@@ -22,7 +22,7 @@ Create an ADR draft issue that HydraFlow queues into the normal pipeline for tri
 
 - `REPO`: `HYDRAFLOW_GITHUB_REPO` fallback to git origin slug
 - `ASSIGNEE`: `HYDRAFLOW_GITHUB_ASSIGNEE` fallback to repo owner
-- `LABEL`: `HYDRAFLOW_LABEL_FIND` fallback to `hydraflow-find`
+- `LABEL`: `hydraflow-find`
 
 ### 2) Build ADR content
 
@@ -67,7 +67,7 @@ gh issue create --repo "$REPO" \
 rm -f "$BODY_FILE"
 ```
 
-Use `hydraflow-find` (or `HYDRAFLOW_LABEL_FIND`) so the ADR is queued into the pipeline.
+Use `hydraflow-find` so the ADR is queued into the pipeline.
 
 ### 4) Report result
 

@@ -37,6 +37,20 @@ class AuthenticationRetryError(RuntimeError):
     """
 
 
+# Backend-specific auth-failure signatures. Keep these conservative —
+# false positives turn real agent output into spurious retries.
+_AUTH_FAILURE_PATTERNS = (
+    "authentication_failed",  # claude-code stream-json
+    "Please set an Auth method",  # gemini-cli startup
+    "AuthenticationError",  # generic SDK exceptions
+)
+
+
+def _is_auth_failure(text: str) -> bool:
+    """Check if *text* indicates a retryable authentication failure."""
+    return any(pattern in text for pattern in _AUTH_FAILURE_PATTERNS)
+
+
 @dataclass(frozen=True, slots=True)
 class StreamConfig:
     """Rarely-varying options for :func:`stream_claude_process`."""
@@ -59,11 +73,15 @@ def _route_prompt_to_cmd(cmd: list[str], prompt: str) -> tuple[list[str], int]:
     use_codex_exec = len(cmd) >= 2 and cmd[0] == "codex" and cmd[1] == "exec"
     use_pi_print = cmd and cmd[0] == "pi" and ("-p" in cmd or "--print" in cmd)
     use_claude_print = cmd and cmd[0] == "claude" and "-p" in cmd
-    use_prompt_arg = use_codex_exec or use_pi_print or use_claude_print
+    # Gemini CLI only supports -p (no --print alias).
+    use_gemini_print = cmd and cmd[0] == "gemini" and "-p" in cmd
+    use_prompt_arg = (
+        use_codex_exec or use_pi_print or use_claude_print or use_gemini_print
+    )
     if use_prompt_arg:
-        if use_claude_print or use_pi_print:
-            # Claude/Pi CLI require the prompt immediately after -p/--print;
-            # placing it at the end causes "Input must be provided" errors.
+        if use_claude_print or use_pi_print or use_gemini_print:
+            # Claude / Pi / Gemini all require the prompt immediately after
+            # -p/--print; placing it at the end causes CLI errors.
             flag = "-p" if "-p" in cmd else "--print"
             idx = cmd.index(flag)
             cmd_to_run = [*cmd[: idx + 1], prompt, *cmd[idx + 1 :]]
@@ -102,10 +120,12 @@ def _post_stream_result(
     # Skip auth/credit checks when early_killed — killing the process can cause
     # in-flight API requests to fail with spurious errors.
     raw_output = "\n".join(raw_lines)
-    if not early_killed and "authentication_failed" in raw_output:
+    combined_for_auth = f"{stderr_text}\n{raw_output}"
+    if not early_killed and _is_auth_failure(combined_for_auth):
         raise AuthenticationRetryError(
-            "Agent CLI authentication failed — check "
-            "ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN"
+            "Agent CLI authentication failed — check the provider's auth "
+            "(ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN / GEMINI_API_KEY / "
+            "~/.gemini/settings.json / CODEX_HOME)"
         )
 
     combined = f"{stderr_text}\n{accumulated_text}"
@@ -277,6 +297,8 @@ async def stream_claude_process(
         _backend = "claude"
         if cmd and cmd[0] == "codex":
             _backend = "codex"
+        elif cmd and cmd[0] == "gemini":
+            _backend = "gemini"
         elif cmd and cmd[0] == "pi":
             _backend = "pi"
         activity_parser = get_activity_parser(_backend)

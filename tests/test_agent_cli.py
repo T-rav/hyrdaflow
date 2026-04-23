@@ -1,4 +1,4 @@
-"""Tests for agent_cli.py — CLI command builders for Claude, Codex, and Pi."""
+"""Tests for agent_cli.py — CLI command builders for Claude, Codex, Gemini, and Pi."""
 
 from __future__ import annotations
 

@@ -114,8 +114,6 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("adr_review_approval_threshold", "HYDRAFLOW_ADR_REVIEW_APPROVAL_THRESHOLD", 2),
     ("adr_review_max_rounds", "HYDRAFLOW_ADR_REVIEW_MAX_ROUNDS", 3),
     ("pr_unstick_batch_size", "HYDRAFLOW_PR_UNSTICK_BATCH_SIZE", 10),
-    ("max_subskill_attempts", "HYDRAFLOW_MAX_SUBSKILL_ATTEMPTS", 0),
-    ("max_debug_attempts", "HYDRAFLOW_MAX_DEBUG_ATTEMPTS", 1),
     ("harness_insight_window", "HYDRAFLOW_HARNESS_INSIGHT_WINDOW", 20),
     ("harness_pattern_threshold", "HYDRAFLOW_HARNESS_PATTERN_THRESHOLD", 3),
     ("max_runtime_log_chars", "HYDRAFLOW_MAX_RUNTIME_LOG_CHARS", 8_000),
@@ -174,17 +172,6 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("test_command", "HYDRAFLOW_TEST_COMMAND", "make test"),
     ("docker_image", "HYDRAFLOW_DOCKER_IMAGE", "ghcr.io/t-rav/hydraflow-agent:latest"),
     ("docker_network", "HYDRAFLOW_DOCKER_NETWORK", ""),
-    ("system_model", "HYDRAFLOW_SYSTEM_MODEL", ""),
-    ("background_model", "HYDRAFLOW_BACKGROUND_MODEL", ""),
-    ("transcript_summary_model", "HYDRAFLOW_TRANSCRIPT_SUMMARY_MODEL", "haiku"),
-    ("wiki_compilation_model", "HYDRAFLOW_WIKI_COMPILATION_MODEL", "haiku"),
-    ("triage_model", "HYDRAFLOW_TRIAGE_MODEL", "haiku"),
-    ("subskill_model", "HYDRAFLOW_SUBSKILL_MODEL", "haiku"),
-    ("debug_model", "HYDRAFLOW_DEBUG_MODEL", "opus"),
-    ("report_issue_model", "HYDRAFLOW_REPORT_ISSUE_MODEL", "opus"),
-    ("sentry_model", "HYDRAFLOW_SENTRY_MODEL", "opus"),
-    ("code_grooming_model", "HYDRAFLOW_CODE_GROOMING_MODEL", "sonnet"),
-    ("adr_review_model", "HYDRAFLOW_ADR_REVIEW_MODEL", "sonnet"),
     ("changelog_file", "HYDRAFLOW_CHANGELOG_FILE", ""),
     ("release_tag_prefix", "HYDRAFLOW_RELEASE_TAG_PREFIX", "v"),
     ("main_branch", "HYDRAFLOW_MAIN_BRANCH", "main"),
@@ -232,7 +219,6 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         "HYDRAFLOW_TRANSCRIPT_SUMMARIZATION_ENABLED",
         True,
     ),
-    ("debug_escalation_enabled", "HYDRAFLOW_DEBUG_ESCALATION_ENABLED", True),
     ("unstick_auto_merge", "HYDRAFLOW_UNSTICK_AUTO_MERGE", True),
     ("unstick_all_causes", "HYDRAFLOW_UNSTICK_ALL_CAUSES", True),
     (
@@ -262,19 +248,6 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
 _ENV_LITERAL_OVERRIDES: list[tuple[str, str]] = [
     ("execution_mode", "HYDRAFLOW_EXECUTION_MODE"),
     ("docker_network_mode", "HYDRAFLOW_DOCKER_NETWORK_MODE"),
-    ("system_tool", "HYDRAFLOW_SYSTEM_TOOL"),
-    ("background_tool", "HYDRAFLOW_BACKGROUND_TOOL"),
-    ("implementation_tool", "HYDRAFLOW_IMPLEMENTATION_TOOL"),
-    ("review_tool", "HYDRAFLOW_REVIEW_TOOL"),
-    ("planner_tool", "HYDRAFLOW_PLANNER_TOOL"),
-    ("triage_tool", "HYDRAFLOW_TRIAGE_TOOL"),
-    ("transcript_summary_tool", "HYDRAFLOW_TRANSCRIPT_SUMMARY_TOOL"),
-    ("wiki_compilation_tool", "HYDRAFLOW_WIKI_COMPILATION_TOOL"),
-    ("ac_tool", "HYDRAFLOW_AC_TOOL"),
-    ("verification_judge_tool", "HYDRAFLOW_VERIFICATION_JUDGE_TOOL"),
-    ("subskill_tool", "HYDRAFLOW_SUBSKILL_TOOL"),
-    ("debug_tool", "HYDRAFLOW_DEBUG_TOOL"),
-    ("report_issue_tool", "HYDRAFLOW_REPORT_ISSUE_TOOL"),
     ("epic_merge_strategy", "HYDRAFLOW_EPIC_MERGE_STRATEGY"),
     ("release_version_source", "HYDRAFLOW_RELEASE_VERSION_SOURCE"),
 ]
@@ -292,25 +265,62 @@ _DEPRECATED_ENV_REVERSE: dict[str, str] = {
     v: k for k, v in _DEPRECATED_ENV_ALIASES.items()
 }
 
-# Label env var overrides — maps env key → (field_name, default_value)
-_ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
-    "HYDRAFLOW_LABEL_FIND": ("find_label", ["hydraflow-find"]),
-    "HYDRAFLOW_LABEL_DISCOVER": ("discover_label", ["hydraflow-discover"]),
-    "HYDRAFLOW_LABEL_SHAPE": ("shape_label", ["hydraflow-shape"]),
-    "HYDRAFLOW_LABEL_PLAN": ("planner_label", ["hydraflow-plan"]),
-    "HYDRAFLOW_LABEL_READY": ("ready_label", ["hydraflow-ready"]),
-    "HYDRAFLOW_LABEL_REVIEW": ("review_label", ["hydraflow-review"]),
-    "HYDRAFLOW_LABEL_HITL": ("hitl_label", ["hydraflow-hitl"]),
-    "HYDRAFLOW_LABEL_HITL_ACTIVE": ("hitl_active_label", ["hydraflow-hitl-active"]),
-    "HYDRAFLOW_LABEL_HITL_AUTOFIX": ("hitl_autofix_label", ["hydraflow-hitl-autofix"]),
-    "HYDRAFLOW_LABEL_FIXED": ("fixed_label", ["hydraflow-fixed"]),
-    "HYDRAFLOW_LABEL_DUP": ("dup_label", ["hydraflow-dup"]),
-    "HYDRAFLOW_LABEL_EPIC": ("epic_label", ["hydraflow-epic"]),
-    "HYDRAFLOW_LABEL_EPIC_CHILD": ("epic_child_label", ["hydraflow-epic-child"]),
-    "HYDRAFLOW_LABEL_VERIFY": ("verify_label", ["hydraflow-verify"]),
-    "HYDRAFLOW_LABEL_PARKED": ("parked_label", ["hydraflow-parked"]),
-    "HYDRAFLOW_LABEL_DIAGNOSE": ("diagnose_label", ["hydraflow-diagnose"]),
-}
+_ALLOWED_TOOLS_COMBO: set[str] = {"claude", "codex", "gemini", "pi"}
+
+
+def _parse_combo(env_key: str, value: str) -> tuple[str, str]:
+    """Parse a ``tool:model`` combo env var.
+
+    Accepts the sentinel ``"inherit"`` for the SYSTEM / BACKGROUND variables,
+    returning ``("inherit", "")``.  Any other value must contain exactly one
+    colon: the left side a known tool, the right side a non-empty model
+    string.
+
+    Raises :class:`ValueError` with a clear message on malformed input.
+    """
+    stripped = value.strip()
+    if stripped == "inherit":
+        return "inherit", ""
+    if ":" not in stripped:
+        msg = (
+            f"{env_key}={value!r} must be 'tool:model' "
+            f"(e.g. claude:opus, gemini:gemini-3.1-pro-preview) or 'inherit'"
+        )
+        raise ValueError(msg)
+    tool, _, model = stripped.partition(":")
+    tool = tool.strip()
+    model = model.strip()
+    if tool not in _ALLOWED_TOOLS_COMBO:
+        msg = (
+            f"{env_key}={value!r} unknown tool {tool!r}; "
+            f"allowed: {sorted(_ALLOWED_TOOLS_COMBO)}"
+        )
+        raise ValueError(msg)
+    if not model:
+        msg = f"{env_key}={value!r} model part is empty"
+        raise ValueError(msg)
+    return tool, model
+
+
+# Each tuple: (env_key, tool_field, model_field)
+# "inherit" is accepted for fields whose tool type includes it
+# (system, background); otherwise it's rejected by Pydantic's Literal.
+_ENV_COMBO_OVERRIDES: list[tuple[str, str, str]] = [
+    ("HYDRAFLOW_SYSTEM", "system_tool", "system_model"),
+    ("HYDRAFLOW_BACKGROUND", "background_tool", "background_model"),
+    ("HYDRAFLOW_IMPLEMENT", "implementation_tool", "model"),
+    ("HYDRAFLOW_REVIEW", "review_tool", "review_model"),
+    ("HYDRAFLOW_PLANNER", "planner_tool", "planner_model"),
+    ("HYDRAFLOW_TRIAGE", "triage_tool", "triage_model"),
+    ("HYDRAFLOW_AC", "ac_tool", "ac_model"),
+    (
+        "HYDRAFLOW_TRANSCRIPT_SUMMARY",
+        "transcript_summary_tool",
+        "transcript_summary_model",
+    ),
+    ("HYDRAFLOW_WIKI_COMPILATION", "wiki_compilation_tool", "wiki_compilation_model"),
+    ("HYDRAFLOW_REPORT_ISSUE", "report_issue_tool", "report_issue_model"),
+]
 
 
 class HydraFlowConfig(BaseModel):
@@ -413,7 +423,7 @@ class HydraFlowConfig(BaseModel):
             )
         return v
 
-    system_tool: Literal["inherit", "claude", "codex", "pi"] = Field(
+    system_tool: Literal["inherit", "claude", "codex", "gemini", "pi"] = Field(
         default="inherit",
         description="Optional global default tool for system agents; 'inherit' keeps per-agent defaults",
     )
@@ -421,7 +431,7 @@ class HydraFlowConfig(BaseModel):
         default="",
         description="Optional global default model for system agents; empty keeps per-agent defaults",
     )
-    background_tool: Literal["inherit", "claude", "codex", "pi"] = Field(
+    background_tool: Literal["inherit", "claude", "codex", "gemini", "pi"] = Field(
         default="inherit",
         description="Optional global default tool for background workers; 'inherit' keeps per-worker defaults",
     )
@@ -429,14 +439,14 @@ class HydraFlowConfig(BaseModel):
         default="",
         description="Optional global default model for background workers; empty keeps per-worker defaults",
     )
-    implementation_tool: Literal["claude", "codex", "pi"] = Field(
+    implementation_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for implementation agents",
     )
     model: str = Field(default="opus", description="Model for implementation agents")
 
     # Review configuration
-    review_tool: Literal["claude", "codex", "pi"] = Field(
+    review_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for review agents",
     )
@@ -751,7 +761,7 @@ class HydraFlowConfig(BaseModel):
         default=["hydraflow-plan"],
         description="Labels for issues needing plans (OR logic)",
     )
-    planner_tool: Literal["claude", "codex", "pi"] = Field(
+    planner_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for planning agents",
     )
@@ -761,12 +771,13 @@ class HydraFlowConfig(BaseModel):
         ge=0,
         description="Max fix attempts per TDD REFACTOR sub-agent before reporting failure",
     )
-    triage_tool: Literal["claude", "codex", "pi"] = Field(
-        default="claude",
+    triage_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
+        default="gemini",
         description="CLI backend for triage agents",
     )
     triage_model: str = Field(
-        default="haiku", description="Model for triage evaluation (fast/cheap)"
+        default="gemini-3.1-pro-preview",
+        description="Model for triage evaluation (fast/cheap)",
     )
     min_plan_words: int = Field(
         default=200,
@@ -833,7 +844,7 @@ class HydraFlowConfig(BaseModel):
     )
 
     # Agent prompt configuration
-    subskill_tool: Literal["claude", "codex", "pi"] = Field(
+    subskill_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for low-tier subskill/tool-chain passes",
     )
@@ -851,7 +862,7 @@ class HydraFlowConfig(BaseModel):
         default=True,
         description="Enable automatic escalation to debug model when low-tier prechecks signal risk/ambiguity",
     )
-    debug_tool: Literal["claude", "codex", "pi"] = Field(
+    debug_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for debug escalation passes",
     )
@@ -1068,7 +1079,7 @@ class HydraFlowConfig(BaseModel):
         default="haiku",
         description="Model for wiki compilation and synthesis",
     )
-    wiki_compilation_tool: Literal["claude", "codex", "pi"] = Field(
+    wiki_compilation_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for wiki compilation",
     )
@@ -1272,7 +1283,7 @@ class HydraFlowConfig(BaseModel):
         default="haiku",
         description="Cheap model for summarising agent transcripts into structured learnings",
     )
-    transcript_summary_tool: Literal["claude", "codex", "pi"] = Field(
+    transcript_summary_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for transcript summarization",
     )
@@ -1283,7 +1294,7 @@ class HydraFlowConfig(BaseModel):
         description="Max transcript characters to send for summarization (truncated from end)",
     )
     # Report issue worker
-    report_issue_tool: Literal["claude", "codex", "pi"] = Field(
+    report_issue_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for report-issue worker",
     )
@@ -1551,11 +1562,11 @@ class HydraFlowConfig(BaseModel):
         default="sonnet",
         description="Model for acceptance criteria generation (post-merge)",
     )
-    ac_tool: Literal["claude", "codex", "pi"] = Field(
+    ac_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for acceptance criteria generation",
     )
-    verification_judge_tool: Literal["claude", "codex", "pi"] = Field(
+    verification_judge_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
         description="CLI backend for verification judge agents",
     )
@@ -1846,18 +1857,13 @@ class HydraFlowConfig(BaseModel):
             HYDRAFLOW_GIT_USER_NAME     → git_user_name
             HYDRAFLOW_GIT_USER_EMAIL    → git_user_email
             HYDRAFLOW_MIN_PLAN_WORDS    → min_plan_words
-            HYDRAFLOW_LABEL_FIND        → find_label   (discovery stage)
-            HYDRAFLOW_LABEL_PLAN        → planner_label
-            HYDRAFLOW_LABEL_READY       → ready_label  (implement stage)
-            HYDRAFLOW_LABEL_REVIEW      → review_label
-            HYDRAFLOW_LABEL_HITL        → hitl_label
-            HYDRAFLOW_LABEL_HITL_ACTIVE  → hitl_active_label
-            HYDRAFLOW_LABEL_HITL_AUTOFIX → hitl_autofix_label
-            HYDRAFLOW_LABEL_FIXED       → fixed_label
-            HYDRAFLOW_LABEL_VERIFY      → verify_label
-            HYDRAFLOW_LABEL_DUP         → dup_label
-            HYDRAFLOW_LABEL_EPIC        → epic_label
-            HYDRAFLOW_LABEL_EPIC_CHILD  → epic_child_label
+
+        Tool/model overrides use the combo syntax (BREAKING: legacy *_TOOL/*_MODEL
+        single-field env vars are no longer supported):
+            HYDRAFLOW_TRIAGE=tool:model, HYDRAFLOW_IMPLEMENT=tool:model, etc.
+
+        Label fields (ready_label, find_label, etc.) are config-file-only;
+        HYDRAFLOW_LABEL_* env vars were removed in the Task 7 breaking change.
         """
         _resolve_base_paths(self)
         _resolve_repo_and_identity(self)
@@ -1916,11 +1922,12 @@ def _apply_profile_overrides(config: HydraFlowConfig) -> None:
             "review_tool",
             "planner_tool",
             "ac_tool",
-            "verification_judge_tool",
             "subskill_tool",
             "debug_tool",
         ):
             _apply_if_default(field, config.system_tool)
+        # verification_judge_tool intentionally omitted — it is auto-synced
+        # to review_tool inside _harmonize_tool_model_defaults.
 
     if config.system_model.strip():
         for field in (
@@ -1952,14 +1959,93 @@ def _apply_profile_overrides(config: HydraFlowConfig) -> None:
             _apply_if_default(field, config.background_model)
 
 
-def _harmonize_tool_model_defaults(config: HydraFlowConfig) -> None:
-    """Align tool/model defaults when model remains implicit.
+# Model prefix → required tool. Any model starting with a listed prefix
+# MUST pair with the given tool; any other pairing is rejected.
+_MODEL_TOOL_REQUIRED: list[tuple[str, str]] = [
+    ("gemini", "gemini"),
+    ("gpt-", "codex"),
+    ("o1", "codex"),
+    ("o3", "codex"),
+    ("o4", "codex"),
+    ("opus", "claude"),
+    ("sonnet", "claude"),
+    ("haiku", "claude"),
+    ("claude-", "claude"),
+]
 
-    Prevent Codex runs from inheriting the Claude-oriented implementation model
-    default (`opus`) when no explicit implementation model was provided.
+
+def _required_tool_for_model(model: str) -> str | None:
+    m = model.lower()
+    for prefix, tool in _MODEL_TOOL_REQUIRED:
+        if m.startswith(prefix):
+            return tool
+    return None
+
+
+def _harmonize_tool_model_defaults(config: HydraFlowConfig) -> None:
+    """Validate that every (tool, model) pair is internally consistent.
+
+    Rejects:
+      - Any ``*-flash*`` model in any role (quality guard for the factory).
+      - Cross-provider mismatches (e.g. ``codex`` + ``opus``,
+        ``gemini`` + ``gpt-5-codex``).
+
+    Also auto-syncs ``verification_judge_tool`` to ``review_tool`` because
+    the two share ``review_model`` — the tools MUST agree, so we pick the
+    review side as the source of truth and let the ``review`` pair check
+    catch the underlying model mismatch if one exists. Emits a warning
+    when an explicit ``verification_judge_tool`` is being overridden so
+    the user isn't surprised.
     """
-    if config.implementation_tool == "codex" and config.model == "opus":
-        object.__setattr__(config, "model", "gpt-5-codex")
+    if config.verification_judge_tool != config.review_tool:
+        logger.warning(
+            "verification_judge_tool=%r does not match review_tool=%r; "
+            "the two share review_model so they must agree. "
+            "Overriding verification_judge_tool to %r.",
+            config.verification_judge_tool,
+            config.review_tool,
+            config.review_tool,
+        )
+    object.__setattr__(config, "verification_judge_tool", config.review_tool)
+
+    stage_pairs: list[tuple[str, str, str]] = [
+        ("implementation", config.implementation_tool, config.model),
+        ("review", config.review_tool, config.review_model),
+        ("planner", config.planner_tool, config.planner_model),
+        ("triage", config.triage_tool, config.triage_model),
+        ("ac", config.ac_tool, config.ac_model),
+        ("subskill", config.subskill_tool, config.subskill_model),
+        ("debug", config.debug_tool, config.debug_model),
+        (
+            "transcript_summary",
+            config.transcript_summary_tool,
+            config.transcript_summary_model,
+        ),
+        (
+            "wiki_compilation",
+            config.wiki_compilation_tool,
+            config.wiki_compilation_model,
+        ),
+        ("report_issue", config.report_issue_tool, config.report_issue_model),
+    ]
+
+    for stage, tool, model in stage_pairs:
+        if not model:
+            continue  # empty — inherited/unset
+        if "flash" in model.lower():
+            msg = (
+                f"{stage}: model {model!r} is a *flash* variant; "
+                "flash models are rejected for the factory (insufficient "
+                "reasoning quality). Use a pro-tier model instead."
+            )
+            raise ValueError(msg)
+        required = _required_tool_for_model(model)
+        if required is not None and required != tool:
+            msg = (
+                f"{stage}: mismatched pair {tool!r}+{model!r}; "
+                f"model {model!r} requires tool {required!r}"
+            )
+            raise ValueError(msg)
 
 
 def _resolve_base_paths(config: HydraFlowConfig) -> None:
@@ -2325,6 +2411,23 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
                     env_val.lower() not in ("0", "false", "no"),
                 )
 
+    # Combo env vars: HYDRAFLOW_<STAGE>=tool:model
+    for env_key, tool_field, model_field in _ENV_COMBO_OVERRIDES:
+        env_val = _get_env(env_key)
+        if env_val is None:
+            continue
+        tool, model = _parse_combo(env_key, env_val)  # raises on malformed
+        # "inherit" is only valid for fields whose Literal includes it;
+        # Pydantic would reject otherwise — pre-empt with a clearer message.
+        if tool == "inherit" and tool_field not in {"system_tool", "background_tool"}:
+            msg = (
+                f"{env_key}=inherit not allowed; {tool_field} requires an explicit tool"
+            )
+            raise ValueError(msg)
+        object.__setattr__(config, tool_field, tool)
+        if model:  # empty model only for "inherit"
+            object.__setattr__(config, model_field, model)
+
     # Data-driven env var overrides (Literal-typed fields)
     for field, env_key in _ENV_LITERAL_OVERRIDES:
         field_info = HydraFlowConfig.model_fields[field]
@@ -2410,20 +2513,6 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
                     msg = f"HYDRAFLOW_DOCKER_PIDS_LIMIT must be between 16 and 4096, got {pids_val}"
                     raise ValueError(msg)
                 object.__setattr__(config, "docker_pids_limit", pids_val)
-
-    # Label env var overrides (only apply when still at the default)
-    for env_key, (field_name, default_val) in _ENV_LABEL_MAP.items():
-        current = getattr(config, field_name)
-        env_val = os.environ.get(env_key)
-        if env_val is not None and current == default_val:
-            # Split on comma, ignoring empty parts; skip override if result is empty
-            labels = (
-                [part.strip() for part in env_val.split(",") if part.strip()]
-                if env_val
-                else []
-            )
-            if labels:
-                object.__setattr__(config, field_name, labels)
 
 
 def _validate_docker(config: HydraFlowConfig) -> None:

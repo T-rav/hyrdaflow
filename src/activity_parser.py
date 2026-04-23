@@ -44,7 +44,7 @@ def _summarize_tool(name: str, tool_input: dict[str, Any]) -> str:
     verb = _FILE_PATH_VERBS.get(normalized)
     if verb:
         return f"{verb} {tool_input.get('file_path', '?')}"
-    if normalized == "bash":
+    if normalized in ("bash", "run_shell_command"):
         cmd = tool_input.get("command", "")
         return f"Running: {cmd[:60]}" if cmd else "Running command"
     if normalized == "glob":
@@ -209,6 +209,82 @@ class CodexActivityParser:
         return None
 
 
+class GeminiActivityParser:
+    """Parses Gemini ``--output-format stream-json`` lines into activity events."""
+
+    def __init__(self) -> None:
+        self._seen_tool_ids: set[str] = set()
+
+    def parse(self, raw_line: str) -> AgentActivityPayload | None:
+        try:
+            event = json.loads(raw_line)
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+        event_type = event.get("type", "")
+
+        if event_type == "tool_use":
+            return self._parse_tool_use(event)
+        if event_type == "tool_result":
+            return self._parse_tool_result(event)
+        if event_type == "message":
+            return self._parse_message(event)
+        if event_type == "error":
+            return self._parse_error(event)
+        return None
+
+    def _parse_tool_use(self, event: dict[str, Any]) -> AgentActivityPayload | None:
+        tool_id = event.get("tool_id", "")
+        if tool_id and tool_id in self._seen_tool_ids:
+            return None
+        if tool_id:
+            self._seen_tool_ids.add(tool_id)
+        name = str(event.get("tool_name", "?"))
+        params = event.get("parameters", {})
+        if not isinstance(params, dict):
+            params = {}
+        return {
+            "activity_type": "tool_call",
+            "tool_name": name,
+            "summary": _summarize_tool(name, params),
+            "detail": _truncate(str(params), _MAX_DETAIL_LEN),
+        }
+
+    def _parse_tool_result(self, event: dict[str, Any]) -> AgentActivityPayload | None:
+        output = event.get("output", "")
+        status = str(event.get("status", ""))
+        preview_source = str(output) if output else status
+        preview = preview_source[:80].replace("\n", " ") if preview_source else "(done)"
+        return {
+            "activity_type": "tool_result",
+            "tool_name": None,
+            "summary": f"Result: {preview}",
+            "detail": _truncate(str(output or status), _MAX_DETAIL_LEN),
+        }
+
+    def _parse_message(self, event: dict[str, Any]) -> AgentActivityPayload | None:
+        if event.get("role") != "assistant":
+            return None
+        text = str(event.get("content", "")).strip()
+        if len(text) >= _MIN_TEXT_LEN:
+            return {
+                "activity_type": "text",
+                "tool_name": None,
+                "summary": _truncate(text, 80),
+                "detail": _truncate(text, _MAX_DETAIL_LEN),
+            }
+        return None
+
+    def _parse_error(self, event: dict[str, Any]) -> AgentActivityPayload | None:
+        msg = event.get("message", "Unknown error")
+        return {
+            "activity_type": "error",
+            "tool_name": None,
+            "summary": _truncate(str(msg), 80),
+            "detail": _truncate(str(msg), _MAX_DETAIL_LEN),
+        }
+
+
 class PiActivityParser:
     """No-op stub for Pi CLI — returns None for all lines."""
 
@@ -222,6 +298,7 @@ def get_activity_parser(backend: str) -> ActivityParser:
     parsers: dict[str, ActivityParser] = {
         "claude": ClaudeActivityParser(),
         "codex": CodexActivityParser(),
+        "gemini": GeminiActivityParser(),
         "pi": PiActivityParser(),
     }
     return parsers.get(backend, PiActivityParser())

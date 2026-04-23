@@ -1,11 +1,11 @@
-"""Agent CLI command builders for Claude, Codex, and Pi backends."""
+"""Agent CLI command builders for Claude, Codex, Gemini, and Pi backends."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Literal
 
-AgentTool = Literal["claude", "codex", "pi"]
+AgentTool = Literal["claude", "codex", "gemini", "pi"]
 
 # Base directory for plugins pre-cloned into the Docker image at build time
 # (see Dockerfile.agent-base). Each subdirectory is passed as ``--plugin-dir``
@@ -46,6 +46,8 @@ def build_agent_command(
     """
     if tool == "codex":
         return _build_codex_command(model=model)
+    if tool == "gemini":
+        return _build_gemini_command(model=model)
     if tool == "pi":
         return _build_pi_command(
             model=model,
@@ -89,6 +91,25 @@ def _build_codex_command(*, model: str) -> list[str]:
     ]
 
 
+def _build_gemini_command(*, model: str) -> list[str]:
+    """Build a Gemini headless command with streaming JSONL output.
+
+    The prompt is spliced in by ``_route_prompt_to_cmd`` (runner_utils) —
+    leaving ``-p`` dangling here lets the splicer insert the prompt at the
+    exact position gemini requires (immediately after ``-p``).
+    """
+    return [
+        "gemini",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--model",
+        model,
+        "--approval-mode",
+        "yolo",
+    ]
+
+
 def build_lightweight_command(
     *,
     tool: AgentTool,
@@ -113,6 +134,26 @@ def build_lightweight_command(
         cmd = _build_codex_command(model=model)
         cmd.append(prompt)
         return cmd, None
+
+    # Gemini: `-p <prompt>` for small prompts; for large ones, pass an
+    # empty -p flag and let the prompt flow in via stdin (gemini's docs:
+    # "Appended to input on stdin (if any)"). `-p -` would pass the
+    # literal string "-" as a prompt prefix, not "read from stdin" —
+    # that's a claude convention, not gemini's.
+    #
+    # Mirrors claude/pi inline pattern (not the codex delegation pattern)
+    # — lightweight callers deliberately omit --output-format stream-json.
+    if tool == "gemini":
+        prompt_bytes = prompt.encode()
+        if len(prompt_bytes) > 100_000:
+            return (
+                ["gemini", "-p", "", "--model", model, "--approval-mode", "yolo"],
+                prompt_bytes,
+            )
+        return (
+            ["gemini", "-p", prompt, "--model", model, "--approval-mode", "yolo"],
+            None,
+        )
 
     # For large prompts, pass via stdin to avoid OS ARG_MAX limit.
     prompt_bytes = prompt.encode()

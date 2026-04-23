@@ -365,17 +365,6 @@ class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
 class TestHydraFlowConfigHitlActiveLabel:
     """Tests for hitl_active_label env var override."""
 
-    def test_hitl_active_label_env_var_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_LABEL_HITL_ACTIVE", "custom-active")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            workspace_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.hitl_active_label == ["custom-active"]
-
     def test_hitl_active_label_env_var_not_applied_when_explicit(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -414,17 +403,6 @@ class TestHydraFlowConfigDupLabel:
         )
         assert cfg.dup_label == ["my-dup"]
 
-    def test_dup_label_env_var_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_LABEL_DUP", "custom-dup")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            workspace_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.dup_label == ["custom-dup"]
-
     def test_dup_label_env_var_not_applied_when_explicit(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -457,17 +435,6 @@ class TestHydraFlowConfigEpicChildLabel:
             state_file=tmp_path / "s.json",
         )
         assert cfg.epic_child_label == ["my-epic-child"]
-
-    def test_epic_child_label_env_var_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_LABEL_EPIC_CHILD", "custom-epic-child")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            workspace_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.epic_child_label == ["custom-epic-child"]
 
     def test_epic_child_label_env_var_not_applied_when_explicit(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1102,17 +1069,6 @@ class TestTranscriptSummarizationConfig:
         )
         assert cfg.transcript_summarization_enabled is False
 
-    def test_env_var_model_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_TRANSCRIPT_SUMMARY_MODEL", "sonnet")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            workspace_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.transcript_summary_model == "sonnet"
-
     def test_env_var_max_chars_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1221,18 +1177,6 @@ class TestLabelValidation:
             state_file=tmp_path / "s.json",
         )
         assert cfg.verify_label == ["hydraflow-verify"]
-
-    def test_verify_label_env_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """HYDRAFLOW_LABEL_VERIFY should override verify_label."""
-        monkeypatch.setenv("HYDRAFLOW_LABEL_VERIFY", "custom-verify")
-        cfg = HydraFlowConfig(
-            repo_root=tmp_path,
-            workspace_base=tmp_path / "wt",
-            state_file=tmp_path / "s.json",
-        )
-        assert cfg.verify_label == ["custom-verify"]
 
     def test_verify_label_in_all_pipeline_labels(self, tmp_path: Path) -> None:
         """verify_label should appear in all_pipeline_labels."""
@@ -1666,7 +1610,7 @@ class TestAgentToolFields:
         assert cfg.implementation_tool == "claude"
         assert cfg.review_tool == "claude"
         assert cfg.planner_tool == "claude"
-        assert cfg.triage_tool == "claude"
+        assert cfg.triage_tool == "gemini"
         assert cfg.transcript_summary_tool == "claude"
         assert cfg.ac_tool == "claude"
         assert cfg.verification_judge_tool == "claude"
@@ -1676,13 +1620,14 @@ class TestAgentToolFields:
     def test_tool_env_overrides(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_IMPLEMENTATION_TOOL", "codex")
-        monkeypatch.setenv("HYDRAFLOW_REVIEW_TOOL", "codex")
-        monkeypatch.setenv("HYDRAFLOW_PLANNER_TOOL", "codex")
-        monkeypatch.setenv("HYDRAFLOW_TRIAGE_TOOL", "codex")
-        monkeypatch.setenv("HYDRAFLOW_TRANSCRIPT_SUMMARY_TOOL", "codex")
-        monkeypatch.setenv("HYDRAFLOW_AC_TOOL", "codex")
-        monkeypatch.setenv("HYDRAFLOW_VERIFICATION_JUDGE_TOOL", "codex")
+        # Legacy HYDRAFLOW_*_TOOL vars are gone; use combo syntax instead.
+        monkeypatch.setenv("HYDRAFLOW_IMPLEMENT", "codex:gpt-5-codex")
+        monkeypatch.setenv("HYDRAFLOW_REVIEW", "codex:gpt-5-codex")
+        monkeypatch.setenv("HYDRAFLOW_PLANNER", "codex:gpt-5-codex")
+        monkeypatch.setenv("HYDRAFLOW_TRIAGE", "codex:gpt-5-codex")
+        monkeypatch.setenv("HYDRAFLOW_TRANSCRIPT_SUMMARY", "codex:gpt-5-codex")
+        monkeypatch.setenv("HYDRAFLOW_AC", "codex:gpt-5-codex")
+        # verification_judge has no env var — it auto-syncs to review_tool.
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             workspace_base=tmp_path / "wt",
@@ -1700,17 +1645,18 @@ class TestAgentToolFields:
     def test_tool_env_overrides_accept_pi(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("HYDRAFLOW_IMPLEMENTATION_TOOL", "pi")
-        monkeypatch.setenv("HYDRAFLOW_REVIEW_TOOL", "pi")
-        monkeypatch.setenv("HYDRAFLOW_PLANNER_TOOL", "pi")
-        monkeypatch.setenv("HYDRAFLOW_TRIAGE_TOOL", "pi")
-        monkeypatch.setenv("HYDRAFLOW_TRANSCRIPT_SUMMARY_TOOL", "pi")
-        monkeypatch.setenv("HYDRAFLOW_AC_TOOL", "pi")
-        monkeypatch.setenv("HYDRAFLOW_VERIFICATION_JUDGE_TOOL", "pi")
-        monkeypatch.setenv("HYDRAFLOW_SUBSKILL_TOOL", "pi")
-        monkeypatch.setenv("HYDRAFLOW_DEBUG_TOOL", "pi")
-        monkeypatch.setenv("HYDRAFLOW_SYSTEM_TOOL", "pi")
-        monkeypatch.setenv("HYDRAFLOW_BACKGROUND_TOOL", "pi")
+        # Legacy HYDRAFLOW_*_TOOL vars are gone; use combo syntax instead.
+        # Note: subskill_tool and debug_tool have no dedicated combo var;
+        # they are set via system_tool profile propagation.
+        monkeypatch.setenv("HYDRAFLOW_IMPLEMENT", "pi:pi-model")
+        monkeypatch.setenv("HYDRAFLOW_REVIEW", "pi:pi-model")
+        monkeypatch.setenv("HYDRAFLOW_PLANNER", "pi:pi-model")
+        monkeypatch.setenv("HYDRAFLOW_TRIAGE", "pi:pi-model")
+        monkeypatch.setenv("HYDRAFLOW_TRANSCRIPT_SUMMARY", "pi:pi-model")
+        monkeypatch.setenv("HYDRAFLOW_AC", "pi:pi-model")
+        # verification_judge has no env var — it auto-syncs to review_tool.
+        monkeypatch.setenv("HYDRAFLOW_SYSTEM", "pi:pi-model")
+        monkeypatch.setenv("HYDRAFLOW_BACKGROUND", "pi:pi-model")
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
             workspace_base=tmp_path / "wt",
@@ -1723,8 +1669,6 @@ class TestAgentToolFields:
         assert cfg.transcript_summary_tool == "pi"
         assert cfg.ac_tool == "pi"
         assert cfg.verification_judge_tool == "pi"
-        assert cfg.subskill_tool == "pi"
-        assert cfg.debug_tool == "pi"
         assert cfg.system_tool == "pi"
         assert cfg.background_tool == "pi"
 
@@ -1734,7 +1678,9 @@ class TestAgentToolFields:
             workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
             system_tool="codex",
+            system_model="gpt-5-codex",
             background_tool="codex",
+            background_model="gpt-5-codex",
         )
         assert cfg.implementation_tool == "codex"
         assert cfg.model == "gpt-5-codex"
@@ -1752,7 +1698,9 @@ class TestAgentToolFields:
             repo_root=tmp_path,
             workspace_base=tmp_path / "wt",
             state_file=tmp_path / "s.json",
+            system_tool="codex",
             system_model="gpt-5-codex",
+            background_tool="codex",
             background_model="gpt-5-codex",
         )
         assert cfg.model == "gpt-5-codex"

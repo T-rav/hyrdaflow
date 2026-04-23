@@ -26,7 +26,7 @@ Before doing anything else, resolve these three values. Use the EXACT fallback l
 
 1. **REPO**: Run `echo "$HYDRAFLOW_GITHUB_REPO"`. If the output is empty, run `git remote get-url origin` and extract the `owner/repo` slug (strip `https://github.com/` prefix and `.git` suffix).
 2. **ASSIGNEE**: Run `echo "$HYDRAFLOW_GITHUB_ASSIGNEE"`. If the output is empty, extract the owner from the repo slug (the part before `/`).
-3. **LABEL**: Run `echo "$HYDRAFLOW_LABEL_FIND"`. If the output is empty, **hardcode `hydraflow-find`**. NEVER pass an empty `--label` flag.
+3. **LABEL**: Use `hydraflow-find` (the canonical label for discovery-stage issues).
 
 ### Phase 1: Understand the Request
 

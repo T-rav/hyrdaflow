@@ -19,7 +19,7 @@ Before creating anything, resolve:
 
 1. `REPO`: `echo "$HYDRAFLOW_GITHUB_REPO"`; if empty, use `git remote get-url origin` and parse `owner/repo`.
 2. `ASSIGNEE`: `echo "$HYDRAFLOW_GITHUB_ASSIGNEE"`; if empty, use repo owner.
-3. `LABEL`: `echo "$HYDRAFLOW_LABEL_FIND"`; if empty, use `hydraflow-find`.
+3. `LABEL`: Use `hydraflow-find`.
 
 Never pass empty values to `gh issue create`.
 
@@ -84,5 +84,5 @@ Return:
 ## Notes
 
 - ADR formatting is validated by HydraFlow ADR routing logic.
-- Use `hydraflow-find` (or `HYDRAFLOW_LABEL_FIND`) so the issue is queued into the pipeline.
+- Use `hydraflow-find` so the issue is queued into the pipeline.
 - Keep decision text concrete and implementation-actionable.

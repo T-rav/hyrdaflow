@@ -11,7 +11,7 @@ Create a well-structured GitHub issue and queue it into HydraFlow's normal pipel
 1. Resolve repo/assignee/label defaults:
    - repo: `HYDRAFLOW_GITHUB_REPO` or git origin slug
    - assignee: `HYDRAFLOW_GITHUB_ASSIGNEE` or repo owner
-   - label: `HYDRAFLOW_LABEL_FIND` or `hydraflow-find`
+   - label: `hydraflow-find`
 2. Parse user input to identify area, problem/feature, and relevant services.
 3. Research codebase (Grep/Glob/Read) for concrete context: file paths, functions, patterns.
 4. Check for duplicates: `gh issue list --label hydraflow-find --state open --search "<terms>"`.
