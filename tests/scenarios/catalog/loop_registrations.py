@@ -150,14 +150,6 @@ def _build_sentry(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     return SentryLoop(config=config, prs=ports["github"], deps=deps)
 
 
-def _build_memory_sync(ports: dict[str, Any], config: Any, deps: Any) -> Any:
-    from memory_sync_loop import MemorySyncLoop  # noqa: PLC0415
-
-    memory_sync = ports.get("memory_sync") or MagicMock()
-    ports.setdefault("memory_sync", memory_sync)
-    return MemorySyncLoop(config=config, memory_sync=memory_sync, deps=deps)
-
-
 def _build_diagnostic(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     from diagnostic_loop import DiagnosticLoop  # noqa: PLC0415
 
@@ -246,7 +238,6 @@ _BUILDERS: dict[str, Any] = {
     "github_cache": _build_github_cache,
     "repo_wiki": _build_repo_wiki,
     "sentry": _build_sentry,
-    "memory_sync": _build_memory_sync,
     "diagnostic": _build_diagnostic,
     "code_grooming": _build_code_grooming,
     "report_issue": _build_report_issue,

@@ -19,8 +19,6 @@ class TestCredentialsModel:
     def test_defaults_are_empty_strings(self) -> None:
         creds = Credentials()
         assert creds.gh_token == ""
-        assert creds.hindsight_url == ""
-        assert creds.hindsight_api_key == ""
         assert creds.sentry_auth_token == ""
         assert creds.whatsapp_token == ""
         assert creds.whatsapp_phone_id == ""
@@ -35,11 +33,9 @@ class TestCredentialsModel:
     def test_explicit_values_stored(self) -> None:
         creds = Credentials(
             gh_token="gh-tok",
-            hindsight_url="http://h",
             sentry_auth_token="sntryu_x",
         )
         assert creds.gh_token == "gh-tok"
-        assert creds.hindsight_url == "http://h"
         assert creds.sentry_auth_token == "sntryu_x"
 
 
@@ -52,9 +48,9 @@ class TestCredentialsFactory:
         assert creds.gh_token == ""
 
     def test_factory_overrides(self) -> None:
-        creds = CredentialsFactory.create(gh_token="tok", hindsight_url="http://x")
+        creds = CredentialsFactory.create(gh_token="tok", sentry_auth_token="s")
         assert creds.gh_token == "tok"
-        assert creds.hindsight_url == "http://x"
+        assert creds.sentry_auth_token == "s"
 
 
 class TestBuildCredentials:
@@ -111,17 +107,8 @@ class TestBuildCredentials:
             creds = build_credentials(config)
         assert creds.sentry_auth_token == "sntryu_abc"
 
-    def test_reads_hindsight_fields(self, tmp_path: Path) -> None:
-        config = ConfigFactory.create(repo_root=tmp_path)
-        env = {
-            **self._CLEARED_ENV,
-            "HYDRAFLOW_HINDSIGHT_URL": "http://h",
-            "HYDRAFLOW_HINDSIGHT_API_KEY": "key123",
-        }
-        with patch.dict(os.environ, env, clear=False):
-            creds = build_credentials(config)
-        assert creds.hindsight_url == "http://h"
-        assert creds.hindsight_api_key == "key123"
+    # test_reads_hindsight_fields removed in Phase 3 cutover — Hindsight
+    # credentials deleted from the Credentials model.
 
     def test_reads_whatsapp_fields(self, tmp_path: Path) -> None:
         config = ConfigFactory.create(repo_root=tmp_path)
@@ -148,8 +135,6 @@ class TestHydraFlowConfigExcludesCredentials:
         dumped = config.model_dump()
         credential_keys = {
             "gh_token",
-            "hindsight_url",
-            "hindsight_api_key",
             "sentry_auth_token",
             "whatsapp_token",
             "whatsapp_phone_id",

@@ -24,7 +24,6 @@ ALL_LOOPS = (
     "github_cache",
     "repo_wiki",
     "sentry",
-    "memory_sync",
     "diagnostic",
     "code_grooming",
     "report_issue",

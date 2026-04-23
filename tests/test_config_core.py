@@ -1002,8 +1002,6 @@ class TestCredentialsSeparation:
 
     _CREDENTIAL_FIELDS = {
         "gh_token",
-        "hindsight_url",
-        "hindsight_api_key",
         "sentry_auth_token",
         "whatsapp_token",
         "whatsapp_phone_id",
@@ -1024,9 +1022,9 @@ class TestCredentialsSeparation:
 
     def test_credentials_model_contains_all_secret_fields(self) -> None:
         """Credentials must define all expected secret fields."""
-        creds = Credentials(gh_token="tok", hindsight_api_key="key")
+        creds = Credentials(gh_token="tok", sentry_auth_token="s")
         assert creds.gh_token == "tok"
-        assert creds.hindsight_api_key == "key"
+        assert creds.sentry_auth_token == "s"
 
     def test_credentials_is_frozen(self) -> None:
         """Credentials must be immutable to prevent accidental mutation."""
