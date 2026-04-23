@@ -29,6 +29,7 @@ def loop_env(tmp_path: Path):
     state = MagicMock()
     state.get_flake_counts.return_value = {}
     state.get_flake_attempts.return_value = 0
+    state.inc_flake_attempts.return_value = 1
     pr_manager = AsyncMock()
     pr_manager.create_issue = AsyncMock(return_value=42)
     dedup = MagicMock()
@@ -66,3 +67,56 @@ def test_parse_junit_xml_counts_failures_per_test() -> None:
         "tests.scenarios.test_bravo": "fail",
         "tests.scenarios.test_charlie": "fail",
     }
+
+
+async def test_tally_flakes_counts_mixed_results(loop_env) -> None:
+    cfg, state, pr, dedup = loop_env
+    stop = asyncio.Event()
+    loop = FlakeTrackerLoop(
+        config=cfg, state=state, pr_manager=pr, dedup=dedup, deps=_deps(stop)
+    )
+    # Three runs: alpha always passes, bravo fails twice, charlie fails once.
+    runs = [
+        {"tests.scenarios.test_alpha": "pass", "tests.scenarios.test_bravo": "fail"},
+        {"tests.scenarios.test_alpha": "pass", "tests.scenarios.test_bravo": "fail"},
+        {"tests.scenarios.test_alpha": "pass", "tests.scenarios.test_charlie": "fail"},
+    ]
+    counts = loop._tally_flakes(runs)
+    assert counts["tests.scenarios.test_bravo"] == 2
+    assert counts["tests.scenarios.test_charlie"] == 1
+    assert "tests.scenarios.test_alpha" not in counts  # no failures recorded
+
+
+async def test_do_work_files_issue_when_threshold_hit(loop_env, monkeypatch) -> None:
+    cfg, state, pr, dedup = loop_env
+    stop = asyncio.Event()
+    loop = FlakeTrackerLoop(
+        config=cfg, state=state, pr_manager=pr, dedup=dedup, deps=_deps(stop)
+    )
+
+    fake_runs = [
+        {"tests.foo.test_flake": "fail"},
+        {"tests.foo.test_flake": "pass"},
+        {"tests.foo.test_flake": "fail"},
+        {"tests.foo.test_flake": "fail"},
+    ]
+
+    async def fake_fetch():
+        return [{"databaseId": i, "url": f"u{i}"} for i in range(len(fake_runs))]
+
+    async def fake_download(run):
+        return fake_runs[run["databaseId"]]
+
+    async def fake_reconcile():
+        return None
+
+    monkeypatch.setattr(loop, "_fetch_recent_runs", fake_fetch)
+    monkeypatch.setattr(loop, "_download_junit", fake_download)
+    monkeypatch.setattr(loop, "_reconcile_closed_escalations", fake_reconcile)
+
+    stats = await loop._do_work()
+    assert stats["filed"] == 1
+    title = pr.create_issue.await_args.args[0]
+    assert "test_flake" in title
+    labels = pr.create_issue.await_args.args[2]
+    assert "flaky-test" in labels
