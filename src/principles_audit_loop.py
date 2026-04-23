@@ -167,3 +167,75 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
             for cid, prev in last_green.items()
             if prev == "PASS" and current.get(cid) == "FAIL"
         )
+
+    async def _file_drift_issue(
+        self, slug: str, finding: dict[str, Any], last_status: str
+    ) -> int:
+        """File a ``hydraflow-find`` + ``principles-drift`` issue for one regression."""
+        check_id = finding["check_id"]
+        title = f"Principles drift: {check_id} regressed in {slug}"
+        body = (
+            f"**Principle:** {finding['principle']}\n"
+            f"**Severity:** {finding['severity']}\n"
+            f"**Source:** {finding['source']}\n"
+            f"**Check:** {finding['what']}\n"
+            f"**Remediation:** {finding['remediation']}\n\n"
+            f"**Last-green status:** {last_status}\n"
+            f"**Current status:** {finding.get('status', 'FAIL')}\n"
+            f"**Audit message:** {finding.get('message', '')}\n\n"
+            f"Filed by PrinciplesAuditLoop (spec §4.4)."
+        )
+        labels = [
+            "hydraflow-find",
+            "principles-drift",
+            f"check-{check_id}",
+        ]
+        return await self._pr.create_issue(title, body, labels)
+
+    async def _maybe_escalate(self, slug: str, check_id: str, severity: str) -> bool:
+        """Increment attempt counter and file hitl-escalation if threshold reached."""
+        attempts = self._state.increment_drift_attempts(slug, check_id)
+        threshold = (
+            _CULTURAL_ATTEMPTS if severity == "CULTURAL" else _STRUCTURAL_ATTEMPTS
+        )
+        if attempts < threshold:
+            return False
+        title = f"Principles drift stuck: {check_id} in {slug}"
+        body = (
+            f"PrinciplesAuditLoop has filed {attempts} repair issues for "
+            f"`{check_id}` in `{slug}` without a successful remediation.\n\n"
+            f"Severity: {severity}. Threshold: {threshold}.\n\n"
+            f"Operator action required — verify the check, the ADR-0044 row, "
+            f"and branch protection / review settings if applicable. "
+            f"Closing this issue clears the attempt counter (§3.2 lifecycle)."
+        )
+        labels = [
+            "hitl-escalation",
+            "principles-stuck",
+            f"check-{check_id}",
+        ]
+        if severity == "CULTURAL":
+            labels.append("cultural-check")
+        await self._pr.create_issue(title, body, labels)
+        return True
+
+    async def _fire_for_slug(
+        self,
+        slug: str,
+        regressions: list[str],
+        report: dict[str, Any],
+        last_green: dict[str, str],
+    ) -> dict[str, int]:
+        """File drift issues + escalations for every regression on this slug."""
+        stats = {"filed": 0, "escalated": 0}
+        findings_by_id = {f["check_id"]: f for f in report.get("findings", [])}
+        for check_id in regressions:
+            finding = findings_by_id.get(check_id)
+            if not finding:
+                continue
+            last_status = last_green.get(check_id, "PASS")
+            await self._file_drift_issue(slug, finding, last_status)
+            stats["filed"] += 1
+            if await self._maybe_escalate(slug, check_id, finding["severity"]):
+                stats["escalated"] += 1
+        return stats

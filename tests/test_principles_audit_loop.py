@@ -150,3 +150,46 @@ def test_diff_regressions_no_reference_is_noop(loop_env):
     loop = PrinciplesAuditLoop(config=cfg, state=state, pr_manager=pr, deps=_deps(stop))
     # Empty last-green means "we don't know what green is yet" — no regressions.
     assert loop._diff_regressions({}, {"P1.1": "FAIL"}) == []
+
+
+async def test_file_drift_issue_creates_hydraflow_find(loop_env):
+    cfg, state, pr = loop_env
+    stop = asyncio.Event()
+    loop = PrinciplesAuditLoop(config=cfg, state=state, pr_manager=pr, deps=_deps(stop))
+    finding = {
+        "check_id": "P1.1",
+        "severity": "STRUCTURAL",
+        "principle": "P1",
+        "source": "docs/adr/0001",
+        "what": "doc exists",
+        "remediation": "write docs",
+        "message": "missing file",
+    }
+    issue_num = await loop._file_drift_issue("acme/widget", finding, "PASS")
+    assert issue_num == 42
+    pr.create_issue.assert_awaited_once()
+    call_args = pr.create_issue.await_args
+    title = call_args.args[0] if call_args.args else call_args.kwargs["title"]
+    assert "acme/widget" in title and "P1.1" in title
+
+
+async def test_structural_escalates_after_three_attempts(loop_env):
+    cfg, state, pr = loop_env
+    stop = asyncio.Event()
+    loop = PrinciplesAuditLoop(config=cfg, state=state, pr_manager=pr, deps=_deps(stop))
+    state.increment_drift_attempts.side_effect = [1, 2, 3]
+    # Three consecutive failures → third call fires escalation
+    escalated_last = None
+    for _ in range(3):
+        escalated = await loop._maybe_escalate("acme/widget", "P1.1", "STRUCTURAL")
+        escalated_last = escalated
+    assert escalated_last is True
+
+
+async def test_cultural_escalates_after_one_attempt(loop_env):
+    cfg, state, pr = loop_env
+    stop = asyncio.Event()
+    loop = PrinciplesAuditLoop(config=cfg, state=state, pr_manager=pr, deps=_deps(stop))
+    state.increment_drift_attempts.return_value = 1
+    escalated = await loop._maybe_escalate("acme/widget", "P10.2", "CULTURAL")
+    assert escalated is True
