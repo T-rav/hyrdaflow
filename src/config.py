@@ -221,6 +221,8 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("diagnostic_interval", "HYDRAFLOW_DIAGNOSTIC_INTERVAL", 30),
     ("retrospective_interval", "HYDRAFLOW_RETROSPECTIVE_INTERVAL", 1800),
     ("principles_audit_interval", "HYDRAFLOW_PRINCIPLES_AUDIT_INTERVAL", 604800),
+    ("flake_tracker_interval", "HYDRAFLOW_FLAKE_TRACKER_INTERVAL", 14400),
+    ("flake_threshold", "HYDRAFLOW_FLAKE_THRESHOLD", 3),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -1692,6 +1694,20 @@ class HydraFlowConfig(BaseModel):
         ge=60,
         le=86400,
         description="Poll interval in seconds for retrospective analysis loop",
+    )
+
+    # Trust fleet — FlakeTrackerLoop (spec §4.5)
+    flake_tracker_interval: int = Field(
+        default=14400,
+        ge=3600,
+        le=2_592_000,
+        description="Seconds between FlakeTrackerLoop ticks (default 4h)",
+    )
+    flake_threshold: int = Field(
+        default=3,
+        ge=2,
+        le=20,
+        description="Flake count in last 20 runs that triggers an issue (>=)",
     )
 
     # Managed repos + principles audit (spec §4.4)
