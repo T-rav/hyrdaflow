@@ -131,3 +131,65 @@ async def test_weak_case_sampling_files_corpus_case_weak(loop_env, monkeypatch) 
         if "corpus-case-weak" in (c.args[2] if len(c.args) > 2 else [])
     ]
     assert len(weak_calls) >= 1
+
+
+async def test_escalation_fires_after_three_attempts(loop_env, monkeypatch) -> None:
+    cfg, state, pr, dedup = loop_env
+    state.get_skill_prompt_last_green.return_value = {"case_shrink_001": "PASS"}
+    state.inc_skill_prompt_attempts.return_value = 3
+    stop = asyncio.Event()
+    loop = SkillPromptEvalLoop(
+        config=cfg, state=state, pr_manager=pr, dedup=dedup, deps=_deps(stop)
+    )
+
+    async def fake_run_corpus():
+        return [
+            {
+                "case_id": "case_shrink_001",
+                "skill": "diff_sanity",
+                "status": "FAIL",
+                "provenance": "hand-crafted",
+                "expected_catcher": "diff_sanity",
+            }
+        ]
+
+    async def fake_reconcile():
+        return None
+
+    monkeypatch.setattr(loop, "_run_corpus", fake_run_corpus)
+    monkeypatch.setattr(loop, "_reconcile_closed_escalations", fake_reconcile)
+
+    stats = await loop._do_work()
+    assert stats["escalated"] == 1
+    labels = pr.create_issue.await_args.args[2]
+    assert "hitl-escalation" in labels
+    assert "skill-prompt-stuck" in labels
+
+
+async def test_reconcile_closed_escalations(loop_env, monkeypatch) -> None:
+    cfg, state, pr, dedup = loop_env
+    dedup.get.return_value = {"skill_prompt_eval:case_alpha"}
+    stop = asyncio.Event()
+    loop = SkillPromptEvalLoop(
+        config=cfg, state=state, pr_manager=pr, dedup=dedup, deps=_deps(stop)
+    )
+
+    class FakeProc:
+        returncode = 0
+
+        async def communicate(self):
+            return (
+                b'[{"title": "HITL: skill prompt drift case_alpha unresolved after 3"}]',
+                b"",
+            )
+
+    async def fake_subproc(*a, **kw):
+        return FakeProc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_subproc)
+
+    await loop._reconcile_closed_escalations()
+    dedup.set_all.assert_called_once()
+    remaining = dedup.set_all.call_args.args[0]
+    assert "skill_prompt_eval:case_alpha" not in remaining
+    state.clear_skill_prompt_attempts.assert_called_once_with("case_alpha")
