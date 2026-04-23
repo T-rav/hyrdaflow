@@ -773,6 +773,43 @@ per loop; missing any entry is a hard test failure per
 
 ## 11. Scope: HydraFlow-self today, managed repos later
 
+### 11.1 Principles as foundation (load-bearing)
+
+This entire initiative rests on `ADR-0044` HydraFlow Principles being
+**in place and enforced**. These gates are not freestanding "good
+ideas" — they are the concrete guardrails that presuppose a specific
+repository shape:
+
+- The adversarial skill corpus (§4.1) presupposes **P3** — the
+  post-impl skill chain exists and is dispatched through a known
+  registry.
+- The contract tests (§4.2) presuppose **P3** — stateful `MockWorld`
+  fakes exist under `tests/scenarios/fakes/` that real adapters can
+  be diffed against.
+- The staging-red bisect (§4.3) presupposes **P4/P5** plus
+  `ADR-0042` — branch protection, CI mirroring local gates, a
+  two-tier branch model with an RC promotion PR.
+- Every subsystem presupposes **P1** (documentation contract) so the
+  filed `hydraflow-find` issues have a knowable structure, **P8**
+  (skills integration) so the repair-side implement phase has a
+  working agent toolchain, and **P9** (persistence layout) so
+  caretaker state is stored under a predictable root.
+
+Without these in place, the trust subsystems have nothing to stand
+on. Shipping them to a repo that fails `make audit` is cargo-cult
+trust — the gate runs but guards a shape that does not exist.
+
+**Today this is enforced by convention, not mechanism.** `make audit`
+(`scripts/hydraflow_audit/`) measures conformance; `make init`
+(`scripts/hydraflow_init/`) scaffolds missing pieces for greenfield
+adoption. Neither is wired as a hard gate: no CI job fails on audit
+regression, no onboarding flow refuses to manage a non-conformant
+target repo, no caretaker detects principle drift over time. See
+§11.3 for the drift detector this initiative adds to the named
+follow-on caretaker list.
+
+### 11.2 Per-subsystem extension path
+
 **Today (v1).** Every subsystem in this spec operates on HydraFlow's
 own repository: the adversarial corpus tests HydraFlow's own skill
 chain, the contract tests guard HydraFlow's own fakes, the bisect loop
@@ -782,8 +819,9 @@ multi-repo factory lands").
 
 **Tomorrow.** HydraFlow's goal is to build and maintain **real
 software**, not just itself. As the factory scales to N managed
-target repos, the trust architecture must follow. Each subsystem has a
-per-repo extension path:
+target repos, the trust architecture must follow — **but only for
+repos that pass `make audit` first**. Each subsystem has a per-repo
+extension path, with principle conformance as the gate:
 
 | Subsystem | Per-managed-repo extension | Notes |
 |---|---|---|
@@ -791,12 +829,27 @@ per-repo extension path:
 | Contract tests (§4.2) | Fakes live in HydraFlow (they simulate HydraFlow's adapters), so a single contract suite covers all managed repos. One cassette set is enough | The `ContractRefreshLoop` remains a single caretaker |
 | Staging-red bisect (§4.3) | Per managed repo that adopts `ADR-0042`'s two-tier model. The loop runs N instances (one per repo with a staging branch), each bisecting that repo's own promotion | Requires per-repo `last_green_rc_sha` state keys; straightforward with current `StateTracker` repo-slug scoping (`ADR-0021` P9) |
 
-**What "lots of caretaking" means.** The three loops in this spec are
-a beachhead. The long-term vision is a caretaker fleet — each loop a
-bounded, auditable trust-building job that keeps some aspect of the
-system honest. Obvious next caretakers, out of scope for this spec but
-worth naming so future plans know where to slot in:
+### 11.3 The caretaker fleet — what "lots of caretaking" means
 
+The three loops in this spec are a beachhead. The long-term vision is
+a caretaker fleet — each loop a bounded, auditable trust-building job
+that keeps some aspect of the system honest. Obvious next caretakers,
+out of scope for this spec but worth naming so future plans know
+where to slot in. **Priority 0 (foundational)** comes first because it
+enforces the principle conformance §11.1 says this whole initiative
+rests on:
+
+- **P0 — Principles-drift detector (`PrinciplesAuditLoop`).** Runs
+  `make audit --json` on HydraFlow itself and on every managed target
+  repo on a cadence (weekly default). Compares the result to a stored
+  last-green audit snapshot per repo. Any principle that regressed
+  from PASS to FAIL files a `hydraflow-find` issue with label
+  `principles-drift` naming the specific check_id (e.g. `P5.7`),
+  citing the ADR-0044 row, pointing at the remediation column. On
+  new repo onboarding, the loop refuses to install the trust
+  subsystems on a repo whose audit has outstanding P1–P5 FAILs —
+  foundation has to be in place before the guardrails go up. This
+  caretaker closes the loop §11.1 identifies as missing today.
 - **Flake tracker** — tallies flakes across RCs, files repair issues
   when the flake rate crosses a threshold per test.
 - **Skill-prompt eval** — periodically re-runs the full adversarial
@@ -814,6 +867,8 @@ worth naming so future plans know where to slot in:
 Each of these is its own future spec. This spec scopes to the three
 subsystems that close the most load-bearing gaps first — skill
 regressions (every PR HydraFlow ships), fake drift (every scenario
-assertion), RC-red attribution (every release). Caretakers compound;
-we start with these because their return on trust is highest per
-unit of implementation.
+assertion), RC-red attribution (every release). **The P0 drift
+detector is the natural next plan** once this initiative lands, since
+the three subsystems' value is conditional on it. Caretakers compound;
+we start where the return on trust is highest per unit of
+implementation.
