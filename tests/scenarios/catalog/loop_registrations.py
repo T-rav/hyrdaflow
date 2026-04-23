@@ -342,6 +342,62 @@ def _build_skill_prompt_eval(ports: dict[str, Any], config: Any, deps: Any) -> A
     return loop
 
 
+def _build_fake_coverage_auditor(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build FakeCoverageAuditorLoop for scenarios (spec §4.7).
+
+    The loop's external surface — ``_reconcile_closed_escalations``
+    (``gh issue list``) and ``_grep_scenario_for_helper`` (``rg`` over
+    ``tests/scenarios/``) — cannot run inside a scenario. Tests pre-seed
+    two port keys which this builder monkey-patches onto the instance:
+
+    * ``fake_coverage_reconcile_closed`` → ``_reconcile_closed_escalations``
+    * ``fake_coverage_grep`` → ``_grep_scenario_for_helper``
+
+    ``state`` and ``dedup`` default to MagicMocks that behave like a
+    clean slate (empty last-known catalog, zero attempts, no prior
+    dedup keys). Tests may override by seeding ``fake_coverage_state`` /
+    ``fake_coverage_dedup`` explicitly — mirrors the F7 FlakeTracker
+    (``eac5fc72``) and S6 SkillPromptEval (``93ebf387``) patterns.
+    """
+    from fake_coverage_auditor_loop import FakeCoverageAuditorLoop  # noqa: PLC0415
+
+    state = ports.get("fake_coverage_state")
+    if state is None:
+        state = MagicMock()
+        state.get_fake_coverage_last_known.return_value = {}
+        state.get_fake_coverage_attempts.return_value = 0
+        # Default < _MAX_ATTEMPTS=3 so gap-filing path is taken; escalation
+        # tests override explicitly via ``fake_coverage_state``.
+        state.inc_fake_coverage_attempts.return_value = 1
+        ports["fake_coverage_state"] = state
+
+    dedup = ports.get("fake_coverage_dedup")
+    if dedup is None:
+        dedup = MagicMock()
+        dedup.get.return_value = set()
+        ports["fake_coverage_dedup"] = dedup
+
+    pr_manager = ports.get("pr_manager") or ports["github"]
+
+    loop = FakeCoverageAuditorLoop(
+        config=config,
+        state=state,
+        pr_manager=pr_manager,
+        dedup=dedup,
+        deps=deps,
+    )
+
+    # Rewire external I/O to seeded async callables (if provided).
+    reconcile = ports.get("fake_coverage_reconcile_closed")
+    if reconcile is not None:
+        loop._reconcile_closed_escalations = reconcile  # type: ignore[method-assign]
+    grep = ports.get("fake_coverage_grep")
+    if grep is not None:
+        loop._grep_scenario_for_helper = grep  # type: ignore[method-assign]
+
+    return loop
+
+
 _BUILDERS: dict[str, Any] = {
     # phase 1
     "ci_monitor": _build_ci_monitor,
@@ -365,9 +421,10 @@ _BUILDERS: dict[str, Any] = {
     "security_patch": _build_security_patch,
     "stale_issue": _build_stale_issue,
     "epic_monitor": _build_epic_monitor,
-    # trust fleet (spec §4.5 + §4.6)
+    # trust fleet (spec §4.5 + §4.6 + §4.7)
     "flake_tracker": _build_flake_tracker,
     "skill_prompt_eval": _build_skill_prompt_eval,
+    "fake_coverage_auditor": _build_fake_coverage_auditor,
 }
 
 
