@@ -239,7 +239,12 @@ trust-adversarial: deps
 	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) pytest tests/trust/adversarial/ -v
 	@echo "$(GREEN)Adversarial corpus passed$(RESET)"
 
-trust: trust-adversarial
+trust-contracts: deps
+	@echo "$(BLUE)Running fake contract tests...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) pytest tests/trust/contracts/ -v
+	@echo "$(GREEN)Contract tests passed$(RESET)"
+
+trust: trust-adversarial trust-contracts
 	@echo "$(GREEN)Trust suite passed$(RESET)"
 
 test-fast: deps
