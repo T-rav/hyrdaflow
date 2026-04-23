@@ -203,3 +203,49 @@ class TestBisectHarness:
 
         with pytest.raises(BisectRangeError):
             await loop._run_bisect("green_sha", "red_sha")  # type: ignore[attr-defined]
+
+
+class TestAttribution:
+    @pytest.mark.asyncio
+    async def test_attribute_resolves_sha_to_pr_number(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+
+        async def fake_gh(cmd: list[str]) -> str:
+            assert cmd[0] == "gh"
+            return (
+                '[{"number": 321, "title": "Feature: widgets",'
+                ' "merge_commit_sha": "culprit_sha"}]'
+            )
+
+        loop._run_gh = AsyncMock(side_effect=fake_gh)  # type: ignore[attr-defined]
+
+        pr_number, pr_title = await loop._attribute_culprit("culprit_sha")  # type: ignore[attr-defined]
+
+        assert pr_number == 321
+        assert pr_title == "Feature: widgets"
+
+    @pytest.mark.asyncio
+    async def test_attribute_returns_zero_when_no_pr(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+        loop._run_gh = AsyncMock(return_value="[]")  # type: ignore[attr-defined]
+
+        pr_number, pr_title = await loop._attribute_culprit("culprit_sha")  # type: ignore[attr-defined]
+
+        assert pr_number == 0
+        assert pr_title == ""
+
+    @pytest.mark.asyncio
+    async def test_attribute_handles_malformed_json(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+        loop._run_gh = AsyncMock(return_value="not valid json")  # type: ignore[attr-defined]
+
+        pr_number, pr_title = await loop._attribute_culprit("culprit_sha")  # type: ignore[attr-defined]
+
+        assert pr_number == 0
+        assert pr_title == ""

@@ -269,3 +269,48 @@ class StagingBisectLoop(BaseBackgroundLoop):
             return match.group(1)
         finally:
             await self._cleanup_worktree(worktree_dir)
+
+    async def _run_gh(self, cmd: list[str]) -> str:
+        """Run a ``gh`` command and return stdout. Overridable in tests."""
+        import asyncio  # noqa: PLC0415
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=self._config.repo_root,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"gh failed: {stderr.decode()[:500]}")
+        return stdout.decode()
+
+    async def _attribute_culprit(self, sha: str) -> tuple[int, str]:
+        """Resolve *sha* to ``(pr_number, pr_title)``.
+
+        Spec §4.3 step 3: `gh api repos/.../commits/<sha>/pulls` returns the
+        containing PR(s); we take the first (oldest) entry. Returns
+        ``(0, "")`` if the commit belongs to no PR (direct push) or if
+        ``gh`` returns malformed JSON — upstream callers treat zero as
+        "unattributed" and escalate accordingly.
+        """
+        import json  # noqa: PLC0415
+
+        raw = await self._run_gh(
+            [
+                "gh",
+                "api",
+                f"repos/{self._config.repo}/commits/{sha}/pulls",
+                "--jq",
+                "[.[] | {number, title, merge_commit_sha}]",
+            ]
+        )
+        try:
+            payload = json.loads(raw.strip() or "[]")
+        except json.JSONDecodeError:
+            logger.warning("Could not parse gh pulls output: %s", raw[:200])
+            return 0, ""
+        if not payload:
+            return 0, ""
+        first = payload[0]
+        return int(first.get("number") or 0), str(first.get("title") or "")
