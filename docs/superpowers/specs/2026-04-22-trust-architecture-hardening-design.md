@@ -6,14 +6,21 @@
 
 ## How to read this
 
-This spec establishes the shared framing for a trust-hardening initiative
-with three subsystems: an adversarial skill corpus (plus a learning loop
-that grows it), contract tests for the `MockWorld` fake adapters, and a
-staging-red attribution bisect loop. It fixes scope, fail-mode contracts,
-CI placement, and shared infrastructure — but **not** implementation
-sequencing. Three separate plans follow in `docs/superpowers/plans/2026-04-22-*.md`,
-one per subsystem. When they disagree with the spec, the spec wins and the
-plan must be updated.
+This spec defines a trust-hardening initiative built from **ten autonomous
+loops plus two non-loop subsystems** that together provide a
+lights-off, self-healing operations layer for HydraFlow. Three RC-boundary
+gates (§4.1–§4.3), a foundational principles enforcer (§4.4), a
+five-loop caretaker fleet that compounds trust over time (§4.5–§4.9), a
+product-phase adversarial gate (§4.10), a cost + diagnostics waterfall
+(§4.11), and a meta-observability layer with a sanity caretaker and
+operator controls (§12). §3.2 (autonomy stance), §3.1 (CI placement),
+§11.1 (principles as foundation), and §7 (testing discipline) are
+load-bearing cross-cutting rules every subsystem must honor.
+
+Implementation lands in **five plans** under
+`docs/superpowers/plans/2026-04-22-*.md`, dispatched in two batches;
+see §11.3 for sequencing. When a plan disagrees with the spec, the
+spec wins and the plan must be updated.
 
 ## 1. Context
 
@@ -62,8 +69,11 @@ new one.
 
 ## 2. Scope
 
-**In scope.** Three primary gate-side subsystems plus a six-loop
-caretaker fleet that compounds trust over time:
+**In scope.** Three primary gate-side subsystems (§4.1–§4.3), a
+foundational principles enforcer (§4.4), a five-loop caretaker fleet
+(§4.5–§4.9), a product-phase adversarial gate (§4.10), a factory cost
+& diagnostics waterfall (§4.11), and a meta-observability + operator
+controls layer (§12 — includes `TrustFleetSanityLoop`, the 10th loop):
 
 **Primary gates (RC-boundary):**
 
@@ -130,6 +140,13 @@ existing misplacements get cleaned up first.
 Per `ADR-0044` P5 (CI and branch protection), CI and local gates must not
 diverge. `make trust` runs locally and in `rc-promotion-scenario.yml` with
 the same exit codes.
+
+**One deliberate exception: `make audit` runs per-PR in `ci.yml`** —
+see §4.4 for full rationale. Principles conformance is load-bearing
+for the entire trust architecture (§11.1), so the gate runs on every
+commit, not just the RC. The audit tool is bounded to < 30s runtime
+or it moves to RC-only. This exception is explicit and scoped to
+this one gate.
 
 ### 3.2 Autonomy stance (load-bearing)
 
@@ -642,7 +659,7 @@ plan adds the emission.
    - Title: `Auto-revert: PR #{N} — RC-red attribution on <test_name>`
    - Body: culprit SHA, failing scenario test names, RC PR URL,
      `git show <sha> --stat`, bisect log, link to the retry issue
-     (step 6).
+     (filed in step 8).
    - Labels: `hydraflow-find`, `auto-revert`, `rc-red-attribution`.
 8. **Retry issue (with full context carry-over).** Simultaneously
    file a new `hydraflow-find` issue via
@@ -658,8 +675,8 @@ plan adds the emission.
        (`docs/superpowers/plans/` — find by grepping for the issue
        number).
      - Full bisect log, failing test names, time bounds.
-     - `retry_lineage_id` (the original culprit SHA or a UUID,
-       recorded in `StateTracker`).
+     - `retry_lineage_id` — the SHA of the first culprit in the
+       chain (see step 5 for lineage semantics).
    - Labels: carry over any labels from the original issue except
      `hydraflow-*` state labels — preserves epic, priority, area
      tags. Always add `hydraflow-find`, `rc-red-retry`. The standard
@@ -1839,8 +1856,9 @@ Env overrides follow the existing `HYDRAFLOW_*_ENABLED` pattern.
 
 ### 12.3 Dashboard surfaces — the operator's trust panel
 
-The existing Diagnostics tab is the anchor. This spec adds three
-companion panels:
+The existing Diagnostics tab is the anchor; this spec adds three
+sub-tabs under it (not separate top-level tabs — operators already
+navigate to Diagnostics for factory introspection):
 
 - **Factory Cost** (§4.11) — per-issue waterfall + per-loop cost
   dashboard.
@@ -1849,7 +1867,7 @@ companion panels:
 - **Principles** (§4.4) — current audit status for HydraFlow-self and
   every managed repo, regression history, last-audit timestamp.
 
-All three panels read from existing persistence (`StateTracker`,
+All three sub-tabs read from existing persistence (`StateTracker`,
 `trace_collector`, `prompt_telemetry`) via new read-only endpoints
 under `/api/trust/*` and `/api/diagnostics/*`. No new stores.
 
