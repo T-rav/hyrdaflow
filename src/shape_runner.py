@@ -17,9 +17,12 @@ from plugin_skill_registry import (
     skills_for_phase,
 )
 from runner_constants import MEMORY_SUGGESTION_PROMPT
+from skill_registry import BUILTIN_SKILLS
 
 if TYPE_CHECKING:
+    from dedup_store import DedupStore
     from models import Task
+    from pr_manager import PRManager
 
 logger = logging.getLogger("hydraflow.shape")
 
@@ -32,6 +35,11 @@ _SHAPE_START = "SHAPE_START"
 _SHAPE_END = "SHAPE_END"
 _JSON_BLOCK_RE = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
 
+# Evaluator skill + escalation label constants (§4.10)
+_SKILL_NAME = "shape-coherence"
+_ESCALATION_LABEL_STUCK = "shape-stuck"
+_ESCALATION_LABEL_HITL = "hitl-escalation"
+
 
 class ShapeRunner(BaseRunner):
     """Turn-based product design conversation agent.
@@ -43,6 +51,18 @@ class ShapeRunner(BaseRunner):
 
     _log = logger
 
+    def bind_escalation_deps(
+        self, prs: PRManager, dedup: DedupStore | None = None
+    ) -> None:
+        """Wire issue-filing + dedup deps used by evaluator escalation.
+
+        Called by :class:`ShapePhase` after construction. Without
+        binding, escalation logs a warning and returns — evaluator
+        dispatch and bounded retry still run.
+        """
+        self._prs = prs
+        self._dedup = dedup
+
     async def run_turn(
         self,
         task: Task,
@@ -50,16 +70,61 @@ class ShapeRunner(BaseRunner):
         research_brief: str = "",
         learned_preferences: str = "",
     ) -> ShapeTurnResult:
-        """Run a single conversation turn for *task*.
+        """Run a single conversation turn with post-finalize evaluation (§4.10).
 
-        Returns a :class:`ShapeTurnResult` with the agent's response.
+        Non-final turns (continue/explore) bypass the ``shape-coherence``
+        evaluator — rubric criteria 1–4 only apply to a finalized
+        proposal with options. When ``is_final`` is set, the runner
+        evaluates the content; on RETRY it re-runs the SAME turn up to
+        ``config.max_shape_attempts`` before escalating.
         """
-        result = ShapeTurnResult()
-
         if self._config.dry_run:
             logger.info("[dry-run] Would run shape turn for issue #%d", task.id)
+            result = ShapeTurnResult()
             result.content = "Dry-run: shape turn skipped"
             return result
+
+        max_attempts = max(1, self._config.max_shape_attempts or 1)
+        evaluator_enabled = self._config.max_shape_attempts > 0
+        last_summary = ""
+        last_findings: list[str] = []
+        result = ShapeTurnResult()
+        for attempt in range(1, max_attempts + 1):
+            result = await self._run_turn_once(
+                task, conversation, research_brief, learned_preferences, attempt
+            )
+            if not result.is_final or not evaluator_enabled:
+                return result
+            passed, summary, findings = await self._evaluate_proposal(
+                task, research_brief, result.content
+            )
+            last_summary, last_findings = summary, findings
+            if passed:
+                return result
+            logger.warning(
+                "Shape proposal rejected for #%d attempt %d/%d: %s",
+                task.id,
+                attempt,
+                max_attempts,
+                summary,
+            )
+        await self._escalate_stuck(task, last_summary, last_findings, max_attempts)
+        return result
+
+    async def _run_turn_once(
+        self,
+        task: Task,
+        conversation: ShapeConversation,
+        research_brief: str,
+        learned_preferences: str,
+        attempt: int,
+    ) -> ShapeTurnResult:
+        """Run a single conversation turn — one agent invocation.
+
+        Factored from the original single-shot ``run_turn`` body so the
+        outer loop can invoke it once per attempt.
+        """
+        result = ShapeTurnResult()
 
         try:
             cmd = self._build_command()
@@ -89,7 +154,7 @@ class ShapeRunner(BaseRunner):
                 cmd,
                 prompt,
                 self._config.repo_root,
-                {"issue": task.id, "source": "shape"},
+                {"issue": task.id, "source": f"shape:attempt-{attempt}"},
                 on_output=_check_complete,
             )
             result.transcript = transcript
@@ -125,7 +190,9 @@ class ShapeRunner(BaseRunner):
         try:
             turn_num = len(conversation.turns) + 1
             self._save_transcript(
-                f"shape-issue-turn{turn_num}", task.id, result.transcript
+                f"shape-issue-turn{turn_num}-attempt{attempt}",
+                task.id,
+                result.transcript,
             )
         except OSError:
             logger.warning(
@@ -135,6 +202,91 @@ class ShapeRunner(BaseRunner):
             )
 
         return result
+
+    async def _evaluate_proposal(
+        self, task: Task, discover_brief: str, proposal: str
+    ) -> tuple[bool, str, list[str]]:
+        """Dispatch ``shape-coherence`` against *proposal*.
+
+        A missing skill (registry disabled) fails open so this extension
+        never blocks shaping on its own absence.
+        """
+        skill = next((s for s in BUILTIN_SKILLS if s.name == _SKILL_NAME), None)
+        if skill is None:
+            return True, f"{_SKILL_NAME} not registered — fail open", []
+        prompt = skill.prompt_builder(
+            issue_number=task.id,
+            issue_title=task.title,
+            discover_brief=discover_brief or "",
+            proposal=proposal or "",
+        )
+        try:
+            transcript = await self._execute(
+                self._build_command(),
+                prompt,
+                self._config.repo_root,
+                {"issue": task.id, "source": "shape:evaluator"},
+            )
+        except Exception as exc:
+            reraise_on_credit_or_bug(exc)
+            logger.warning("shape-coherence dispatch failed for #%d: %s", task.id, exc)
+            return True, f"evaluator dispatch failed: {exc!r}", []
+        return skill.result_parser(transcript)
+
+    async def _escalate_stuck(
+        self, task: Task, summary: str, findings: list[str], attempts: int
+    ) -> None:
+        """File hitl-escalation / shape-stuck with dedup.
+
+        Dedup key ``shape_runner:{task.id}`` in the shared
+        ``hitl_escalations`` set. Closing the escalation issue clears
+        the key (per §3.2) so the runner can retry on the next cycle.
+        """
+        prs: PRManager | None = getattr(self, "_prs", None)
+        dedup: DedupStore | None = getattr(self, "_dedup", None)
+        key = f"shape_runner:{task.id}"
+        if dedup is not None and key in dedup.get():
+            logger.info("shape-stuck for #%d already filed (dedup)", task.id)
+            return
+        if prs is None:
+            logger.warning(
+                "shape-stuck for #%d but PRManager not bound; logging only. "
+                "attempts=%d summary=%s",
+                task.id,
+                attempts,
+                summary,
+            )
+            return
+        body_lines = [
+            f"Shape-coherence evaluator rejected {attempts} bounded "
+            f"retries for issue #{task.id}.",
+            "",
+            f"**Last summary:** {summary}",
+        ]
+        if findings:
+            body_lines.append("")
+            body_lines.append("**Last findings:**")
+            for finding in findings[:10]:
+                body_lines.append(f"- {finding}")
+        body_lines += [
+            "",
+            "Action: a human must review the shaping output, reconcile "
+            "the overlap/gap the evaluator flagged, and either retry "
+            "Shape manually or accept the current proposal. Closing "
+            "this issue clears the dedup key so the runner can retry.",
+        ]
+        issue_number = await prs.create_issue(
+            title=f"[shape-stuck] #{task.id} — {task.title}",
+            body="\n".join(body_lines),
+            labels=[_ESCALATION_LABEL_HITL, _ESCALATION_LABEL_STUCK],
+        )
+        if issue_number and dedup is not None:
+            dedup.add(key)
+            logger.info(
+                "Filed shape-stuck escalation #%d for task #%d",
+                issue_number,
+                task.id,
+            )
 
     def _build_command(self, _worktree_path=None) -> list[str]:  # type: ignore[override]
         """Construct the CLI invocation for product shaping.

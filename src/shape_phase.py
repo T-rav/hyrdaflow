@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from memory_judge import MemoryJudge  # noqa: TCH004
 
 from config import HydraFlowConfig
+from dedup_store import DedupStore
 from events import EventBus, EventType, HydraFlowEvent
 from expert_council import CouncilResult, ExpertCouncil  # noqa: TCH001
 from issue_store import IssueStore
@@ -35,6 +36,21 @@ from task_source import TaskTransitioner
 from whatsapp_bridge import WhatsAppBridge  # noqa: TCH001
 
 logger = logging.getLogger("hydraflow.shape_phase")
+
+
+def _build_hitl_dedup(config: HydraFlowConfig) -> DedupStore:
+    """Construct the shared hitl_escalations :class:`DedupStore`.
+
+    Used by :class:`ShapePhase` to bind evaluator-escalation dedup on the
+    :class:`ShapeRunner` at wire-up time. Mirrors the DiscoverPhase path
+    and the layout used by other loops that back dedup sets with a JSON
+    file under ``data_root/memory``.
+    """
+    return DedupStore(
+        "hitl_escalations",
+        config.data_root / "memory" / "hitl_escalations_dedup.json",
+    )
+
 
 _SHAPE_OPTIONS_MARKER = "## Product Directions"
 _SHAPE_TURN_MARKER = "**Shape Turn"
@@ -85,6 +101,8 @@ class ShapePhase:
         self._whatsapp = whatsapp_bridge
         self._council: ExpertCouncil | None = None
         self._suggest_memory = MemorySuggester(config, hindsight=hindsight, judge=judge)
+        if self._runner is not None:
+            self._runner.bind_escalation_deps(self._prs, _build_hitl_dedup(config))
 
     async def shape_issues(self) -> bool:
         """Process shape-labeled issues. Returns True if work was done."""
