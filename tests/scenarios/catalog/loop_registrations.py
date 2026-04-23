@@ -516,6 +516,69 @@ def _build_fake_coverage_auditor(ports: dict[str, Any], config: Any, deps: Any) 
     return loop
 
 
+def _build_staging_bisect(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build StagingBisectLoop for scenarios (spec §4.3).
+
+    The loop shells out to ``git bisect`` / ``gh api`` / ``gh pr create`` /
+    ``gh issue create`` which cannot run inside a scenario. Tests may
+    monkey-patch ``asyncio.create_subprocess_exec`` at the module level
+    (the pattern in ``test_staging_bisect_loop.py``) or pre-seed a
+    ``staging_bisect_state`` override.
+    """
+    from staging_bisect_loop import StagingBisectLoop  # noqa: PLC0415
+
+    state = ports.get("staging_bisect_state") or MagicMock()
+    ports["staging_bisect_state"] = state
+    prs = ports.get("pr_manager") or ports["github"]
+
+    return StagingBisectLoop(config=config, prs=prs, state=state, deps=deps)
+
+
+def _build_trust_fleet_sanity(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build TrustFleetSanityLoop for scenarios (spec §12.1).
+
+    The loop reads heartbeats/enabled state from ``StateTracker`` and
+    ``BGWorkerManager``; tests may pre-seed mocks via ``trust_fleet_sanity_state``
+    and ``trust_fleet_sanity_bg_workers`` ports. ``bg_workers`` is injected
+    post-construction since the real orchestrator builds BGWorkerManager
+    from the loop registry (chicken-and-egg).
+    """
+    from trust_fleet_sanity_loop import TrustFleetSanityLoop  # noqa: PLC0415
+
+    state = ports.get("trust_fleet_sanity_state")
+    if state is None:
+        state = MagicMock()
+        state.get_worker_heartbeats.return_value = {}
+        state.get_trust_fleet_sanity_attempts.return_value = 0
+        state.inc_trust_fleet_sanity_attempts.return_value = 1
+        state.get_trust_fleet_sanity_last_seen_counts.return_value = {}
+        ports["trust_fleet_sanity_state"] = state
+
+    dedup = ports.get("trust_fleet_sanity_dedup")
+    if dedup is None:
+        dedup = MagicMock()
+        dedup.get.return_value = set()
+        ports["trust_fleet_sanity_dedup"] = dedup
+
+    pr_manager = ports.get("pr_manager") or ports["github"]
+    event_bus = ports.get("event_bus") or MagicMock()
+
+    loop = TrustFleetSanityLoop(
+        config=config,
+        state=state,
+        pr_manager=pr_manager,
+        dedup=dedup,
+        event_bus=event_bus,
+        deps=deps,
+    )
+
+    bg_workers = ports.get("trust_fleet_sanity_bg_workers")
+    if bg_workers is not None:
+        loop.set_bg_workers(bg_workers)
+
+    return loop
+
+
 _BUILDERS: dict[str, Any] = {
     # phase 1
     "ci_monitor": _build_ci_monitor,
@@ -545,6 +608,9 @@ _BUILDERS: dict[str, Any] = {
     "fake_coverage_auditor": _build_fake_coverage_auditor,
     "rc_budget": _build_rc_budget,
     "wiki_rot_detector": _build_wiki_rot_detector,
+    # trust fleet (spec §4.3 staging bisect + §12.1 sanity)
+    "staging_bisect": _build_staging_bisect,
+    "trust_fleet_sanity": _build_trust_fleet_sanity,
 }
 
 
