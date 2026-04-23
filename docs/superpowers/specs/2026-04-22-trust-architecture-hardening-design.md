@@ -361,12 +361,16 @@ blind spots — false trust. Mitigate with two mechanisms:
 2. `src/orchestrator.py` — entry in `bg_loop_registry` dict.
 3. `src/ui/src/constants.js` — entry in `BACKGROUND_WORKERS`.
 4. `src/dashboard_routes/_common.py` — entry in `_INTERVAL_BOUNDS`.
-5. `src/config.py` — interval `Field` + `_ENV_INT_OVERRIDES` entry.
+5. `src/config.py` — `corpus_learning_interval: int` Field (default
+   `3600` — hourly; the loop's work is reactive on new escape
+   issues, so frequent ticks pick them up quickly) +
+   `_ENV_INT_OVERRIDES` entry (`HYDRAFLOW_CORPUS_LEARNING_INTERVAL`).
 
 LLM model override (per `docs/agents/background-loops.md`): add
-`corpus_learning_model` to `src/config.py` with env var
-`HYDRAFLOW_CORPUS_LEARNING_MODEL`, default `sonnet` (case synthesis is a
-structured summarization task; `opus` is not justified).
+`corpus_learning_synthesis_model` to `src/config.py` with env var
+`HYDRAFLOW_CORPUS_LEARNING_SYNTHESIS_MODEL`, default `opus` (must be
+distinct from the production post-impl skill model — see
+correlated-failure mitigation above).
 
 **Rollout.** v1 ships first as an RC gate. v2 ships later as a
 caretaker loop per `ADR-0029`. The plans split the two subsystems so v2
@@ -1471,10 +1475,14 @@ developer-facing CLI.
 Failing `trust` fails the RC promotion PR; per ADR-0042 the promotion
 loop does not merge on red.
 
-**Issue filing.** All three subsystems file `hydraflow-find` issues via
-the existing `src/pr_manager.py:PRManager.create_issue` method. Do not
-reinvent issue filing; do not introduce a parallel dedup layer —
-`src/dedup_store.py:DedupStore` already provides idempotency.
+**Issue filing.** Every subsystem in this spec files `hydraflow-find`
+issues via the existing `src/pr_manager.py:PRManager.create_issue`
+method. Do not reinvent issue filing; do not introduce a parallel
+dedup layer — `src/dedup_store.py:DedupStore` already provides
+idempotency. Dedup keys must follow the pattern
+`<loop_name>:<domain_key>` (e.g.
+`contract_refresh:fake_github:create_pr`) so they are distinct per
+loop and per drift target.
 
 ## 6. Error handling & fail-mode table
 
