@@ -224,6 +224,11 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("flake_tracker_interval", "HYDRAFLOW_FLAKE_TRACKER_INTERVAL", 14400),
     ("flake_threshold", "HYDRAFLOW_FLAKE_THRESHOLD", 3),
     ("skill_prompt_eval_interval", "HYDRAFLOW_SKILL_PROMPT_EVAL_INTERVAL", 604800),
+    (
+        "fake_coverage_auditor_interval",
+        "HYDRAFLOW_FAKE_COVERAGE_AUDITOR_INTERVAL",
+        604800,
+    ),
 ]
 
 _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
@@ -1717,6 +1722,14 @@ class HydraFlowConfig(BaseModel):
         ge=86400,
         le=2_592_000,
         description="Seconds between SkillPromptEvalLoop ticks (default 7d)",
+    )
+
+    # Trust fleet — FakeCoverageAuditorLoop (spec §4.7)
+    fake_coverage_auditor_interval: int = Field(
+        default=604800,
+        ge=86400,
+        le=2_592_000,
+        description="Seconds between FakeCoverageAuditorLoop ticks (default 7d)",
     )
 
     # Managed repos + principles audit (spec §4.4)
