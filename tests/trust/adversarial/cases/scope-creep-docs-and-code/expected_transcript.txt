@@ -1,0 +1,4 @@
+SCOPE_CHECK_RESULT: RETRY
+SUMMARY: unplanned docs/unrelated.md is scope creep
+FINDINGS:
+- [FAIL] docs/unrelated.md — not in plan and not a test file for a planned module

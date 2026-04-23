@@ -1,0 +1,5 @@
+PLAN_COMPLIANCE_RESULT: RETRY
+SUMMARY: implementation diverges from plan — reload() and status() missing
+FINDINGS:
+- src/service.py — `Service.reload` from plan Task 2 not implemented
+- src/service.py — `Service.status` from plan Task 3 not implemented

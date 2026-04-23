@@ -11,6 +11,7 @@ All endpoints accept a ``range`` query parameter (``24h``/``7d``/``30d``/
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -20,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, Query
 
+from dashboard_routes._waterfall_builder import build_waterfall
 from factory_metrics import (
     aggregate_top_skills,
     aggregate_top_subagents,
@@ -32,6 +34,7 @@ from factory_metrics import (
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
+    from issue_fetcher import IssueFetcher
 
 logger = logging.getLogger("hydraflow.dashboard.diagnostics")
 
@@ -126,6 +129,43 @@ def _load_json_file(path) -> dict[str, Any] | None:
     return None
 
 
+def _build_issue_fetcher(config: HydraFlowConfig) -> IssueFetcher:
+    """Construct an IssueFetcher for the waterfall endpoint.
+
+    Split out so tests can monkeypatch a mock in place without standing
+    up the full ServiceRegistry. The production path constructs a real
+    IssueFetcher with the runtime credentials object.
+    """
+    # Lazy import — issue_fetcher pulls in async/subprocess machinery we
+    # don't want eager-loaded at dashboard import time.
+    from config import build_credentials  # noqa: PLC0415
+    from issue_fetcher import IssueFetcher  # noqa: PLC0415
+
+    credentials = build_credentials(config)
+    return IssueFetcher(config, credentials)
+
+
+def _issue_meta_from_github_issue(issue_number: int, gh_issue: Any) -> dict[str, Any]:
+    """Convert a GitHubIssue model (or None) into the waterfall issue_meta shape."""
+    if gh_issue is None:
+        return {
+            "number": issue_number,
+            "title": "(unknown)",
+            "labels": [],
+            "first_seen": None,
+            "merged_at": None,
+        }
+    return {
+        "number": int(getattr(gh_issue, "number", issue_number)),
+        "title": str(getattr(gh_issue, "title", "")),
+        "labels": [str(lbl) for lbl in (getattr(gh_issue, "labels", []) or [])],
+        "first_seen": str(getattr(gh_issue, "created_at", "") or "") or None,
+        # merged_at is not on GitHubIssue; when available via issue_outcomes
+        # the caller can hydrate it, but for v1 the spec treats None as fine.
+        "merged_at": None,
+    }
+
+
 def build_diagnostics_router(config: HydraFlowConfig) -> APIRouter:
     """Build the ``/api/diagnostics`` router.
 
@@ -190,6 +230,22 @@ def build_diagnostics_router(config: HydraFlowConfig) -> APIRouter:
         events = _load(range)
         rows = issues_table(events)
         return _sort_issues(rows, sort)
+
+    @router.get("/issue/{issue}/waterfall")
+    def issue_waterfall(issue: int) -> dict[str, Any]:
+        """Return the per-issue cost/phase waterfall (spec §4.11 point 1)."""
+        fetcher = _build_issue_fetcher(config)
+        try:
+            gh_issue = asyncio.run(fetcher.fetch_issue_by_number(issue))
+        except Exception:
+            logger.warning(
+                "waterfall: fetch_issue_by_number failed for #%d",
+                issue,
+                exc_info=True,
+            )
+            gh_issue = None
+        issue_meta = _issue_meta_from_github_issue(issue, gh_issue)
+        return build_waterfall(config, issue=issue, issue_meta=issue_meta)
 
     @router.get("/issue/{issue}/{phase}")
     def issue_phase(issue: int, phase: str) -> list[dict[str, Any]]:

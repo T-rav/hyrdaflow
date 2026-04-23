@@ -1,0 +1,2 @@
+def feature():
+    return True

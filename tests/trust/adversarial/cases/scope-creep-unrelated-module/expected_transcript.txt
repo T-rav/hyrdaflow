@@ -1,0 +1,4 @@
+SCOPE_CHECK_RESULT: RETRY
+SUMMARY: unplanned src/bar.py is scope creep beyond the file delta
+FINDINGS:
+- [FAIL] src/bar.py — not in plan file delta

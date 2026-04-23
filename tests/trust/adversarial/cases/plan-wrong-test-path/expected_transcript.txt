@@ -1,0 +1,5 @@
+PLAN_COMPLIANCE_RESULT: RETRY
+SUMMARY: implementation diverges from plan — tests at wrong path
+FINDINGS:
+- tests/test_calc.py — planned test file never created
+- src/tests_calc_scratch.py — unplanned file; tests belong under tests/
