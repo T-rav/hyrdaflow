@@ -1,0 +1,4 @@
+DIFF_SANITY_RESULT: RETRY
+SUMMARY: new required field reporter added without default breaks callers
+FINDINGS:
+- src/model.py:7 — `reporter: str` is a required field with no default; existing Issue(...) callers break

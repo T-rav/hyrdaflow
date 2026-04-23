@@ -1,0 +1,4 @@
+DIFF_SANITY_RESULT: RETRY
+SUMMARY: renamed symbol leaves stale callsite to compute_total
+FINDINGS:
+- src/foo.py:6 — `compute_total` no longer defined; renamed to `compute_sum`

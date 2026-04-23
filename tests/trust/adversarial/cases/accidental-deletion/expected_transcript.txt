@@ -1,0 +1,4 @@
+DIFF_SANITY_RESULT: RETRY
+SUMMARY: accidental deletion of save_config function
+FINDINGS:
+- src/util.py — `save_config` removed with no explanation; unrelated to load_config refactor

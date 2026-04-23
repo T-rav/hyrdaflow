@@ -1,0 +1,4 @@
+DIFF_SANITY_RESULT: RETRY
+SUMMARY: leftover debug print statement
+FINDINGS:
+- src/worker.py:2 — `print(f"DEBUG: ...")` is a debug statement; remove before shipping

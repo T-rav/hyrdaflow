@@ -1,0 +1,4 @@
+DIFF_SANITY_RESULT: RETRY
+SUMMARY: missing import for logger
+FINDINGS:
+- src/handler.py:2 — `logger` used but no import statement or module-level getLogger assignment

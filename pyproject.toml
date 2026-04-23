@@ -69,6 +69,11 @@ exclude = [
     ".hydraflow",
     "repo_wiki",
     "tests/regressions",
+    # Adversarial corpus fixtures contain intentional bugs (missing imports,
+    # stale callsites, leftover debug prints) that each skill is expected to
+    # flag. Linting them would defeat the point — the harness, not ruff, is
+    # what should catch these.
+    "tests/trust/adversarial/cases",
     "scripts/cost_report.py",
 ]
 
