@@ -1,0 +1,18 @@
+adapter: docker
+interaction: run_alpine_echo
+recorded_at: "2026-04-22T14:00:00Z"
+recorder_sha: "729304f1"
+fixture_repo: alpine:3.19
+input:
+  command: run_agent
+  args:
+    - "alpine:3.19"
+    - "echo"
+    - "hello"
+  stdin: null
+  env: {}
+output:
+  exit_code: 0
+  stdout: "{\"exit_code\": 0, \"success\": true, \"type\": \"result\"}\n"
+  stderr: ""
+normalizers: []
