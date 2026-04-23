@@ -21,7 +21,11 @@ Kill-switch: ``LoopDeps.enabled_cb("rc_budget")`` — **no
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import statistics
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps  # noqa: TCH001
@@ -41,6 +45,16 @@ _HISTORY_CAP = 60
 _RECENT_N = 5
 _MIN_HISTORY = 5
 _WORKFLOW = "rc-promotion-scenario.yml"
+
+
+def _parse_iso(value: str | None) -> datetime | None:
+    """Parse an ISO-8601 timestamp (allowing trailing ``Z``); return None on err."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 class RCBudgetLoop(BaseBackgroundLoop):
@@ -77,8 +91,69 @@ class RCBudgetLoop(BaseBackgroundLoop):
         return {"status": "noop", "runs_seen": len(runs)}
 
     async def _fetch_recent_runs(self) -> list[dict[str, Any]]:
-        """Task 4."""
-        return []
+        """Fetch last 30 days of completed RC runs with per-run wall-clock."""
+        cmd = [
+            "gh",
+            "run",
+            "list",
+            "--repo",
+            self._config.repo,
+            "--workflow",
+            _WORKFLOW,
+            "--limit",
+            "100",
+            "--status",
+            "completed",
+            "--json",
+            "databaseId,url,conclusion,createdAt,updatedAt,startedAt",
+        ]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            logger.warning(
+                "gh run list exit=%d: %s",
+                proc.returncode,
+                stderr.decode(errors="replace")[:400],
+            )
+            return []
+        try:
+            raw = json.loads(stdout.decode() or "[]")
+        except json.JSONDecodeError:
+            return []
+        cutoff = datetime.now(UTC) - timedelta(days=_WINDOW_DAYS)
+        out: list[dict[str, Any]] = []
+        for run in raw:
+            created = _parse_iso(run.get("createdAt"))
+            started = _parse_iso(run.get("startedAt") or run.get("createdAt"))
+            updated = _parse_iso(run.get("updatedAt"))
+            if not created or not started or not updated or created < cutoff:
+                continue
+            out.append(
+                {
+                    **run,
+                    "duration_s": max(0, int((updated - started).total_seconds())),
+                }
+            )
+        out.sort(key=lambda r: r.get("createdAt", ""), reverse=True)
+        return out[:_HISTORY_CAP]
+
+    def _compute_baselines(
+        self, runs: list[dict[str, Any]]
+    ) -> tuple[dict[str, Any], dict[str, int]]:
+        """Return ``(current, {rolling_median, recent_max})`` excluding current."""
+        current = max(runs, key=lambda r: r.get("createdAt", ""))
+        others = [r for r in runs if r.get("databaseId") != current.get("databaseId")]
+        others.sort(key=lambda r: r.get("createdAt", ""), reverse=True)
+        durations = [int(r["duration_s"]) for r in others]
+        recent = durations[:_RECENT_N]
+        return current, {
+            "rolling_median": (int(statistics.median(durations)) if durations else 0),
+            "recent_max": max(recent) if recent else 0,
+        }
 
     async def _reconcile_closed_escalations(self) -> None:
         """Task 5."""

@@ -72,3 +72,50 @@ async def test_do_work_warmup_when_history_short(loop_env) -> None:
     assert stats["status"] == "warmup"
     _, _, pr, _ = loop_env
     pr.create_issue.assert_not_awaited()
+
+
+def test_compute_baselines_median_and_recent_max(loop_env) -> None:
+    loop = _loop(loop_env)
+    runs = [
+        {
+            "databaseId": 10,
+            "duration_s": 900,
+            "createdAt": "2026-04-20T00:00:00Z",
+            "conclusion": "success",
+        },
+        {
+            "databaseId": 9,
+            "duration_s": 310,
+            "createdAt": "2026-04-19T00:00:00Z",
+            "conclusion": "success",
+        },
+        {
+            "databaseId": 8,
+            "duration_s": 300,
+            "createdAt": "2026-04-18T00:00:00Z",
+            "conclusion": "success",
+        },
+        {
+            "databaseId": 7,
+            "duration_s": 320,
+            "createdAt": "2026-04-17T00:00:00Z",
+            "conclusion": "success",
+        },
+        {
+            "databaseId": 6,
+            "duration_s": 290,
+            "createdAt": "2026-04-16T00:00:00Z",
+            "conclusion": "success",
+        },
+        {
+            "databaseId": 5,
+            "duration_s": 315,
+            "createdAt": "2026-04-15T00:00:00Z",
+            "conclusion": "success",
+        },
+    ]
+    current, baselines = loop._compute_baselines(runs)
+    assert current["databaseId"] == 10
+    assert baselines["recent_max"] == 320
+    # Sorted others: 290, 300, 310, 315, 320 → median = 310.
+    assert baselines["rolling_median"] == 310
