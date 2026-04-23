@@ -249,7 +249,7 @@ export const WORKER_PRESETS = {
 /**
  * Workers whose interval can be edited from the UI.
  */
-export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'pr_unsticker', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer', 'epic_sweeper', 'dependabot_merge', 'staging_promotion', 'stale_issue', 'security_patch', 'ci_monitor', 'code_grooming', 'sentry_ingest', 'retrospective'])
+export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'pr_unsticker', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer', 'epic_sweeper', 'dependabot_merge', 'staging_promotion', 'stale_issue', 'security_patch', 'ci_monitor', 'code_grooming', 'sentry_ingest', 'retrospective', 'principles_audit'])
 
 /**
  * Default intervals (in seconds) for system workers.
@@ -271,6 +271,7 @@ export const SYSTEM_WORKER_INTERVALS = {
   ci_monitor: 1800,
   code_grooming: 86400,
   retrospective: 1800,
+  principles_audit: 604800,
 }
 
 /**
@@ -310,6 +311,7 @@ export const BACKGROUND_WORKERS = [
   { key: 'code_grooming', label: 'Code Grooming', description: 'Runs periodic audit scans and files issues for critical findings.', color: theme.accent, group: 'repo_health', tags: ['quality'] },
   { key: 'repo_wiki', label: 'Repo Wiki', description: 'Lints and maintains per-repo knowledge wikis compiled from plan/implement/review cycles.', color: theme.purple, group: 'learning', tags: ['knowledge'] },
   { key: 'diagnostic', label: 'Diagnostic Agent', description: 'Analyzes escalated issues, classifies severity, and attempts targeted fixes before HITL.', color: theme.blue, system: true, group: 'operations', tags: ['recovery'] },
+  { key: 'principles_audit', label: 'Principles Audit', description: 'Weekly audit of managed repos and HydraFlow-self against ADR-0044 principles. Gates onboarding and detects drift regressions.', color: theme.purple, group: 'learning', tags: ['insights'] },
 ]
 
 /**
