@@ -1324,8 +1324,9 @@ flowing. The gap is **one unified waterfall view per issue** plus
    }
    ```
 
-   **UI surface**: new "Factory Cost" dashboard tab (separate from
-   Diagnostics/Waterfall):
+   **UI surface**: **Factory Cost** sub-tab under Diagnostics (see
+   §12.3 for the full sub-tab map — Factory Cost, Trust Fleet,
+   Principles):
    - Top-line: total machinery cost today / this week / this month.
    - Sortable per-loop table with all fields above plus sparkline of
      cost-per-day per loop (catches a loop that suddenly 10×'s its
@@ -1333,8 +1334,9 @@ flowing. The gap is **one unified waterfall view per issue** plus
    - Highlight rows where `tick_cost_avg_usd` grew > 2× vs
      prior-period (a prompt regression that doubles token usage
      surfaces here before it burns the budget).
-   - Coverage: **every** loop — the 5 pipeline loops (ADR-0001) and
-     the 9 new trust loops in this spec and any existing caretaker
+   - Coverage: **every** loop — the 5 pipeline loops (ADR-0001), the
+     10 new trust loops in this spec (9 in §4.1–§4.9 plus
+     `TrustFleetSanityLoop` from §12.1), and any existing caretaker
      loops (retrospective, report, sentry, etc.). Drop-downs filter
      by loop class.
 
@@ -1344,7 +1346,7 @@ flowing. The gap is **one unified waterfall view per issue** plus
    out in the machinery view — in the issue view it would be diluted
    or invisible. Different questions, different screens.
 
-5. **Cost budget alerts (lightweight).** Config fields
+6. **Cost budget alerts (lightweight).** Config fields
    `daily_cost_budget_usd` (default off) and
    `issue_cost_alert_usd` (default off). When set and crossed, a
    `hydraflow-find` issue with label `cost-budget-exceeded` fires.
@@ -1379,7 +1381,8 @@ that model — but the pricing mechanism stays.
 **Dependencies / prerequisites.**
 
 - Existing telemetry infra listed above.
-- Each new loop (§4.1–§4.10) must feed `prompt_telemetry` +
+- Every new loop in this spec (the 10 loops across §4.1–§4.9 plus
+  `TrustFleetSanityLoop` from §12.1) must feed `prompt_telemetry` +
   `trace_collector`. Add this to each loop's implementation plan as a
   task.
 
@@ -1478,6 +1481,14 @@ repair landing in a reasonable window.
 | `FakeCoverageAuditorLoop` | Un-cassetted adapter method found | File `fake-coverage-gap`; factory records cassette | No | After 3 repair attempts | `hydraflow-find`, `fake-coverage-gap` → `hitl-escalation`, `fake-coverage-stuck` |
 | `RCBudgetLoop` | RC duration > threshold × rolling median | File `rc-duration-regression`; factory optimizes | No | After 3 repair attempts | `hydraflow-find`, `rc-duration-regression` → `hitl-escalation`, `rc-duration-stuck` |
 | `WikiRotDetectorLoop` | Broken `module:symbol` cite in wiki | File `wiki-rot`; factory fixes cite | No | After 3 repair attempts | `hydraflow-find`, `wiki-rot` → `hitl-escalation`, `wiki-rot-stuck` |
+| Product-phase evaluator (§4.10) `discover-completeness` | Brief fails the rubric | Runner retries up to `max_discover_attempts` | No (upstream of RC) | After retry exhaustion | `hitl-escalation`, `discover-stuck` |
+| Product-phase evaluator (§4.10) `shape-coherence` | Proposal fails the rubric | Runner retries up to `max_shape_attempts` | No | After retry exhaustion | `hitl-escalation`, `shape-stuck` |
+| Waterfall endpoint (§4.11) | Missing telemetry for a phase | Return partial rollup with `missing_phases` field; warn | No | No | — |
+| Cost budget (§4.11) | Daily spend exceeds `daily_cost_budget_usd` | File issue | No (operator signal) | No | `hydraflow-find`, `cost-budget-exceeded` |
+| Single-issue cost (§4.11) | Issue spend exceeds `issue_cost_alert_usd` | File issue | No | No | `hydraflow-find`, `issue-cost-spike` |
+| `TrustFleetSanityLoop` (§12.1) | A loop breaches an anomaly threshold | File issue | No | Yes (immediately — anomaly is already the escalation) | `hitl-escalation`, `trust-loop-anomaly` |
+| `TrustFleetSanityLoop` — dead-man-switch | Sanity loop stops ticking | `HealthMonitor` files conventional health issue | No | Yes | `hitl-escalation`, `sanity-loop-stalled` |
+| `ContractRefreshLoop` — rate-limit backoff | Recording hits rate limit 3× consecutively | Throttle + retry next cycle | No | After 3 consecutive failures | `hydraflow-find`, `contract-refresh-throttled` |
 
 ## 7. Testing — how we test the trust-hardening itself
 
@@ -1511,9 +1522,25 @@ false-negative on the RC.
 - `tests/test_fake_coverage_auditor_loop.py` — AST introspection of
   fake classes, cassette parsing, coverage gap computation.
 - `tests/test_rc_budget_loop.py` — rolling-median computation,
-  threshold-ratio breach, fixture of 30 mocked runs.
-- `tests/test_wiki_rot_detector_loop.py` — cite extraction via regex,
-  verification against fixture repo, fuzzy-match suggestion.
+  spike-ratio breach, fixture of 30 mocked runs.
+- `tests/test_wiki_rot_detector_loop.py` — cite extraction via
+  broader patterns, AST introspection against fixture repo,
+  fuzzy-match suggestion.
+- `tests/test_product_phase_evaluators.py` — the two new skills
+  (`discover-completeness`, `shape-coherence`): prompt build,
+  result parse, keyword assertions, rubric coverage.
+- `tests/test_discover_runner_evaluator_dispatch.py` /
+  `tests/test_shape_runner_evaluator_dispatch.py` — the runner-level
+  dispatch of the new evaluator skills plus retry budget bounds.
+- `tests/test_diagnostics_waterfall.py` — waterfall endpoint against
+  a fixture issue with recorded traces; phase ordering, cost totals
+  match `ModelPricing`.
+- `tests/test_diagnostics_loop_cost.py` — per-loop cost dashboard
+  endpoint; sparkline data, spike highlight logic.
+- `tests/test_trust_fleet_sanity_loop.py` — all five anomaly
+  thresholds: mocked loop metric fixtures that trip each threshold;
+  assert the sanity loop files `trust-loop-anomaly` with the correct
+  details; aliveness check with HealthMonitor integration.
 
 **Loop-wiring completeness.** `tests/test_loop_wiring_completeness.py`
 (existing) must gain entries for all **ten** new loops:
@@ -1588,19 +1615,35 @@ different invariants.
 
 **Existing, already in the tree.**
 
-- `src/base_background_loop.py:BaseBackgroundLoop` — loop base class.
-- `src/staging_promotion_loop.py:StagingPromotionLoop` — subsystem §4.3
-  hooks here.
-- `src/pr_manager.py:PRManager.create_issue` — issue filing.
-- `src/dedup_store.py:DedupStore` — idempotency.
-- `src/state/__init__.py:StateTracker` — `last_green_rc_sha` read
-  (subsystem §4.3).
-- `src/base_runner.py` — skill dispatch path (subsystem §4.1 harness).
+- `src/base_background_loop.py:BaseBackgroundLoop` — loop base class
+  for all 10 new loops.
+- `src/staging_promotion_loop.py:StagingPromotionLoop` — §4.3 hooks.
+- `src/pr_manager.py:PRManager.create_issue` — issue filing
+  (all subsystems).
+- `src/dedup_store.py:DedupStore` — idempotency (all subsystems).
+- `src/state/__init__.py:StateTracker` — state persistence (all).
+- `src/base_runner.py` — skill dispatch path (§4.1 harness).
 - `src/diff_sanity.py`, `src/scope_check.py`, `src/test_adequacy.py`,
   `src/plan_compliance.py` — the four post-impl skills under test.
-- `src/stream_parser.py` — Claude-stream parser (subsystem §4.2
-  replay side for `FakeLLM`).
+- `src/stream_parser.py` — Claude-stream parser (§4.2 replay for
+  `FakeLLM`).
+- `src/skill_registry.py:BUILTIN_SKILLS` — skill registry (§4.1
+  `expected_catcher` validation; §4.10 adds two new skills here).
+- `src/discover_runner.py:DiscoverRunner`,
+  `src/shape_runner.py:ShapeRunner` — runners the §4.10 evaluators
+  dispatch into.
+- `src/triage_phase.py` — `clarity_threshold` routing.
+- `scripts/hydraflow_audit/` — the audit tool run by §4.4.
+- `src/model_pricing.py`, `src/prompt_telemetry.py`,
+  `src/trace_collector.py`, `src/factory_metrics.py` — §4.11 reuses.
+- `src/dashboard_routes/_diagnostics_routes.py` — §4.11 and §12.3
+  register new routes here.
+- `src/ui/src/` — §4.11 and §12.3 add new sub-tabs.
+- `src/health_monitor.py:HealthMonitor` — §12.1 aliveness check.
+- `src/repo_wiki.py:RepoWikiStore` — §4.9 wiki reader.
 - `tests/test_loop_wiring_completeness.py` — existing wiring enforcer.
+- `tests/scenarios/conftest.py`, `tests/scenarios/fakes/` — MockWorld
+  harness §7 scenarios hang off.
 
 **Prerequisite the plan must add.**
 
@@ -1623,42 +1666,49 @@ different invariants.
 - `gh` CLI, `git`, `docker` must be available in the RC workflow
   environment (already true — the existing scenario job uses `gh` and
   `git`; `docker` is present on GitHub-hosted runners).
-- Test-scoped GitHub repo for `FakeGitHub` cassettes. The refresh loop
-  requires a throwaway repo. The subsystem §4.2 plan must specify
-  which (options: a dedicated `hydraflow-contracts-sandbox` repo
-  under the HydraFlow GitHub org, or an ephemeral fork spun up by the
-  loop).
+- Test-scoped GitHub repo for `FakeGitHub` cassettes. **Plan 2 has
+  locked the choice: a dedicated `T-rav-Hydra-Ops/hydraflow-contracts-sandbox`
+  repo** (not an ephemeral fork). One-time human setup: create the
+  repo, grant `gh` CLI auth on the CI runner. Called out as Task 0 in
+  Plan 2. If this org is renamed, the config field
+  `contracts_sandbox_repo` (defaulting to the above slug) provides an
+  override.
 
 ## 9. Open questions / deferred decisions
+
+Still genuinely open:
 
 1. **Cassette rotation cadence.** Weekly default in §4.2. `gh` CLI is
    stable enough that weekly may be noisy; monthly is plausible.
    Revisit after the first two refresh cycles.
-2. **Learning-loop v2 escape-signal source.** Three options:
-   - **Default:** a dedicated `skill-escape` label added to
-     `hydraflow-find` issues when a human identifies a PR bug that
-     should have been caught. Explicit, low false-positive.
-   - Generic `hydraflow-find` label without `skill-escape`. Too noisy
-     — catches non-skill issues.
-   - Reverted-commit detection (watch for `Revert "..."` merges to
-     `main`). Catches cases humans forget to label but false-positives
-     on intentional reverts.
-   Ship with `skill-escape` as the default; leave a config knob
-   `corpus_learning_signal_label` so the decision can flip without a
-   code change.
-3. **Corpus size budget.** When do we prune old cases that a skill has
-   never regressed on? TBD. Default: **grow forever in v1**. Revisit
-   if the corpus crosses 200 cases or the gate runtime crosses 5
-   minutes.
-4. **Stream-sample prompt stability.** The Claude stream sample uses a
-   short, stable prompt so repeated recordings compare. The subsystem
-   §4.2 plan picks the exact prompt. Revisit if Anthropic changes
-   stream-json schema in a way that invalidates committed samples.
-5. **Bisect runtime cap.** `make scenario` currently takes ~5 minutes.
-   A bisect over 16 commits is ~20 minutes. Above some threshold the
-   bisect is more disruptive than useful. TBD — the plan specifies a
-   runtime cap (default suggestion: 45 minutes; skip with a warning
-   beyond that).
+2. **Corpus size budget.** When do we prune old cases that a skill has
+   never regressed on? Default: **grow forever in v1**. Revisit if
+   the corpus crosses 200 cases or the gate runtime crosses 5
+   minutes. Plan for a `CorpusPruneLoop` or a manual prune command
+   surfaces in the next spec.
+3. **Per-managed-repo corpus isolation.** §11.2 says each managed
+   repo gets its own cases under its slug plus a shared-core corpus.
+   Still open: where does the boundary sit? Purely HydraFlow-generic
+   bugs go in shared-core; repo-specific bugs under the slug. First
+   real adoption clarifies.
+4. **Multi-phase LLM cost attribution.** `/api/diagnostics/issue/{issue}/waterfall`
+   attributes LLM calls to the phase that issued them. But a single
+   shared sub-agent that runs across phases (rare today, may happen)
+   needs attribution rules. Defer to first sighting.
+
+Resolved by later spec sections (tracked here to close the loop):
+
+- **Learning-loop escape-signal source** — resolved §4.1:
+  `corpus_learning_signal_labels` config list defaulting to
+  `["skill-escape", "discover-escape", "shape-escape"]`.
+- **Stream-sample prompt** — resolved by Plan 2 (three recorded
+  samples with fixed prompts).
+- **Bisect runtime cap** — resolved §4.3: 45 min default, escalates
+  on timeout.
+- **Onboarding signal** — resolved §4.4: `managed_repos` config
+  entry.
+- **Max fake repair attempts** — resolved §4.2: dedicated
+  `max_fake_repair_attempts` config field, default 3.
 
 ## 10. Related
 
