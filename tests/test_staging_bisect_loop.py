@@ -136,3 +136,70 @@ class TestFlakeFilter:
 
         assert result["status"] == "reverted"
         assert state.get_flake_reruns_total() == 0
+
+
+class TestBisectHarness:
+    @pytest.mark.asyncio
+    async def test_run_bisect_returns_first_bad_sha(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+
+        async def fake_git(cmd: list[str], cwd: Path, timeout: int):
+            if cmd[:2] == ["git", "bisect"] and cmd[2] == "run":
+                return (
+                    0,
+                    "Bisecting: 3 revisions left to test\n"
+                    "abc123def456 is the first bad commit\n"
+                    "commit abc123def456\n",
+                    "",
+                )
+            return (0, "", "")
+
+        loop._run_git = AsyncMock(side_effect=fake_git)  # type: ignore[attr-defined]
+        loop._setup_worktree = AsyncMock(return_value=tmp_path / "bisect-wt")  # type: ignore[attr-defined]
+        loop._cleanup_worktree = AsyncMock()  # type: ignore[attr-defined]
+
+        culprit = await loop._run_bisect("green_sha", "red_sha")  # type: ignore[attr-defined]
+
+        assert culprit == "abc123def456"
+        loop._cleanup_worktree.assert_awaited_once()  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_bisect_timeout_raises_bisect_timeout_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from staging_bisect_loop import BisectTimeoutError
+
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+        loop._setup_worktree = AsyncMock(return_value=tmp_path / "bisect-wt")  # type: ignore[attr-defined]
+        loop._cleanup_worktree = AsyncMock()  # type: ignore[attr-defined]
+
+        async def hanging(cmd: list[str], cwd: Path, timeout: int):
+            raise TimeoutError("git bisect run exceeded budget")
+
+        loop._run_git = AsyncMock(side_effect=hanging)  # type: ignore[attr-defined]
+
+        with pytest.raises(BisectTimeoutError):
+            await loop._run_bisect("green", "red")  # type: ignore[attr-defined]
+        loop._cleanup_worktree.assert_awaited_once()  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_bisect_unreachable_green_sha_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from staging_bisect_loop import BisectRangeError
+
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+        loop._setup_worktree = AsyncMock(return_value=tmp_path / "bisect-wt")  # type: ignore[attr-defined]
+        loop._cleanup_worktree = AsyncMock()  # type: ignore[attr-defined]
+
+        async def fake_git(cmd: list[str], cwd: Path, timeout: int):
+            if cmd[:3] == ["git", "bisect", "start"]:
+                return (1, "", "fatal: bad object green_sha")
+            return (0, "", "")
+
+        loop._run_git = AsyncMock(side_effect=fake_git)  # type: ignore[attr-defined]
+
+        with pytest.raises(BisectRangeError):
+            await loop._run_bisect("green_sha", "red_sha")  # type: ignore[attr-defined]

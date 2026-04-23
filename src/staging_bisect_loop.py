@@ -25,10 +25,24 @@ from config import HydraFlowConfig
 from dedup_store import DedupStore
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from ports import PRPort
     from state import StateTracker
 
 logger = logging.getLogger("hydraflow.staging_bisect")
+
+
+class BisectTimeoutError(RuntimeError):
+    """Raised when a bisect exceeds ``staging_bisect_runtime_cap_seconds``."""
+
+
+class BisectRangeError(RuntimeError):
+    """Raised when the bisect range is invalid (e.g. unreachable green SHA)."""
+
+
+class BisectHarnessError(RuntimeError):
+    """Raised when git bisect itself errors for reasons unrelated to the probe."""
 
 
 class StagingBisectLoop(BaseBackgroundLoop):
@@ -128,3 +142,130 @@ class StagingBisectLoop(BaseBackgroundLoop):
             len(probe_output),
         )
         return {"status": "pipeline_stub", "sha": red_sha}
+
+    async def _setup_worktree(self, rc_sha: str) -> Path:
+        """Create a dedicated worktree at ``<data_root>/<repo_slug>/bisect/<rc_ref>/``."""
+        worktree_dir = (
+            self._config.data_root / self._config.repo_slug / "bisect" / rc_sha[:12]
+        )
+        worktree_dir.parent.mkdir(parents=True, exist_ok=True)
+        if worktree_dir.exists():
+            # Stale worktree from a previous aborted run — nuke it first
+            await self._run_git(
+                ["git", "worktree", "remove", "--force", str(worktree_dir)],
+                cwd=self._config.repo_root,
+                timeout=60,
+            )
+        rc, _out, err = await self._run_git(
+            [
+                "git",
+                "worktree",
+                "add",
+                "--detach",
+                str(worktree_dir),
+                rc_sha,
+            ],
+            cwd=self._config.repo_root,
+            timeout=120,
+        )
+        if rc != 0:
+            raise BisectHarnessError(
+                f"git worktree add failed for {rc_sha}: rc={rc} stderr={err}"
+            )
+        return worktree_dir
+
+    async def _cleanup_worktree(self, worktree_dir: Path) -> None:
+        """Best-effort ``git worktree remove --force``."""
+        try:
+            await self._run_git(
+                ["git", "worktree", "remove", "--force", str(worktree_dir)],
+                cwd=self._config.repo_root,
+                timeout=60,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "StagingBisectLoop: worktree cleanup failed for %s",
+                worktree_dir,
+                exc_info=True,
+            )
+
+    async def _run_git(
+        self, cmd: list[str], *, cwd: Path, timeout: int
+    ) -> tuple[int, str, str]:
+        """Run a git command and return ``(returncode, stdout, stderr)``.
+
+        Overridden in tests via ``AsyncMock`` — production uses a
+        subprocess runner.
+        """
+        import asyncio  # noqa: PLC0415
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except TimeoutError:
+            proc.kill()
+            raise
+        return proc.returncode or 0, stdout.decode(), stderr.decode()
+
+    async def _run_bisect(self, green_sha: str, red_sha: str) -> str:
+        """Run bisect; return the first-bad SHA.
+
+        Raises:
+            BisectTimeoutError: wall-clock cap hit.
+            BisectRangeError: bisect range invalid (e.g. unreachable green).
+            BisectHarnessError: bisect internals failed for infra reasons.
+        """
+        import re  # noqa: PLC0415
+
+        worktree_dir = await self._setup_worktree(red_sha)
+        try:
+            try:
+                rc, _out, err = await self._run_git(
+                    ["git", "bisect", "start", red_sha, green_sha],
+                    cwd=worktree_dir,
+                    timeout=60,
+                )
+            except TimeoutError as exc:
+                raise BisectTimeoutError(
+                    f"bisect exceeded {self._config.staging_bisect_runtime_cap_seconds}s"
+                ) from exc
+            if rc != 0:
+                raise BisectRangeError(
+                    f"git bisect start failed for {green_sha}..{red_sha}: {err}"
+                )
+
+            try:
+                rc, out, err = await self._run_git(
+                    [
+                        "git",
+                        "bisect",
+                        "run",
+                        "make",
+                        "-C",
+                        str(self._config.repo_root),
+                        "bisect-probe",
+                    ],
+                    cwd=worktree_dir,
+                    timeout=self._config.staging_bisect_runtime_cap_seconds,
+                )
+            except TimeoutError as exc:
+                raise BisectTimeoutError(
+                    f"bisect exceeded {self._config.staging_bisect_runtime_cap_seconds}s"
+                ) from exc
+            if rc not in (0, 1):
+                raise BisectHarnessError(
+                    f"git bisect run errored (rc={rc}): {err[:500]}"
+                )
+            match = re.search(r"([0-9a-f]{7,40})\s+is the first bad commit", out)
+            if not match:
+                raise BisectHarnessError(
+                    f"could not parse first-bad SHA from bisect output: {out[:500]}"
+                )
+            return match.group(1)
+        finally:
+            await self._cleanup_worktree(worktree_dir)
