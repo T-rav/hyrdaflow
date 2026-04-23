@@ -42,6 +42,7 @@ from ._security_patch import SecurityPatchStateMixin
 from ._sentry import SentryStateMixin
 from ._session import SessionStateMixin
 from ._shape import ShapeStateMixin
+from ._skill_prompt_eval import SkillPromptEvalStateMixin
 from ._staging_bisect import StagingBisectStateMixin
 from ._stale_issue import StaleIssueStateMixin
 from ._trace_runs import TraceRunsMixin
@@ -78,6 +79,7 @@ class StateTracker(
     SentryStateMixin,
     TraceRunsMixin,
     FlakeTrackerStateMixin,
+    SkillPromptEvalStateMixin,
 ):
     """JSON-file backed state for crash recovery.
 
