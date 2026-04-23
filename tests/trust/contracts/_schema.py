@@ -43,6 +43,12 @@ class Cassette(BaseModel):
     output: CassetteOutput
     normalizers: list[str] = Field(default_factory=list)
 
+    @field_validator("recorded_at", mode="before")
+    @classmethod
+    def _coerce_recorded_at(cls, v: object) -> str:
+        """yaml.safe_load parses ISO8601 timestamps as datetime — coerce to str."""
+        return v.isoformat() if hasattr(v, "isoformat") else str(v)
+
     @field_validator("adapter")
     @classmethod
     def _validate_adapter(cls, v: str) -> str:
