@@ -58,27 +58,32 @@ def _parse_iso(value: Any) -> datetime | None:
 
 
 def _load_inferences_for_issue(
-    config: HydraFlowConfig, issue: int
+    config: HydraFlowConfig,
+    issue: int,
+    pricing: ModelPricingTable | None = None,
 ) -> list[dict[str, Any]]:
-    path = config.data_path("metrics", "prompt", "inferences.jsonl")
-    if not path.is_file():
-        return []
-    rows: list[dict[str, Any]] = []
+    """Load per-issue inference rows via the shared cross-issue aggregator.
+
+    Routes through ``_cost_rollups.iter_priced_inferences_for_issue`` so
+    there's exactly one read+price path; the rows come back with ``cost_usd``
+    and ``phase`` already filled in. ``_action_llm`` below prefers the row's
+    ``cost_usd`` when present, so callers that pass ``pricing=None`` still
+    get identical behaviour to the pre-refactor path.
+    """
+    # Lazy import — ``_cost_rollups`` imports ``_phase_for_source`` from this
+    # module, so we defer the import to break the cycle.
+    from dashboard_routes._cost_rollups import (  # noqa: PLC0415
+        iter_priced_inferences_for_issue,
+    )
+
+    pricing = pricing or load_pricing()
     try:
-        with path.open("r", encoding="utf-8") as fh:
-            for raw in fh:
-                line = raw.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(rec, dict) and rec.get("issue_number") == issue:
-                    rows.append(rec)
+        return list(
+            iter_priced_inferences_for_issue(config, issue=issue, pricing=pricing)
+        )
     except OSError:
         logger.warning("Failed to read inferences for waterfall", exc_info=True)
-    return rows
+        return []
 
 
 def _load_subprocess_traces(
@@ -126,18 +131,30 @@ def _load_loop_traces_in_window(
 
 
 def _action_llm(rec: dict[str, Any], pricing: ModelPricingTable) -> dict[str, Any]:
+    """Build an LLM action dict from a priced or unpriced inference row.
+
+    If ``rec`` already has a ``cost_usd`` key (as produced by
+    ``_cost_rollups.iter_priced_inferences``), use it directly. Otherwise
+    compute cost via the supplied ``pricing`` table. This lets callers
+    share a single priced-row stream with the cross-issue aggregator
+    without forcing a second pricing lookup.
+    """
     input_tokens = int(rec.get("input_tokens", 0) or 0)
     output_tokens = int(rec.get("output_tokens", 0) or 0)
     cache_write = int(rec.get("cache_creation_input_tokens", 0) or 0)
     cache_read = int(rec.get("cache_read_input_tokens", 0) or 0)
     model = str(rec.get("model", ""))
-    cost = pricing.estimate_cost(
-        model,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        cache_write_tokens=cache_write,
-        cache_read_tokens=cache_read,
-    )
+    if "cost_usd" in rec:
+        cost_usd = float(rec.get("cost_usd", 0.0) or 0.0)
+    else:
+        cost = pricing.estimate_cost(
+            model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_write_tokens=cache_write,
+            cache_read_tokens=cache_read,
+        )
+        cost_usd = round(cost, 6) if cost is not None else 0.0
     return {
         "kind": "llm",
         "model": model,
@@ -147,7 +164,7 @@ def _action_llm(rec: dict[str, Any], pricing: ModelPricingTable) -> dict[str, An
         "cache_read_tokens": cache_read,
         "cache_write_tokens": cache_write,
         "duration_ms": int(float(rec.get("duration_seconds", 0.0)) * 1000),
-        "cost_usd": round(cost, 6) if cost is not None else 0.0,
+        "cost_usd": cost_usd,
     }
 
 
@@ -241,7 +258,7 @@ def build_waterfall(
     first_seen = _parse_iso(issue_meta.get("first_seen"))
     merged_at = _parse_iso(issue_meta.get("merged_at"))
 
-    inferences = _load_inferences_for_issue(config, issue)
+    inferences = _load_inferences_for_issue(config, issue, pricing=pricing)
     traces = _load_subprocess_traces(config, issue)
     loop_traces = _load_loop_traces_in_window(config, first_seen, merged_at)
 
