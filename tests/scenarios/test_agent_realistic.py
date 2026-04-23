@@ -483,8 +483,8 @@ async def test_A11_review_fix_ci_loop_resolves(tmp_path) -> None:
     assert pr is not None
     assert pr.merged is True
 
-    # 8 FakeDocker invocations: 1 agent + 4 skills + 2 pre-quality + 1 make-quality
-    assert len(world.docker.invocations) >= 8
+    # 7 FakeDocker invocations: 1 agent + 3 skills + 2 pre-quality + 1 make-quality
+    assert len(world.docker.invocations) >= 7
 
     # Defense: if PR numbering changes, wait_for_ci returns default success and
     # the scripted fail/pass queue stays full. Assert it was consumed.
