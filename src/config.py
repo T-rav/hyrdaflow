@@ -312,6 +312,64 @@ _ENV_LABEL_MAP: dict[str, tuple[str, list[str]]] = {
     "HYDRAFLOW_LABEL_DIAGNOSE": ("diagnose_label", ["hydraflow-diagnose"]),
 }
 
+_ALLOWED_TOOLS_COMBO: set[str] = {"claude", "codex", "gemini", "pi"}
+
+
+def _parse_combo(env_key: str, value: str) -> tuple[str, str]:
+    """Parse a ``tool:model`` combo env var.
+
+    Accepts the sentinel ``"inherit"`` for the SYSTEM / BACKGROUND variables,
+    returning ``("inherit", "")``.  Any other value must contain exactly one
+    colon: the left side a known tool, the right side a non-empty model
+    string.
+
+    Raises :class:`ValueError` with a clear message on malformed input.
+    """
+    stripped = value.strip()
+    if stripped == "inherit":
+        return "inherit", ""
+    if ":" not in stripped:
+        msg = (
+            f"{env_key}={value!r} must be 'tool:model' "
+            f"(e.g. claude:opus, gemini:gemini-3-pro) or 'inherit'"
+        )
+        raise ValueError(msg)
+    tool, _, model = stripped.partition(":")
+    tool = tool.strip()
+    model = model.strip()
+    if tool not in _ALLOWED_TOOLS_COMBO:
+        msg = (
+            f"{env_key}={value!r} unknown tool {tool!r}; "
+            f"allowed: {sorted(_ALLOWED_TOOLS_COMBO)}"
+        )
+        raise ValueError(msg)
+    if not model:
+        msg = f"{env_key}={value!r} model part is empty"
+        raise ValueError(msg)
+    return tool, model
+
+
+# Each tuple: (env_key, tool_field, model_field)
+# "inherit" is accepted for fields whose tool type includes it
+# (system, background); otherwise it's rejected by Pydantic's Literal.
+_ENV_COMBO_OVERRIDES: list[tuple[str, str, str]] = [
+    ("HYDRAFLOW_SYSTEM", "system_tool", "system_model"),
+    ("HYDRAFLOW_BACKGROUND", "background_tool", "background_model"),
+    ("HYDRAFLOW_IMPLEMENT", "implementation_tool", "model"),
+    ("HYDRAFLOW_REVIEW", "review_tool", "review_model"),
+    ("HYDRAFLOW_PLANNER", "planner_tool", "planner_model"),
+    ("HYDRAFLOW_TRIAGE", "triage_tool", "triage_model"),
+    ("HYDRAFLOW_AC", "ac_tool", "ac_model"),
+    ("HYDRAFLOW_VERIFICATION_JUDGE", "verification_judge_tool", "ac_model"),
+    (
+        "HYDRAFLOW_TRANSCRIPT_SUMMARY",
+        "transcript_summary_tool",
+        "transcript_summary_model",
+    ),
+    ("HYDRAFLOW_WIKI_COMPILATION", "wiki_compilation_tool", "wiki_compilation_model"),
+    ("HYDRAFLOW_REPORT_ISSUE", "report_issue_tool", "report_issue_model"),
+]
+
 
 class HydraFlowConfig(BaseModel):
     """Configuration for the HydraFlow orchestrator."""
@@ -2324,6 +2382,23 @@ def _apply_env_overrides(config: HydraFlowConfig) -> None:
                     field,
                     env_val.lower() not in ("0", "false", "no"),
                 )
+
+    # Combo env vars: HYDRAFLOW_<STAGE>=tool:model
+    for env_key, tool_field, model_field in _ENV_COMBO_OVERRIDES:
+        env_val = _get_env(env_key)
+        if env_val is None:
+            continue
+        tool, model = _parse_combo(env_key, env_val)  # raises on malformed
+        # "inherit" is only valid for fields whose Literal includes it;
+        # Pydantic would reject otherwise — pre-empt with a clearer message.
+        if tool == "inherit" and tool_field not in {"system_tool", "background_tool"}:
+            msg = (
+                f"{env_key}=inherit not allowed; {tool_field} requires an explicit tool"
+            )
+            raise ValueError(msg)
+        object.__setattr__(config, tool_field, tool)
+        if model:  # empty model only for "inherit"
+            object.__setattr__(config, model_field, model)
 
     # Data-driven env var overrides (Literal-typed fields)
     for field, env_key in _ENV_LITERAL_OVERRIDES:
