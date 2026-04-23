@@ -314,3 +314,41 @@ class StagingBisectLoop(BaseBackgroundLoop):
             return 0, ""
         first = payload[0]
         return int(first.get("number") or 0), str(first.get("title") or "")
+
+    async def _check_guardrail_and_maybe_escalate(
+        self,
+        *,
+        red_sha: str,
+        culprit_sha: str,
+        culprit_pr: int,
+        bisect_log: str,
+    ) -> dict[str, Any] | None:
+        """Return None when safe to revert, escalation-result dict otherwise.
+
+        Enforces the "second-revert-in-cycle" rule from spec §4.3 step 4.
+        """
+        if self._state.get_auto_reverts_in_cycle() == 0:
+            return None
+
+        title = (
+            f"hitl: RC-red bisect exhausted — second red in cycle "
+            f"{self._state.get_rc_cycle_id()} (rc_sha={red_sha[:12]})"
+        )
+        body = (
+            "## RC-red bisect exhausted\n\n"
+            f"A second red RC was detected inside the same cycle "
+            f"(`rc_cycle_id={self._state.get_rc_cycle_id()}`).\n\n"
+            f"- Current red RC head: `{red_sha}`\n"
+            f"- Bisect-identified culprit: `{culprit_sha}`"
+            f" (PR #{culprit_pr or 'unknown'})\n"
+            f"- Auto-reverts already filed in this cycle: "
+            f"{self._state.get_auto_reverts_in_cycle()}\n\n"
+            "Either the prior bisect was wrong, or the damage is broader "
+            "than one PR. Halting auto-revert per spec §4.3 step 4.\n\n"
+            "### Bisect log\n\n"
+            f"```\n{bisect_log[:5000]}\n```"
+        )
+        labels = ["hitl-escalation", "rc-red-bisect-exhausted"]
+        issue = await self._prs.create_issue(title, body, labels)
+        logger.error("StagingBisectLoop: guardrail tripped — escalated #%d", issue)
+        return {"status": "guardrail_escalated", "escalation_issue": issue}

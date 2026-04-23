@@ -249,3 +249,54 @@ class TestAttribution:
 
         assert pr_number == 0
         assert pr_title == ""
+
+
+class TestGuardrail:
+    @pytest.mark.asyncio
+    async def test_second_revert_in_cycle_escalates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, prs, state = _make_loop(tmp_path, monkeypatch)
+        # Simulate a prior auto-revert in this cycle
+        state.set_last_rc_red_sha_and_bump_cycle("prev_red")
+        state.increment_auto_reverts_in_cycle()
+        state.set_last_rc_red_sha_and_bump_cycle("current_red")
+        state.increment_auto_reverts_in_cycle()  # we are at 2 reverts
+        prs.create_issue = AsyncMock(return_value=555)
+
+        result = await loop._check_guardrail_and_maybe_escalate(  # type: ignore[attr-defined]
+            red_sha="current_red",
+            culprit_sha="culprit_sha",
+            culprit_pr=321,
+            bisect_log="log",
+        )
+
+        assert result == {
+            "status": "guardrail_escalated",
+            "escalation_issue": 555,
+        }
+        prs.create_issue.assert_awaited_once()
+        title = prs.create_issue.await_args.args[0]
+        labels = prs.create_issue.await_args.args[2]
+        assert "rc-red-bisect-exhausted" in labels
+        assert "hitl-escalation" in labels
+        assert "current_red" in title
+
+    @pytest.mark.asyncio
+    async def test_first_revert_passes_guardrail(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, prs, state = _make_loop(tmp_path, monkeypatch)
+        state.set_last_rc_red_sha_and_bump_cycle("current_red")
+        # auto_reverts_in_cycle == 0 — guardrail allows proceeding
+        prs.create_issue = AsyncMock()
+
+        result = await loop._check_guardrail_and_maybe_escalate(  # type: ignore[attr-defined]
+            red_sha="current_red",
+            culprit_sha="culprit_sha",
+            culprit_pr=321,
+            bisect_log="log",
+        )
+
+        assert result is None
+        prs.create_issue.assert_not_awaited()
