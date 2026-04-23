@@ -109,7 +109,6 @@ class TestNoIssueNumVariables:
         "module_name",
         [
             "pr_manager",
-            "memory",
             "transcript_summarizer",
             "harness_insights",
             "epic",

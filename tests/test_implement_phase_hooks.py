@@ -123,9 +123,7 @@ class TestPostImplTranscript:
             "phase_utils.file_memory_suggestion", new_callable=AsyncMock
         ) as mock_mem:
             await phase._post_impl_transcript(result, status="failed")
-            mock_mem.assert_awaited_once_with(
-                "tx", "implementer", "issue #7", ANY, hindsight=None, judge=None
-            )
+            mock_mem.assert_awaited_once_with("tx", "implementer", "issue #7", ANY)
 
     @pytest.mark.asyncio
     async def test_passes_correct_args_to_summarize(
