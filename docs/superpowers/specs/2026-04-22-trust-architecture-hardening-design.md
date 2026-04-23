@@ -1168,7 +1168,10 @@ gains cases for these two skills using the existing layout:
 - `expected_catcher.txt` = `discover-completeness` or `shape-coherence`.
 - `README.md` = bug class + keyword.
 
-v1 seed: ~8–12 cases covering at minimum:
+v1 seed: **~8–12 cases in addition to §4.1's ~20–25 post-impl
+cases** (total corpus ~28–37 cases at v1). They live in the same
+`tests/trust/adversarial/cases/` directory — the harness is skill-
+agnostic, so no separate tree is needed. Coverage at minimum:
 
 - **Discover**: brief with missing acceptance criteria; brief that
   paraphrases the issue without new information; brief that names no
@@ -1184,10 +1187,13 @@ v1 seed: ~8–12 cases covering at minimum:
 same way; no harness changes needed.
 
 **CorpusLearningLoop reuse.** The v2 learning loop (§4.1) watches
-`skill-escape`-labeled issues. When an escape is a product-phase
-failure (bad Discover brief made it to Plan), the same synthesis
-pipeline generates a new `discover-completeness` or `shape-coherence`
-case. The loop is skill-agnostic — it reads the registry.
+the three escape-label sources (`skill-escape`, `discover-escape`,
+`shape-escape` — configurable list per §4.1). When an escape is a
+product-phase failure (bad Discover brief made it to Plan), it is
+filed with the `discover-escape` or `shape-escape` label; the same
+synthesis pipeline generates a new `discover-completeness` or
+`shape-coherence` case. The loop is skill-agnostic — it reads the
+registry.
 
 **Wiring.** No new loop for §4.10. Two new entries in
 `BUILTIN_SKILLS`; extended invocation points in `DiscoverRunner` /
@@ -1201,13 +1207,20 @@ RETRY, the runner loops (bounded by `max_discover_attempts` /
 `max_shape_attempts` config — new fields, default 3) before
 escalating with `hitl-escalation`, `discover-stuck` or `shape-stuck`.
 
-**Fail-mode additions to §6.**
+**Fail modes.** §6 is the central fail-mode table; rows for §4.10
+are in §6 with `discover-stuck`, `shape-stuck`, and the shared
+adversarial-corpus row that covers all skills (including the new
+evaluators).
 
-| Gate | Failure mode | Autonomous action | Blocks RC? | Escalates? | Label(s) |
-|---|---|---|---|---|---|
-| Discover evaluator | Brief fails `discover-completeness` | Runner retries | No (upstream of RC) | After 3 retries | `hitl-escalation`, `discover-stuck` |
-| Shape evaluator | Proposal fails `shape-coherence` | Runner retries | No | After 3 retries | `hitl-escalation`, `shape-stuck` |
-| Adversarial corpus (product phase) | Evaluator misses a case | Same as §4.1 | Yes | On retry exhaustion | `hydraflow-find`, `skill-regression` → `hitl-escalation`, `skill-repair-stuck` |
+**Testing obligations.** Per §7, §4.10 requires:
+
+- Unit tests for each new evaluator skill (prompt build, result
+  parse, each RETRY keyword).
+- Unit tests for `DiscoverRunner` / `ShapeRunner` evaluator dispatch
+  + retry budget.
+- MockWorld integration scenario: vague issue → Discover → Shape →
+  Plan with a seeded bad brief; assert evaluator RETRYs and the
+  retry produces a good brief.
 
 **Why fold into this spec rather than defer.** Discover and Shape are
 the *design/product* phases of the lights-off factory. Without a
