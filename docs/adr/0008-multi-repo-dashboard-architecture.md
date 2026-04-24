@@ -1,7 +1,7 @@
 # ADR-0008: Multi-Repo Dashboard Architecture
 
 **Status:** Accepted
-**Enforced by:** (none)
+**Enforced by:** tests/test_dashboard_routes_repo.py
 **Date:** 2026-02-28
 
 ## Context

@@ -1,7 +1,7 @@
 # ADR-0005: PR Recovery and Zero-Diff Branch Handling in Implement Phase
 
 **Status:** Accepted
-**Enforced by:** (none)
+**Enforced by:** tests/test_implement_phase.py
 **Date:** 2026-02-27
 
 ## Context

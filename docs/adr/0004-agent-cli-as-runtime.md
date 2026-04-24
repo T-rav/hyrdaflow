@@ -1,7 +1,7 @@
 # ADR-0004: CLI-based Agent Runtime (Claude / Codex / Pi.dev)
 
 **Status:** Accepted
-**Enforced by:** (none)
+**Enforced by:** tests/test_agent_cli.py, tests/test_base_runner.py
 **Date:** 2026-02-26
 
 ## Context

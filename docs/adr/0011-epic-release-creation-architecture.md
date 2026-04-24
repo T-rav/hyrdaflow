@@ -1,7 +1,7 @@
 # ADR-0011: Epic Release Creation Architecture
 
 **Status:** Accepted
-**Enforced by:** (none)
+**Enforced by:** tests/test_epic.py, tests/test_release.py
 **Date:** 2026-03-01
 
 ## Context

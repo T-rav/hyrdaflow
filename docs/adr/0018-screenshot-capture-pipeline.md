@@ -1,7 +1,7 @@
 # ADR-0018: Screenshot Capture Pipeline Architecture
 
 **Status:** Accepted
-**Enforced by:** (none)
+**Enforced by:** tests/test_screenshot_scanner.py, tests/test_report_issue_loop.py
 **Date:** 2026-03-01
 
 ## Context

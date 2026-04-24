@@ -1,7 +1,7 @@
 # ADR-0041: GitHub as Source of Truth, Local Cache as Sidecar
 
 **Status:** Accepted
-**Enforced by:** (none)
+**Enforced by:** tests/test_issue_cache.py, tests/test_precondition_gate.py
 **Date:** 2026-04-08
 
 ## Context

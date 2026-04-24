@@ -1,7 +1,7 @@
 # ADR-0015: Protocol-Based Callback Injection for Merge-Phase Gates
 
 **Status:** Accepted
-**Enforced by:** (none)
+**Enforced by:** tests/test_review_phase_hooks.py
 **Date:** 2026-03-18
 
 ## Context

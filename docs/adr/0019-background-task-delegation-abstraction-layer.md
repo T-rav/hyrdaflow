@@ -1,7 +1,7 @@
 # ADR-0019: Background Task Delegation — Call the Right Abstraction Layer
 
 **Status:** Accepted
-**Enforced by:** (none)
+**Enforced by:** tests/test_epic_manager.py, tests/test_post_merge_handler.py
 **Date:** 2026-03-01
 
 ## Context

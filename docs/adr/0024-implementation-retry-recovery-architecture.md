@@ -1,7 +1,7 @@
 # ADR-0024: Implementation Retry Recovery Architecture
 
 **Status:** Accepted
-**Enforced by:** (none)
+**Enforced by:** tests/test_implement_phase.py, tests/scenarios/fakes/test_prior_failure_propagation.py
 **Date:** 2026-03-08
 
 ## Context
