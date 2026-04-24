@@ -16,9 +16,12 @@ use the returned findings to mark entries stale with a
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+logger = logging.getLogger("hydraflow.wiki_drift_detector")
 
 # Same shape as src/adr_index.py:_SOURCE_FILE_CITATION_RE — matches
 # `src/some/path.py:Symbol` citations inside backticks.
@@ -127,3 +130,47 @@ def detect_drift(
             )
 
     return result
+
+
+def apply_drift_markers(findings: list[DriftFinding]) -> int:
+    """Flip each flagged entry's ``status: active`` → ``stale`` with a
+    ``stale_reason: drift_detected: <files>`` annotation.
+
+    Only mutates files whose frontmatter still says ``status: active`` —
+    idempotent on second call, safe against entries that a prior lint
+    pass already marked stale.
+
+    Returns the count of entries actually updated. Never raises on
+    per-file read / write failures; logs and continues.
+    """
+    updated = 0
+    for finding in findings:
+        try:
+            text = finding.entry_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            logger.warning(
+                "drift automark: cannot read %s; skipping", finding.entry_path
+            )
+            continue
+        fields = _parse_frontmatter(text)
+        if not fields or fields.get("status", "active") != "active":
+            continue
+        body = _entry_body(text)
+        reason = "drift_detected: " + ",".join(sorted(finding.missing_files))
+        fields["status"] = "stale"
+        fields["stale_reason"] = reason
+        rebuilt = (
+            "---\n"
+            + "\n".join(f"{k}: {v}" for k, v in fields.items())
+            + "\n---\n"
+            + body
+        )
+        try:
+            finding.entry_path.write_text(rebuilt, encoding="utf-8")
+        except OSError:
+            logger.warning(
+                "drift automark: cannot write %s; skipping", finding.entry_path
+            )
+            continue
+        updated += 1
+    return updated
