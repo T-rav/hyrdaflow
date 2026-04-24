@@ -1408,6 +1408,35 @@ class HydraFlowConfig(BaseModel):
             "Phase 4."
         ),
     )
+    semantic_drift_enabled: bool = Field(
+        default=False,
+        description=(
+            "When True, RepoWikiLoop runs an LLM-backed semantic-drift pass "
+            "on wiki entries whose citations still exist on disk but whose "
+            "CLAIMs may have rotted (renamed defaults, swapped models, "
+            "changed control flow). Off by default until eval-tuned."
+        ),
+    )
+    semantic_drift_min_age_days: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+        description=(
+            "Minimum entry age before the semantic-drift pass reconsiders "
+            "it. Freshly written entries are trusted; only older ones are "
+            "re-judged against current source."
+        ),
+    )
+    semantic_drift_max_entries_per_tick: int = Field(
+        default=10,
+        ge=1,
+        le=200,
+        description=(
+            "Cost bound: cap how many semantic-drift LLM calls the wiki "
+            "loop makes per tick. Older entries beyond this cap carry over "
+            "to the next tick."
+        ),
+    )
 
     # Paths (auto-detected)
     repo_root: Path = Field(default=Path("."), description="Repository root directory")

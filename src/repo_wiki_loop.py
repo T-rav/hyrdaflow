@@ -19,7 +19,11 @@ from knowledge_metrics import metrics as _metrics
 from repo_wiki import DEFAULT_TOPICS, RepoWikiStore, WikiEntry, active_lint_tracked
 from staleness import evaluate as evaluate_staleness
 from subprocess_util import run_subprocess
-from wiki_drift_detector import apply_drift_markers, detect_drift
+from wiki_drift_detector import (
+    apply_drift_markers,
+    detect_drift,
+    scan_semantic_drift,
+)
 from wiki_maint_queue import MaintenanceQueue
 
 if TYPE_CHECKING:
@@ -378,6 +382,51 @@ class RepoWikiLoop(BaseBackgroundLoop):
                     )
         stats["drift_findings"] = drift_findings
         stats["drift_marked_stale"] = drift_marked
+
+        # Phase 9b (E2): LLM semantic-drift pass for entries whose citations
+        # still resolve but whose CLAIM may have rotted (renamed defaults,
+        # swapped model tiers, changed control flow). Off by default until
+        # eval-tuned; throttled by ``semantic_drift_min_age_days`` and
+        # ``semantic_drift_max_entries_per_tick`` to bound cost.
+        semantic_findings = 0
+        if (
+            self._config.semantic_drift_enabled
+            and tracked_root is not None
+            and self._wiki_compiler is not None
+        ):
+            compiler = self._wiki_compiler
+
+            async def _ask_llm(prompt: str) -> str:
+                reply = await compiler._call_model(prompt)
+                return reply or ""
+
+            for slug in repos:
+                try:
+                    findings = await scan_semantic_drift(
+                        tracked_root=tracked_root,
+                        repo_root=Path(self._config.repo_root),
+                        repo_slug=slug,
+                        ask_llm=_ask_llm,
+                        min_age_days=self._config.semantic_drift_min_age_days,
+                        max_entries_per_tick=(
+                            self._config.semantic_drift_max_entries_per_tick
+                        ),
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "semantic drift scan failed for %s", slug, exc_info=True
+                    )
+                    continue
+                semantic_findings += len(findings)
+                for f in findings:
+                    logger.info(
+                        "semantic drift: %s entry %s verdict=%s reason=%s",
+                        f.entry_path,
+                        f.entry_id,
+                        f.verdict,
+                        f.reason[:160],
+                    )
+        stats["semantic_drift_findings"] = semantic_findings
 
         stats["queue_drained"] = len(drained)
         await self._poll_and_merge_open_pr(stats)

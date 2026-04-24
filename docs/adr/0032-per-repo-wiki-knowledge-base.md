@@ -1,7 +1,7 @@
 # ADR-0032: Per-Repo Wiki Knowledge Base (Karpathy Pattern)
 
 **Status:** Accepted
-**Enforced by:** tests/test_repo_wiki.py, tests/test_repo_wiki_store_git.py, tests/test_repo_wiki_ingest.py
+**Enforced by:** tests/test_repo_wiki.py, tests/test_repo_wiki_store_git.py, tests/test_repo_wiki_ingest.py, tests/test_wiki_drift_detector.py, tests/test_wiki_drift_symbols.py, tests/test_wiki_semantic_drift.py
 **Date:** 2026-04-05
 
 ## Context
@@ -35,6 +35,8 @@ Adopt a file-based, per-repo wiki system with three layers:
 - **LLM as librarian**: `WikiCompiler` uses Claude (via `build_lightweight_command`) to synthesize redundant entries, add cross-references between topics, resolve contradictions, and extract durable knowledge from raw phase output. This is the core Karpathy insight — the LLM maintains the wiki, not just reads it.
 
 - **Active self-healing lint**: The background loop marks entries stale when their source issues close (via `StateTracker` outcomes), prunes entries older than 90 days, and rebuilds the index. The wiki degrades gracefully without manual curation.
+
+- **Drift detection (two layers)**: A deterministic pass (`wiki_drift_detector.detect_drift`) flags entries whose `src/path.py:Symbol` citations point at files or symbols that no longer exist — cheap, side-effect-free, and auto-marks stale. An optional LLM layer (`scan_semantic_drift`, gated by `semantic_drift_enabled`) asks the compilation model whether an entry's CLAIM still matches the current source for entries older than `semantic_drift_min_age_days`, capped at `semantic_drift_max_entries_per_tick` per loop tick. Semantic findings are logged for human review; only the deterministic layer auto-stales.
 
 - **Dedup tracking**: `DedupStore`-backed per-repo tracking prevents re-ingesting the same (issue, source_type) pair. Failed ingests are not marked, so retries work.
 

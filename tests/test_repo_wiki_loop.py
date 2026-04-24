@@ -45,6 +45,9 @@ def _make_config(wiki_root: Path) -> MagicMock:
     config.repo_wiki_interval = 3600
     config.dry_run = False
     config.repo_wiki_git_backed = False
+    config.semantic_drift_enabled = False
+    config.semantic_drift_min_age_days = 30
+    config.semantic_drift_max_entries_per_tick = 10
     config.data_path.return_value = wiki_root / "wiki_maint_queue.json"
     return config
 
@@ -192,6 +195,99 @@ class TestDoWork:
         assert result is not None
         assert result["entries_compiled"] == 0
         compiler.compile_topic.assert_not_called()
+
+
+class TestSemanticDriftWiring:
+    """E2: loop wiring for the LLM-backed semantic-drift pass."""
+
+    @pytest.mark.asyncio
+    async def test_flag_off_skips_llm_call(self, tmp_path: Path) -> None:
+        from unittest.mock import AsyncMock
+
+        wiki_root = tmp_path / "wiki"
+        store = RepoWikiStore(wiki_root)
+        store.ingest(
+            "org/repo",
+            [WikiEntry(title="t", content="c", source_type="plan")],
+        )
+
+        config = _make_config(wiki_root)
+        config.semantic_drift_enabled = False
+
+        compiler = MagicMock()
+        compiler._call_model = AsyncMock(return_value="VERDICT: valid")
+
+        loop = RepoWikiLoop(
+            config=config,
+            wiki_store=store,
+            deps=_make_deps(),
+            wiki_compiler=compiler,
+        )
+        result = await loop._do_work()
+
+        assert result is not None
+        assert result.get("semantic_drift_findings", 0) == 0
+        compiler._call_model.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_flag_on_invokes_scan_and_reports_findings(
+        self, tmp_path: Path
+    ) -> None:
+        from datetime import UTC, datetime, timedelta
+        from unittest.mock import AsyncMock
+
+        repo_root = tmp_path / "repo"
+        (repo_root / "src").mkdir(parents=True)
+        (repo_root / "src" / "config.py").write_text(
+            'triage_model = "gemini-3.1-pro-preview"\n'
+        )
+        tracked_root = repo_root / "repo_wiki"
+        repo_slug_dir = tracked_root / "org" / "repo"
+        (repo_slug_dir / "patterns").mkdir(parents=True)
+        (repo_slug_dir / "index.md").write_text("# org/repo\n", encoding="utf-8")
+        topic_dir = repo_slug_dir / "patterns"
+        old = (datetime.now(UTC) - timedelta(days=60)).isoformat()
+        (topic_dir / "0001-ABCDEF.md").write_text(
+            "---\n"
+            "id: 01JF00000000000000000001\n"
+            "topic: patterns\n"
+            "source_issue: 1\n"
+            "source_phase: implement\n"
+            f"created_at: {old}\n"
+            "status: active\n"
+            "---\n"
+            "Triage uses `src/config.py:triage_model` set to haiku.\n",
+            encoding="utf-8",
+        )
+
+        config = _make_config(tmp_path / "wiki_legacy")
+        config.repo_wiki_git_backed = True
+        config.repo_root = repo_root
+        config.repo_wiki_path = "repo_wiki"
+        config.semantic_drift_enabled = True
+        config.semantic_drift_min_age_days = 30
+        config.semantic_drift_max_entries_per_tick = 10
+
+        compiler = MagicMock()
+        compiler._call_model = AsyncMock(
+            return_value=(
+                "VERDICT: contradicted\n"
+                "REASON: wiki says haiku, code sets gemini-3.1-pro-preview"
+            )
+        )
+
+        store = RepoWikiStore(tmp_path / "wiki_legacy", tracked_root=tracked_root)
+        loop = RepoWikiLoop(
+            config=config,
+            wiki_store=store,
+            deps=_make_deps(),
+            wiki_compiler=compiler,
+        )
+        result = await loop._do_work()
+
+        assert result is not None
+        assert result.get("semantic_drift_findings") == 1
+        compiler._call_model.assert_awaited()
 
 
 @pytest.mark.asyncio
