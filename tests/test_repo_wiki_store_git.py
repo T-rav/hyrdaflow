@@ -117,6 +117,49 @@ class TestWriteEntry:
         )
         assert "source_phase: synthesis" in path.read_text()
 
+    def test_corroborations_field_round_trips_through_write_and_load(
+        self, store: RepoWikiStore
+    ) -> None:
+        """corroborations must survive write → read unchanged."""
+        entry = WikiEntry(
+            title="Use factories not direct instantiation",
+            content="Details about factories.",
+            source_type="review",
+            source_issue=42,
+            corroborations=7,
+        )
+        path = store.write_entry(REPO, entry, topic="patterns")
+
+        assert "corroborations: 7" in path.read_text()
+
+        loaded = store._load_tracked_topic_entries(path.parent)
+        assert len(loaded) == 1
+        assert loaded[0].corroborations == 7
+
+    def test_corroborations_defaults_to_one_when_field_missing_from_frontmatter(
+        self, store: RepoWikiStore, tmp_path: Path
+    ) -> None:
+        """Entries written before this field existed must load as 1."""
+        tmp_path / "widget-root" / REPO / "patterns"
+        # Reuse the store's actual topic dir instead of a fresh tmp path.
+        real_topic_dir = store._repo_dir(REPO) / "patterns"
+        real_topic_dir.mkdir(parents=True, exist_ok=True)
+        (real_topic_dir / "0001-issue-1-old.md").write_text(
+            "---\n"
+            "id: 0001\n"
+            "topic: patterns\n"
+            "source_issue: 1\n"
+            "source_phase: review\n"
+            "created_at: 2026-01-01T00:00:00+00:00\n"
+            "status: active\n"
+            "---\n"
+            "# Old entry\n\nBody.\n",
+            encoding="utf-8",
+        )
+        loaded = store._load_tracked_topic_entries(real_topic_dir)
+        assert len(loaded) == 1
+        assert loaded[0].corroborations == 1
+
 
 class TestAppendLog:
     def test_appends_per_issue_jsonl(self, store: RepoWikiStore) -> None:

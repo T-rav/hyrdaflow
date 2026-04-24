@@ -277,6 +277,7 @@ def _load_tracked_active_entries(topic_dir: Path) -> list[dict[str, Any]]:
                 "source_issue": fields.get("source_issue", ""),
                 "source_phase": fields.get("source_phase", ""),
                 "created_at": fields.get("created_at", ""),
+                "corroborations": fields.get("corroborations", "1"),
                 "path": str(path),
             }
         )
@@ -315,6 +316,7 @@ def _write_tracked_synthesis_entry(
         "source_phase: synthesis",
         f"created_at: {now}",
         "status: active",
+        f"corroborations: {entry.corroborations}",
     ]
     if supersedes:
         lines.append("supersedes: " + ",".join(supersedes))
@@ -505,6 +507,15 @@ class WikiEntry(BaseModel):
     stale: bool = Field(
         default=False,
         description="Legacy marker; see superseded_by for canonical staleness",
+    )
+    corroborations: int = Field(
+        default=1,
+        ge=1,
+        description=(
+            "How many independent sources have re-asserted this principle. "
+            "Entries loaded without this field default to 1. Incremented by "
+            "the ingest-path dedup/corroboration logic in wiki_compiler."
+        ),
     )
 
     @model_validator(mode="after")
@@ -1012,6 +1023,7 @@ class RepoWikiStore:
                 f"source_phase: {source_phase}",
                 f"created_at: {entry.created_at}",
                 f"status: {status}",
+                f"corroborations: {entry.corroborations}",
                 "---",
                 "",
                 f"# {entry.title}",
@@ -1200,6 +1212,11 @@ class RepoWikiStore:
         entries: list[WikiEntry] = []
         for raw in _load_tracked_active_entries(topic_dir):
             try:
+                corroborations_raw = raw.get("corroborations", "1")
+                try:
+                    corroborations = max(1, int(str(corroborations_raw).strip()))
+                except (TypeError, ValueError):
+                    corroborations = 1
                 entries.append(
                     WikiEntry(
                         id=raw.get("id") or "",
@@ -1214,6 +1231,7 @@ class RepoWikiStore:
                         ),
                         created_at=raw.get("created_at")
                         or datetime.now(UTC).isoformat(),
+                        corroborations=corroborations,
                     )
                 )
             except (ValueError, TypeError):
