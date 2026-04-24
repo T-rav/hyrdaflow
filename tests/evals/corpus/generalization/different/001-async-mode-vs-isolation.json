@@ -1,0 +1,15 @@
+{
+  "topic": "testing",
+  "entry_a": {
+    "title": "Configure pytest-asyncio in auto mode",
+    "content": "Our pytest.ini sets asyncio_mode = auto so that async def test_* functions don't need the @pytest.mark.asyncio decorator.",
+    "source_repo": "owner/repo-a"
+  },
+  "entry_b": {
+    "title": "Tests must be isolated",
+    "content": "Each test fixture runs in a tmp_path; no test modifies global state. Test isolation is what lets us run the suite in parallel with -n auto.",
+    "source_repo": "owner/repo-b"
+  },
+  "expected_same_principle": false,
+  "notes": "Both are about testing but advise different rules — configuring async mode vs. enforcing test isolation. A compiler that merges them would lose distinction."
+}

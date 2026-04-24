@@ -1,0 +1,15 @@
+{
+  "topic": "architecture",
+  "entry_a": {
+    "title": "Create worktrees atomically",
+    "content": "Worktree creation must be a single atomic operation — if it fails partway, roll back the mkdir and the git worktree add must not leave the main checkout in a broken state. Use a finalize/rollback pattern.",
+    "source_repo": "owner/repo-a"
+  },
+  "entry_b": {
+    "title": "Clean up worktrees after merge",
+    "content": "Once an issue's PR merges, the associated worktree must be removed and its branch pruned. Stale worktrees accumulate disk space and confuse the orchestrator's active-worker state.",
+    "source_repo": "owner/repo-b"
+  },
+  "expected_same_principle": false,
+  "notes": "Same domain (worktrees) but different rules — atomic creation vs. cleanup on merge. Merging would lose both specifics."
+}

@@ -1,0 +1,15 @@
+{
+  "topic": "patterns",
+  "entry_a": {
+    "title": "Runtime-tunable knobs go in System tab, not .env",
+    "content": "Feature flags and runtime thresholds should be editable without redeploying — expose them in the dashboard System tab. .env is for deploy-time identity/secrets only.",
+    "source_repo": "owner/repo-a"
+  },
+  "entry_b": {
+    "title": "Deploy-time model defaults live in HydraFlowConfig",
+    "content": "Model choices and CLI backends are set via HYDRAFLOW_<STAGE>=tool:model combos in .env. HydraFlowConfig fields hold the canonical defaults; env vars override per deployment.",
+    "source_repo": "owner/repo-b"
+  },
+  "expected_same_principle": false,
+  "notes": "Adjacent topic (configuration) but the rules disagree on where settings should live — runtime UI vs. deploy-time env."
+}

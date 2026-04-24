@@ -1,0 +1,15 @@
+{
+  "topic": "architecture",
+  "entry_a": {
+    "title": "Hexagonal ports separate domain from adapters",
+    "content": "Domain code depends on ports (Protocol classes), adapters implement them. Swapping an adapter (GitHub API vs. stub) requires no domain changes. PRPort, IssueStorePort, WorkspacePort are the canonical examples.",
+    "source_repo": "owner/repo-a"
+  },
+  "entry_b": {
+    "title": "Port/adapter architecture",
+    "content": "Our codebase follows hexagonal: abstract ports at the edges, concrete adapters behind them. The orchestrator and phases know about ports only — they accept PRPort etc. via constructor injection. Swapping adapters for tests is the main payoff.",
+    "source_repo": "owner/repo-b"
+  },
+  "expected_same_principle": true,
+  "notes": "Both describe the same hexagonal port/adapter separation principle."
+}

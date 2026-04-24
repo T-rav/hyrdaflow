@@ -1,0 +1,15 @@
+{
+  "topic": "testing",
+  "entry_a": {
+    "title": "Configure pytest-asyncio in auto mode",
+    "content": "Our pytest.ini sets asyncio_mode = auto so that `async def test_*` functions don't need the @pytest.mark.asyncio decorator. Forgetting to set this causes async tests to be silently skipped as coroutine warnings.",
+    "source_repo": "owner/repo-a"
+  },
+  "entry_b": {
+    "title": "pytest-asyncio auto mode required",
+    "content": "We standardized on asyncio_mode=auto in pyproject.toml. Without it async tests collect as coroutine-never-awaited warnings and no assertions run.",
+    "source_repo": "owner/repo-b"
+  },
+  "expected_same_principle": true,
+  "notes": "Both entries advise the same rule: configure pytest-asyncio in auto mode. Wording differs but the claim is identical."
+}

@@ -1,0 +1,15 @@
+{
+  "topic": "gotchas",
+  "entry_a": {
+    "title": "Never commit to main",
+    "content": "Main is protected — direct commits and pushes fail at the pre-push hook. All changes go through a worktree branch and a pull request. Even one-line fixes.",
+    "source_repo": "owner/repo-a"
+  },
+  "entry_b": {
+    "title": "Branch protection rejects direct commits",
+    "content": "Any attempt to commit to main locally is caught by a pre-commit guard; direct pushes bounce server-side. Always branch + PR, even for trivial edits.",
+    "source_repo": "owner/repo-b"
+  },
+  "expected_same_principle": true,
+  "notes": "Both advise the same branch-protection/PR-workflow rule."
+}

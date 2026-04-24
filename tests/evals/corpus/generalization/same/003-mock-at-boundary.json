@@ -1,0 +1,15 @@
+{
+  "topic": "testing",
+  "entry_a": {
+    "title": "Mock only at the system boundary",
+    "content": "In unit tests we fake external services (GitHub, Claude CLI, filesystem) but never mock our own domain objects. Internal collaboration is tested with real instances; mocks at the boundary keep tests deterministic without coupling to implementation details.",
+    "source_repo": "owner/repo-a"
+  },
+  "entry_b": {
+    "title": "No mocking of domain objects",
+    "content": "Mocks belong at adapter boundaries — HTTP, subprocess, disk. Inside the domain we use real collaborators. Tests that mock a domain class end up asserting that the mock was called, not that the behavior is correct.",
+    "source_repo": "owner/repo-b"
+  },
+  "expected_same_principle": true,
+  "notes": "Both enforce the same rule: only mock at external/adapter boundaries, never internal domain."
+}

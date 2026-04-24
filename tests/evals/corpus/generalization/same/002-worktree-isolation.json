@@ -1,0 +1,15 @@
+{
+  "topic": "architecture",
+  "entry_a": {
+    "title": "Issue work happens in per-issue git worktrees",
+    "content": "Every issue gets its own worktree under the workspace_base directory. The main repo checkout is never modified. This lets multiple agents work concurrently without branch-switching collisions.",
+    "source_repo": "owner/repo-a"
+  },
+  "entry_b": {
+    "title": "Never modify the primary checkout",
+    "content": "All issue-scoped changes must land in a dedicated worktree — branch protection on main enforces this. Worktrees are created/destroyed per issue lifecycle so parallel runs don't collide on branch state.",
+    "source_repo": "owner/repo-b"
+  },
+  "expected_same_principle": true,
+  "notes": "Both advise per-issue worktree isolation and non-modification of the main checkout."
+}
