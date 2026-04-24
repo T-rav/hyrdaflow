@@ -189,18 +189,23 @@ class ADRIndex:
         return self._cached
 
     def adrs_touching(self, paths: list[str] | tuple[str, ...]) -> dict[str, list[ADR]]:
-        """Return a mapping of input paths → Accepted ADRs that cite each.
+        """Return a mapping of input paths → ADRs that cite each.
 
-        Only Accepted ADRs are considered — Superseded / Deprecated /
-        Proposed don't trigger the P2 gate. Paths with no hits are
-        omitted from the result.
+        Includes Accepted and Proposed ADRs — Superseded / Deprecated
+        don't trigger the P2 gate. Proposed ADRs count because a PR
+        that adds a Proposed ADR citing the touched file IS the author's
+        statement of responsibility for the change; the ADR's status
+        will be bumped to Accepted when the PR merges and the decision
+        takes effect.
+
+        Paths with no hits are omitted from the result.
         """
         if not paths:
             return {}
-        accepted = [a for a in self.adrs() if a.status == "Accepted"]
+        live = [a for a in self.adrs() if a.status in ("Accepted", "Proposed")]
         result: dict[str, list[ADR]] = {}
         for path in paths:
-            hits = [a for a in accepted if path in a.source_files]
+            hits = [a for a in live if path in a.source_files]
             if hits:
                 result[path] = hits
         return result
