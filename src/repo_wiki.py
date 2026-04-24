@@ -1315,7 +1315,20 @@ class RepoWikiStore:
         are returned; ``stale`` / ``superseded`` entries are filtered out since
         callers use this for prompt injection.
         """
-        entries: list[WikiEntry] = []
+        return [
+            entry for entry, _ in self._load_tracked_topic_entries_with_paths(topic_dir)
+        ]
+
+    def _load_tracked_topic_entries_with_paths(
+        self, topic_dir: Path
+    ) -> list[tuple[WikiEntry, Path]]:
+        """Like ``_load_tracked_topic_entries`` but preserves each entry's
+        source file path. Used by the ingest-time corroboration hook:
+        ``CorroborationDecision.canonical_path`` is populated from these
+        tuples so the caller can atomically bump the counter without a
+        second directory walk.
+        """
+        pairs: list[tuple[WikiEntry, Path]] = []
         for raw in _load_tracked_active_entries(topic_dir):
             try:
                 corroborations_raw = raw.get("corroborations", "1")
@@ -1323,26 +1336,24 @@ class RepoWikiStore:
                     corroborations = max(1, int(str(corroborations_raw).strip()))
                 except (TypeError, ValueError):
                     corroborations = 1
-                entries.append(
-                    WikiEntry(
-                        id=raw.get("id") or "",
-                        title=raw.get("title") or "(untitled)",
-                        content=raw.get("body") or "",
-                        topic=topic_dir.name,
-                        source_type=raw.get("source_phase") or "unknown",
-                        source_issue=(
-                            int(raw["source_issue"])
-                            if raw.get("source_issue")
-                            else None
-                        ),
-                        created_at=raw.get("created_at")
-                        or datetime.now(UTC).isoformat(),
-                        corroborations=corroborations,
-                    )
+                entry = WikiEntry(
+                    id=raw.get("id") or "",
+                    title=raw.get("title") or "(untitled)",
+                    content=raw.get("body") or "",
+                    topic=topic_dir.name,
+                    source_type=raw.get("source_phase") or "unknown",
+                    source_issue=(
+                        int(raw["source_issue"]) if raw.get("source_issue") else None
+                    ),
+                    created_at=raw.get("created_at") or datetime.now(UTC).isoformat(),
+                    corroborations=corroborations,
                 )
+                path_raw = raw.get("path")
+                path = Path(path_raw) if path_raw else topic_dir / "unknown.md"
+                pairs.append((entry, path))
             except (ValueError, TypeError):
                 logger.warning("Skipping malformed tracked entry under %s", topic_dir)
-        return entries
+        return pairs
 
     def _load_topic_entries(self, topic_path: Path) -> list[WikiEntry]:
         """Parse a topic markdown file back into entries.

@@ -23,7 +23,12 @@ from phase_utils import (
     store_lifecycle,
 )
 from planner import PlannerRunner
-from repo_wiki import RepoWikiStore, WikiEntry, classify_topic
+from repo_wiki import (
+    RepoWikiStore,
+    WikiEntry,
+    classify_topic,
+    increment_corroboration,
+)
 from research_runner import ResearchRunner
 from state import StateTracker
 from task_source import TaskTransitioner
@@ -35,7 +40,7 @@ if TYPE_CHECKING:
     from issue_cache import IssueCache
     from plan_reviewer import PlanReviewer
     from ports import IssueStorePort, PRPort
-    from wiki_compiler import WikiCompiler  # noqa: TCH004
+    from wiki_compiler import CorroborationDecision, WikiCompiler  # noqa: TCH004
 
 logger = logging.getLogger("hydraflow.plan_phase")
 
@@ -418,9 +423,17 @@ class PlanPhase:
                 )
                 if entries:
                     if tracked_store is not None and worktree_path is not None:
-                        # Offload the sync file + git-subprocess work off the
-                        # event loop so the other four concurrent phase loops
-                        # (ADR-0001) don't stall on `git commit`.
+                        # Precompute corroboration decisions on the event
+                        # loop (async LLM calls) so the sync commit step
+                        # can just read them.
+                        decisions = await self._precompute_corroboration(
+                            tracked_store=tracked_store,
+                            repo=repo,
+                            entries=entries,
+                        )
+                        # Offload the sync file + git-subprocess work off
+                        # the event loop so the other four concurrent
+                        # phase loops (ADR-0001) don't stall on git commit.
                         await asyncio.to_thread(
                             self._wiki_commit_compiler_entries,
                             tracked_store=tracked_store,
@@ -429,6 +442,7 @@ class PlanPhase:
                             issue_number=issue_number,
                             phase="plan",
                             entries=entries,
+                            decisions=decisions,
                         )
                     else:
                         self._wiki_store.ingest(repo, entries)
@@ -480,6 +494,50 @@ class PlanPhase:
             worktree_path,
         )
 
+    async def _precompute_corroboration(
+        self,
+        *,
+        tracked_store: RepoWikiStore,
+        repo: str,
+        entries: list[WikiEntry],
+    ) -> list[CorroborationDecision]:
+        from wiki_compiler import CorroborationDecision  # noqa: PLC0415
+
+        """Run ``dedup_or_corroborate`` per entry against existing active
+        entries in the same topic. Returns one decision per entry in the
+        same order. Bounded per-entry by ``max_candidates_per_entry`` so
+        a large topic doesn't fire one LLM call per existing entry.
+        """
+        decisions: list[CorroborationDecision] = []
+        if self._wiki_compiler is None:
+            return [CorroborationDecision() for _ in entries]
+        max_candidates = 5
+        for entry in entries:
+            topic = classify_topic(entry)
+            topic_dir = tracked_store._tracked_topic_dir(repo, topic)
+            existing_pairs: list[tuple[WikiEntry, Path]] = []
+            if topic_dir is not None:
+                existing_pairs = (
+                    tracked_store._load_tracked_topic_entries_with_paths(topic_dir)
+                )[:max_candidates]
+            try:
+                decision = await self._wiki_compiler.dedup_or_corroborate(
+                    repo_slug=repo,
+                    entry=entry,
+                    existing_entries=existing_pairs,
+                    topic=topic,
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "corroboration precompute failed for %s/%s",
+                    repo,
+                    entry.title,
+                    exc_info=True,
+                )
+                decision = CorroborationDecision()
+            decisions.append(decision)
+        return decisions
+
     def _wiki_commit_compiler_entries(
         self,
         *,
@@ -489,24 +547,44 @@ class PlanPhase:
         issue_number: int,
         phase: str,
         entries: list[WikiEntry],
+        decisions: list[CorroborationDecision] | None = None,
     ) -> None:
+        from wiki_compiler import CorroborationDecision  # noqa: PLC0415
+
         """Route compiler-synthesized entries through ``write_entry`` then
         commit. Topic classification mirrors ``RepoWikiStore.ingest``.
         Rolls back any files written before a mid-batch failure.
+
+        When ``decisions`` is provided (same length as ``entries``), any
+        entry whose decision says ``should_corroborate`` skips the write
+        and instead bumps the canonical's counter via
+        ``increment_corroboration``. This is the ingest-side of the
+        depth-signal system (ADR-0032).
         """
         # Classification uses the module-level helper — same keyword
         # scheme the legacy layout used, so synthesized entries land in
         # the expected topic directory.
         written: list[Path] = []
+        if decisions is None or len(decisions) != len(entries):
+            decisions = [CorroborationDecision() for _ in entries]
         try:
-            for entry in entries:
+            any_wrote = False
+            for entry, decision in zip(entries, decisions, strict=True):
+                if decision.should_corroborate and decision.canonical_path is not None:
+                    increment_corroboration(decision.canonical_path)
+                    continue
                 topic = classify_topic(entry)
                 written.append(tracked_store.write_entry(repo, entry, topic=topic))
+                any_wrote = True
             tracked_store.append_log(
                 repo,
                 issue_number,
-                {"phase": phase, "action": "ingest", "entries": len(entries)},
+                {"phase": phase, "action": "ingest", "entries": len(written)},
             )
+            # Always commit — a pure corroboration pass (0 writes) still
+            # flipped counters, which are tracked in files that need to
+            # ride along on the PR.
+            _ = any_wrote
             tracked_store.commit_pending_entries(
                 worktree_path=worktree_path,
                 phase=phase,
