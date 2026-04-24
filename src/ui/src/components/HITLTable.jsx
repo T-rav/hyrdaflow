@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react'
 import { theme } from '../theme'
 import { PIPELINE_STAGES } from '../constants'
 import { useHITLCorrection } from '../hooks/useHITLCorrection'
-import { MemoryContext } from './MemoryContext'
 
 export function HITLTable({ items, onRefresh }) {
   const [expandedIssue, setExpandedIssue] = useState(null)
@@ -27,7 +26,7 @@ export function HITLTable({ items, onRefresh }) {
   const [refreshing, setRefreshing] = useState(false)
   const [countdown, setCountdown] = useState(30)
   const onRefreshRef = useRef(onRefresh)
-  const { submitCorrection, skipIssue, closeIssue, approveAsMemory, approveProcess } = useHITLCorrection()
+  const { submitCorrection, skipIssue, closeIssue, approveProcess } = useHITLCorrection()
 
   useEffect(() => { onRefreshRef.current = onRefresh }, [onRefresh])
 
@@ -164,14 +163,6 @@ export function HITLTable({ items, onRefresh }) {
       setActionError(prev => ({ ...prev, [issueNum]: 'Close failed. Try again.' }))
     }
     setActionLoading(null)
-    onRefresh()
-  }
-
-  const handleApproveMemory = async (issueNum) => {
-    setActionLoading({ issue: issueNum, action: 'approve' })
-    await approveAsMemory(issueNum)
-    setActionLoading(null)
-    setExpandedIssue(null)
     onRefresh()
   }
 
@@ -340,7 +331,6 @@ export function HITLTable({ items, onRefresh }) {
                             Cause: {item.cause}
                           </div>
                         )}
-                        <MemoryContext issueNumber={item.issue} variant="hitl" />
                         <textarea
                           style={styles.textarea}
                           placeholder="Provide correction guidance..."
@@ -374,16 +364,6 @@ export function HITLTable({ items, onRefresh }) {
                           >
                             {isActionLoading(item.issue, 'close') ? 'Closing...' : 'Close issue'}
                           </button>
-                          {item.isMemorySuggestion && (
-                            <button
-                              style={styles.approveMemoryBtn}
-                              disabled={isAnyActionLoading(item.issue)}
-                              onClick={e => { e.stopPropagation(); handleApproveMemory(item.issue) }}
-                              data-testid={`hitl-approve-memory-${item.issue}`}
-                            >
-                              {isActionLoading(item.issue, 'approve') ? 'Approving...' : 'Approve as Memory'}
-                            </button>
-                          )}
                           {item.issueTypeReview && (
                             <button
                               style={styles.approveProcessBtn}

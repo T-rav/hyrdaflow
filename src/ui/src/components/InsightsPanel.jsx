@@ -8,7 +8,7 @@ const SECTIONS = [
   { key: 'harness', label: 'Failure Patterns' },
   { key: 'reviews', label: 'Review Feedback' },
   { key: 'retrospective', label: 'Retrospective' },
-  { key: 'memories', label: 'Learnings' },
+  { key: 'troubleshooting', label: 'Troubleshooting Patterns' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -291,64 +291,6 @@ function TroubleshootingSubSection() {
 }
 
 // ---------------------------------------------------------------------------
-// Learnings section (wrapper with three sub-sections)
-// ---------------------------------------------------------------------------
-
-function LearningsSection() {
-  const { memories: data } = useHydraFlow()
-  const [memoryFilter, setMemoryFilter] = useState('')
-
-  if (!data) return <div style={styles.empty}>Loading learnings...</div>
-  if (data.total_items === 0) return <div style={styles.empty}>No learnings recorded yet.</div>
-
-  const filterLower = memoryFilter.toLowerCase()
-  const filteredItems = (data.items || []).filter((item) => {
-    if (!filterLower) return true
-    return (
-      String(item.issue_number).includes(filterLower) ||
-      (item.learning && item.learning.toLowerCase().includes(filterLower))
-    )
-  })
-
-  return (
-    <div style={styles.sectionContainer}>
-      <div style={styles.header}>
-        <span style={styles.totalBadge}>{data.total_items}</span>
-        <span style={styles.headerText}>memory items</span>
-      </div>
-
-      <LearningsSubSection title="Memory Items" defaultExpanded>
-        <div style={styles.section}>
-          <input
-            type="text"
-            placeholder="Filter by issue # or text..."
-            value={memoryFilter}
-            onChange={(e) => setMemoryFilter(e.target.value)}
-            style={styles.filterInput}
-          />
-          {filteredItems.length > 0 ? (
-            [...filteredItems].reverse().map((item, i) => (
-              <div key={i} style={styles.memoryCard}>
-                <span style={styles.memoryIssue}>#{item.issue_number}</span>
-                <span style={styles.memoryText}>{item.learning}</span>
-              </div>
-            ))
-          ) : (
-            <div style={styles.empty}>
-              {memoryFilter ? 'No items match filter.' : 'No memory items yet.'}
-            </div>
-          )}
-        </div>
-      </LearningsSubSection>
-
-      <LearningsSubSection title="Troubleshooting Patterns" defaultExpanded={false}>
-        <TroubleshootingSubSection />
-      </LearningsSubSection>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Main InsightsPanel
 // ---------------------------------------------------------------------------
 
@@ -356,7 +298,7 @@ const SECTION_COMPONENTS = {
   harness: HarnessInsightsPanel,
   reviews: ReviewFeedbackSection,
   retrospective: RetrospectiveSection,
-  memories: LearningsSection,
+  troubleshooting: TroubleshootingSubSection,
 }
 
 function InsightsSection({ label, sectionKey, expanded, onToggle }) {

@@ -58,52 +58,24 @@ function defaultContext(overrides = {}) {
     reviewInsights: null,
     retrospectives: null,
     troubleshooting: null,
-    memories: null,
     ...overrides,
   }
 }
 
-describe('InsightsPanel — LearningsSection sub-sections', () => {
+describe('InsightsPanel — Troubleshooting Patterns top-level section', () => {
   beforeEach(() => {
     mockUseHydraFlow.mockReturnValue(defaultContext({
-      memories: memoriesPayload(),
       troubleshooting: troubleshootingPayload(),
     }))
   })
 
-  it('renders the Learnings top-level section', () => {
+  it('renders the Troubleshooting Patterns top-level section', () => {
     render(<InsightsPanel />)
-    expect(screen.getByText('Learnings')).toBeInTheDocument()
+    expect(screen.getByText('Troubleshooting Patterns')).toBeInTheDocument()
   })
 
-  it('shows Memory Items sub-section expanded by default with search filtering', async () => {
+  it('shows patterns when expanded', async () => {
     render(<InsightsPanel />)
-    // Expand Learnings section
-    fireEvent.click(screen.getByText('Learnings'))
-
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText('Filter by issue # or text...')).toBeInTheDocument()
-    })
-
-    // Filter by issue number
-    const input = screen.getByPlaceholderText('Filter by issue # or text...')
-    fireEvent.change(input, { target: { value: '42' } })
-
-    await waitFor(() => {
-      expect(screen.getByText('Always validate inputs')).toBeInTheDocument()
-      expect(screen.queryByText('Use async for I/O')).not.toBeInTheDocument()
-    })
-  })
-
-  it('shows Troubleshooting Patterns sub-section', async () => {
-    render(<InsightsPanel />)
-    fireEvent.click(screen.getByText('Learnings'))
-
-    await waitFor(() => {
-      expect(screen.getByText('Troubleshooting Patterns')).toBeInTheDocument()
-    })
-
-    // Expand Troubleshooting Patterns sub-section
     fireEvent.click(screen.getByText('Troubleshooting Patterns'))
 
     await waitFor(() => {
@@ -113,22 +85,14 @@ describe('InsightsPanel — LearningsSection sub-sections', () => {
     })
   })
 
-  it('expands troubleshooting pattern to show fix strategy', async () => {
+  it('expands pattern to show fix strategy', async () => {
     render(<InsightsPanel />)
-    fireEvent.click(screen.getByText('Learnings'))
-
-    await waitFor(() => {
-      expect(screen.getByText('Troubleshooting Patterns')).toBeInTheDocument()
-    })
-
-    // Expand Troubleshooting Patterns sub-section
     fireEvent.click(screen.getByText('Troubleshooting Patterns'))
 
     await waitFor(() => {
       expect(screen.getByText('truthy_asyncmock')).toBeInTheDocument()
     })
 
-    // Click the pattern to expand it
     fireEvent.click(screen.getByText('truthy_asyncmock'))
 
     await waitFor(() => {
@@ -137,20 +101,12 @@ describe('InsightsPanel — LearningsSection sub-sections', () => {
     })
   })
 
-  it('shows empty state when no troubleshooting patterns exist', async () => {
+  it('shows empty state when no patterns exist', async () => {
     mockUseHydraFlow.mockReturnValue(defaultContext({
-      memories: memoriesPayload(),
       troubleshooting: { total_patterns: 0, patterns: [] },
     }))
 
     render(<InsightsPanel />)
-    fireEvent.click(screen.getByText('Learnings'))
-
-    await waitFor(() => {
-      expect(screen.getByText('Troubleshooting Patterns')).toBeInTheDocument()
-    })
-
-    // Expand Troubleshooting Patterns sub-section
     fireEvent.click(screen.getByText('Troubleshooting Patterns'))
 
     await waitFor(() => {

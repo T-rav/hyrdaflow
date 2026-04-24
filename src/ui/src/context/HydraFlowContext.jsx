@@ -52,7 +52,6 @@ export const initialState = {
   reviewInsights: null,
   retrospectives: null,
   troubleshooting: null,
-  memories: null,
   trackedReports: [],
 }
 
@@ -790,7 +789,6 @@ export function reducer(state, action) {
         reviewInsights: action.data?.reviewInsights ?? state.reviewInsights,
         retrospectives: action.data?.retrospectives ?? state.retrospectives,
         troubleshooting: action.data?.troubleshooting ?? state.troubleshooting,
-        memories: action.data?.memories ?? state.memories,
       }
 
     case 'SET_TRACKED_REPORTS':
@@ -1606,7 +1604,6 @@ export function HydraFlowProvider({ children }) {
       { url: '/api/review-insights', key: 'reviewInsights' },
       { url: '/api/retrospectives', key: 'retrospectives' },
       { url: '/api/troubleshooting', key: 'troubleshooting' },
-      { url: '/api/memories', key: 'memories' },
     ]
 
     async function poll() {

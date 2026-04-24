@@ -14,12 +14,11 @@ describe('useHITLCorrection', () => {
     vi.restoreAllMocks()
   })
 
-  it('returns all five action callbacks on initial render', () => {
+  it('returns all four action callbacks on initial render', () => {
     const { result } = renderHook(() => useHITLCorrection())
     expect(typeof result.current.submitCorrection).toBe('function')
     expect(typeof result.current.skipIssue).toBe('function')
     expect(typeof result.current.closeIssue).toBe('function')
-    expect(typeof result.current.approveAsMemory).toBe('function')
     expect(typeof result.current.approveProcess).toBe('function')
   })
 
@@ -117,30 +116,6 @@ describe('useHITLCorrection', () => {
     })
   })
 
-  it('approveAsMemory POSTs to /api/hitl/{issueNumber}/approve-memory with no body', async () => {
-    const { result } = renderHook(() => useHITLCorrection())
-
-    await act(async () => {
-      await result.current.approveAsMemory(99)
-    })
-
-    expect(fetchMock).toHaveBeenCalledWith('/api/hitl/99/approve-memory', {
-      method: 'POST',
-    })
-  })
-
-  it('approveAsMemory returns true on success', async () => {
-    fetchMock.mockResolvedValue({ ok: true })
-    const { result } = renderHook(() => useHITLCorrection())
-
-    let returnValue
-    await act(async () => {
-      returnValue = await result.current.approveAsMemory(99)
-    })
-
-    expect(returnValue).toBe(true)
-  })
-
   it('approveProcess POSTs to /api/hitl/{issueNumber}/approve-process with no body', async () => {
     const { result } = renderHook(() => useHITLCorrection())
 
@@ -172,7 +147,6 @@ describe('useHITLCorrection', () => {
     expect(result.current.submitCorrection).toBe(firstRender.submitCorrection)
     expect(result.current.skipIssue).toBe(firstRender.skipIssue)
     expect(result.current.closeIssue).toBe(firstRender.closeIssue)
-    expect(result.current.approveAsMemory).toBe(firstRender.approveAsMemory)
     expect(result.current.approveProcess).toBe(firstRender.approveProcess)
   })
 })

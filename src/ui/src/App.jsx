@@ -7,14 +7,16 @@ import { SystemPanel } from './components/SystemPanel'
 import { OutcomesPanel } from './components/IssueHistoryPanel'
 import { StreamView } from './components/StreamView'
 import { SessionSidebar } from './components/SessionSidebar'
+import { WikiExplorer } from './components/wiki/WikiExplorer'
 import { theme } from './theme'
 
-const TABS = ['issues', 'hitl', 'outcomes', 'system']
+const TABS = ['issues', 'hitl', 'outcomes', 'wiki', 'system']
 
 const TAB_LABELS = {
   issues: 'Work Stream',
   outcomes: 'Outcomes',
   hitl: 'HITL',
+  wiki: 'Wiki',
   system: 'System',
 }
 
@@ -214,6 +216,7 @@ function AppContent() {
               ? <HITLTable items={hitlItems} onRefresh={refreshHitl} />
               : <div style={idleMessage}>Pipeline is not running — HITL actions are unavailable.</div>
           )}
+          {activeTab === 'wiki' && <WikiExplorer />}
           {activeTab === 'system' && (
             <SystemPanel
               backgroundWorkers={backgroundWorkers}

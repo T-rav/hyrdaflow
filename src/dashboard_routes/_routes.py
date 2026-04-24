@@ -1249,10 +1249,6 @@ def create_router(
                 "port": config.dashboard_port,
                 "public": dashboard_public,
             },
-            "hindsight": {
-                "status": "retired",
-                "configured": False,
-            },
             "github_cache": github_cache_health,
             "queue_depths": queue_depths,
         }
@@ -1275,23 +1271,6 @@ def create_router(
             "checks": checks,
         }
         return JSONResponse(payload)
-
-    @router.get("/api/hindsight/health")
-    async def hindsight_health() -> JSONResponse:
-        """Hindsight is retired. Endpoint kept for backward-compat clients."""
-        return JSONResponse(
-            {"status": "retired", "reachable": False, "url": ""},
-        )
-
-    @router.post("/api/hindsight/audit")
-    async def hindsight_audit() -> JSONResponse:
-        """Hindsight is retired. Endpoint kept for backward-compat clients."""
-        return JSONResponse({"status": "retired", "results": []})
-
-    @router.get("/api/hindsight/banks")
-    async def hindsight_banks() -> JSONResponse:
-        """Hindsight is retired. Endpoint kept for backward-compat clients."""
-        return JSONResponse({"status": "retired", "banks": []})
 
     @router.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
@@ -1735,27 +1714,6 @@ def create_router(
                 since=since_dt.isoformat() if since_dt else None,
                 until=until_dt.isoformat() if until_dt else None,
             ).model_dump()
-        )
-
-    @router.get("/api/memories")
-    async def get_memories() -> JSONResponse:
-        """Return memory items from local JSONL event log."""
-        import json as _json  # noqa: PLC0415
-
-        items_jsonl = config.data_path("memory", "items.jsonl")
-
-        items: list[dict[str, object]] = []
-        if items_jsonl.exists():
-            with contextlib.suppress(OSError):
-                for line in items_jsonl.read_text().splitlines():
-                    with contextlib.suppress(_json.JSONDecodeError):
-                        items.append(_json.loads(line))
-
-        return JSONResponse(
-            {
-                "total_items": len(items),
-                "items": items[-50:],
-            }
         )
 
     @router.get("/api/troubleshooting")

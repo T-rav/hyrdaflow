@@ -411,41 +411,6 @@ describe('HITLTable component', () => {
     expect(table.style.minWidth).toBe('600px')
   })
 
-  it('shows approve button when isMemorySuggestion is true', () => {
-    const items = [{ ...mockItems[0], isMemorySuggestion: true }]
-    render(<HITLTable items={items} onRefresh={() => {}} />)
-    fireEvent.click(screen.getByTestId('hitl-row-42'))
-    expect(screen.getByTestId('hitl-approve-memory-42')).toBeInTheDocument()
-    expect(screen.getByText('Approve as Memory')).toBeInTheDocument()
-  })
-
-  it('hides approve button when isMemorySuggestion is false', () => {
-    const items = [{ ...mockItems[0], isMemorySuggestion: false }]
-    render(<HITLTable items={items} onRefresh={() => {}} />)
-    fireEvent.click(screen.getByTestId('hitl-row-42'))
-    expect(screen.queryByTestId('hitl-approve-memory-42')).not.toBeInTheDocument()
-  })
-
-  it('calls correct API on approve memory click', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true })
-    global.fetch = fetchMock
-    const onRefresh = vi.fn()
-
-    const items = [{ ...mockItems[0], isMemorySuggestion: true }]
-    render(<HITLTable items={items} onRefresh={onRefresh} />)
-    fireEvent.click(screen.getByTestId('hitl-row-42'))
-    fireEvent.click(screen.getByTestId('hitl-approve-memory-42'))
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('/api/hitl/42/approve-memory', {
-        method: 'POST',
-      })
-    })
-    await waitFor(() => {
-      expect(onRefresh).toHaveBeenCalled()
-    })
-  })
-
   it('uses purple badge for memory suggestion cause', () => {
     const items = [{
       ...mockItems[0],
@@ -457,52 +422,6 @@ describe('HITLTable component', () => {
     const badge = screen.getByTestId('hitl-cause-42')
     expect(badge.style.background).toBe('var(--purple-subtle)')
     expect(badge.style.color).toBe('var(--purple)')
-  })
-
-  it('hides approve button when isMemorySuggestion is undefined', () => {
-    const items = [{ ...mockItems[0] }]
-    delete items[0].isMemorySuggestion
-    render(<HITLTable items={items} onRefresh={() => {}} />)
-    fireEvent.click(screen.getByTestId('hitl-row-42'))
-    expect(screen.queryByTestId('hitl-approve-memory-42')).not.toBeInTheDocument()
-  })
-
-  it('shows Approving... text during approve loading', async () => {
-    let resolveApprove
-    const fetchMock = vi.fn().mockImplementation(() =>
-      new Promise(resolve => { resolveApprove = resolve })
-    )
-    global.fetch = fetchMock
-
-    const items = [{ ...mockItems[0], isMemorySuggestion: true }]
-    render(<HITLTable items={items} onRefresh={() => {}} />)
-    fireEvent.click(screen.getByTestId('hitl-row-42'))
-    fireEvent.click(screen.getByTestId('hitl-approve-memory-42'))
-
-    await waitFor(() => {
-      expect(screen.getByText('Approving...')).toBeInTheDocument()
-    })
-
-    resolveApprove({ ok: true })
-  })
-
-  it('disables approve button during other action loading', async () => {
-    let resolveSkip
-    const fetchMock = vi.fn().mockImplementation(() =>
-      new Promise(resolve => { resolveSkip = resolve })
-    )
-    global.fetch = fetchMock
-
-    const items = [{ ...mockItems[0], isMemorySuggestion: true }]
-    render(<HITLTable items={items} onRefresh={() => {}} />)
-    fireEvent.click(screen.getByTestId('hitl-row-42'))
-    fireEvent.click(screen.getByTestId('hitl-skip-42'))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('hitl-approve-memory-42')).toBeDisabled()
-    })
-
-    resolveSkip({ ok: true })
   })
 
   it('renders approval status badge with purple styling', () => {
