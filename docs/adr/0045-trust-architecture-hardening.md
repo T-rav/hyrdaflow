@@ -94,3 +94,5 @@ The following files carry this ADR's decisions and must be kept in sync with any
 - `src/trust_fleet_sanity_loop.py` — meta-observability implementation (§12.1).
 - `src/health_monitor_loop.py` — dead-man-switch for the meta-observer.
 - `src/corpus_learning_loop.py`, `src/contract_refresh_loop.py`, `src/staging_bisect_loop.py`, `src/principles_audit_loop.py`, `src/flake_tracker_loop.py`, `src/skill_prompt_eval_loop.py`, `src/fake_coverage_auditor_loop.py`, `src/rc_budget_loop.py`, `src/wiki_rot_detector_loop.py` — the nine watched trust loops.
+- `src/discover_phase.py`, `src/discover_runner.py`, `src/shape_phase.py`, `src/shape_runner.py` — §4.10 product-phase evaluator dispatch (extends ADR-0031 with evaluator skill retry + HITL escalation).
+- `src/report_issue_loop.py` — §4.11 daily-budget sweep hook inside `_do_work` (additive; does not change the screenshot-capture behavior covered by ADR-0018).
