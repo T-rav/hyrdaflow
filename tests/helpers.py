@@ -654,6 +654,7 @@ class PipelineHarness:
         *,
         config=None,
         wiki_store: Any = None,
+        wiki_compiler: Any = None,
         beads_manager: Any = None,
     ):
         from events import EventBus
@@ -727,6 +728,8 @@ class PipelineHarness:
             retrospective=None,
             verification_judge=None,
             epic_checker=None,
+            wiki_store=wiki_store,
+            wiki_compiler=wiki_compiler,
         )
 
         self.triage_phase = TriagePhase(

@@ -216,16 +216,19 @@ class MockWorld:
         use_real_agent_runner: bool = False,
         clock_start: float | str | None = None,
         wiki_store: Any = None,
+        wiki_compiler: Any = None,
         beads_manager: Any = None,
     ) -> None:
         self._tmp_path = tmp_path
         self._use_real_agent = use_real_agent_runner
         self._wiki_store = wiki_store
+        self._wiki_compiler = wiki_compiler
         self._beads_manager = beads_manager
         self._harness = PipelineHarness(
             tmp_path,
             config=config,
             wiki_store=wiki_store,
+            wiki_compiler=wiki_compiler,
             beads_manager=beads_manager,
         )
         self._llm = FakeLLM()
