@@ -29,6 +29,10 @@ _TITLE_RE = re.compile(r"^#\s*ADR-(\d{4}):\s*(.+?)\s*$", re.MULTILINE)
 _STATUS_RE = re.compile(r"\*\*Status:\*\*\s*(.+?)\s*$", re.MULTILINE)
 _CONTEXT_RE = re.compile(r"##\s+Context\s*\n\s*\n(.+?)(?=\n\s*\n|\n##\s|\Z)", re.DOTALL)
 _SUPERSEDED_RE = re.compile(r"Superseded\s+by\s+(ADR-\d{4})", re.IGNORECASE)
+# Matches `src/some/path.py:Symbol` citations — shared with
+# adr_pre_validator._SOURCE_SYMBOL_RE. Used for ADR↔source-file inverse
+# indexing so the CI gate can flag PRs touching files cited in Accepted ADRs.
+_SOURCE_FILE_CITATION_RE = re.compile(r"`(src/[^`:\s]+\.py):[A-Za-z_]\w*`")
 
 
 @dataclass(frozen=True)
@@ -38,6 +42,9 @@ class ADR:
     status: str  # normalized: Accepted | Proposed | Superseded | Deprecated | Unknown
     summary: str  # first paragraph of ## Context, flattened
     superseded_by: str | None = None
+    source_files: frozenset[str] = frozenset()
+    """Set of `src/...` paths cited anywhere in the ADR body — used by
+    the P2 CI gate to flag PRs touching files under Accepted ADRs."""
 
 
 def parse_adr_file(path: Path) -> ADR:
@@ -71,12 +78,15 @@ def parse_adr_file(path: Path) -> ADR:
     if ctx_match:
         summary = " ".join(ctx_match.group(1).split())[:300]
 
+    source_files = frozenset(_SOURCE_FILE_CITATION_RE.findall(text))
+
     return ADR(
         number=number,
         title=title,
         status=status_norm,
         summary=summary,
         superseded_by=superseded_by,
+        source_files=source_files,
     )
 
 
@@ -174,6 +184,23 @@ class ADRIndex:
             self._cached = scan_adr_directory(self._adr_dir)
             self._fingerprint = fingerprint
         return self._cached
+
+    def adrs_touching(self, paths: list[str] | tuple[str, ...]) -> dict[str, list[ADR]]:
+        """Return a mapping of input paths → Accepted ADRs that cite each.
+
+        Only Accepted ADRs are considered — Superseded / Deprecated /
+        Proposed don't trigger the P2 gate. Paths with no hits are
+        omitted from the result.
+        """
+        if not paths:
+            return {}
+        accepted = [a for a in self.adrs() if a.status == "Accepted"]
+        result: dict[str, list[ADR]] = {}
+        for path in paths:
+            hits = [a for a in accepted if path in a.source_files]
+            if hits:
+                result[path] = hits
+        return result
 
     def _compute_fingerprint(self) -> tuple[float, ...]:
         if not self._adr_dir.exists():
