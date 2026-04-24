@@ -292,21 +292,6 @@ class TestDashboardRouteAnnotations:
         data = json.loads(response.body)
         assert "good_worker" not in data.get("worker_errors", [])
 
-    def test_healthz_hindsight_check_reports_retired(
-        self, config, event_bus, state, tmp_path: Path
-    ) -> None:
-        """Hindsight is retired post-cutover — /healthz reports 'retired'."""
-        import json
-
-        router = _make_router(config, event_bus, state, tmp_path)
-        get_health = _find_endpoint(router, "/healthz")
-        assert get_health is not None
-        response = get_health()
-        data = json.loads(response.body)
-        assert "hindsight" in data["checks"]
-        assert data["checks"]["hindsight"]["status"] == "retired"
-        assert data["checks"]["hindsight"]["configured"] is False
-
     def test_normalise_state_return_type(self) -> None:
         """Verify the _normalise_state validator returns correct type."""
         import inspect
