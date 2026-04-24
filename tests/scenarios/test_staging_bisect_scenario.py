@@ -113,3 +113,98 @@ class TestStagingBisectScenario:
         assert stats["staging_bisect"]["status"] == "already_processed", stats
         probe_after.assert_not_awaited()
         fake_pr.create_issue.assert_not_awaited()
+
+    async def test_guardrail_escalation(self, tmp_path) -> None:
+        """Red SHA seeded, bisect pipeline returns guardrail_escalated → no
+        revert PR, hitl-escalation issue filed with rc-red-attribution-unsafe."""
+        world = MockWorld(tmp_path)
+        fake_pr = AsyncMock()
+        fake_pr.create_issue = AsyncMock(return_value=777)
+
+        state = MagicMock()
+        state.get_last_rc_red_sha.return_value = "redguardr4il"
+        state.get_last_green_rc_sha.return_value = "greensha9999"
+        state.get_auto_reverts_in_cycle.return_value = 1
+
+        # Probe fails (not a flake) → pipeline runs.
+        probe = AsyncMock(return_value=(False, "it is broken"))
+        pipeline = AsyncMock(
+            return_value={"status": "guardrail_escalated", "escalation_issue": 777}
+        )
+
+        _seed_ports(
+            world,
+            pr_manager=fake_pr,
+            staging_bisect_state=state,
+            staging_bisect_run_probe=probe,
+            staging_bisect_run_pipeline=pipeline,
+        )
+
+        stats = await world.run_with_loops(["staging_bisect"], cycles=1)
+
+        assert stats["staging_bisect"]["status"] == "guardrail_escalated", stats
+        pipeline.assert_awaited_once()
+
+    async def test_revert_pr_filed(self, tmp_path) -> None:
+        """Red SHA, bisect pipeline returns reverted → revert PR recorded
+        and the pipeline short-circuits the flake + already-processed paths."""
+        world = MockWorld(tmp_path)
+        fake_pr = AsyncMock()
+        fake_pr.create_issue = AsyncMock(return_value=0)
+
+        state = MagicMock()
+        state.get_last_rc_red_sha.return_value = "redrevert01"
+        state.get_last_green_rc_sha.return_value = "greenbase02"
+        state.get_auto_reverts_in_cycle.return_value = 0
+
+        probe = AsyncMock(return_value=(False, "broken"))
+        pipeline = AsyncMock(
+            return_value={
+                "status": "reverted",
+                "culprit_sha": "badcommit",
+                "revert_pr_url": "https://x/pr/42",
+            }
+        )
+
+        _seed_ports(
+            world,
+            pr_manager=fake_pr,
+            staging_bisect_state=state,
+            staging_bisect_run_probe=probe,
+            staging_bisect_run_pipeline=pipeline,
+        )
+
+        stats = await world.run_with_loops(["staging_bisect"], cycles=1)
+
+        assert stats["staging_bisect"]["status"] == "reverted", stats
+        assert stats["staging_bisect"]["culprit_sha"] == "badcommit"
+        pipeline.assert_awaited_once()
+
+    async def test_no_green_anchor(self, tmp_path) -> None:
+        """Red SHA seeded but no last_green_rc_sha → pipeline refuses to bisect."""
+        world = MockWorld(tmp_path)
+        fake_pr = AsyncMock()
+        fake_pr.create_issue = AsyncMock(return_value=0)
+
+        state = MagicMock()
+        state.get_last_rc_red_sha.return_value = "redorphan1"
+        state.get_last_green_rc_sha.return_value = ""
+
+        probe = AsyncMock(return_value=(False, "broken"))
+        pipeline = AsyncMock(
+            return_value={"status": "no_green_anchor", "sha": "redorphan1"}
+        )
+
+        _seed_ports(
+            world,
+            pr_manager=fake_pr,
+            staging_bisect_state=state,
+            staging_bisect_run_probe=probe,
+            staging_bisect_run_pipeline=pipeline,
+        )
+
+        stats = await world.run_with_loops(["staging_bisect"], cycles=1)
+
+        assert stats["staging_bisect"]["status"] == "no_green_anchor", stats
+        pipeline.assert_awaited_once()
+        fake_pr.create_issue.assert_not_awaited()

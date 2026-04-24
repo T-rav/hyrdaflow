@@ -603,6 +603,13 @@ class ContractRefreshLoop(BaseBackgroundLoop):
         self._update_attempt_counters(drifted_adapters)
 
         if not fleet.has_drift:
+            # Clean tick: a prior refresh PR has been applied (merged) and
+            # the recordings now match committed cassettes. Clear the fleet
+            # drift dedup so a *future* identical drift (e.g. a reverted PR
+            # re-introduces the same diff) is re-filed rather than silently
+            # swallowed. Keeps dedup bounded in size, too.
+            if self._dedup.get():
+                self._dedup.set_all(set())
             return {
                 "status": "clean",
                 "adapters_refreshed": 0,

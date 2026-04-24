@@ -72,23 +72,30 @@ def _build_anomaly_reader(
     """
 
     def _read(_repo: str) -> list[dict[str, Any]]:
+        argv = [
+            "gh",
+            "issue",
+            "list",
+            "--state",
+            "all",
+            "--label",
+            "hitl-escalation",
+            "--label",
+            "trust-loop-anomaly",
+            "--limit",
+            "200",
+            "--json",
+            "number,title,createdAt",
+        ]
+        # Pin the query to the configured repo; reconcile loops do the same
+        # (trust_fleet_sanity_loop.py passes --repo). Multi-repo deployments
+        # would otherwise see whatever ambient `gh` context the process has.
+        target_repo = _repo or repo or ""
+        if target_repo and target_repo != "_local_":
+            argv.extend(["--repo", target_repo])
         try:
             out = subprocess.run(  # noqa: S603 — trusted ``gh`` invocation
-                [
-                    "gh",
-                    "issue",
-                    "list",
-                    "--state",
-                    "all",
-                    "--label",
-                    "hitl-escalation",
-                    "--label",
-                    "trust-loop-anomaly",
-                    "--limit",
-                    "200",
-                    "--json",
-                    "number,title,createdAt",
-                ],
+                argv,
                 check=True,
                 capture_output=True,
                 text=True,
@@ -215,6 +222,10 @@ def _empty_loop_row() -> dict[str, Any]:
         "repair_attempts_total": 0,
         "repair_successes_total": 0,
         "repair_failures_total": 0,
+        "cost_usd": 0.0,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "llm_calls": 0,
         "loop_specific": {},
     }
 
@@ -242,6 +253,21 @@ async def _read_fleet(
     except Exception:  # noqa: BLE001
         heartbeats = {}
 
+    # Join machinery-level cost per loop so operators see the full cost of the
+    # trust fleet on the same pane as the anomaly rollup (spec §4.11 point 3).
+    # `build_per_loop_cost` is expensive on large traces; guard against drift
+    # so a cost-rollup failure never breaks the trust dashboard.
+    per_loop_cost: dict[str, dict[str, Any]] = {}
+    try:
+        from dashboard_routes._cost_rollups import (  # noqa: PLC0415
+            build_per_loop_cost,
+        )
+
+        for entry in build_per_loop_cost(config, since=since, until=now):
+            per_loop_cost[str(entry.get("loop", ""))] = entry
+    except Exception:  # noqa: BLE001
+        logger.debug("per-loop cost rollup failed; omitting cost fields", exc_info=True)
+
     loops: list[dict[str, Any]] = []
     for worker in sorted(set(tallies.keys()) | set(heartbeats.keys())):
         row = tallies.get(worker) or _empty_loop_row()
@@ -268,12 +294,17 @@ async def _read_fleet(
             interval_s = int(bg_workers.get_interval(worker))
         except Exception:  # noqa: BLE001
             interval_s = 0
+        cost_row = per_loop_cost.get(worker) or {}
         loops.append(
             {
                 "worker_name": worker,
                 "enabled": enabled,
                 "interval_s": interval_s,
                 "last_tick_at": heartbeats.get(worker) or None,
+                "cost_usd": float(cost_row.get("cost_usd", 0.0) or 0.0),
+                "tokens_in": int(cost_row.get("tokens_in", 0) or 0),
+                "tokens_out": int(cost_row.get("tokens_out", 0) or 0),
+                "llm_calls": int(cost_row.get("llm_calls", 0) or 0),
                 **row,
             }
         )

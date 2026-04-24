@@ -17,6 +17,7 @@ HydraFlow's existing cadence-style loops; no new event infra.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -136,18 +137,30 @@ class StagingBisectLoop(BaseBackgroundLoop):
         worktree-scoped invocation; for now it shells out against the
         configured repo root.
         """
-        from subprocess import run  # noqa: PLC0415 — lazy import
-
         logger.info("Running bisect-probe against %s", rc_sha)
-        proc = run(
-            ["make", "bisect-probe"],
-            cwd=self._config.repo_root,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=self._config.staging_bisect_runtime_cap_seconds,
-        )
-        return proc.returncode == 0, (proc.stdout + proc.stderr)
+        timeout_s = self._config.staging_bisect_runtime_cap_seconds
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "make",
+                "bisect-probe",
+                cwd=str(self._config.repo_root),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout_b, stderr_b = await asyncio.wait_for(
+                    proc.communicate(), timeout=timeout_s
+                )
+            except TimeoutError:
+                proc.kill()
+                await proc.wait()
+                return False, f"bisect-probe timed out after {timeout_s}s"
+        except OSError as exc:
+            return False, f"bisect-probe exec failed: {exc}"
+        combined = (stdout_b or b"").decode(errors="replace") + (
+            stderr_b or b""
+        ).decode(errors="replace")
+        return proc.returncode == 0, combined
 
     async def _run_full_bisect_pipeline(  # noqa: PLR0911
         self, red_sha: str, probe_output: str
