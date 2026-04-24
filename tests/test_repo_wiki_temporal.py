@@ -163,3 +163,39 @@ def test_query_with_tags_returns_title_to_tag_map_for_corroborated_entry(
     assert tag is not None
     assert "stable for" in tag
     assert "+4" in tag
+
+
+# ----------------------------------------------------------------------
+# Direct unit tests for _weave_temporal_tags.
+# ----------------------------------------------------------------------
+
+from base_runner import _weave_temporal_tags  # noqa: E402
+
+
+def test_weave_temporal_tags_appends_italic_line_after_matching_h3() -> None:
+    markdown = "## Patterns\n\n### Always use factories\nBody text.\n"
+    tags = {"Always use factories": "stable for 6 months (+4)"}
+
+    woven = _weave_temporal_tags(markdown, tags)
+
+    assert "### Always use factories\n*(stable for 6 months (+4))*" in woven
+
+
+def test_weave_temporal_tags_noop_on_empty_tags() -> None:
+    markdown = "### x\nbody\n"
+    assert _weave_temporal_tags(markdown, {}) == markdown
+
+
+def test_weave_temporal_tags_noop_on_empty_markdown() -> None:
+    assert _weave_temporal_tags("", {"x": "y"}) == ""
+
+
+def test_weave_temporal_tags_ignores_h2_headings() -> None:
+    """Only ### (entry) headings get tagged — ## are topic sections."""
+    markdown = "## Patterns\n### foo\nbody\n"
+    tags = {"Patterns": "stale", "foo": "recent"}
+
+    woven = _weave_temporal_tags(markdown, tags)
+
+    assert "## Patterns\n*(stale)*" not in woven
+    assert "### foo\n*(recent)*" in woven

@@ -59,3 +59,15 @@ class FakeWikiCompiler:
             contradicts: list = []
 
         return _Empty()
+
+    async def dedup_or_corroborate(self, **kwargs):
+        """Corroboration decision stub.
+
+        Default is 'no match' so scenarios exercise the normal write
+        path. Tests that need corroboration to fire should assign
+        ``fake.dedup_decision = CorroborationDecision(...)`` before
+        running the tick.
+        """
+        from wiki_compiler import CorroborationDecision  # noqa: PLC0415
+
+        return getattr(self, "dedup_decision", CorroborationDecision())
