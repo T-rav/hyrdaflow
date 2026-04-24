@@ -48,6 +48,24 @@ class GeneralizationCheck(BaseModel):
     confidence: Literal["high", "medium", "low"] = "low"
 
 
+class CorroborationDecision(BaseModel):
+    """Outcome of ``WikiCompiler.dedup_or_corroborate``.
+
+    When ``should_corroborate`` is True, the caller should bump
+    ``canonical_path``'s ``corroborations`` counter instead of writing
+    the new entry as a sibling. ``canonical_path`` is carried directly
+    because ``WikiEntry.id`` is a ULID while filenames use a separate
+    per-topic sequential prefix — there's no reliable id → path map.
+    """
+
+    should_corroborate: bool = False
+    canonical_title: str = ""
+    canonical_id: str = ""
+    canonical_path: Path | None = None
+
+    model_config = {"arbitrary_types_allowed": True}
+
+
 class ADRDraftDecision(BaseModel):
     two_plus_issues: bool = False
     in_tribal: bool = False
@@ -599,6 +617,45 @@ class WikiCompiler:
         if raw is None:
             return GeneralizationCheck()
         return self._parse_generalization_output(raw)
+
+    async def dedup_or_corroborate(
+        self,
+        *,
+        repo_slug: str,
+        entry: WikiEntry,
+        existing_entries: list[tuple[WikiEntry, Path]],
+        topic: str,
+        min_confidence: Literal["medium", "high"] = "medium",
+    ) -> CorroborationDecision:
+        """Use ``generalize_pair`` to decide whether ``entry`` is a
+        re-discovery of an existing active entry.
+
+        ``existing_entries`` carries ``(WikiEntry, Path)`` tuples so the
+        path travels with the entry — the caller then bumps the
+        canonical's ``corroborations`` counter without re-walking the
+        topic directory. Stops at the first confident match: we don't
+        need to rank matches, just detect one.
+
+        Returns an empty decision (``should_corroborate=False``) when
+        there are no existing entries, or no match hits the confidence
+        floor.
+        """
+        del repo_slug  # carried for symmetry with other compiler methods
+        if not existing_entries:
+            return CorroborationDecision()
+        acceptable = {"high"} if min_confidence == "high" else {"high", "medium"}
+        for existing, existing_path in existing_entries:
+            check = await self.generalize_pair(
+                entry_a=entry, entry_b=existing, topic=topic
+            )
+            if check.same_principle and check.confidence in acceptable:
+                return CorroborationDecision(
+                    should_corroborate=True,
+                    canonical_title=existing.title,
+                    canonical_id=existing.id,
+                    canonical_path=existing_path,
+                )
+        return CorroborationDecision()
 
     async def judge_adr_draft(
         self,
