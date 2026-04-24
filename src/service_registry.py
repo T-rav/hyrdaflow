@@ -244,6 +244,10 @@ def build_services(
     subprocess_runner = get_docker_runner(config, credentials=credentials)
     repo_wiki_store = RepoWikiStore(
         wiki_root=config.data_path("repo_wiki"),
+        # Phase 3: per-entry tracked layout committed inside the target
+        # repo. Prefer it over the legacy .hydraflow/repo_wiki/ when
+        # present so agents read the same wiki that the factory writes.
+        tracked_root=config.repo_root / config.repo_wiki_path,
     )
     from tribal_wiki import TribalWikiStore  # noqa: PLC0415
     from wiki_compiler import WikiCompiler  # noqa: PLC0415

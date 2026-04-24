@@ -572,8 +572,22 @@ class RepoWikiStore:
             dependencies.md  — topic page
     """
 
-    def __init__(self, wiki_root: Path) -> None:
+    def __init__(
+        self,
+        wiki_root: Path,
+        tracked_root: Path | None = None,
+    ) -> None:
+        """Initialise a repo-wiki store.
+
+        ``wiki_root`` is the legacy Phase 1/2 topic-page location
+        (``.hydraflow/repo_wiki/``).  ``tracked_root``, when provided,
+        is the Phase 3 per-entry tracked location
+        (``{repo_root}/repo_wiki/``).  When both are set and the tracked
+        layout has entries for a repo/topic, reads prefer the tracked
+        layout; legacy is the fallback.
+        """
         self._wiki_root = wiki_root
+        self._tracked_root = tracked_root
         self._dedup_stores: dict[str, object] = {}
 
     # -- public API --------------------------------------------------------
@@ -635,34 +649,45 @@ class RepoWikiStore:
 
         Returns a markdown string containing the index summary and
         matching topic sections, capped at *max_chars*.
+
+        Read-path priority: tracked layout (Phase 3, per-entry files
+        under ``{tracked_root}/{owner}/{repo}/{topic}/*.md``) wins when
+        it has entries.  Legacy topic-page layout
+        (``{wiki_root}/{owner}/{repo}/{topic}.md``) is the fallback.
         """
         repo_dir = self._repo_dir(repo_slug)
-        if not repo_dir.exists():
+        index = self._load_index(repo_slug) if repo_dir.exists() else None
+
+        # Determine the universe of topics to scan. Tracked layout may
+        # have topics the legacy index never knew about, so we union.
+        tracked_topics = self._list_tracked_topics(repo_slug)
+        legacy_topics = set(index.topics.keys()) if index is not None else set()
+        all_topics = tracked_topics | legacy_topics
+        if not all_topics:
             return ""
 
-        parts: list[str] = []
-        index = self._load_index(repo_slug)
-        if index is None:
-            return ""
+        parts: list[str] = [f"# Repo Wiki: {repo_slug}\n"]
+        if index is not None:
+            parts.append(
+                f"__{index.total_entries} entries across {len(index.topics)} topics__\n"
+            )
 
-        # Always include a compact index header
-        parts.append(f"# Repo Wiki: {repo_slug}\n")
-        parts.append(
-            f"__{index.total_entries} entries across {len(index.topics)} topics__\n"
-        )
-
-        # Determine which topics to include
-        target_topics = set(topics or index.topics.keys())
+        target_topics = set(topics) if topics else all_topics
 
         for topic_name in sorted(target_topics):
-            if topic_name not in index.topics:
+            if topic_name not in all_topics:
                 continue
 
-            topic_path = repo_dir / f"{topic_name}.md"
-            if not topic_path.exists():
-                continue
+            # Prefer tracked layout when present.
+            tracked_dir = self._tracked_topic_dir(repo_slug, topic_name)
+            if tracked_dir is not None:
+                entries = self._load_tracked_topic_entries(tracked_dir)
+            else:
+                topic_path = repo_dir / f"{topic_name}.md"
+                if not topic_path.exists():
+                    continue
+                entries = self._load_topic_entries(topic_path)
 
-            entries = self._load_topic_entries(topic_path)
             if not entries:
                 continue
 
@@ -1135,6 +1160,65 @@ class RepoWikiStore:
     def _classify_topic(self, entry: WikiEntry) -> str:
         """Backward-compat: classify via the module-level `classify_topic`."""
         return classify_topic(entry)
+
+    def _list_tracked_topics(self, repo_slug: str) -> set[str]:
+        """Return topic names that have tracked-layout entries for a repo."""
+        if self._tracked_root is None:
+            return set()
+        repo_dir = self._tracked_root / repo_slug
+        if not repo_dir.is_dir():
+            return set()
+        return {
+            child.name
+            for child in repo_dir.iterdir()
+            if child.is_dir() and any(child.glob("*.md"))
+        }
+
+    def _tracked_topic_dir(self, repo_slug: str, topic: str) -> Path | None:
+        """Return the tracked per-entry topic directory if configured + populated.
+
+        Phase 3 layout: ``{tracked_root}/{owner}/{repo}/{topic}/*.md``.
+        Returns ``None`` when no tracked_root was provided or the dir is
+        empty/missing — callers then fall back to the legacy topic-page path.
+        """
+        if self._tracked_root is None:
+            return None
+        topic_dir = self._tracked_root / repo_slug / topic
+        if not topic_dir.is_dir():
+            return None
+        if not any(topic_dir.glob("*.md")):
+            return None
+        return topic_dir
+
+    def _load_tracked_topic_entries(self, topic_dir: Path) -> list[WikiEntry]:
+        """Parse per-entry tracked-format markdown files into WikiEntry objects.
+
+        Each file has YAML frontmatter + markdown body.  Only ``active`` entries
+        are returned; ``stale`` / ``superseded`` entries are filtered out since
+        callers use this for prompt injection.
+        """
+        entries: list[WikiEntry] = []
+        for raw in _load_tracked_active_entries(topic_dir):
+            try:
+                entries.append(
+                    WikiEntry(
+                        id=raw.get("id") or "",
+                        title=raw.get("title") or "(untitled)",
+                        content=raw.get("body") or "",
+                        topic=topic_dir.name,
+                        source_type=raw.get("source_phase") or "unknown",
+                        source_issue=(
+                            int(raw["source_issue"])
+                            if raw.get("source_issue")
+                            else None
+                        ),
+                        created_at=raw.get("created_at")
+                        or datetime.now(UTC).isoformat(),
+                    )
+                )
+            except (ValueError, TypeError):
+                logger.warning("Skipping malformed tracked entry under %s", topic_dir)
+        return entries
 
     def _load_topic_entries(self, topic_path: Path) -> list[WikiEntry]:
         """Parse a topic markdown file back into entries.
