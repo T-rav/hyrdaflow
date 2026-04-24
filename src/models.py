@@ -1760,6 +1760,8 @@ class StateData(BaseModel):
     rc_budget_attempts: dict[str, int] = Field(default_factory=dict)
     # Trust fleet — WikiRotDetectorLoop (spec §4.9)
     wiki_rot_attempts: dict[str, int] = Field(default_factory=dict)
+    # Trust fleet — ContractRefreshLoop (spec §4.2 Task 18)
+    contract_refresh_attempts: dict[str, int] = Field(default_factory=dict)
     # Trust fleet — TrustFleetSanityLoop (spec §12.1)
     trust_fleet_sanity_attempts: dict[str, int] = Field(default_factory=dict)
     trust_fleet_sanity_last_run: str | None = None

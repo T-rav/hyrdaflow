@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 from ._ci_monitor import CIMonitorStateMixin
 from ._code_grooming import CodeGroomingStateMixin
+from ._contract_refresh import ContractRefreshStateMixin
 from ._dependabot_merge import DependabotMergeStateMixin
 from ._diagnostic import DiagnosticStateMixin
 from ._epic import EpicStateMixin
@@ -88,6 +89,7 @@ class StateTracker(
     RCBudgetStateMixin,
     WikiRotDetectorStateMixin,
     TrustFleetSanityStateMixin,
+    ContractRefreshStateMixin,
 ):
     """JSON-file backed state for crash recovery.
 

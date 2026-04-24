@@ -480,11 +480,108 @@ class ContractRefreshLoop(BaseBackgroundLoop):
         )
 
     # ------------------------------------------------------------------
+    # Task 18 — per-adapter escalation tracker
+    # ------------------------------------------------------------------
+
+    def _update_attempt_counters(self, drifted_adapters: set[str]) -> None:
+        """Bump drifted adapters; reset the rest (and clear their dedup).
+
+        Called every tick, regardless of dedup — the counter tracks how
+        many consecutive ticks an adapter has drifted, not how many
+        refresh PRs have been opened. A stuck adapter whose drift is
+        dedup-suppressed still counts toward escalation.
+
+        A clean tick for an adapter clears both the attempts counter and
+        the escalation dedup entry so the next streak can re-escalate.
+        """
+        current_escalation_dedup = self._escalation_dedup.get()
+        new_escalation_dedup = set(current_escalation_dedup)
+        dedup_dirty = False
+        for plan in ADAPTER_PLANS:
+            if plan.name in drifted_adapters:
+                self._state.inc_contract_refresh_attempts(plan.name)
+            else:
+                if self._state.get_contract_refresh_attempts(plan.name):
+                    self._state.clear_contract_refresh_attempts(plan.name)
+                if plan.name in new_escalation_dedup:
+                    new_escalation_dedup.discard(plan.name)
+                    dedup_dirty = True
+        if dedup_dirty:
+            self._escalation_dedup.set_all(new_escalation_dedup)
+
+    async def _file_escalation_issue(self, adapter: str, attempts: int) -> int:
+        """File a ``hitl-escalation`` + ``fake-drift-stuck`` issue for *adapter*.
+
+        Fires when an adapter's consecutive-drift counter reaches
+        ``config.max_fake_repair_attempts``. The HITL operator uses the
+        adapter name in the label + title to jump straight to the stuck
+        fake.
+        """
+        labels = ["hitl-escalation", "fake-drift-stuck", f"adapter-{adapter}"]
+        title = (
+            f"Contract refresh stuck: {adapter} has drifted "
+            f"{attempts} consecutive ticks"
+        )
+        body = (
+            f"`ContractRefreshLoop` has detected drift on the **{adapter}** "
+            f"adapter for {attempts} consecutive ticks without the drift "
+            f"clearing. The auto-refresh PR + fake-repair dispatch path has "
+            f"not converged.\n\n"
+            f"**Repair path.** A human needs to inspect the committed "
+            f"cassettes under `tests/trust/contracts/` for the `{adapter}` "
+            f"adapter, review the last `contract-refresh/*` PR, and either "
+            f"repair the fake in `tests/scenarios/fakes/` or adjust the "
+            f"cassette normalizers.\n\n"
+            f"This issue dedups on the adapter name — the next clean tick "
+            f"for `{adapter}` will clear both the attempt counter and the "
+            f"escalation dedup entry, so a future stuck streak can "
+            f"re-escalate."
+        )
+        return await self._prs.create_issue(
+            title=title,
+            body=body,
+            labels=labels,
+        )
+
+    async def _maybe_escalate(self, drifted_adapters: set[str]) -> dict[str, int]:
+        """File escalation issues for adapters that hit the attempt threshold.
+
+        Dedup via ``self._escalation_dedup`` keyed on adapter name so
+        back-to-back stuck ticks file at most one escalation per streak.
+        Returns ``{adapter: issue_number}`` for telemetry.
+        """
+        escalated: dict[str, int] = {}
+        threshold = self._config.max_fake_repair_attempts
+        dedup_set = self._escalation_dedup.get()
+        for adapter in sorted(drifted_adapters):
+            attempts = self._state.get_contract_refresh_attempts(adapter)
+            if attempts < threshold:
+                continue
+            if adapter in dedup_set:
+                logger.info(
+                    "contract_refresh: escalation for %s already filed "
+                    "(dedup hit); skipping",
+                    adapter,
+                )
+                continue
+            issue_num = await self._file_escalation_issue(adapter, attempts)
+            self._escalation_dedup.add(adapter)
+            escalated[adapter] = issue_num
+            logger.warning(
+                "contract_refresh: escalated %s to hitl-escalation "
+                "(issue #%d, attempts=%d)",
+                adapter,
+                issue_num,
+                attempts,
+            )
+        return escalated
+
+    # ------------------------------------------------------------------
     # Tick
     # ------------------------------------------------------------------
 
     async def _do_work(self) -> WorkCycleResult:
-        """Record → diff → (maybe) PR + replay gate.
+        """Record → diff → (maybe) PR + replay gate + escalation.
 
         The kill-switch short-circuits with ``{"status": "disabled"}`` so
         the base-class status reporter still has something to publish.
@@ -498,12 +595,24 @@ class ContractRefreshLoop(BaseBackgroundLoop):
 
         fleet: FleetDriftReport = detect_fleet_drift(recordings, self._config.repo_root)
 
+        # Task 18 — update attempt counters on EVERY tick, before any
+        # short-circuits, so dedup-suppressed drift still counts toward
+        # escalation and clean ticks reset both the counter and the
+        # per-adapter escalation dedup.
+        drifted_adapters: set[str] = {r.adapter for r in fleet.reports}
+        self._update_attempt_counters(drifted_adapters)
+
         if not fleet.has_drift:
             return {
                 "status": "clean",
                 "adapters_refreshed": 0,
                 "adapters_drifted": 0,
             }
+
+        # Task 18 — escalate any adapter that just hit the threshold.
+        # Fire before the dedup short-circuit so a stuck adapter whose
+        # refresh PR is dedup-suppressed still gets an escalation issue.
+        escalated = await self._maybe_escalate(drifted_adapters)
 
         dedup_key = self._dedup_key(fleet)
         if dedup_key in self._dedup.get():
@@ -515,6 +624,7 @@ class ContractRefreshLoop(BaseBackgroundLoop):
                 "status": "dedup_hit",
                 "adapters_refreshed": 0,
                 "adapters_drifted": len(fleet.reports),
+                "escalated_adapters": sorted(escalated),
             }
 
         written = self._stage_drifted_cassettes(fleet.reports)
@@ -544,4 +654,5 @@ class ContractRefreshLoop(BaseBackgroundLoop):
             "pr_url": pr_url,
             "replay_gate_passed": replay_proc.returncode == 0,
             "fake_drift_issue": fake_drift_issue,
+            "escalated_adapters": sorted(escalated),
         }
