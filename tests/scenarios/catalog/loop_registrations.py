@@ -656,6 +656,77 @@ def _build_trust_fleet_sanity(ports: dict[str, Any], config: Any, deps: Any) -> 
     return loop
 
 
+def _build_principles_audit(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build PrinciplesAuditLoop for scenarios (spec §4.4).
+
+    The loop's external surface — ``_run_audit`` (subprocess ``make
+    audit-json``) and ``_refresh_checkout`` (``git clone``/``git fetch``
+    / ``git reset``) — cannot run inside a scenario. Tests pre-seed port
+    keys which this builder reads to rewire the instance + the builder's
+    ``config.managed_repos`` / ``config.data_root`` / ``config.repo_root``
+    so saved snapshots land under the scenario sandbox:
+
+    * ``principles_audit_state`` → ``state`` (MagicMock with the full
+      ``PrinciplesAuditStateMixin`` surface: ``get_onboarding_status``,
+      ``set_onboarding_status``, ``get_last_green_audit``,
+      ``set_last_green_audit``, ``increment_drift_attempts``)
+    * ``principles_audit_run_audit`` → ``_run_audit``
+      (async ``(slug, repo_root) -> dict`` report)
+    * ``principles_audit_refresh_checkout`` → ``_refresh_checkout``
+      (async ``(ManagedRepo) -> Path``)
+    * ``principles_audit_managed_repos`` → ``config.managed_repos``
+      (list of ``ManagedRepo``; defaults to ``[]``)
+
+    ``state`` defaults to a MagicMock that yields a clean slate: no
+    onboarded slugs, empty last-green snapshot, drift attempts start at
+    0 (first increment returns 1). The builder also pins ``data_root``
+    to ``config.repo_root.parent`` so ``_save_snapshot`` writes stay in
+    the tmp sandbox. Mirrors the F7 FlakeTracker (``eac5fc72``) pattern.
+    """
+    from principles_audit_loop import PrinciplesAuditLoop  # noqa: PLC0415
+
+    state = ports.get("principles_audit_state")
+    if state is None:
+        state = MagicMock()
+        state.get_onboarding_status.return_value = None
+        state.get_last_green_audit.return_value = {}
+        state.get_drift_attempts.return_value = 0
+        state.increment_drift_attempts.return_value = 1
+        state.blocked_slugs.return_value = set()
+        ports["principles_audit_state"] = state
+
+    pr_manager = ports.get("pr_manager") or ports["github"]
+
+    # Seeded managed_repos, if any. Pydantic v2 allows direct assignment
+    # (HydraFlowConfig is not frozen), but prefer object.__setattr__ for
+    # parity with _build_staging_bisect's staging_enabled pattern.
+    managed_repos = ports.get("principles_audit_managed_repos")
+    if managed_repos is not None:
+        object.__setattr__(config, "managed_repos", list(managed_repos))
+
+    # Pin data_root under the sandbox so _save_snapshot writes don't
+    # leak into the real working directory (data_root defaults to ".").
+    sandbox_root = config.repo_root.parent
+    object.__setattr__(config, "data_root", sandbox_root)
+
+    loop = PrinciplesAuditLoop(
+        config=config,
+        state=state,
+        pr_manager=pr_manager,
+        deps=deps,
+    )
+
+    # Rewire external I/O to seeded async callables (if provided).
+    run_audit = ports.get("principles_audit_run_audit")
+    if run_audit is not None:
+        loop._run_audit = run_audit  # type: ignore[method-assign]
+    refresh_checkout = ports.get("principles_audit_refresh_checkout")
+    if refresh_checkout is not None:
+        loop._refresh_checkout = refresh_checkout  # type: ignore[method-assign]
+
+    return loop
+
+
 def _build_contract_refresh(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     """Build ContractRefreshLoop for scenarios (spec §4.2).
 
@@ -758,6 +829,8 @@ _BUILDERS: dict[str, Any] = {
     "contract_refresh": _build_contract_refresh,
     # trust fleet (spec §4.1 v2 corpus learning)
     "corpus_learning": _build_corpus_learning,
+    # trust fleet (spec §4.4 principles audit)
+    "principles_audit": _build_principles_audit,
 }
 
 
