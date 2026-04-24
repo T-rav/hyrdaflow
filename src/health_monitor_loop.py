@@ -333,12 +333,12 @@ class HealthMonitorLoop(BaseBackgroundLoop):
             "health_monitor_sanity_stall",
             config.data_root / "dedup" / "health_monitor_sanity_stall.json",
         )
+        self._pending: list[PendingAdjustment] = []
+        self._last_log_scan: datetime | None = None
 
     def set_bg_workers(self, bg_workers: BGWorkerManager) -> None:
         """Late-binding for the post-ctor BGWorkerManager wiring."""
         self._bg_workers = bg_workers
-        self._pending: list[PendingAdjustment] = []
-        self._last_log_scan: datetime | None = None
 
     def _get_default_interval(self) -> int:
         return self._config.health_monitor_interval

@@ -586,7 +586,23 @@ class CorpusLearningLoop(BaseBackgroundLoop):
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
 
-        signals = await self._list_escape_signals()
+        # Tolerate PR-query failures — a broken ``gh`` in the env must
+        # not propagate as an AuthenticationError that pauses the whole
+        # orchestrator. Next tick retries.
+        try:
+            signals = await self._list_escape_signals()
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "corpus-learning: escape-signal query failed — skipping tick",
+                exc_info=True,
+            )
+            return {
+                "status": "skipped",
+                "escape_issues_seen": 0,
+                "cases_synthesized": 0,
+                "cases_validated": 0,
+                "cases_filed": 0,
+            }
         if signals:
             logger.info(
                 "corpus-learning: %d escape signal(s) within %d-day window",

@@ -72,23 +72,34 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
         # 2) Retry blocked — may flip to ready.
         stats["ready_flips"] = await self._retry_blocked()
 
-        # 3) HydraFlow-self audit. Call _run_audit directly so we retain the
-        # full report for diffing without a disk round-trip.
-        self_report = await self._run_audit(_HYDRAFLOW_SELF, self._config.repo_root)
-        self._save_snapshot(_HYDRAFLOW_SELF, self_report)
-        self_snapshot = self._snapshot_from_report(self_report)
-        stats["audited"] += 1
-        self_last = self._state.get_last_green_audit(_HYDRAFLOW_SELF)
-        self_regressions = self._diff_regressions(self_last, self_snapshot)
-        if self_regressions:
-            fire = await self._fire_for_slug(
-                _HYDRAFLOW_SELF, self_regressions, self_report, self_last
+        # 3) HydraFlow-self audit. Call _run_audit directly so we retain
+        # the full report for diffing without a disk round-trip. Wrap in
+        # a broad except — if ``make audit-json`` is unavailable (test
+        # env with no Makefile, missing python deps) a bare RuntimeError
+        # would kill the tick and prevent managed-repo audits from
+        # running.
+        try:
+            self_report = await self._run_audit(_HYDRAFLOW_SELF, self._config.repo_root)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Skipping self-audit this tick — audit-json unavailable",
+                exc_info=True,
             )
-            stats["regressions_filed"] += fire["filed"]
-            stats["escalations_filed"] += fire["escalated"]
         else:
-            # All green — update the last-green reference.
-            self._state.set_last_green_audit(_HYDRAFLOW_SELF, self_snapshot)
+            self._save_snapshot(_HYDRAFLOW_SELF, self_report)
+            self_snapshot = self._snapshot_from_report(self_report)
+            stats["audited"] += 1
+            self_last = self._state.get_last_green_audit(_HYDRAFLOW_SELF)
+            self_regressions = self._diff_regressions(self_last, self_snapshot)
+            if self_regressions:
+                fire = await self._fire_for_slug(
+                    _HYDRAFLOW_SELF, self_regressions, self_report, self_last
+                )
+                stats["regressions_filed"] += fire["filed"]
+                stats["escalations_filed"] += fire["escalated"]
+            else:
+                # All green — update the last-green reference.
+                self._state.set_last_green_audit(_HYDRAFLOW_SELF, self_snapshot)
 
         # 4) Managed-repo audits (only `ready` slugs — blocked handled above).
         for mr in self._config.managed_repos:
