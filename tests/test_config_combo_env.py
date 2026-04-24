@@ -218,3 +218,15 @@ def test_background_cascade_reaches_sentry_code_grooming_adr_review() -> None:
         assert cfg.code_grooming_model == "sonnet"
         assert cfg.adr_review_tool == "claude"
         assert cfg.adr_review_model == "sonnet"
+
+
+def test_background_cascade_cross_provider_codex() -> None:
+    """HYDRAFLOW_BACKGROUND=codex:gpt-5-codex must cascade tool+model coherently
+    to every bg-only worker and pass harmonize's cross-provider check."""
+    with patch.dict(
+        os.environ, {"HYDRAFLOW_BACKGROUND": "codex:gpt-5-codex"}, clear=False
+    ):
+        cfg = HydraFlowConfig()
+        for stage in ("sentry", "code_grooming", "adr_review"):
+            assert getattr(cfg, f"{stage}_tool") == "codex"
+            assert getattr(cfg, f"{stage}_model") == "gpt-5-codex"
