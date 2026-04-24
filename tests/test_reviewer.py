@@ -129,6 +129,39 @@ async def test_build_review_prompt_includes_arch_drift_checks(
 
 
 @pytest.mark.asyncio
+async def test_build_review_prompt_includes_hydraflow_principles_checks(
+    config, event_bus, pr_info, task
+):
+    """Reviewer prompt must ask for HydraFlow-specific principle drift
+    (ADR-0044). The architectural-drift bullet handles generic layer
+    concerns; this bullet adds MockWorld scenario coverage, TDD + BDD
+    test naming, Port compliance, and one-responsibility-per-file. These
+    are the principles plans and PRs tend to skip first."""
+    runner = _make_runner(config, event_bus)
+    prompt, _ = await runner._build_review_prompt_with_stats(pr_info, task, "some diff")
+
+    assert "HydraFlow principles" in prompt, (
+        "reviewer prompt no longer contains the HydraFlow principles bullet"
+    )
+    # MockWorld / scenario coverage for new cross-phase behaviour.
+    assert "MockWorld" in prompt
+    assert "tests/scenarios/" in prompt
+    # TDD + BDD-flavour test naming.
+    assert (
+        "BDD" in prompt
+        or "behavioural" in prompt.lower()
+        or "behavioral" in prompt.lower()
+    )
+    # Hexagonal port compliance.
+    assert "PRPort" in prompt or "IssueStorePort" in prompt or "WorkspacePort" in prompt
+    # One-responsibility files.
+    assert (
+        "one responsibility" in prompt.lower()
+        or "single responsibility" in prompt.lower()
+    )
+
+
+@pytest.mark.asyncio
 async def test_build_review_prompt_includes_diff(config, event_bus, pr_info, task):
     runner = _make_runner(config, event_bus)
     diff = "diff --git a/foo.py b/foo.py\n+added line"

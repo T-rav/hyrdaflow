@@ -829,6 +829,12 @@ Quality: No issues — <justification>
      - **Misplaced I/O:** flag new direct use of I/O primitives (`subprocess`, `socket`, `httpx`, `requests`, `urllib`, `boto3`, `sqlalchemy`, `pymongo`, `redis`, `kafka`, raw `open()`, file reads/writes) inside files whose path or name suggests "pure" logic — anything under `domain/`, `core/`, `models/`, `entities/`, or files named `*_model.py`, `*_entity.py`, `*_value*.py`, `*_rules.py`. The I/O should live in an adapter, not in a domain or model file.
      - **God-file creep:** note files in the diff that grew significantly (many new imports, or >~50% line-count increase) and ask whether the file is still doing one thing. A previously-focused file that now orchestrates unrelated concerns is a drift signal.
      - **Escape hatch:** if the repo has no recognisable layering convention (no `domain/`, `core/`, `adapters/`, or similar signal directories, and no naming pattern in filenames) then **skip this bullet entirely — do not invent violations**. Architectural drift is a finding only when there is a recognisable architecture to drift from.
+   - **HydraFlow principles (ADR-0044)** — check the diff for HydraFlow-specific drift beyond generic layering. Flag any of these as findings:
+     - **MockWorld scenario coverage:** new cross-phase / orchestrator / runner behaviour without a matching release-gating scenario under `tests/scenarios/` using `MockWorld` fakes. Unit tests alone don't cover the loop; a missing scenario is a finding.
+     - **BDD-flavour test naming:** new tests named after the function under test (`test_create_widget`, `test_helper_util`) instead of the behaviour (`test_create_widget_with_duplicate_name_raises_integrity_error`). Flag test names that would rot the minute the function is renamed.
+     - **Port compliance:** new direct use of `subprocess`, `gh`, or `git` CLI, or direct GitHub API calls, in files outside the known adapter layer. HydraFlow routes these through `PRPort`, `IssueStorePort`, and `WorkspacePort`. Suggest routing through the existing Port or extending it.
+     - **One responsibility per file:** large additions to an already-large file that introduce a second concern. Prefer a new file over continuing to grow an existing mega-file.
+     - **Escape hatch:** skip this bullet if the repo isn't HydraFlow and has no `tests/scenarios/`, `ports.py`, or similar HydraFlow-style seams.
 {ui_criteria}
 ## If Issues Found
 

@@ -4,6 +4,7 @@
 - **Date:** 2026-04-22
 - **Supersedes:** none
 - **Superseded by:** none
+- **Enforced by:** scripts/hydraflow_audit/* (structural/behavioural checks), tests/test_planner.py::test_build_prompt_includes_principles_checklist, tests/test_reviewer.py::test_build_review_prompt_includes_hydraflow_principles_checks (prompt-level enforcement in plan + review phases)
 
 ## Context
 
