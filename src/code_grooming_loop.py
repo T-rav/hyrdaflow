@@ -83,15 +83,36 @@ class CodeGroomingLoop(BaseBackgroundLoop):
 
     @classmethod
     def _parse_findings(cls, transcript: str) -> list[dict]:
-        """Extract structured finding dicts from audit transcript."""
+        """Extract structured finding dicts from audit transcript.
+
+        Logs a warning when a non-trivial transcript parses to zero
+        findings — that's the smoke signal that the LLM wrote prose
+        instead of JSON (prompt drift or model deviation). Without
+        this, a broken audit run would silently file nothing forever.
+        """
         findings: list[dict] = []
+        match_count = 0
         for match in cls._FINDING_RE.finditer(transcript):
+            match_count += 1
             try:
                 obj = json.loads(match.group(0))
                 if isinstance(obj, dict) and "id" in obj and "severity" in obj:
                     findings.append(obj)
             except (json.JSONDecodeError, TypeError):
                 continue
+
+        # Heuristic: substantial output + zero parsed findings = shape
+        # drift worth surfacing. Threshold avoids noisy warnings on
+        # expected "nothing to groom" runs.
+        if not findings and len(transcript.strip()) > 500:
+            logger.warning(
+                "Code grooming audit produced a %d-char transcript but "
+                "zero parseable findings (regex saw %d candidate JSON "
+                "blocks; none matched required keys). Check the skill "
+                "prompt and model output shape.",
+                len(transcript),
+                match_count,
+            )
         return findings
 
     async def _do_work(self) -> dict[str, Any] | None:
