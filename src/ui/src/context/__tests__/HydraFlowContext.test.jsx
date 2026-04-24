@@ -50,7 +50,6 @@ const initialState = {
   reviewInsights: null,
   retrospectives: null,
   troubleshooting: null,
-  memories: null,
 }
 
 const originalFetch = global.fetch
@@ -148,21 +147,18 @@ describe('SET_CENTRALIZED_DATA reducer', () => {
     expect(next.reviewInsights).toEqual(data.reviewInsights)
     expect(next.retrospectives).toBeNull()
     expect(next.troubleshooting).toBeNull()
-    expect(next.memories).toBeNull()
   })
 
   it('preserves previous values for fields not in update', () => {
     const prev = {
       ...initialState,
       issueHistory: { items: [{ issue_number: 1 }], totals: {} },
-      memories: { total_items: 10, items: [] },
     }
     const next = reducer(prev, {
       type: 'SET_CENTRALIZED_DATA',
       data: { harnessInsights: { total_failures: 2 } },
     })
     expect(next.issueHistory).toEqual(prev.issueHistory)
-    expect(next.memories).toEqual(prev.memories)
     expect(next.harnessInsights).toEqual({ total_failures: 2 })
   })
 
