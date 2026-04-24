@@ -19,7 +19,7 @@ from knowledge_metrics import metrics as _metrics
 from repo_wiki import DEFAULT_TOPICS, RepoWikiStore, WikiEntry, active_lint_tracked
 from staleness import evaluate as evaluate_staleness
 from subprocess_util import run_subprocess
-from wiki_drift_detector import detect_drift
+from wiki_drift_detector import apply_drift_markers, detect_drift
 from wiki_maint_queue import MaintenanceQueue
 
 if TYPE_CHECKING:
@@ -343,11 +343,13 @@ class RepoWikiLoop(BaseBackgroundLoop):
         # until Phase 5 ports them.
         # Phase 9: wiki-vs-code drift detection (deterministic, cheap).
         # Scans every active tracked entry for `src/...:Symbol` citations
-        # and flags ones pointing at files that no longer exist. Findings
-        # are logged now and, on a follow-up pass, will be auto-marked
-        # stale. Keeping the action side read-only for the first landing
-        # so operators can see the signal before we start mutating files.
+        # and flags ones pointing at files that no longer exist. B2
+        # auto-marks flagged entries stale — safe because the detector
+        # is deterministic (file missing or not, no LLM guesswork). The
+        # stale flips land as uncommitted diffs the maintenance PR
+        # rolls up.
         drift_findings = 0
+        drift_marked = 0
         if tracked_root is not None:
             for slug in repos:
                 try:
@@ -370,7 +372,12 @@ class RepoWikiLoop(BaseBackgroundLoop):
                         f.entry_id,
                         sorted(f.missing_files),
                     )
+                if result.findings:
+                    drift_marked += await asyncio.to_thread(
+                        apply_drift_markers, result.findings
+                    )
         stats["drift_findings"] = drift_findings
+        stats["drift_marked_stale"] = drift_marked
 
         stats["queue_drained"] = len(drained)
         await self._poll_and_merge_open_pr(stats)
