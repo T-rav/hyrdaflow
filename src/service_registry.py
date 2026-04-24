@@ -21,6 +21,8 @@ from caching_issue_store import CachingIssueStore
 from ci_monitor_loop import CIMonitorLoop  # noqa: TCH001
 from code_grooming_loop import CodeGroomingLoop  # noqa: TCH001
 from config import Credentials, HydraFlowConfig
+from contract_refresh_loop import ContractRefreshLoop
+from corpus_learning_loop import CorpusLearningLoop
 from crate_manager import CrateManager
 from dependabot_merge_loop import DependabotMergeLoop
 from diagnostic_loop import DiagnosticLoop  # noqa: TCH001
@@ -183,6 +185,8 @@ class ServiceRegistry:
     rc_budget_loop: RCBudgetLoop
     wiki_rot_detector_loop: WikiRotDetectorLoop
     trust_fleet_sanity_loop: TrustFleetSanityLoop
+    contract_refresh_loop: ContractRefreshLoop
+    corpus_learning_loop: CorpusLearningLoop
 
     # Optional integrations
     hindsight: HindsightClient | None = None
@@ -918,6 +922,24 @@ def build_services(
         # after all loops).
     )
 
+    contract_refresh_loop = ContractRefreshLoop(  # noqa: F841
+        config=config,
+        deps=loop_deps,
+        prs=prs,
+        state=state,
+    )
+
+    corpus_learning_dedup = DedupStore(
+        "corpus_learning",
+        config.data_root / "dedup" / "corpus_learning.json",
+    )
+    corpus_learning_loop = CorpusLearningLoop(  # noqa: F841
+        config=config,
+        prs=prs,
+        dedup=corpus_learning_dedup,
+        deps=loop_deps,
+    )
+
     return ServiceRegistry(
         workspaces=workspaces,
         subprocess_runner=subprocess_runner,
@@ -984,4 +1006,6 @@ def build_services(
         rc_budget_loop=rc_budget_loop,
         wiki_rot_detector_loop=wiki_rot_detector_loop,
         trust_fleet_sanity_loop=trust_fleet_sanity_loop,
+        contract_refresh_loop=contract_refresh_loop,
+        corpus_learning_loop=corpus_learning_loop,
     )

@@ -563,6 +563,54 @@ def _build_staging_bisect(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     return loop
 
 
+def _build_corpus_learning(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build CorpusLearningLoop for scenarios (spec §4.1 v2).
+
+    The loop's external surface — :meth:`PRManager.list_issues_by_label`
+    (``gh issue list``) and :func:`auto_pr.open_automated_pr_async`
+    (``git`` + ``gh pr create``) — cannot run live inside a scenario.
+    Tests seed a FakeGitHub so ``list_issues_by_label`` returns seeded
+    escape rows, and may pre-seed the ``corpus_learning_auto_pr`` port
+    to stub the PR-opener so the loop's materialize-and-file ladder
+    exercises real code without escaping the sandbox.
+
+    ``dedup`` defaults to a real :class:`DedupStore` rooted under
+    ``config.data_root / dedup / corpus_learning.json`` so the JSON
+    round-trip runs (mirrors the unit/integration tests). Tests may
+    override by seeding ``corpus_learning_dedup`` explicitly.
+    """
+    from corpus_learning_loop import CorpusLearningLoop  # noqa: PLC0415
+    from dedup_store import DedupStore  # noqa: PLC0415
+
+    dedup = ports.get("corpus_learning_dedup")
+    if dedup is None:
+        dedup = DedupStore(
+            "corpus_learning",
+            config.data_root / "dedup" / "corpus_learning.json",
+        )
+        ports["corpus_learning_dedup"] = dedup
+
+    pr_manager = ports.get("pr_manager") or ports["github"]
+
+    loop = CorpusLearningLoop(
+        config=config,
+        prs=pr_manager,
+        dedup=dedup,
+        deps=deps,
+    )
+
+    # Optional: replace the auto_pr seam on the loop's module with a
+    # seeded async callable so tests can assert the opened PR without
+    # shelling out to ``git``/``gh``.
+    auto_pr_stub = ports.get("corpus_learning_auto_pr")
+    if auto_pr_stub is not None:
+        import corpus_learning_loop as _mod  # noqa: PLC0415
+
+        _mod.open_automated_pr_async = auto_pr_stub  # type: ignore[assignment]
+
+    return loop
+
+
 def _build_trust_fleet_sanity(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     """Build TrustFleetSanityLoop for scenarios (spec §12.1).
 
@@ -608,6 +656,55 @@ def _build_trust_fleet_sanity(ports: dict[str, Any], config: Any, deps: Any) -> 
     return loop
 
 
+def _build_contract_refresh(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build ContractRefreshLoop for scenarios (spec §4.2).
+
+    The loop's ``_do_work`` records cassettes against live ``gh``/``git``/
+    ``docker``/``claude`` binaries, diffs them, and opens refresh PRs — none
+    of which can run inside a scenario. Tests pre-seed four port keys which
+    this builder monkey-patches onto the module-level recorders the loop
+    imports, so ``_record_all`` returns empty lists and ``_do_work``
+    short-circuits on the "no drift" branch:
+
+    * ``contract_refresh_record_github`` → ``record_github``
+    * ``contract_refresh_record_git`` → ``record_git``
+    * ``contract_refresh_record_docker`` → ``record_docker``
+    * ``contract_refresh_record_claude`` → ``record_claude_stream``
+
+    ``state`` defaults to a MagicMock with clean-slate return values; tests
+    may override by seeding ``contract_refresh_state`` explicitly. The
+    loop builds its own ``DedupStore`` from ``config.data_root`` so no
+    dedup port is exposed.
+    """
+    import contract_refresh_loop as _module  # noqa: PLC0415
+    from contract_refresh_loop import ContractRefreshLoop  # noqa: PLC0415
+
+    state = ports.get("contract_refresh_state")
+    if state is None:
+        state = MagicMock()
+        ports["contract_refresh_state"] = state
+
+    pr_manager = ports.get("pr_manager") or ports["github"]
+
+    # Monkey-patch the module-level recorder seams so the loop's
+    # `_record_all` returns the test-supplied (or empty-list) mappings.
+    # The loop imports these at module level, so we patch the module.
+    default_empty = lambda *_a, **_k: []  # noqa: E731
+    _module.record_github = ports.get("contract_refresh_record_github", default_empty)
+    _module.record_git = ports.get("contract_refresh_record_git", default_empty)
+    _module.record_docker = ports.get("contract_refresh_record_docker", default_empty)
+    _module.record_claude_stream = ports.get(
+        "contract_refresh_record_claude", default_empty
+    )
+
+    return ContractRefreshLoop(
+        config=config,
+        deps=deps,
+        prs=pr_manager,
+        state=state,
+    )
+
+
 _BUILDERS: dict[str, Any] = {
     # phase 1
     "ci_monitor": _build_ci_monitor,
@@ -640,6 +737,10 @@ _BUILDERS: dict[str, Any] = {
     # trust fleet (spec §4.3 staging bisect + §12.1 sanity)
     "staging_bisect": _build_staging_bisect,
     "trust_fleet_sanity": _build_trust_fleet_sanity,
+    # trust fleet (spec §4.2 contract refresh)
+    "contract_refresh": _build_contract_refresh,
+    # trust fleet (spec §4.1 v2 corpus learning)
+    "corpus_learning": _build_corpus_learning,
 }
 
 

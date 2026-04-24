@@ -170,6 +170,8 @@ class HydraFlowOrchestrator:
             "rc_budget": svc.rc_budget_loop,
             "wiki_rot_detector": svc.wiki_rot_detector_loop,
             "trust_fleet_sanity": svc.trust_fleet_sanity_loop,
+            "contract_refresh": svc.contract_refresh_loop,
+            "corpus_learning": svc.corpus_learning_loop,
         }
         self._bg_workers = BGWorkerManager(config, self._state, bg_loop_registry)
         # Loops that need a reference to BGWorkerManager cannot take one
@@ -956,6 +958,8 @@ class HydraFlowOrchestrator:
             ("rc_budget", self._svc.rc_budget_loop.run),
             ("wiki_rot_detector", self._svc.wiki_rot_detector_loop.run),
             ("trust_fleet_sanity", self._svc.trust_fleet_sanity_loop.run),
+            ("contract_refresh", self._svc.contract_refresh_loop.run),
+            ("corpus_learning", self._svc.corpus_learning_loop.run),
         ]
 
         # Optional: WAL replay loop for Hindsight crash recovery

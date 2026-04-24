@@ -34,10 +34,6 @@ _INTERVAL_BOUNDS_SKIP: set[str] = {
     "sentry_poll_interval",
     # Dark-launched; the StagingPromotionLoop is not yet wired (flag-gated).
     "staging_promotion_interval",
-    # Phase 2 skeleton (§4.1 v2); dashboard wiring lands in plan Task 15.
-    "corpus_learning_interval",
-    # Phase 2 skeleton (§4.2); dashboard wiring lands in fake-contract-tests plan Task 19.
-    "contract_refresh_interval",
 }
 
 
