@@ -76,6 +76,7 @@ ADR and that named test files actually exist.
 | [0042](0042-two-tier-branch-release-promotion.md) | Two-tier branch model with automated release-candidate promotion | Accepted |
 | [0043](0043-prompt-structure-standard.md) | Prompt structure standard (XML tags, 8-criterion rubric, mechanical scoring) | Proposed |
 | [0044](0044-hydraflow-principles.md) | HydraFlow Principles — the audit contract for new and existing repos | Proposed |
+| [0045](0045-trust-architecture-hardening.md) | Trust Architecture Hardening — Lights-Off Trust Fleet (10 loops + 2 non-loop subsystems) | Proposed |
 
 ## Adding a new ADR
 
