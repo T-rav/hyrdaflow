@@ -1,6 +1,7 @@
 # ADR-0032: Per-Repo Wiki Knowledge Base (Karpathy Pattern)
 
 **Status:** Accepted
+**Enforced by:** tests/test_repo_wiki.py, tests/test_repo_wiki_store_git.py, tests/test_repo_wiki_ingest.py
 **Date:** 2026-04-05
 
 ## Context

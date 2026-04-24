@@ -1,6 +1,7 @@
 # ADR-0001: Five Concurrent Async Loops
 
 **Status:** Accepted
+**Enforced by:** tests/test_orchestrator_loops.py
 **Date:** 2026-02-26
 
 ## Context

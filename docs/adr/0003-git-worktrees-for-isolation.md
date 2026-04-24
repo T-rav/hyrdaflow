@@ -1,6 +1,7 @@
 # ADR-0003: Git Worktrees for Issue Isolation
 
 **Status:** Accepted
+**Enforced by:** tests/test_integration_worktree.py
 **Date:** 2026-02-26
 
 ## Context

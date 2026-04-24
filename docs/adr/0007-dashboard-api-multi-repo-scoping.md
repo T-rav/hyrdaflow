@@ -1,6 +1,7 @@
 # ADR-0007: Dashboard API Architecture for Multi-Repo Scoping
 
 **Status:** Accepted
+**Enforced by:** (none)
 **Date:** 2026-02-28
 
 ## Context

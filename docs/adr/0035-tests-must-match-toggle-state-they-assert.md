@@ -1,6 +1,7 @@
 # ADR-0035: Tests Must Match Toggle State They Assert
 
 **Status:** Accepted
+**Enforced by:** (process)
 **Date:** 2026-03-08
 
 ## Context

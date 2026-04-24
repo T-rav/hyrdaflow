@@ -1,6 +1,7 @@
 # ADR-0023: Require Instantiation Verification for Test-Local Classes
 
 **Status:** Accepted
+**Enforced by:** (process)
 **Date:** 2026-03-08
 
 ## Context

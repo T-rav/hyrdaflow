@@ -1,6 +1,7 @@
 # ADR-0021: Persistence Architecture and Data Layout
 
 **Status:** Accepted
+**Enforced by:** tests/test_state_persistence.py, tests/test_event_persistence.py
 **Date:** 2026-02-28
 
 ## Context

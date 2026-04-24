@@ -1,6 +1,7 @@
 # ADR-0010: Worktree and Path Isolation Architecture
 
 **Status:** Accepted
+**Enforced by:** tests/test_integration_worktree.py
 **Date:** 2026-02-28
 
 ## Context

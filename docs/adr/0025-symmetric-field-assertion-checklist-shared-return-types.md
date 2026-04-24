@@ -1,6 +1,7 @@
 # ADR-0025: Symmetric Field Assertion Checklist for Shared Return Types
 
 **Status:** Accepted
+**Enforced by:** (process)
 **Date:** 2026-03-16
 
 ## Context

@@ -1,6 +1,7 @@
 # ADR-0037: Supersession Regex Must Include All Verb Forms
 
 **Status:** Accepted
+**Enforced by:** (none)
 **Date:** 2026-03-08
 
 ## Context

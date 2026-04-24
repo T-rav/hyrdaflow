@@ -1,6 +1,7 @@
 # ADR-0022: Integration Test Architecture — Cross-Phase Pipeline Harness
 
 **Status:** Accepted
+**Enforced by:** tests/test_integration_pipeline.py
 **Date:** 2026-03-18
 
 ## Context

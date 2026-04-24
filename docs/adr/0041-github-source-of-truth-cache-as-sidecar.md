@@ -1,6 +1,7 @@
 # ADR-0041: GitHub as Source of Truth, Local Cache as Sidecar
 
 **Status:** Accepted
+**Enforced by:** (none)
 **Date:** 2026-04-08
 
 ## Context

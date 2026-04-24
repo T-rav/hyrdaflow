@@ -1,6 +1,7 @@
 # ADR-0005: PR Recovery and Zero-Diff Branch Handling in Implement Phase
 
 **Status:** Accepted
+**Enforced by:** (none)
 **Date:** 2026-02-27
 
 ## Context
