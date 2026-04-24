@@ -6,6 +6,7 @@ import logging
 import re
 from collections.abc import Coroutine
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from acceptance_criteria import AcceptanceCriteriaGenerator
@@ -50,6 +51,68 @@ if TYPE_CHECKING:
 logger = logging.getLogger("hydraflow.post_merge_handler")
 
 _T = TypeVar("_T")
+
+
+async def _compile_tracked_topics_for_merge(
+    *,
+    tracked_root: Path,
+    repo_slug: str,
+    compiler: WikiCompiler | None,
+) -> None:
+    """Run WikiCompiler.compile_topic_tracked for every tracked topic
+    that has ≥2 active entries.
+
+    Runs inline on the post-merge hook chain so the next issue sees a
+    deduplicated wiki instead of waiting for the RepoWikiLoop interval
+    tick. Side effects are file mutations in ``{tracked_root}/{repo}/
+    {topic}/``; those become uncommitted diffs that the existing
+    ``RepoWikiLoop._maybe_open_maintenance_pr`` tick rolls up into a
+    ``chore(wiki): maintenance`` PR.
+
+    No-op when compiler is None, tracked_root is missing, or no topic
+    has enough entries to merit a compile pass.
+    """
+    if compiler is None:
+        return
+    repo_dir = tracked_root / repo_slug
+    if not repo_dir.is_dir():
+        return
+    for topic_dir in sorted(p for p in repo_dir.iterdir() if p.is_dir()):
+        if _count_active_entries(topic_dir) < 2:
+            continue
+        await compiler.compile_topic_tracked(
+            tracked_root=tracked_root,
+            repo=repo_slug,
+            topic=topic_dir.name,
+        )
+
+
+def _count_active_entries(topic_dir: Path) -> int:
+    """Count per-entry markdown files whose frontmatter has status: active."""
+    count = 0
+    for path in topic_dir.glob("*.md"):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        # Minimal frontmatter scan — matches the same pattern
+        # _split_tracked_entry uses in repo_wiki.py.
+        if not text.startswith("---\n"):
+            continue
+        try:
+            end = text.index("\n---\n", 4)
+        except ValueError:
+            continue
+        block = text[4:end]
+        # Default status is "active" when absent.
+        status = "active"
+        for line in block.splitlines():
+            if line.startswith("status:"):
+                status = line.split(":", 1)[1].strip()
+                break
+        if status == "active":
+            count += 1
+    return count
 
 
 async def _bridge_reflections_to_wiki(
@@ -563,6 +626,19 @@ class PostMergeHandler:
                     store=self._wiki_store,
                     compiler=self._wiki_compiler,
                     event_bus=self._event_bus,
+                ),
+                pr.issue_number,
+            )
+            # P5: compile the tracked wiki inline so the next issue
+            # sees a deduplicated view instead of waiting for the
+            # RepoWikiLoop interval. File mutations roll into the
+            # existing chore(wiki) maintenance PR flow.
+            await self._safe_hook(
+                "wiki compile on merge",
+                _compile_tracked_topics_for_merge(
+                    tracked_root=(self._config.repo_root / self._config.repo_wiki_path),
+                    repo_slug=self._config.repo or "",
+                    compiler=self._wiki_compiler,
                 ),
                 pr.issue_number,
             )
