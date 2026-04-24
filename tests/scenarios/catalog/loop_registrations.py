@@ -660,21 +660,24 @@ def _build_contract_refresh(ports: dict[str, Any], config: Any, deps: Any) -> An
     """Build ContractRefreshLoop for scenarios (spec §4.2).
 
     The loop's ``_do_work`` records cassettes against live ``gh``/``git``/
-    ``docker``/``claude`` binaries, diffs them, and opens refresh PRs — none
-    of which can run inside a scenario. Tests pre-seed four port keys which
-    this builder monkey-patches onto the module-level recorders the loop
-    imports, so ``_record_all`` returns empty lists and ``_do_work``
-    short-circuits on the "no drift" branch:
+    ``docker``/``claude`` binaries, diffs them, opens refresh PRs, and runs
+    ``make trust-contracts`` — none of which can run inside a scenario.
+    Tests pre-seed port keys which this builder monkey-patches onto the
+    module-level recorder / auto_pr seams the loop imports:
 
     * ``contract_refresh_record_github`` → ``record_github``
     * ``contract_refresh_record_git`` → ``record_git``
     * ``contract_refresh_record_docker`` → ``record_docker``
     * ``contract_refresh_record_claude`` → ``record_claude_stream``
+    * ``contract_refresh_auto_pr`` → ``open_automated_pr_async``
 
-    ``state`` defaults to a MagicMock with clean-slate return values; tests
-    may override by seeding ``contract_refresh_state`` explicitly. The
-    loop builds its own ``DedupStore`` from ``config.data_root`` so no
-    dedup port is exposed.
+    ``state`` defaults to a MagicMock wired with int-returning stubs for
+    the Task 18 attempt counters (``get_contract_refresh_attempts`` →
+    ``0``, ``inc_contract_refresh_attempts`` → ``1``) so the real
+    ``_maybe_escalate`` ladder can run a full tick without crashing on
+    a MagicMock arithmetic comparison. Tests may override by seeding
+    ``contract_refresh_state`` explicitly. The loop builds its own
+    ``DedupStore`` from ``config.data_root`` so no dedup port is exposed.
     """
     import contract_refresh_loop as _module  # noqa: PLC0415
     from contract_refresh_loop import ContractRefreshLoop  # noqa: PLC0415
@@ -682,6 +685,12 @@ def _build_contract_refresh(ports: dict[str, Any], config: Any, deps: Any) -> An
     state = ports.get("contract_refresh_state")
     if state is None:
         state = MagicMock()
+        # Task 18 — escalation ladder reads/increments these per adapter.
+        # Without int defaults the ``attempts < threshold`` comparison
+        # blows up with TypeError the moment the first drift tick runs.
+        state.get_contract_refresh_attempts.return_value = 0
+        state.inc_contract_refresh_attempts.return_value = 1
+        state.clear_contract_refresh_attempts.return_value = None
         ports["contract_refresh_state"] = state
 
     pr_manager = ports.get("pr_manager") or ports["github"]
@@ -696,6 +705,14 @@ def _build_contract_refresh(ports: dict[str, Any], config: Any, deps: Any) -> An
     _module.record_claude_stream = ports.get(
         "contract_refresh_record_claude", default_empty
     )
+
+    # Optional: replace the auto_pr seam on the loop's module with a
+    # seeded async callable so tests can assert the opened PR shape
+    # without shelling out to ``git`` / ``gh``. Mirrors the F1
+    # corpus-learning pattern.
+    auto_pr_stub = ports.get("contract_refresh_auto_pr")
+    if auto_pr_stub is not None:
+        _module.open_automated_pr_async = auto_pr_stub  # type: ignore[assignment]
 
     return ContractRefreshLoop(
         config=config,
