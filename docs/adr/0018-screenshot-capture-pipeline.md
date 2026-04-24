@@ -1,6 +1,7 @@
 # ADR-0018: Screenshot Capture Pipeline Architecture
 
 **Status:** Accepted
+**Enforced by:** (none)
 **Date:** 2026-03-01
 
 ## Context

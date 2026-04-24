@@ -1,6 +1,7 @@
 # ADR-0024: Implementation Retry Recovery Architecture
 
 **Status:** Accepted
+**Enforced by:** (none)
 **Date:** 2026-03-08
 
 ## Context

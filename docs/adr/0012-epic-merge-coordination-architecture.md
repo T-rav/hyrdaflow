@@ -1,6 +1,7 @@
 # ADR-0012: Epic Merge Coordination Architecture
 
 **Status:** Accepted
+**Enforced by:** (none)
 **Date:** 2026-03-01
 
 ## Context

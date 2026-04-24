@@ -1,6 +1,7 @@
 # ADR-0015: Protocol-Based Callback Injection for Merge-Phase Gates
 
 **Status:** Accepted
+**Enforced by:** (none)
 **Date:** 2026-03-18
 
 ## Context

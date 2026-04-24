@@ -1,6 +1,7 @@
 # ADR-0036: CLI Architecture — argparse with Config Builder Pattern
 
 **Status:** Accepted
+**Enforced by:** (process)
 **Date:** 2026-03-08
 
 ## Context

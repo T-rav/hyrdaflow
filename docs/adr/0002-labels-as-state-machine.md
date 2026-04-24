@@ -1,6 +1,7 @@
 # ADR-0002: GitHub Labels as the Pipeline State Machine
 
 **Status:** Accepted
+**Enforced by:** tests/test_state_machine.py
 **Date:** 2026-02-26
 
 ## Context

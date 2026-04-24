@@ -1,6 +1,7 @@
 # ADR-0014: Session Counter Forward-Progression Semantics
 
 **Status:** Accepted
+**Enforced by:** tests/test_state_machine.py
 **Date:** 2026-03-01
 
 ## Context

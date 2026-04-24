@@ -4,12 +4,30 @@ Lightweight ADRs documenting key design decisions in HydraFlow.
 
 ## Format
 
-Each ADR has: **Status**, **Date**, **Context**, **Decision**, **Consequences**,
-and optionally **Alternatives considered** and **Related** links.
+Each ADR has: **Status**, **Date**, **Enforced by**, **Context**, **Decision**,
+**Consequences**, and optionally **Alternatives considered** and **Related** links.
 
 When referencing source code anywhere in an ADR (Related, Context, Decision,
 Consequences), use `module:function_or_class` format (e.g. `src/config.py:HydraFlowConfig`).
 **Omit line numbers** — they drift as code evolves and become stale quickly.
+
+### Enforced by
+
+Every ADR with **Status: Accepted** MUST declare how it's enforced. Value is one of:
+
+- **Test references** — comma-separated paths to test files/functions that would fail
+  if the decision were violated (e.g. `tests/test_worktree.py`,
+  `tests/test_state_machine.py::test_labels_transition`). Files named here must exist.
+- `(process)` — the ADR enforces a workflow/convention (e.g. branch protection,
+  ADR authoring style) rather than code behaviour.
+- `(historical)` — the ADR codifies a past decision worth keeping but no longer
+  directly testable.
+- `(none)` — placeholder for Accepted ADRs still awaiting an enforcement test.
+  Flagged by `tests/test_adr_enforcement.py` for follow-up; should be replaced
+  with real references over time.
+
+`tests/test_adr_enforcement.py` validates this line exists on every Accepted
+ADR and that named test files actually exist.
 
 ## Index
 
