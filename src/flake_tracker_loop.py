@@ -250,6 +250,9 @@ class FlakeTrackerLoop(BaseBackgroundLoop):
 
     async def _do_work(self) -> WorkCycleResult:
         """One flake-tracking cycle (spec §4.5)."""
+        if not self._enabled_cb(self._worker_name):
+            return {"status": "disabled"}
+
         t0 = time.perf_counter()
         await self._reconcile_closed_escalations()
 
@@ -267,7 +270,7 @@ class FlakeTrackerLoop(BaseBackgroundLoop):
         threshold = self._config.flake_threshold
         filed = 0
         escalated = 0
-        dedup = self._dedup.get()
+        dedup = set(self._dedup.get())
         for test_id, count in counts.items():
             if count < threshold:
                 continue

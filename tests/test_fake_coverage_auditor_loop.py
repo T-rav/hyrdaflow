@@ -233,3 +233,24 @@ async def test_close_reconcile_clears_dedup_on_closed_escalation(
     state.clear_fake_coverage_attempts.assert_called_once_with(
         "FakeGitHub.missing:adapter-surface"
     )
+
+
+@pytest.mark.asyncio
+async def test_kill_switch_short_circuits_do_work(loop_env) -> None:
+    """Disabled kill-switch → _do_work returns `disabled` and skips reconcile (ADR-0049)."""
+    cfg, state, pr, dedup = loop_env
+    stop = asyncio.Event()
+    deps = LoopDeps(
+        event_bus=EventBus(),
+        stop_event=stop,
+        status_cb=lambda *a, **k: None,
+        enabled_cb=lambda name: name != "fake_coverage_auditor",
+    )
+    loop = FakeCoverageAuditorLoop(
+        config=cfg, state=state, pr_manager=pr, dedup=dedup, deps=deps
+    )
+    loop._reconcile_closed_escalations = AsyncMock(return_value=None)
+    stats = await loop._do_work()
+    assert stats == {"status": "disabled"}
+    loop._reconcile_closed_escalations.assert_not_awaited()
+    pr.create_issue.assert_not_awaited()

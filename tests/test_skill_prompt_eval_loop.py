@@ -193,3 +193,27 @@ async def test_reconcile_closed_escalations(loop_env, monkeypatch) -> None:
     remaining = dedup.set_all.call_args.args[0]
     assert "skill_prompt_eval:case_alpha" not in remaining
     state.clear_skill_prompt_attempts.assert_called_once_with("case_alpha")
+
+
+@pytest.mark.asyncio
+async def test_kill_switch_short_circuits_do_work(loop_env) -> None:
+    """Disabled kill-switch → _do_work returns `disabled` and skips reconcile (ADR-0049)."""
+    cfg, state, pr, dedup = loop_env
+    stop = asyncio.Event()
+    deps = LoopDeps(
+        event_bus=EventBus(),
+        stop_event=stop,
+        status_cb=lambda *a, **k: None,
+        enabled_cb=lambda name: name != "skill_prompt_eval",
+    )
+    loop = SkillPromptEvalLoop(
+        config=cfg, state=state, pr_manager=pr, dedup=dedup, deps=deps
+    )
+    loop._reconcile_closed_escalations = AsyncMock(return_value=None)
+    loop._run_corpus = AsyncMock(
+        side_effect=AssertionError("must not run when disabled")
+    )
+    stats = await loop._do_work()
+    assert stats == {"status": "disabled"}
+    loop._reconcile_closed_escalations.assert_not_awaited()
+    pr.create_issue.assert_not_awaited()

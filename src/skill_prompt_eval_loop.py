@@ -199,6 +199,9 @@ class SkillPromptEvalLoop(BaseBackgroundLoop):
 
     async def _do_work(self) -> WorkCycleResult:
         """Weekly eval — backstop + weak-case sampling."""
+        if not self._enabled_cb(self._worker_name):
+            return {"status": "disabled"}
+
         t0 = time.perf_counter()
         await self._reconcile_closed_escalations()
 
@@ -214,6 +217,9 @@ class SkillPromptEvalLoop(BaseBackgroundLoop):
         filed = 0
         escalated = 0
         dedup = self._dedup.get()
+        # Per-tick seed: stable within one invocation, diverse across ticks
+        # (matches plan decision #5 — seed-stable per workflow run).
+        tick_seed = int(t0 * 1_000_000)
         for case in cases:
             case_id = case.get("case_id")
             if not case_id:
@@ -243,7 +249,7 @@ class SkillPromptEvalLoop(BaseBackgroundLoop):
         # Role 2 — weak-case audit. Learning-loop cases that expected
         # catcher passed through.
         weak_flagged = 0
-        sample = self._sample_learning_cases(cases)
+        sample = self._sample_learning_cases(cases, seed=tick_seed)
         for case in sample:
             skill = case.get("skill")
             catcher = case.get("expected_catcher")

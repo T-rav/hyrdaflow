@@ -523,7 +523,7 @@ class StagingBisectLoop(BaseBackgroundLoop):
             "### Bisect log\n\n"
             f"```\n{bisect_log[:5000]}\n```"
         )
-        labels = ["hitl-escalation", "rc-red-bisect-exhausted"]
+        labels = ["hitl-escalation", "rc-red-attribution-unsafe"]
         issue = await self._prs.create_issue(title, body, labels)
         logger.error("StagingBisectLoop: guardrail tripped — escalated #%d", issue)
         return {"status": "guardrail_escalated", "escalation_issue": issue}

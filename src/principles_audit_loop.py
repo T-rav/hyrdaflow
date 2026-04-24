@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,6 +32,12 @@ _HYDRAFLOW_SELF = "hydraflow-self"
 _STRUCTURAL_ATTEMPTS = 3
 _BEHAVIORAL_ATTEMPTS = 3
 _CULTURAL_ATTEMPTS = 1
+
+# Parse `Principles drift stuck: {check_id} in {slug}` from an escalation title
+# to recover the (slug, check_id) pair when reconciling closed issues.
+_STUCK_TITLE_RE = re.compile(
+    r"^Principles drift stuck:\s*(?P<check_id>[\w\.\-]+)\s+in\s+(?P<slug>[\w\.\-/]+)\s*$"
+)
 
 
 class PrinciplesAuditLoop(BaseBackgroundLoop):
@@ -58,6 +65,9 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
 
     async def _do_work(self) -> WorkCycleResult:
         """One audit cycle: onboarding reconcile, HydraFlow-self, managed repos."""
+        if not self._enabled_cb(self._worker_name):
+            return {"status": "disabled"}
+
         stats: dict[str, Any] = {
             "onboarded": 0,
             "audited": 0,
@@ -65,6 +75,11 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
             "escalations_filed": 0,
             "ready_flips": 0,
         }
+
+        # 0) Reconcile closed escalation issues — resets drift_attempts so
+        # the "closing this issue clears the counter" promise in the
+        # escalation body actually holds (§3.2 lifecycle).
+        await self._reconcile_closed_escalations()
 
         # 1) Onboarding reconcile — new or pending slugs.
         stats["onboarded"] = await self._reconcile_onboarding()
@@ -102,22 +117,30 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
                 self._state.set_last_green_audit(_HYDRAFLOW_SELF, self_snapshot)
 
         # 4) Managed-repo audits (only `ready` slugs — blocked handled above).
+        # One unreachable repo must not abort the rest — log + continue.
         for mr in self._config.managed_repos:
             if not mr.enabled:
                 continue
             if self._state.get_onboarding_status(mr.slug) != "ready":
                 continue
-            snapshot = await self._audit_managed_repo(mr)
-            stats["audited"] += 1
-            report = await self._fetch_last_report(mr)
-            last = self._state.get_last_green_audit(mr.slug)
-            regressions = self._diff_regressions(last, snapshot)
-            if regressions:
-                fire = await self._fire_for_slug(mr.slug, regressions, report, last)
-                stats["regressions_filed"] += fire["filed"]
-                stats["escalations_filed"] += fire["escalated"]
-            else:
-                self._state.set_last_green_audit(mr.slug, snapshot)
+            try:
+                snapshot = await self._audit_managed_repo(mr)
+                stats["audited"] += 1
+                report = await self._fetch_last_report(mr)
+                last = self._state.get_last_green_audit(mr.slug)
+                regressions = self._diff_regressions(last, snapshot)
+                if regressions:
+                    fire = await self._fire_for_slug(mr.slug, regressions, report, last)
+                    stats["regressions_filed"] += fire["filed"]
+                    stats["escalations_filed"] += fire["escalated"]
+                else:
+                    self._state.set_last_green_audit(mr.slug, snapshot)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "PrinciplesAuditLoop: skipping %s — audit failed",
+                    mr.slug,
+                    exc_info=True,
+                )
 
         return stats
 
@@ -287,11 +310,21 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
         return await self._pr.create_issue(title, body, labels)
 
     async def _maybe_escalate(self, slug: str, check_id: str, severity: str) -> bool:
-        """Increment attempt counter and file hitl-escalation if threshold reached."""
-        attempts = self._state.increment_drift_attempts(slug, check_id)
+        """Fire exactly one hitl-escalation when the attempt counter reaches threshold.
+
+        Before-threshold: increment the counter, file no escalation.
+        At-threshold: file escalation, counter stays at threshold.
+        Past-threshold: no-op until the operator closes the escalation
+        (which calls ``reset_drift_attempts`` via ``_reconcile_closed_escalations``).
+        """
         threshold = (
             _CULTURAL_ATTEMPTS if severity == "CULTURAL" else _STRUCTURAL_ATTEMPTS
         )
+        current = self._state.get_drift_attempts(slug, check_id)
+        if current >= threshold:
+            # Already escalated; wait for operator to close the issue.
+            return False
+        attempts = self._state.increment_drift_attempts(slug, check_id)
         if attempts < threshold:
             return False
         title = f"Principles drift stuck: {check_id} in {slug}"
@@ -312,6 +345,48 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
             labels.append("cultural-check")
         await self._pr.create_issue(title, body, labels)
         return True
+
+    async def _reconcile_closed_escalations(self) -> None:
+        """Clear drift_attempts for every closed principles-stuck issue.
+
+        The escalation body tells the operator "closing this issue clears
+        the attempt counter" (§3.2 lifecycle). This method honors that
+        promise: it lists closed ``principles-stuck`` issues, parses the
+        (slug, check_id) pair from the title, and calls
+        ``reset_drift_attempts``. Close-to-clear latency is bounded by the
+        loop interval.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "gh",
+                "issue",
+                "list",
+                "--repo",
+                self._config.repo,
+                "--state",
+                "closed",
+                "--label",
+                "principles-stuck",
+                "--json",
+                "title",
+                "--limit",
+                "100",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            out, _ = await proc.communicate()
+            if proc.returncode != 0:
+                logger.debug("reconcile: gh issue list failed")
+                return
+            issues = json.loads(out or b"[]")
+        except Exception:  # noqa: BLE001
+            logger.debug("reconcile: skipped", exc_info=True)
+            return
+        for issue in issues:
+            m = _STUCK_TITLE_RE.match(str(issue.get("title", "")))
+            if m is None:
+                continue
+            self._state.reset_drift_attempts(m.group("slug"), m.group("check_id"))
 
     async def _fire_for_slug(
         self,

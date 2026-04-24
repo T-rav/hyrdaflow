@@ -560,3 +560,87 @@ async def test_do_work_managed_repo_regression_files_drift(loop_env, monkeypatch
     assert stats["audited"] == 2  # self + acme/widget
     assert stats["regressions_filed"] == 1
     pr.create_issue.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_kill_switch_short_circuits_do_work(loop_env) -> None:
+    """Disabled kill-switch → _do_work returns `disabled` (ADR-0049)."""
+    cfg, state, pr = loop_env
+    stop = asyncio.Event()
+    deps = LoopDeps(
+        event_bus=EventBus(),
+        stop_event=stop,
+        status_cb=lambda *a, **k: None,
+        enabled_cb=lambda name: name != "principles_audit",
+    )
+    loop = PrinciplesAuditLoop(config=cfg, state=state, pr_manager=pr, deps=deps)
+    loop._reconcile_onboarding = AsyncMock(
+        side_effect=AssertionError("must not run when disabled")
+    )
+    stats = await loop._do_work()
+    assert stats == {"status": "disabled"}
+    loop._reconcile_onboarding.assert_not_awaited()
+    pr.create_issue.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_maybe_escalate_fires_once_at_threshold(loop_env) -> None:
+    """After the first escalation, repeat ticks at the same attempt count
+    must not re-file the hitl-escalation issue (ADR-0045 §3.2 lifecycle)."""
+    cfg, state, pr = loop_env
+    stop = asyncio.Event()
+    # Simulate: first call returns 3 (hits structural threshold), subsequent
+    # calls see current>=threshold (counter stuck at threshold).
+    state.get_drift_attempts.side_effect = [0, 3, 3]
+    state.increment_drift_attempts.return_value = 3
+    deps = LoopDeps(
+        event_bus=EventBus(),
+        stop_event=stop,
+        status_cb=lambda *a, **k: None,
+        enabled_cb=lambda _n: True,
+    )
+    loop = PrinciplesAuditLoop(config=cfg, state=state, pr_manager=pr, deps=deps)
+
+    first = await loop._maybe_escalate("hydra/x", "P2.3", "STRUCTURAL")
+    second = await loop._maybe_escalate("hydra/x", "P2.3", "STRUCTURAL")
+    third = await loop._maybe_escalate("hydra/x", "P2.3", "STRUCTURAL")
+
+    assert first is True
+    assert second is False
+    assert third is False
+    # Only one escalation issue filed across three calls.
+    assert pr.create_issue.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_closed_escalations_resets_counter(
+    loop_env, monkeypatch
+) -> None:
+    """Closing a `principles-stuck` issue triggers reset_drift_attempts
+    with the (slug, check_id) parsed from the title."""
+    cfg, state, pr = loop_env
+    stop = asyncio.Event()
+    deps = LoopDeps(
+        event_bus=EventBus(),
+        stop_event=stop,
+        status_cb=lambda *a, **k: None,
+        enabled_cb=lambda _n: True,
+    )
+    loop = PrinciplesAuditLoop(config=cfg, state=state, pr_manager=pr, deps=deps)
+
+    class FakeProc:
+        returncode = 0
+
+        async def communicate(self):
+            return (
+                b'[{"title": "Principles drift stuck: P2.3 in hydra/widgets"}]',
+                b"",
+            )
+
+    async def fake_subproc(*args, **kwargs):
+        return FakeProc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_subproc)
+
+    await loop._reconcile_closed_escalations()
+    state.reset_drift_attempts.assert_called_once_with("hydra/widgets", "P2.3")

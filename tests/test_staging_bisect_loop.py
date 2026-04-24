@@ -278,7 +278,7 @@ class TestGuardrail:
         prs.create_issue.assert_awaited_once()
         title = prs.create_issue.await_args.args[0]
         labels = prs.create_issue.await_args.args[2]
-        assert "rc-red-bisect-exhausted" in labels
+        assert "rc-red-attribution-unsafe" in labels
         assert "hitl-escalation" in labels
         assert "current_red" in title
 

@@ -88,6 +88,9 @@ class RCBudgetLoop(BaseBackgroundLoop):
 
     async def _do_work(self) -> WorkCycleResult:
         """Run one tick: reconcile closures, fetch runs, detect, file/escalate."""
+        if not self._enabled_cb(self._worker_name):
+            return {"status": "disabled"}
+
         t0 = time.perf_counter()
         await self._reconcile_closed_escalations()
         runs = await self._fetch_recent_runs()

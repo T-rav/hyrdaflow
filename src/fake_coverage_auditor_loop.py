@@ -278,6 +278,9 @@ class FakeCoverageAuditorLoop(BaseBackgroundLoop):
 
     async def _do_work(self) -> WorkCycleResult:
         """Scan fakes, compare to cassettes + scenario grep, file gaps."""
+        if not self._enabled_cb(self._worker_name):
+            return {"status": "disabled"}
+
         t0 = time.perf_counter()
         await self._reconcile_closed_escalations()
 

@@ -183,3 +183,27 @@ async def test_reconcile_closed_escalations_clears_dedup(loop_env, monkeypatch) 
     remaining = dedup.set_all.call_args.args[0]
     assert "flake_tracker:tests.foo.test_bar" not in remaining
     state.clear_flake_attempts.assert_called_once_with("tests.foo.test_bar")
+
+
+@pytest.mark.asyncio
+async def test_kill_switch_short_circuits_do_work(loop_env) -> None:
+    """Disabled kill-switch → _do_work returns `disabled` and skips reconcile (ADR-0049)."""
+    cfg, state, pr, dedup = loop_env
+    stop = asyncio.Event()
+    deps = LoopDeps(
+        event_bus=EventBus(),
+        stop_event=stop,
+        status_cb=lambda *a, **k: None,
+        enabled_cb=lambda name: name != "flake_tracker",
+    )
+    loop = FlakeTrackerLoop(
+        config=cfg, state=state, pr_manager=pr, dedup=dedup, deps=deps
+    )
+    loop._reconcile_closed_escalations = AsyncMock(return_value=None)
+    loop._fetch_recent_runs = AsyncMock(
+        side_effect=AssertionError("must not run when disabled")
+    )
+    stats = await loop._do_work()
+    assert stats == {"status": "disabled"}
+    loop._reconcile_closed_escalations.assert_not_awaited()
+    pr.create_issue.assert_not_awaited()
