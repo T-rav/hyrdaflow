@@ -79,6 +79,7 @@ RUN npm install -g @beads/bd --no-fund --no-audit
 RUN git clone --depth 1 https://github.com/anthropics/claude-plugins-official.git /opt/plugins/claude-plugins-official \
     && git clone --depth 1 https://github.com/obra/superpowers.git /opt/plugins/superpowers \
     && git clone --depth 1 https://github.com/8thlight/lightfactory.git /opt/plugins/lightfactory \
+    && git clone --depth 1 https://github.com/vectorize-io/hindsight-skills.git /opt/plugins/hindsight-skills \
     && rm -rf /opt/plugins/*/.git
 
 # Pre-install Python quality tools into a venv
