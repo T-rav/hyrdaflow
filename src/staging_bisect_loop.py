@@ -83,6 +83,14 @@ class StagingBisectLoop(BaseBackgroundLoop):
         return self._config.staging_bisect_interval
 
     async def _do_work(self) -> dict[str, Any] | None:  # noqa: PLR0911
+        # Kill-switch via the System-tab toggle — operators need a live
+        # UI control to halt this loop in anger (it opens revert PRs —
+        # the highest-autonomy action in the fleet). Spec §12.2 mandates
+        # ``enabled_cb``; using the ``staging_enabled`` config field
+        # alone would require an operator edit + restart to stop, which
+        # is too slow when a loop is filing a revert PR every tick.
+        if not self._enabled_cb(self._worker_name):
+            return {"status": "disabled"}
         if not self._config.staging_enabled:
             return {"status": "staging_disabled"}
 

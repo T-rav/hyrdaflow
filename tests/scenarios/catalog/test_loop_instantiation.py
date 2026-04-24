@@ -32,7 +32,8 @@ ALL_LOOPS = (
     "stale_issue",
     "epic_monitor",
     "wiki_rot_detector",
-    # trust-arch caretaker fleet (§4.5–§4.8)
+    # trust-arch caretaker fleet (§4.4–§4.8)
+    "principles_audit",
     "flake_tracker",
     "skill_prompt_eval",
     "fake_coverage_auditor",
