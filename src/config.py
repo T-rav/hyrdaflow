@@ -1310,8 +1310,8 @@ class HydraFlowConfig(BaseModel):
         description="CLI backend for sentry_loop ingestion worker",
     )
     sentry_model: str = Field(
-        default="opus",
-        description="Model for sentry_loop ingestion worker (issue triage + filing from Sentry events)",
+        default="sonnet",
+        description="Model for sentry_loop ingestion worker (issue triage + filing from Sentry events) — sonnet is sufficient; the task is stack-trace parsing + issue filing, not deep reasoning. Opus was 4-5× the cost for no measurable quality win.",
     )
     code_grooming_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
         default="claude",
