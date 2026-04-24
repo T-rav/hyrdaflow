@@ -785,12 +785,34 @@ def _build_contract_refresh(ports: dict[str, Any], config: Any, deps: Any) -> An
     if auto_pr_stub is not None:
         _module.open_automated_pr_async = auto_pr_stub  # type: ignore[assignment]
 
-    return ContractRefreshLoop(
+    loop = ContractRefreshLoop(
         config=config,
         deps=deps,
         prs=pr_manager,
         state=state,
     )
+
+    # Replay gate seam — by default the drift path shells out to
+    # ``make trust-contracts`` in ``config.repo_root`` (a ``tmp_path``
+    # fixture with no Makefile), which would either fail immediately or
+    # time out after 300s. Default to a clean-pass stub; tests can
+    # override via the ``contract_refresh_replay_gate`` port to simulate
+    # replay-gate failure + fake-drift companion filing.
+    import subprocess  # noqa: PLC0415
+
+    replay_stub = ports.get("contract_refresh_replay_gate")
+    if replay_stub is None:
+        replay_stub = MagicMock(
+            return_value=subprocess.CompletedProcess(
+                args=["make", "trust-contracts"],
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
+        )
+    loop._run_replay_gate = replay_stub  # type: ignore[method-assign]
+
+    return loop
 
 
 _BUILDERS: dict[str, Any] = {
