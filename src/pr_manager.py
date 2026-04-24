@@ -52,6 +52,34 @@ def _is_missing_label_404(exc: RuntimeError) -> bool:
     return "label does not exist" in msg and "http 404" in msg
 
 
+# Lazy-bound wrappers for the per-issue cost-alert hook (spec §4.11 Task 10).
+# Importing ``dashboard_routes._cost_rollups`` at module load time triggers
+# the ``dashboard_routes`` package ``__init__`` → ``_routes`` → ``pr_manager``
+# cycle. Deferring until first call breaks the cycle. These names live at
+# module level so tests can monkeypatch them without reaching into imports.
+def check_issue_cost(*args: Any, **kwargs: Any) -> Any:
+    """Forward to :func:`cost_budget_alerts.check_issue_cost` (lazy)."""
+    from cost_budget_alerts import check_issue_cost as _impl  # noqa: PLC0415
+
+    return _impl(*args, **kwargs)
+
+
+def iter_priced_inferences_for_issue(*args: Any, **kwargs: Any) -> Any:
+    """Forward to :func:`dashboard_routes._cost_rollups.iter_priced_inferences_for_issue` (lazy)."""
+    from dashboard_routes._cost_rollups import (  # noqa: PLC0415
+        iter_priced_inferences_for_issue as _impl,
+    )
+
+    return _impl(*args, **kwargs)
+
+
+def load_pricing(*args: Any, **kwargs: Any) -> Any:
+    """Forward to :func:`model_pricing.load_pricing` (lazy, keeps hook imports cheap)."""
+    from model_pricing import load_pricing as _impl  # noqa: PLC0415
+
+    return _impl(*args, **kwargs)
+
+
 # Re-export for backward compatibility
 __all__ = ["CommentFormatter", "SelfReviewError", "PRManager"]
 
@@ -825,6 +853,42 @@ class PRManager:
                     data=payload,
                 )
             )
+            # Per-issue cost-budget check (spec §4.11 Task 10). Runs only
+            # when the merge actually succeeded. Errors here must not
+            # affect the return value — a broken rollup read cannot turn
+            # a real merge success into a failure. Inlined (rather than a
+            # helper method) so the hook site is self-contained and
+            # easy to reason about from merge_pr alone.
+            try:
+                issue_match = re.search(r"#(\d+)", pr_title or "")
+                issue_no = int(issue_match.group(1)) if issue_match else None
+                if issue_no is not None:
+                    from dedup_store import DedupStore  # noqa: PLC0415
+
+                    pricing = load_pricing()
+                    total = 0.0
+                    for rec in iter_priced_inferences_for_issue(
+                        self._config, issue=issue_no, pricing=pricing
+                    ):
+                        total += float(rec.get("cost_usd") or 0.0)
+                    dedup = DedupStore(
+                        "cost_issue_alerts",
+                        self._config.data_root / "dedup" / "cost_issue_alerts.json",
+                    )
+                    await check_issue_cost(
+                        self._config,
+                        pr_manager=self,
+                        dedup=dedup,
+                        event_bus=self._bus,
+                        issue_number=issue_no,
+                        cost_usd=total,
+                    )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Per-issue cost-alert hook failed for PR #%d",
+                    pr_number,
+                    exc_info=True,
+                )
             return True
         except RuntimeError as exc:
             logger.warning("Merge failed for PR #%d: %s", pr_number, exc)
