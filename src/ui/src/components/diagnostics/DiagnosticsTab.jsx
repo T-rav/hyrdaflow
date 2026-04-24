@@ -7,9 +7,11 @@ import { CacheHitChart } from './CacheHitChart'
 import { IssueTable } from './IssueTable'
 import { DrillDownPane } from './DrillDownPane'
 import { FactoryHealthSection } from './FactoryHealthSection'
+import { FactoryCostTab } from './FactoryCostTab'
 
 export function DiagnosticsTab() {
   const [range, setRange] = useState('7d')
+  const [subTab, setSubTab] = useState('overview')
   const [overview, setOverview] = useState(null)
   const [tools, setTools] = useState([])
   const [skills, setSkills] = useState([])
@@ -21,6 +23,7 @@ export function DiagnosticsTab() {
   const [selectedRun, setSelectedRun] = useState(null)
 
   useEffect(() => {
+    if (subTab !== 'overview') return undefined
     let cancelled = false
     const params = `?range=${encodeURIComponent(range)}`
     setLoading(true)
@@ -54,7 +57,7 @@ export function DiagnosticsTab() {
     return () => {
       cancelled = true
     }
-  }, [range])
+  }, [range, subTab])
 
   const handleRowClick = useCallback(async (row) => {
     const url = `/api/diagnostics/issue/${row.issue}/${row.phase}/${row.run_id}`
@@ -78,6 +81,26 @@ export function DiagnosticsTab() {
     <div style={styles.tab}>
       <div style={styles.header}>
         <h2 style={styles.title}>Factory Diagnostics</h2>
+        <div style={styles.subtabs} role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={subTab === 'overview'}
+            style={subTab === 'overview' ? styles.subtabActive : styles.subtab}
+            onClick={() => setSubTab('overview')}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={subTab === 'cost'}
+            style={subTab === 'cost' ? styles.subtabActive : styles.subtab}
+            onClick={() => setSubTab('cost')}
+          >
+            Factory Cost
+          </button>
+        </div>
         <label style={styles.filterLabel}>
           Range:
           <select
@@ -93,36 +116,42 @@ export function DiagnosticsTab() {
         </label>
       </div>
 
-      <HeadlineCards data={overview} loading={loading} />
+      {subTab === 'cost' ? (
+        <FactoryCostTab range={range} />
+      ) : (
+        <>
+          <HeadlineCards data={overview} loading={loading} />
 
-      <div style={styles.gridTwo}>
-        <TopBarChart title="Top Tools" data={tools} valueKey="count" />
-        <TopBarChart
-          title="Top Skills"
-          data={skills}
-          valueKey="count"
-          annotation={(item) =>
-            `(${Math.round((item.first_try_pass_rate || 0) * 100)}% 1st-try)`
-          }
-        />
-      </div>
+          <div style={styles.gridTwo}>
+            <TopBarChart title="Top Tools" data={tools} valueKey="count" />
+            <TopBarChart
+              title="Top Skills"
+              data={skills}
+              valueKey="count"
+              annotation={(item) =>
+                `(${Math.round((item.first_try_pass_rate || 0) * 100)}% 1st-try)`
+              }
+            />
+          </div>
 
-      <div style={styles.gridTwo}>
-        <TopBarChart title="Top Subagents" data={subagents} valueKey="count" />
-        <CostByPhaseChart data={costByPhase} />
-      </div>
+          <div style={styles.gridTwo}>
+            <TopBarChart title="Top Subagents" data={subagents} valueKey="count" />
+            <CostByPhaseChart data={costByPhase} />
+          </div>
 
-      <CacheHitChart data={cache} />
+          <CacheHitChart data={cache} />
 
-      <FactoryHealthSection />
+          <FactoryHealthSection />
 
-      <IssueTable rows={issues} onRowClick={handleRowClick} />
+          <IssueTable rows={issues} onRowClick={handleRowClick} />
 
-      {selectedRun && (
-        <DrillDownPane
-          runData={selectedRun}
-          onClose={() => setSelectedRun(null)}
-        />
+          {selectedRun && (
+            <DrillDownPane
+              runData={selectedRun}
+              onClose={() => setSelectedRun(null)}
+            />
+          )}
+        </>
       )}
     </div>
   )
@@ -166,5 +195,33 @@ const styles = {
     gridTemplateColumns: 'repeat(2, 1fr)',
     gap: 16,
     marginBottom: 16,
+  },
+  subtabs: {
+    display: 'flex',
+    gap: 4,
+    background: theme.surfaceInset,
+    borderRadius: 6,
+    padding: 3,
+  },
+  subtab: {
+    background: 'transparent',
+    border: 'none',
+    color: theme.textMuted,
+    padding: '4px 12px',
+    fontSize: 12,
+    cursor: 'pointer',
+    borderRadius: 4,
+    fontFamily: 'inherit',
+  },
+  subtabActive: {
+    background: theme.accentSubtle,
+    border: 'none',
+    color: theme.textBright,
+    padding: '4px 12px',
+    fontSize: 12,
+    cursor: 'pointer',
+    borderRadius: 4,
+    fontWeight: 600,
+    fontFamily: 'inherit',
   },
 }
