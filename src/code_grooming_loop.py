@@ -63,9 +63,7 @@ class CodeGroomingLoop(BaseBackgroundLoop):
         ``id``, ``severity``, ``title``, and ``description`` keys.
         """
         cmd = build_agent_command(
-            tool=self._config.background_tool
-            if self._config.background_tool != "inherit"
-            else "claude",
+            tool=self._config.code_grooming_tool,
             model=self._config.code_grooming_model,
             max_turns=10,
         )

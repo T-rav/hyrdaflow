@@ -366,7 +366,7 @@ class SentryLoop(BaseBackgroundLoop):
         from runner_utils import StreamConfig, stream_claude_process  # noqa: PLC0415
 
         cmd = build_agent_command(
-            tool=self._config.report_issue_tool,
+            tool=self._config.sentry_tool,
             model=self._config.sentry_model,
             max_turns=10,
         )

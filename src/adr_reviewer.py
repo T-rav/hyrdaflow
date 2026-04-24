@@ -443,13 +443,10 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
 
     async def _execute_orchestrator(self, prompt: str) -> str | None:
         """Call the configured CLI backend to run the council session."""
-        tool = self._config.background_tool
-        if tool == "inherit":
-            tool = "claude"
-        model = self._config.adr_review_model
-
         cmd, cmd_input = build_lightweight_command(
-            tool=tool, model=model, prompt=prompt
+            tool=self._config.adr_review_tool,
+            model=self._config.adr_review_model,
+            prompt=prompt,
         )
 
         env = make_clean_env(self._credentials.gh_token)

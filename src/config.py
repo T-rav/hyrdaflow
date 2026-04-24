@@ -319,6 +319,9 @@ _ENV_COMBO_OVERRIDES: list[tuple[str, str, str]] = [
         "transcript_summary_model",
     ),
     ("HYDRAFLOW_WIKI_COMPILATION", "wiki_compilation_tool", "wiki_compilation_model"),
+    ("HYDRAFLOW_SENTRY", "sentry_tool", "sentry_model"),
+    ("HYDRAFLOW_CODE_GROOMING", "code_grooming_tool", "code_grooming_model"),
+    ("HYDRAFLOW_ADR_REVIEW", "adr_review_tool", "adr_review_model"),
     ("HYDRAFLOW_REPORT_ISSUE", "report_issue_tool", "report_issue_model"),
 ]
 
@@ -1302,9 +1305,17 @@ class HydraFlowConfig(BaseModel):
         default="opus",
         description="Model for report-issue worker (codebase research + structured issue creation)",
     )
+    sentry_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
+        default="claude",
+        description="CLI backend for sentry_loop ingestion worker",
+    )
     sentry_model: str = Field(
         default="opus",
         description="Model for sentry_loop ingestion worker (issue triage + filing from Sentry events)",
+    )
+    code_grooming_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
+        default="claude",
+        description="CLI backend for code_grooming_loop audit worker",
     )
     code_grooming_model: str = Field(
         default="sonnet",
@@ -1543,6 +1554,10 @@ class HydraFlowConfig(BaseModel):
         ge=1,
         le=5,
         description="Maximum deliberation rounds before forcing a decision",
+    )
+    adr_review_tool: Literal["claude", "codex", "gemini", "pi"] = Field(
+        default="claude",
+        description="CLI backend for the ADR council review orchestrator",
     )
     adr_review_model: str = Field(
         default="sonnet",
@@ -1945,6 +1960,9 @@ def _apply_profile_overrides(config: HydraFlowConfig) -> None:
             "triage_tool",
             "transcript_summary_tool",
             "report_issue_tool",
+            "sentry_tool",
+            "code_grooming_tool",
+            "adr_review_tool",
         ):
             _apply_if_default(field, config.background_tool)
 
@@ -1955,6 +1973,7 @@ def _apply_profile_overrides(config: HydraFlowConfig) -> None:
             "report_issue_model",
             "sentry_model",
             "code_grooming_model",
+            "adr_review_model",
         ):
             _apply_if_default(field, config.background_model)
 
@@ -2027,6 +2046,9 @@ def _harmonize_tool_model_defaults(config: HydraFlowConfig) -> None:
             config.wiki_compilation_model,
         ),
         ("report_issue", config.report_issue_tool, config.report_issue_model),
+        ("sentry", config.sentry_tool, config.sentry_model),
+        ("code_grooming", config.code_grooming_tool, config.code_grooming_model),
+        ("adr_review", config.adr_review_tool, config.adr_review_model),
     ]
 
     for stage, tool, model in stage_pairs:

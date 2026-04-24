@@ -183,3 +183,50 @@ def test_triage_defaults_to_gemini_pro() -> None:
     cfg = HydraFlowConfig()
     assert cfg.triage_tool == "gemini"
     assert cfg.triage_model == "gemini-3.1-pro-preview"
+
+
+def test_combo_env_sets_sentry_tool_and_model() -> None:
+    with patch.dict(os.environ, {"HYDRAFLOW_SENTRY": "claude:sonnet"}, clear=False):
+        cfg = HydraFlowConfig()
+        assert cfg.sentry_tool == "claude"
+        assert cfg.sentry_model == "sonnet"
+
+
+def test_combo_env_sets_code_grooming_tool_and_model() -> None:
+    with patch.dict(
+        os.environ, {"HYDRAFLOW_CODE_GROOMING": "codex:gpt-5-codex"}, clear=False
+    ):
+        cfg = HydraFlowConfig()
+        assert cfg.code_grooming_tool == "codex"
+        assert cfg.code_grooming_model == "gpt-5-codex"
+
+
+def test_combo_env_sets_adr_review_tool_and_model() -> None:
+    with patch.dict(os.environ, {"HYDRAFLOW_ADR_REVIEW": "claude:opus"}, clear=False):
+        cfg = HydraFlowConfig()
+        assert cfg.adr_review_tool == "claude"
+        assert cfg.adr_review_model == "opus"
+
+
+def test_background_cascade_reaches_sentry_code_grooming_adr_review() -> None:
+    """HYDRAFLOW_BACKGROUND=claude:sonnet must pin the bg-only workers."""
+    with patch.dict(os.environ, {"HYDRAFLOW_BACKGROUND": "claude:sonnet"}, clear=False):
+        cfg = HydraFlowConfig()
+        assert cfg.sentry_tool == "claude"
+        assert cfg.sentry_model == "sonnet"
+        assert cfg.code_grooming_tool == "claude"
+        assert cfg.code_grooming_model == "sonnet"
+        assert cfg.adr_review_tool == "claude"
+        assert cfg.adr_review_model == "sonnet"
+
+
+def test_background_cascade_cross_provider_codex() -> None:
+    """HYDRAFLOW_BACKGROUND=codex:gpt-5-codex must cascade tool+model coherently
+    to every bg-only worker and pass harmonize's cross-provider check."""
+    with patch.dict(
+        os.environ, {"HYDRAFLOW_BACKGROUND": "codex:gpt-5-codex"}, clear=False
+    ):
+        cfg = HydraFlowConfig()
+        for stage in ("sentry", "code_grooming", "adr_review"):
+            assert getattr(cfg, f"{stage}_tool") == "codex"
+            assert getattr(cfg, f"{stage}_model") == "gpt-5-codex"
