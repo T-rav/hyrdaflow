@@ -204,6 +204,37 @@ async def test_build_prompt_includes_plan_markers(config, event_bus, issue):
 
 
 @pytest.mark.asyncio
+async def test_build_prompt_includes_principles_checklist(config, event_bus, issue):
+    """Planner must produce plans that honour HydraFlow's engineering
+    principles (ADR-0044). The prompt gates this up front so plans don't
+    reach review with missing scenario coverage, wrong layering, or
+    implementation-named tests — cheaper to catch in the plan than in
+    the PR diff."""
+    runner = _make_runner(config, event_bus)
+    task = issue.to_task()
+    prompt, _ = await runner._build_prompt_with_stats(task)
+
+    assert "Principles" in prompt, (
+        "planner prompt no longer contains the Principles checklist"
+    )
+    # MockWorld / scenario coverage for new cross-phase behaviour.
+    assert "MockWorld" in prompt
+    assert "tests/scenarios/" in prompt
+    # TDD + BDD-flavour test names.
+    assert "TDD" in prompt
+    assert "behavioral" in prompt.lower() or "behaviour" in prompt.lower()
+    # Hexagonal port compliance.
+    assert "Port" in prompt
+    # One-responsibility files.
+    assert (
+        "one responsibility" in prompt.lower()
+        or "single responsibility" in prompt.lower()
+    )
+    # 3As test layout.
+    assert "3As" in prompt or "Arrange" in prompt
+
+
+@pytest.mark.asyncio
 async def test_build_prompt_includes_comments_when_present(config, event_bus):
     task = TaskFactory.create(
         body="It is broken.",
@@ -234,8 +265,9 @@ async def test_build_prompt_truncates_long_body(config, event_bus):
 
     assert "…(truncated)" in prompt
     # Well under original 20k body. Upper bound accommodates the ADR titles
-    # index (~2k chars for ~40 ADRs) which is now injected into plan prompts.
-    assert len(prompt) < 14_000
+    # index (~2k chars for ~40 ADRs) and the ADR-0044 principles checklist
+    # (~900 chars) that the plan prompt now injects.
+    assert len(prompt) < 15_000
 
 
 @pytest.mark.asyncio
