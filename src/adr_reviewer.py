@@ -46,6 +46,25 @@ def _write_adr_decision(
 
 # Valid statuses are single words: Proposed, Accepted, Superseded, Deprecated, Rejected.
 _STATUS_RE = re.compile(r"\*\*Status:\*\*\s*(\w+)", re.IGNORECASE)
+_ENFORCED_BY_RE = re.compile(r"^\*\*Enforced by:\*\*", re.MULTILINE)
+_STATUS_LINE_RE = re.compile(r"^(\*\*Status:\*\*[^\n]*)$", re.MULTILINE)
+
+
+def _ensure_enforced_by_line(content: str) -> str:
+    """Guarantee an ``**Enforced by:**`` line directly under the Status line.
+
+    When the ADR already carries an ``Enforced by:`` line (author-
+    provided or backfill), leave it untouched — respect the author.
+    Otherwise inject ``**Enforced by:** (none)`` so
+    ``tests/test_adr_enforcement.py`` does not fail the first time this
+    ADR ships as Accepted. Operators replace the ``(none)`` placeholder
+    with real test references as enforcement matures.
+    """
+    if _ENFORCED_BY_RE.search(content):
+        return content
+    return _STATUS_LINE_RE.sub(r"\1\n**Enforced by:** (none)", content, count=1)
+
+
 _DUPLICATE_THRESHOLD = 0.7
 
 
@@ -771,8 +790,10 @@ minority_note: <dissenting opinion if not unanimous, or "none">"""
             logger.exception("Failed to read ADR file: %s", adr_path)
             return
 
-        # Update status in ADR file
+        # Update status in ADR file and guarantee the Enforced-by line
+        # (required by tests/test_adr_enforcement.py on every Accepted ADR).
         updated = _STATUS_RE.sub("**Status:** Accepted", content, count=1)
+        updated = _ensure_enforced_by_line(updated)
         adr_path.write_text(updated, encoding="utf-8")
 
         # Update README if present

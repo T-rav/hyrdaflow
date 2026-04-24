@@ -19,6 +19,7 @@ from knowledge_metrics import metrics as _metrics
 from repo_wiki import DEFAULT_TOPICS, RepoWikiStore, WikiEntry, active_lint_tracked
 from staleness import evaluate as evaluate_staleness
 from subprocess_util import run_subprocess
+from wiki_drift_detector import detect_drift
 from wiki_maint_queue import MaintenanceQueue
 
 if TYPE_CHECKING:
@@ -340,6 +341,37 @@ class RepoWikiLoop(BaseBackgroundLoop):
         # ``repo_root / repo_wiki/`` — those edits still land on the
         # legacy gitignored store — so the open path stays dormant
         # until Phase 5 ports them.
+        # Phase 9: wiki-vs-code drift detection (deterministic, cheap).
+        # Scans every active tracked entry for `src/...:Symbol` citations
+        # and flags ones pointing at files that no longer exist. Findings
+        # are logged now and, on a follow-up pass, will be auto-marked
+        # stale. Keeping the action side read-only for the first landing
+        # so operators can see the signal before we start mutating files.
+        drift_findings = 0
+        if tracked_root is not None:
+            for slug in repos:
+                try:
+                    result = await asyncio.to_thread(
+                        detect_drift,
+                        tracked_root=tracked_root,
+                        repo_root=Path(self._config.repo_root),
+                        repo_slug=slug,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "wiki drift detection failed for %s", slug, exc_info=True
+                    )
+                    continue
+                drift_findings += len(result.findings)
+                for f in result.findings:
+                    logger.info(
+                        "wiki drift: %s entry %s cites missing files %s",
+                        f.entry_path,
+                        f.entry_id,
+                        sorted(f.missing_files),
+                    )
+        stats["drift_findings"] = drift_findings
+
         stats["queue_drained"] = len(drained)
         await self._poll_and_merge_open_pr(stats)
         await self._maybe_open_maintenance_pr(stats)

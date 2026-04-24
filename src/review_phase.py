@@ -319,8 +319,9 @@ class ReviewPhase:
                 worktree_path,
             )
             return None, None
+        tracked_root = worktree_path / self._config.repo_wiki_path
         return (
-            RepoWikiStore(worktree_path / self._config.repo_wiki_path),
+            RepoWikiStore(wiki_root=tracked_root, tracked_root=tracked_root),
             worktree_path,
         )
 

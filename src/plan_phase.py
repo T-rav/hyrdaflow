@@ -475,7 +475,10 @@ class PlanPhase:
             )
             return None, None
         tracked_root = worktree_path / self._config.repo_wiki_path
-        return RepoWikiStore(tracked_root), worktree_path
+        return (
+            RepoWikiStore(wiki_root=tracked_root, tracked_root=tracked_root),
+            worktree_path,
+        )
 
     def _wiki_commit_compiler_entries(
         self,

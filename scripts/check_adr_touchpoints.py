@@ -24,6 +24,7 @@ Usage (local):
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -46,9 +47,38 @@ def _changed_files(base: str, head: str) -> list[str]:
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
-def _pr_touches_any_adr(changed: list[str]) -> bool:
-    """Return True if any ADR markdown file is included in the diff."""
-    return any(p.startswith("docs/adr/") and p.endswith(".md") for p in changed)
+_ADR_FILENAME_RE = re.compile(r"docs/adr/(\d{4})-[^/]+\.md$")
+
+
+def _touched_adr_numbers(changed: list[str]) -> set[int]:
+    """Return the numeric IDs of ADR markdown files present in the diff."""
+    numbers: set[int] = set()
+    for path in changed:
+        m = _ADR_FILENAME_RE.search(path)
+        if m:
+            numbers.add(int(m.group(1)))
+    return numbers
+
+
+def evaluate_gate(
+    changed: list[str],
+    hits: dict[str, list[ADR]],
+) -> tuple[bool, dict[str, list[ADR]]]:
+    """Pure decision function: does the diff clear the ADR gate?
+
+    Returns ``(passed, unresolved_hits)``. A hit is **resolved** when at
+    least one of the ADRs citing that file is also updated in the diff.
+    The gate passes only when *every* hit is resolved — touching an
+    unrelated ADR no longer clears a gate fired by a different ADR.
+    """
+    if not hits:
+        return True, {}
+    touched_adrs = _touched_adr_numbers(changed)
+    unresolved: dict[str, list[ADR]] = {}
+    for path, adrs in hits.items():
+        if not any(a.number in touched_adrs for a in adrs):
+            unresolved[path] = adrs
+    return (not unresolved), unresolved
 
 
 def _format_report(hits: dict[str, list[ADR]]) -> str:
@@ -90,12 +120,12 @@ def main() -> int:
     if not hits:
         return 0
 
-    if _pr_touches_any_adr(changed):
-        # PR already updates at least one ADR; assume the author is aware.
-        print("ADR file(s) modified in this PR — touchpoint gate passes.")
+    passed, unresolved = evaluate_gate(changed, hits)
+    if passed:
+        print("Every touchpoint has a corresponding ADR update in this PR.")
         return 0
 
-    print(_format_report(hits), file=sys.stderr)
+    print(_format_report(unresolved), file=sys.stderr)
     return 1
 
 

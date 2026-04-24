@@ -39,6 +39,7 @@ from models import (
 )
 from prompt_telemetry import PromptTelemetry
 from reflections import clear_reflections, read_reflections
+from repo_wiki import _load_tracked_active_entries
 from repo_wiki_ingest import entries_from_reflections_log, ingest_phase_output
 from retrospective import RetrospectiveCollector
 from state import StateTracker
@@ -69,50 +70,23 @@ async def _compile_tracked_topics_for_merge(
     ``RepoWikiLoop._maybe_open_maintenance_pr`` tick rolls up into a
     ``chore(wiki): maintenance`` PR.
 
-    No-op when compiler is None, tracked_root is missing, or no topic
-    has enough entries to merit a compile pass.
+    No-op when compiler is None, repo_slug is unset (unresolved config),
+    tracked_root is missing, or no topic has enough entries to merit
+    a compile pass.
     """
-    if compiler is None:
+    if compiler is None or not repo_slug:
         return
     repo_dir = tracked_root / repo_slug
     if not repo_dir.is_dir():
         return
     for topic_dir in sorted(p for p in repo_dir.iterdir() if p.is_dir()):
-        if _count_active_entries(topic_dir) < 2:
+        if len(_load_tracked_active_entries(topic_dir)) < 2:
             continue
         await compiler.compile_topic_tracked(
             tracked_root=tracked_root,
             repo=repo_slug,
             topic=topic_dir.name,
         )
-
-
-def _count_active_entries(topic_dir: Path) -> int:
-    """Count per-entry markdown files whose frontmatter has status: active."""
-    count = 0
-    for path in topic_dir.glob("*.md"):
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        # Minimal frontmatter scan — matches the same pattern
-        # _split_tracked_entry uses in repo_wiki.py.
-        if not text.startswith("---\n"):
-            continue
-        try:
-            end = text.index("\n---\n", 4)
-        except ValueError:
-            continue
-        block = text[4:end]
-        # Default status is "active" when absent.
-        status = "active"
-        for line in block.splitlines():
-            if line.startswith("status:"):
-                status = line.split(":", 1)[1].strip()
-                break
-        if status == "active":
-            count += 1
-    return count
 
 
 async def _bridge_reflections_to_wiki(
