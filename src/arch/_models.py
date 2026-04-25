@@ -95,3 +95,12 @@ class FakeInfo(BaseModel):
 
 class MockWorldMap(BaseModel):
     fakes: list[FakeInfo] = Field(default_factory=list)
+
+
+class CommitInfo(BaseModel):
+    """One row in the architecture changelog."""
+
+    sha: str
+    iso_date: str  # YYYY-MM-DD
+    subject: str
+    pr_number: int | None = None  # parsed from "(#NNNN)" suffix if present
