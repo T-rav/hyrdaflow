@@ -30,7 +30,7 @@ Before bisecting, re-run the RC's gate command (`make bisect-probe`) against the
 Run `git bisect` between `last_green_rc_sha` and `last_rc_red_sha` using `make bisect-probe` as the is-broken predicate. The result is a single culprit SHA.
 
 ### 3. Guardrail: one auto-revert per RC cycle
-`state.get_auto_reverts_in_cycle()` tracks reverts within the current RC cycle (a cycle starts when a new `last_rc_red_sha` is observed). If `>= 1`, `_check_guardrail_and_maybe_escalate` fires — file a `hitl-escalation` + `rc-red-attribution-unsafe` issue and do NOT revert. This prevents the loop from thrashing: two failed reverts mean a human needs to look.
+`state.get_auto_reverts_in_cycle()` tracks reverts within the current RC cycle (a cycle starts when a new `last_rc_red_sha` is observed). If `>= 1`, `_check_guardrail_and_maybe_escalate` fires — file a `hitl-escalation` + `rc-red-bisect-exhausted` issue and do NOT revert. This prevents the loop from thrashing: two failed reverts mean a human needs to look. (The spec §6 fail-mode table is the source of truth for this label; the original ADR draft cited `rc-red-attribution-unsafe`, which diverged from the spec — corrected here.)
 
 ### 4. Open a revert PR that auto-merges
 The revert PR has labels `[hydraflow-find, auto-revert, rc-red-attribution]`. It flows through the same reviewer + quality-gate + auto-merge path as any other PR — no special privileges. On successful merge, a watchdog (`_check_pending_watchdog`) waits 8 hours for the next green RC. If the next RC is green, the cycle completes. If not, `hitl-escalation` + `rc-red-verify-timeout` fires.

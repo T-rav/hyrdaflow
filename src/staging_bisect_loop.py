@@ -536,7 +536,7 @@ class StagingBisectLoop(BaseBackgroundLoop):
             "### Bisect log\n\n"
             f"```\n{bisect_log[:5000]}\n```"
         )
-        labels = ["hitl-escalation", "rc-red-attribution-unsafe"]
+        labels = ["hitl-escalation", "rc-red-bisect-exhausted"]
         issue = await self._prs.create_issue(title, body, labels)
         logger.error("StagingBisectLoop: guardrail tripped — escalated #%d", issue)
         return {"status": "guardrail_escalated", "escalation_issue": issue}
@@ -561,8 +561,17 @@ class StagingBisectLoop(BaseBackgroundLoop):
         body: str,
         branch: str,
         labels: list[str],
+        auto_merge: bool = False,
     ) -> int:
-        """Open a PR via ``gh pr create``; return the PR number (0 on failure)."""
+        """Open a PR via ``gh pr create``; return the PR number (0 on failure).
+
+        When ``auto_merge=True``, follow the create with
+        ``gh pr merge --auto --squash`` so the PR self-merges once
+        required CI checks pass — matches ADR-0048's "revert PR
+        auto-merges through the standard reviewer + auto-merge path".
+        Without this flag the revert PR sits open until a human
+        merges, breaking the lights-off cadence on RC red.
+        """
         import re  # noqa: PLC0415
         import tempfile  # noqa: PLC0415
         from pathlib import Path  # noqa: PLC0415
@@ -590,7 +599,29 @@ class StagingBisectLoop(BaseBackgroundLoop):
                 cmd.extend(["--label", label])
             out = await self._run_gh(cmd)
             match = re.search(r"/pull/(\d+)", out)
-            return int(match.group(1)) if match else 0
+            pr_number = int(match.group(1)) if match else 0
+            if auto_merge and pr_number:
+                try:
+                    await self._run_gh(
+                        [
+                            "gh",
+                            "pr",
+                            "merge",
+                            str(pr_number),
+                            "--repo",
+                            self._config.repo,
+                            "--auto",
+                            "--squash",
+                        ]
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "auto-merge enable failed for PR #%d — PR will need "
+                        "manual merge",
+                        pr_number,
+                        exc_info=True,
+                    )
+            return pr_number
         finally:
             body_path.unlink(missing_ok=True)
 
@@ -684,6 +715,7 @@ class StagingBisectLoop(BaseBackgroundLoop):
             body=body,
             branch=branch,
             labels=["hydraflow-find", "auto-revert", "rc-red-attribution"],
+            auto_merge=True,
         )
         return pr_number, branch
 

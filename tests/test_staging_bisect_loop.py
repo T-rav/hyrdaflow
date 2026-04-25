@@ -278,7 +278,7 @@ class TestGuardrail:
         prs.create_issue.assert_awaited_once()
         title = prs.create_issue.await_args.args[0]
         labels = prs.create_issue.await_args.args[2]
-        assert "rc-red-attribution-unsafe" in labels
+        assert "rc-red-bisect-exhausted" in labels
         assert "hitl-escalation" in labels
         assert "current_red" in title
 
@@ -554,3 +554,62 @@ class TestInvalidRange:
 
         assert result == {"status": "invalid_bisect_range", "sha": "red_sha"}
         assert any("invalid bisect range" in rec.message for rec in caplog.records)
+
+
+class TestAutoMergeOnRevertPR:
+    """Spec §4.3 + ADR-0048 — revert PRs must auto-merge on green."""
+
+    @pytest.mark.asyncio
+    async def test_create_pr_via_gh_with_auto_merge_calls_gh_pr_merge(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+        gh_calls: list[list[str]] = []
+
+        async def fake_run_gh(cmd: list[str]) -> str:
+            gh_calls.append(list(cmd))
+            if cmd[1] == "pr" and cmd[2] == "create":
+                return "https://github.com/o/r/pull/4242\n"
+            return ""
+
+        loop._run_gh = fake_run_gh  # type: ignore[method-assign]
+
+        pr_number = await loop._create_pr_via_gh(
+            title="t",
+            body="b",
+            branch="auto-revert/x",
+            labels=["auto-revert"],
+            auto_merge=True,
+        )
+
+        assert pr_number == 4242
+        # Two gh invocations: create then merge --auto.
+        assert len(gh_calls) == 2
+        assert gh_calls[0][:3] == ["gh", "pr", "create"]
+        assert gh_calls[1][:3] == ["gh", "pr", "merge"]
+        assert "--auto" in gh_calls[1]
+        assert "--squash" in gh_calls[1]
+
+    @pytest.mark.asyncio
+    async def test_create_pr_via_gh_without_auto_merge_skips_merge_call(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+        gh_calls: list[list[str]] = []
+
+        async def fake_run_gh(cmd: list[str]) -> str:
+            gh_calls.append(list(cmd))
+            return "https://github.com/o/r/pull/55\n"
+
+        loop._run_gh = fake_run_gh  # type: ignore[method-assign]
+
+        await loop._create_pr_via_gh(
+            title="t",
+            body="b",
+            branch="b",
+            labels=[],
+        )
+
+        # Only `gh pr create` — no follow-up merge.
+        assert len(gh_calls) == 1
+        assert gh_calls[0][:3] == ["gh", "pr", "create"]
