@@ -245,8 +245,17 @@ def _is_dataclass(decorator: ast.expr) -> bool:
 
 @register("P2.9")
 def _ubiquitous_language(ctx: CheckContext) -> Finding:
-    """Warn when architecture.md terms don't appear in CLAUDE.md."""
-    arch = ctx.root / "docs" / "agents" / "architecture.md"
+    """Warn when CLAUDE.md ubiquitous-language terms don't appear in the wiki.
+
+    CLAUDE.md is a lean ToC; it lists a short ubiquitous-language vocabulary
+    operators must use without paraphrasing. Those names must appear in the
+    wiki's architecture topic so an agent looking up any of them lands on
+    real context. The reverse direction (every wiki term must appear in
+    CLAUDE.md) was load-bearing under the old layout where CLAUDE.md
+    duplicated architecture content; the new layout intentionally moves
+    architecture into the wiki, so the check now flows ToC → wiki.
+    """
+    arch = ctx.root / "docs" / "wiki" / "architecture.md"
     claude = ctx.root / "CLAUDE.md"
     if not arch.exists() or not claude.exists():
         return finding(
@@ -254,27 +263,29 @@ def _ubiquitous_language(ctx: CheckContext) -> Finding:
             Status.NA,
             "architecture.md or CLAUDE.md missing — upstream P1 checks cover this",
         )
-    arch_terms = _capitalised_terms(arch.read_text(encoding="utf-8", errors="replace"))
-    claude_text = claude.read_text(encoding="utf-8", errors="replace")
-    missing = [t for t in arch_terms if t not in claude_text]
-    if len(arch_terms) < 3:
+    claude_terms = _capitalised_terms(
+        claude.read_text(encoding="utf-8", errors="replace")
+    )
+    arch_text = arch.read_text(encoding="utf-8", errors="replace")
+    if len(claude_terms) < 3:
         return finding(
             "P2.9",
             Status.NA,
-            f"only {len(arch_terms)} candidate terms in architecture.md — sample too small",
+            f"only {len(claude_terms)} candidate terms in CLAUDE.md — sample too small",
         )
-    ratio_missing = len(missing) / len(arch_terms)
+    missing = [t for t in claude_terms if t not in arch_text]
+    ratio_missing = len(missing) / len(claude_terms)
     if ratio_missing < 0.5:
         return finding(
             "P2.9",
             Status.PASS,
-            f"{len(arch_terms) - len(missing)}/{len(arch_terms)} terms shared",
+            f"{len(claude_terms) - len(missing)}/{len(claude_terms)} ToC terms covered by wiki",
         )
     sample = ", ".join(missing[:5])
     return finding(
         "P2.9",
         Status.WARN,
-        f"{len(missing)}/{len(arch_terms)} architecture.md terms absent from CLAUDE.md ({sample})",
+        f"{len(missing)}/{len(claude_terms)} CLAUDE.md terms absent from wiki ({sample})",
     )
 
 

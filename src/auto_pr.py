@@ -123,7 +123,7 @@ def _remove_worktree(
             check=False,
         )
     except Exception:  # pragma: no cover - defensive
-        # Per docs/agents/sentry.md: handled cleanup failures log at
+        # Per docs/wiki/patterns.md: handled cleanup failures log at
         # `warning` minimum — never bare `except: pass` or debug-silent.
         logger.warning("git worktree remove failed for %s", worktree_path)
 
@@ -443,7 +443,7 @@ async def open_automated_pr_async(  # noqa: PLR0911 — linear step-by-step guar
         if raise_on_failure:
             raise AutoPrError(err)
         # These are transient subprocess failures (git/gh network, auth, race
-        # conditions) — operational, not code bugs. Per docs/agents/sentry.md,
+        # conditions) — operational, not code bugs. Per docs/wiki/patterns.md,
         # handled transient failures log at `warning`, not `error`.
         # Plain .warning (not .exception) because we may be called outside an
         # except handler; .exception would attach a misleading
@@ -629,7 +629,7 @@ async def _remove_worktree_async(
             gh_token=gh_token,
         )
     except RuntimeError:
-        # Per docs/agents/sentry.md: handled cleanup failures log at
+        # Per docs/wiki/patterns.md: handled cleanup failures log at
         # `warning` minimum.
         logger.warning("git worktree remove failed for %s", worktree_path)
 

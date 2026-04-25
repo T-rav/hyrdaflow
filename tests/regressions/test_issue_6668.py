@@ -2,7 +2,7 @@
 
 Bug: ``tests/regressions/test_issue_6376.py`` and
 ``tests/regressions/test_issue_6381.py`` import ``httpx`` at module level
-(top of file).  The project convention (``docs/agents/avoided-patterns.md``)
+(top of file).  The project convention (``docs/wiki/gotchas.md``)
 requires optional dependencies to be imported *inside* test functions, not at
 module level.  Top-level imports run at collection time — if ``httpx`` is
 absent the entire file fails to collect, silently hiding every test from CI.
@@ -61,6 +61,6 @@ def test_no_top_level_httpx_import(filepath: Path) -> None:
     violations = _top_level_optional_imports(filepath)
     assert violations == [], (
         f"{filepath.name} has top-level imports of optional deps "
-        f"(convention: docs/agents/avoided-patterns.md):\n"
+        f"(convention: docs/wiki/gotchas.md):\n"
         + "\n".join(f"  line {line}: import {mod}" for line, mod in violations)
     )

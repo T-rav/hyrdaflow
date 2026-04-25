@@ -1103,7 +1103,7 @@ class HydraFlowConfig(BaseModel):
         )
     )
     # Sensor enrichment — positive prompt injection on captured tool output.
-    # See src/sensor_enricher.py and docs/agents/avoided-patterns.md.
+    # See src/sensor_enricher.py and docs/wiki/gotchas.md.
     sensor_enrichment_enabled: bool = Field(
         default=True,
         description=(

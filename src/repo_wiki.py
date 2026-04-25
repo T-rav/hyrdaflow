@@ -644,36 +644,50 @@ class IngestResult(BaseModel):
 class RepoWikiStore:
     """File-based per-repo wiki manager.
 
-    Directory layout::
+    Directory layout for the **self-repo** (``self_slug`` matches an
+    ingested slug)::
 
         {wiki_root}/
-          {repo_slug}/
-            index.json       — structured index (WikiIndex)
-            index.md         — human-readable index
-            log.jsonl        — append-only operation log
-            architecture.md  — topic page
-            patterns.md      — topic page
-            gotchas.md       — topic page
-            testing.md       — topic page
-            dependencies.md  — topic page
+          index.json       — structured index (WikiIndex)
+          index.md         — human-readable index
+          log.jsonl        — append-only operation log
+          architecture.md  — topic page
+          patterns.md      — topic page
+          gotchas.md       — topic page
+          testing.md       — topic page
+          dependencies.md  — topic page
+
+    For **other managed repos** the slug is nested under wiki_root::
+
+        {wiki_root}/{owner}/{repo}/<topics>...
+
+    The self-repo flattening lets the wiki live at ``docs/wiki/`` and be
+    git-tracked alongside the code it documents; managed-repo wikis stay
+    in ``.hydraflow/repo_wiki/`` (runtime cache) until each managed repo
+    sets its own ``docs/wiki/``.
     """
 
     def __init__(
         self,
         wiki_root: Path,
         tracked_root: Path | None = None,
+        self_slug: str | None = None,
     ) -> None:
         """Initialise a repo-wiki store.
 
-        ``wiki_root`` is the legacy Phase 1/2 topic-page location
-        (``.hydraflow/repo_wiki/``).  ``tracked_root``, when provided,
-        is the Phase 3 per-entry tracked location
-        (``{repo_root}/repo_wiki/``).  When both are set and the tracked
-        layout has entries for a repo/topic, reads prefer the tracked
-        layout; legacy is the fallback.
+        ``wiki_root`` is the topic-page location. ``tracked_root``, when
+        provided, is the Phase 3 per-entry tracked location. When both
+        are set and the tracked layout has entries for a repo/topic,
+        reads prefer the tracked layout; legacy is the fallback.
+
+        ``self_slug`` (e.g. ``"T-rav/hydraflow"``) marks which slug is
+        the running repo's own wiki. The self-repo's pages live directly
+        under ``wiki_root`` (no owner/repo nesting); every other slug
+        nests under ``wiki_root/owner/repo``.
         """
         self._wiki_root = wiki_root
         self._tracked_root = tracked_root
+        self._self_slug = self_slug
         self._dedup_stores: dict[str, object] = {}
 
     # -- public API --------------------------------------------------------
@@ -1252,7 +1266,14 @@ class RepoWikiStore:
     # -- internal ----------------------------------------------------------
 
     def _repo_dir(self, repo_slug: str) -> Path:
-        """Return the wiki directory for a repo slug (owner/repo)."""
+        """Return the wiki directory for a repo slug (owner/repo).
+
+        Self-repo (``repo_slug == self._self_slug``) lives flat under
+        ``wiki_root`` so it can sit at ``docs/wiki/`` alongside the
+        code. Other slugs nest under ``wiki_root/owner/repo``.
+        """
+        if self._self_slug and repo_slug == self._self_slug:
+            return self._wiki_root
         return self._wiki_root / repo_slug
 
     def _ensure_repo_dir(self, repo_slug: str) -> Path:

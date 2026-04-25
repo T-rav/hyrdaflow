@@ -200,23 +200,28 @@ def test_no_domain_sample_is_na(tmp_path: Path) -> None:
 
 
 def test_ubiquitous_language_passes_when_terms_overlap(tmp_path: Path) -> None:
-    _write(
-        tmp_path / "docs" / "agents" / "architecture.md",
-        "Core types include TaskRunner, IssueTracker, LabelMachine, PhaseGuard.\n",
-    )
+    """CLAUDE.md ToC terms appear in the wiki's architecture topic page."""
     _write(
         tmp_path / "CLAUDE.md",
         "Key concepts: TaskRunner coordinates the pipeline. IssueTracker, LabelMachine, and PhaseGuard round it out.\n",
+    )
+    _write(
+        tmp_path / "docs" / "wiki" / "architecture.md",
+        "Core types include TaskRunner, IssueTracker, LabelMachine, PhaseGuard.\n",
     )
     assert _run("P2.9", _ctx(tmp_path)).status is Status.PASS
 
 
 def test_ubiquitous_language_warns_on_divergence(tmp_path: Path) -> None:
+    """CLAUDE.md names types the wiki never explains."""
     _write(
-        tmp_path / "docs" / "agents" / "architecture.md",
-        "Types: AlphaType, BetaType, GammaType, DeltaType.\n",
+        tmp_path / "CLAUDE.md",
+        "Key concepts: AlphaType, BetaType, GammaType, DeltaType.\n",
     )
-    _write(tmp_path / "CLAUDE.md", "Table of contents.\n")
+    _write(
+        tmp_path / "docs" / "wiki" / "architecture.md",
+        "Some unrelated text.\n",
+    )
     assert _run("P2.9", _ctx(tmp_path)).status is Status.WARN
 
 

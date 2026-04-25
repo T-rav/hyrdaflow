@@ -5,7 +5,7 @@ Module-level imports of optional dependencies run at collection time — if
 the package is not installed, the entire test file fails to collect and
 every test in it silently disappears from the CI report.
 
-The project convention (documented in ``docs/agents/avoided-patterns.md``)
+The project convention (documented in ``docs/wiki/gotchas.md``)
 requires optional-dep imports to be deferred inside test functions/methods.
 
 This test uses AST analysis to assert the convention is followed.  It is
@@ -100,6 +100,6 @@ class TestNoTopLevelOptionalImportsInTests:
 
         assert all_violations == [], (
             "Top-level imports of optional deps found in test files "
-            "(violates docs/agents/avoided-patterns.md):\n"
+            "(violates docs/wiki/gotchas.md):\n"
             + "\n".join(f"  • {v}" for v in all_violations)
         )

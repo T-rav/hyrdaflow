@@ -1,8 +1,12 @@
-"""Structural guards for CLAUDE.md and docs/agents/.
+"""Structural guards for CLAUDE.md and docs/wiki/.
 
-These tests enforce the ToC-style structure CLAUDE.md is migrating toward
-(#6425). They catch regressions where content drifts back into CLAUDE.md
-or where ToC links break because a doc was renamed.
+These tests enforce the ToC-style structure CLAUDE.md is migrating toward.
+They catch regressions where content drifts back into CLAUDE.md or where
+ToC links break because a doc was renamed.
+
+The wiki restructure (PR #8417) replaces ``docs/agents/`` (per-topic
+how-to files) with ``docs/wiki/`` (Karpathy-pattern knowledge base with
+five topic files: architecture, patterns, gotchas, testing, dependencies).
 """
 
 from __future__ import annotations
@@ -12,7 +16,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
 CLAUDE_MD = REPO_ROOT / "CLAUDE.md"
-DOCS_AGENTS = REPO_ROOT / "docs" / "agents"
+DOCS_WIKI = REPO_ROOT / "docs" / "wiki"
 
 
 def _read_claude_md() -> str:
@@ -35,57 +39,55 @@ class TestKnowledgeLookupSection:
             "find architecture decision records."
         )
 
-    def test_references_repo_wiki(self) -> None:
+    def test_references_wiki(self) -> None:
         content = _read_claude_md()
-        assert "repo_wiki" in content, (
-            "CLAUDE.md must reference the repo wiki so agents know about "
+        assert "docs/wiki" in content, (
+            "CLAUDE.md must reference the wiki so agents know about "
             "the per-repo LLM knowledge base."
         )
 
 
-class TestAvoidedPatternsExtraction:
-    """CLAUDE.md should link to docs/agents/avoided-patterns.md, not
-    duplicate the patterns inline (part of #6425 incremental refactor).
+class TestGotchasContent:
+    """Avoided-pattern rules live as wiki entries under docs/wiki/gotchas.md.
+    CLAUDE.md links to the wiki rather than inlining the rules.
     """
 
-    def test_avoided_patterns_doc_exists(self) -> None:
-        doc = DOCS_AGENTS / "avoided-patterns.md"
+    def test_gotchas_doc_exists(self) -> None:
+        doc = DOCS_WIKI / "gotchas.md"
         assert doc.exists(), (
             f"{doc} must exist — it is the canonical location for "
-            "avoided patterns referenced by CLAUDE.md, sensor_enricher, "
+            "recurring mistakes referenced by CLAUDE.md, sensor_enricher, "
             "and the code-grooming audit agent."
         )
 
-    def test_avoided_patterns_doc_covers_known_rules(self) -> None:
-        doc = DOCS_AGENTS / "avoided-patterns.md"
+    def test_gotchas_doc_covers_known_rules(self) -> None:
+        doc = DOCS_WIKI / "gotchas.md"
         content = doc.read_text(encoding="utf-8")
-        # The five rules that existed in CLAUDE.md before extraction.
+        # Topic markers from the legacy avoided-patterns content. As wiki
+        # entries get rewritten by the librarian some terminology may
+        # shift — keep this list short and rooted in concrete domain
+        # terms, not exact phrasing.
         required_markers = [
             "Pydantic",
-            "optional dependencies",
-            "sleep",
             "Mocking",
-            "Falsy checks",
         ]
         missing = [m for m in required_markers if m not in content]
-        assert not missing, f"avoided-patterns.md is missing required rules: {missing}"
+        assert not missing, f"docs/wiki/gotchas.md is missing topic markers: {missing}"
 
-    def test_claude_md_links_to_avoided_patterns_doc(self) -> None:
+    def test_claude_md_links_to_wiki_gotchas(self) -> None:
         content = _read_claude_md()
-        assert "docs/agents/avoided-patterns.md" in content, (
-            "CLAUDE.md must link to docs/agents/avoided-patterns.md "
-            "instead of inlining the rules."
+        assert "docs/wiki/gotchas.md" in content, (
+            "CLAUDE.md must link to docs/wiki/gotchas.md instead of "
+            "inlining footgun rules."
         )
 
     def test_claude_md_does_not_inline_avoided_patterns(self) -> None:
-        """The five rule bullets must NOT appear inline in CLAUDE.md.
+        """Specific avoided-pattern rule bodies must NOT appear inline.
 
-        CLAUDE.md keeps the section heading and a link, but the actual
-        rule text lives in docs/agents/avoided-patterns.md.
+        CLAUDE.md keeps a high-level reminder and a wiki link; the
+        rule text lives in docs/wiki/gotchas.md.
         """
         content = _read_claude_md()
-        # Each of these phrases is specific enough to the rule body that
-        # finding it in CLAUDE.md means the section was not extracted.
         inline_markers = [
             "Never `from hindsight import Bank` at module level",
             "Never `sleep(N)` in a loop",
@@ -95,17 +97,12 @@ class TestAvoidedPatternsExtraction:
         leaked = [m for m in inline_markers if m in content]
         assert not leaked, (
             f"CLAUDE.md still inlines avoided-pattern rule text: {leaked}. "
-            "These should live in docs/agents/avoided-patterns.md."
+            "These should live in docs/wiki/gotchas.md."
         )
 
 
 class TestClaudeMdIsToCForm:
-    """CLAUDE.md must remain a lean table of contents, not an encyclopedia.
-
-    #6425 caps CLAUDE.md at ≤80 lines and requires the full topic set to
-    exist under docs/agents/. This test guards against content drifting
-    back into CLAUDE.md.
-    """
+    """CLAUDE.md must remain a lean table of contents, not an encyclopedia."""
 
     LINE_BUDGET = 80
 
@@ -113,48 +110,41 @@ class TestClaudeMdIsToCForm:
         content = _read_claude_md()
         line_count = len(content.splitlines())
         assert line_count <= self.LINE_BUDGET, (
-            f"CLAUDE.md is {line_count} lines — exceeds the {self.LINE_BUDGET}-line "
-            "budget. Move content into a docs/agents/*.md topic file and link it."
+            f"CLAUDE.md is {line_count} lines — exceeds the "
+            f"{self.LINE_BUDGET}-line budget. Move content into "
+            "docs/wiki/ entries and link them."
         )
 
     def test_all_topic_files_exist(self) -> None:
         required = [
             "architecture.md",
-            "avoided-patterns.md",
-            "background-loops.md",
-            "commands.md",
-            "quality-gates.md",
-            "sentry.md",
+            "patterns.md",
+            "gotchas.md",
             "testing.md",
-            "ui-standards.md",
-            "worktrees.md",
-            "README.md",
+            "dependencies.md",
+            "index.md",
         ]
-        missing = [f for f in required if not (DOCS_AGENTS / f).exists()]
-        assert not missing, f"missing docs/agents files: {missing}"
+        missing = [f for f in required if not (DOCS_WIKI / f).exists()]
+        assert not missing, f"missing docs/wiki files: {missing}"
 
     def test_claude_md_links_to_every_topic_file(self) -> None:
-        """Every topic file in docs/agents/ (except README.md) must be
+        """Every topic file in docs/wiki/ (except index.md) must be
         linked from CLAUDE.md. Catches topic drift where a doc is added
-        but the ToC is forgotten."""
+        but the ToC is forgotten.
+        """
         content = _read_claude_md()
-        topic_files = {
-            f.name for f in DOCS_AGENTS.glob("*.md") if f.name != "README.md"
-        }
-        unlinked = [f for f in topic_files if f"docs/agents/{f}" not in content]
+        topic_files = {f.name for f in DOCS_WIKI.glob("*.md") if f.name != "index.md"}
+        unlinked = [f for f in topic_files if f"docs/wiki/{f}" not in content]
         assert not unlinked, f"topic files not linked from CLAUDE.md: {unlinked}"
 
-    def test_docs_agents_readme_is_index(self) -> None:
-        """The README.md in docs/agents/ is an index, not a topic."""
-        readme = DOCS_AGENTS / "README.md"
-        assert readme.exists()
-        content = readme.read_text(encoding="utf-8")
-        # The index must list every topic file.
-        topic_files = sorted(
-            f.name for f in DOCS_AGENTS.glob("*.md") if f.name != "README.md"
+    def test_wiki_index_is_a_real_index(self) -> None:
+        """docs/wiki/index.md is the auto-built index of every entry."""
+        index = DOCS_WIKI / "index.md"
+        assert index.exists()
+        content = index.read_text(encoding="utf-8")
+        assert "Wiki Index" in content, (
+            "docs/wiki/index.md must be the wiki's auto-generated index"
         )
-        missing = [f for f in topic_files if f not in content]
-        assert not missing, f"docs/agents/README.md index missing entries: {missing}"
 
 
 class TestLinkedDocsResolve:

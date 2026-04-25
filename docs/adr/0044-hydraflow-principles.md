@@ -13,7 +13,7 @@ the repository: the documentation contract, the hexagonal split, the scenario
 testing harness with `MockWorld`, the quality gates, the CI workflow, the five
 concurrent async loops, the label state machine, the Sentry discipline, and
 the superpowers skill workflow. Today these live in a scattered set of files:
-`CLAUDE.md`, `docs/agents/*`, and 40+ existing ADRs. A new project that wants
+`CLAUDE.md`, `docs/wiki/*`, and 40+ existing ADRs. A new project that wants
 to adopt "the HydraFlow way" has to reverse-engineer the shape from those
 documents. An existing project trying to evolve toward the shape has no way to
 measure how far along it is.
@@ -55,7 +55,7 @@ templates a superpowers-chained plan (brainstorming → writing-plans → TDD �
 verification) scoped to the failing principles only.
 
 **Self-documenting by construction.** Every check row cites either an ADR or
-a `docs/agents/` file as its `source`. The audit report echoes those
+a `docs/wiki/` file as its `source`. The audit report echoes those
 citations, and `make init` injects them into the remediation plan. A reader
 who sees a FAIL can follow the citation to the decision that motivated the
 rule — not a paraphrase, the real thing. The ADR and wiki layers *are* the
@@ -78,7 +78,7 @@ call sites. The project follows the patterns it enforces.
 ### P1. Documentation Contract
 
 **Rule.** A HydraFlow repo has a machine-navigable documentation spine:
-`CLAUDE.md` at the root as a table of contents, `docs/agents/` as the topic
+`CLAUDE.md` at the root as a table of contents, `docs/wiki/` as the topic
 guides, `docs/adr/` as the decision log.
 
 **Why.** Agents and new humans need a stable entry point. Without it, every
@@ -92,20 +92,20 @@ project-specific content — the *shape* matters more than the wording.
 | check_id | type | source | what | remediation |
 |---|---|---|---|---|
 | P1.1 | STRUCTURAL | CLAUDE.md | `CLAUDE.md` exists at repo root | `touch CLAUDE.md` and populate from the template |
-| P1.2 | STRUCTURAL | docs/agents/README.md | `docs/agents/README.md` exists | Copy the topic-index layout from the HydraFlow repo |
-| P1.3 | STRUCTURAL | docs/agents/architecture.md | `docs/agents/architecture.md` exists | Describe the major components and their boundaries |
-| P1.4 | STRUCTURAL | docs/agents/worktrees.md | `docs/agents/worktrees.md` exists | Document the branch-protection and worktree workflow |
-| P1.5 | STRUCTURAL | docs/agents/testing.md | `docs/agents/testing.md` exists | Document coverage floor and test layering |
-| P1.6 | STRUCTURAL | docs/agents/avoided-patterns.md | `docs/agents/avoided-patterns.md` exists | Seed with Pydantic, test-import, and mocking pitfalls |
-| P1.7 | STRUCTURAL | docs/agents/quality-gates.md | `docs/agents/quality-gates.md` exists | Document the `make quality` sequence |
-| P1.8 | STRUCTURAL | docs/agents/background-loops.md | `docs/agents/background-loops.md` exists | Only required if the project has background loops |
-| P1.9 | STRUCTURAL | docs/agents/sentry.md | `docs/agents/sentry.md` exists | Document the bug-types filter and logging levels |
-| P1.10 | STRUCTURAL | docs/agents/commands.md | `docs/agents/commands.md` exists | List the Makefile targets |
+| P1.2 | STRUCTURAL | docs/wiki/index.md | `docs/wiki/index.md` exists | Copy the topic-index layout from the HydraFlow repo |
+| P1.3 | STRUCTURAL | docs/wiki/architecture.md | `docs/wiki/architecture.md` exists | Describe the major components and their boundaries |
+| P1.4 | STRUCTURAL | docs/wiki/gotchas.md | `docs/wiki/gotchas.md` exists | Document the branch-protection and worktree workflow |
+| P1.5 | STRUCTURAL | docs/wiki/testing.md | `docs/wiki/testing.md` exists | Document coverage floor and test layering |
+| P1.6 | STRUCTURAL | docs/wiki/gotchas.md | `docs/wiki/gotchas.md` exists | Seed with Pydantic, test-import, and mocking pitfalls |
+| P1.7 | STRUCTURAL | docs/wiki/patterns.md | `docs/wiki/patterns.md` exists | Document the `make quality` sequence |
+| P1.8 | STRUCTURAL | docs/wiki/architecture.md | `docs/wiki/architecture.md` exists | Only required if the project has background loops |
+| P1.9 | STRUCTURAL | docs/wiki/patterns.md | `docs/wiki/patterns.md` exists | Document the bug-types filter and logging levels |
+| P1.10 | STRUCTURAL | docs/wiki/patterns.md | `docs/wiki/patterns.md` exists | List the Makefile targets |
 | P1.11 | STRUCTURAL | docs/adr/README.md | `docs/adr/README.md` exists with an index table | Start the ADR index, even if there is only one ADR |
 | P1.12 | BEHAVIORAL | CLAUDE.md | `CLAUDE.md` contains a "Quick rules" section | Add the five non-negotiables (no main commits, no `--no-verify`, run `make quality`, write tests, read avoided-patterns) |
-| P1.13 | BEHAVIORAL | CLAUDE.md | `CLAUDE.md` contains a knowledge lookup table | List docs/agents, docs/adr, and any repo-wiki location |
+| P1.13 | BEHAVIORAL | CLAUDE.md | `CLAUDE.md` contains a knowledge lookup table | List docs/wiki, docs/adr, and any repo-wiki location |
 | P1.14 | STRUCTURAL | docs/adr/README.md | Load-bearing ADRs are present and marked Accepted (or project equivalents exist) | For orchestration repos: ADR-0001 (loops), 0002 (labels), 0003 (worktrees), 0021 (persistence), 0022 (MockWorld), 0029 (caretakers), 0032 (wiki). Non-orchestration repos mark N/A with justification in `docs/adr/README.md` |
-| P1.15 | BEHAVIORAL | docs/agents/avoided-patterns.md | File has ≥5 pattern sections with example code blocks | Seed from HydraFlow's 13-section file; an empty stub does not count |
+| P1.15 | BEHAVIORAL | docs/wiki/gotchas.md | File has ≥5 pattern sections with example code blocks | Seed from HydraFlow's 13-section file; an empty stub does not count |
 | P1.16 | BEHAVIORAL | docs/adr/README.md | ADR source citations omit line numbers (use `module:function_or_class`) | Grep for `:\d+` in ADR prose and strip; line numbers drift as code evolves |
 
 ### P2. Domain-Driven Design, Ports & Adapters, Clean Architecture
@@ -140,15 +140,15 @@ as their first refactor — before anything else changes.
 | check_id | type | source | what | remediation |
 |---|---|---|---|---|
 | P2.1 | STRUCTURAL | ADR-0003 | `src/` directory exists | Move module code under `src/` to keep test discovery clean |
-| P2.2 | STRUCTURAL | docs/agents/architecture.md | `src/ports.py` exists and defines at least one `Protocol` | Extract the first cross-layer boundary (likely the PR/VCS adapter) |
-| P2.2a | STRUCTURAL | docs/agents/architecture.md | Each infrastructure boundary the project uses has a Protocol in `ports.py` (VCS, workspace, runner, LLM if applicable) | Add a Protocol the first time you reach for `AsyncMock` in a unit test; that is the signal a port is missing |
-| P2.3 | STRUCTURAL | docs/agents/architecture.md | `scripts/check_layer_imports.py` exists | Port the HydraFlow script; configure the layer map for this repo |
+| P2.2 | STRUCTURAL | docs/wiki/architecture.md | `src/ports.py` exists and defines at least one `Protocol` | Extract the first cross-layer boundary (likely the PR/VCS adapter) |
+| P2.2a | STRUCTURAL | docs/wiki/architecture.md | Each infrastructure boundary the project uses has a Protocol in `ports.py` (VCS, workspace, runner, LLM if applicable) | Add a Protocol the first time you reach for `AsyncMock` in a unit test; that is the signal a port is missing |
+| P2.3 | STRUCTURAL | docs/wiki/architecture.md | `scripts/check_layer_imports.py` exists | Port the HydraFlow script; configure the layer map for this repo |
 | P2.4 | BEHAVIORAL | ADR-0003 | `make layer-check` exits 0 (no upward imports) | Refactor the offending import behind a `ports.py` Protocol |
-| P2.5 | STRUCTURAL | docs/agents/architecture.md | A composition root module (e.g. `service_registry.py`) wires layers | Centralise dependency assembly so tests can swap fakes cleanly |
-| P2.6 | STRUCTURAL | docs/agents/architecture.md | Composition root is the *only* module allowed to import across layer boundaries (explicit ALLOWLIST entry) | Layer checker treats the root as a documented exception, not a blanket escape hatch |
-| P2.7 | STRUCTURAL | docs/agents/architecture.md | Domain layer has no imports from infrastructure, runners, or third-party adapter SDKs | The layer-check must special-case this to a hard failure; domain purity is the load-bearing invariant |
-| P2.8 | BEHAVIORAL | docs/agents/architecture.md | Domain types carry behaviour (methods), not just `@dataclass`/Pydantic fields | Anaemic domain is a sign logic leaked into application or infra; audit samples `src/<domain>/*.py` and warns on files with zero methods on public types |
-| P2.9 | CULTURAL | docs/agents/architecture.md | Ubiquitous language: domain type names appear in `docs/agents/architecture.md` and in `CLAUDE.md` with matching semantics | When the doc says "Issue" and the code says "Task", translation overhead accumulates; keep one name per concept |
+| P2.5 | STRUCTURAL | docs/wiki/architecture.md | A composition root module (e.g. `service_registry.py`) wires layers | Centralise dependency assembly so tests can swap fakes cleanly |
+| P2.6 | STRUCTURAL | docs/wiki/architecture.md | Composition root is the *only* module allowed to import across layer boundaries (explicit ALLOWLIST entry) | Layer checker treats the root as a documented exception, not a blanket escape hatch |
+| P2.7 | STRUCTURAL | docs/wiki/architecture.md | Domain layer has no imports from infrastructure, runners, or third-party adapter SDKs | The layer-check must special-case this to a hard failure; domain purity is the load-bearing invariant |
+| P2.8 | BEHAVIORAL | docs/wiki/architecture.md | Domain types carry behaviour (methods), not just `@dataclass`/Pydantic fields | Anaemic domain is a sign logic leaked into application or infra; audit samples `src/<domain>/*.py` and warns on files with zero methods on public types |
+| P2.9 | CULTURAL | docs/wiki/architecture.md | Ubiquitous language: domain type names appear in `docs/wiki/architecture.md` and in `CLAUDE.md` with matching semantics | When the doc says "Issue" and the code says "Task", translation overhead accumulates; keep one name per concept |
 
 ### P3. Testing — MockWorld and Layered Tests
 
@@ -176,22 +176,22 @@ only required when a dashboard or UI exists.
 | P3.1 | STRUCTURAL | ADR-0022 | `tests/scenarios/` directory exists | Create the directory and seed a happy-path scenario |
 | P3.2 | STRUCTURAL | ADR-0022 | `tests/scenarios/conftest.py` provides a `mock_world` fixture | Port the fixture wiring from HydraFlow |
 | P3.3 | STRUCTURAL | ADR-0022 | `tests/scenarios/fakes/` contains ≥3 stateful fakes (VCS, LLM, workspace at minimum) | Replace `AsyncMock` fakes one boundary at a time |
-| P3.4 | STRUCTURAL | docs/agents/testing.md | `tests/conftest.py` exists with shared fixtures | Centralise env isolation and factory fixtures |
-| P3.5 | STRUCTURAL | docs/agents/testing.md | At least one factory class (e.g. `IssueFactory`) exists under `tests/` | Introduce factories before the third duplicated fixture |
-| P3.6 | BEHAVIORAL | docs/agents/testing.md | Coverage floor of 70% configured in `pyproject.toml` | Add `fail_under = 70` under `[tool.coverage.report]` |
-| P3.7 | BEHAVIORAL | docs/agents/testing.md | `make test` runs the unit tier and exits 0 | Wire `pytest tests/` into `make test` |
+| P3.4 | STRUCTURAL | docs/wiki/testing.md | `tests/conftest.py` exists with shared fixtures | Centralise env isolation and factory fixtures |
+| P3.5 | STRUCTURAL | docs/wiki/testing.md | At least one factory class (e.g. `IssueFactory`) exists under `tests/` | Introduce factories before the third duplicated fixture |
+| P3.6 | BEHAVIORAL | docs/wiki/testing.md | Coverage floor of 70% configured in `pyproject.toml` | Add `fail_under = 70` under `[tool.coverage.report]` |
+| P3.7 | BEHAVIORAL | docs/wiki/testing.md | `make test` runs the unit tier and exits 0 | Wire `pytest tests/` into `make test` |
 | P3.8 | BEHAVIORAL | ADR-0022 | `make scenario` runs the scenario tier and exits 0 | Add the `scenario` pytest marker and a `make` target |
-| P3.9 | BEHAVIORAL | docs/agents/quality-gates.md | `make smoke` target exists and exits 0 | Smoke is the minimal cross-system path that must pass on every push |
+| P3.9 | BEHAVIORAL | docs/wiki/patterns.md | `make smoke` target exists and exits 0 | Smoke is the minimal cross-system path that must pass on every push |
 | P3.10 | STRUCTURAL | ADR-0022 | Scenario tests are release-gating (CI blocks release branch promotion on scenario red) | Wire `make scenario` into the release or RC workflow (see ADR-0042 for the promotion model) |
 | P3.11 | STRUCTURAL | docs/scenarios/README.md | When `ui/` exists, browser E2E directory (`tests/scenarios/browser/` or equivalent) exists | Add Playwright harness with at least one dashboard smoke test; skip if no UI |
 | P3.12 | STRUCTURAL | ADR-0022 | A `ScenarioResult` / `IssueOutcome`-shaped dataclass exists for scenario inspection | Return structured results from `world.run_pipeline()` so assertions read state, not call counts |
 | P3.13 | STRUCTURAL | ADR-0022 | `FakeClock` (or equivalent deterministic time fake) exists | Scenarios must not depend on wall-clock time; inject a clock fake |
 | P3.14 | BEHAVIORAL | ADR-0022 | Fakes expose stateful inspection (`world.vcs.issue(1).labels` or similar), not just `assert_called_with` | Rebuild the offending fake as a stateful class; `AsyncMock` subclasses do not count |
 | P3.15 | STRUCTURAL | ADR-0022 | `MockWorld` exposes fault-injection API (`fail_service` / `heal_service` or equivalent) | Wire fault injection before the first retry/recovery scenario is written |
-| P3.16 | STRUCTURAL | docs/agents/testing.md | `tests/regressions/` directory exists | Add the directory; every bug fix lands with a regression test there |
-| P3.17 | STRUCTURAL | docs/agents/testing.md | `integration` and `scenario` pytest markers registered in `pyproject.toml` | Declare markers under `[tool.pytest.ini_options.markers]` to fail CI on typos |
-| P3.18 | BEHAVIORAL | docs/agents/testing.md | At least one `*_integration.py` test file exists to drive the integration ring | Start with a cross-module wiring test; pure unit tests do not satisfy this |
-| P3.19 | BEHAVIORAL | docs/agents/avoided-patterns.md | No top-level imports of optional dependencies in test files | Move imports inside the test function; top-level imports break collection when deps are absent |
+| P3.16 | STRUCTURAL | docs/wiki/testing.md | `tests/regressions/` directory exists | Add the directory; every bug fix lands with a regression test there |
+| P3.17 | STRUCTURAL | docs/wiki/testing.md | `integration` and `scenario` pytest markers registered in `pyproject.toml` | Declare markers under `[tool.pytest.ini_options.markers]` to fail CI on typos |
+| P3.18 | BEHAVIORAL | docs/wiki/testing.md | At least one `*_integration.py` test file exists to drive the integration ring | Start with a cross-module wiring test; pure unit tests do not satisfy this |
+| P3.19 | BEHAVIORAL | docs/wiki/gotchas.md | No top-level imports of optional dependencies in test files | Move imports inside the test function; top-level imports break collection when deps are absent |
 
 ### P4. Quality Gates
 
@@ -211,13 +211,13 @@ credible.
 
 | check_id | type | source | what | remediation |
 |---|---|---|---|---|
-| P4.1 | BEHAVIORAL | docs/agents/quality-gates.md | `make lint-check` target exists and exits 0 | Add `ruff check` + `ruff format --check` behind the target |
-| P4.2 | BEHAVIORAL | docs/agents/quality-gates.md | `make typecheck` target exists and exits 0 | Add `pyright` with config in `pyproject.toml` |
-| P4.3 | BEHAVIORAL | docs/agents/quality-gates.md | `make security` target exists and exits 0 | Add `bandit -r src/ --severity-level medium` |
-| P4.4 | BEHAVIORAL | docs/agents/quality-gates.md | `make test` target exists and exits 0 | Wire pytest behind the target |
-| P4.5 | BEHAVIORAL | docs/agents/quality-gates.md | `make quality-lite` composes lint + typecheck + security | Add the aggregate target |
-| P4.6 | BEHAVIORAL | docs/agents/quality-gates.md | `make quality` composes quality-lite + test + layer-check | Add the final gate target |
-| P4.7 | STRUCTURAL | docs/agents/quality-gates.md | Tool configs live in `pyproject.toml` (not a forest of dotfiles) | Move ruff/pyright/bandit/pytest configs into `pyproject.toml` |
+| P4.1 | BEHAVIORAL | docs/wiki/patterns.md | `make lint-check` target exists and exits 0 | Add `ruff check` + `ruff format --check` behind the target |
+| P4.2 | BEHAVIORAL | docs/wiki/patterns.md | `make typecheck` target exists and exits 0 | Add `pyright` with config in `pyproject.toml` |
+| P4.3 | BEHAVIORAL | docs/wiki/patterns.md | `make security` target exists and exits 0 | Add `bandit -r src/ --severity-level medium` |
+| P4.4 | BEHAVIORAL | docs/wiki/patterns.md | `make test` target exists and exits 0 | Wire pytest behind the target |
+| P4.5 | BEHAVIORAL | docs/wiki/patterns.md | `make quality-lite` composes lint + typecheck + security | Add the aggregate target |
+| P4.6 | BEHAVIORAL | docs/wiki/patterns.md | `make quality` composes quality-lite + test + layer-check | Add the final gate target |
+| P4.7 | STRUCTURAL | docs/wiki/patterns.md | Tool configs live in `pyproject.toml` (not a forest of dotfiles) | Move ruff/pyright/bandit/pytest configs into `pyproject.toml` |
 
 ### P5. CI and Branch Protection
 
@@ -237,15 +237,15 @@ green/red switch.
 
 | check_id | type | source | what | remediation |
 |---|---|---|---|---|
-| P5.1 | STRUCTURAL | docs/agents/quality-gates.md | `.github/workflows/` directory contains at least one workflow | Port `ci.yml` from HydraFlow as a starting point |
-| P5.2 | BEHAVIORAL | docs/agents/quality-gates.md | Workflow runs `make quality-lite` or equivalent | Wire the make target into the workflow's steps |
-| P5.3 | BEHAVIORAL | docs/agents/quality-gates.md | Workflow runs `make test` with the coverage gate | Add a `--cov-fail-under=70` invocation |
-| P5.4 | STRUCTURAL | docs/agents/worktrees.md | `.githooks/pre-commit` exists and is executable | Seed the hook from HydraFlow's template |
-| P5.5 | CULTURAL | docs/agents/worktrees.md | `main` has branch protection with required PR review and CI | Enable via GitHub repo settings; audit cannot verify offline |
+| P5.1 | STRUCTURAL | docs/wiki/patterns.md | `.github/workflows/` directory contains at least one workflow | Port `ci.yml` from HydraFlow as a starting point |
+| P5.2 | BEHAVIORAL | docs/wiki/patterns.md | Workflow runs `make quality-lite` or equivalent | Wire the make target into the workflow's steps |
+| P5.3 | BEHAVIORAL | docs/wiki/patterns.md | Workflow runs `make test` with the coverage gate | Add a `--cov-fail-under=70` invocation |
+| P5.4 | STRUCTURAL | docs/wiki/gotchas.md | `.githooks/pre-commit` exists and is executable | Seed the hook from HydraFlow's template |
+| P5.5 | CULTURAL | docs/wiki/gotchas.md | `main` has branch protection with required PR review and CI | Enable via GitHub repo settings; audit cannot verify offline |
 | P5.6 | CULTURAL | CLAUDE.md | No direct pushes to `main` in the last 100 commits | Inspect `git log --first-parent main`; audit reports as a warning |
-| P5.7 | BEHAVIORAL | docs/agents/quality-gates.md | `pytest` treats `RuntimeWarning` and `PytestUnraisableExceptionWarning` as errors | Add `filterwarnings = ["error::RuntimeWarning", "error::pytest.PytestUnraisableExceptionWarning"]` to `pyproject.toml`; warnings-are-errors turns async lifecycle bugs into red CI instead of silent drift |
-| P5.8 | STRUCTURAL | docs/agents/quality-gates.md | `.githooks/pre-push` exists and runs `make quality-lite` | Pre-commit gates *staged* Python; pre-push gates the *branch* before the remote sees it |
-| P5.9 | BEHAVIORAL | docs/agents/quality-gates.md | Pre-commit hook implements self-repair (on lint-check failure, run `make lint-fix` and re-stage before escalating) | Agent sessions stall indefinitely on formatting errors otherwise; self-repair keeps the loop moving |
+| P5.7 | BEHAVIORAL | docs/wiki/patterns.md | `pytest` treats `RuntimeWarning` and `PytestUnraisableExceptionWarning` as errors | Add `filterwarnings = ["error::RuntimeWarning", "error::pytest.PytestUnraisableExceptionWarning"]` to `pyproject.toml`; warnings-are-errors turns async lifecycle bugs into red CI instead of silent drift |
+| P5.8 | STRUCTURAL | docs/wiki/patterns.md | `.githooks/pre-push` exists and runs `make quality-lite` | Pre-commit gates *staged* Python; pre-push gates the *branch* before the remote sees it |
+| P5.9 | BEHAVIORAL | docs/wiki/patterns.md | Pre-commit hook implements self-repair (on lint-check failure, run `make lint-fix` and re-stage before escalating) | Agent sessions stall indefinitely on formatting errors otherwise; self-repair keeps the loop moving |
 | P5.10 | STRUCTURAL | CLAUDE.md | Pre-commit hook refuses deletion or net content removal of `CLAUDE.md` | Load-bearing file; silent loss of the Quick Rules section would remove the project's guardrails without notice |
 
 ### P6. Agents — Loops, Labels, Background Workers
@@ -272,7 +272,7 @@ audit output that P6 is optional for the repo type and skip the failures.
 | P6.1 | STRUCTURAL | ADR-0001 | `src/orchestrator.py` exists with concurrent loop structure | Only applicable to orchestration-shaped projects; mark N/A otherwise |
 | P6.2 | STRUCTURAL | ADR-0002 | Label names are centralised in config (not scattered strings) | Collect labels into a single config module or dataclass |
 | P6.3 | STRUCTURAL | ADR-0029 | `BaseBackgroundLoop` base class exists | Port from HydraFlow when the first long-running job appears |
-| P6.4 | BEHAVIORAL | docs/agents/background-loops.md | Loop-wiring completeness test covers all five checkpoints (service registry, orchestrator dict, UI constants, dashboard-route bounds, config interval + env override) | Port HydraFlow's `test_loop_wiring_completeness.py`; half-wired loops run but vanish from the dashboard |
+| P6.4 | BEHAVIORAL | docs/wiki/architecture.md | Loop-wiring completeness test covers all five checkpoints (service registry, orchestrator dict, UI constants, dashboard-route bounds, config interval + env override) | Port HydraFlow's `test_loop_wiring_completeness.py`; half-wired loops run but vanish from the dashboard |
 | P6.5 | STRUCTURAL | ADR-0002 | Atomic label-swap helper exists (no ad-hoc add/remove call sites) | Add a `swap_pipeline_labels` function and forbid direct calls |
 
 ### P7. Observability — Sentry, Structured Logging, Repo Wiki
@@ -294,16 +294,16 @@ noisy `logger.error` calls to `logger.warning` in a follow-up.
 
 | check_id | type | source | what | remediation |
 |---|---|---|---|---|
-| P7.1 | STRUCTURAL | docs/agents/sentry.md | `_BUG_TYPES` tuple exists where Sentry is initialised | Define the tuple with real-bug exceptions only |
-| P7.2 | BEHAVIORAL | docs/agents/sentry.md | Sentry `before_send` callback uses `_BUG_TYPES` | Wire the filter in the init call |
+| P7.1 | STRUCTURAL | docs/wiki/patterns.md | `_BUG_TYPES` tuple exists where Sentry is initialised | Define the tuple with real-bug exceptions only |
+| P7.2 | BEHAVIORAL | docs/wiki/patterns.md | Sentry `before_send` callback uses `_BUG_TYPES` | Wire the filter in the init call |
 | P7.3 | STRUCTURAL | ADR-0032 | `repo_wiki/` directory exists (or project-equivalent knowledge base) | Create the directory; seed from post-mortems |
 | P7.3a | STRUCTURAL | ADR-0032 | Wiki has the three-layer shape: raw sources, synthesised wiki pages, index/schema | A flat dumping ground of markdown is not a wiki; the compiler/librarian pattern requires all three |
 | P7.3b | BEHAVIORAL | ADR-0032 | Wiki store exposes ingest / query / lint operations (or project equivalents) | Port `RepoWikiStore`; without ingest the wiki stagnates, without lint it accumulates stale entries |
 | P7.3c | BEHAVIORAL | ADR-0032 | Runner prompts inject relevant wiki content before agent invocation | `_inject_repo_wiki` pattern or equivalent; a wiki that is never read has no value |
-| P7.4 | CULTURAL | docs/agents/sentry.md | No `except: pass` or bare `except:` in `src/` | Audit greps; remediate by logging at `warning` minimum |
-| P7.5 | BEHAVIORAL | docs/agents/sentry.md | No `logger.error(value)` without a format string (audit greps `logger\.error\(\w+\)$`) | Format strings preserve structure for log aggregation; bare-value error calls flatten to opaque strings |
-| P7.6 | STRUCTURAL | docs/agents/sentry.md | The audit and init tooling (`scripts/hydraflow_audit/`, `scripts/hydraflow_init/`) route unhandled exceptions through the P7.1/P7.2 Sentry filter | The tooling must follow its own principle; silent audit failures poison the signal the audit is supposed to provide |
-| P7.7 | STRUCTURAL | docs/agents/sentry.md | Observability is behind a port (`ObservabilityPort` or equivalent) so the Sentry adapter can be swapped for OTLP / structured logs / a sidecar without touching call sites | Preserves future optionality without committing to a second backend today |
+| P7.4 | CULTURAL | docs/wiki/patterns.md | No `except: pass` or bare `except:` in `src/` | Audit greps; remediate by logging at `warning` minimum |
+| P7.5 | BEHAVIORAL | docs/wiki/patterns.md | No `logger.error(value)` without a format string (audit greps `logger\.error\(\w+\)$`) | Format strings preserve structure for log aggregation; bare-value error calls flatten to opaque strings |
+| P7.6 | STRUCTURAL | docs/wiki/patterns.md | The audit and init tooling (`scripts/hydraflow_audit/`, `scripts/hydraflow_init/`) route unhandled exceptions through the P7.1/P7.2 Sentry filter | The tooling must follow its own principle; silent audit failures poison the signal the audit is supposed to provide |
+| P7.7 | STRUCTURAL | docs/wiki/patterns.md | Observability is behind a port (`ObservabilityPort` or equivalent) so the Sentry adapter can be swapped for OTLP / structured logs / a sidecar without touching call sites | Preserves future optionality without committing to a second backend today |
 
 ### P8. Superpowers / Skills Integration
 
@@ -382,10 +382,10 @@ but every bug fix from today forward lands with a regression test.
 | check_id | type | source | what | remediation |
 |---|---|---|---|---|
 | P10.1 | CULTURAL | CLAUDE.md | CLAUDE.md documents test-first as the default workflow and names `superpowers:test-driven-development` | Add a "Workflow" section pointing at the skill |
-| P10.2 | BEHAVIORAL | docs/agents/testing.md | Every directory under `src/` with production code has a corresponding test file (unit ring coverage) | Audit walks `src/` and expects a matching `tests/test_<module>.py` or similar; orphan modules surface in the report |
-| P10.3 | CULTURAL | docs/agents/testing.md | Bug-fix commits land with a regression test in `tests/regressions/` | Audit scans last 50 merged PRs tagged `bug`/`fix`; reports PRs missing a regression-test delta as a warning |
-| P10.4 | STRUCTURAL | docs/agents/testing.md | Test names describe behaviour, not implementation (e.g. `test_merges_when_all_checks_pass` not `test_merge_function`) | Enforce via a test-name linter or review rubric; audit samples names and flags ones matching `test_<funcname>$` |
-| P10.5 | BEHAVIORAL | docs/agents/testing.md | Test files use the Arrange / Act / Assert structure visibly | Prefer factories + one assertion per test; multi-assert tests are a smell |
+| P10.2 | BEHAVIORAL | docs/wiki/testing.md | Every directory under `src/` with production code has a corresponding test file (unit ring coverage) | Audit walks `src/` and expects a matching `tests/test_<module>.py` or similar; orphan modules surface in the report |
+| P10.3 | CULTURAL | docs/wiki/testing.md | Bug-fix commits land with a regression test in `tests/regressions/` | Audit scans last 50 merged PRs tagged `bug`/`fix`; reports PRs missing a regression-test delta as a warning |
+| P10.4 | STRUCTURAL | docs/wiki/testing.md | Test names describe behaviour, not implementation (e.g. `test_merges_when_all_checks_pass` not `test_merge_function`) | Enforce via a test-name linter or review rubric; audit samples names and flags ones matching `test_<funcname>$` |
+| P10.5 | BEHAVIORAL | docs/wiki/testing.md | Test files use the Arrange / Act / Assert structure visibly | Prefer factories + one assertion per test; multi-assert tests are a smell |
 
 ## Consequences
 
@@ -393,7 +393,7 @@ but every bug fix from today forward lands with a regression test.
 - New repos get a one-command (`make audit`) readout of their conformance.
 - Adoption path is measurable: the audit's pass count moves PR by PR.
 - Principles have one home (`ADR-0044`) — no more "is it in CLAUDE.md or
-  docs/agents or an ADR?" ambiguity.
+  docs/wiki or an ADR?" ambiguity.
 - ADR tables and audit code stay in lockstep because the code reads the ADR
   at runtime; a dangling `check_id` fails the audit.
 - Self-documenting: every check cites its source, so remediation hints point

@@ -93,7 +93,7 @@ class FailureRecord(BaseModel):
     # Agent Hints matched from sensor_enricher.SEED_RULES at record time.
     # Populated by HarnessInsightStore.append_failure when sensor enrichment
     # is enabled. Empty list means no rules matched or enrichment disabled.
-    # See docs/agents/avoided-patterns.md and src/sensor_enricher.py.
+    # See docs/wiki/gotchas.md and src/sensor_enricher.py.
     hints: list[str] = Field(default_factory=list)
 
 

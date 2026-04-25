@@ -3,6 +3,11 @@
 One function per check row in P1's table. The runner backfills
 severity/source/what/remediation from the spec, so these functions only
 decide PASS / WARN / FAIL / NA and attach a message when useful.
+
+The documentation spine is now ``docs/wiki/`` (the per-repo Karpathy
+knowledge base) plus ``docs/adr/`` (decisions). The legacy
+``docs/agents/`` how-to files were absorbed into wiki entries; CLAUDE.md
+points operators at the wiki topic files.
 """
 
 from __future__ import annotations
@@ -24,55 +29,93 @@ def _claude_md_exists(ctx: CheckContext) -> Finding:
 
 
 @register("P1.2")
-def _agents_readme(ctx: CheckContext) -> Finding:
-    return exists(ctx.root, "docs/agents/README.md", "P1.2")
+def _wiki_index(ctx: CheckContext) -> Finding:
+    """The wiki index — operator's entry point to the knowledge base."""
+    return exists(ctx.root, "docs/wiki/index.md", "P1.2")
 
 
 @register("P1.3")
 def _architecture_md(ctx: CheckContext) -> Finding:
-    return exists(ctx.root, "docs/agents/architecture.md", "P1.3")
+    """Architecture knowledge — file layout, layers, ports, async patterns."""
+    return exists(ctx.root, "docs/wiki/architecture.md", "P1.3")
 
 
 @register("P1.4")
-def _worktrees_md(ctx: CheckContext) -> Finding:
-    return exists(ctx.root, "docs/agents/worktrees.md", "P1.4")
+def _gotchas_md(ctx: CheckContext) -> Finding:
+    """Gotchas — worktree rules, recurring mistakes, footguns."""
+    return exists(ctx.root, "docs/wiki/gotchas.md", "P1.4")
 
 
 @register("P1.5")
 def _testing_md(ctx: CheckContext) -> Finding:
-    return exists(ctx.root, "docs/agents/testing.md", "P1.5")
+    """Testing knowledge — conventions, scenarios, fixtures."""
+    return exists(ctx.root, "docs/wiki/testing.md", "P1.5")
 
 
 @register("P1.6")
-def _avoided_patterns_md(ctx: CheckContext) -> Finding:
-    return exists(ctx.root, "docs/agents/avoided-patterns.md", "P1.6")
+def _patterns_md(ctx: CheckContext) -> Finding:
+    """Patterns — kill-switch convention, dedup, escalation, quality gates."""
+    return exists(ctx.root, "docs/wiki/patterns.md", "P1.6")
 
 
 @register("P1.7")
-def _quality_gates_md(ctx: CheckContext) -> Finding:
-    return exists(ctx.root, "docs/agents/quality-gates.md", "P1.7")
+def _dependencies_md(ctx: CheckContext) -> Finding:
+    """Dependencies — optional services, graceful degradation."""
+    return exists(ctx.root, "docs/wiki/dependencies.md", "P1.7")
 
 
 @register("P1.8")
-def _background_loops_md(ctx: CheckContext) -> Finding:
-    """Only required for orchestration-shaped repos (ADR-0044 P1.8 source note)."""
+def _background_loops_documented(ctx: CheckContext) -> Finding:
+    """Only required for orchestration-shaped repos. Looks for any background-loop
+    knowledge entry in the wiki — exact entry titles vary.
+    """
     if not ctx.is_orchestration_repo:
         return finding(
             "P1.8",
             Status.NA,
-            "not an orchestration repo — background-loops.md not required",
+            "not an orchestration repo — background-loop wiki entry not required",
         )
-    return exists(ctx.root, "docs/agents/background-loops.md", "P1.8")
+    arch = ctx.root / "docs/wiki/architecture.md"
+    if not arch.exists():
+        return finding("P1.8", Status.FAIL, "missing: docs/wiki/architecture.md")
+    text = arch.read_text(encoding="utf-8", errors="replace")
+    if re.search(r"BaseBackgroundLoop|trust loop|background loop", text, re.IGNORECASE):
+        return finding("P1.8", Status.PASS)
+    return finding(
+        "P1.8",
+        Status.FAIL,
+        "docs/wiki/architecture.md has no background-loop knowledge entry",
+    )
 
 
 @register("P1.9")
-def _sentry_md(ctx: CheckContext) -> Finding:
-    return exists(ctx.root, "docs/agents/sentry.md", "P1.9")
+def _sentry_documented(ctx: CheckContext) -> Finding:
+    """Sentry rules live as a wiki entry under patterns.md."""
+    patterns = ctx.root / "docs/wiki/patterns.md"
+    if not patterns.exists():
+        return finding("P1.9", Status.FAIL, "missing: docs/wiki/patterns.md")
+    text = patterns.read_text(encoding="utf-8", errors="replace")
+    if "sentry" in text.lower():
+        return finding("P1.9", Status.PASS)
+    return finding(
+        "P1.9", Status.FAIL, "docs/wiki/patterns.md has no Sentry knowledge entry"
+    )
 
 
 @register("P1.10")
-def _commands_md(ctx: CheckContext) -> Finding:
-    return exists(ctx.root, "docs/agents/commands.md", "P1.10")
+def _commands_documented(ctx: CheckContext) -> Finding:
+    """Make-target reference lives as a wiki entry under patterns.md."""
+    patterns = ctx.root / "docs/wiki/patterns.md"
+    if not patterns.exists():
+        return finding("P1.10", Status.FAIL, "missing: docs/wiki/patterns.md")
+    text = patterns.read_text(encoding="utf-8", errors="replace")
+    if re.search(r"make\s+\w", text):
+        return finding("P1.10", Status.PASS)
+    return finding(
+        "P1.10",
+        Status.FAIL,
+        "docs/wiki/patterns.md has no make-target knowledge entry",
+    )
 
 
 @register("P1.11")
@@ -107,7 +150,7 @@ def _quick_rules_section(ctx: CheckContext) -> Finding:
 
 
 _KNOWLEDGE_LOOKUP_RE = re.compile(
-    r"^##\s+(Knowledge Lookup|Knowledge lookup|Topic index)",
+    r"^##\s+(Knowledge Lookup|Knowledge lookup|Topic index|Wiki topic index)",
     re.MULTILINE,
 )
 
@@ -158,20 +201,19 @@ def _load_bearing_adrs_present(ctx: CheckContext) -> Finding:
 
 
 @register("P1.15")
-def _avoided_patterns_has_content(ctx: CheckContext) -> Finding:
-    path = ctx.root / "docs/agents/avoided-patterns.md"
+def _gotchas_has_content(ctx: CheckContext) -> Finding:
+    """The gotchas topic page must have substantive content (≥5 sections)."""
+    path = ctx.root / "docs/wiki/gotchas.md"
     if not path.exists():
-        return finding("P1.15", Status.FAIL, "missing: docs/agents/avoided-patterns.md")
+        return finding("P1.15", Status.FAIL, "missing: docs/wiki/gotchas.md")
     text = path.read_text(encoding="utf-8", errors="replace")
     sections = re.findall(r"^##+\s+\S", text, re.MULTILINE)
-    code_blocks = text.count("```")
-    if len(sections) >= 5 and code_blocks >= 2:  # at least one opened + closed fence
+    if len(sections) >= 5:
         return finding("P1.15", Status.PASS)
     return finding(
         "P1.15",
         Status.FAIL,
-        f"avoided-patterns.md has {len(sections)} sections and {code_blocks // 2} code blocks "
-        "(need ≥5 sections with example code blocks)",
+        f"docs/wiki/gotchas.md has {len(sections)} sections (need ≥5)",
     )
 
 

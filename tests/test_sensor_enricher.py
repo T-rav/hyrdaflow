@@ -260,12 +260,12 @@ class TestSeedRules:
     def test_seed_rules_reference_docs_agents(self) -> None:
         from sensor_rules import SEED_RULES
 
-        # Every hint must point at a doc under docs/agents/ so rule text
+        # Every hint must point at a doc under docs/wiki/ so rule text
         # stays consistent with the human-facing rule descriptions and we
         # never accumulate stale CLAUDE.md references after a refactor.
         for rule in SEED_RULES:
-            assert "docs/agents/" in rule.hint, (
-                f"rule {rule.id} has no docs/agents/ reference; hint={rule.hint!r}"
+            assert "docs/wiki/" in rule.hint, (
+                f"rule {rule.id} has no docs/wiki/ reference; hint={rule.hint!r}"
             )
 
     def test_pydantic_rule_fires_for_models_edit(self) -> None:
