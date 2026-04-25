@@ -794,7 +794,10 @@ def _build_contract_refresh(ports: dict[str, Any], config: Any, deps: Any) -> An
 
     replay_stub = ports.get("contract_refresh_replay_gate")
     if replay_stub is None:
-        replay_stub = MagicMock(
+        # G14: _run_replay_gate is now async; the stub must be awaitable.
+        from unittest.mock import AsyncMock  # noqa: PLC0415
+
+        replay_stub = AsyncMock(
             return_value=subprocess.CompletedProcess(
                 args=["make", "trust-contracts"],
                 returncode=0,
