@@ -1,0 +1,30 @@
+{
+  "regenerated_at": "2026-04-25T22:49:14.718618+00:00",
+  "commit_sha": "64a309523754982ae22755c120d3fb52eb095f92",
+  "artifacts": {
+    "loops.md": {
+      "source_sha": "64a309523754982ae22755c120d3fb52eb095f92"
+    },
+    "ports.md": {
+      "source_sha": "64a309523754982ae22755c120d3fb52eb095f92"
+    },
+    "labels.md": {
+      "source_sha": "64a309523754982ae22755c120d3fb52eb095f92"
+    },
+    "modules.md": {
+      "source_sha": "64a309523754982ae22755c120d3fb52eb095f92"
+    },
+    "events.md": {
+      "source_sha": "64a309523754982ae22755c120d3fb52eb095f92"
+    },
+    "adr_xref.md": {
+      "source_sha": "64a309523754982ae22755c120d3fb52eb095f92"
+    },
+    "mockworld.md": {
+      "source_sha": "64a309523754982ae22755c120d3fb52eb095f92"
+    },
+    "changelog.md": {
+      "source_sha": "64a309523754982ae22755c120d3fb52eb095f92"
+    }
+  }
+}
