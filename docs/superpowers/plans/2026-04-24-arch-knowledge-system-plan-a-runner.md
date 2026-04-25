@@ -41,6 +41,7 @@
 **Out of scope (delivered by later plans):**
 - `functional_areas.py` generator + YAML + coverage test → **Plan B**
 - ADR-0001 amendment + `.likec4` deletion + CLAUDE.md update → **Plan B**
+- **Removing the `@pytest.mark.xfail` decorator from `test_loop_count_matches_adr0001`** → **Plan B** (after the ADR-0001 amendment lands the test should pass; the xfail mark must be removed at that point or it becomes a silently-suppressed real test)
 - DiagramLoop (L24) → **Plan C**
 - `arch-regen.yml` CI workflow → **Plan C**
 - `pages-deploy.yml` + MkDocs Material config → **Plan C**
@@ -265,12 +266,15 @@ def test_extracts_basebackgroundloop_subclass(fixture_src_tree):
             """
             import os
             from base_background_loop import BaseBackgroundLoop
+            from events import EventType
 
             class WidgetLoop(BaseBackgroundLoop):
                 tick_interval_seconds = 3600
 
-                def __init__(self):
+                def __init__(self, bus):
                     self._kill = os.environ.get("HYDRAFLOW_DISABLE_WIDGET_LOOP")
+                    bus.subscribe(EventType.PR_OPENED, self._on_pr)
+                    bus.subscribe(EventType.RC_RED, self._on_red)
         ''',
     })
 
@@ -284,6 +288,8 @@ def test_extracts_basebackgroundloop_subclass(fixture_src_tree):
     assert info.tick_interval_seconds == 3600
     assert info.kill_switch_var == "HYDRAFLOW_DISABLE_WIDGET_LOOP"
     assert info.adr_refs == ["ADR-0029", "ADR-0049"]
+    # Event subscriptions are sorted; both are captured.
+    assert info.event_subscriptions == ["PR_OPENED", "RC_RED"]
 
 
 def test_skips_non_loop_classes(fixture_src_tree):
@@ -1309,7 +1315,13 @@ def _module_dotted(path: Path) -> str:
     return ".".join(parts)
 
 
-def _fake_classes(fakes_dir: Path) -> list[FakeInfo]:
+def _fake_classes(fakes_dir: Path, repo_root: Path) -> list[FakeInfo]:
+    """Walk fakes_dir for `class Fake*:` declarations.
+
+    `source_path` is recorded as repo-root-relative (so generated Markdown is
+    portable and diffable; absolute paths would leak the developer's home dir
+    into committed `docs/arch/generated/mockworld.md`).
+    """
     out: list[FakeInfo] = []
     if not fakes_dir.exists():
         return out
@@ -1325,7 +1337,7 @@ def _fake_classes(fakes_dir: Path) -> list[FakeInfo]:
                 out.append(FakeInfo(
                     name=node.name,
                     module=_module_dotted(py),
-                    source_path=str(py),
+                    source_path=str(py.relative_to(repo_root)),
                 ))
     return out
 
@@ -1346,19 +1358,21 @@ def _scenario_uses(scenarios_dir: Path, fake_module: str, fake_name: str) -> lis
 def extract_mockworld_map(*, fakes_dir: Path, scenarios_dir: Path) -> MockWorldMap:
     fakes_dir = Path(fakes_dir).resolve()
     scenarios_dir = Path(scenarios_dir).resolve()
+    # Repo root: assumes fakes_dir == <repo_root>/tests/scenarios/fakes
+    repo_root = fakes_dir.parents[2]
 
-    fakes = _fake_classes(fakes_dir)
+    fakes = _fake_classes(fakes_dir, repo_root)
     enriched: list[FakeInfo] = []
     for f in fakes:
         # Compute candidate Port name: FakeWidget -> WidgetPort
         stem = f.name.removeprefix("Fake")
         candidate_port = f"{stem}Port" if stem else None
         scenarios = _scenario_uses(scenarios_dir, f.module, f.name)
-        # Trim each scenario path to a repo-relative form
+        # Trim each scenario path to repo-root-relative
         rel_scenarios = []
         for s in scenarios:
             try:
-                rel_scenarios.append(str(Path(s).relative_to(scenarios_dir.parents[1])))
+                rel_scenarios.append(str(Path(s).relative_to(repo_root)))
             except ValueError:
                 rel_scenarios.append(s)
         enriched.append(f.model_copy(update={
@@ -1471,7 +1485,7 @@ _TABLE_HEAD = (
     "| Loop | Module | Tick (s) | Kill Switch | Events | ADRs |\n"
     "|---|---|---|---|---|---|\n"
 )
-_FOOTER = "\n<!-- {{ARCH_FOOTER}} -->\n"
+_FOOTER = "\n\n{{ARCH_FOOTER}}\n"
 
 
 def _row(l: LoopInfo) -> str:
@@ -1562,7 +1576,7 @@ _PREAMBLE = (
     "adapter(s) and fake (per ADR-0047). Ports without a fake are "
     "flagged ⚠️ — fakes are required for scenario testing.\n\n"
 )
-_FOOTER = "\n<!-- {{ARCH_FOOTER}} -->\n"
+_FOOTER = "\n\n{{ARCH_FOOTER}}\n"
 
 
 def _mermaid(ports: list[PortInfo]) -> str:
@@ -1666,7 +1680,7 @@ _PREAMBLE = (
     "Live transitions extracted from source. Compared against the "
     "Mermaid block in ADR-0002 by `tests/architecture/test_label_state_matches_adr0002.py`.\n\n"
 )
-_FOOTER = "\n<!-- {{ARCH_FOOTER}} -->\n"
+_FOOTER = "\n\n{{ARCH_FOOTER}}\n"
 
 
 def render_label_state(sm: LabelStateMachine) -> str:
@@ -1717,7 +1731,10 @@ def test_renders_mermaid_with_weighted_edges():
     )
     md = render_module_graph(g)
     assert "graph LR" in md
-    assert "src.foo --|3|--> src.bar" in md or "src.foo -- 3 --> src.bar" in md or "src.foo --> src.bar" in md
+    # Node IDs are sanitized via _safe_id (`.` → `_`); weights are quoted.
+    assert 'src_foo -- "3" --> src_bar' in md
+    assert 'src_foo["src.foo"]' in md  # node label preserves the dotted name
+    assert 'src_bar["src.bar"]' in md
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1740,7 +1757,7 @@ _PREAMBLE = (
     "Package-level import graph for `src/`. Edge weight = number of "
     "import statements aggregated across files.\n\n"
 )
-_FOOTER = "\n<!-- {{ARCH_FOOTER}} -->\n"
+_FOOTER = "\n\n{{ARCH_FOOTER}}\n"
 
 
 def _safe_id(name: str) -> str:
@@ -1820,7 +1837,7 @@ _PREAMBLE = (
     "Every `EventType` published or subscribed in `src/`. Events with "
     "no subscribers are flagged ⚠️ (likely dead).\n\n"
 )
-_FOOTER = "\n<!-- {{ARCH_FOOTER}} -->\n"
+_FOOTER = "\n\n{{ARCH_FOOTER}}\n"
 
 
 def render_event_bus(topo: EventBusTopology) -> str:
@@ -1904,7 +1921,7 @@ _PREAMBLE = (
     "Bidirectional index between ADRs and the source modules they cite. "
     "Powers \"Why this exists\" backlinks across the site.\n\n"
 )
-_FOOTER = "\n<!-- {{ARCH_FOOTER}} -->\n"
+_FOOTER = "\n\n{{ARCH_FOOTER}}\n"
 
 
 def render_adr_cross_reference(idx: ADRRefIndex) -> str:
@@ -1991,7 +2008,7 @@ _PREAMBLE = (
     "(by name match), and the scenarios that wire them. Per ADR-0022 "
     "(MockWorld) and ADR-0047 (fake-adapter contract testing).\n\n"
 )
-_FOOTER = "\n<!-- {{ARCH_FOOTER}} -->\n"
+_FOOTER = "\n\n{{ARCH_FOOTER}}\n"
 
 
 def render_mockworld_map(m: MockWorldMap) -> str:
@@ -2099,7 +2116,7 @@ _PREAMBLE = (
     "Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, "
     "`src/arch/`, or `mkdocs.yml`. Grouped by ISO week.\n\n"
 )
-_FOOTER = "\n<!-- {{ARCH_FOOTER}} -->\n"
+_FOOTER = "\n\n{{ARCH_FOOTER}}\n"
 
 
 def _iso_week(iso_date: str) -> str:
@@ -2310,7 +2327,11 @@ def _compute_artifacts(repo_root: Path) -> dict[str, str]:
 
 
 def _stamp_footer(body: str, sha: str, source_sha: str) -> str:
-    """Replace the {{ARCH_FOOTER}} sentinel with a per-page regen footer."""
+    """Replace the {{ARCH_FOOTER}} sentinel with a per-page regen footer.
+
+    The footer is rendered visible italic text (not an HTML comment) so MkDocs
+    Material surfaces it to readers. Plan C extends it with the freshness badge.
+    """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     footer = (
         f"_Regenerated from commit `{sha[:7]}` on {now}. "
@@ -2361,9 +2382,15 @@ def check(*, repo_root: Path, generated_dir: Path) -> int:
 
 
 def _strip_footer(text: str) -> str:
-    """Remove the trailing `_Regenerated from..._` line for diff purposes."""
+    """Remove the trailing `_Regenerated from..._` line for diff purposes.
+
+    The line is italicized markdown — `_Regenerated from commit ..._` — and may
+    be preceded by leading whitespace from the `_FOOTER` joining. Match
+    anywhere on the line, not just the start, so any future leading-character
+    tweak doesn't silently break the strip.
+    """
     lines = text.splitlines()
-    out = [l for l in lines if not l.startswith("_Regenerated from commit")]
+    out = [l for l in lines if "_Regenerated from commit" not in l]
     return "\n".join(out)
 
 
@@ -2826,7 +2853,7 @@ Sanity-check that:
 - `labels.md` either has a Mermaid `stateDiagram-v2` block OR is empty (in which case Task 3's extractor needs another iteration — see Task 18)
 - `mockworld.md` lists ~13 fakes
 
-- [ ] **Step 4: If `labels.md` is empty, iterate on Task 3's extractor**
+- [ ] **Step 4: If `labels.md` is empty, iterate on Task 3's extractor (bounded)**
 
 Inspect the actual transition declaration in `src/`:
 
@@ -2834,13 +2861,23 @@ Inspect the actual transition declaration in `src/`:
 grep -rn "TRANSITION\|relabel\|hydraflow-implementing" src/ | head -20
 ```
 
-Extend `src/arch/extractors/labels.py` to handle the form found. Re-run `make arch-regen` until `labels.md` has content. Re-run the test:
+Extend `src/arch/extractors/labels.py` to handle the form found (literal list, dict, dataclass enum, `match`/`case` over labels, etc.). Re-run `make arch-regen` until `labels.md` has content. Re-run the test:
 
 ```bash
 pytest tests/architecture/test_label_state_matches_adr0002.py -v
 ```
 
-Iterate until either it passes or the only remaining failure is "missing/extra transitions" (which is real architectural drift, not an extractor bug — that gets fixed by amending ADR-0002 in a follow-up issue, not in Plan A).
+Iterate until either:
+
+- **(a)** the test passes (extractor works and ADR-0002 matches code), or
+- **(b)** the only remaining failure is "missing/extra transitions" (real architectural drift, not an extractor bug — file an issue and amend ADR-0002 in a follow-up; do not block Plan A on it).
+
+**Escape hatch.** If after **two iteration attempts** the canonical transition form turns out to be something the AST cannot statically analyze (e.g., transitions computed at runtime from external config, dispatch through a state-machine library), do this and move on — Plan A is not blocked:
+
+1. Leave `labels.md` with the empty-state output (`_(no transitions discovered)_`).
+2. Mark `tests/architecture/test_label_state_matches_adr0002.py` with `@pytest.mark.xfail(strict=False, reason="canonical transition form is not statically analyzable; see Task 3 notes and hydraflow-find issue #N")`.
+3. Open a `hydraflow-find` issue describing the form encountered, the failed approaches, and a proposal (e.g., "introduce a declarative transition table at `src/labels_machine.py`").
+4. Note the xfail in Plan B's out-of-scope section so it's revisited (the same way Task 19 is).
 
 - [ ] **Step 5: Run the full test suite to confirm green**
 
