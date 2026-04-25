@@ -443,7 +443,7 @@ def render_badge(state: "FreshnessBadge") -> str:
 Add a unit test extending `test_arch_freshness.py`:
 
 ```python
-from src.arch.freshness import FreshnessBadge, render_badge
+from arch.freshness import FreshnessBadge, render_badge
 
 
 def test_render_badge_emits_emoji_and_label():
@@ -458,7 +458,7 @@ def test_render_badge_emits_emoji_and_label():
 In `src/arch/runner.py`, change `_stamp_footer` to take a `FreshnessBadge` and append the badge:
 
 ```python
-from src.arch.freshness import FreshnessBadge, compute_badge, render_badge
+from arch.freshness import FreshnessBadge, compute_badge, render_badge
 
 
 def _stamp_footer(body: str, *, sha: str, source_sha: str, badge: FreshnessBadge) -> str:
@@ -702,7 +702,7 @@ from pathlib import Path
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps, WorkCycleResult
 from config import HydraFlowConfig
-from src.arch.runner import emit as arch_emit
+from arch.runner import emit as arch_emit
 
 
 _PR_TITLE_PREFIX = "chore(arch): regenerate architecture knowledge"
@@ -1108,9 +1108,9 @@ Add to `src/diagram_loop.py`:
 ```python
 async def _unassigned_items(self) -> dict[str, list[str]]:
     """Return {'loops': [...], 'ports': [...]} of items in code but not in YAML."""
-    from src.arch._functional_areas_schema import load_functional_areas
-    from src.arch.extractors.loops import extract_loops
-    from src.arch.extractors.ports import extract_ports
+    from arch._functional_areas_schema import load_functional_areas
+    from arch.extractors.loops import extract_loops
+    from arch.extractors.ports import extract_ports
 
     src_dir = self._repo_root / "src"
     fakes_dir = self._repo_root / "tests/scenarios/fakes"

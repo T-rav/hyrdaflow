@@ -1,4 +1,4 @@
-"""Smoke tests for src.arch._models.
+"""Smoke tests for arch._models.
 
 These tests verify the shared model dataclasses can be instantiated and
 round-trip through JSON. Future extractor/generator tasks will exercise
@@ -7,7 +7,7 @@ these models through richer scenarios.
 
 from __future__ import annotations
 
-from src.arch._models import (
+from arch._models import (
     ADRRef,
     ADRRefIndex,
     EventBusTopology,

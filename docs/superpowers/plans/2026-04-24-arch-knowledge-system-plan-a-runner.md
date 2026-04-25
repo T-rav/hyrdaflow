@@ -218,7 +218,7 @@ def real_repo_root() -> Path:
 - [ ] **Step 4: Verify the package imports**
 
 ```bash
-python -c "import src.arch; import src.arch.extractors; import src.arch.generators; from src.arch._models import LoopInfo; print('ok')"
+python -c "import arch; import arch.extractors; import arch.generators; from arch._models import LoopInfo; print('ok')"
 ```
 
 Expected: `ok`
@@ -254,7 +254,7 @@ The extractor walks `src/*.py`, parses each file with `ast.parse`, and finds
 Create `tests/architecture/test_extractor_loops.py`:
 
 ```python
-from src.arch.extractors.loops import extract_loops
+from arch.extractors.loops import extract_loops
 
 
 def test_extracts_basebackgroundloop_subclass(fixture_src_tree):
@@ -344,7 +344,7 @@ import ast
 import re
 from pathlib import Path
 
-from src.arch._models import LoopInfo
+from arch._models import LoopInfo
 
 _ADR_RE = re.compile(r"ADR-(\d{4})")
 _KILL_RE = re.compile(r'HYDRAFLOW_DISABLE_[A-Z0-9_]+')
@@ -437,7 +437,7 @@ Expected: 4 passed.
 - [ ] **Step 5: Smoke-test against the real repo**
 
 ```bash
-python -c "from src.arch.extractors.loops import extract_loops; from pathlib import Path; loops = extract_loops(Path('src')); print(f'{len(loops)} loops:'); [print(f'  {l.name} ({l.source_path})') for l in loops]"
+python -c "from arch.extractors.loops import extract_loops; from pathlib import Path; loops = extract_loops(Path('src')); print(f'{len(loops)} loops:'); [print(f'  {l.name} ({l.source_path})') for l in loops]"
 ```
 
 Expected: ~25-30 loops listed, including `DiagnosticLoop`, `EpicMonitorLoop`, `RepoWikiLoop`, `StagingPromotionLoop`, etc. **No** `BaseBackgroundLoop` itself in the output.
@@ -464,7 +464,7 @@ Walks `src/*.py` for `class X(Protocol):` and `class X(...Protocol):` (covers `t
 Create `tests/architecture/test_extractor_ports.py`:
 
 ```python
-from src.arch.extractors.ports import extract_ports
+from arch.extractors.ports import extract_ports
 
 
 def test_finds_protocol_port_with_adapter_and_fake(fixture_src_tree):
@@ -535,7 +535,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from src.arch._models import PortAdapterInfo, PortInfo
+from arch._models import PortAdapterInfo, PortInfo
 
 
 def _is_protocol_subclass(cls: ast.ClassDef) -> bool:
@@ -660,7 +660,7 @@ Expected: 2 passed.
 - [ ] **Step 5: Smoke-test against the real repo**
 
 ```bash
-python -c "from pathlib import Path; from src.arch.extractors.ports import extract_ports; ports = extract_ports(src_dir=Path('src'), fakes_dir=Path('tests/scenarios/fakes')); print(f'{len(ports)} ports:'); [print(f'  {p.name}: {len(p.adapters)} adapters, fake={p.fake.name if p.fake else None}') for p in ports]"
+python -c "from pathlib import Path; from arch.extractors.ports import extract_ports; ports = extract_ports(src_dir=Path('src'), fakes_dir=Path('tests/scenarios/fakes')); print(f'{len(ports)} ports:'); [print(f'  {p.name}: {len(p.adapters)} adapters, fake={p.fake.name if p.fake else None}') for p in ports]"
 ```
 
 Expected: at least `PRPort`, `WorkspacePort`, `IssueStorePort`, `IssueFetcherPort`, `AgentPort`, `ReviewInsightStorePort`, `ObservabilityPort`, plus `RouteBackCounterPort` if discoverable.
@@ -696,7 +696,7 @@ Inspect the result and pick the ONE file most likely to be the canonical declara
 Create `tests/architecture/test_extractor_labels.py`:
 
 ```python
-from src.arch.extractors.labels import extract_labels
+from arch.extractors.labels import extract_labels
 
 
 def test_extracts_explicit_transitions_constant(fixture_src_tree):
@@ -743,7 +743,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from src.arch._models import LabelStateMachine, LabelTransition
+from arch._models import LabelStateMachine, LabelTransition
 
 
 def _literal_transitions(src_text: str) -> list[LabelTransition]:
@@ -816,7 +816,7 @@ Expected: 2 passed.
 - [ ] **Step 6: Smoke-test against the real repo**
 
 ```bash
-python -c "from pathlib import Path; from src.arch.extractors.labels import extract_labels; sm = extract_labels(Path('src')); print(f'{len(sm.states)} states, {len(sm.transitions)} transitions'); [print(f'  {t.from_state} -> {t.to_state} ({t.trigger})') for t in sm.transitions[:5]]"
+python -c "from pathlib import Path; from arch.extractors.labels import extract_labels; sm = extract_labels(Path('src')); print(f'{len(sm.states)} states, {len(sm.transitions)} transitions'); [print(f'  {t.from_state} -> {t.to_state} ({t.trigger})') for t in sm.transitions[:5]]"
 ```
 
 If the real repo's transition declaration form is different from what the extractor handles, this will print 0 states / 0 transitions. **That is acceptable for Plan A** — Plan A's drift test will record whatever the extractor produces, and ADR-0002 match test (Task 18) will then fail loudly and the implementer can iterate. The fallback is part of Task 18's body.
@@ -842,7 +842,7 @@ Builds a package-level (not file-level) import graph for `src/`. Two `src.foo` f
 
 ```python
 # tests/architecture/test_extractor_modules.py
-from src.arch.extractors.modules import extract_module_graph
+from arch.extractors.modules import extract_module_graph
 
 
 def test_collapses_to_package_level_with_weights(fixture_src_tree):
@@ -891,7 +891,7 @@ import ast
 from collections import Counter
 from pathlib import Path
 
-from src.arch._models import ModuleEdge, ModuleGraph, ModuleNode
+from arch._models import ModuleEdge, ModuleGraph, ModuleNode
 
 
 def _package_of(path: Path, src_root: Path) -> str:
@@ -965,7 +965,7 @@ Expected: 2 passed.
 - [ ] **Step 5: Smoke-test against the real repo**
 
 ```bash
-python -c "from pathlib import Path; from src.arch.extractors.modules import extract_module_graph; g = extract_module_graph(Path('src')); print(f'{len(g.nodes)} packages, {len(g.edges)} edges')"
+python -c "from pathlib import Path; from arch.extractors.modules import extract_module_graph; g = extract_module_graph(Path('src')); print(f'{len(g.nodes)} packages, {len(g.edges)} edges')"
 ```
 
 Expected: roughly 5-15 packages and dozens of edges (varies with how the codebase is split).
@@ -991,7 +991,7 @@ Walks `src/*.py`, tracks `EventBus.publish(EventType.X, ...)` and `event_bus.sub
 
 ```python
 # tests/architecture/test_extractor_events.py
-from src.arch.extractors.events import extract_event_topology
+from arch.extractors.events import extract_event_topology
 
 
 def test_finds_publishers_and_subscribers(fixture_src_tree):
@@ -1032,7 +1032,7 @@ import ast
 from collections import defaultdict
 from pathlib import Path
 
-from src.arch._models import EventBusTopology, EventEdge
+from arch._models import EventBusTopology, EventEdge
 
 
 def _module_dotted(path: Path, src_root: Path) -> str:
@@ -1121,7 +1121,7 @@ Expected: 1 passed.
 - [ ] **Step 5: Smoke-test against the real repo**
 
 ```bash
-python -c "from pathlib import Path; from src.arch.extractors.events import extract_event_topology; t = extract_event_topology(Path('src')); print(f'{len(t.events)} events'); [print(f'  {e.event}: {len(e.publishers)} pubs, {len(e.subscribers)} subs') for e in t.events[:10]]"
+python -c "from pathlib import Path; from arch.extractors.events import extract_event_topology; t = extract_event_topology(Path('src')); print(f'{len(t.events)} events'); [print(f'  {e.event}: {len(e.publishers)} pubs, {len(e.subscribers)} subs') for e in t.events[:10]]"
 ```
 
 - [ ] **Step 6: Commit**
@@ -1145,7 +1145,7 @@ For each ADR file, scan its body for `module:symbol` references (the convention 
 
 ```python
 # tests/architecture/test_extractor_adr_xref.py
-from src.arch.extractors.adr_xref import extract_adr_refs
+from arch.extractors.adr_xref import extract_adr_refs
 
 
 def test_extracts_module_symbol_and_path_refs(fixture_src_tree):
@@ -1196,7 +1196,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from src.arch._models import ADRRef, ADRRefIndex
+from arch._models import ADRRef, ADRRefIndex
 
 _ADR_FILE_RE = re.compile(r"^(\d{4})-.+\.md$")
 # Match "src/foo/bar.py", "src/foo/bar.py:Class", "src/foo/bar.py:func_name"
@@ -1235,7 +1235,7 @@ Expected: 2 passed.
 - [ ] **Step 5: Smoke-test against the real repo**
 
 ```bash
-python -c "from pathlib import Path; from src.arch.extractors.adr_xref import extract_adr_refs; idx = extract_adr_refs(Path('docs/adr')); print(f'{len(idx.adr_to_modules)} ADRs indexed'); [print(f'  {r.adr_id}: {len(r.cited_modules)} module refs') for r in idx.adr_to_modules[:5]]"
+python -c "from pathlib import Path; from arch.extractors.adr_xref import extract_adr_refs; idx = extract_adr_refs(Path('docs/adr')); print(f'{len(idx.adr_to_modules)} ADRs indexed'); [print(f'  {r.adr_id}: {len(r.cited_modules)} module refs') for r in idx.adr_to_modules[:5]]"
 ```
 
 Expected: 49 ADRs indexed.
@@ -1261,7 +1261,7 @@ Walks `tests/scenarios/fakes/`, for each `Fake*` class records its name, module,
 
 ```python
 # tests/architecture/test_extractor_mockworld.py
-from src.arch.extractors.mockworld import extract_mockworld_map
+from arch.extractors.mockworld import extract_mockworld_map
 
 
 def test_indexes_fakes_and_scenario_uses(fixture_src_tree):
@@ -1303,7 +1303,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from src.arch._models import FakeInfo, MockWorldMap
+from arch._models import FakeInfo, MockWorldMap
 
 
 def _module_dotted(path: Path) -> str:
@@ -1394,7 +1394,7 @@ Expected: 1 passed.
 - [ ] **Step 5: Smoke-test against the real repo**
 
 ```bash
-python -c "from pathlib import Path; from src.arch.extractors.mockworld import extract_mockworld_map; m = extract_mockworld_map(fakes_dir=Path('tests/scenarios/fakes'), scenarios_dir=Path('tests/scenarios')); print(f'{len(m.fakes)} fakes'); [print(f'  {f.name} -> {f.implements_port}, used in {len(f.used_in_scenarios)} scenarios') for f in m.fakes]"
+python -c "from pathlib import Path; from arch.extractors.mockworld import extract_mockworld_map; m = extract_mockworld_map(fakes_dir=Path('tests/scenarios/fakes'), scenarios_dir=Path('tests/scenarios')); print(f'{len(m.fakes)} fakes'); [print(f'  {f.name} -> {f.implements_port}, used in {len(f.used_in_scenarios)} scenarios') for f in m.fakes]"
 ```
 
 Expected: ~13 fakes, each candidate-mapped to a `XxxPort` and listed with their scenario users.
@@ -1428,8 +1428,8 @@ Each generator is a pure function `(model: SpecificModel) -> str` that emits Mar
 
 ```python
 # tests/architecture/test_generator_loop_registry.py
-from src.arch._models import LoopInfo
-from src.arch.generators.loop_registry import render_loop_registry
+from arch._models import LoopInfo
+from arch.generators.loop_registry import render_loop_registry
 
 
 def test_renders_table_with_one_row_per_loop():
@@ -1473,7 +1473,7 @@ pytest tests/architecture/test_generator_loop_registry.py -v
 """Render the loop registry markdown table."""
 from __future__ import annotations
 
-from src.arch._models import LoopInfo
+from arch._models import LoopInfo
 
 _HEADER = "# Loop Registry\n\n"
 _PREAMBLE = (
@@ -1526,8 +1526,8 @@ git commit -m "feat(arch): loop registry generator"
 
 ```python
 # tests/architecture/test_generator_port_map.py
-from src.arch._models import PortInfo, PortAdapterInfo
-from src.arch.generators.port_map import render_port_map
+from arch._models import PortInfo, PortAdapterInfo
+from arch.generators.port_map import render_port_map
 
 
 def test_renders_port_with_adapter_and_fake():
@@ -1567,7 +1567,7 @@ pytest tests/architecture/test_generator_port_map.py -v
 """Render the port map: Mermaid graph + per-port detail table."""
 from __future__ import annotations
 
-from src.arch._models import PortInfo
+from arch._models import PortInfo
 
 _HEADER = "# Port Map\n\n"
 _PREAMBLE = (
@@ -1636,8 +1636,8 @@ git commit -m "feat(arch): port map generator with Mermaid graph"
 
 ```python
 # tests/architecture/test_generator_label_state.py
-from src.arch._models import LabelStateMachine, LabelTransition
-from src.arch.generators.label_state import render_label_state
+from arch._models import LabelStateMachine, LabelTransition
+from arch.generators.label_state import render_label_state
 
 
 def test_renders_state_diagram_v2_block():
@@ -1672,7 +1672,7 @@ pytest tests/architecture/test_generator_label_state.py -v
 # src/arch/generators/label_state.py
 from __future__ import annotations
 
-from src.arch._models import LabelStateMachine
+from arch._models import LabelStateMachine
 
 _HEADER = "# Label State Machine\n\n"
 _PREAMBLE = (
@@ -1720,8 +1720,8 @@ git commit -m "feat(arch): label state machine generator"
 
 ```python
 # tests/architecture/test_generator_module_graph.py
-from src.arch._models import ModuleEdge, ModuleGraph, ModuleNode
-from src.arch.generators.module_graph import render_module_graph
+from arch._models import ModuleEdge, ModuleGraph, ModuleNode
+from arch.generators.module_graph import render_module_graph
 
 
 def test_renders_mermaid_with_weighted_edges():
@@ -1749,7 +1749,7 @@ pytest tests/architecture/test_generator_module_graph.py -v
 # src/arch/generators/module_graph.py
 from __future__ import annotations
 
-from src.arch._models import ModuleGraph
+from arch._models import ModuleGraph
 
 _HEADER = "# Module Graph\n\n"
 _PREAMBLE = (
@@ -1799,8 +1799,8 @@ git commit -m "feat(arch): module graph generator"
 
 ```python
 # tests/architecture/test_generator_event_bus.py
-from src.arch._models import EventBusTopology, EventEdge
-from src.arch.generators.event_bus import render_event_bus
+from arch._models import EventBusTopology, EventEdge
+from arch.generators.event_bus import render_event_bus
 
 
 def test_renders_publishers_subscribers_table():
@@ -1829,7 +1829,7 @@ pytest tests/architecture/test_generator_event_bus.py -v
 # src/arch/generators/event_bus.py
 from __future__ import annotations
 
-from src.arch._models import EventBusTopology
+from arch._models import EventBusTopology
 
 _HEADER = "# Event Bus Topology\n\n"
 _PREAMBLE = (
@@ -1881,8 +1881,8 @@ Note: file is `adr_cross_reference.py` (per spec §4.2 disambiguation note); the
 
 ```python
 # tests/architecture/test_generator_adr_cross_reference.py
-from src.arch._models import ADRRef, ADRRefIndex
-from src.arch.generators.adr_cross_reference import render_adr_cross_reference
+from arch._models import ADRRef, ADRRefIndex
+from arch.generators.adr_cross_reference import render_adr_cross_reference
 
 
 def test_emits_forward_and_reverse_tables():
@@ -1913,7 +1913,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from src.arch._models import ADRRefIndex
+from arch._models import ADRRefIndex
 
 _HEADER = "# ADR Cross-Reference\n\n"
 _PREAMBLE = (
@@ -1969,8 +1969,8 @@ git commit -m "feat(arch): ADR cross-reference generator (forward + reverse)"
 
 ```python
 # tests/architecture/test_generator_mockworld_map.py
-from src.arch._models import FakeInfo, MockWorldMap
-from src.arch.generators.mockworld_map import render_mockworld_map
+from arch._models import FakeInfo, MockWorldMap
+from arch.generators.mockworld_map import render_mockworld_map
 
 
 def test_emits_table_and_mermaid():
@@ -1999,7 +1999,7 @@ pytest tests/architecture/test_generator_mockworld_map.py -v
 # src/arch/generators/mockworld_map.py
 from __future__ import annotations
 
-from src.arch._models import MockWorldMap
+from arch._models import MockWorldMap
 
 _HEADER = "# MockWorld Map\n\n"
 _PREAMBLE = (
@@ -2072,8 +2072,8 @@ class CommitInfo(BaseModel):
 
 ```python
 # tests/architecture/test_generator_changelog.py
-from src.arch._models import CommitInfo
-from src.arch.generators.changelog import render_changelog
+from arch._models import CommitInfo
+from arch.generators.changelog import render_changelog
 
 
 def test_groups_by_iso_week_descending():
@@ -2108,7 +2108,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date
 
-from src.arch._models import CommitInfo
+from arch._models import CommitInfo
 
 _HEADER = "# Architecture Changelog (last 90 days)\n\n"
 _PREAMBLE = (
@@ -2202,7 +2202,7 @@ def populated_repo(tmp_path: Path):
 
 
 def test_emit_writes_all_eight_artifacts(populated_repo: Path, monkeypatch):
-    from src.arch.runner import emit
+    from arch.runner import emit
     out = populated_repo / "docs/arch/generated"
     emit(repo_root=populated_repo, out_dir=out)
     expected = {"loops.md", "ports.md", "labels.md", "modules.md",
@@ -2212,7 +2212,7 @@ def test_emit_writes_all_eight_artifacts(populated_repo: Path, monkeypatch):
 
 
 def test_check_returns_zero_when_in_sync(populated_repo: Path):
-    from src.arch.runner import emit, check
+    from arch.runner import emit, check
     out = populated_repo / "docs/arch/generated"
     emit(repo_root=populated_repo, out_dir=out)
     rc = check(repo_root=populated_repo, generated_dir=out)
@@ -2220,7 +2220,7 @@ def test_check_returns_zero_when_in_sync(populated_repo: Path):
 
 
 def test_check_returns_one_when_drifted(populated_repo: Path):
-    from src.arch.runner import emit, check
+    from arch.runner import emit, check
     out = populated_repo / "docs/arch/generated"
     emit(repo_root=populated_repo, out_dir=out)
     # Add a new loop AFTER baseline emit
@@ -2254,22 +2254,22 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.arch._models import CommitInfo
-from src.arch.extractors.adr_xref import extract_adr_refs
-from src.arch.extractors.events import extract_event_topology
-from src.arch.extractors.labels import extract_labels
-from src.arch.extractors.loops import extract_loops
-from src.arch.extractors.mockworld import extract_mockworld_map
-from src.arch.extractors.modules import extract_module_graph
-from src.arch.extractors.ports import extract_ports
-from src.arch.generators.adr_cross_reference import render_adr_cross_reference
-from src.arch.generators.changelog import render_changelog
-from src.arch.generators.event_bus import render_event_bus
-from src.arch.generators.label_state import render_label_state
-from src.arch.generators.loop_registry import render_loop_registry
-from src.arch.generators.mockworld_map import render_mockworld_map
-from src.arch.generators.module_graph import render_module_graph
-from src.arch.generators.port_map import render_port_map
+from arch._models import CommitInfo
+from arch.extractors.adr_xref import extract_adr_refs
+from arch.extractors.events import extract_event_topology
+from arch.extractors.labels import extract_labels
+from arch.extractors.loops import extract_loops
+from arch.extractors.mockworld import extract_mockworld_map
+from arch.extractors.modules import extract_module_graph
+from arch.extractors.ports import extract_ports
+from arch.generators.adr_cross_reference import render_adr_cross_reference
+from arch.generators.changelog import render_changelog
+from arch.generators.event_bus import render_event_bus
+from arch.generators.label_state import render_label_state
+from arch.generators.loop_registry import render_loop_registry
+from arch.generators.mockworld_map import render_mockworld_map
+from arch.generators.module_graph import render_module_graph
+from arch.generators.port_map import render_port_map
 
 _ARTIFACT_FILES = ["loops.md", "ports.md", "labels.md", "modules.md",
                    "events.md", "adr_xref.md", "mockworld.md", "changelog.md"]
@@ -2461,7 +2461,7 @@ The runner emits the badge state into the page header in Plan C; Plan A delivers
 # tests/architecture/test_arch_freshness.py
 from datetime import datetime, timedelta, timezone
 
-from src.arch.freshness import FreshnessBadge, compute_badge
+from arch.freshness import FreshnessBadge, compute_badge
 
 
 def test_fresh_when_recent_and_source_unchanged():
@@ -2671,7 +2671,7 @@ from pathlib import Path
 
 import pytest
 
-from src.arch.extractors.loops import extract_loops
+from arch.extractors.loops import extract_loops
 
 
 @pytest.mark.xfail(reason="ADR-0001 is amended in Plan B; remove this xfail once the amendment lands.",
@@ -2722,7 +2722,7 @@ from pathlib import Path
 
 import pytest
 
-from src.arch.runner import check
+from arch.runner import check
 
 
 def test_curated_generated_is_in_sync_with_source(real_repo_root: Path):

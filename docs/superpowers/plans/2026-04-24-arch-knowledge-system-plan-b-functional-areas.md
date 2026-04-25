@@ -162,7 +162,7 @@ def load_functional_areas(yaml_path: "Path") -> FunctionalAreas:  # noqa: F821 �
 - [ ] **Step 2: Verify it imports cleanly**
 
 ```bash
-python -c "from src.arch._functional_areas_schema import FunctionalAreas, load_functional_areas; print('ok')"
+python -c "from arch._functional_areas_schema import FunctionalAreas, load_functional_areas; print('ok')"
 ```
 
 - [ ] **Step 3: Commit**
@@ -188,7 +188,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from src.arch._functional_areas_schema import FunctionalAreas, load_functional_areas
+from arch._functional_areas_schema import FunctionalAreas, load_functional_areas
 
 
 def test_schema_accepts_minimum_valid_doc(tmp_path: Path):
@@ -459,9 +459,9 @@ areas:
 ```bash
 python -c "
 from pathlib import Path
-from src.arch._functional_areas_schema import load_functional_areas
-from src.arch.extractors.loops import extract_loops
-from src.arch.extractors.ports import extract_ports
+from arch._functional_areas_schema import load_functional_areas
+from arch.extractors.loops import extract_loops
+from arch.extractors.ports import extract_ports
 
 fa = load_functional_areas(Path('docs/arch/functional_areas.yml'))
 loops = {l.name for l in extract_loops(Path('src'))}
@@ -518,9 +518,9 @@ The generator reads the YAML + the loop and port extractor outputs, joins them, 
 
 ```python
 # tests/architecture/test_generator_functional_areas.py
-from src.arch._functional_areas_schema import FunctionalArea, FunctionalAreas
-from src.arch._models import LoopInfo, PortInfo
-from src.arch.generators.functional_areas import render_functional_areas
+from arch._functional_areas_schema import FunctionalArea, FunctionalAreas
+from arch._models import LoopInfo, PortInfo
+from arch.generators.functional_areas import render_functional_areas
 
 
 def test_renders_subgraph_per_area_with_members():
@@ -607,8 +607,8 @@ pytest tests/architecture/test_generator_functional_areas.py -v
 """Render the Functional Area Map: Mermaid clusters + per-area detail."""
 from __future__ import annotations
 
-from src.arch._functional_areas_schema import FunctionalAreas
-from src.arch._models import LoopInfo, PortInfo
+from arch._functional_areas_schema import FunctionalAreas
+from arch._models import LoopInfo, PortInfo
 
 _HEADER = "# Functional Area Map\n\n"
 _PREAMBLE = (
@@ -727,9 +727,9 @@ from pathlib import Path
 
 import pytest
 
-from src.arch._functional_areas_schema import load_functional_areas
-from src.arch.extractors.loops import extract_loops
-from src.arch.extractors.ports import extract_ports
+from arch._functional_areas_schema import load_functional_areas
+from arch.extractors.loops import extract_loops
+from arch.extractors.ports import extract_ports
 
 
 def test_every_loop_is_assigned_to_an_area(real_repo_root: Path):
@@ -858,7 +858,7 @@ def test_emit_writes_all_nine_artifacts(populated_repo: Path):
         "    label: Orchestration\n"
         "    description: x\n"
     )
-    from src.arch.runner import emit
+    from arch.runner import emit
     out = populated_repo / "docs/arch/generated"
     emit(repo_root=populated_repo, out_dir=out)
     expected = {"loops.md", "ports.md", "labels.md", "modules.md",
@@ -884,8 +884,8 @@ In `src/arch/runner.py`:
 
 ```python
 # Add the imports
-from src.arch._functional_areas_schema import load_functional_areas
-from src.arch.generators.functional_areas import render_functional_areas
+from arch._functional_areas_schema import load_functional_areas
+from arch.generators.functional_areas import render_functional_areas
 
 # Update the artifact list
 _ARTIFACT_FILES = ["loops.md", "ports.md", "labels.md", "modules.md",
@@ -980,7 +980,7 @@ Append to `Makefile`:
 
 ## arch-validate — validate docs/arch/functional_areas.yml against schema
 arch-validate:
-	@python -c "from src.arch._functional_areas_schema import load_functional_areas; from pathlib import Path; load_functional_areas(Path('docs/arch/functional_areas.yml')); print('functional_areas.yml: ✓ schema valid')"
+	@python -c "from arch._functional_areas_schema import load_functional_areas; from pathlib import Path; load_functional_areas(Path('docs/arch/functional_areas.yml')); print('functional_areas.yml: ✓ schema valid')"
 ```
 
 - [ ] **Step 2: Hook into `make quality`**
