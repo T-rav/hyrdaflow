@@ -1799,6 +1799,18 @@ class HydraFlowConfig(BaseModel):
         le=2_592_000,
         description="Seconds between SkillPromptEvalLoop ticks (default 7d)",
     )
+    skill_prompt_eval_max_corpus_cases: int = Field(
+        default=500,
+        ge=10,
+        le=10_000,
+        description=(
+            "Defense-in-depth cap on adversarial corpus cases per weekly "
+            "tick. Forwarded to the harness via HYDRAFLOW_TRUST_ADVERSARIAL_"
+            "MAX_CASES (pre-spend) and applied as a Python-side sample "
+            "(post-output) to bound operator-visible escalation flooding "
+            "if the harness misses the env var."
+        ),
+    )
 
     # Trust fleet — FakeCoverageAuditorLoop (spec §4.7)
     fake_coverage_auditor_interval: int = Field(

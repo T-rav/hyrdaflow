@@ -19,6 +19,7 @@ import asyncio
 import json
 import logging
 import math
+import os
 import random
 import time
 from typing import TYPE_CHECKING, Any
@@ -70,13 +71,25 @@ class SkillPromptEvalLoop(BaseBackgroundLoop):
         expected_catcher}``. Owned by Plan 1 (`make trust-adversarial
         --format=json`). Missing keys are tolerated — cases without
         ``provenance`` are treated as ``hand-crafted``.
+
+        The ``HYDRAFLOW_TRUST_ADVERSARIAL_MAX_CASES`` env var is
+        forwarded so the harness can bound LLM spend pre-execution
+        when the corpus grows beyond the cap. The Python-side cap
+        below is the operator-visible backstop.
         """
         cmd = ["make", "trust-adversarial", "FORMAT=json"]
+        env = {
+            **os.environ,
+            "HYDRAFLOW_TRUST_ADVERSARIAL_MAX_CASES": str(
+                self._config.skill_prompt_eval_max_corpus_cases
+            ),
+        }
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=self._config.repo_root,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode not in (0, 1):  # 1 = failures present; still valid output
@@ -208,6 +221,22 @@ class SkillPromptEvalLoop(BaseBackgroundLoop):
         cases = await self._run_corpus()
         if not cases:
             return {"status": "no_cases", "filed": 0}
+
+        # Defense-in-depth cap. The harness should honor
+        # HYDRAFLOW_TRUST_ADVERSARIAL_MAX_CASES (passed via env in
+        # _run_corpus) to bound LLM spend pre-execution; this Python-side
+        # cap bounds operator-visible escalation flooding even if the
+        # harness ran more cases than configured. Sample deterministically
+        # using the per-tick seed.
+        cap = self._config.skill_prompt_eval_max_corpus_cases
+        if len(cases) > cap:
+            logger.warning(
+                "skill-prompt-eval: corpus has %d cases, capping to %d",
+                len(cases),
+                cap,
+            )
+            rng = random.Random(int(time.time() * 1_000_000))
+            cases = rng.sample(cases, cap)
 
         # Role 1 — backstop. PASS→FAIL regressions.
         last_green = self._state.get_skill_prompt_last_green()

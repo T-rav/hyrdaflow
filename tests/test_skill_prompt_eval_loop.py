@@ -217,3 +217,40 @@ async def test_kill_switch_short_circuits_do_work(loop_env) -> None:
     assert stats == {"status": "disabled"}
     loop._reconcile_closed_escalations.assert_not_awaited()
     pr.create_issue.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_do_work_caps_corpus_cases(loop_env) -> None:
+    """G6: when corpus exceeds max_corpus_cases, sample down to the cap."""
+    cfg, state, pr, dedup = loop_env
+    # Seed: 1000 cases, all PASS, all fresh — no escalations would fire.
+    cases = [
+        {
+            "case_id": f"c{i}",
+            "skill": "x",
+            "status": "PASS",
+            "provenance": "hand-crafted",
+        }
+        for i in range(1000)
+    ]
+    cfg.skill_prompt_eval_max_corpus_cases = 50
+
+    stop = asyncio.Event()
+    loop = SkillPromptEvalLoop(
+        config=cfg,
+        state=state,
+        pr_manager=pr,
+        dedup=dedup,
+        deps=_deps(stop),
+    )
+    loop._run_corpus = AsyncMock(return_value=cases)
+    state.get_skill_prompt_last_green.return_value = {}
+
+    await loop._do_work()
+
+    # The loop's per-case work should have been called only `cap` times,
+    # not `len(cases)`. We can't easily mock the inner loop, so instead
+    # we assert the new logger.warning fired by checking caplog if
+    # available, or count attempts. Simpler: assert state inc was
+    # called <= cap times.
+    assert state.inc_skill_prompt_attempts.call_count <= 50
