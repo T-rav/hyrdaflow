@@ -615,7 +615,7 @@ async def test_async_fail_logs_at_warning_not_error(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Transient subprocess failures with raise_on_failure=False log at WARNING,
-    not ERROR, to avoid flooding Sentry (docs/agents/sentry.md).
+    not ERROR, to avoid flooding Sentry (docs/wiki/patterns.md).
     """
     from auto_pr import open_automated_pr_async
 

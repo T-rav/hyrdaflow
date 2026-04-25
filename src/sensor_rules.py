@@ -5,7 +5,7 @@ output is captured from a subprocess and match either a file-change
 pattern or an error-regex pattern.
 
 Rules seeded here mirror the rule bullets in
-``docs/agents/avoided-patterns.md``. Adding a new avoided pattern?
+``docs/wiki/gotchas.md``. Adding a new avoided pattern?
 Add both a section to that doc AND a rule here — the sensor enricher
 will surface the hint the next time the matching failure occurs.
 
@@ -29,7 +29,7 @@ SEED_RULES: list[Rule] = [
             "commonly break exact-match serialization tests. Grep `tests/` "
             "for the model name and update `model_dump()` assertions and "
             "expected-key sets in smoke tests. "
-            "See docs/agents/avoided-patterns.md — 'Pydantic field "
+            "See docs/wiki/gotchas.md — 'Pydantic field "
             "additions without updating serialization tests'."
         ),
     ),
@@ -44,7 +44,7 @@ SEED_RULES: list[Rule] = [
             "An optional dependency (hindsight/httpx) failed to import at "
             "collection time. Move the import inside the test method "
             "instead of a module-level `from ... import ...`. "
-            "See docs/agents/avoided-patterns.md — 'Top-level imports of "
+            "See docs/wiki/gotchas.md — 'Top-level imports of "
             "optional dependencies in test files'."
         ),
     ),
@@ -58,7 +58,7 @@ SEED_RULES: list[Rule] = [
             "enforces entries in src/service_registry.py, src/orchestrator.py, "
             "src/ui/src/constants.js, src/dashboard_routes/_common.py, and "
             "src/config.py. Confirm all five are updated before committing. "
-            "See docs/agents/background-loops.md."
+            "See docs/wiki/architecture.md."
         ),
     ),
     Rule(
@@ -75,7 +75,7 @@ SEED_RULES: list[Rule] = [
             "X itself). Python imports bind names into the importing "
             "module's namespace; a patch at the definition site does not "
             "affect local bindings. "
-            "See docs/agents/avoided-patterns.md — 'Mocking at the wrong level'."
+            "See docs/wiki/gotchas.md — 'Mocking at the wrong level'."
         ),
     ),
     Rule(
@@ -92,7 +92,7 @@ SEED_RULES: list[Rule] = [
             "are truthy by default, and some objects implement `__bool__`, "
             "so the falsy branch does not fire reliably. Use explicit "
             "`if self._x is None:` instead. "
-            "See docs/agents/avoided-patterns.md — 'Falsy checks on "
+            "See docs/wiki/gotchas.md — 'Falsy checks on "
             "optional objects'."
         ),
     ),
@@ -110,7 +110,7 @@ SEED_RULES: list[Rule] = [
             "imported. If the name is consumed from another module, promote "
             "it to public (drop the leading underscore). If it's a truly "
             "unused loop/positional variable, rename to bare `_`. "
-            "See docs/agents/avoided-patterns.md — 'Underscore-prefixed "
+            "See docs/wiki/gotchas.md — 'Underscore-prefixed "
             "names imported across modules' and '`_name` for unused loop "
             "variables'."
         ),
@@ -130,7 +130,7 @@ SEED_RULES: list[Rule] = [
             "as the format string (e.g. `logger.error(msg)` instead of "
             '`logger.error("%s", msg)`). Pass a literal format string '
             "first, the values after. "
-            "See docs/agents/avoided-patterns.md — '`logger.error(value)` "
+            "See docs/wiki/gotchas.md — '`logger.error(value)` "
             "without a format string'."
         ),
     ),
@@ -147,7 +147,7 @@ SEED_RULES: list[Rule] = [
             "check whether a parallel Python constant needs updating — or "
             "better, replace the constant with a runtime scan of the "
             "authoritative source. "
-            "See docs/agents/avoided-patterns.md — 'Hardcoded path lists "
+            "See docs/wiki/gotchas.md — 'Hardcoded path lists "
             "that duplicate filesystem state'."
         ),
     ),

@@ -134,7 +134,7 @@ def test_principle_filter_scopes_remediations() -> None:
 
 def test_prompt_cites_source_for_each_finding() -> None:
     findings = [_finding(check_id="P5.7")]
-    findings[0]["source"] = "docs/agents/quality-gates.md"
+    findings[0]["source"] = "docs/wiki/patterns.md"
     output = render(
         target="/repo",
         findings=findings,
@@ -143,7 +143,7 @@ def test_prompt_cites_source_for_each_finding() -> None:
         principle_filter=None,
         skip_brainstorm=False,
     )
-    assert "docs/agents/quality-gates.md" in output
+    assert "docs/wiki/patterns.md" in output
     assert "Source:" in output
 
 

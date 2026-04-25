@@ -34,7 +34,7 @@ from tests.helpers import make_implement_phase, make_plan_phase
 def _falsy_mock(**kwargs):
     """Return a MagicMock whose bool() is False.
 
-    This simulates the scenario described in docs/agents/avoided-patterns.md
+    This simulates the scenario described in docs/wiki/gotchas.md
     where a mock with spec= or a custom __bool__ evaluates as falsy, causing
     ``if obj and ...`` to skip the branch even though ``obj is not None``.
     """

@@ -182,12 +182,12 @@ Beyond the five pipeline stages, HydraFlow runs background loops for operational
 - **ADR reviewer** — council-based Architecture Decision Record reviews
 - **Report issue** — processes bug reports with screenshot scanning
 
-Each loop that dispatches an LLM call has its own `HYDRAFLOW_*_MODEL` env var for cost tuning (report_issue, sentry, code_grooming, adr_review, memory_judge, memory_compaction, wiki_compilation, transcript_summary). See [docs/agents/background-loops.md](docs/agents/background-loops.md) for the full table and the `HYDRAFLOW_BACKGROUND_MODEL` cascade behavior.
+Each loop that dispatches an LLM call has its own `HYDRAFLOW_*_MODEL` env var for cost tuning (report_issue, sentry, code_grooming, adr_review, memory_judge, memory_compaction, wiki_compilation, transcript_summary). See [docs/wiki/architecture.md](docs/wiki/architecture.md) for the full table and the `HYDRAFLOW_BACKGROUND_MODEL` cascade behavior.
 
 ### Self-improving harness
 
 This repo includes a harnessed self-improvement loop (observation + session retro + memory candidate artifacts).
-See [docs/self-improving-harness.md](docs/self-improving-harness.md) for imported skills and runtime behavior.
+See [docs/wiki/architecture.md](docs/wiki/architecture.md) for imported skills and runtime behavior.
 
 ## Issue Flow Labels
 
@@ -307,7 +307,7 @@ Running HydraFlow as a 24/7 EC2 service is supported out-of-the-box:
 - `/etc/hydraflow.env` (override with `RUNTIME_ENV_FILE`) is sourced automatically so manual `run` commands and systemd share credentials/config.
 - `deploy/ec2/deploy-hydraflow.sh install` copies the unit into `/etc/systemd/system` (or your custom `SYSTEMD_DIR`) and runs the required `systemctl enable --now` incantations.
 
-See [docs/deployment/ec2.md](docs/deployment/ec2.md) for the full playbook, including how to bind the dashboard to `0.0.0.0` using the new `HYDRAFLOW_DASHBOARD_HOST` config knob and how to scope your EC2 security group safely.
+See [docs/wiki/architecture.md](docs/wiki/architecture.md) for the full playbook, including how to bind the dashboard to `0.0.0.0` using the new `HYDRAFLOW_DASHBOARD_HOST` config knob and how to scope your EC2 security group safely.
 
 ## Contributing
 

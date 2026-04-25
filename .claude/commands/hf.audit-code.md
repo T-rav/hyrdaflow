@@ -20,7 +20,7 @@ Run a comprehensive code quality audit across the entire repo. Dynamically analy
    - **Agent 2: Method size, class cohesion & duplication** — Enforces small methods, single-concept classes, and DRY.
    - **Agent 3: Error handling & robustness** — Finds bare excepts, swallowed errors, missing error paths, and fragile patterns.
    - **Agent 4: Type safety & API consistency** — Finds missing type annotations, `Any` overuse, inconsistent return types, and public API gaps.
-   - **Agent 5: Convention drift & over-engineering** — Reads `docs/agents/avoided-patterns.md` (or CLAUDE.md fallback) at runtime and sweeps the codebase for documented avoided patterns plus over-engineering accumulation.
+   - **Agent 5: Convention drift & over-engineering** — Reads `docs/wiki/gotchas.md` (or CLAUDE.md fallback) at runtime and sweeps the codebase for documented avoided patterns plus over-engineering accumulation.
 
 4. Wait for all agents to complete.
 5. After all finish, run `gh issue list --repo $REPO --label $LABEL --state open --search "code quality" --limit 200` to show the user a final summary of all issues created.
@@ -437,7 +437,7 @@ You are a code quality auditor focused on convention drift and over-engineering 
 ## Steps
 
 ### Phase 1: Load project conventions
-1. Read `docs/agents/avoided-patterns.md`. If that file does not exist, fall back to the "Avoided Patterns" section of `CLAUDE.md`.
+1. Read `docs/wiki/gotchas.md`. If that file does not exist, fall back to the "Avoided Patterns" section of `CLAUDE.md`.
 2. Parse out each documented avoided pattern — title + description + (when provided) detection heuristic.
 3. Cache each pattern as a `(id, description, detection_strategy)` triple for the sweep below.
 
@@ -485,19 +485,19 @@ For each pattern from Phase 1, scan the codebase for violations. Current known p
 ## Findings
 | Pattern | File:Line | Details |
 |---------|-----------|---------|
-| <pattern id from avoided-patterns.md or over-engineering category> | <path:line> | <what was found and why it violates> |
+| <pattern id from gotchas.md or over-engineering category> | <path:line> | <what was found and why it violates> |
 
 ## Suggested Fixes
 - [ ] <file:line> — <specific remediation>
 
 ## Acceptance Criteria
 - [ ] All listed violations are remediated
-- [ ] `docs/agents/avoided-patterns.md` is updated if a new pattern is discovered
+- [ ] `docs/wiki/gotchas.md` is updated if a new pattern is discovered
 - [ ] All existing tests pass (`make test`)
 - [ ] No new lint or type errors (`make quality-lite`)
 
 ## Reference
-See `docs/agents/avoided-patterns.md` for the canonical rule descriptions.
+See `docs/wiki/gotchas.md` for the canonical rule descriptions.
 ```
 
 ## Grouping Strategy
@@ -515,7 +515,7 @@ See `docs/agents/avoided-patterns.md` for the canonical rule descriptions.
 Only `high` and `medium` findings are filed as issues by the grooming loop — `low` findings are logged for trend analysis but not turned into work.
 
 ## Keep-in-sync principle
-This agent reads `docs/agents/avoided-patterns.md` at runtime. Adding a new avoided pattern to that doc automatically adds it to the next sweep — no code change needed here. If you find yourself hardcoding a new pattern in this prompt, STOP and add it to the doc instead.
+This agent reads `docs/wiki/gotchas.md` at runtime. Adding a new avoided pattern to that doc automatically adds it to the next sweep — no code change needed here. If you find yourself hardcoding a new pattern in this prompt, STOP and add it to the doc instead.
 
 Emit findings as JSON objects (one per theme) matching the schema parsed by `src/code_grooming_loop.py::_FINDING_RE`:
   `{"id": "<stable hash>", "severity": "high|medium|low", "title": "...", "description": "<markdown>"}`

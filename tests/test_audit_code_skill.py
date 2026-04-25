@@ -50,14 +50,14 @@ class TestAuditCodeSkillStructure:
 
 class TestAgent5ConventionDrift:
     def test_agent5_reads_avoided_patterns_doc_at_runtime(self) -> None:
-        """Agent 5 must read docs/agents/avoided-patterns.md, not hardcode rules."""
+        """Agent 5 must read docs/wiki/gotchas.md, not hardcode rules."""
         content = _read_skill()
         # The Agent 5 body must mention reading the canonical doc.
         agent5_start = content.find("## Agent 5:")
         assert agent5_start != -1
         agent5_body = content[agent5_start:]
-        assert "docs/agents/avoided-patterns.md" in agent5_body, (
-            "Agent 5 must reference docs/agents/avoided-patterns.md as the "
+        assert "docs/wiki/gotchas.md" in agent5_body, (
+            "Agent 5 must reference docs/wiki/gotchas.md as the "
             "runtime source of rules. Do not hardcode patterns in the prompt."
         )
 

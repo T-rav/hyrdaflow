@@ -53,7 +53,7 @@ def _header(
         f"- NOT_IMPLEMENTED: {summary.get('not_implemented', 0)}",
         f"- Total checks: {summary.get('total', 0)}",
         "",
-        "> Every remediation cites the ADR or `docs/agents/` source. Read the",
+        "> Every remediation cites the ADR or `docs/wiki/` source. Read the",
         "> citation before editing — the paraphrase below is a pointer, not the spec.",
         "",
     ]

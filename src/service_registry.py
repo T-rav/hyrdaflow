@@ -262,12 +262,22 @@ def build_services(
     # Core runners
     workspaces = WorkspaceManager(config, credentials=credentials)  # noqa: F841
     subprocess_runner = get_docker_runner(config, credentials=credentials)
+    # The self-repo's wiki lives at ``docs/wiki/`` so it is
+    # git-tracked alongside the code it documents. Other managed repos'
+    # wikis are runtime-cached under ``.hydraflow/repo_wiki/<owner>/<repo>/``.
+    self_wiki_root = config.repo_root / "docs" / "wiki"
+    if not self_wiki_root.exists():
+        # Fallback for repos that haven't migrated yet: keep the legacy
+        # runtime-only location so this PR's restructure stays backward
+        # compatible with managed-repo deployments.
+        self_wiki_root = config.data_path("repo_wiki")
     repo_wiki_store = RepoWikiStore(
-        wiki_root=config.data_path("repo_wiki"),
+        wiki_root=self_wiki_root,
         # Phase 3: per-entry tracked layout committed inside the target
         # repo. Prefer it over the legacy .hydraflow/repo_wiki/ when
         # present so agents read the same wiki that the factory writes.
         tracked_root=config.repo_root / config.repo_wiki_path,
+        self_slug=config.repo,
     )
     from tribal_wiki import TribalWikiStore  # noqa: PLC0415
     from wiki_compiler import WikiCompiler  # noqa: PLC0415

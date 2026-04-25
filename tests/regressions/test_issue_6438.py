@@ -10,7 +10,7 @@ Locations:
   - ``src/sentry_loop.py:74``   — ``if not self._store:``
   - ``src/dolt_backend.py:42``  — ``if not self._dolt:``
 
-Convention: ``docs/agents/avoided-patterns.md`` — "Falsy checks on optional
+Convention: ``docs/wiki/gotchas.md`` — "Falsy checks on optional
 objects".
 
 This test is RED against the current (buggy) code.

@@ -95,7 +95,7 @@ class Rule:
         trigger: The condition that decides whether the rule fires.
         hint: Short prose appended to the Agent Hints block. Should
             reference a doc anchor when possible (e.g.
-            ``docs/agents/avoided-patterns.md#...``).
+            ``docs/wiki/gotchas.md#...``).
     """
 
     id: str

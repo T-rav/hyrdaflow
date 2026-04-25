@@ -29,14 +29,12 @@ def _run(check_id: str, ctx: CheckContext):
     ("check_id", "relpath"),
     [
         ("P1.1", "CLAUDE.md"),
-        ("P1.2", "docs/agents/README.md"),
-        ("P1.3", "docs/agents/architecture.md"),
-        ("P1.4", "docs/agents/worktrees.md"),
-        ("P1.5", "docs/agents/testing.md"),
-        ("P1.6", "docs/agents/avoided-patterns.md"),
-        ("P1.7", "docs/agents/quality-gates.md"),
-        ("P1.9", "docs/agents/sentry.md"),
-        ("P1.10", "docs/agents/commands.md"),
+        ("P1.2", "docs/wiki/index.md"),
+        ("P1.3", "docs/wiki/architecture.md"),
+        ("P1.4", "docs/wiki/gotchas.md"),
+        ("P1.5", "docs/wiki/testing.md"),
+        ("P1.6", "docs/wiki/patterns.md"),
+        ("P1.7", "docs/wiki/dependencies.md"),
     ],
 )
 def test_simple_file_exists_check_passes_when_file_present(
@@ -128,22 +126,20 @@ def test_load_bearing_adrs_pass_when_all_present(tmp_path: Path) -> None:
     assert _run("P1.14", _ctx(tmp_path, orchestration=True)).status is Status.PASS
 
 
-def test_avoided_patterns_content_fails_on_stub(tmp_path: Path) -> None:
-    (tmp_path / "docs" / "agents").mkdir(parents=True)
-    (tmp_path / "docs" / "agents" / "avoided-patterns.md").write_text(
-        "# Avoided patterns\n\ntodo.\n", encoding="utf-8"
+def test_gotchas_content_fails_on_stub(tmp_path: Path) -> None:
+    (tmp_path / "docs" / "wiki").mkdir(parents=True)
+    (tmp_path / "docs" / "wiki" / "gotchas.md").write_text(
+        "# Gotchas\n\ntodo.\n", encoding="utf-8"
     )
     assert _run("P1.15", _ctx(tmp_path)).status is Status.FAIL
 
 
-def test_avoided_patterns_content_passes_when_populated(tmp_path: Path) -> None:
-    body = "# Avoided patterns\n\n" + "\n".join(
-        f"## Pattern {i}\n\n```python\nbad()\n```\n" for i in range(1, 6)
+def test_gotchas_content_passes_when_populated(tmp_path: Path) -> None:
+    body = "# Gotchas\n\n" + "\n".join(
+        f"## Gotcha {i}\n\nDescription.\n" for i in range(1, 6)
     )
-    (tmp_path / "docs" / "agents").mkdir(parents=True)
-    (tmp_path / "docs" / "agents" / "avoided-patterns.md").write_text(
-        body, encoding="utf-8"
-    )
+    (tmp_path / "docs" / "wiki").mkdir(parents=True)
+    (tmp_path / "docs" / "wiki" / "gotchas.md").write_text(body, encoding="utf-8")
     assert _run("P1.15", _ctx(tmp_path)).status is Status.PASS
 
 
