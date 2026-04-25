@@ -123,20 +123,35 @@ class StagingBisectLoop(BaseBackgroundLoop):
             self._last_processed_rc_red_sha = red_sha
             return {"status": "already_processed", "sha": red_sha}
 
-        # Flake filter — second probe against the red head (spec §4.3 step 1).
-        probe_passed, probe_output = await self._run_bisect_probe(red_sha)
-        if probe_passed:
-            logger.warning(
-                "StagingBisectLoop: second probe passed for %s — dismissing as flake",
-                red_sha,
-            )
-            self._state.increment_flake_reruns_total()
-            self._processed_dedup.add(red_sha)
-            self._last_processed_rc_red_sha = red_sha
-            return {"status": "flake_dismissed", "sha": red_sha}
+        # Flake filter — 2-of-3 logic per spec §4.3 step 1 (line 614):
+        # "re-run the RC gate's scenario suite against the RC PR's head
+        # up to two additional times. Apply 2-out-of-3 logic: if either
+        # retry passes and the original failed, treat as flake. If both
+        # retries also fail, the red is confirmed and bisect proceeds.
+        # Single-retry flake filters miscall ~50% of flakes as real
+        # regressions and over-trigger auto-revert; 2-of-3 is the
+        # minimum defensible bar." (G16 in audit pass 2.)
+        retries = self._config.staging_bisect_flake_reruns
+        last_probe_output = ""
+        for attempt in range(retries):
+            probe_passed, probe_output = await self._run_bisect_probe(red_sha)
+            last_probe_output = probe_output
+            if probe_passed:
+                logger.warning(
+                    "StagingBisectLoop: probe %d/%d passed for %s — "
+                    "dismissing as flake (2-of-3 logic)",
+                    attempt + 1,
+                    retries,
+                    red_sha,
+                )
+                self._state.increment_flake_reruns_total()
+                self._processed_dedup.add(red_sha)
+                self._last_processed_rc_red_sha = red_sha
+                return {"status": "flake_dismissed", "sha": red_sha}
 
-        # Confirmed red — run the full bisect + revert + retry pipeline.
-        result = await self._run_full_bisect_pipeline(red_sha, probe_output)
+        # All retries also failed — confirmed red. Run the full
+        # bisect + revert + retry pipeline.
+        result = await self._run_full_bisect_pipeline(red_sha, last_probe_output)
         self._processed_dedup.add(red_sha)
         self._last_processed_rc_red_sha = red_sha
         return result

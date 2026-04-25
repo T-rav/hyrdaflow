@@ -23,7 +23,6 @@ replay-gate wiring, plus the Task 20 per-loop telemetry emission:
 from __future__ import annotations
 
 import asyncio
-import subprocess
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -139,41 +138,61 @@ def _stub_recording(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _stub_make_trust_contracts_ok(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
-    """Stub ``subprocess.run`` used for ``make trust-contracts`` to return ok.
+    """Stub ``asyncio.create_subprocess_exec`` for ``make trust-contracts`` ok.
+
+    G14: the replay gate is async (asyncio.create_subprocess_exec). This
+    stub returns a fake process whose ``communicate()`` resolves to
+    canned bytes and whose ``returncode`` reads as 0.
 
     Returns a mutable list of invoked argv for assertions.
     """
     calls: list[list[str]] = []
-
-    def _fake_run(
-        argv: list[str], *_a: Any, **_k: Any
-    ) -> subprocess.CompletedProcess[str]:
-        calls.append(list(argv))
-        return subprocess.CompletedProcess(
-            args=argv, returncode=0, stdout="ok", stderr=""
-        )
-
-    monkeypatch.setattr(crl_module.subprocess, "run", _fake_run)
-    return calls
+    return _install_async_subprocess_stub(
+        monkeypatch, calls, returncode=0, stdout=b"ok", stderr=b""
+    )
 
 
 def _stub_make_trust_contracts_fail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> list[list[str]]:
     calls: list[list[str]] = []
+    return _install_async_subprocess_stub(
+        monkeypatch,
+        calls,
+        returncode=2,
+        stdout=b"FAILED tests/trust/contracts/test_fake_git_contract.py",
+        stderr=b"replay mismatch",
+    )
 
-    def _fake_run(
-        argv: list[str], *_a: Any, **_k: Any
-    ) -> subprocess.CompletedProcess[str]:
+
+def _install_async_subprocess_stub(
+    monkeypatch: pytest.MonkeyPatch,
+    calls: list[list[str]],
+    *,
+    returncode: int,
+    stdout: bytes,
+    stderr: bytes,
+) -> list[list[str]]:
+    class _FakeProc:
+        def __init__(self) -> None:
+            self.returncode = returncode
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return stdout, stderr
+
+        async def wait(self) -> int:
+            return returncode
+
+        def kill(self) -> None:
+            pass
+
+    async def _fake_create_subprocess_exec(*argv: str, **_kwargs: Any) -> _FakeProc:
         calls.append(list(argv))
-        return subprocess.CompletedProcess(
-            args=argv,
-            returncode=2,
-            stdout="FAILED tests/trust/contracts/test_fake_git_contract.py",
-            stderr="replay mismatch",
-        )
+        return _FakeProc()
 
-    monkeypatch.setattr(crl_module.subprocess, "run", _fake_run)
+    monkeypatch.setattr(
+        crl_module.asyncio, "create_subprocess_exec", _fake_create_subprocess_exec
+    )
     return calls
 
 

@@ -696,3 +696,62 @@ class TestG10RetryLineageState:
     ) -> None:
         cfg = _make_cfg(tmp_path, monkeypatch)
         assert cfg.max_retry_lineage_attempts == 2
+
+
+class TestG16FlakeFilterTwoOfThree:
+    """G16: spec §4.3 mandates 2-of-3 flake filter (config default 2 retries)."""
+
+    @pytest.mark.asyncio
+    async def test_second_probe_passes_dismisses_as_flake_after_one_retry(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, _prs, state = _make_loop(tmp_path, monkeypatch)
+        state.set_last_rc_red_sha_and_bump_cycle("redA")
+        # First retry passes — flake dismissed without running the second.
+        loop._run_bisect_probe = AsyncMock(return_value=(True, ""))  # type: ignore[attr-defined]
+        result = await loop._do_work()  # type: ignore[attr-defined]
+        assert result["status"] == "flake_dismissed"
+        assert state.get_flake_reruns_total() == 1
+        loop._run_bisect_probe.assert_awaited_once_with("redA")  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_first_retry_fails_second_passes_dismisses_as_flake(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, _prs, state = _make_loop(tmp_path, monkeypatch)
+        state.set_last_rc_red_sha_and_bump_cycle("redB")
+        # First retry fails (still red), second retry passes — 2-of-3 → flake.
+        loop._run_bisect_probe = AsyncMock(  # type: ignore[attr-defined]
+            side_effect=[(False, "fail"), (True, "")]
+        )
+        result = await loop._do_work()  # type: ignore[attr-defined]
+        assert result["status"] == "flake_dismissed"
+        assert state.get_flake_reruns_total() == 1
+        assert loop._run_bisect_probe.await_count == 2  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_both_retries_fail_proceeds_to_bisect(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, _prs, state = _make_loop(tmp_path, monkeypatch)
+        state.set_last_rc_red_sha_and_bump_cycle("redC")
+        # Both retries fail → confirmed red, bisect runs.
+        loop._run_bisect_probe = AsyncMock(  # type: ignore[attr-defined]
+            side_effect=[(False, "fail-1"), (False, "fail-2")]
+        )
+        loop._run_full_bisect_pipeline = AsyncMock(  # type: ignore[attr-defined]
+            return_value={"status": "reverted"}
+        )
+        result = await loop._do_work()  # type: ignore[attr-defined]
+        assert result["status"] == "reverted"
+        assert state.get_flake_reruns_total() == 0
+        # Both retries ran before bisect.
+        assert loop._run_bisect_probe.await_count == 2  # type: ignore[attr-defined]
+
+
+def test_staging_bisect_flake_reruns_config_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """G16: config default per spec §4.3 = 2."""
+    cfg = _make_cfg(tmp_path, monkeypatch)
+    assert cfg.staging_bisect_flake_reruns == 2

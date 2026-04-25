@@ -558,7 +558,13 @@ class CorpusLearningLoop(BaseBackgroundLoop):
             pr_title=title,
             pr_body=body,
             base=self._config.base_branch(),
-            auto_merge=False,
+            # Spec §4.1 v2: "Rationale for auto-merge: a new corpus
+            # case is a new test, not a production-code change. The
+            # self-validation gate proves the case actually catches
+            # what it claims to catch; `make quality` enforces the
+            # usual quality bar. Holding these PRs for human review
+            # contradicts §3.2." Auto-merge through the standard gate.
+            auto_merge=True,
             labels=list(_CASE_PR_LABELS),
             gh_token="",
             raise_on_failure=False,

@@ -45,6 +45,7 @@ Spec: ``docs/superpowers/specs/2026-04-22-trust-architecture-hardening-design.md
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -367,59 +368,51 @@ class ContractRefreshLoop(BaseBackgroundLoop):
     # Replay gate (Task 16)
     # ------------------------------------------------------------------
 
-    def _run_replay_gate(self) -> subprocess.CompletedProcess[str]:
+    async def _run_replay_gate(self) -> subprocess.CompletedProcess[str]:
         """Invoke ``make trust-contracts`` and capture its output.
 
-        Synchronous on purpose: the refresh tick runs once a week and
-        wrapping this in ``asyncio.create_subprocess_exec`` would add
-        complexity for no real benefit.
+        Async (G14): the replay gate can take up to
+        ``_REPLAY_GATE_TIMEOUT_SECONDS`` (5 min). The earlier
+        synchronous implementation called ``subprocess.run`` from the
+        async ``_do_work`` path, freezing the event loop for the whole
+        duration. Use ``asyncio.create_subprocess_exec`` so other
+        loops keep ticking while the replay gate runs.
 
         Task 20 wraps the call in
-        :func:`trace_collector.emit_loop_subprocess_trace` so the replay
-        gate's exit code + stderr tail land on the fleet-observability
+        :func:`trace_collector.emit_loop_subprocess_trace` so the
+        gate's exit + stderr tail land on the fleet-observability
         stream regardless of whether a companion issue fires.
 
-        Hard timeout defends the orchestrator: a hung recording cassette
-        (network call inside a recorder, zombie subprocess, etc.) must
-        not stall the entire async event loop indefinitely. On
-        ``TimeoutExpired`` we synthesize a non-zero CompletedProcess so
-        the caller routes the timeout through the fake-drift companion
-        path.
+        Hard timeout defends the orchestrator: a hung recording
+        cassette must not stall the entire async event loop. On
+        ``TimeoutError`` we synthesize a non-zero CompletedProcess so
+        the caller routes the timeout through the fake-drift
+        companion path (returncode=124, the bash timeout convention).
         """
         cmd = ["make", "trust-contracts"]
         t0 = time.perf_counter()
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=str(self._config.repo_root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
         try:
-            proc = subprocess.run(  # noqa: S603
-                cmd,
-                cwd=str(self._config.repo_root),
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=_REPLAY_GATE_TIMEOUT_SECONDS,
+            stdout_b, stderr_b = await asyncio.wait_for(
+                proc.communicate(), timeout=_REPLAY_GATE_TIMEOUT_SECONDS
             )
-        except subprocess.TimeoutExpired as exc:
+        except TimeoutError:
+            proc.kill()
+            await proc.wait()
             logger.warning(
                 "Replay gate timed out after %ss; treating as failure",
                 _REPLAY_GATE_TIMEOUT_SECONDS,
             )
-            stdout_txt = (
-                exc.stdout.decode()
-                if isinstance(exc.stdout, bytes)
-                else (exc.stdout or "")
-            )
-            stderr_txt = (
-                exc.stderr.decode()
-                if isinstance(exc.stderr, bytes)
-                else (exc.stderr or "")
-            )
             timeout_proc = subprocess.CompletedProcess(
-                args=list(exc.cmd)
-                if isinstance(exc.cmd, list | tuple)
-                else [str(exc.cmd)],
+                args=cmd,
                 returncode=124,  # standard bash convention for timeouts
-                stdout=stdout_txt,
-                stderr=stderr_txt
-                + f"\n[replay-gate-timeout {_REPLAY_GATE_TIMEOUT_SECONDS}s]",
+                stdout="",
+                stderr=f"[replay-gate-timeout {_REPLAY_GATE_TIMEOUT_SECONDS}s]",
             )
             duration_ms = int((time.perf_counter() - t0) * 1000)
             trace_collector.emit_loop_subprocess_trace(
@@ -427,18 +420,26 @@ class ContractRefreshLoop(BaseBackgroundLoop):
                 command=cmd,
                 exit_code=124,
                 duration_ms=duration_ms,
-                stderr_excerpt=(timeout_proc.stderr or "").strip() or None,
+                stderr_excerpt=timeout_proc.stderr,
             )
             return timeout_proc
+        stdout_txt = (stdout_b or b"").decode(errors="replace")
+        stderr_txt = (stderr_b or b"").decode(errors="replace")
+        result = subprocess.CompletedProcess(
+            args=cmd,
+            returncode=proc.returncode if proc.returncode is not None else -1,
+            stdout=stdout_txt,
+            stderr=stderr_txt,
+        )
         duration_ms = int((time.perf_counter() - t0) * 1000)
         trace_collector.emit_loop_subprocess_trace(
             loop=self._worker_name,
             command=cmd,
-            exit_code=proc.returncode,
+            exit_code=result.returncode,
             duration_ms=duration_ms,
-            stderr_excerpt=(proc.stderr or "").strip() or None,
+            stderr_excerpt=stderr_txt.strip() or None,
         )
-        return proc
+        return result
 
     async def _file_fake_drift_issue(
         self,
@@ -646,7 +647,7 @@ class ContractRefreshLoop(BaseBackgroundLoop):
 
         # Task 16 — replay gate. Only filed as fake-drift when the replay
         # suite fails after the refresh PR has been opened.
-        replay_proc = self._run_replay_gate()
+        replay_proc = await self._run_replay_gate()
         fake_drift_issue: int | None = None
         if replay_proc.returncode != 0:
             adapters_drifted = sorted({r.adapter for r in fleet.reports})

@@ -1502,6 +1502,19 @@ class HydraFlowConfig(BaseModel):
             "On timeout the loop files hitl-escalation bisect-harness-failure."
         ),
     )
+    staging_bisect_flake_reruns: int = Field(
+        default=2,
+        ge=1,
+        le=5,
+        description=(
+            "Number of additional bisect-probe runs the flake filter "
+            "executes before declaring an RC red confirmed (spec §4.3 "
+            "line 614). Default 2 enables 2-of-3 logic: any retry passing "
+            "dismisses as flake; both retries failing confirms the red. "
+            "Single-retry filters miscall ~50% of flakes as real "
+            "regressions; this is the minimum defensible bar."
+        ),
+    )
     max_retry_lineage_attempts: int = Field(
         default=2,
         ge=1,
@@ -1896,6 +1909,18 @@ class HydraFlowConfig(BaseModel):
             "Surplus validated cases defer to the next tick."
         ),
     )
+    corpus_learning_synthesis_model: str = Field(
+        default="opus",
+        description=(
+            "LLM model the CorpusLearningLoop uses to synthesize new "
+            "adversarial cases (spec §4.1 v2). Must be distinct from "
+            "the production post-impl skill model — synthesizing with "
+            "the same model that the corpus is meant to test creates "
+            "correlated failure (the synthesis model's blind spots "
+            "won't surface in the corpus). Default `opus` against "
+            "production `sonnet`."
+        ),
+    )
 
     # Trust fleet — ContractRefreshLoop (spec §4.2)
     contract_refresh_interval: int = Field(
@@ -1911,6 +1936,14 @@ class HydraFlowConfig(BaseModel):
         description=(
             "Max per-adapter consecutive drift ticks before ContractRefreshLoop "
             "escalates a fake-drift issue to hitl-escalation (spec §4.2 Task 18)."
+        ),
+    )
+    contracts_sandbox_repo: str = Field(
+        default="T-rav-Hydra-Ops/hydraflow-contracts-sandbox",
+        description=(
+            "GitHub slug for the sandbox repo ContractRefreshLoop's "
+            "FakeGitHub recorder hits when re-recording cassettes "
+            "(spec §8). Override if the sandbox org is renamed."
         ),
     )
 
