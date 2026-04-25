@@ -796,7 +796,47 @@ class StagingBisectLoop(BaseBackgroundLoop):
         bisect_log: str,
         revert_pr_url: str,
     ) -> int:
-        """File a ``hydraflow-find`` retry issue and return its number."""
+        """File a retry issue, OR a `retry-lineage-exhausted` escalation
+        when this work item's lineage has been retried too many times.
+
+        Spec §4.3 (lines 645–659): a "lineage" is a hash of the
+        culprit-PR title + the impacted-test set. Each retry of the
+        same lineage increments `retry_lineage_attempts`. Once the
+        counter exceeds `max_retry_lineage_attempts` (default 2), the
+        loop stops retrying and files an `hitl-escalation` +
+        `retry-lineage-exhausted` issue. Bounds infinite churn when a
+        bug is intrinsic to the work item, not the commit.
+        """
+        lineage_id = self._compute_lineage_id(culprit_pr_title, failing_tests)
+        attempts = self._state.increment_retry_lineage_attempts(lineage_id)
+        cap = self._config.max_retry_lineage_attempts
+        if attempts > cap:
+            title = (
+                f"Retry lineage exhausted: {culprit_pr_title or f'PR #{culprit_pr}'}"
+            )
+            body = (
+                f"## Lineage exhausted\n\n"
+                f"This work item's lineage `{lineage_id}` has hit "
+                f"`{attempts}` retry attempts (cap "
+                f"`max_retry_lineage_attempts={cap}`).\n\n"
+                f"- Original PR: #{culprit_pr} (`{culprit_sha}`)\n"
+                f"- Last reverted PR: {revert_pr_url}\n"
+                f"- Failing tests (this attempt): {failing_tests}\n\n"
+                "The factory has tried the bisect → revert → retry "
+                "loop more times than the spec's safety bound allows. "
+                "The defect is likely intrinsic to the work item "
+                "rather than the commit; a human needs to look.\n\n"
+                "Closing this issue clears the lineage counter "
+                "(spec §3.2 lifecycle).\n\n"
+                "### Last bisect log\n\n"
+                f"```\n{bisect_log[:5000]}\n```"
+            )
+            return await self._prs.create_issue(
+                title,
+                body,
+                ["hitl-escalation", "retry-lineage-exhausted"],
+            )
+
         title = f"Retry: {culprit_pr_title or f'PR #{culprit_pr}'}"
         body = (
             "## Retry request\n\n"
@@ -805,6 +845,7 @@ class StagingBisectLoop(BaseBackgroundLoop):
             f"({green_sha[:12]}..{red_sha[:12]}).\n\n"
             f"- Reverted PR: {revert_pr_url}\n"
             f"- Failing tests: {failing_tests}\n"
+            f"- Lineage: `{lineage_id}` (attempt {attempts}/{cap})\n"
             f"- Time bounds: `{green_sha}` (last green) → `{red_sha}` (red)\n\n"
             "### Bisect log\n\n"
             f"```\n{bisect_log[:5000]}\n```\n\n"
@@ -814,6 +855,25 @@ class StagingBisectLoop(BaseBackgroundLoop):
         return await self._prs.create_issue(
             title, body, ["hydraflow-find", "rc-red-retry"]
         )
+
+    @staticmethod
+    def _compute_lineage_id(culprit_pr_title: str, failing_tests: str) -> str:
+        """Stable hash of culprit-PR title + failing-test set.
+
+        Two retries of the same defect (same PR title family + same
+        tests fail) collapse to the same lineage; a different defect
+        on the same PR title gets a different lineage because its
+        failing-test set differs. 12-char hex prefix is enough — collisions
+        across the lifetime of a single repo are vanishingly unlikely.
+        """
+        import hashlib  # noqa: PLC0415
+
+        # Normalize tests: strip + sort + dedup so order doesn't matter.
+        tests_set = sorted(
+            set(filter(None, (s.strip() for s in failing_tests.split(","))))
+        )
+        material = f"{culprit_pr_title.strip()}|{','.join(tests_set)}"
+        return hashlib.blake2s(material.encode(), digest_size=6).hexdigest()
 
     async def _check_pending_watchdog(self) -> dict[str, Any] | None:
         """Resolve any pending watchdog to green / still-red / timeout.

@@ -230,6 +230,35 @@ class CorpusLearningLoop(BaseBackgroundLoop):
         )
         self._prs = prs
         self._dedup = dedup
+        # G17: warn at construction time if the synthesis model overlaps the
+        # production skill model. Spec §4.1 v2 (cross-model synthesis): "If
+        # the synthesis model matches the skill's production model, the loop
+        # logs a warning and proceeds with reduced diversity." Today's
+        # synthesis path is template-driven (parses structured markdown from
+        # the escape issue), so the warning is forward-compatible insurance:
+        # whenever a future plan upgrades synthesis to an LLM call, this
+        # guard already catches the overlap. Spec is explicit that the same
+        # model would mean the corpus inherits the production model's blind
+        # spots — false trust.
+        self._warn_on_synthesis_model_overlap()
+
+    def _warn_on_synthesis_model_overlap(self) -> None:
+        """Log a warning if `corpus_learning_synthesis_model` matches the
+        production post-impl skill model. See spec §4.1 v2."""
+        synthesis_model = getattr(
+            self._config, "corpus_learning_synthesis_model", "opus"
+        )
+        production_model = getattr(
+            self._config, "background_default_model", ""
+        ) or getattr(self._config, "model", "")
+        if synthesis_model and production_model and synthesis_model == production_model:
+            logger.warning(
+                "corpus-learning: synthesis model %r matches production "
+                "skill model — corpus may inherit production blind spots. "
+                "Set HYDRAFLOW_CORPUS_LEARNING_SYNTHESIS_MODEL to a "
+                "different model to restore cross-model diversity (spec §4.1).",
+                synthesis_model,
+            )
 
     def _get_default_interval(self) -> int:
         return self._config.corpus_learning_interval

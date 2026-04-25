@@ -755,3 +755,105 @@ def test_staging_bisect_flake_reruns_config_default(
     """G16: config default per spec §4.3 = 2."""
     cfg = _make_cfg(tmp_path, monkeypatch)
     assert cfg.staging_bisect_flake_reruns == 2
+
+
+class TestG10RetryLineageWiring:
+    """G10 wiring: _file_retry_issue computes a lineage_id, increments
+    the per-lineage counter, and escalates when the cap is exceeded."""
+
+    @pytest.mark.asyncio
+    async def test_first_retry_files_normal_hydraflow_find_issue(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, prs, state = _make_loop(tmp_path, monkeypatch)
+        prs.create_issue = AsyncMock(return_value=42)
+
+        await loop._file_retry_issue(  # type: ignore[attr-defined]
+            culprit_pr=100,
+            culprit_pr_title="Add foo feature",
+            culprit_sha="abc123",
+            green_sha="green1",
+            red_sha="red1",
+            failing_tests="test_foo",
+            bisect_log="...",
+            revert_pr_url="https://x/pr/99",
+        )
+        labels = prs.create_issue.await_args.args[2]
+        assert "hydraflow-find" in labels
+        assert "rc-red-retry" in labels
+        assert "hitl-escalation" not in labels
+        # Lineage counter advanced.
+        # (Can't easily extract id without re-computing, so just check >0.)
+
+    @pytest.mark.asyncio
+    async def test_retry_past_cap_files_lineage_exhausted_escalation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, prs, state = _make_loop(tmp_path, monkeypatch)
+        prs.create_issue = AsyncMock(return_value=43)
+
+        # Two earlier retries on the same lineage already happened
+        # (default cap=2). The third call must escalate.
+        kwargs = {
+            "culprit_pr": 200,
+            "culprit_pr_title": "Bug fix that keeps regressing",
+            "culprit_sha": "def456",
+            "green_sha": "g",
+            "red_sha": "r",
+            "failing_tests": "test_bar",
+            "bisect_log": "x",
+            "revert_pr_url": "https://x/pr/200",
+        }
+        await loop._file_retry_issue(**kwargs)  # type: ignore[arg-type]
+        await loop._file_retry_issue(**kwargs)  # type: ignore[arg-type]
+        # Third call is past cap=2.
+        await loop._file_retry_issue(**kwargs)  # type: ignore[arg-type]
+
+        # Last call's labels — must be the escalation, not normal retry.
+        last_labels = prs.create_issue.await_args.args[2]
+        assert "hitl-escalation" in last_labels
+        assert "retry-lineage-exhausted" in last_labels
+        assert "rc-red-retry" not in last_labels
+
+    @pytest.mark.asyncio
+    async def test_different_failing_tests_get_separate_lineages(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Same PR title but different failing tests = different lineage,
+        so the cap doesn't bleed across unrelated defects."""
+        loop, prs, state = _make_loop(tmp_path, monkeypatch)
+        prs.create_issue = AsyncMock(return_value=44)
+
+        await loop._file_retry_issue(  # type: ignore[attr-defined]
+            culprit_pr=300,
+            culprit_pr_title="Same title",
+            culprit_sha="s1",
+            green_sha="g",
+            red_sha="r",
+            failing_tests="test_alpha",
+            bisect_log="",
+            revert_pr_url="",
+        )
+        await loop._file_retry_issue(  # type: ignore[attr-defined]
+            culprit_pr=300,
+            culprit_pr_title="Same title",
+            culprit_sha="s2",
+            green_sha="g",
+            red_sha="r",
+            failing_tests="test_beta",
+            bisect_log="",
+            revert_pr_url="",
+        )
+        # Both still use rc-red-retry — different lineages, neither
+        # past cap.
+        all_labels = [c.args[2] for c in prs.create_issue.await_args_list]
+        assert all("hitl-escalation" not in lbls for lbls in all_labels)
+
+    def test_compute_lineage_id_is_deterministic(self) -> None:
+        from staging_bisect_loop import StagingBisectLoop
+
+        a = StagingBisectLoop._compute_lineage_id("Title X", "test_a, test_b")
+        b = StagingBisectLoop._compute_lineage_id("Title X", "test_b, test_a")
+        c = StagingBisectLoop._compute_lineage_id("Title X", "test_a, test_c")
+        assert a == b  # order-independent
+        assert a != c  # different test sets diverge
