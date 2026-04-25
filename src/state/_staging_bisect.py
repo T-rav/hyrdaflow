@@ -96,3 +96,22 @@ class StagingBisectStateMixin:
     def increment_flake_reruns_total(self) -> None:
         self._data.flake_reruns_total += 1
         self.save()
+
+    # --- retry_lineage_attempts (spec §4.3 lines 645–659) ---
+
+    def get_retry_lineage_attempts(self, lineage_id: str) -> int:
+        """Return the number of retries already filed for ``lineage_id``."""
+        return self._data.retry_lineage_attempts.get(lineage_id, 0)
+
+    def increment_retry_lineage_attempts(self, lineage_id: str) -> int:
+        """Bump the per-lineage retry counter and return the new value."""
+        current = self._data.retry_lineage_attempts.get(lineage_id, 0) + 1
+        self._data.retry_lineage_attempts[lineage_id] = current
+        self.save()
+        return current
+
+    def reset_retry_lineage_attempts(self, lineage_id: str) -> None:
+        """Drop the lineage from tracking — invoked after a green RC
+        that resolves the lineage's underlying defect."""
+        self._data.retry_lineage_attempts.pop(lineage_id, None)
+        self.save()

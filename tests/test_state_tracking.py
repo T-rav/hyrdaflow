@@ -112,6 +112,7 @@ class TestInitialization:
             "last_rc_red_sha",
             "managed_repos_onboarding_status",
             "principles_drift_attempts",
+            "retry_lineage_attempts",
             "rc_budget_attempts",
             "rc_budget_duration_history",
             "rc_cycle_id",

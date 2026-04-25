@@ -1792,6 +1792,14 @@ class StateData(BaseModel):
     auto_reverts_in_cycle: int = 0
     auto_reverts_successful: int = 0
     flake_reruns_total: int = 0
+    # Per-lineage retry counter (spec §4.3 lines 645–659). A "lineage" is
+    # a hashed identity of the work item under repair — typically a
+    # function of the culprit PR title + impacted-test set. Each
+    # bisect→revert→retry cycle increments the counter for its lineage.
+    # Past `max_retry_lineage_attempts`, the loop stops retrying and
+    # files an `rc-red-lineage-exhausted` escalation. Bounds infinite
+    # churn when the same root-cause keeps re-appearing.
+    retry_lineage_attempts: dict[str, int] = Field(default_factory=dict)
     # PrinciplesAuditLoop state (spec §4.4).
     # Keys are repo slugs ("owner/repo"); sentinel "hydraflow-self" = working tree.
     managed_repos_onboarding_status: dict[

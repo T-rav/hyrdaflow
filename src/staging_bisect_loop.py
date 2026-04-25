@@ -18,6 +18,7 @@ HydraFlow's existing cadence-style loops; no new event infra.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -46,8 +47,18 @@ class BisectHarnessError(RuntimeError):
     """Raised when git bisect itself errors for reasons unrelated to the probe."""
 
 
+class BisectCancelledError(RuntimeError):
+    """Raised when an in-flight bisect is cancelled by the kill-switch (G4)."""
+
+
 class RevertConflictError(RuntimeError):
     """Raised when ``git revert`` produced a merge conflict."""
+
+
+# How often the long-running bisect subprocess polls the kill-switch.
+# Keeping this short (5s) means an operator's flip takes effect within
+# a single poll interval; the trade-off is more wakeups for each bisect.
+_CANCELLATION_POLL_SECONDS = 5
 
 
 class StagingBisectLoop(BaseBackgroundLoop):
@@ -179,11 +190,23 @@ class StagingBisectLoop(BaseBackgroundLoop):
         # 1. Bisect
         try:
             culprit_sha = await self._run_bisect(green_sha, red_sha)
+        except BisectCancelledError:
+            # G4: kill-switch tripped mid-run. The next tick's
+            # _do_work entry will see the disabled state. No file —
+            # this is operator-initiated abort, not a fault.
+            logger.info(
+                "staging_bisect: bisect cancelled by kill-switch for %s",
+                red_sha,
+            )
+            return {"status": "cancelled", "sha": red_sha}
         except BisectTimeoutError:
+            # Spec §6 fail-mode table: timeouts and other harness errors
+            # both route to `bisect-harness-failure`. The earlier
+            # `bisect-timeout` label was not in the spec.
             issue = await self._escalate_harness_failure(
                 red_sha,
                 green_sha,
-                "bisect-timeout",
+                "bisect-harness-failure",
                 "bisect exceeded runtime cap",
             )
             return {
@@ -384,6 +407,14 @@ class StagingBisectLoop(BaseBackgroundLoop):
 
         Overridden in tests via ``AsyncMock`` — production uses a
         subprocess runner.
+
+        Cooperative cancellation (G4): polls ``enabled_cb`` every
+        ``_CANCELLATION_POLL_SECONDS``. If the operator flips the
+        kill-switch mid-bisect (a 45-min subprocess otherwise ignores
+        the toggle until completion), the running git process gets
+        terminated and a ``BisectCancelledError`` is raised. The
+        caller's own enabled-check at ``_do_work`` entry catches the
+        next tick.
         """
         import asyncio  # noqa: PLC0415
 
@@ -393,11 +424,30 @@ class StagingBisectLoop(BaseBackgroundLoop):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except TimeoutError:
-            proc.kill()
-            raise
+        comm_task = asyncio.create_task(proc.communicate())
+        deadline = asyncio.get_event_loop().time() + timeout
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                proc.kill()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await comm_task
+                raise TimeoutError(f"git command exceeded {timeout}s")
+            poll = min(_CANCELLATION_POLL_SECONDS, remaining)
+            done, _pending = await asyncio.wait({comm_task}, timeout=poll)
+            if comm_task in done:
+                stdout, stderr = comm_task.result()
+                break
+            # Subprocess still running. Cooperative cancellation check.
+            if not self._enabled_cb(self._worker_name):
+                logger.info(
+                    "staging_bisect: kill-switch tripped mid-run — "
+                    "terminating git subprocess"
+                )
+                proc.kill()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await comm_task
+                raise BisectCancelledError("kill-switch tripped during git bisect run")
         return proc.returncode or 0, stdout.decode(), stderr.decode()
 
     async def _run_bisect(self, green_sha: str, red_sha: str) -> str:

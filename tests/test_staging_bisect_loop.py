@@ -529,7 +529,9 @@ class TestPipelineIntegration:
 
         assert result["status"] == "bisect_timeout"
         labels = prs.create_issue.await_args.args[2]
-        assert "bisect-timeout" in labels
+        # Spec §6: timeouts route to `bisect-harness-failure`, not a
+        # separate `bisect-timeout` label.
+        assert "bisect-harness-failure" in labels
         assert "hitl-escalation" in labels
 
 
@@ -613,3 +615,84 @@ class TestAutoMergeOnRevertPR:
         # Only `gh pr create` — no follow-up merge.
         assert len(gh_calls) == 1
         assert gh_calls[0][:3] == ["gh", "pr", "create"]
+
+
+class TestG4CooperativeCancellation:
+    """G4: kill-switch flipped mid-bisect terminates the subprocess."""
+
+    @pytest.mark.asyncio
+    async def test_run_git_aborts_when_enabled_cb_flips_false(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from staging_bisect_loop import BisectCancelledError, StagingBisectLoop
+
+        cfg = _make_cfg(tmp_path, monkeypatch)
+        stop_event = asyncio.Event()
+
+        # Toggleable enabled flag — caller flips it during the call.
+        flag = {"enabled": True}
+
+        async def _sleep(_s: float) -> None:
+            return None
+
+        deps = LoopDeps(
+            event_bus=EventBus(),
+            stop_event=stop_event,
+            status_cb=MagicMock(),
+            enabled_cb=lambda _n: flag["enabled"],
+            sleep_fn=_sleep,
+        )
+        loop = StagingBisectLoop(
+            config=cfg,
+            prs=MagicMock(),
+            deps=deps,
+            state=StateTracker(state_file=tmp_path / "s.json"),
+        )
+
+        # Use a real subprocess (`sleep 30`) we can kill. Flip the flag
+        # after a short delay; cancellation must fire and raise.
+        async def flip_after_delay() -> None:
+            await asyncio.sleep(0.5)
+            flag["enabled"] = False
+
+        flip_task = asyncio.create_task(flip_after_delay())
+        with pytest.raises(BisectCancelledError):
+            await loop._run_git(  # type: ignore[attr-defined]
+                ["sleep", "30"],
+                cwd=tmp_path,
+                timeout=60,
+            )
+        await flip_task
+
+
+class TestG10RetryLineageState:
+    """G10: per-lineage retry counters in StateData (spec §4.3)."""
+
+    def test_retry_lineage_starts_at_zero(self, tmp_path: Path) -> None:
+        s = StateTracker(state_file=tmp_path / "s.json")
+        assert s.get_retry_lineage_attempts("lineage-abc") == 0
+
+    def test_increment_returns_new_count_and_persists(self, tmp_path: Path) -> None:
+        s = StateTracker(state_file=tmp_path / "s.json")
+        assert s.increment_retry_lineage_attempts("lin-1") == 1
+        assert s.increment_retry_lineage_attempts("lin-1") == 2
+        assert s.increment_retry_lineage_attempts("lin-2") == 1
+
+        # Reload from disk — counters survive restart.
+        s2 = StateTracker(state_file=tmp_path / "s.json")
+        assert s2.get_retry_lineage_attempts("lin-1") == 2
+        assert s2.get_retry_lineage_attempts("lin-2") == 1
+
+    def test_reset_drops_lineage_from_tracking(self, tmp_path: Path) -> None:
+        s = StateTracker(state_file=tmp_path / "s.json")
+        s.increment_retry_lineage_attempts("lin-x")
+        s.increment_retry_lineage_attempts("lin-x")
+        assert s.get_retry_lineage_attempts("lin-x") == 2
+        s.reset_retry_lineage_attempts("lin-x")
+        assert s.get_retry_lineage_attempts("lin-x") == 0
+
+    def test_max_retry_lineage_attempts_config_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _make_cfg(tmp_path, monkeypatch)
+        assert cfg.max_retry_lineage_attempts == 3

@@ -1499,7 +1499,21 @@ class HydraFlowConfig(BaseModel):
         le=14400,
         description=(
             "Hard wall-clock cap on a single bisect run (default 45 min). "
-            "On timeout the loop files hitl-escalation bisect-timeout."
+            "On timeout the loop files hitl-escalation bisect-harness-failure."
+        ),
+    )
+    max_retry_lineage_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+        description=(
+            "Per-lineage cap (spec §4.3 lines 645–659). The bisect loop "
+            "tracks retry attempts per `lineage_id` (hash of culprit-PR "
+            "title + impacted-test set). When the count exceeds this cap, "
+            "the loop stops retrying that lineage and files an "
+            "`rc-red-lineage-exhausted` escalation. Bounds infinite churn "
+            "when the same root-cause keeps re-appearing on different "
+            "commits."
         ),
     )
     staging_bisect_watchdog_rc_cycles: int = Field(
