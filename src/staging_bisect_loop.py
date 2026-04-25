@@ -163,12 +163,17 @@ class StagingBisectLoop(BaseBackgroundLoop):
         worktree-scoped invocation; for now it shells out against the
         configured repo root.
         """
+        import time  # noqa: PLC0415
+
         logger.info("Running bisect-probe against %s", rc_sha)
         timeout_s = self._config.staging_bisect_runtime_cap_seconds
+        cmd = ["make", "bisect-probe"]
+        t0 = time.perf_counter()
+        exit_code: int | None = None
+        stderr_excerpt: str | None = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                "make",
-                "bisect-probe",
+                *cmd,
                 cwd=str(self._config.repo_root),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -180,13 +185,48 @@ class StagingBisectLoop(BaseBackgroundLoop):
             except TimeoutError:
                 proc.kill()
                 await proc.wait()
+                exit_code = 124  # bash convention
+                stderr_excerpt = f"timeout after {timeout_s}s"
+                self._emit_trace(t0, cmd, exit_code, stderr_excerpt)
                 return False, f"bisect-probe timed out after {timeout_s}s"
         except OSError as exc:
+            self._emit_trace(t0, cmd, -1, f"exec failed: {exc}")
             return False, f"bisect-probe exec failed: {exc}"
         combined = (stdout_b or b"").decode(errors="replace") + (
             stderr_b or b""
         ).decode(errors="replace")
-        return proc.returncode == 0, combined
+        exit_code = proc.returncode if proc.returncode is not None else -1
+        self._emit_trace(
+            t0,
+            cmd,
+            exit_code,
+            (stderr_b or b"").decode(errors="replace").strip()[:200] or None,
+        )
+        return exit_code == 0, combined
+
+    def _emit_trace(
+        self,
+        t0: float,
+        cmd: list[str],
+        exit_code: int,
+        stderr_excerpt: str | None,
+    ) -> None:
+        """Spec §4.11: every subprocess call must emit a fleet trace."""
+        import time  # noqa: PLC0415
+
+        try:
+            from trace_collector import (  # noqa: PLC0415
+                emit_loop_subprocess_trace,
+            )
+        except ImportError:
+            return
+        emit_loop_subprocess_trace(
+            loop=self._worker_name,
+            command=cmd,
+            exit_code=exit_code,
+            duration_ms=int((time.perf_counter() - t0) * 1000),
+            stderr_excerpt=stderr_excerpt,
+        )
 
     async def _run_full_bisect_pipeline(  # noqa: PLR0911
         self, red_sha: str, probe_output: str
@@ -799,16 +839,21 @@ class StagingBisectLoop(BaseBackgroundLoop):
         """File a retry issue, OR a `retry-lineage-exhausted` escalation
         when this work item's lineage has been retried too many times.
 
-        Spec §4.3 (lines 645–659): a "lineage" is a hash of the
-        culprit-PR title + the impacted-test set. Each retry of the
-        same lineage increments `retry_lineage_attempts`. Once the
-        counter exceeds `max_retry_lineage_attempts` (default 2), the
-        loop stops retrying and files an `hitl-escalation` +
-        `retry-lineage-exhausted` issue. Bounds infinite churn when a
-        bug is intrinsic to the work item, not the commit.
+        Spec §4.3 (lines 645–659): the ``lineage_id`` is the SHA of the
+        FIRST culprit in the chain. When a new culprit is bisected, the
+        loop looks up its PR number in existing lineages — if any
+        lineage already contains this PR, the lineage is reused; else a
+        new lineage rooted at this culprit's SHA starts. Past the cap,
+        files `hitl-escalation` + `retry-lineage-exhausted`.
         """
-        lineage_id = self._compute_lineage_id(culprit_pr_title, failing_tests)
-        attempts = self._state.increment_retry_lineage_attempts(lineage_id)
+        # Spec line 647: lineage_id = first culprit's SHA. If this PR
+        # number is already in some lineage's chain, reuse it; else
+        # this culprit is the first of a new lineage.
+        existing = self._state.find_lineage_for_pr(culprit_pr) if culprit_pr else None
+        lineage_id = existing or culprit_sha
+        attempts = self._state.increment_retry_lineage_attempts(
+            lineage_id, pr_number=culprit_pr
+        )
         cap = self._config.max_retry_lineage_attempts
         if attempts > cap:
             title = (

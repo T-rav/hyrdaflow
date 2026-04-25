@@ -114,6 +114,7 @@ class TestInitialization:
             "principles_drift_attempts",
             "corpus_learning_validation_attempts",
             "retry_lineage_attempts",
+            "retry_lineage_pr_chains",
             "rc_budget_attempts",
             "rc_budget_duration_history",
             "rc_cycle_id",

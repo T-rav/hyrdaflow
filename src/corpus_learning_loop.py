@@ -50,9 +50,12 @@ Kill-switch: :meth:`LoopDeps.enabled_cb` with ``worker_name="corpus_learning"``
 
 from __future__ import annotations
 
+import asyncio
 import difflib
+import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -96,6 +99,12 @@ DEFAULT_LOOKBACK_DAYS = 30
 #: Spec §4.1 v2 step 5: 3 consecutive self-validation failures on the
 #: same escape issue trigger a `corpus-learning-stuck` escalation.
 _CORPUS_STUCK_ATTEMPTS = 3
+
+#: Parses ``Corpus learning stuck on escape #1234: …`` titles for
+#: reconcile-on-close (spec §3.2 lifecycle).
+_STUCK_TITLE_RE = re.compile(
+    r"^Corpus learning stuck on escape #(?P<num>\d+):", re.MULTILINE
+)
 
 #: Catchers the synthesizer is allowed to target. Mirrors the
 #: post-implementation skills the harness fixture builder knows how to
@@ -650,6 +659,11 @@ class CorpusLearningLoop(BaseBackgroundLoop):
             return None
 
         branch = f"hydraflow/corpus-learning/issue-{case.issue_number}-{case.slug}"
+        # T2 (audit pass-5): emit a fleet trace for the PR-open
+        # subprocess fan-out (auto_pr shells out gh + git multiple times).
+        # Spec §4.11 mandates emit_loop_subprocess_trace on every
+        # subprocess invocation across all 10 trust loops.
+        t0 = time.perf_counter()
         result = await open_automated_pr_async(
             repo_root=self._config.repo_root,
             branch=branch,
@@ -670,6 +684,7 @@ class CorpusLearningLoop(BaseBackgroundLoop):
             commit_author_name=self._config.git_user_name,
             commit_author_email=self._config.git_user_email,
         )
+        self._emit_pr_trace(t0, branch, getattr(result, "status", None))
 
         if getattr(result, "status", None) != "opened":
             logger.warning(
@@ -683,6 +698,77 @@ class CorpusLearningLoop(BaseBackgroundLoop):
 
         self._dedup.add(dedup_key)
         return _parse_pr_number(getattr(result, "pr_url", None)) or case.issue_number
+
+    def _emit_pr_trace(self, t0: float, branch: str, status: str | None) -> None:
+        """Spec §4.11: emit a fleet trace per subprocess invocation.
+
+        ``open_automated_pr_async`` shells out to ``git`` and ``gh``
+        multiple times under the hood; we record one synthetic trace
+        per logical PR-open call so deploy-time observability surfaces
+        slow/broken PR opens without cracking open the loop.
+        """
+        try:
+            from trace_collector import (  # noqa: PLC0415
+                emit_loop_subprocess_trace,
+            )
+        except ImportError:
+            return
+        emit_loop_subprocess_trace(
+            loop=self._worker_name,
+            command=["auto_pr.open_automated_pr_async", branch],
+            exit_code=0 if status == "opened" else 1,
+            duration_ms=int((time.perf_counter() - t0) * 1000),
+            stderr_excerpt=f"status={status}" if status else None,
+        )
+
+    async def _reconcile_closed_corpus_escalations(self) -> None:
+        """Clear `corpus_learning_validation_attempts` for every closed
+        ``corpus-learning-stuck`` issue.
+
+        Spec §3.2 lifecycle: an operator closing the escalation issue
+        must clear the per-issue counter so the loop will retry on the
+        next tick. Best-effort — gh-list failures or parse errors log
+        and return; reconciliation is bounded by the loop interval.
+        """
+        if self._state is None or not hasattr(
+            self._state, "reset_corpus_validation_attempts"
+        ):
+            return
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "gh",
+                "issue",
+                "list",
+                "--repo",
+                self._config.repo,
+                "--state",
+                "closed",
+                "--label",
+                "corpus-learning-stuck",
+                "--json",
+                "title",
+                "--limit",
+                "100",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            out, _ = await proc.communicate()
+            if proc.returncode != 0:
+                return
+            issues = json.loads(out or b"[]")
+        except Exception:  # noqa: BLE001
+            logger.debug("corpus-learning reconcile: skipped", exc_info=True)
+            return
+        for issue in issues:
+            title = str(issue.get("title", ""))
+            m = _STUCK_TITLE_RE.match(title)
+            if m is None:
+                continue
+            try:
+                issue_number = int(m.group("num"))
+            except ValueError:
+                continue
+            self._state.reset_corpus_validation_attempts(issue_number)
 
     # ------------------------------------------------------------------
     # Task 14+15 — tick
@@ -700,6 +786,11 @@ class CorpusLearningLoop(BaseBackgroundLoop):
         """
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+
+        # Reconcile closed `corpus-learning-stuck` escalations so the
+        # operator's "close issue → clear counter" lifecycle (spec §3.2)
+        # actually works. Best-effort; errors don't block the tick.
+        await self._reconcile_closed_corpus_escalations()
 
         # Tolerate PR-query failures — a broken ``gh`` in the env must
         # not propagate as an AuthenticationError that pauses the whole
