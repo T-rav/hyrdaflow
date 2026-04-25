@@ -21,22 +21,27 @@ class AutoAgentStateMixin:
     def bump_auto_agent_attempts(self, issue: int) -> int:
         key = str(issue)
         current = int(self._data.auto_agent_attempts.get(key, 0))
-        self._data.auto_agent_attempts[key] = current + 1
+        attempts = dict(self._data.auto_agent_attempts)
+        attempts[key] = current + 1
+        self._data.auto_agent_attempts = attempts
         self.save()
         return current + 1
 
     def clear_auto_agent_attempts(self, issue: int) -> None:
         key = str(issue)
-        if key in self._data.auto_agent_attempts:
-            del self._data.auto_agent_attempts[key]
-            self.save()
+        attempts = dict(self._data.auto_agent_attempts)
+        attempts.pop(key, None)
+        self._data.auto_agent_attempts = attempts
+        self.save()
 
     def get_auto_agent_daily_spend(self, date_iso: str) -> float:
         return float(self._data.auto_agent_daily_spend.get(date_iso, 0.0))
 
     def add_auto_agent_daily_spend(self, date_iso: str, usd: float) -> float:
         current = float(self._data.auto_agent_daily_spend.get(date_iso, 0.0))
-        new_total = current + float(usd)
-        self._data.auto_agent_daily_spend[date_iso] = new_total
+        new_total = current + usd
+        spend = dict(self._data.auto_agent_daily_spend)
+        spend[date_iso] = new_total
+        self._data.auto_agent_daily_spend = spend
         self.save()
         return new_total
