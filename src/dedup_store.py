@@ -6,6 +6,8 @@ import json
 import logging
 from pathlib import Path
 
+from file_util import atomic_write
+
 logger = logging.getLogger("hydraflow.dedup_store")
 
 
@@ -28,18 +30,16 @@ class DedupStore:
     def add(self, value: str) -> None:
         current = self.get()
         current.add(value)
-        self._file_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            self._file_path.write_text(json.dumps(sorted(current)))
+            atomic_write(self._file_path, json.dumps(sorted(current)))
         except OSError:
             logger.warning(
                 "Could not write dedup set %s", self._set_name, exc_info=True
             )
 
     def set_all(self, values: set[str]) -> None:
-        self._file_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            self._file_path.write_text(json.dumps(sorted(values)))
+            atomic_write(self._file_path, json.dumps(sorted(values)))
         except OSError:
             logger.warning(
                 "Could not write dedup set %s", self._set_name, exc_info=True

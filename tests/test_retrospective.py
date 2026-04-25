@@ -670,7 +670,7 @@ class TestFiledPatterns:
 
         collector, _, _ = _make_collector(config)
         with (
-            patch.object(Path, "write_text", side_effect=OSError("disk full")),
+            patch("dedup_store.atomic_write", side_effect=OSError("disk full")),
             caplog.at_level(logging.WARNING, logger="hydraflow.dedup_store"),
         ):
             collector._save_filed_patterns({"quality_fix"})  # should not raise
