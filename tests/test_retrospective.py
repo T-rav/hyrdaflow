@@ -847,53 +847,6 @@ class TestAppendEntryOSError:
 
 
 # ---------------------------------------------------------------------------
-# Hindsight dual-write tests
-# ---------------------------------------------------------------------------
-
-
-class TestRetrospectiveCollectorDolt:
-    """Tests for RetrospectiveCollector with Dolt backend."""
-
-    def test_load_filed_patterns_uses_dolt(self, config: HydraFlowConfig) -> None:
-        from unittest.mock import MagicMock
-
-        dolt = MagicMock()
-        dolt.get_dedup_set.return_value = {"quality_fix", "plan_accuracy"}
-        state = StateTracker(config.state_file)
-        mock_prs = AsyncMock()
-        collector = RetrospectiveCollector(config, state, mock_prs, dolt=dolt)
-        result = collector._load_filed_patterns()
-        assert result == {"quality_fix", "plan_accuracy"}
-        dolt.get_dedup_set.assert_called_once_with("filed_patterns")
-
-    def test_save_filed_patterns_uses_dolt(self, config: HydraFlowConfig) -> None:
-        from unittest.mock import MagicMock
-
-        dolt = MagicMock()
-        state = StateTracker(config.state_file)
-        mock_prs = AsyncMock()
-        collector = RetrospectiveCollector(config, state, mock_prs, dolt=dolt)
-        collector._save_filed_patterns({"quality_fix", "reviewer_fixes"})
-        dolt.set_dedup_set.assert_called_once_with(
-            "filed_patterns", {"quality_fix", "reviewer_fixes"}
-        )
-        # File should NOT be written
-        filed_path = config.data_path("memory", "filed_patterns.json")
-        assert not filed_path.exists()
-
-    def test_file_fallback_when_dolt_is_none(self, config: HydraFlowConfig) -> None:
-        state = StateTracker(config.state_file)
-        mock_prs = AsyncMock()
-        collector = RetrospectiveCollector(config, state, mock_prs, dolt=None)
-        assert collector._load_filed_patterns() == set()
-        collector._save_filed_patterns({"quality_fix"})
-        assert collector._load_filed_patterns() == {"quality_fix"}
-        # File SHOULD be written
-        filed_path = config.data_path("memory", "filed_patterns.json")
-        assert filed_path.exists()
-
-
-# ---------------------------------------------------------------------------
 # Sentry breadcrumb tests
 # ---------------------------------------------------------------------------
 

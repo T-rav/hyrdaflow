@@ -15,11 +15,11 @@ against the current code because ``exc_info=True`` is missing.
 
 from __future__ import annotations
 
-import pytest
-
 import logging
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from harness_insights import HarnessInsightStore
 
@@ -29,9 +29,11 @@ class TestIssue6696ExcInfoOnMalformedHarnessRecords:
 
     def _make_store(self, tmp_path: Path) -> HarnessInsightStore:
         """Create a minimal HarnessInsightStore pointing at *tmp_path*."""
-        return HarnessInsightStore(tmp_path, hindsight=None, dolt=None, wal=None)
+        return HarnessInsightStore(tmp_path)
 
-    @pytest.mark.xfail(reason="Regression for issue #6696 — fix not yet landed", strict=False)
+    @pytest.mark.xfail(
+        reason="Regression for issue #6696 — fix not yet landed", strict=False
+    )
     def test_load_recent_includes_exc_info_on_malformed_line(
         self, tmp_path: Path, caplog: logging.LogRecord
     ) -> None:
@@ -72,7 +74,9 @@ class TestIssue6696ExcInfoOnMalformedHarnessRecords:
             "expected the Pydantic ValidationError class"
         )
 
-    @pytest.mark.xfail(reason="Regression for issue #6696 — fix not yet landed", strict=False)
+    @pytest.mark.xfail(
+        reason="Regression for issue #6696 — fix not yet landed", strict=False
+    )
     def test_unexpected_exception_type_is_not_swallowed(self, tmp_path: Path) -> None:
         """An unexpected exception (e.g. OSError) should NOT be caught.
 

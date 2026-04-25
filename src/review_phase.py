@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from dolt_backend import DoltBackend
     from issue_cache import IssueCache
     from ports import IssueStorePort, PRPort, ReviewInsightStorePort, WorkspacePort
     from precondition_gate import PreconditionGate
@@ -188,7 +187,6 @@ class ReviewPhase:
         review_insights: ReviewInsightStorePort | None = None,
         update_bg_worker_status: StatusCallback | None = None,
         baseline_policy: BaselinePolicy | None = None,
-        dolt: DoltBackend | None = None,
         active_issues_cb: Callable[[], None] | None = None,
         transcript_summarizer: TranscriptSummarizer | None = None,
         wiki_store: RepoWikiStore | None = None,
@@ -217,10 +215,7 @@ class ReviewPhase:
         else:
             from review_insights import ReviewInsightStore  # noqa: PLC0415
 
-            self._insights = ReviewInsightStore(
-                config.memory_dir,
-                dolt=dolt,
-            )
+            self._insights = ReviewInsightStore(config.memory_dir)
         self._active_issues_cb = active_issues_cb
         self._active_issues: set[int] = set()
         self._active_issues_lock = asyncio.Lock()

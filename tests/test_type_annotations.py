@@ -30,54 +30,6 @@ class TestStoreLifecycleReturnType:
         assert args in expected, f"Expected None type args, got {args}"
 
 
-class TestPortsLoadStateReturnType:
-    """StateBackendPort.load_state must return dict[str, object] | None."""
-
-    def test_load_state_return_is_parameterized_dict_or_none(self) -> None:
-        from ports import StateBackendPort
-
-        hints = typing.get_type_hints(StateBackendPort.load_state)
-        ret = hints["return"]
-        # Should be dict[str, object] | None  (a Union)
-        origin = typing.get_origin(ret)
-        assert origin is types.UnionType, f"Expected UnionType, got {origin}"
-        args = typing.get_args(ret)
-        # One arm is dict[str, object], the other is NoneType
-        dict_args = [a for a in args if typing.get_origin(a) is dict]
-        none_args = [a for a in args if a is type(None)]
-        assert len(dict_args) == 1, f"Expected one dict arm, got {dict_args}"
-        assert len(none_args) == 1, f"Expected one NoneType arm, got {none_args}"
-        assert typing.get_args(dict_args[0]) == (str, object), (
-            f"Expected dict[str, object], got dict{typing.get_args(dict_args[0])}"
-        )
-
-
-class TestDoltBackendReturnTypes:
-    """DoltBackend.load_state and get_session must return dict[str, object] | None."""
-
-    def test_load_state_return_is_parameterized(self) -> None:
-        from dolt_backend import DoltBackend
-
-        hints = typing.get_type_hints(DoltBackend.load_state)
-        ret = hints["return"]
-        origin = typing.get_origin(ret)
-        assert origin is types.UnionType
-        dict_args = [a for a in typing.get_args(ret) if typing.get_origin(a) is dict]
-        assert len(dict_args) == 1
-        assert typing.get_args(dict_args[0]) == (str, object)
-
-    def test_get_session_return_is_parameterized(self) -> None:
-        from dolt_backend import DoltBackend
-
-        hints = typing.get_type_hints(DoltBackend.get_session)
-        ret = hints["return"]
-        origin = typing.get_origin(ret)
-        assert origin is types.UnionType
-        dict_args = [a for a in typing.get_args(ret) if typing.get_origin(a) is dict]
-        assert len(dict_args) == 1
-        assert typing.get_args(dict_args[0]) == (str, object)
-
-
 class TestDiagnosticRunnerReturnType:
     """_extract_json must return dict[str, object] | None."""
 

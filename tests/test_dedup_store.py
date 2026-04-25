@@ -4,14 +4,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock
-
-import pytest
 
 from dedup_store import DedupStore
 
 # ---------------------------------------------------------------------------
-# File-backed tests (no Dolt)
+# File-backed tests
 # ---------------------------------------------------------------------------
 
 
@@ -85,47 +82,3 @@ class TestDedupStoreFileBacked:
         store.add("bravo")
         data = json.loads(fp.read_text())
         assert data == ["alpha", "bravo", "charlie"]
-
-
-# ---------------------------------------------------------------------------
-# Dolt-backed tests
-# ---------------------------------------------------------------------------
-
-
-class TestDedupStoreDoltBacked:
-    """Tests for DedupStore using a mocked DoltBackend."""
-
-    @pytest.fixture()
-    def mock_dolt(self) -> MagicMock:
-        dolt = MagicMock()
-        dolt.get_dedup_set.return_value = set()
-        return dolt
-
-    def test_get_delegates_to_dolt(self, tmp_path: Path, mock_dolt: MagicMock) -> None:
-        mock_dolt.get_dedup_set.return_value = {"a", "b"}
-        store = DedupStore("my_set", tmp_path / "unused.json", dolt=mock_dolt)
-        result = store.get()
-        assert result == {"a", "b"}
-        mock_dolt.get_dedup_set.assert_called_once_with("my_set")
-
-    def test_add_delegates_to_dolt(self, tmp_path: Path, mock_dolt: MagicMock) -> None:
-        store = DedupStore("my_set", tmp_path / "unused.json", dolt=mock_dolt)
-        store.add("val")
-        mock_dolt.add_to_dedup_set.assert_called_once_with("my_set", "val")
-        # File should NOT be written when Dolt is active
-        assert not (tmp_path / "unused.json").exists()
-
-    def test_set_all_delegates_to_dolt(
-        self, tmp_path: Path, mock_dolt: MagicMock
-    ) -> None:
-        store = DedupStore("my_set", tmp_path / "unused.json", dolt=mock_dolt)
-        store.set_all({"x", "y"})
-        mock_dolt.set_dedup_set.assert_called_once_with("my_set", {"x", "y"})
-        assert not (tmp_path / "unused.json").exists()
-
-    def test_dolt_none_falls_back_to_file(self, tmp_path: Path) -> None:
-        fp = tmp_path / "dedup.json"
-        store = DedupStore("test_set", fp, dolt=None)
-        store.add("file_backed")
-        assert store.get() == {"file_backed"}
-        assert fp.exists()

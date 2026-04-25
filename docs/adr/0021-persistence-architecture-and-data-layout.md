@@ -175,6 +175,13 @@ but the defaults ensure a single `data_root` change relocates everything.
 - **Remote state backend (S3/Redis)**: would enable multi-instance deployments,
   but introduces network failure modes and latency. Deferred until there is a
   concrete multi-instance requirement.
+- **Embedded Dolt state backend** (briefly implemented, removed 2026-04-24):
+  `DoltBackend` versioned `state.json`, dedup sets, and insight stores via the
+  embedded `dolt` CLI. It was opt-in (active only when `dolt` was on PATH) and
+  never installed in production containers or EC2, so the file fallback was the
+  de-facto path everywhere except one developer machine. Removed because the
+  dual-path branches in seven consumers carried real maintenance cost for a
+  feature that hadn't earned an ADR or a deployment.
 
 ## Related
 

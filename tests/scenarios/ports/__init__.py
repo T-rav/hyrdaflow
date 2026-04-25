@@ -11,7 +11,6 @@ from ports import (  # noqa: F401 — production port re-exports
     IssueFetcherPort,
     IssueStorePort,
     PRPort,
-    StateBackendPort,
     WorkspacePort,
 )
 from tests.scenarios.ports.clock_port import ClockPort
@@ -45,7 +44,6 @@ __all__ = [
     "PlannerRunnerPort",
     "ReviewRunnerPort",
     "SentryPort",
-    "StateBackendPort",
     "TriageRunnerPort",
     "WorkspacePort",
 ]

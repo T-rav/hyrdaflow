@@ -1,6 +1,6 @@
 """Regression test for issue #6438.
 
-Bug: Three places in source use ``if not self._x`` to guard Optional-typed
+Bug: places in source use ``if not self._x`` to guard Optional-typed
 attributes instead of ``if self._x is None``.  The falsy form can
 short-circuit on a non-None but falsy value — most dangerously on
 ``unittest.mock.Mock(spec=...)`` objects that implement ``__bool__``.
@@ -8,12 +8,9 @@ short-circuit on a non-None but falsy value — most dangerously on
 Locations:
   - ``src/pr_unsticker.py:480`` — ``if not self._hitl_runner:``
   - ``src/sentry_loop.py:74``   — ``if not self._store:``
-  - ``src/dolt_backend.py:42``  — ``if not self._dolt:``
 
 Convention: ``docs/wiki/gotchas.md`` — "Falsy checks on optional
 objects".
-
-This test is RED against the current (buggy) code.
 """
 
 from __future__ import annotations
@@ -65,7 +62,6 @@ def _find_falsy_guards(filepath: Path, attr_names: set[str]) -> list[tuple[int, 
 _KNOWN_VIOLATIONS = [
     ("pr_unsticker.py", {"_hitl_runner"}),
     ("sentry_loop.py", {"_store"}),
-    ("dolt_backend.py", {"_dolt"}),
 ]
 
 

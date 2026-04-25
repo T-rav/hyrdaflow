@@ -13,7 +13,6 @@ from dedup_store import DedupStore
 from models import IsoTimestamp, ReviewVerdict
 
 if TYPE_CHECKING:
-    from dolt_backend import DoltBackend
     from ports import ReviewInsightStorePort  # noqa: TCH004
 
 logger = logging.getLogger("hydraflow.review_insights")
@@ -206,20 +205,13 @@ def extract_categories(summary: str) -> list[str]:
 class ReviewInsightStore:
     """File-backed store for review records and proposed-category tracking."""
 
-    def __init__(
-        self,
-        memory_dir: Path,
-        *,
-        dolt: DoltBackend | None = None,
-    ) -> None:
+    def __init__(self, memory_dir: Path) -> None:
         self._memory_dir = memory_dir
         self._reviews_path = memory_dir / "reviews.jsonl"
         self._proposed = DedupStore(
             "proposed_categories",
             memory_dir / "proposed_categories.json",
-            dolt=dolt,
         )
-        self._dolt = dolt
 
     def append_review(self, record: ReviewRecord) -> None:
         """Append *record* as a JSON line to ``reviews.jsonl``."""

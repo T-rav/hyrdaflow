@@ -37,7 +37,6 @@ from task_graph import extract_phases, has_task_graph, topological_sort
 
 if TYPE_CHECKING:
     from config import Credentials, HydraFlowConfig
-    from dolt_backend import DoltBackend
     from execution import SubprocessRunner
     from repo_wiki import RepoWikiStore
     from tracing_context import TracingContext
@@ -138,7 +137,6 @@ Run through this checklist before your final commit:
         event_bus: EventBus,
         runner: SubprocessRunner | None = None,
         *,
-        dolt: DoltBackend | None = None,
         credentials: Credentials | None = None,
         wiki_store: RepoWikiStore | None = None,
         tribal_wiki_store: TribalWikiStore | None = None,
@@ -151,10 +149,7 @@ Run through this checklist before your final commit:
             wiki_store=wiki_store,
             tribal_wiki_store=tribal_wiki_store,
         )
-        self._insights = ReviewInsightStore(
-            config.memory_dir,
-            dolt=dolt,
-        )
+        self._insights = ReviewInsightStore(config.memory_dir)
         from context_cache import ContextSectionCache
 
         self._context_cache = ContextSectionCache(config)

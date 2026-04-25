@@ -15,15 +15,12 @@ import logging
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar
 
 from pydantic import ValidationError
 
 from file_util import atomic_write, rotate_backups
 from models import IssueOutcomeType, StateData, ThresholdProposal
-
-if TYPE_CHECKING:
-    from ports import StateBackendPort
 
 from ._ci_monitor import CIMonitorStateMixin
 from ._code_grooming import CodeGroomingStateMixin
@@ -124,12 +121,10 @@ class StateTracker(
         self,
         state_file: Path,
         *,
-        dolt: StateBackendPort | None = None,
         backup_interval: int = 300,
         backup_count: int = 3,
     ) -> None:
         self._path = state_file
-        self._dolt = dolt
         self._data: StateData = StateData()
         self._last_backup: float = time.monotonic()
         self._backup_interval: int = backup_interval
@@ -139,26 +134,13 @@ class StateTracker(
     # --- persistence ---
 
     def load(self) -> None:
-        """Load state from Dolt (if configured) or disk.
+        """Load state from disk.
 
         When the primary state file is corrupt, attempts to restore from
         the most recent ``.bak`` file before falling back to an empty
         :class:`StateData`.
         """
-        if self._dolt is not None:
-            try:
-                loaded = self._dolt.load_state()
-                if loaded and isinstance(loaded, dict):
-                    self._data = StateData.model_validate(loaded)
-                    logger.info("State loaded from Dolt")
-                else:
-                    # Dolt empty — try file fallback for initial migration
-                    self._load_from_file()
-            except (ValueError, ValidationError) as exc:
-                logger.warning("Corrupt Dolt state, resetting: %s", exc, exc_info=True)
-                self._data = StateData()
-        else:
-            self._load_from_file()
+        self._load_from_file()
         self._maybe_migrate_worker_states()
 
     def _load_from_file(self) -> None:
@@ -212,7 +194,7 @@ class StateTracker(
         self._last_backup = time.monotonic()
 
     def save(self) -> None:
-        """Flush current state to Dolt (if configured) or disk.
+        """Flush current state to disk.
 
         Automatically creates a rotated backup when more than
         ``backup_interval`` seconds have elapsed since the last backup.
@@ -222,10 +204,7 @@ class StateTracker(
             self.backup()
         self._data.last_updated = datetime.now(UTC).isoformat()
         data = self._data.model_dump_json(indent=2)
-        if self._dolt is not None:
-            self._dolt.save_state(data)
-        else:
-            atomic_write(self._path, data)
+        atomic_write(self._path, data)
 
     # --- reset ---
 

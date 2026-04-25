@@ -707,43 +707,6 @@ class TestGetEscalationData:
 
 
 # ---------------------------------------------------------------------------
-# Hindsight dual-write tests
-# ---------------------------------------------------------------------------
-
-
-class TestReviewInsightStoreDolt:
-    """Tests for ReviewInsightStore with Dolt backend."""
-
-    def test_get_proposed_categories_uses_dolt(self, tmp_path: Path) -> None:
-        from unittest.mock import MagicMock
-
-        dolt = MagicMock()
-        dolt.get_dedup_set.return_value = {"missing_tests", "security"}
-        store = ReviewInsightStore(tmp_path, dolt=dolt)
-        result = store.get_proposed_categories()
-        assert result == {"missing_tests", "security"}
-        dolt.get_dedup_set.assert_called_once_with("proposed_categories")
-
-    def test_mark_category_proposed_uses_dolt(self, tmp_path: Path) -> None:
-        from unittest.mock import MagicMock
-
-        dolt = MagicMock()
-        store = ReviewInsightStore(tmp_path, dolt=dolt)
-        store.mark_category_proposed("naming")
-        dolt.add_to_dedup_set.assert_called_once_with("proposed_categories", "naming")
-        # File should NOT be written
-        assert not (tmp_path / "proposed_categories.json").exists()
-
-    def test_file_fallback_when_dolt_is_none(self, tmp_path: Path) -> None:
-        store = ReviewInsightStore(tmp_path, dolt=None)
-        assert store.get_proposed_categories() == set()
-        store.mark_category_proposed("edge_cases")
-        assert store.get_proposed_categories() == {"edge_cases"}
-        # File SHOULD be written
-        assert (tmp_path / "proposed_categories.json").exists()
-
-
-# ---------------------------------------------------------------------------
 # ProposalMetadata and verify_proposals
 # ---------------------------------------------------------------------------
 

@@ -775,48 +775,6 @@ class TestMarkPatternProposedOSError:
 
 
 # ---------------------------------------------------------------------------
-# Hindsight dual-write tests
-# ---------------------------------------------------------------------------
-
-
-class TestHarnessInsightStoreDolt:
-    """Tests for HarnessInsightStore with Dolt backend."""
-
-    def test_get_proposed_patterns_uses_dolt(self, tmp_path: Path) -> None:
-        from unittest.mock import MagicMock
-
-        dolt = MagicMock()
-        dolt.get_dedup_set.return_value = {
-            "category:ci_failure",
-            "subcategory:lint_error",
-        }
-        store = HarnessInsightStore(tmp_path, dolt=dolt)
-        result = store.get_proposed_patterns()
-        assert result == {"category:ci_failure", "subcategory:lint_error"}
-        dolt.get_dedup_set.assert_called_once_with("harness_proposed")
-
-    def test_mark_pattern_proposed_uses_dolt(self, tmp_path: Path) -> None:
-        from unittest.mock import MagicMock
-
-        dolt = MagicMock()
-        store = HarnessInsightStore(tmp_path, dolt=dolt)
-        store.mark_pattern_proposed("category:ci_failure")
-        dolt.add_to_dedup_set.assert_called_once_with(
-            "harness_proposed", "category:ci_failure"
-        )
-        # File should NOT be written
-        assert not (tmp_path / "harness_proposed.json").exists()
-
-    def test_file_fallback_when_dolt_is_none(self, tmp_path: Path) -> None:
-        store = HarnessInsightStore(tmp_path, dolt=None)
-        assert store.get_proposed_patterns() == set()
-        store.mark_pattern_proposed("subcategory:lint_error")
-        assert store.get_proposed_patterns() == {"subcategory:lint_error"}
-        # File SHOULD be written
-        assert (tmp_path / "harness_proposed.json").exists()
-
-
-# ---------------------------------------------------------------------------
 # Sentry breadcrumb tests
 # ---------------------------------------------------------------------------
 

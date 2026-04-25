@@ -15,7 +15,6 @@ from models import IsoTimestamp, PlanAccuracyResult, ReviewVerdict
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
-    from dolt_backend import DoltBackend
     from models import ReviewResult
     from pr_manager import PRManager
     from retrospective_queue import RetrospectiveQueue
@@ -51,7 +50,6 @@ class RetrospectiveCollector:
         state: StateTracker,
         prs: PRManager,
         *,
-        dolt: DoltBackend | None = None,
         queue: RetrospectiveQueue | None = None,
     ) -> None:
         from dedup_store import DedupStore  # noqa: PLC0415
@@ -59,13 +57,11 @@ class RetrospectiveCollector:
         self._config = config
         self._state = state
         self._prs = prs
-        self._dolt = dolt
         self._queue = queue
         self._retro_path = config.data_path("memory", "retrospectives.jsonl")
         self._filed = DedupStore(
             "filed_patterns",
             config.data_path("memory", "filed_patterns.json"),
-            dolt=dolt,
         )
 
     async def record(

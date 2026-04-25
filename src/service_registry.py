@@ -6,7 +6,6 @@ import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from acceptance_criteria import AcceptanceCriteriaGenerator
@@ -198,23 +197,8 @@ class WorkerRegistryCallbacks:
 
 
 def build_state_tracker(config: HydraFlowConfig) -> StateTracker:
-    """Construct a ``StateTracker`` with the best available backend.
-
-    Uses embedded Dolt when the ``dolt`` CLI is installed, otherwise
-    falls back to JSON-file persistence.
-    """
-    from dolt_backend import DoltBackend
-
-    dolt: DoltBackend | None = None
-    try:
-        dolt_dir = Path(str(config.state_file)).parent / "dolt"
-        dolt = DoltBackend(dolt_dir)
-        logger.info("Dolt state backend enabled at %s", dolt_dir)
-    except FileNotFoundError:
-        logger.info("dolt CLI not found — using file-based state")
-    except Exception:
-        logger.warning("Dolt init failed — using file-based state", exc_info=True)
-    return StateTracker(config.state_file, dolt=dolt)
+    """Construct a file-backed ``StateTracker``."""
+    return StateTracker(config.state_file)
 
 
 def build_services(
@@ -246,18 +230,6 @@ def build_services(
     # The wiki + tribal + ADR-draft pipeline is the new primary. Any
     # historical Hindsight content that needs to be preserved should have
     # been extracted via scripts/extract_hindsight_to_wiki.py before merge.
-
-    # Dolt embedded state backend (preferred, graceful fallback)
-    from dolt_backend import DoltBackend
-
-    dolt_backend: DoltBackend | None = None
-    try:
-        dolt_dir = Path(str(config.state_file)).parent / "dolt"
-        dolt_backend = DoltBackend(dolt_dir)
-    except FileNotFoundError:
-        logger.info("dolt CLI not found — stores will use file-based fallback")
-    except Exception:
-        logger.warning("Dolt init failed", exc_info=True)
 
     # Core runners
     workspaces = WorkspaceManager(config, credentials=credentials)  # noqa: F841
@@ -293,7 +265,6 @@ def build_services(
         config,
         event_bus,
         runner=subprocess_runner,
-        dolt=dolt_backend,
         credentials=credentials,
         wiki_store=repo_wiki_store,
         tribal_wiki_store=tribal_wiki_store,
@@ -376,7 +347,6 @@ def build_services(
     # Harness insight store (shared across phases)
     harness_insights = HarnessInsightStore(
         config.data_path("memory"),
-        dolt=dolt_backend,
         sensor_enrichment_enabled=config.sensor_enrichment_enabled,
     )
 
@@ -580,7 +550,6 @@ def build_services(
         config,
         state,
         prs,
-        dolt=dolt_backend,
         queue=retrospective_queue,
     )
     ac_generator = AcceptanceCriteriaGenerator(
@@ -612,7 +581,6 @@ def build_services(
     # ReviewInsightStore shared between AgentRunner and ReviewPhase
     review_insights = ReviewInsightStore(
         config.memory_dir,
-        dolt=dolt_backend,
     )
     # Inject shared store into AgentRunner (replacing its self-constructed copy)
     agents._insights = review_insights
@@ -632,7 +600,6 @@ def build_services(
         review_insights=review_insights,
         update_bg_worker_status=callbacks.update_status,
         baseline_policy=baseline_policy,
-        dolt=dolt_backend,
         active_issues_cb=active_issues_cb,
         transcript_summarizer=summarizer,
         wiki_store=repo_wiki_store,
@@ -725,7 +692,6 @@ def build_services(
     sentry_dedup = DedupStore(
         "sentry_filed_ids",
         config.data_root / "dedup" / "sentry_filed.json",
-        dolt=dolt_backend,
     )
     sentry_loop = SentryLoop(
         config=config,

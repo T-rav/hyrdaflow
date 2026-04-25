@@ -19,7 +19,6 @@ from models import IsoTimestamp, PipelineStage
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
-    from dolt_backend import DoltBackend
 
 logger = logging.getLogger("hydraflow.harness_insights")
 
@@ -144,7 +143,6 @@ class HarnessInsightStore:
         self,
         memory_dir: Path,
         *,
-        dolt: DoltBackend | None = None,
         sensor_enrichment_enabled: bool = True,
     ) -> None:
         from dedup_store import DedupStore  # noqa: PLC0415
@@ -154,9 +152,7 @@ class HarnessInsightStore:
         self._proposed = DedupStore(
             "harness_proposed",
             memory_dir / "harness_proposed.json",
-            dolt=dolt,
         )
-        self._dolt = dolt
         self._sensor_enrichment_enabled = sensor_enrichment_enabled
 
     def _enrich_record_hints(self, record: FailureRecord) -> None:
