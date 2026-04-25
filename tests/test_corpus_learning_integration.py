@@ -42,7 +42,6 @@ import pytest
 from base_background_loop import LoopDeps
 from config import HydraFlowConfig
 from corpus_learning_loop import (
-    DEFAULT_ESCAPE_LABEL,
     CorpusLearningLoop,
     SynthesizedCase,
 )
@@ -212,8 +211,11 @@ def test_end_to_end_happy_path_files_one_pr(
     assert result["cases_validated"] == 1
     assert result["cases_filed"] == 1
 
-    # Reader seam was called exactly once with the configured label.
-    _prs.list_issues_by_label.assert_awaited_once_with(DEFAULT_ESCAPE_LABEL)
+    # Spec §4.1: reader is invoked once per escape-label family (default 3).
+    awaited_labels = [
+        call.args[0] for call in _prs.list_issues_by_label.await_args_list
+    ]
+    assert awaited_labels == ["skill-escape", "discover-escape", "shape-escape"]
 
     # PR-open seam was called exactly once, with the derived title/body
     # and the expected label set.
