@@ -108,6 +108,57 @@ _bg_worker_defs = [
         "ADR Reviewer",
         "Reviews proposed ADRs via a 3-judge council and routes to accept, reject, or escalate.",
     ),
+    # --- Trust fleet (ADR-0045) ---
+    (
+        "corpus_learning",
+        "Corpus Learning",
+        "Synthesizes adversarial cases from skill/discover/shape escape signals and opens corpus-update PRs.",
+    ),
+    (
+        "contract_refresh",
+        "Contract Refresh",
+        "Re-records fake-adapter cassettes and opens refresh PRs when committed cassettes drift from live behavior.",
+    ),
+    (
+        "staging_bisect",
+        "Staging Bisect",
+        "Bisects RC red between last-green and current-red; opens auto-revert PRs and watches the next RC.",
+    ),
+    (
+        "principles_audit",
+        "Principles Audit",
+        "Weekly ADR-0044 audit of HydraFlow-self plus managed repos; blocks onboarding on P1–P5 fails.",
+    ),
+    (
+        "flake_tracker",
+        "Flake Tracker",
+        "Detects persistently flaky tests across recent RC runs and files flake-tracker issues.",
+    ),
+    (
+        "skill_prompt_eval",
+        "Skill Prompt Eval",
+        "Weekly adversarial-corpus gate against built-in skills; flags PASS→FAIL regressions.",
+    ),
+    (
+        "fake_coverage_auditor",
+        "Fake Coverage Auditor",
+        "Flags fake-adapter methods without cassettes and scenario helpers nobody calls.",
+    ),
+    (
+        "rc_budget",
+        "RC Budget",
+        "Detects RC wall-clock bloat via rolling-median + spike signals across recent runs.",
+    ),
+    (
+        "wiki_rot_detector",
+        "Wiki Rot Detector",
+        "Scans per-repo wikis for citations whose source code has moved or vanished.",
+    ),
+    (
+        "trust_fleet_sanity",
+        "Trust Fleet Sanity",
+        "Meta-observer — watches the 9 trust loops for stalls, escalation spam, dedup growth, errors, cost spikes.",
+    ),
 ]
 
 # Workers that have independent configurable intervals
@@ -116,6 +167,17 @@ _INTERVAL_WORKERS = {
     "pr_unsticker",
     "pipeline_poller",
     "report_issue",
+    # Trust fleet (ADR-0045): every loop's interval is operator-tunable.
+    "corpus_learning",
+    "contract_refresh",
+    "staging_bisect",
+    "principles_audit",
+    "flake_tracker",
+    "skill_prompt_eval",
+    "fake_coverage_auditor",
+    "rc_budget",
+    "wiki_rot_detector",
+    "trust_fleet_sanity",
 }
 # Pipeline loops share poll_interval (read-only display)
 _PIPELINE_WORKERS = {"triage", "plan", "implement", "review"}

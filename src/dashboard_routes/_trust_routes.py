@@ -310,13 +310,107 @@ async def _read_fleet(
         )
 
     anomalies = _cached_anomalies(config, anomaly_reader)
+    escape_closure = _compute_escape_closure(config, since=since, until=now)
     range_label = "30d" if range_td.days >= 30 else "7d"
     return {
         "range": range_label,
         "generated_at": now.isoformat(),
         "loops": loops,
         "anomalies_recent": anomalies,
+        "escape_closure": escape_closure,
     }
+
+
+_ESCAPE_LABELS: tuple[str, ...] = (
+    "skill-escape",
+    "discover-escape",
+    "shape-escape",
+)
+_ESCAPE_CLOSURE_TARGET_DAYS = 7
+_ESCAPE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_ESCAPE_CACHE_TTL = 60
+
+
+def _compute_escape_closure(
+    config: HydraFlowConfig, *, since: datetime, until: datetime
+) -> dict[str, Any]:
+    """Compute spec §12.4 success metric: 7-day escape closure ratio.
+
+    Returns ``{"opened": n, "closed_within_7d": k, "ratio": k/n, "target": 0.95}``
+    aggregated across the three escape labels in [since, until]. Values are
+    cached for 60s to amortize the gh-issue-list calls. Failures are soft
+    — return zeros rather than blow up the fleet endpoint.
+    """
+    cache_key = f"{config.repo or '_local_'}:{since.isoformat()}:{until.isoformat()}"
+    cached = _ESCAPE_CACHE.get(cache_key)
+    if cached is not None and time.time() - cached[0] < _ESCAPE_CACHE_TTL:
+        return cached[1]
+
+    target_window = timedelta(days=_ESCAPE_CLOSURE_TARGET_DAYS)
+    opened = 0
+    closed_within_target = 0
+    for label in _ESCAPE_LABELS:
+        argv = [
+            "gh",
+            "issue",
+            "list",
+            "--state",
+            "all",
+            "--label",
+            label,
+            "--limit",
+            "200",
+            "--json",
+            "createdAt,closedAt",
+        ]
+        if config.repo:
+            argv.extend(["--repo", config.repo])
+        try:
+            out = subprocess.run(  # noqa: S603 — trusted ``gh`` invocation
+                argv,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            rows = json.loads(out.stdout or "[]")
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            json.JSONDecodeError,
+            FileNotFoundError,
+        ):
+            logger.debug("escape-closure: gh issue list failed for %s", label)
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            created = _parse_iso(row.get("createdAt"))
+            if created is None or created < since or created > until:
+                continue
+            opened += 1
+            closed = _parse_iso(row.get("closedAt"))
+            if closed is not None and (closed - created) <= target_window:
+                closed_within_target += 1
+
+    ratio = (closed_within_target / opened) if opened else 0.0
+    payload = {
+        "opened": opened,
+        "closed_within_7d": closed_within_target,
+        "ratio": round(ratio, 4),
+        "target": 0.95,
+    }
+    _ESCAPE_CACHE[cache_key] = (time.time(), payload)
+    return payload
+
+
+def _parse_iso(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 def build_trust_router(

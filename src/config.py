@@ -1848,6 +1848,14 @@ class HydraFlowConfig(BaseModel):
         le=2_592_000,
         description="Seconds between CorpusLearningLoop ticks (default 7d)",
     )
+    corpus_learning_signal_labels: tuple[str, ...] = Field(
+        default=("skill-escape", "discover-escape", "shape-escape"),
+        description=(
+            "Escape-signal labels CorpusLearningLoop reads. Spec §4.1: covers "
+            "skill-escape (post-impl), discover-escape (Discover §4.10), and "
+            "shape-escape (Shape §4.10). Override for a stripped-down deployment."
+        ),
+    )
 
     # Trust fleet — ContractRefreshLoop (spec §4.2)
     contract_refresh_interval: int = Field(

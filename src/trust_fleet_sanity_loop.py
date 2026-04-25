@@ -93,7 +93,13 @@ Response JSON:
       "issue_number": <int>,
       "details": {<detector-specific>}
     }
-  ]
+  ],
+  "escape_closure": {                       # spec §12.4 success metric
+    "opened": <int>,                          # escape issues opened in window
+    "closed_within_7d": <int>,                # closed within 7 days of open
+    "ratio": <float>,                         # closed_within_7d / opened
+    "target": 0.95                            # spec §12.4 target ratio
+  }
 }
 
 Implementation notes for Plan 6b:

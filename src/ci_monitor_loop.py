@@ -56,8 +56,11 @@ class CIMonitorLoop(BaseBackgroundLoop):
         except Exception:
             logger.debug("CI monitor: could not rehydrate open issue", exc_info=True)
 
-    async def _do_work(self) -> dict[str, Any] | None:
+    async def _do_work(self) -> dict[str, Any] | None:  # noqa: PLR0911
         """Check CI status and create/close issues as needed."""
+        if not self._enabled_cb(self._worker_name):
+            return {"status": "disabled"}
+
         if self._config.dry_run:
             return None
 

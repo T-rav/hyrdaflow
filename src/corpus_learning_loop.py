@@ -72,10 +72,20 @@ logger = logging.getLogger("hydraflow.corpus_learning_loop")
 
 #: Default GitHub label that marks an issue as a production escape
 #: signal. Task 15 will surface this as a
-#: ``corpus_learning_signal_label`` config field; until then callers and
-#: tests can override via the ``label`` parameter on
-#: :meth:`CorpusLearningLoop._list_escape_signals`.
+#: Default label for backwards-compatible single-label callers (tests).
+#: Production reads :data:`DEFAULT_ESCAPE_SIGNAL_LABELS` via the
+#: ``corpus_learning_signal_labels`` config field (spec §4.1).
 DEFAULT_ESCAPE_LABEL = "skill-escape"
+
+#: Spec §4.1: the loop reads three escape-label families. ``skill-escape``
+#: covers post-impl skills; ``discover-escape`` and ``shape-escape``
+#: cover product-phase evaluator escapes (§4.10). Configurable via
+#: ``HydraFlowConfig.corpus_learning_signal_labels``.
+DEFAULT_ESCAPE_SIGNAL_LABELS: tuple[str, ...] = (
+    "skill-escape",
+    "discover-escape",
+    "shape-escape",
+)
 
 #: Default recency window (days) for escape signals. Issues whose
 #: ``updated_at`` is older than this are dropped from the reader so the
@@ -589,8 +599,23 @@ class CorpusLearningLoop(BaseBackgroundLoop):
         # Tolerate PR-query failures — a broken ``gh`` in the env must
         # not propagate as an AuthenticationError that pauses the whole
         # orchestrator. Next tick retries.
+        # Spec §4.1: the loop reads ALL escape-signal label families
+        # (skill-escape, discover-escape, shape-escape by default) so
+        # product-phase escapes from §4.10 feed the same synthesis
+        # pipeline as post-impl skill escapes.
+        labels = (
+            getattr(self._config, "corpus_learning_signal_labels", None)
+            or DEFAULT_ESCAPE_SIGNAL_LABELS
+        )
+        signals: list[EscapeSignal] = []
         try:
-            signals = await self._list_escape_signals()
+            seen_issues: set[int] = set()
+            for label in labels:
+                for sig in await self._list_escape_signals(label=label):
+                    if sig.issue_number in seen_issues:
+                        continue
+                    seen_issues.add(sig.issue_number)
+                    signals.append(sig)
         except Exception:  # noqa: BLE001
             logger.warning(
                 "corpus-learning: escape-signal query failed — skipping tick",

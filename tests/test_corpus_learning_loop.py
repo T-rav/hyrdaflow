@@ -296,7 +296,11 @@ def test_do_work_invokes_escape_signal_reader_when_enabled(tmp_path: Path) -> No
 
     result = asyncio.run(loop._do_work())
 
-    prs.list_issues_by_label.assert_awaited_once_with(DEFAULT_ESCAPE_LABEL)
+    # Spec §4.1: the loop now reads three escape-label families per tick.
+    # Each call returns the same mocked issue; dedup-by-issue-number means
+    # the post-dedup count is still 1.
+    awaited_labels = [call.args[0] for call in prs.list_issues_by_label.await_args_list]
+    assert awaited_labels == ["skill-escape", "discover-escape", "shape-escape"]
     assert isinstance(result, dict)
     assert result.get("escape_issues_seen") == 1
     # Task 14 replaces the proposed/escalated stubs with cases_synthesized

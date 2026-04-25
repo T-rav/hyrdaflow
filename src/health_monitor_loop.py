@@ -357,6 +357,9 @@ class HealthMonitorLoop(BaseBackgroundLoop):
 
     async def _do_work(self) -> dict[str, Any] | None:
         """Execute one health-monitor cycle."""
+        if not self._enabled_cb(self._worker_name):
+            return {"status": "disabled"}
+
         # Dead-man-switch: detect a stalled TrustFleetSanityLoop (spec §12.1).
         try:
             await self._check_sanity_loop_staleness()
