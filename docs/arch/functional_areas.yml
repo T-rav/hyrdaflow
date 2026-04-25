@@ -1,0 +1,166 @@
+# docs/arch/functional_areas.yml
+#
+# Hand-curated: each loop and Port must appear in exactly one area.
+# `tests/architecture/test_functional_area_coverage.py` enforces.
+# Schema: src/arch/_functional_areas_schema.py
+#
+# Generated against Plan A's live extractor output: 30 loops, 8 Ports.
+
+areas:
+  caretaking:
+    label: Caretaking
+    description: >
+      Autonomous background loops that maintain the system without human
+      input — wiki freshness, stale-issue GC, ADR review, retrospective
+      digestion, security patching, dependabot merging, code grooming.
+      Per ADR-0029 (caretaker pattern) and ADR-0049 (kill-switch).
+    loops:
+      - ADRReviewerLoop
+      - CodeGroomingLoop
+      - DependabotMergeLoop
+      - DiagnosticLoop
+      - EpicMonitorLoop
+      - EpicSweeperLoop
+      - GitHubCacheLoop
+      - HealthMonitorLoop
+      - PRUnstickerLoop
+      - RepoWikiLoop
+      - ReportIssueLoop
+      - RetrospectiveLoop
+      - RunsGCLoop
+      - SecurityPatchLoop
+      - SentryLoop
+      - SkillPromptEvalLoop
+      - StagingPromotionLoop
+      - StaleIssueGCLoop
+      - StaleIssueLoop
+      - WikiRotDetectorLoop
+      - WorkspaceGCLoop
+    related_adrs: ['0029', '0049']
+
+  quality_gates:
+    label: Quality Gates
+    description: >
+      Runtime CI/test monitoring loops that catch regressions and watch
+      external check status. Distinct from the implement-time skill
+      chain (DiffSanity / ScopeCheck / PlanCompliance / TestAdequacy)
+      which are call-sites, not loops.
+    loops:
+      - CIMonitorLoop
+    related_adrs: ['0023', '0035', '0044']
+
+  trust_fleet:
+    label: Trust Fleet
+    description: >
+      The trust-architecture hardening fleet (ADR-0045) — RC promotion
+      gate, staging-bisect attribution, contract refresh, principles
+      audit, flake tracker, corpus learning, fake coverage auditor,
+      RC budget, meta-observability sanity.
+    loops:
+      - ContractRefreshLoop
+      - CorpusLearningLoop
+      - FakeCoverageAuditorLoop
+      - FlakeTrackerLoop
+      - PrinciplesAuditLoop
+      - RCBudgetLoop
+      - StagingBisectLoop
+      - TrustFleetSanityLoop
+    related_adrs: ['0042', '0045', '0048']
+
+  hexagonal_boundaries:
+    label: Hexagonal Boundaries
+    description: >
+      The Port/Adapter seam between domain runtime and the outside
+      world (GitHub, git, the LLM, the filesystem, observability). Each
+      Port has at least one concrete adapter and (per ADR-0047) a fake
+      under tests/scenarios/fakes/.
+    ports:
+      - AgentPort
+      - IssueFetcherPort
+      - IssueStorePort
+      - ObservabilityPort
+      - PRPort
+      - ReviewInsightStorePort
+      - RouteBackCounterPort
+      - WorkspacePort
+    related_adrs: ['0006', '0010', '0047']
+
+  state_persistence:
+    label: State & Persistence
+    description: >
+      Crash-recovery state (StateTracker), event bus, session logs,
+      and the on-disk layout that keeps the pipeline resumable across
+      crashes and restarts.
+    modules:
+      - src/state/**
+      - src/events.py
+      - src/session_log.py
+    related_adrs: ['0021', '0028']
+
+  test_harness:
+    label: Test Harness (MockWorld)
+    description: >
+      The scenario-ring test harness — `MockWorld` aggregates 14 fakes
+      that emulate every external dependency and integration target.
+      Per ADR-0022 (MockWorld) and ADR-0047 (fake-adapter contract
+      testing).
+    modules:
+      - tests/scenarios/fakes/**
+      - tests/scenarios/builders/**
+    related_adrs: ['0022', '0047']
+
+  arch_knowledge:
+    label: Architecture Knowledge
+    description: >
+      The self-documenting layer — runner, AST extractors, generators,
+      DiagramLoop (Plan C), CI guard, and Pages site that publishes
+      live architectural truth alongside ADRs and the wiki.
+    loops:
+      - DiagramLoop  # Plan C — pre-staged so coverage doesn't fail when L24 lands.
+    modules:
+      - src/arch/**
+    related_adrs: ['0029', '0032']
+
+  dashboard:
+    label: Dashboard
+    description: >
+      The operator-facing FastAPI + React dashboard for observing the
+      fleet and overriding routing decisions.
+    modules:
+      - src/ui/**
+      - src/dashboard*.py
+      - src/dashboard_routes/**
+      - src/routes/**
+    related_adrs: ['0007', '0008', '0009', '0030']
+
+  goal_driven_dev:
+    label: Goal-Driven Development
+    description: >
+      The Discover → Shape → Implement track for vague work that the
+      orchestrator can't take directly. Implemented as call-sites in
+      shape_phase.py and discover_phase.py rather than dedicated loops.
+    modules:
+      - src/discover_phase.py
+      - src/shape_phase.py
+    related_adrs: ['0031']
+
+  orchestration:
+    label: Orchestration
+    description: >
+      The plan→implement→review pipeline driving each issue from
+      hydraflow-ready through merge. The original five-loop system per
+      ADR-0001 (now amended); RunLoop and friends live as call-sites
+      within orchestrator.py rather than as separate BaseBackgroundLoop
+      subclasses.
+    modules:
+      - src/orchestrator.py
+      - src/agent.py
+      - src/agent_runner.py
+      - src/planner.py
+      - src/reviewer.py
+      - src/triage_phase.py
+      - src/plan_phase.py
+      - src/implement_phase.py
+      - src/review_phase.py
+      - src/hitl_phase.py
+    related_adrs: ['0001', '0004', '0011', '0012', '0029']
