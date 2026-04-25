@@ -555,3 +555,20 @@ docker-test: docker-build
 .PHONY: audit-prompts
 audit-prompts: ## Render all prompt fixtures, score against the rubric, regenerate the prompt-audit report.
 	@cd $(HYDRAFLOW_DIR) && PYTHONPATH=src $(UV) python scripts/audit_prompts.py
+
+.PHONY: arch-regen arch-check arch-serve
+
+## arch-regen — regenerate docs/arch/generated/ from source
+arch-regen:
+	@echo "$(BLUE)Regenerating architecture knowledge artifacts...$(RESET)"
+	@$(UV) python -m arch.runner --emit --repo-root $(HYDRAFLOW_DIR)
+	@echo "$(GREEN)docs/arch/generated/ refreshed$(RESET)"
+
+## arch-check — dry-run regen; fail if generated/ is stale
+arch-check:
+	@$(UV) python -m arch.runner --check --repo-root $(HYDRAFLOW_DIR)
+
+## arch-serve — placeholder; Plan C wires this to mkdocs serve
+arch-serve:
+	@echo "$(YELLOW)mkdocs not configured yet — Plan C wires this up.$(RESET)"
+	@echo "Run 'make arch-regen' and read docs/arch/generated/*.md directly."
