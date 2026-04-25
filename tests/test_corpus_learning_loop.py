@@ -1051,3 +1051,50 @@ class _AutoPrResultStub:
         self.pr_url = pr_url
         self.branch = "test-branch"
         self.error = error
+
+
+def test_do_work_caps_prs_per_tick(tmp_path: Path) -> None:
+    """G1: a burst of validated cases must not exceed the per-tick cap."""
+    # 25 escape signals all parseable, all synthesizable, all validated.
+    issues = [
+        {
+            "number": 1000 + i,
+            "title": f"escape #{1000 + i}",
+            "body": (
+                "## What slipped through\n"
+                "test_x asserted 1 != 2\n"
+                "## Catcher\n"
+                "test-completeness\n"
+                "## Slug\n"
+                f"escape-{i}\n"
+            ),
+            "updated_at": _iso_now_offset(-1),
+        }
+        for i in range(25)
+    ]
+    prs = AsyncMock()
+    prs.list_issues_by_label = AsyncMock(return_value=issues)
+    prs.create_pr = AsyncMock(return_value=42)
+
+    # Cap at 5 — anything above is deferred.
+    loop = _loop(tmp_path, prs=prs, corpus_learning_max_prs_per_tick=5)
+
+    # Force every signal to validate cleanly.
+    loop._synthesize_case = lambda sig: SynthesizedCase(  # type: ignore[method-assign]
+        issue_number=sig.issue_number,
+        slug=f"case-{sig.issue_number}",
+        expected_catcher="test-completeness",
+        keyword="x",
+        before_files={"src/x.py": "before"},
+        after_files={"src/x.py": "after"},
+        readme="r",
+    )
+    loop._validate_case = lambda c: ValidationResult(ok=True)  # type: ignore[method-assign]
+    loop._materialize_case_on_disk = lambda c, r: []  # type: ignore[method-assign]
+    loop._open_pr_for_case = AsyncMock(return_value=42)  # type: ignore[method-assign]
+
+    result = asyncio.run(loop._do_work())
+
+    assert result["cases_filed"] == 5
+    assert result["cases_validated"] == 25  # all validated, just deferred
+    assert loop._open_pr_for_case.await_count == 5

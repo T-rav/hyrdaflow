@@ -1856,6 +1856,16 @@ class HydraFlowConfig(BaseModel):
             "shape-escape (Shape §4.10). Override for a stripped-down deployment."
         ),
     )
+    corpus_learning_max_prs_per_tick: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description=(
+            "Max PRs CorpusLearningLoop opens per tick. Bounds blast radius "
+            "when escape-signal dedup misses (e.g. issue retitled mid-tick). "
+            "Surplus validated cases defer to the next tick."
+        ),
+    )
 
     # Trust fleet — ContractRefreshLoop (spec §4.2)
     contract_refresh_interval: int = Field(

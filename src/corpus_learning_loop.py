@@ -657,7 +657,19 @@ class CorpusLearningLoop(BaseBackgroundLoop):
                 )
 
         repo_root = Path(self._config.repo_root)
+        # Per-tick cap. Spec §3.2: a misbehaving loop must not flood
+        # the issue queue. The dedup is keyed on (issue_number, slug),
+        # so a burst of escape issues with churning slugs (e.g. retitled
+        # between ticks) bypasses dedup. The trust-fleet-sanity loop's
+        # `issues_per_hour` detector is post-hoc — by the time it fires,
+        # the burst has already happened. This cap bounds blast radius
+        # to a known multiple before any anomaly detector runs.
+        max_per_tick = self._config.corpus_learning_max_prs_per_tick
+        truncated = False
         for case in validated_cases:
+            if cases_filed >= max_per_tick:
+                truncated = True
+                break
             paths = self._materialize_case_on_disk(case, repo_root)
             title = f"test(trust): corpus-learning case for escape #{case.issue_number}"
             body = _build_pr_body(case)
@@ -666,6 +678,13 @@ class CorpusLearningLoop(BaseBackgroundLoop):
             )
             if pr_number is not None:
                 cases_filed += 1
+        if truncated:
+            logger.warning(
+                "corpus-learning: per-tick cap %d hit — %d validated cases "
+                "deferred until next tick",
+                max_per_tick,
+                len(validated_cases) - cases_filed,
+            )
 
         return {
             "status": "noop",
