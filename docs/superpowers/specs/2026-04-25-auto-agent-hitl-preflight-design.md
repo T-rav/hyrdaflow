@@ -150,13 +150,15 @@ class PreflightContext:
     issue_body: str
     issue_comments: list[IssueComment]  # last 10
     sub_label: str
-    escalation_context: dict[str, Any] | None  # from StateData
+    escalation_context: EscalationContext | None  # from state.get_escalation_context(); see note below
     wiki_excerpts: str  # from RepoWikiStore.query()
     sentry_events: list[SentryEvent]  # from new reverse-lookup helper, may be empty
     recent_commits: list[CommitRef]  # git log --since=7d on files mentioned
     sublabel_extras: dict[str, Any]  # e.g. flake_tracker state for flaky-test-stuck
     prior_attempts: list[PreflightAuditEntry]
 ```
+
+`EscalationContext` is the existing Pydantic model in `src/models.py:950`. **Important constraint:** only `review_phase` and `phase_utils` populate it today — most caretaker-loop escalations (flake_tracker, wiki_rot_detector, rc_budget, skill_prompt_eval, fake_coverage_auditor, contract_refresh, trust_fleet_sanity) never call `set_escalation_context`, so `escalation_context` will be `None` for the majority of pre-flight invocations. The agent prompt template MUST handle this — when context is `None`, the prompt operates on issue body + sub-label + wiki + sentry alone, and the prompt template renders an explicit "no escalation context — operate on issue body" block instead of the structured escalation breakdown.
 
 The Sentry reverse-lookup is new; it queries Sentry's API by issue title + stack-trace fingerprint. On failure, returns `[]` and logs at warning level — does not block the pre-flight.
 
@@ -212,7 +214,15 @@ Provides query helpers used by the dashboard endpoint:
 ### §3.6 New helpers
 
 - `src/sentry/reverse_lookup.py` — query Sentry API by title + fingerprint. ~80 lines. VCR-cassette tested.
-- `src/state/_auto_agent.py` — new mixin for `auto_agent_attempts: dict[str, int]` and `auto_agent_daily_spend: dict[str, float]`. Mixed into `StateTracker` per existing pattern (`src/state/__init__.py`).
+
+- **`StateData` field additions** (`src/models.py`, alongside the trust-fleet fields around line 1772):
+  - `auto_agent_attempts: dict[str, int] = Field(default_factory=dict)` — issue-id-string → attempt count.
+  - `auto_agent_daily_spend: dict[str, float] = Field(default_factory=dict)` — `YYYY-MM-DD` → spend USD.
+  These are the persistence layer; the mixin below adds typed accessors but the Pydantic fields are required for serialization to the JSON state file.
+
+- **`src/state/_auto_agent.py`** — new mixin (mirrors `src/state/_flake_tracker.py`). Methods: `get_auto_agent_attempts(issue) -> int`, `bump_auto_agent_attempts(issue) -> int`, `clear_auto_agent_attempts(issue)` (called from issue-close reconciliation, mirrors `clear_flake_attempts`), `get_auto_agent_daily_spend(date_iso) -> float`, `add_auto_agent_daily_spend(date_iso, usd) -> float`. Mixed into `StateTracker` in `src/state/__init__.py` per existing convention.
+
+- **Issue-close reconciliation** — when an issue with `human-required` (or any auto-agent label) closes, call `clear_auto_agent_attempts(issue)` so a future re-open starts fresh. Hook this into the existing close-reconciliation flow that other loops use (mirror `principles_audit_loop._reconcile_closed_escalations`).
 
 ## §4 Sub-label routed prompts
 
@@ -241,6 +251,7 @@ Every prompt wraps these blocks (defined once in `prompts/auto_agent/_envelope.m
 | `rc-duration-stuck` | `prompts/auto_agent/rc-duration-stuck.md` | "Release-critical work is taking too long. Look at what's blocking — usually a single PR. Comment on that PR with a specific unblock action; if it's a code issue, propose a patch." |
 | `skill-prompt-stuck` | `prompts/auto_agent/skill-prompt-stuck.md` | "A skill prompt evaluation is failing. Read the eval, the prompt, recent changes — usually a regression in prompt structure or output format." |
 | `trust-loop-anomaly` | `prompts/auto_agent/trust-loop-anomaly.md` | "A trust-fleet anomaly fired. Read the anomaly type, the loop's recent telemetry. Most anomalies are runtime drift, not bugs — propose a config tune or note that anomaly is expected. Don't modify the loop code itself." |
+| `principles-stuck` / `cultural-check` | (n/a — deny-listed) | These bypass pre-flight entirely. The principles audit IS the system that judges Auto-Agent; allowing Auto-Agent to "fix" a principles violation would let it modify the judge. Always escalates straight to `human-required`. |
 | (any other / phase escalations) | `prompts/auto_agent/_default.md` | "You're picking up a failed phase. Read the escalation_context, look at what was attempted. Try the obvious recovery; if it's not obvious, escalate with a specific question for the human." |
 
 ### §4.3 Adding a new sub-label
@@ -261,7 +272,7 @@ All in `HydraFlowConfig`. All ship-defaults shown.
 | `auto_agent_preflight_interval` | `int` | `120` | Seconds between cycles. |
 | `auto_agent_persona` | `str` | *"the lead engineer for this project — pragmatic, prefers small fixes, leaves regression tests, doesn't over-engineer. When in doubt about scope, do less."* | Substituted into shared prompt envelope. Operator-tunable. |
 | `auto_agent_max_attempts` | `int` | `3` | Per-issue attempt cap before `auto-agent-exhausted`. |
-| `auto_agent_skip_sublabels` | `list[str]` | `["principles-violation"]` | Sub-labels that bypass pre-flight entirely. |
+| `auto_agent_skip_sublabels` | `list[str]` | `["principles-stuck", "cultural-check"]` | Sub-labels that bypass pre-flight entirely. Match `principles_audit_loop.py:339-345` exact label names — the principles-audit recursion guard. |
 | `auto_agent_cost_cap_usd` | `float \| None` | `None` (unlimited) | Per-attempt cost cap. Code path wired but inactive by default. |
 | `auto_agent_wall_clock_cap_s` | `int \| None` | `None` (unlimited) | Per-attempt wall-clock cap. Code path wired but inactive by default. |
 | `auto_agent_daily_budget_usd` | `float \| None` | `None` (unlimited) | Per-day total spend budget. Code path wired but inactive by default. |
@@ -345,6 +356,7 @@ Every code path that could swallow an error has at least one of: (a) audit entry
 | Tool restriction violated | Agent gets tool-call-rejected. Can recover or bail. Repeated violations → agent typically bails to `needs_human`. |
 | Pre-flight resolves but PR fails to open | `human-required + auto-agent-pr-failed`. Diagnosis preserved with what was changed locally. |
 | Two pre-flights racing (defensive) | Single-cycle loop precludes this; defensive: `auto_agent_attempts` atomic check in Decision aborts on race. |
+| `escalation_context` missing for caretaker-loop escalations | Most caretaker loops (flake_tracker, wiki_rot_detector, rc_budget, etc.) never call `set_escalation_context`. Prompt template branches on `escalation_context is None` — renders "no structured escalation context — operate from issue body + sub-label + wiki + sentry" rather than failing. The `_default.md` prompt and every sub-label-specific prompt MUST tolerate the missing-context case. |
 
 ## §8 Testing strategy
 
