@@ -164,12 +164,24 @@ def _strip_footer(text: str) -> str:
     return "\n".join(out)
 
 
+# Artifacts inherently dependent on git history; not subject to drift checks
+# (they regenerate freshly every CI/site build by design).
+_DRIFT_EXEMPT = {"changelog.md"}
+
+
 def check(*, repo_root: Path, generated_dir: Path) -> int:
-    """Regenerate to a tmpdir, diff against `generated_dir`, return rc 0/1."""
+    """Regenerate to a tmpdir, diff against `generated_dir`, return rc 0/1.
+
+    `changelog.md` is exempt from drift detection: it derives from
+    `git log` and changes with every commit, so structural drift detection
+    is meaningless for it.
+    """
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td) / "generated"
         emit(repo_root=repo_root, out_dir=tmp)
         for name in _ARTIFACT_FILES:
+            if name in _DRIFT_EXEMPT:
+                continue
             actual = generated_dir / name
             expected = tmp / name
             if not actual.exists():
