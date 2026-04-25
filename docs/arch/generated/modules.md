@@ -19,4 +19,4 @@ graph LR
     src_dashboard_routes -- "1" --> src_state
 ```
 
-_Regenerated from commit `64a3095` on 2026-04-25 22:49 UTC. Source last changed at `64a3095`._
+_Regenerated from commit `a92a97a` on 2026-04-25 23:21 UTC. Source last changed at `a92a97a`._

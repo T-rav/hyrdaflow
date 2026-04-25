@@ -6,6 +6,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W17
 
+- `74df6ee` — feat(arch): initial baseline emit of docs/arch/generated/ *(2026-04-25)*
 - `2b2c7a9` — test(arch): drift guards (label-match, loop-count, curated) *(2026-04-25)*
 - `61ba889` — feat(arch): freshness badge logic with bootstrap state *(2026-04-25)*
 - `94ad9c7` — feat(arch): runner CLI (--emit, --check) with .meta.json *(2026-04-25)*
@@ -150,4 +151,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `64a3095` on 2026-04-25 22:49 UTC. Source last changed at `64a3095`._
+_Regenerated from commit `a92a97a` on 2026-04-25 23:21 UTC. Source last changed at `a92a97a`._

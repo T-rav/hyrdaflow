@@ -192,6 +192,24 @@ def check(*, repo_root: Path, generated_dir: Path) -> int:
             b = _strip_footer(expected.read_text())
             if a != b:
                 print(f"[arch-check] drift in {name}")
+                # Show a unified-diff snippet so CI logs reveal exactly what differs
+                import difflib
+
+                diff_lines = list(
+                    difflib.unified_diff(
+                        a.splitlines(keepends=False),
+                        b.splitlines(keepends=False),
+                        fromfile=f"committed/{name}",
+                        tofile=f"regenerated/{name}",
+                        lineterm="",
+                        n=3,
+                    )
+                )
+                # Cap to first 80 diff lines to avoid log floods
+                for line in diff_lines[:80]:
+                    print(line)
+                if len(diff_lines) > 80:
+                    print(f"... ({len(diff_lines) - 80} more diff lines truncated)")
                 return 1
     return 0
 
