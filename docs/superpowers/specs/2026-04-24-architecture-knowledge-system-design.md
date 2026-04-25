@@ -30,9 +30,12 @@ every PR in dry-run mode and fails the build if the working tree is stale.
 The loop gives autonomous freshness; the CI guard gives same-PR catch.
 
 Implementation lands in **three plans** under
-`docs/superpowers/plans/2026-04-24-arch-knowledge-system-*.md`
-(extractors+generators, `docs/arch/` setup + ADR-0001 amendment, and
-DiagramLoop+Pages — sequencing and dependencies in §13). When a plan disagrees with the spec, the spec wins and the plan
+`docs/superpowers/plans/2026-04-24-arch-knowledge-system-*.md`,
+sequenced strictly: Plan A (extractors + 8 generators + runner),
+Plan B (`docs/arch/` setup + `functional_areas.yml` + the
+`functional_areas.py` generator that consumes it + ADR-0001 amendment),
+Plan C (DiagramLoop + CI guard + Pages deploy + MkDocs). Sequencing and
+dependencies in §13. When a plan disagrees with the spec, the spec wins and the plan
 must be updated.
 
 Hindsight has been removed from HydraFlow and is not represented in any
@@ -43,7 +46,8 @@ and are flagged for a separate cleanup pass.
 
 HydraFlow already has substantial structured knowledge:
 
-- **49 ADRs** under `docs/adr/`, each with a mandatory `Enforced by:` line
+- **49 ADR files** under `docs/adr/` (0001–0049 with 0026 absent and 0043
+  duplicated — historical artifacts), each with a mandatory `Enforced by:` line
   validated by `tests/test_adr_enforcement.py` (per `ADR-0044` P-discipline
   for decisions). The narrative layer is strong.
 - **6 wiki files** under `docs/wiki/` (architecture, patterns, gotchas,
@@ -156,7 +160,7 @@ a fixture source tree.
 
 | Module | What it produces |
 |---|---|
-| `loops.py` | List of `LoopInfo(name, module, tick_interval, event_subs, kill_switch_var, adr_refs, source_path)` — discovers all `BaseBackgroundLoop` subclasses via class introspection. |
+| `loops.py` | List of `LoopInfo(name, module, tick_interval, event_subs, kill_switch_var, adr_refs, source_path)` — discovers all `BaseBackgroundLoop` subclasses via **AST static analysis** of `src/*.py` (parse → find `class X(BaseBackgroundLoop)`). Class introspection (`__subclasses__`) is **not** used because each loop module has deferred imports with side effects (config wiring, etc.); importing them all to enumerate would risk those side effects firing. AST is pure, side-effect-free, and matches how `tests/scenarios/catalog/loop_registrations.py` indirectly catalogs loops today. |
 | `ports.py` | List of `PortInfo(name, module, methods, adapters: list[AdapterInfo], fake: FakeInfo \| None)` — discovers all `*Port` Protocols + their concrete and fake implementations. Per `ADR-0047`. |
 | `labels.py` | `LabelStateMachine(states, transitions: list[(from, to, trigger)])` — extracts the label state machine from the transition code (per `ADR-0002`). |
 | `modules.py` | `ModuleGraph(nodes, edges)` — package-level import graph for `src/`. |
@@ -170,8 +174,16 @@ topological) so generator output is byte-stable for diff comparison.
 ### 4.2 Generators (`src/arch/generators/`)
 
 Pure functions: in-memory model → Markdown string with embedded Mermaid.
-Output is byte-stable. Each generator emits a single `.md` file under
-`docs/arch/generated/`.
+Output is byte-stable (deterministic ordering, no timestamps in body —
+timestamps live in `.meta.json` instead). Each generator emits a single
+`.md` file under `docs/arch/generated/`.
+
+**Naming.** To avoid extractor/generator module collisions when grepping,
+the generator that consumes the `adr_xref` extractor is named
+`adr_cross_reference.py` (the extractor stays as `adr_xref.py`). All other
+generators share their extractor's stem since the inputs/outputs are
+1:1 and the package separator (`extractors/` vs `generators/`) is
+sufficient to disambiguate.
 
 | Module | Output file | Content |
 |---|---|---|
@@ -180,7 +192,7 @@ Output is byte-stable. Each generator emits a single `.md` file under
 | `label_state.py` | `docs/arch/generated/labels.md` | Mermaid `stateDiagram-v2` of all label transitions. |
 | `module_graph.py` | `docs/arch/generated/modules.md` | Mermaid graph of package-level imports; cycles and cross-layer violations highlighted. |
 | `event_bus.py` | `docs/arch/generated/events.md` | Bipartite Mermaid graph: events ↔ publishers/subscribers; orphan rows called out. |
-| `adr_xref.py` | `docs/arch/generated/adr_xref.md` | Two tables: ADR → modules cited; module → ADRs that cite it. |
+| `adr_cross_reference.py` | `docs/arch/generated/adr_xref.md` | Two tables: ADR → modules cited; module → ADRs that cite it. |
 | `mockworld_map.py` | `docs/arch/generated/mockworld.md` | Table of fakes with the Port each implements and the scenarios that wire them; Mermaid graph of fake → port → scenario coverage. |
 | `functional_areas.py` | `docs/arch/generated/functional_areas.md` | The Functional Area Map page (§4.3). Reads `functional_areas.yml` + introspection from above; emits one Mermaid cluster per area + a per-area table linking to detail pages. |
 | `changelog.py` | `docs/arch/generated/changelog.md` | Rolling 30/90-day arch-touching commit list (§6). |
@@ -306,9 +318,13 @@ A new caretaker loop joining the L9–L23 fleet.
      body listing which artifacts changed and a 3-line summary per
      artifact (e.g., "loop_registry.md: +DiagramLoop, +1 loop").
   5. Auto-label `hydraflow-ready` so the standard auto-merger handles it.
-- **Idempotence.** If a PR with that title is already open, update it
-  in place rather than opening a duplicate (existing pattern from
-  `RepoWikiLoop`).
+- **Idempotence.** PR lookup uses **title-prefix match** (`chore(arch):
+  regenerate architecture knowledge`) plus the `hydraflow-ready` label,
+  not the full date-stamped title. This avoids a midnight-UTC race where
+  a tick at 23:58 opens a PR with today's date and a tick at 00:05 would
+  otherwise fail to find it under tomorrow's date and open a duplicate.
+  When updating, the date in the title is refreshed to the current UTC
+  date (existing pattern from `RepoWikiLoop`).
 - **Coverage check.** As part of each tick, run
   `tests/architecture/test_functional_area_coverage.py`. If unassigned
   loops/ports are detected, open a separate
@@ -485,7 +501,7 @@ Every page in the site shows truthful staleness signals.
 |---|---|
 | 🟢 fresh | Regenerated within 24h **and** source unchanged since regen. |
 | 🟡 source-moved | Source changed after last regen but within 7 days. (DiagramLoop should catch this within 4h; this state means the loop is paused or slow.) |
-| 🔴 stale | Either >7 days since regen **or** an ADR-0001/ADR-0002 match test fails (i.e. the page contradicts an Accepted ADR). |
+| 🔴 stale | Either >7 days since regen **or** an ADR-0001/ADR-0002 match test fails (i.e. the page contradicts an Accepted ADR) **or** `.meta.json` is absent / has no entry for this artifact (bootstrap case — first deploy before the loop has run). The "not yet generated" label appears in the tooltip. |
 
 Implementation: `src/arch/freshness.py` reads `.meta.json` (per-artifact
 SHA + regen-time) plus `git log -1 <source-paths>`; emits the badge as
@@ -494,11 +510,16 @@ emoji + tooltip.
 
 **`/changelog/` page (rolling).**
 
-`changelog.py` walks `git log --since=90.days.ago` for commits that
-touched `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`,
-`mkdocs.yml`, or any of the source paths grouped by functional area.
-Emits a chronological list grouped by week, with subject lines and
-links to commits/PRs. Rebuilt on every site deploy.
+`changelog.py` walks `git log --since=90.days.ago -- <pathspecs>` for
+commits that touched `docs/arch/`, `docs/adr/`, `docs/wiki/`,
+`src/arch/`, `mkdocs.yml`, or any of the source paths grouped by
+functional area. Emits a chronological list grouped by week, with
+subject lines and links to commits/PRs. Rebuilt on every site deploy.
+
+**Performance.** At this repo's velocity (~30 PRs/day) a 90-day window is
+~2,700 commits; `git log` with pathspecs runs in well under a second on
+a full-history checkout. The Pages workflow already uses
+`fetch-depth: 0` for this reason (§4.7).
 
 **`/decisions/timeline/` page.**
 
@@ -529,6 +550,7 @@ Every component lands red → green → refactor.
 | `tests/architecture/test_generator_*.py` | Each generator: fixed model → byte-stable expected markdown. |
 | `tests/architecture/test_curated_drift.py` | Run full pipeline against current `src/`, diff against committed `docs/arch/generated/`, fail on mismatch. **Invoked by `arch-regen.yml --check`.** |
 | `tests/architecture/test_functional_area_coverage.py` | Every discovered loop and port appears in `functional_areas.yml`. Unassigned items fail with a list. |
+| `tests/architecture/test_functional_areas_schema.py` | `functional_areas.yml` parses against a Pydantic schema; every required field is present per area. Lands in Plan B with the YAML it validates. |
 | `tests/architecture/test_label_state_matches_adr0002.py` | Parse Mermaid `stateDiagram-v2` block from `ADR-0002`; parse generated `labels.md` Mermaid block; assert sorted-edges equivalence. On mismatch, error names the missing/extra transitions. |
 | `tests/architecture/test_loop_count_matches_adr0001.py` | `ADR-0001` references the live loop count (or marks the historical "five" as historical with a link to `loops.md`). **Will fail on first run** — fixing it is part of v1's PR (§8). |
 | `tests/test_diagram_loop_kill_switch.py` | With `HYDRAFLOW_DISABLE_DIAGRAM_LOOP=1`, `DiagramLoop.tick()` is a no-op. |
@@ -653,6 +675,8 @@ merges queue rather than overwrite. DiagramLoop PRs are auto-merged via
 |---|---|
 | **PR noise from autonomous DiagramLoop** | Single combined PR per tick (not one per artifact); idempotent updates to existing open PR; auto-merge. Empirical baseline after 1 week informs whether 4h is the right interval. |
 | **CI guard false positives on flaky generators** | Generators are pure functions over deterministic inputs — flakiness here is a bug, not noise. `tests/architecture/test_generator_*.py` enforces byte-stability. |
+| **CI guard on DiagramLoop's own PR** | The guard runs on every PR, including DiagramLoop's regen PR — by construction the PR already contains the freshly regenerated state, so `--check` regenerates into a temp dir and finds an empty diff. Passes by design, provided generators are deterministic (covered by the row above). |
+| **Malformed `functional_areas.yml` (human edit)** | A new `make arch-validate` target runs as part of `make quality`: it parses the YAML against a Pydantic schema and asserts every required field per area entry. A pre-commit Python check invokes the same target so syntax/schema errors never reach CI. The CI guard then catches semantic drift (unassigned new loops). Three-layer defense: pre-commit, `make quality`, CI. |
 | **Functional Area Map drifts silently** | `test_functional_area_coverage.py` fails when a new loop/port is unassigned; DiagramLoop opens an issue, not a silent log line. |
 | **ADR-0001 / ADR-0002 contradictions surface but no one fixes them** | The match tests fail in CI, blocking PRs that touch source until either the ADR is amended or the source is reconciled. The freshness badge goes 🔴 in the meantime. |
 | **Mermaid rendering edge cases (e.g. cycles in module graph)** | `mkdocs build --strict` in CI catches render failures; `tests/architecture/test_mkdocs_strict.py` runs the same locally. |
@@ -683,23 +707,31 @@ priority / dependency order.
 
 ## 13. Sequencing
 
-Implementation lands in **three plans**, dispatchable in two batches.
+Implementation lands in **three plans**, sequenced strictly (each plan's
+landing unblocks the next).
 
-**Batch 1 — foundation (parallel where independent).**
+**Plan A — runner foundation.**
 
-- **Plan A — Extractors + Generators + tests.** `src/arch/extractors/`,
-  `src/arch/generators/`, `src/arch/runner.py`, full unit-test suite
-  per §7. No DiagramLoop, no CI, no site yet. Ends with `make
-  arch-regen` working locally and emitting all 9 markdown files.
-- **Plan B — `docs/arch/` setup + functional_areas.yml + ADR-0001
-  amendment.** Hand-curation work; .likec4 deletion; CLAUDE.md update.
-  Independent of Plan A *until* Plan A's runner exists, at which point
-  this plan validates that `runner.py` regenerates against the curated
-  YAML.
+- **Plan A — Extractors + Generators (8 of 9) + tests.** `src/arch/extractors/`,
+  `src/arch/generators/` (excluding `functional_areas.py`),
+  `src/arch/runner.py`, full unit-test suite per §7 except the
+  functional-area coverage test. No DiagramLoop, no CI, no site yet.
+  Ends with `make arch-regen` working locally and emitting 7
+  generated artifacts (loops, ports, labels, modules, events, adr_xref,
+  mockworld) plus the changelog stub.
+- **Plan B — `docs/arch/` setup + `functional_areas.yml` +
+  `functional_areas.py` generator + ADR-0001 amendment.** Hand-curation
+  work; .likec4 deletion; CLAUDE.md update; YAML schema +
+  `make arch-validate`; the `functional_areas.py` generator that
+  consumes the YAML; `test_functional_area_coverage.py` and
+  `test_functional_areas_schema.py`. **The generator and the YAML ship
+  together** because the generator has nothing to read until the YAML
+  exists. Plan B is sequenced *after* Plan A so the `runner.py` it
+  hooks into already exists.
 
-**Batch 2 — autonomy and publishing (after Batch 1 lands).**
+**Plan C — autonomy and publishing.**
 
-- **Plan C — DiagramLoop (L24) + CI guard + Pages deploy + MkDocs
+- **DiagramLoop (L24) + CI guard + Pages deploy + MkDocs
   config + freshness model.** Wires Plan A's runner into both
   `arch-regen.yml` and `pages-deploy.yml`; adds the loop class and
   registers it (per §4.4); ships `mkdocs.yml` and the
