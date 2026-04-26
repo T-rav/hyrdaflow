@@ -47,4 +47,4 @@ Every `EventType` published or subscribed in `src/`. Events with no subscribers 
 | **VISUAL_GATE** ⚠️ | `src.post_merge_handler:PostMergeHandler._run_visual_gate`<br>`src.review_phase:ReviewPhase._emit_visual_gate_telemetry`<br>`src.review_phase:ReviewPhase.check_visual_gate` | — |
 | **WORKER_UPDATE** ⚠️ | `src.agent:AgentRunner._emit_status` | — |
 
-_Regenerated from commit `ff75db0` on 2026-04-26 17:31 UTC. Source last changed at `ff75db0`. Status: 🟢 fresh._
+_Regenerated from commit `4f6c8e9` on 2026-04-26 19:27 UTC. Source last changed at `4f6c8e9`. Status: 🟢 fresh._

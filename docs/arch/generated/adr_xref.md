@@ -58,6 +58,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | ADR-0048 | `src.staging_bisect_loop` |
 | ADR-0049 | `src.base_background_loop`, `src.bg_worker_manager` |
 | ADR-0050 | `src.auto_agent_preflight_loop`, `src.config`, `src.dashboard_routes._diagnostics_routes`, `src.models`, `src.preflight.agent`, `src.preflight.audit`, `src.preflight.auto_agent_runner`, `src.preflight.context`, `src.preflight.decision`, `src.preflight.runner`, `src.sentry.reverse_lookup`, `src.state._auto_agent` |
+| ADR-0051 | — |
 
 ## Module → ADRs
 
@@ -147,4 +148,4 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.wiki_rot_detector_loop` | ADR-0045 |
 | `src.worktree` | ADR-0003, ADR-0009, ADR-0010 |
 
-_Regenerated from commit `ff75db0` on 2026-04-26 17:31 UTC. Source last changed at `ff75db0`. Status: 🟢 fresh._
+_Regenerated from commit `4f6c8e9` on 2026-04-26 19:27 UTC. Source last changed at `4f6c8e9`. Status: 🟢 fresh._

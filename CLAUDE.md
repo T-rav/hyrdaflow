@@ -50,6 +50,8 @@ TDD is the default: `superpowers:brainstorming` → `superpowers:writing-plans`
 Use `superpowers:systematic-debugging` on failures. Bug fixes land with a
 regression test in `tests/regressions/`. See [`docs/wiki/testing.md`](docs/wiki/testing.md).
 
+For substantial features (new loop, new runner, spec → multi-task work), end with **2–3 fresh-eyes review iterations** until convergence per [ADR-0051](docs/adr/0051-iterative-production-readiness-review.md) — convergence = next pass finds nothing material.
+
 ## Ubiquitous language (ADR-0044 P2.9)
 
 Names are load-bearing — don't paraphrase. Look up specific terms in [`docs/wiki/architecture.md`](docs/wiki/architecture.md):

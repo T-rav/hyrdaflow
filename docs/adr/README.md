@@ -82,6 +82,7 @@ ADR and that named test files actually exist.
 | [0048](0048-auto-revert-on-rc-red.md) | Auto-revert on RC red (extends ADR-0042) | Proposed |
 | [0049](0049-trust-loop-kill-switch-convention.md) | Trust-loop kill-switch convention (`enabled_cb` only, no config-only) | Proposed |
 | [0050](0050-auto-agent-hitl-preflight.md) | Auto-Agent HITL Pre-Flight Loop | Accepted |
+| [0051](0051-iterative-production-readiness-review.md) | Iterative production-readiness review | Accepted |
 
 ## Adding a new ADR
 
