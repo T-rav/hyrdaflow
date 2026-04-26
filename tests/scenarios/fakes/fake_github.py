@@ -384,6 +384,26 @@ class FakeGitHub:
             if issue.state == "open" and label in issue.labels
         ]
 
+    async def list_closed_issues_by_label(
+        self,
+        label: str,
+        *,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """Return closed issues carrying *label* (most recent up to *limit*)."""
+        self._maybe_rate_limit()
+        rows = [
+            {
+                "number": issue.number,
+                "title": issue.title,
+                "body": issue.body,
+                "updated_at": getattr(issue, "updated_at", "2026-01-01T00:00:00Z"),
+            }
+            for issue in self._issues.values()
+            if issue.state != "open" and label in issue.labels
+        ]
+        return rows[:limit]
+
     async def get_issue_updated_at(self, issue_number: int) -> str:
         """Return updated_at timestamp for an issue."""
         self._maybe_rate_limit()
