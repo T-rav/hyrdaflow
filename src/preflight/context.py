@@ -7,7 +7,8 @@ fails returns empty/None rather than raising.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from models import EscalationContext
@@ -42,8 +43,8 @@ class PreflightContext:
     wiki_excerpts: str
     sentry_events: list[SentryEvent]
     recent_commits: list[CommitRef]
-    sublabel_extras: dict[str, Any]
-    prior_attempts: list[PreflightAuditEntry]
+    sublabel_extras: dict[str, Any] = field(default_factory=dict)
+    prior_attempts: list[PreflightAuditEntry] = field(default_factory=list)
 
 
 class _PRPort(Protocol):
@@ -145,7 +146,6 @@ async def gather_context(
 
 def _extract_keywords(body: str) -> list[str]:
     """Naive keyword extraction — uppercase identifiers + first 5 unique nouns."""
-    import re
 
     tokens = re.findall(r"\b[A-Za-z_][A-Za-z0-9_]{2,}\b", body)
     seen: set[str] = set()
@@ -162,6 +162,5 @@ def _extract_keywords(body: str) -> list[str]:
 
 def _files_mentioned(body: str) -> list[str]:
     """Extract file-like tokens (paths with / and an extension)."""
-    import re
 
     return re.findall(r"\b[\w./_-]+\.[a-z]{1,5}\b", body)[:10]

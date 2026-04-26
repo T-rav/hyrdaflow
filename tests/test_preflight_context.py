@@ -38,6 +38,7 @@ async def test_handles_missing_escalation_context(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_wiki_query_failure_does_not_block(tmp_path: Path) -> None:
+    """Spec §3.2: wiki failure logs warning and returns empty wiki_excerpts."""
     pr = AsyncMock()
     pr.list_issue_comments = AsyncMock(return_value=[])
     state = MagicMock()
