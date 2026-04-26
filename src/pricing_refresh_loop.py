@@ -120,7 +120,7 @@ class PricingRefreshLoop(BaseBackgroundLoop):
         # no diff vs upstream, and never proposes the change again.
         pricing_path = self._repo_root / "src" / "assets" / "model_pricing.json"
         original_bytes = pricing_path.read_bytes()
-        self._apply_diff_to_pricing_file(local, diff)
+        self._apply_diff_to_pricing_file(diff)
 
         try:
             pr_url = await self._open_or_update_refresh_pr(diff)
@@ -169,9 +169,7 @@ class PricingRefreshLoop(BaseBackgroundLoop):
             return {}
         return models
 
-    def _apply_diff_to_pricing_file(
-        self, local: dict[str, dict[str, Any]], diff: PricingDiff
-    ) -> None:
+    def _apply_diff_to_pricing_file(self, diff: PricingDiff) -> None:
         """Merge diff into the on-disk pricing file. Bumps updated_at."""
         path = self._repo_root / "src" / "assets" / "model_pricing.json"
         data = json.loads(path.read_text(encoding="utf-8"))
