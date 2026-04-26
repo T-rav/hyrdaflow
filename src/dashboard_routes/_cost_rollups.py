@@ -5,11 +5,12 @@ Three iterators over the same three sources the issue waterfall uses:
 * ``traces/<issue>/<phase>/run-N/subprocess-*.json`` — subprocess traces.
 * ``traces/_loops/<slug>/run-*.json`` — loop-subprocess traces.
 
-Four builders that answer the four endpoints in ``_diagnostics_routes.py``:
+Five builders that answer the five endpoints in ``_diagnostics_routes.py``:
 * ``build_rolling_24h`` — last-24h totals + per-phase + per-loop.
 * ``build_top_issues`` — N most expensive issues in window.
 * ``build_by_loop``    — per-loop tick / wall-clock share.
 * ``build_per_loop_cost`` — machinery-level per-loop dashboard row.
+* ``build_cost_by_model`` — cross-loop per-model spend breakdown.
 
 All cost values are re-priced on every call via
 ``ModelPricing.estimate_cost`` — storage is token counts only.
@@ -72,6 +73,23 @@ def _parse_iso(value: Any) -> datetime | None:
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=UTC)
     return ts
+
+
+def _empty_model_bucket() -> dict[str, float | int]:
+    """Initial bucket shape for per-model cost/token aggregation.
+
+    Used by ``build_per_loop_cost`` (per-loop nested) and
+    ``build_cost_by_model`` (cross-loop). Keeping the shape in one
+    place prevents schema drift between the two surfaces.
+    """
+    return {
+        "cost_usd": 0.0,
+        "calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+    }
 
 
 def iter_priced_inferences(
@@ -373,7 +391,11 @@ def build_per_loop_cost(
 
     Per-row fields: loop, cost_usd, tokens_in, tokens_out, llm_calls,
     issues_filed, issues_closed, escalations, ticks, tick_cost_avg_usd,
-    wall_clock_seconds, tick_cost_avg_usd_prev_period.
+    wall_clock_seconds, tick_cost_avg_usd_prev_period, model_breakdown.
+
+    ``model_breakdown`` is a dict keyed by model name (or "unknown" for
+    records missing the field), with nested {cost_usd, calls, input_tokens,
+    output_tokens, cache_read_tokens, cache_write_tokens}.
     """
     pricing = pricing or load_pricing()
 
@@ -391,6 +413,9 @@ def build_per_loop_cost(
     per_loop_tokens_out: dict[str, int] = defaultdict(int)
     per_loop_llm_calls: dict[str, int] = defaultdict(int)
     per_loop_wall: dict[str, int] = defaultdict(int)
+    per_loop_model: dict[str, dict[str, dict[str, float | int]]] = defaultdict(
+        lambda: defaultdict(_empty_model_bucket)
+    )
 
     for name, ticks in loop_ticks.items():
         for tick in ticks:
@@ -405,6 +430,18 @@ def build_per_loop_cost(
                     per_loop_tokens_in[name] += int(rec.get("input_tokens", 0) or 0)
                     per_loop_tokens_out[name] += int(rec.get("output_tokens", 0) or 0)
                     per_loop_llm_calls[name] += 1
+                    model_key = str(rec.get("model") or "").strip() or "unknown"
+                    bucket = per_loop_model[name][model_key]
+                    bucket["cost_usd"] += float(rec["cost_usd"])
+                    bucket["calls"] += 1
+                    bucket["input_tokens"] += int(rec.get("input_tokens", 0) or 0)
+                    bucket["output_tokens"] += int(rec.get("output_tokens", 0) or 0)
+                    bucket["cache_read_tokens"] += int(
+                        rec.get("cache_read_input_tokens", 0) or 0
+                    )
+                    bucket["cache_write_tokens"] += int(
+                        rec.get("cache_creation_input_tokens", 0) or 0
+                    )
 
     # Event-based counters (filed / closed / escalations / errored ticks).
     worker_stats: dict[str, dict[str, Any]] = {}
@@ -446,6 +483,18 @@ def build_per_loop_cost(
         prev_ticks = prev_loop_ticks.get(class_name, 0)
         prev_cost = prev_loop_cost.get(class_name, 0.0)
         prev_avg = round(prev_cost / prev_ticks, 6) if prev_ticks else 0.0
+        breakdown_raw = per_loop_model.get(class_name, {})
+        model_breakdown = {
+            model: {
+                "cost_usd": round(float(b["cost_usd"]), 6),
+                "calls": int(b["calls"]),
+                "input_tokens": int(b["input_tokens"]),
+                "output_tokens": int(b["output_tokens"]),
+                "cache_read_tokens": int(b["cache_read_tokens"]),
+                "cache_write_tokens": int(b["cache_write_tokens"]),
+            }
+            for model, b in breakdown_raw.items()
+        }
         rows.append(
             {
                 "loop": worker,
@@ -462,6 +511,57 @@ def build_per_loop_cost(
                 "wall_clock_seconds": per_loop_wall.get(class_name, 0),
                 "last_tick_at": stats.get("last_tick_at", "") or None,
                 "tick_cost_avg_usd_prev_period": prev_avg,
+                "model_breakdown": model_breakdown,
             }
         )
+    return rows
+
+
+def build_cost_by_model(
+    config: HydraFlowConfig,
+    *,
+    since: datetime,
+    until: datetime,
+    pricing: ModelPricingTable | None = None,
+) -> list[dict[str, Any]]:
+    """Return cross-loop cost broken out by model in ``[since, until)``.
+
+    Each row: ``{model, cost_usd, calls, input_tokens, output_tokens,
+    cache_read_tokens, cache_write_tokens}``. Sorted descending by
+    ``cost_usd``; ties broken alphabetically by model name for deterministic
+    output. Records with empty/missing ``model`` bucket under the
+    literal string ``"unknown"``. Unpriced models surface their token
+    counts with ``cost_usd == 0.0``.
+    """
+    pricing = pricing or load_pricing()
+
+    by_model: dict[str, dict[str, float | int]] = defaultdict(_empty_model_bucket)
+
+    for rec in iter_priced_inferences(
+        config, since=since, until=until, pricing=pricing
+    ):
+        model_key = str(rec.get("model") or "").strip() or "unknown"
+        bucket = by_model[model_key]
+        bucket["cost_usd"] += rec["cost_usd"]
+        bucket["calls"] += 1
+        bucket["input_tokens"] += int(rec.get("input_tokens", 0) or 0)
+        bucket["output_tokens"] += int(rec.get("output_tokens", 0) or 0)
+        bucket["cache_read_tokens"] += int(rec.get("cache_read_input_tokens", 0) or 0)
+        bucket["cache_write_tokens"] += int(
+            rec.get("cache_creation_input_tokens", 0) or 0
+        )
+
+    rows = [
+        {
+            "model": model,
+            "cost_usd": round(float(b["cost_usd"]), 6),
+            "calls": int(b["calls"]),
+            "input_tokens": int(b["input_tokens"]),
+            "output_tokens": int(b["output_tokens"]),
+            "cache_read_tokens": int(b["cache_read_tokens"]),
+            "cache_write_tokens": int(b["cache_write_tokens"]),
+        }
+        for model, b in by_model.items()
+    ]
+    rows.sort(key=lambda r: (-r["cost_usd"], r["model"]))
     return rows

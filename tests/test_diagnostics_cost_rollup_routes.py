@@ -255,3 +255,68 @@ def test_loops_cost_rejects_bad_range(client, config, monkeypatch) -> None:
     )
     resp = client.get("/api/diagnostics/loops/cost?range=99y")
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# /api/diagnostics/cost/by-model
+# ---------------------------------------------------------------------------
+
+
+def test_cost_by_model_endpoint_returns_rows_sorted_by_cost(
+    client, config, monkeypatch
+) -> None:
+    now = datetime(2026, 4, 22, 12, tzinfo=UTC)
+    monkeypatch.setattr("dashboard_routes._cost_rollups._utcnow", lambda: now)
+    _write_inference(
+        config,
+        timestamp="2026-04-22T11:00:00+00:00",
+        source="implementer",
+        tool="claude",
+        model="claude-opus-4-7",
+        issue_number=1,
+        input_tokens=10_000,
+        output_tokens=2_000,
+        cache_creation_input_tokens=0,
+        cache_read_input_tokens=0,
+        duration_seconds=1,
+        status="success",
+    )
+    _write_inference(
+        config,
+        timestamp="2026-04-22T11:01:00+00:00",
+        source="implementer",
+        tool="claude",
+        model="claude-haiku-4-5-20251001",
+        issue_number=1,
+        input_tokens=10_000,
+        output_tokens=2_000,
+        cache_creation_input_tokens=0,
+        cache_read_input_tokens=0,
+        duration_seconds=1,
+        status="success",
+    )
+
+    resp = client.get("/api/diagnostics/cost/by-model?range=24h")
+
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert isinstance(rows, list)
+    assert [r["model"] for r in rows][0] == "claude-opus-4-7"  # opus first (more $)
+    for row in rows:
+        for k in ("cost_usd", "calls", "input_tokens", "output_tokens"):
+            assert k in row
+
+
+def test_cost_by_model_endpoint_rejects_invalid_range(client) -> None:
+    resp = client.get("/api/diagnostics/cost/by-model?range=99y")
+    assert resp.status_code == 400
+
+
+def test_cost_by_model_endpoint_returns_empty_list_for_no_data(
+    client, monkeypatch
+) -> None:
+    now = datetime(2026, 4, 22, 12, tzinfo=UTC)
+    monkeypatch.setattr("dashboard_routes._cost_rollups._utcnow", lambda: now)
+    resp = client.get("/api/diagnostics/cost/by-model?range=24h")
+    assert resp.status_code == 200
+    assert resp.json() == []

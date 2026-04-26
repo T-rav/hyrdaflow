@@ -80,9 +80,72 @@ function Sparkline({ points, name }) {
   )
 }
 
+function ModelBreakdownSubTable({ breakdown, totalCost }) {
+  const entries = Object.entries(breakdown || {})
+  if (entries.length === 0) return null
+  const sorted = [...entries].sort(
+    (a, b) => Number(b[1].cost_usd || 0) - Number(a[1].cost_usd || 0),
+  )
+  const total = Number(totalCost) || 0
+  return (
+    <table style={styles.subTable}>
+      <thead>
+        <tr>
+          <th style={styles.subTh}>Model</th>
+          <th style={{ ...styles.subTh, ...styles.subThRight }}>Cost</th>
+          <th style={{ ...styles.subTh, ...styles.subThRight }}>%</th>
+          <th style={{ ...styles.subTh, ...styles.subThRight }}>Calls</th>
+          <th style={{ ...styles.subTh, ...styles.subThRight }}>In</th>
+          <th style={{ ...styles.subTh, ...styles.subThRight }}>Out</th>
+          <th style={{ ...styles.subTh, ...styles.subThRight }}>Cache R</th>
+          <th style={{ ...styles.subTh, ...styles.subThRight }}>Cache W</th>
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map(([model, b]) => {
+          const cost = Number(b.cost_usd || 0)
+          const pct = total > 0 ? (cost / total) * 100 : 0
+          return (
+            <tr key={model} data-testid={`model-row-${model}`}>
+              <td style={styles.subTd}>{model}</td>
+              <td style={{ ...styles.subTd, ...styles.subTdRight }}>
+                ${cost.toFixed(4)}
+              </td>
+              <td style={{ ...styles.subTd, ...styles.subTdRight }}>
+                {pct.toFixed(1)}%
+              </td>
+              <td style={{ ...styles.subTd, ...styles.subTdRight }}>
+                {Number(b.calls || 0).toLocaleString()}
+              </td>
+              <td style={{ ...styles.subTd, ...styles.subTdRight }}>
+                {Number(b.input_tokens || 0).toLocaleString()}
+              </td>
+              <td style={{ ...styles.subTd, ...styles.subTdRight }}>
+                {Number(b.output_tokens || 0).toLocaleString()}
+              </td>
+              <td style={{ ...styles.subTd, ...styles.subTdRight }}>
+                {Number(b.cache_read_tokens || 0).toLocaleString()}
+              </td>
+              <td style={{ ...styles.subTd, ...styles.subTdRight }}>
+                {Number(b.cache_write_tokens || 0).toLocaleString()}
+              </td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  )
+}
+
 export function PerLoopCostTable({ rows, onRowClick }) {
   const [sortKey, setSortKey] = useState('cost_usd')
   const [sortDir, setSortDir] = useState('desc')
+
+  const [expanded, setExpanded] = useState({})
+
+  const toggleExpand = (loop) => {
+    setExpanded((prev) => ({ ...prev, [loop]: !prev[loop] }))
+  }
 
   const handleHeaderClick = (key) => {
     if (key === sortKey) {
@@ -131,37 +194,70 @@ export function PerLoopCostTable({ rows, onRowClick }) {
         <tbody>
           {sorted.map((row) => {
             const spike = isSpike(row)
+            const hasBreakdown = row.model_breakdown
+              && typeof row.model_breakdown === 'object'
+              && Object.keys(row.model_breakdown).length > 0
+            const isExpanded = !!expanded[row.loop]
             return (
-              <tr
-                key={row.loop}
-                data-testid="per-loop-row"
-                data-loop={row.loop}
-                data-spike={String(spike)}
-                onClick={onRowClick ? () => onRowClick(row) : undefined}
-                style={{
-                  ...styles.tr,
-                  ...(spike ? styles.trSpike : {}),
-                  ...(onRowClick ? styles.trClickable : {}),
-                }}
-              >
-                {COLUMNS.map((c) => (
-                  <td
-                    key={c.key}
-                    style={{
-                      ...styles.td,
-                      ...(c.numeric ? styles.tdRight : {}),
-                      ...(spike && c.key === 'tick_cost_avg_usd'
-                        ? styles.tdSpike
-                        : {}),
-                    }}
-                  >
-                    {fmtCell(row[c.key], c)}
+              <React.Fragment key={row.loop}>
+                <tr
+                  data-testid="per-loop-row"
+                  data-loop={row.loop}
+                  data-spike={String(spike)}
+                  onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  style={{
+                    ...styles.tr,
+                    ...(spike ? styles.trSpike : {}),
+                    ...(onRowClick ? styles.trClickable : {}),
+                  }}
+                >
+                  {COLUMNS.map((c, i) => {
+                    const isFirst = i === 0
+                    return (
+                      <td
+                        key={c.key}
+                        style={{
+                          ...styles.td,
+                          ...(c.numeric ? styles.tdRight : {}),
+                          ...(spike && c.key === 'tick_cost_avg_usd'
+                            ? styles.tdSpike
+                            : {}),
+                        }}
+                      >
+                        {isFirst && hasBreakdown ? (
+                          <button
+                            type="button"
+                            data-testid={`expand-toggle-${row.loop}`}
+                            onClick={(ev) => {
+                              ev.stopPropagation()
+                              toggleExpand(row.loop)
+                            }}
+                            style={styles.expandBtn}
+                            aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                          >
+                            {isExpanded ? '▾' : '▸'} {fmtCell(row[c.key], c)}
+                          </button>
+                        ) : (
+                          fmtCell(row[c.key], c)
+                        )}
+                      </td>
+                    )
+                  })}
+                  <td style={styles.td}>
+                    <Sparkline points={row.sparkline_points} name={row.loop} />
                   </td>
-                ))}
-                <td style={styles.td}>
-                  <Sparkline points={row.sparkline_points} name={row.loop} />
-                </td>
-              </tr>
+                </tr>
+                {isExpanded && hasBreakdown ? (
+                  <tr data-testid={`model-subrow-${row.loop}`}>
+                    <td colSpan={COLUMNS.length + 1} style={styles.subTdContainer}>
+                      <ModelBreakdownSubTable
+                        breakdown={row.model_breakdown}
+                        totalCost={row.cost_usd}
+                      />
+                    </td>
+                  </tr>
+                ) : null}
+              </React.Fragment>
             )
           })}
         </tbody>
@@ -226,5 +322,44 @@ const styles = {
     fontSize: 11,
     background: theme.surfaceInset,
     borderRadius: 8,
+  },
+  expandBtn: {
+    background: 'transparent',
+    border: 'none',
+    color: theme.text,
+    cursor: 'pointer',
+    padding: 0,
+    fontSize: 12,
+    fontFamily: 'inherit',
+    textAlign: 'left',
+  },
+  subTdContainer: {
+    padding: '0 8px 12px 24px',
+    background: theme.surfaceInset,
+    borderBottom: `1px solid ${theme.border}`,
+  },
+  subTable: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    fontSize: 11,
+  },
+  subTh: {
+    textAlign: 'left',
+    padding: '4px 8px',
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: 500,
+    borderBottom: `1px solid ${theme.border}`,
+  },
+  subThRight: {
+    textAlign: 'right',
+  },
+  subTd: {
+    padding: '4px 8px',
+    color: theme.text,
+  },
+  subTdRight: {
+    textAlign: 'right',
+    fontFamily: 'monospace',
   },
 }

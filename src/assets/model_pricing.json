@@ -1,12 +1,36 @@
 {
   "schema_version": 1,
   "currency": "USD",
-  "updated_at": "2026-02-28",
+  "updated_at": "2026-04-26",
   "source": "https://docs.anthropic.com/en/docs/about-claude/models",
   "models": {
+    "claude-haiku-4-5-20251001": {
+      "provider": "anthropic",
+      "aliases": ["haiku", "claude-haiku-4-5", "claude-4-5-haiku"],
+      "input_cost_per_million": 1.00,
+      "output_cost_per_million": 5.00,
+      "cache_write_cost_per_million": 1.25,
+      "cache_read_cost_per_million": 0.10
+    },
+    "claude-sonnet-4-6": {
+      "provider": "anthropic",
+      "aliases": ["sonnet", "claude-sonnet-4-6", "claude-4-6-sonnet"],
+      "input_cost_per_million": 3.00,
+      "output_cost_per_million": 15.00,
+      "cache_write_cost_per_million": 3.75,
+      "cache_read_cost_per_million": 0.30
+    },
+    "claude-opus-4-7": {
+      "provider": "anthropic",
+      "aliases": ["opus", "claude-opus-4-7", "claude-4-7-opus", "claude-opus-4-7[1m]"],
+      "input_cost_per_million": 15.00,
+      "output_cost_per_million": 75.00,
+      "cache_write_cost_per_million": 18.75,
+      "cache_read_cost_per_million": 1.50
+    },
     "claude-3-5-haiku-20241022": {
       "provider": "anthropic",
-      "aliases": ["haiku", "claude-3-5-haiku", "claude-3.5-haiku"],
+      "aliases": ["claude-3-5-haiku", "claude-3.5-haiku"],
       "input_cost_per_million": 0.80,
       "output_cost_per_million": 4.00,
       "cache_write_cost_per_million": 1.00,
@@ -14,7 +38,7 @@
     },
     "claude-sonnet-4-20250514": {
       "provider": "anthropic",
-      "aliases": ["sonnet", "claude-4-sonnet", "claude-sonnet-4"],
+      "aliases": ["claude-4-sonnet", "claude-sonnet-4"],
       "input_cost_per_million": 3.00,
       "output_cost_per_million": 15.00,
       "cache_write_cost_per_million": 3.75,
@@ -22,7 +46,7 @@
     },
     "claude-opus-4-20250514": {
       "provider": "anthropic",
-      "aliases": ["opus", "claude-4-opus", "claude-opus-4"],
+      "aliases": ["claude-4-opus", "claude-opus-4"],
       "input_cost_per_million": 15.00,
       "output_cost_per_million": 75.00,
       "cache_write_cost_per_million": 18.75,
