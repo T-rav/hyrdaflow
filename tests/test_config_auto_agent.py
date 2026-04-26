@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from config import HydraFlowConfig
 
 
@@ -18,9 +21,6 @@ def test_defaults() -> None:
 
 
 def test_interval_bounds_enforced() -> None:
-    import pytest
-    from pydantic import ValidationError
-
     with pytest.raises(ValidationError):
         HydraFlowConfig(auto_agent_preflight_interval=30)
     with pytest.raises(ValidationError):
@@ -28,9 +28,6 @@ def test_interval_bounds_enforced() -> None:
 
 
 def test_max_attempts_bounds_enforced() -> None:
-    import pytest
-    from pydantic import ValidationError
-
     with pytest.raises(ValidationError):
         HydraFlowConfig(auto_agent_max_attempts=0)
     with pytest.raises(ValidationError):

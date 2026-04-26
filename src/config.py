@@ -270,6 +270,8 @@ _ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
 # Handled separately from the strictly-typed float table because pydantic's
 # `float | None` fields don't participate in the `default == current` check.
 _ENV_OPT_FLOAT_OVERRIDES: list[tuple[str, str, float | None]] = [
+    ("auto_agent_cost_cap_usd", "HYDRAFLOW_AUTO_AGENT_COST_CAP_USD", None),
+    ("auto_agent_daily_budget_usd", "HYDRAFLOW_AUTO_AGENT_DAILY_BUDGET_USD", None),
     ("daily_cost_budget_usd", "HYDRAFLOW_DAILY_COST_BUDGET_USD", None),
     ("issue_cost_alert_usd", "HYDRAFLOW_ISSUE_COST_ALERT_USD", None),
 ]
@@ -325,6 +327,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("screenshot_gist_public", "HYDRAFLOW_SCREENSHOT_GIST_PUBLIC", False),
     ("skip_preflight", "HYDRAFLOW_SKIP_PREFLIGHT", False),
     ("whatsapp_enabled", "HYDRAFLOW_WHATSAPP_ENABLED", False),
+    ("auto_agent_preflight_enabled", "HYDRAFLOW_AUTO_AGENT_PREFLIGHT_ENABLED", True),
     ("staging_enabled", "HYDRAFLOW_STAGING_ENABLED", False),
 ]
 
