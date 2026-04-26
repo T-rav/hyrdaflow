@@ -253,4 +253,4 @@ The plan→implement→review pipeline driving each issue from hydraflow-ready t
 **Related ADRs:** `ADR-0001`, `ADR-0004`, `ADR-0011`, `ADR-0012`, `ADR-0029`
 
 
-_Regenerated from commit `a83673f` on 2026-04-26 22:51 UTC. Source last changed at `a83673f`. Status: 🟢 fresh._
+_Regenerated from commit `67e5a74` on 2026-04-26 22:54 UTC. Source last changed at `67e5a74`. Status: 🟢 fresh._
