@@ -19,6 +19,19 @@ class FreshnessBadge(StrEnum):
     NOT_GENERATED = "not-generated"
 
 
+_BADGE_LABELS: dict[FreshnessBadge, str] = {
+    FreshnessBadge.FRESH: "🟢 fresh",
+    FreshnessBadge.SOURCE_MOVED: "🟡 source-moved",
+    FreshnessBadge.STALE: "🔴 stale",
+    FreshnessBadge.NOT_GENERATED: "🔴 not yet generated",
+}
+
+
+def render_badge(state: FreshnessBadge) -> str:
+    """Return e.g. 'Status: 🟢 fresh' for inclusion in a page footer."""
+    return f"Status: {_BADGE_LABELS[state]}"
+
+
 def compute_badge(
     artifact_name: str,
     *,

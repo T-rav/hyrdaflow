@@ -46,6 +46,12 @@ dev = [
     "pyright==1.1.408",
     "bandit[toml]==1.8.0",
 ]
+docs = [
+    "mkdocs>=1.6.0",
+    "mkdocs-material>=9.5.0",
+    "mkdocs-mermaid2-plugin>=1.1.1",
+    "mkdocs-git-revision-date-localized-plugin>=1.2.4",
+]
 # Explicit docker extra so `hydraflow[docker]` remains TOML-installable.
 docker = [
     "docker>=7.0.0",

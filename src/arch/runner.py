@@ -139,12 +139,18 @@ def _stamp_footer(body: str, sha: str, source_sha: str) -> str:
     """Replace the {{ARCH_FOOTER}} sentinel with a per-page regen footer.
 
     The footer is rendered visible italic text (not an HTML comment) so MkDocs
-    Material surfaces it to readers. Plan C extends it with the freshness badge.
+    Material surfaces it to readers. The runner always writes FRESH because
+    emit() is what generates the artifact in the first place; the read-side
+    helper `compute_badge()` describes a stale artifact's state relative to
+    later source SHAs.
     """
+    from arch.freshness import FreshnessBadge, render_badge
+
     now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    badge = render_badge(FreshnessBadge.FRESH)
     footer = (
         f"_Regenerated from commit `{sha[:7]}` on {now}. "
-        f"Source last changed at `{source_sha[:7]}`._"
+        f"Source last changed at `{source_sha[:7]}`. {badge}._"
     )
     return body.replace("{{ARCH_FOOTER}}", footer)
 

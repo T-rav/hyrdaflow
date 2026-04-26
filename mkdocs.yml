@@ -1,0 +1,104 @@
+# mkdocs.yml — Plan C Task 2
+site_name: HydraFlow Architecture
+site_description: Self-documenting architecture knowledge for HydraFlow
+site_url: https://t-rav-hydra-ops.github.io/hydraflow/
+repo_url: https://github.com/T-rav-Hydra-Ops/hydraflow
+repo_name: T-rav-Hydra-Ops/hydraflow
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+
+# Strict mode: broken cross-links fail the build.
+strict: true
+
+# Existing markdown files we deliberately don't render — they reference
+# paths outside docs/ (tests/fixtures/) that mkdocs can't resolve in
+# strict mode, and the superpowers/ tree is in-flight specs/plans
+# (per CLAUDE.md, "PR-tied; not knowledge"). mkdocs 1.5+ exclude_docs.
+exclude_docs: |
+  prompt-audit-*.md
+  superpowers/**
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.instant
+    - navigation.top
+    - navigation.tracking
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+
+plugins:
+  - search
+  - mermaid2:
+      version: 10.6.1
+  - git-revision-date-localized:
+      enable_creation_date: false
+      type: iso_date
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:mermaid2.fence_mermaid_custom
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+nav:
+  - Home: index.md
+  - System Map:
+    - Overview: arch/generated/functional_areas.md
+  - Generated:
+    - Loop Registry: arch/generated/loops.md
+    - Port Map: arch/generated/ports.md
+    - Label State Machine: arch/generated/labels.md
+    - Module Graph: arch/generated/modules.md
+    - Event Bus: arch/generated/events.md
+    - ADR Cross-Reference: arch/generated/adr_xref.md
+    - MockWorld Map: arch/generated/mockworld.md
+  - Decisions:
+    - Index: adr/README.md
+  - Wiki:
+    - Index: wiki/index.md
+    - Architecture: wiki/architecture.md
+    - Patterns: wiki/patterns.md
+    - Gotchas: wiki/gotchas.md
+    - Testing: wiki/testing.md
+    - Dependencies: wiki/dependencies.md
+  - Changelog: arch/generated/changelog.md
+  - About: about.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/T-rav-Hydra-Ops/hydraflow

@@ -6,8 +6,9 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W17
 
-- `a131eb6` — feat(arch): functional_areas generator + runner wiring + coverage test *(2026-04-25)*
-- `bc19af6` — feat(arch): functional areas schema + curated YAML *(2026-04-25)*
+- `2d624c9` — feat(arch): freshness badge wired into runner footer *(2026-04-25)*
+- `57862a1` — feat(docs): MkDocs Material site config + index/about pages *(2026-04-25)*
+- `300c3c7` — feat(arch): Plan B — Functional Areas + ADR-0001 amendment + migration (#8433) (#8433) *(2026-04-25)*
 - `bee256f` — feat(arch): Architecture Knowledge System v1 — spec + 3 plans + Plan A runner (#8432) (#8432) *(2026-04-25)*
 - `87da6ef` — feat(adr-gate): symbol-level precision so unrelated edits stop tripping it (#8428) (#8428) *(2026-04-24)*
 - `ed4a4c0` — fix(staging-bisect): close 2 dark-factory gaps (G3+G7) (#8420) (#8420) *(2026-04-24)*
@@ -135,4 +136,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `3a98038` on 2026-04-26 00:34 UTC. Source last changed at `3a98038`._
+_Regenerated from commit `e5948ac` on 2026-04-26 01:20 UTC. Source last changed at `e5948ac`. Status: 🟢 fresh._

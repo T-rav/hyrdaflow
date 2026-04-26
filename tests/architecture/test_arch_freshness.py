@@ -1,6 +1,13 @@
 from datetime import UTC, datetime, timedelta
 
-from arch.freshness import FreshnessBadge, compute_badge
+from arch.freshness import FreshnessBadge, compute_badge, render_badge
+
+
+def test_render_badge_emits_emoji_and_label():
+    assert render_badge(FreshnessBadge.FRESH) == "Status: 🟢 fresh"
+    assert render_badge(FreshnessBadge.SOURCE_MOVED) == "Status: 🟡 source-moved"
+    assert render_badge(FreshnessBadge.STALE) == "Status: 🔴 stale"
+    assert render_badge(FreshnessBadge.NOT_GENERATED) == "Status: 🔴 not yet generated"
 
 
 def test_fresh_when_recent_and_source_unchanged():

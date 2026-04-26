@@ -12,6 +12,7 @@ graph LR
     src_arch_generators["src.arch.generators"]
     src_dashboard_routes["src.dashboard_routes"]
     src_state["src.state"]
+    src -- "4" --> src_arch
     src -- "3" --> src_dashboard_routes
     src -- "43" --> src_state
     src_arch_extractors -- "7" --> src_arch
@@ -19,4 +20,4 @@ graph LR
     src_dashboard_routes -- "1" --> src_state
 ```
 
-_Regenerated from commit `3a98038` on 2026-04-26 00:34 UTC. Source last changed at `3a98038`._
+_Regenerated from commit `e5948ac` on 2026-04-26 01:20 UTC. Source last changed at `e5948ac`. Status: 🟢 fresh._

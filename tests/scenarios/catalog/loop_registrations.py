@@ -810,6 +810,16 @@ def _build_contract_refresh(ports: dict[str, Any], config: Any, deps: Any) -> An
     return loop
 
 
+def _build_diagram_loop(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from diagram_loop import DiagramLoop  # noqa: PLC0415
+
+    return DiagramLoop(
+        config=config,
+        pr_manager=ports["github"],
+        deps=deps,
+    )
+
+
 _BUILDERS: dict[str, Any] = {
     # phase 1
     "ci_monitor": _build_ci_monitor,
@@ -847,6 +857,8 @@ _BUILDERS: dict[str, Any] = {
     "corpus_learning": _build_corpus_learning,
     # trust fleet (spec §4.4 principles audit)
     "principles_audit": _build_principles_audit,
+    # architecture knowledge system (Plan C — DiagramLoop L24)
+    "diagram_loop": _build_diagram_loop,
 }
 
 
