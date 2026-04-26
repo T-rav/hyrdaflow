@@ -62,7 +62,7 @@ export function CostByModelChart({ rows }) {
     })
   }, [rows, unitKey])
 
-  if (!Array.isArray(rows) || rows.length === 0) {
+  if (!Array.isArray(rows) || rows.length === 0 || segments.length === 0) {
     return (
       <div style={styles.empty}>No model spend data in range</div>
     )

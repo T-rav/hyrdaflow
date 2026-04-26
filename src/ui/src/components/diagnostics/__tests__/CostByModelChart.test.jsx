@@ -51,6 +51,8 @@ describe('CostByModelChart', () => {
     expect(screen.getByTestId('cost-by-model-unit')).toHaveTextContent('Calls')
     fireEvent.click(screen.getByRole('button', { name: 'Input tokens' }))
     expect(screen.getByTestId('cost-by-model-unit')).toHaveTextContent('Input tokens')
+    fireEvent.click(screen.getByRole('button', { name: 'Output tokens' }))
+    expect(screen.getByTestId('cost-by-model-unit')).toHaveTextContent('Output tokens')
   })
 
   it('renders empty placeholder when no rows', () => {
@@ -60,6 +62,12 @@ describe('CostByModelChart', () => {
 
   it('renders empty placeholder when rows is null', () => {
     render(<CostByModelChart rows={null} />)
+    expect(screen.getByText(/no model spend data/i)).toBeInTheDocument()
+  })
+
+  it('renders empty placeholder when all values for the selected unit are zero', () => {
+    const zeroCostRows = rows.map((r) => ({ ...r, cost_usd: 0 }))
+    render(<CostByModelChart rows={zeroCostRows} />)
     expect(screen.getByText(/no model spend data/i)).toBeInTheDocument()
   })
 })
