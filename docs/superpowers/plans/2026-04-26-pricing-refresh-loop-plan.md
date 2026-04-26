@@ -732,8 +732,15 @@ class PricingRefreshLoop(BaseBackgroundLoop):
         try:
             upstream_raw = await self._fetch_upstream()
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            # Network errors are silent — retry next tick, no issue spam.
             logger.warning("PricingRefreshLoop fetch failed: %s", exc)
             return {"drift": False, "error": "network"}
+        except json.JSONDecodeError as exc:
+            # Upstream returned non-JSON (or partial JSON). This is unusual
+            # enough to deserve a dedup'd issue — not silent.
+            logger.warning("PricingRefreshLoop upstream parse failed: %s", exc)
+            await self._open_parse_issue(str(exc))
+            return {"drift": False, "error": "parse"}
 
         upstream = filter_anthropic_entries(upstream_raw)
         local = self._read_local_models()
@@ -751,9 +758,34 @@ class PricingRefreshLoop(BaseBackgroundLoop):
         if not diff.updated and not diff.added:
             return {"drift": False}
 
+        # Atomic write+PR: capture original bytes so we can revert if the
+        # PR-opening step fails. Without this, a successful file write
+        # followed by an auto_pr failure would leave the worktree mutated
+        # but no PR open — next tick reads the mutation as "local", sees
+        # no diff vs upstream, and never proposes the change again.
+        pricing_path = self._repo_root / "src" / "assets" / "model_pricing.json"
+        original_bytes = pricing_path.read_bytes()
         self._apply_diff_to_pricing_file(local, diff)
 
-        pr_url = await self._open_or_update_refresh_pr(diff)
+        try:
+            pr_url = await self._open_or_update_refresh_pr(diff)
+        except Exception:
+            pricing_path.write_bytes(original_bytes)
+            raise
+
+        if pr_url is None:
+            # auto_pr returned a non-success status (logged inside
+            # _open_or_update_refresh_pr). Revert so the file is consistent
+            # with what landed on the remote.
+            pricing_path.write_bytes(original_bytes)
+            return {
+                "drift": True,
+                "updated": len(diff.updated),
+                "added": len(diff.added),
+                "pr_url": None,
+                "error": "pr_failed",
+            }
+
         return {
             "drift": True,
             "updated": len(diff.updated),
@@ -762,7 +794,11 @@ class PricingRefreshLoop(BaseBackgroundLoop):
         }
 
     async def _fetch_upstream(self) -> dict[str, Any]:
-        """Fetch LiteLLM JSON via stdlib urllib. Raises on network/HTTP errors."""
+        """Fetch LiteLLM JSON via stdlib urllib. Raises on network/HTTP errors.
+
+        ``json.JSONDecodeError`` from a malformed body propagates; the
+        caller in ``_do_work`` handles parse errors as a deduped issue.
+        """
 
         def _do() -> dict[str, Any]:
             with urllib.request.urlopen(_LITELLM_URL, timeout=_FETCH_TIMEOUT_S) as resp:
@@ -885,6 +921,25 @@ class PricingRefreshLoop(BaseBackgroundLoop):
         await self._pr_manager.create_issue(
             title=title,
             body="\n".join(body_lines),
+            labels=["hydraflow-find", "pricing-refresh"],
+        )
+
+    async def _open_parse_issue(self, detail: str) -> None:
+        title = f"{_ISSUE_TITLE_PREFIX} upstream parse error"
+        existing = await self._pr_manager.find_existing_issue(title)
+        if existing:
+            return
+        body = (
+            "PricingRefreshLoop could not parse LiteLLM's upstream JSON.\n\n"
+            f"**Source:** <{_LITELLM_URL}>\n\n"
+            f"**Error:** `{detail}`\n\n"
+            "If this persists, the upstream URL may have moved or the JSON "
+            "schema may have changed. Update the loop's source URL or "
+            "fetch path as needed."
+        )
+        await self._pr_manager.create_issue(
+            title=title,
+            body=body,
             labels=["hydraflow-find", "pricing-refresh"],
         )
 ```
@@ -1166,13 +1221,124 @@ async def test_kill_switch_short_circuits(
     fetch.assert_not_called()
     pr_helper.assert_not_awaited()
     pr_manager.create_issue.assert_not_awaited()
+
+
+async def test_parse_error_opens_deduped_issue(repo_root: Path) -> None:
+    """Upstream returns non-JSON → parse-error issue, no PR, no file change."""
+    loop, pr_manager = _build_loop(repo_root)
+    pr_helper = AsyncMock()
+    pricing_path = repo_root / "src" / "assets" / "model_pricing.json"
+    before = pricing_path.read_text()
+
+    with (
+        patch(
+            "pricing_refresh_loop.PricingRefreshLoop._fetch_upstream",
+            side_effect=json.JSONDecodeError("Expecting value", "", 0),
+        ),
+        patch("auto_pr.open_automated_pr_async", pr_helper),
+    ):
+        result = await loop._do_work()
+
+    assert result == {"drift": False, "error": "parse"}
+    pr_helper.assert_not_awaited()
+    pr_manager.create_issue.assert_awaited_once()
+    issue_kwargs = pr_manager.create_issue.await_args.kwargs
+    assert issue_kwargs["title"] == "[pricing-refresh] upstream parse error"
+    assert "hydraflow-find" in issue_kwargs["labels"]
+    assert pricing_path.read_text() == before
+
+
+async def test_parse_error_dedups_when_issue_already_open(repo_root: Path) -> None:
+    """Already-open parse-error issue → no duplicate."""
+    loop, pr_manager = _build_loop(repo_root)
+    pr_manager.find_existing_issue = AsyncMock(return_value=99)
+
+    with (
+        patch(
+            "pricing_refresh_loop.PricingRefreshLoop._fetch_upstream",
+            side_effect=json.JSONDecodeError("bad", "", 0),
+        ),
+        patch("auto_pr.open_automated_pr_async", AsyncMock()),
+    ):
+        await loop._do_work()
+
+    pr_manager.create_issue.assert_not_awaited()
+
+
+async def test_pr_failure_reverts_pricing_file(repo_root: Path) -> None:
+    """If auto_pr returns failure, the on-disk pricing file is restored.
+
+    Locks the atomic-write contract: a successful file write followed by
+    a failed PR-open must NOT leave the worktree mutated. Otherwise the
+    next tick reads the mutation as "local", sees no diff, and the
+    refresh is silently lost.
+    """
+    upstream_payload = {
+        "claude-haiku-4-5-20251001": {
+            "litellm_provider": "anthropic",
+            "input_cost_per_token": 1.5e-6,  # +50%, within bounds
+            "output_cost_per_token": 5e-6,
+            "cache_creation_input_token_cost": 1.25e-6,
+            "cache_read_input_token_cost": 1e-7,
+        },
+    }
+    loop, _ = _build_loop(repo_root)
+    pricing_path = repo_root / "src" / "assets" / "model_pricing.json"
+    before = pricing_path.read_text()
+
+    pr_result = MagicMock(status="failed", pr_url=None, error="boom")
+    pr_helper = AsyncMock(return_value=pr_result)
+
+    with (
+        patch(
+            "pricing_refresh_loop.PricingRefreshLoop._fetch_upstream",
+            return_value=upstream_payload,
+        ),
+        patch("auto_pr.open_automated_pr_async", pr_helper),
+    ):
+        result = await loop._do_work()
+
+    assert result["error"] == "pr_failed"
+    assert result["pr_url"] is None
+    # File must be byte-identical to its pre-tick state.
+    assert pricing_path.read_text() == before
+
+
+async def test_pr_helper_exception_reverts_pricing_file(repo_root: Path) -> None:
+    """If auto_pr raises (e.g., transient gh failure), revert the file."""
+    upstream_payload = {
+        "claude-haiku-4-5-20251001": {
+            "litellm_provider": "anthropic",
+            "input_cost_per_token": 1.5e-6,
+            "output_cost_per_token": 5e-6,
+            "cache_creation_input_token_cost": 1.25e-6,
+            "cache_read_input_token_cost": 1e-7,
+        },
+    }
+    loop, _ = _build_loop(repo_root)
+    pricing_path = repo_root / "src" / "assets" / "model_pricing.json"
+    before = pricing_path.read_text()
+
+    pr_helper = AsyncMock(side_effect=RuntimeError("gh CLI missing"))
+
+    with (
+        patch(
+            "pricing_refresh_loop.PricingRefreshLoop._fetch_upstream",
+            return_value=upstream_payload,
+        ),
+        patch("auto_pr.open_automated_pr_async", pr_helper),
+        pytest.raises(RuntimeError),
+    ):
+        await loop._do_work()
+
+    assert pricing_path.read_text() == before
 ```
 
 - [ ] **Step 2: Run the new tests to verify they pass**
 
 Run: `uv run pytest tests/test_pricing_refresh_loop_scenario.py -v`
 
-Expected: 9 PASS (4 existing + 5 new).
+Expected: 13 PASS (4 happy + 5 original failure paths + 4 new parse/atomic tests = 13).
 
 - [ ] **Step 3: Commit**
 
@@ -1193,11 +1359,13 @@ Wire the loop into the live runtime per ADR-0029 / gotchas.md. Two files modifie
 
 - [ ] **Step 1: Add the import + dataclass field in service_registry.py**
 
-Open `src/service_registry.py`. Find the `from diagram_loop import DiagramLoop  # noqa: TCH001` line (around line 30) and add an alphabetically-adjacent import:
+Open `src/service_registry.py`. Find the `from diagram_loop import DiagramLoop  # noqa: TCH001` line (around line 30) — copy the comment style verbatim from the actual line in your file (it MAY or may not have `# noqa: TCH001`; match whatever DiagramLoop uses) and add an alphabetically-adjacent import for `PricingRefreshLoop`:
 
 ```python
 from pricing_refresh_loop import PricingRefreshLoop  # noqa: TCH001
 ```
+
+(If the surrounding `from diagram_loop import ...` line has no noqa comment, drop it from the new import too.)
 
 Find the `Services` dataclass (around line 186) — the line `diagram_loop: DiagramLoop` — and add the new field beneath it:
 
@@ -1388,9 +1556,6 @@ from tests.scenarios.helpers.loop_port_seeding import seed_ports as _seed_ports
 pytestmark = pytest.mark.scenario_loops
 
 
-_FIXTURE_PATH = Path(__file__).parent.parent / "fixtures" / "litellm_pricing_sample.json"
-
-
 def _seed_pricing_file(repo_root: Path) -> None:
     """Mirror src/assets/model_pricing.json into the MockWorld worktree."""
     target = repo_root / "src" / "assets" / "model_pricing.json"
@@ -1431,7 +1596,12 @@ class TestPricingRefreshLoop:
     """Daily upstream-pricing refresh — drift → PR, no-drift → skip."""
 
     async def test_no_drift_skips_pr(self, tmp_path) -> None:
-        """Upstream values match local → no PR opened."""
+        """Upstream values match local exactly → no PR opened.
+
+        Note: ``_FIXTURE_PATH`` carries an "addition" entry by design (for
+        the drift case). For this no-drift assertion we use an inline
+        payload that mirrors the seeded local file precisely.
+        """
         world = MockWorld(tmp_path)
         _seed_pricing_file(tmp_path)
 
@@ -1441,7 +1611,22 @@ class TestPricingRefreshLoop:
         )
         _seed_ports(world, github=github)
 
-        upstream_payload = json.loads(_FIXTURE_PATH.read_text())
+        upstream_payload = {
+            "claude-haiku-4-5-20251001": {
+                "litellm_provider": "anthropic",
+                "input_cost_per_token": 1e-6,
+                "output_cost_per_token": 5e-6,
+                "cache_creation_input_token_cost": 1.25e-6,
+                "cache_read_input_token_cost": 1e-7,
+            },
+            "claude-sonnet-4-6": {
+                "litellm_provider": "anthropic",
+                "input_cost_per_token": 3e-6,
+                "output_cost_per_token": 15e-6,
+                "cache_creation_input_token_cost": 3.75e-6,
+                "cache_read_input_token_cost": 3e-7,
+            },
+        }
         pr_helper = AsyncMock()
         with (
             patch(
@@ -1452,10 +1637,9 @@ class TestPricingRefreshLoop:
         ):
             stats = await world.run_with_loops(["pricing_refresh"], cycles=1)
 
-        # Local matches the fixture's haiku+sonnet entries → no diff.
-        # The fixture also has anthropic.claude-3-haiku-v1:0 (an addition)
-        # so this scenario asserts the ADD path drives a PR. To keep the
-        # "no-drift" semantics, override the fixture for this test:
+        assert stats["pricing_refresh"] == {"drift": False}
+        pr_helper.assert_not_awaited()
+        github.create_issue.assert_not_awaited()
 
     async def test_drift_opens_pr(self, tmp_path) -> None:
         """Upstream price changed → PR opens with pricing-refresh-auto branch."""
@@ -1510,53 +1694,6 @@ class TestPricingRefreshLoop:
         assert kwargs["branch"] == "pricing-refresh-auto"
         assert kwargs["pr_title"].startswith("chore(pricing): refresh from LiteLLM")
         assert kwargs["auto_merge"] is False
-```
-
-Note: `test_no_drift_skips_pr` body is intentionally truncated above — the fixture JSON has more entries than `_seed_pricing_file` writes locally, so to test no-drift we need a payload that EXACTLY matches the seeded local file. Replace its body with:
-
-```python
-    async def test_no_drift_skips_pr(self, tmp_path) -> None:
-        """Upstream values match local → no PR opened."""
-        world = MockWorld(tmp_path)
-        _seed_pricing_file(tmp_path)
-
-        github = AsyncMock(
-            find_existing_issue=AsyncMock(return_value=0),
-            create_issue=AsyncMock(return_value=0),
-        )
-        _seed_ports(world, github=github)
-
-        # Payload mirrors local exactly (haiku+sonnet, no extras).
-        upstream_payload = {
-            "claude-haiku-4-5-20251001": {
-                "litellm_provider": "anthropic",
-                "input_cost_per_token": 1e-6,
-                "output_cost_per_token": 5e-6,
-                "cache_creation_input_token_cost": 1.25e-6,
-                "cache_read_input_token_cost": 1e-7,
-            },
-            "claude-sonnet-4-6": {
-                "litellm_provider": "anthropic",
-                "input_cost_per_token": 3e-6,
-                "output_cost_per_token": 15e-6,
-                "cache_creation_input_token_cost": 3.75e-6,
-                "cache_read_input_token_cost": 3e-7,
-            },
-        }
-
-        pr_helper = AsyncMock()
-        with (
-            patch(
-                "pricing_refresh_loop.PricingRefreshLoop._fetch_upstream",
-                return_value=upstream_payload,
-            ),
-            patch("auto_pr.open_automated_pr_async", pr_helper),
-        ):
-            stats = await world.run_with_loops(["pricing_refresh"], cycles=1)
-
-        assert stats["pricing_refresh"] == {"drift": False}
-        pr_helper.assert_not_awaited()
-        github.create_issue.assert_not_awaited()
 ```
 
 - [ ] **Step 4: Run the scenario tests to verify they pass**
