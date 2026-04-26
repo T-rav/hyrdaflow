@@ -156,7 +156,12 @@ class PricingRefreshLoop(BaseBackgroundLoop):
         """
 
         def _do() -> dict[str, Any]:
-            with urllib.request.urlopen(_LITELLM_URL, timeout=_FETCH_TIMEOUT_S) as resp:
+            # _LITELLM_URL is a hardcoded https constant declared at module
+            # top; the bandit B310 "permitted schemes" warning doesn't apply.
+            assert _LITELLM_URL.startswith("https://")  # noqa: S101
+            with urllib.request.urlopen(  # nosec B310
+                _LITELLM_URL, timeout=_FETCH_TIMEOUT_S
+            ) as resp:
                 return json.loads(resp.read())
 
         return await asyncio.to_thread(_do)
