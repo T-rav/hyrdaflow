@@ -1,6 +1,6 @@
 {
   "status": "resolved",
   "labels_added": [],
-  "labels_removed": ["hitl-escalation", "human-required"],
+  "labels_removed": ["hitl-escalation", "human-required", "revert-conflict"],
   "pr_url": "https://github.com/x/y/pull/9011"
 }

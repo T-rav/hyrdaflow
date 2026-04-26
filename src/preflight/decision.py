@@ -69,6 +69,13 @@ async def apply_decision(
 
     add, remove = _LABEL_MAP.get(result.status, _LABEL_MAP["needs_human"])
 
+    # Spec §3 (state transitions, line 119): a successful resolve also removes
+    # the sub-label so the issue doesn't carry an orphaned routing tag in the
+    # GitHub UI. The base _LABEL_MAP can't encode this because the sub-label
+    # is dynamic per call.
+    if result.status == "resolved" and sub_label and sub_label != "_default":
+        remove = list(remove) + [sub_label]
+
     # Exhaustion check — if this attempt brought us to the cap and it didn't resolve,
     # flag as exhausted on top of the normal needs_human/fatal label set.
     exhausted = result.status != "resolved" and current_attempts >= max_attempts

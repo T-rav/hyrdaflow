@@ -35,6 +35,9 @@ class FakeIssue:
     body: str
     labels: list[str] = field(default_factory=list)
     state: str = "open"
+    # Stored as raw bodies; list_issue_comments wraps each into a
+    # `gh issue view --json comments`-shaped dict. Tests that need richer
+    # comment metadata (author, timestamp) can post-process this list.
     comments: list[str] = field(default_factory=list)
     updated_at: str = "2026-01-01T00:00:00Z"
 
@@ -407,15 +410,23 @@ class FakeGitHub:
     async def list_issue_comments(self, issue_number: int) -> list[dict[str, Any]]:
         """Return comments seeded on the issue (oldest first).
 
-        Tests can pre-seed `issue.comments` (a list[dict]) on the underlying
-        FakeIssue; if absent, returns []. Mirrors `gh issue view --json comments`
-        shape (each entry has user.login / body / created_at keys).
+        FakeIssue.comments stores raw body strings; this method wraps each
+        into a `gh issue view --json comments`-shaped dict so callers (notably
+        gather_context, which does `c.get("user", {}).get("login", ...)`)
+        operate on dicts as the real PRPort contract requires.
         """
         self._maybe_rate_limit()
         issue = self._issues.get(issue_number)
         if issue is None:
             return []
-        return list(getattr(issue, "comments", []) or [])
+        return [
+            {
+                "user": {"login": "fake-author"},
+                "body": body,
+                "created_at": "2026-01-01T00:00:00Z",
+            }
+            for body in (getattr(issue, "comments", []) or [])
+        ]
 
     async def get_issue_updated_at(self, issue_number: int) -> str:
         """Return updated_at timestamp for an issue."""

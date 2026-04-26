@@ -71,10 +71,11 @@ async def test_flaky_test_resolved(tmp_path: Path) -> None:
     )
     result = await loop._do_work()
     assert result["result_status"] == "resolved"
-    # `resolved` removes both hitl-escalation and human-required (singular
-    # remove_label called once per label).
+    # `resolved` removes hitl-escalation + human-required + sub-label
+    # (singular remove_label called once per label).
     pr.remove_label.assert_any_await(1, "hitl-escalation")
     pr.remove_label.assert_any_await(1, "human-required")
+    pr.remove_label.assert_any_await(1, "flaky-test-stuck")
 
 
 @pytest.mark.asyncio

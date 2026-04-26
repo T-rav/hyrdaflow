@@ -33,13 +33,13 @@ async def test_resolved_removes_hitl_escalation() -> None:
         state=state,
         max_attempts=3,
     )
-    # `resolved` removes both hitl-escalation AND human-required (per the
-    # _LABEL_MAP design — covers the "previously failed, then re-submitted by
-    # operator, then auto-fixed" reset path). remove_label is singular, called
-    # once per label.
-    assert pr.remove_label.await_count == 2
+    # `resolved` removes hitl-escalation + human-required + the sub-label
+    # itself (spec §3 line 119: a successful resolve cleans up the routing
+    # tag too). remove_label is singular, called once per label.
+    assert pr.remove_label.await_count == 3
     pr.remove_label.assert_any_await(42, "hitl-escalation")
     pr.remove_label.assert_any_await(42, "human-required")
+    pr.remove_label.assert_any_await(42, "flaky-test-stuck")
     pr.post_comment.assert_awaited()
     assert out["status"] == "resolved"
     pr.add_labels.assert_not_awaited()
