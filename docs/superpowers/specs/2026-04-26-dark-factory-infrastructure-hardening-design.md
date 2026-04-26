@@ -126,25 +126,36 @@ Five components delivered across three PRs (sequencing in §6).
 
 **File:** `src/runners/base_subprocess_runner.py` (new directory).
 
-Encapsulates the four conventions PR #8439 surfaced as load-bearing:
+Encapsulates the four conventions PR #8439 surfaced as load-bearing.
+
+**Generic over the subclass result type.** The base class does not impose
+a single shared dataclass — different runners want different field
+shapes (`AutoAgentRunner` returns `PreflightSpawn`; future runners may
+return their own dataclass). Instead, the base accepts a `SpawnOutcome`
+internal record (the raw subprocess result) and the subclass packages it
+into whatever typed result it wants:
 
 ```python
-class SubprocessRunResult:
-    """Typed result returned by every BaseSubprocessRunner subclass.
+@dataclass(frozen=True)
+class SpawnOutcome:
+    """Internal record passed from base.run() to subclass._make_result.
 
-    Subclasses define their own dataclass that satisfies this protocol
-    (e.g., PreflightSpawn). The base class consumes and returns the
-    subclass's type via _make_result.
+    Internal to BaseSubprocessRunner — not part of any subclass's public
+    API. Subclass converts this into its own dataclass (e.g., PreflightSpawn)
+    via _make_result.
     """
     transcript: str
     usage_stats: dict[str, object]
-    cost_usd: float
     wall_clock_s: float
     crashed: bool
     prompt_hash: str
+    cost_usd: float
 
 
-class BaseSubprocessRunner(abc.ABC):
+T_Result = TypeVar("T_Result")
+
+
+class BaseSubprocessRunner(abc.ABC, Generic[T_Result]):
     """Subprocess spawn with auth-retry + telemetry + reraise + never-raises.
 
     Inherit for any runner that spawns a Claude Code / codex / gemini
@@ -155,19 +166,23 @@ class BaseSubprocessRunner(abc.ABC):
     - reraise_on_credit_or_bug propagates CreditExhaustedError + terminal
       AuthenticationError so caretaker loops can suspend.
     - PromptTelemetry.record() with subclass-provided source attribution.
+    - Cost estimation via model_pricing — overridable per subclass.
     - Never-raises contract: every failure path returns a typed result,
       never propagates a generic RuntimeError to the caller.
 
     Subclasses override:
     - `_telemetry_source()` → str (e.g., "auto_agent_preflight")
     - `_build_command(prompt, worktree)` → list[str] (the CLI command)
-    - `_make_result(transcript, usage_stats, wall_s, crashed, prompt_hash)`
-       → typed result (e.g., PreflightSpawn) — this is the never-raises
-       contract: subclass returns its own dataclass shape.
+    - `_make_result(outcome: SpawnOutcome)` → T_Result — the subclass's
+      own dataclass shape (e.g., PreflightSpawn). This is the
+      never-raises contract.
 
     Subclasses MAY override:
     - `_default_timeout_s()` → int (default: config.agent_timeout)
     - `_pre_spawn_hook(prompt)` → None (logging, validation, etc.)
+    - `_estimate_cost(usage_stats)` → float — defaults to model_pricing
+      lookup; subclass can override for custom pricing or no-op for
+      free-tier runs.
     """
 
     _AUTH_RETRY_MAX = 3
@@ -178,7 +193,7 @@ class BaseSubprocessRunner(abc.ABC):
 
     async def run(
         self, *, prompt: str, worktree_path: str, issue_number: int
-    ) -> SubprocessRunResult:
+    ) -> T_Result:
         """Run one subprocess attempt; never raises (collapses to crashed)."""
         ...
 
@@ -189,8 +204,14 @@ class BaseSubprocessRunner(abc.ABC):
     def _build_command(self, prompt: str, worktree: Path) -> list[str]: ...
 
     @abc.abstractmethod
-    def _make_result(self, **kwargs) -> SubprocessRunResult: ...
+    def _make_result(self, outcome: SpawnOutcome) -> T_Result: ...
+
+    def _estimate_cost(self, usage_stats: dict[str, object]) -> float:
+        """Default cost estimate via model_pricing; subclasses override."""
+        ...
 ```
+
+The `Generic[T_Result]` parametrisation lets `AutoAgentRunner(BaseSubprocessRunner[PreflightSpawn])` declare its return type without forcing other future runners to use the same shape.
 
 **Migration of `AutoAgentRunner` as proof point:**
 
@@ -244,8 +265,14 @@ python scripts/scaffold-loop.py NEW_NAME \
    - `docs/arch/functional_areas.yml` — area assignment (asks user which area).
 3. **Dry-run by default**: prints unified diff of all planned edits, asks
    `Apply all edits? [y/N]`. Only proceeds on explicit `y`.
-4. **Atomic apply**: stashes any uncommitted work, applies edits, runs
-   `make arch-regen`. If any single edit fails, reverts everything.
+4. **Atomic apply (file-level transaction)**: writes all planned edits
+   to a tempdir mirror of the repo, validates the result compiles
+   (`uv run python -c "import src.new_name_loop"`), then bulk-copies
+   the tempdir contents into the real working tree. If validation fails,
+   the tempdir is discarded and the working tree is untouched. Then runs
+   `make arch-regen` to refresh generated docs. (This is file-level
+   atomicity, not a git branch — the working tree never has half-applied
+   edits.)
 5. **Prints next-step checklist**: "Implement `_do_work` body, customize
    the prompt, run tests, commit."
 
@@ -261,11 +288,31 @@ python scripts/scaffold-loop.py NEW_NAME \
 
 **File:** `tests/scenarios/fakes/test_port_signature_conformance.py` (new).
 
-Existing test `tests/scenarios/fakes/test_port_conformance.py` does
-`isinstance(FakeGitHub(), PRPort)` — passes if method names match,
-**does NOT verify signatures**. The C2/C3 critical findings on PR #8439
-(`remove_labels` plural typo, nonexistent `list_issue_comments`) would
-have been caught by a stricter test.
+**Existing coverage (don't duplicate):**
+
+- `tests/scenarios/fakes/test_port_conformance.py` does
+  `isinstance(FakeGitHub(), PRPort)` — passes when method names match,
+  but Protocol's structural subtyping doesn't compare signatures.
+  C2/C3 from PR #8439 (`remove_labels` plural typo, nonexistent
+  `list_issue_comments`) slipped through this test even though the
+  Fake's surface was wrong.
+- `tests/test_ports.py` (lines 350–372) already does `inspect.signature`
+  parameter-name comparison for `IssueStorePort` against the real
+  `IssueStore` adapter. This is Port↔Adapter coverage at the signature
+  level for that one Port pair only.
+
+**The gap this spec closes — Port↔Fake at the signature level for ALL
+Port/Fake pairs:**
+
+The new test asserts that for every `(Port, Fake)` pair, the Fake has a
+method with the same name AND the same kwarg signature as the Port for
+every public Port method. Signature compatibility check uses
+`inspect.signature` and asserts:
+
+- Same parameter names (kwargs must match — all Ports use keyword-only
+  args by convention).
+- Same required vs optional status.
+- Type annotations: equal OR fake's is a wider type (e.g., `Any`).
 
 **Strict signature test:**
 
@@ -282,8 +329,9 @@ from tests.scenarios.fakes.fake_github import FakeGitHub
 _PORT_FAKE_PAIRS = [
     (PRPort, FakeGitHub),
     (WorkspacePort, FakeWorkspace),
-    (IssueStorePort, FakeIssueStore),
-    # ... etc.
+    # IssueStorePort: no Fake; Port↔Adapter signature parity is already
+    # covered by tests/test_ports.py against the real IssueStore adapter.
+    # ... add other Port/Fake pairs as Fakes are introduced.
 ]
 
 
@@ -334,30 +382,52 @@ drift OR add explicit `xfail` markers with linked follow-up issues.
 
 **Approach: fail-fast with helpful message; do NOT auto-stage.**
 
-Add to the existing Makefile-driven pre-commit hook:
+The existing Makefile already has an `arch-check` target (line 572) that
+runs the regen in `--check` mode and fails the build when generated docs
+are stale. The pre-commit infrastructure just needs to invoke it:
+
+**Update `.githooks/pre-commit`** (the existing hook):
+
+The current hook short-circuits when no Python files are staged
+(line 30: `if [ -z "$STAGED_PY" ]; then exit 0`). This creates a
+coverage gap — adding a new `.likec4` diagram, editing
+`docs/arch/functional_areas.yml`, or any non-Python arch source change
+silently skips the check.
+
+Replace the early-exit with a broader trigger condition:
 
 ```bash
-# In Makefile pre-commit-arch-check target:
-arch-regen-check:
-	@diff=$$(make arch-regen-dry-run 2>/dev/null) ; \
-	if [ -n "$$diff" ] ; then \
-	    echo "❌ docs/arch/generated/ is out of sync with source." ; \
-	    echo "" ; \
-	    echo "Run:" ; \
-	    echo "  make arch-regen && git add docs/arch/" ; \
-	    echo "" ; \
-	    echo "First 20 lines of diff:" ; \
-	    echo "$$diff" | head -20 ; \
-	    exit 1 ; \
-	fi
+# After the existing STAGED_PY check, also detect arch source changes.
+STAGED_ARCH=$(git diff --cached --name-only --diff-filter=ACM \
+    -- 'docs/arch/*.likec4' \
+       'docs/arch/functional_areas.yml' \
+       'docs/arch/source/*' \
+       'src/*.py' || true)
+
+if [ -n "$STAGED_ARCH" ]; then
+    if ! make -s arch-check >/tmp/arch-check.out 2>&1; then
+        echo "❌ docs/arch/generated/ is out of sync with source."
+        echo ""
+        echo "Run:"
+        echo "  make arch-regen && git add docs/arch/"
+        echo ""
+        echo "First 20 lines of arch-check output:"
+        head -20 /tmp/arch-check.out
+        exit 1
+    fi
+fi
 ```
 
-New Makefile target `arch-regen-dry-run`:
+No new Makefile target is needed — `arch-check` already does the right
+thing (it's the same target CI uses via
+`tests/architecture/test_curated_drift.py`). The pre-commit hook just
+shifts the failure point earlier, saving a CI cycle.
 
-- Runs the regen logic but writes to a tempdir instead of
-  `docs/arch/generated/`.
-- Compares the tempdir output to the committed copy via `diff -ru`.
-- Emits the diff to stdout, exits 0 (the caller decides what to do).
+**Why this trigger condition matches the regen surface:**
+
+The arch extractors (`src/arch/extractors/`) read from `src/*.py`,
+`docs/arch/*.likec4`, and `docs/arch/functional_areas.yml`. Any change
+to those source files can produce stale generated docs.
 
 **Why fail-fast not auto-stage:**
 
@@ -534,7 +604,7 @@ Per layer:
 | **Unit** | — | `BaseSubprocessRunner` auth-retry loop, reraise propagation, never-raises contract, telemetry source attribution | Scaffold template rendering, dry-run output formatting, atomic-apply rollback on failure |
 | **Integration / scenario** | — | `AutoAgentRunner` continues to pass all 11 existing tests post-migration | Scaffold runs end-to-end against a fixture name; generated loop instantiates cleanly via `LoopCatalog` |
 | **Architecture** | Pre-commit dry-run targets the same regen logic the existing CI test does | New strict-signature port-conformance test runs against ALL Port/Fake pairs | Scaffold output passes `test_loop_wiring_completeness.py`, `test_functional_area_coverage.py`, `test_curated_drift.py` |
-| **Adversarial** | — | `AutoAgentRunner`'s existing 12-entry adversarial corpus continues to pass | — |
+| **Adversarial** | — | `AutoAgentRunner`'s existing adversarial corpus (12 entries: 9 sub-label happy paths + 3 negative cases) continues to pass | — |
 
 **Self-validation criterion:** before merging PR 3, scaffold a throwaway
 loop named `_test_scaffold_canary`, verify all checkpoints pass, then
