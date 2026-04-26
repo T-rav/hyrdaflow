@@ -47,7 +47,7 @@ async def test_run_returns_spawn_with_cost_and_tokens(tmp_path: Path) -> None:
 
     runner = _make_runner()
     with patch(
-        "preflight.auto_agent_runner.stream_claude_process",
+        "runners.base_subprocess_runner.stream_claude_process",
         side_effect=fake_stream,
     ):
         spawn = await runner.run(
@@ -76,7 +76,7 @@ async def test_run_passes_disallowed_tools_to_command(tmp_path: Path) -> None:
 
     runner = _make_runner()
     with patch(
-        "preflight.auto_agent_runner.stream_claude_process",
+        "runners.base_subprocess_runner.stream_claude_process",
         side_effect=capture_stream,
     ):
         await runner.run(prompt="x", worktree_path=str(tmp_path), issue_number=1)
@@ -101,7 +101,7 @@ async def test_run_passes_wall_clock_cap_to_stream_timeout(tmp_path: Path) -> No
 
     runner = _make_runner(auto_agent_wall_clock_cap_s=180)
     with patch(
-        "preflight.auto_agent_runner.stream_claude_process",
+        "runners.base_subprocess_runner.stream_claude_process",
         side_effect=capture_stream,
     ):
         await runner.run(prompt="x", worktree_path=str(tmp_path), issue_number=1)
@@ -120,7 +120,7 @@ async def test_run_passes_worktree_as_cwd(tmp_path: Path) -> None:
 
     runner = _make_runner()
     with patch(
-        "preflight.auto_agent_runner.stream_claude_process",
+        "runners.base_subprocess_runner.stream_claude_process",
         side_effect=capture_stream,
     ):
         await runner.run(prompt="x", worktree_path=str(tmp_path), issue_number=1)
@@ -139,7 +139,7 @@ async def test_run_event_data_source_is_auto_agent_preflight(tmp_path: Path) -> 
 
     runner = _make_runner()
     with patch(
-        "preflight.auto_agent_runner.stream_claude_process",
+        "runners.base_subprocess_runner.stream_claude_process",
         side_effect=capture_stream,
     ):
         await runner.run(prompt="x", worktree_path=str(tmp_path), issue_number=99)
@@ -156,7 +156,9 @@ async def test_subprocess_exception_collapses_to_crashed_spawn(tmp_path: Path) -
         raise RuntimeError("subprocess oom")
 
     runner = _make_runner()
-    with patch("preflight.auto_agent_runner.stream_claude_process", side_effect=boom):
+    with patch(
+        "runners.base_subprocess_runner.stream_claude_process", side_effect=boom
+    ):
         spawn = await runner.run(
             prompt="x", worktree_path=str(tmp_path), issue_number=1
         )
@@ -178,7 +180,7 @@ async def test_telemetry_write_failure_does_not_break_run(tmp_path: Path) -> Non
     runner._telemetry = MagicMock()
     runner._telemetry.record = MagicMock(side_effect=OSError("disk full"))
     with patch(
-        "preflight.auto_agent_runner.stream_claude_process",
+        "runners.base_subprocess_runner.stream_claude_process",
         side_effect=stream_ok,
     ):
         spawn = await runner.run(
@@ -199,7 +201,7 @@ async def test_zero_usage_stats_yields_zero_cost(tmp_path: Path) -> None:
 
     runner = _make_runner()
     with patch(
-        "preflight.auto_agent_runner.stream_claude_process",
+        "runners.base_subprocess_runner.stream_claude_process",
         side_effect=stream_no_stats,
     ):
         spawn = await runner.run(
@@ -225,7 +227,7 @@ async def test_credit_exhausted_propagates(tmp_path: Path) -> None:
     runner = _make_runner()
     with (
         patch(
-            "preflight.auto_agent_runner.stream_claude_process",
+            "runners.base_subprocess_runner.stream_claude_process",
             side_effect=credit_exhausted,
         ),
         pytest.raises(CreditExhaustedError),
@@ -252,11 +254,11 @@ async def test_auth_retry_then_success(tmp_path: Path) -> None:
     runner = _make_runner()
     with (
         patch(
-            "preflight.auto_agent_runner.stream_claude_process",
+            "runners.base_subprocess_runner.stream_claude_process",
             side_effect=fake_stream,
         ),
         patch(
-            "preflight.auto_agent_runner.asyncio.sleep",  # skip backoff in tests
+            "runners.base_subprocess_runner.asyncio.sleep",  # skip backoff in tests
             new_callable=AsyncMock,
         ),
     ):
@@ -279,11 +281,11 @@ async def test_auth_retry_exhausted_marks_crashed(tmp_path: Path) -> None:
     runner = _make_runner()
     with (
         patch(
-            "preflight.auto_agent_runner.stream_claude_process",
+            "runners.base_subprocess_runner.stream_claude_process",
             side_effect=always_auth_fail,
         ),
         patch(
-            "preflight.auto_agent_runner.asyncio.sleep",
+            "runners.base_subprocess_runner.asyncio.sleep",
             new_callable=AsyncMock,
         ),
     ):

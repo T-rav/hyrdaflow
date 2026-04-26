@@ -25,26 +25,52 @@ if [ -n "$STAGED_CLAUDE" ]; then
     fi
 fi
 
-# Only check if Python files are staged
+# Detect Python changes (existing) AND arch source changes (new).
 STAGED_PY=$(git diff --cached --name-only --diff-filter=ACM -- '*.py' || true)
-if [ -z "$STAGED_PY" ]; then
+STAGED_ARCH=$(git diff --cached --name-only --diff-filter=ACM \
+    -- 'docs/arch/*.likec4' \
+       'docs/arch/functional_areas.yml' \
+       'docs/arch/source/*' \
+       'src/*.py' || true)
+
+# Short-circuit only when neither trigger fires.
+if [ -z "$STAGED_PY" ] && [ -z "$STAGED_ARCH" ]; then
     exit 0
 fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
-echo "pre-commit: running make lint-check..."
-if ! make lint-check; then
-    echo ""
-    echo "pre-commit: lint-check failed; attempting self-repair with 'make lint-fix'..."
-    if make lint-fix && make lint-check; then
-        printf '%s\n' "$STAGED_PY" | xargs -I {} git add "{}"
-        echo "pre-commit: self-repair succeeded and staged files were refreshed."
-    else
-        echo "Auto-repair failed. Run 'make lint-fix' and re-stage files."
-        exit 1
+if [ -n "$STAGED_PY" ]; then
+    echo "pre-commit: running make lint-check..."
+    if ! make lint-check; then
+        echo ""
+        echo "pre-commit: lint-check failed; attempting self-repair with 'make lint-fix'..."
+        if make lint-fix && make lint-check; then
+            printf '%s\n' "$STAGED_PY" | xargs -I {} git add "{}"
+            echo "pre-commit: self-repair succeeded and staged files were refreshed."
+        else
+            echo "Auto-repair failed. Run 'make lint-fix' and re-stage files."
+            exit 1
+        fi
     fi
+
+    echo "pre-commit: lint OK"
 fi
 
-echo "pre-commit: lint OK"
+# Arch-regen check — fail-fast with helpful message when generated docs are stale.
+# Reuses the existing `make arch-check` target (does not auto-stage).
+if [ -n "$STAGED_ARCH" ]; then
+    echo "pre-commit: running make arch-check..."
+    if ! make arch-check >/tmp/hydraflow-arch-check.out 2>&1; then
+        echo "❌ docs/arch/generated/ is out of sync with source." >&2
+        echo "" >&2
+        echo "Run:" >&2
+        echo "  make arch-regen && git add docs/arch/" >&2
+        echo "" >&2
+        echo "First 20 lines of arch-check output:" >&2
+        head -20 /tmp/hydraflow-arch-check.out >&2
+        exit 1
+    fi
+    echo "pre-commit: arch-check OK"
+fi

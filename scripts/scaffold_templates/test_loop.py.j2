@@ -1,0 +1,49 @@
+"""{{ pascal }}Loop unit tests. Generated on {{ today }}."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+
+from {{ snake }}_loop import {{ pascal }}Loop
+from tests.helpers import make_bg_loop_deps
+
+
+def _make_loop(tmp_path: Path, *, enabled: bool = True, **config_overrides):
+    deps = make_bg_loop_deps(tmp_path, enabled=enabled, **config_overrides)
+    state = MagicMock()
+    loop = {{ pascal }}Loop(
+        config=deps.config,
+        state=state,
+        deps=deps.loop_deps,
+    )
+    return loop, state
+
+
+def test_worker_name(tmp_path: Path) -> None:
+    loop, _ = _make_loop(tmp_path)
+    assert loop._worker_name == "{{ snake }}"
+
+
+def test_default_interval_from_config(tmp_path: Path) -> None:
+    loop, _ = _make_loop(tmp_path, {{ snake }}_interval=180)
+    assert loop._get_default_interval() == 180
+
+
+@pytest.mark.asyncio
+async def test_kill_switch_short_circuits(tmp_path: Path) -> None:
+    loop, _ = _make_loop(tmp_path, enabled=False)
+    result = await loop._do_work()
+    assert result == {"status": "disabled"}
+
+
+@pytest.mark.asyncio
+async def test_static_config_disable_short_circuits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HYDRAFLOW_{{ upper }}_ENABLED", "false")
+    loop, _ = _make_loop(tmp_path, enabled=True)
+    result = await loop._do_work()
+    assert result == {"status": "config_disabled"}

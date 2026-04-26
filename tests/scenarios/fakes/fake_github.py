@@ -204,8 +204,15 @@ class FakeGitHub:
             ]
             issue.labels.append(new_label)
 
-    async def swap_pipeline_labels(self, issue_number: int, new_label: str) -> None:
+    async def swap_pipeline_labels(
+        self,
+        issue_number: int,
+        new_label: str,
+        *,
+        pr_number: int | None = None,
+    ) -> None:
         self._maybe_rate_limit()
+        _ = pr_number
         if issue_number in self._issues:
             issue = self._issues[issue_number]
             issue.labels = [
@@ -237,9 +244,9 @@ class FakeGitHub:
         self._comments.append((pr_number, body))
 
     async def submit_review(
-        self, pr_number: int, verdict_or_body: Any = "", body: str = "", **_kw: Any
+        self, pr_number: int, verdict: Any, body: str, **_kw: Any
     ) -> bool:
-        """Accept both (pr, body, event) from phases and (pr, verdict, body) from loops."""
+        """Submit a formal PR review (no-op stub — always returns True)."""
         self._maybe_rate_limit()
         return True
 
@@ -348,7 +355,7 @@ class FakeGitHub:
         self._maybe_rate_limit()
         return ["octocat"]
 
-    async def fetch_code_scanning_alerts(self, branch: str = "", **_kw: Any) -> list:
+    async def fetch_code_scanning_alerts(self, branch: str, **_kw: Any) -> list:
         self._maybe_rate_limit()
         return list(self._alerts.get(branch, []))
 
