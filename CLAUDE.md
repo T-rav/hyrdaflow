@@ -12,6 +12,9 @@ This file is a table of contents. Operational knowledge lives in the wiki at [`d
 - **Always write unit tests before committing.** See [`docs/wiki/testing.md`](docs/wiki/testing.md).
 - **Always read [`docs/wiki/gotchas.md`](docs/wiki/gotchas.md)** before editing Pydantic models, test imports, or mocks — recurring mistakes live there.
 - **Look at the [System Map](https://t-rav.github.io/hydraflow/system-map/) before exploring code blind.** The Functional Area Map shows what every loop and Port belongs to; click through to ADRs from there.
+- **Always verify subagent DONE claims** with `git status --porcelain` and `git log -1 --stat`. Subagents sometimes report DONE with edits applied but not committed.
+- **Subprocess-spawning runners MUST call `reraise_on_credit_or_bug(exc)`** in their broad `except` block. Without it, `CreditExhaustedError` is silently eaten and the loop burns attempt budget against an exhausted billing signal. See [`docs/wiki/dark-factory.md`](docs/wiki/dark-factory.md) §2.2.
+- **For substantial features, plan for 2–3 fresh-eyes review iterations** before merge. Convergence = next pass finds nothing material. See [`docs/wiki/dark-factory.md`](docs/wiki/dark-factory.md) §3.
 
 ## Knowledge Lookup
 
@@ -38,6 +41,7 @@ Look up the relevant entry in [`docs/wiki/`](docs/wiki/index.md):
 | [`gotchas.md`](docs/wiki/gotchas.md) | Worktree rules, avoided patterns, five-checkpoint loop wiring, recurring footguns |
 | [`testing.md`](docs/wiki/testing.md) | Test conventions, scenarios, cassettes, kill-switch tests, benchmarks |
 | [`dependencies.md`](docs/wiki/dependencies.md) | Optional services, graceful degradation, dependency boundaries |
+| [`dark-factory.md`](docs/wiki/dark-factory.md) | Lights-off operating contract, load-bearing conventions for new loops/runners, the 3-pass production-readiness convergence loop, recurring footguns |
 
 ## Workflow skills (ADR-0044 P8/P10)
 
