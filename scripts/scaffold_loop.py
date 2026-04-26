@@ -146,6 +146,16 @@ def _compute_patches(names: dict[str, str], description: str) -> list[tuple[Path
             '    ("auto_agent_preflight_interval",',
             env_row + '    ("auto_agent_preflight_interval",',
         )
+    bool_row = f'    ("{snake}_enabled", "HYDRAFLOW_{upper}_ENABLED", True),\n'
+    if (
+        '    ("auto_agent_preflight_enabled", "HYDRAFLOW_AUTO_AGENT_PREFLIGHT_ENABLED",'
+        in config_text
+    ):
+        config_text = config_text.replace(
+            '    ("auto_agent_preflight_enabled", "HYDRAFLOW_AUTO_AGENT_PREFLIGHT_ENABLED",',
+            bool_row
+            + '    ("auto_agent_preflight_enabled", "HYDRAFLOW_AUTO_AGENT_PREFLIGHT_ENABLED",',
+        )
     fields_block = f"""    {snake}_enabled: bool = Field(
         default=True,
         description="UI kill-switch for {pascal}Loop (ADR-0049).",
