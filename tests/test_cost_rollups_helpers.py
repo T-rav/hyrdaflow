@@ -532,3 +532,145 @@ def test_build_per_loop_cost_no_event_bus(config) -> None:
     assert len(rows) == 1
     assert rows[0]["ticks"] == 1
     assert rows[0]["issues_filed"] == 0
+
+
+def test_per_loop_cost_includes_model_breakdown_for_mixed_models(
+    tmp_path, monkeypatch
+) -> None:
+    """build_per_loop_cost emits model_breakdown with one entry per model used."""
+    from datetime import UTC, datetime, timedelta
+
+    config = MagicMock()
+    config.data_root = tmp_path
+    config.data_path = lambda *parts: tmp_path.joinpath(*parts)  # noqa: PLW0108
+
+    now = datetime(2026, 4, 22, 12, tzinfo=UTC)
+    started = now - timedelta(minutes=5)
+    _write_inference(
+        config,
+        timestamp=(started + timedelta(seconds=10)).isoformat(),
+        source="implementer",
+        model="claude-opus-4-7",
+        input_tokens=10_000,
+        output_tokens=2_000,
+        cache_read_input_tokens=20_000,
+        cache_creation_input_tokens=1_000,
+    )
+    _write_inference(
+        config,
+        timestamp=(started + timedelta(seconds=20)).isoformat(),
+        source="implementer",
+        model="claude-sonnet-4-6",
+        input_tokens=5_000,
+        output_tokens=500,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
+    _write_loop_trace(
+        config,
+        "implementer",
+        started_at=started.isoformat(),
+        duration_ms=60_000,
+    )
+
+    rows = build_per_loop_cost(config, since=now - timedelta(hours=1), until=now)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["loop"] == "implementer"
+    breakdown = row["model_breakdown"]
+    assert set(breakdown.keys()) == {"claude-opus-4-7", "claude-sonnet-4-6"}
+    opus = breakdown["claude-opus-4-7"]
+    assert opus["calls"] == 1
+    assert opus["input_tokens"] == 10_000
+    assert opus["output_tokens"] == 2_000
+    assert opus["cache_read_tokens"] == 20_000
+    assert opus["cache_write_tokens"] == 1_000
+    assert opus["cost_usd"] > 0
+    sonnet = breakdown["claude-sonnet-4-6"]
+    assert sonnet["calls"] == 1
+    assert sonnet["input_tokens"] == 5_000
+
+
+def test_per_loop_cost_buckets_missing_model_under_unknown(
+    tmp_path,
+) -> None:
+    """Records with empty/missing model bucket under 'unknown'."""
+    from datetime import UTC, datetime, timedelta
+
+    config = MagicMock()
+    config.data_root = tmp_path
+    config.data_path = lambda *parts: tmp_path.joinpath(*parts)  # noqa: PLW0108
+
+    now = datetime(2026, 4, 22, 12, tzinfo=UTC)
+    started = now - timedelta(minutes=5)
+    _write_inference(
+        config,
+        timestamp=(started + timedelta(seconds=10)).isoformat(),
+        source="implementer",
+        model="",
+        input_tokens=100,
+        output_tokens=50,
+    )
+    _write_loop_trace(
+        config,
+        "implementer",
+        started_at=started.isoformat(),
+        duration_ms=60_000,
+    )
+
+    rows = build_per_loop_cost(config, since=now - timedelta(hours=1), until=now)
+
+    assert rows[0]["model_breakdown"].keys() == {"unknown"}
+    assert rows[0]["model_breakdown"]["unknown"]["calls"] == 1
+
+
+def test_per_loop_cost_existing_fields_unchanged(tmp_path) -> None:
+    """Regression: adding model_breakdown does not change existing field values."""
+    from datetime import UTC, datetime, timedelta
+
+    config = MagicMock()
+    config.data_root = tmp_path
+    config.data_path = lambda *parts: tmp_path.joinpath(*parts)  # noqa: PLW0108
+
+    now = datetime(2026, 4, 22, 12, tzinfo=UTC)
+    started = now - timedelta(minutes=5)
+    _write_inference(
+        config,
+        timestamp=(started + timedelta(seconds=10)).isoformat(),
+        source="implementer",
+        model="claude-opus-4-7",
+        input_tokens=1_000,
+        output_tokens=200,
+    )
+    _write_loop_trace(
+        config,
+        "implementer",
+        started_at=started.isoformat(),
+        duration_ms=60_000,
+    )
+
+    rows = build_per_loop_cost(config, since=now - timedelta(hours=1), until=now)
+
+    row = rows[0]
+    expected_keys = {
+        "loop",
+        "cost_usd",
+        "tokens_in",
+        "tokens_out",
+        "llm_calls",
+        "issues_filed",
+        "issues_closed",
+        "escalations",
+        "ticks",
+        "ticks_errored",
+        "tick_cost_avg_usd",
+        "wall_clock_seconds",
+        "last_tick_at",
+        "tick_cost_avg_usd_prev_period",
+        "model_breakdown",
+    }
+    assert set(row.keys()) == expected_keys
+    assert row["tokens_in"] == 1_000
+    assert row["tokens_out"] == 200
+    assert row["llm_calls"] == 1
