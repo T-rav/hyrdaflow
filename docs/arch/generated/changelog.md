@@ -6,6 +6,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W17
 
+- `172149d` — feat(auto-agent): wire real Claude Code subprocess (closes ADR-0050 partial landing) *(2026-04-26)*
 - `5837a29` — feat(arch): trust fleet topology page (curated) (#8438) (#8438) *(2026-04-26)*
 - `64e9f31` — fix(arch): lift modules.md drift exemption (root cause: stale baseline) (#8437) (#8437) *(2026-04-26)*
 - `67079aa` — docs(spec): Auto-Agent HITL pre-flight loop design (#8431) (#8431) *(2026-04-25)*
@@ -139,4 +140,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `67079aa` on 2026-04-26 16:20 UTC. Source last changed at `67079aa`. Status: 🟢 fresh._
+_Regenerated from commit `e8cf734` on 2026-04-26 16:39 UTC. Source last changed at `e8cf734`. Status: 🟢 fresh._
