@@ -388,6 +388,17 @@ class ConfigFactory:
         security_patch_severity_threshold: str = "high",
         code_grooming_interval: int = 86400,
         code_grooming_enabled: bool = False,
+        auto_agent_preflight_interval: int = 120,
+        auto_agent_daily_budget_usd: float | None = None,
+        auto_agent_cost_cap_usd: float | None = None,
+        auto_agent_wall_clock_cap_s: int | None = None,
+        auto_agent_max_attempts: int = 3,
+        auto_agent_skip_sublabels: list[str] | None = None,
+        auto_agent_persona: str = (
+            "the lead engineer for this project — pragmatic, prefers small fixes, "
+            "leaves regression tests, doesn't over-engineer."
+        ),
+        auto_agent_preflight_enabled: bool = True,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -614,6 +625,16 @@ class ConfigFactory:
                 security_patch_severity_threshold=security_patch_severity_threshold,
                 code_grooming_interval=code_grooming_interval,
                 code_grooming_enabled=code_grooming_enabled,
+                auto_agent_preflight_interval=auto_agent_preflight_interval,
+                auto_agent_daily_budget_usd=auto_agent_daily_budget_usd,
+                auto_agent_cost_cap_usd=auto_agent_cost_cap_usd,
+                auto_agent_wall_clock_cap_s=auto_agent_wall_clock_cap_s,
+                auto_agent_max_attempts=auto_agent_max_attempts,
+                auto_agent_skip_sublabels=auto_agent_skip_sublabels
+                if auto_agent_skip_sublabels is not None
+                else ["principles-stuck", "cultural-check"],
+                auto_agent_persona=auto_agent_persona,
+                auto_agent_preflight_enabled=auto_agent_preflight_enabled,
             )
 
 
