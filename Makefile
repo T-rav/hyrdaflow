@@ -572,7 +572,7 @@ arch-check:
 arch-validate:
 	@$(UV) python -c "from arch._functional_areas_schema import load_functional_areas; from pathlib import Path; load_functional_areas(Path('docs/arch/functional_areas.yml')); print('functional_areas.yml: schema OK')"
 
-## arch-serve — placeholder; Plan C wires this to mkdocs serve
+## arch-serve — local dev server for the architecture site (mkdocs)
 arch-serve:
-	@echo "$(YELLOW)mkdocs not configured yet — Plan C wires this up.$(RESET)"
-	@echo "Run 'make arch-regen' and read docs/arch/generated/*.md directly."
+	@command -v mkdocs >/dev/null 2>&1 || { echo "$(YELLOW)mkdocs not installed; run: pip install -e '.[docs]'$(RESET)"; exit 1; }
+	@$(UV) mkdocs serve --strict
