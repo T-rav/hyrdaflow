@@ -21,7 +21,7 @@ class FakeWorkspace:
         """Inject a single-shot fault into the next create() call."""
         self._next_fault = kind
 
-    async def create(self, issue_number: int, _branch: str) -> Path:
+    async def create(self, issue_number: int, branch: str) -> Path:
         fault = self._next_fault
         self._next_fault = None
         if fault == "permission":
@@ -37,6 +37,32 @@ class FakeWorkspace:
 
     async def destroy(self, issue_number: int) -> None:
         self.destroyed.append(issue_number)
+
+    async def destroy_all(self) -> None:
+        """Remove all managed worktrees (no-op stub)."""
+
+    async def merge_main(self, worktree_path: Path, branch: str) -> bool:
+        """Merge main into the worktree (stub — always succeeds)."""
+        return True
+
+    async def get_conflicting_files(self, worktree_path: Path) -> list[str]:
+        """Return conflicting files in the worktree (stub — always empty)."""
+        return []
+
+    async def reset_to_main(self, worktree_path: Path) -> None:
+        """Hard-reset worktree to origin/main (no-op stub)."""
+
+    async def post_work_cleanup(
+        self, issue_number: int, *, phase: str = "implement"
+    ) -> None:
+        """Clean up after an issue is done (no-op stub)."""
+
+    async def abort_merge(self, worktree_path: Path) -> None:
+        """Abort an in-progress merge (no-op stub)."""
+
+    async def start_merge_main(self, worktree_path: Path, branch: str) -> bool:
+        """Begin merging main into branch (stub — always clean)."""
+        return True
 
     async def sanitize_repo(self) -> None:
         pass
