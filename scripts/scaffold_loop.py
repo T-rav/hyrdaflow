@@ -315,6 +315,85 @@ def _print_planned_edits(
         print(f"  PATCH  {rel}")
 
 
+def _apply_atomic(rendered: dict[Path, str], patches: list[tuple[Path, str]]) -> None:
+    """File-level tempdir transaction: write all changes to a tempdir
+    mirror, validate the result, bulk-copy on success.
+
+    Tempdir mirror approach: copy the entire repo into the tempdir,
+    apply all changes there, validate via `python -c "import ..."`,
+    then bulk-copy back. If validation fails, the tempdir is discarded
+    and the working tree is untouched.
+    """
+    import shutil
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_root = Path(tmpdir)
+        # Copy everything, but skip .git, venv, node_modules, .claude.
+        shutil.copytree(
+            REPO_ROOT,
+            tmp_root / "repo",
+            ignore=shutil.ignore_patterns(
+                ".git",
+                "node_modules",
+                ".venv",
+                "__pycache__",
+                ".claude",
+                "*.pyc",
+            ),
+            symlinks=True,
+        )
+        tmp_repo = tmp_root / "repo"
+
+        # Apply new files.
+        for target, content in rendered.items():
+            tmp_target = tmp_repo / target.relative_to(REPO_ROOT)
+            tmp_target.parent.mkdir(parents=True, exist_ok=True)
+            tmp_target.write_text(content)
+
+        # Apply patches.
+        for target, content in patches:
+            tmp_target = tmp_repo / target.relative_to(REPO_ROOT)
+            tmp_target.write_text(content)
+
+        # Validate: the new loop module must import cleanly. Use the snake
+        # name from the first rendered file (e.g., src/blarg_monitor_loop.py
+        # → blarg_monitor_loop).
+        first = next(iter(rendered))
+        loop_module = first.stem  # e.g., "blarg_monitor_loop"
+        validate = subprocess.run(
+            [
+                "uv",
+                "run",
+                "python",
+                "-c",
+                f"import sys; sys.path.insert(0, 'src'); import {loop_module}",
+            ],
+            check=False,
+            cwd=tmp_repo,
+            capture_output=True,
+            text=True,
+        )
+        if validate.returncode != 0:
+            sys.stderr.write(
+                "scaffold_loop: validation failed in tempdir.\n"
+                f"stderr:\n{validate.stderr}\n"
+                f"stdout:\n{validate.stdout}\n"
+                "Working tree NOT modified.\n"
+            )
+            sys.exit(3)
+
+        # Bulk-copy back. New files + patches.
+        for target in {**rendered, **dict(patches)}:
+            tmp_source = tmp_repo / target.relative_to(REPO_ROOT)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(tmp_source, target)
+
+    print("scaffold_loop: apply complete. Running make arch-regen...")
+    _run(["make", "arch-regen"])
+    print("scaffold_loop: done. Next: implement _do_work body, run tests, commit.")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("name", help="snake_case loop name")
@@ -354,8 +433,8 @@ def main() -> int:
         print("\nDry-run mode (default). Use --apply to write the files.")
         return 0
 
-    # T3.4 wires the file-level tempdir transaction here.
-    raise NotImplementedError("T3.4 wires the apply transaction.")
+    _apply_atomic(rendered, patches)
+    return 0
 
 
 if __name__ == "__main__":
