@@ -143,6 +143,29 @@ async def test_pr_failed_pairs_correctly() -> None:
 
 
 @pytest.mark.asyncio
+async def test_resolved_with_default_sentinel_skips_sub_label_remove() -> None:
+    """When sub_label is the '_default' sentinel (no domain routing tag was
+    present on the issue), `resolved` removes only hitl-escalation +
+    human-required — NOT a literal '_default' label."""
+    pr = AsyncMock()
+    state = MagicMock()
+    state.get_auto_agent_attempts = MagicMock(return_value=1)
+    out = await apply_decision(
+        issue_number=42,
+        sub_label="_default",
+        result=_result("resolved", pr_url="https://x"),
+        pr_port=pr,
+        state=state,
+        max_attempts=3,
+    )
+    # Exactly two remove_label calls — no spurious "_default" removal.
+    assert pr.remove_label.await_count == 2
+    pr.remove_label.assert_any_await(42, "hitl-escalation")
+    pr.remove_label.assert_any_await(42, "human-required")
+    assert "_default" not in out["removed"]
+
+
+@pytest.mark.asyncio
 async def test_timeout_pairs_correctly() -> None:
     pr = AsyncMock()
     state = MagicMock()
