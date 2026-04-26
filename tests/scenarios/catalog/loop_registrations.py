@@ -863,6 +863,16 @@ def _build_diagram_loop(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     )
 
 
+def _build_pricing_refresh_loop(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from pricing_refresh_loop import PricingRefreshLoop  # noqa: PLC0415
+
+    return PricingRefreshLoop(
+        config=config,
+        pr_manager=ports["github"],
+        deps=deps,
+    )
+
+
 _BUILDERS: dict[str, Any] = {
     # phase 1
     "ci_monitor": _build_ci_monitor,
@@ -902,6 +912,8 @@ _BUILDERS: dict[str, Any] = {
     "principles_audit": _build_principles_audit,
     # architecture knowledge system (Plan C — DiagramLoop L24)
     "diagram_loop": _build_diagram_loop,
+    # pricing refresh (spec §1–§11; ADR-0051)
+    "pricing_refresh": _build_pricing_refresh_loop,
     # auto-agent (spec §1–§11; ADR-0050)
     "auto_agent_preflight": _build_auto_agent_preflight,
 }
