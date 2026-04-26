@@ -1,197 +1,171 @@
 #!/usr/bin/env python3
-"""Generate boilerplate for a new BaseBackgroundLoop subclass.
+"""Scaffold a new caretaker loop with all conventions correct.
 
 Usage::
 
-    python scripts/scaffold_loop.py my_worker "My Worker" "Does cool things every hour" --interval 3600
+    python scripts/scaffold_loop.py NAME [LABEL] [DESCRIPTION] [--interval N]
+                                          [--type caretaker|subprocess]
+                                          [--dry-run]
+                                          [--apply]
 
-Generates:
-- ``src/my_worker_loop.py``   -- loop skeleton
-- ``tests/test_my_worker_loop.py`` -- test skeleton
+Existing CLI signature preserved for backward-compat with PR #5911.
 
-Prints manual wiring instructions for the remaining integration points.
+NAME: snake_case loop name (e.g., "blarg_monitor"). Generated class name
+will be PascalCase ("BlargMonitorLoop").
+
+Default behavior: dry-run. Prints unified summary of all planned edits and
+asks `Apply? [y/N]`. Use `--apply` to skip the prompt (for CI).
+
+The script (when fully implemented across T3.2 + T3.3 + T3.4):
+1. Refuses to run on a dirty working tree.
+2. Renders three new files from scripts/scaffold_templates/.
+3. Patches the five-checkpoint files (models.py, state/__init__.py,
+   config.py, service_registry.py, orchestrator.py, ui constants,
+   _common.py, scenario catalog, functional_areas.yml).
+4. File-level tempdir transaction: writes everything to a tmpdir,
+   validates the result imports, bulk-copies to working tree on success.
+5. Runs `make arch-regen` after apply.
+
+Spec: docs/superpowers/specs/2026-04-26-dark-factory-infrastructure-hardening-design.md §3.2.
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime as dt
+import subprocess
 import sys
-import textwrap
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "src"
-TESTS = ROOT / "tests"
+import jinja2
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+TEMPLATES_DIR = Path(__file__).resolve().parent / "scaffold_templates"
 
 
-def _class_name(worker_name: str) -> str:
-    """Convert snake_case worker_name to PascalCase class name + 'Loop'."""
-    return "".join(part.capitalize() for part in worker_name.split("_")) + "Loop"
-
-
-def _generate_loop_file(
-    worker_name: str, label: str, description: str, interval: int
-) -> str:
-    cls = _class_name(worker_name)
-    return textwrap.dedent(f'''\
-        """{description}"""
-
-        from __future__ import annotations
-
-        import logging
-        from typing import Any
-
-        from base_background_loop import BaseBackgroundLoop, LoopDeps
-        from config import HydraFlowConfig
-
-        logger = logging.getLogger("hydraflow.{worker_name}_loop")
-
-
-        class {cls}(BaseBackgroundLoop):
-            """{label} background loop.
-
-            {description}
-            """
-
-            def __init__(
-                self,
-                *,
-                config: HydraFlowConfig,
-                deps: LoopDeps,
-            ) -> None:
-                super().__init__(worker_name="{worker_name}", config=config, deps=deps)
-
-            def _get_default_interval(self) -> int:
-                return self._config.{worker_name}_interval
-
-            async def _do_work(self) -> dict[str, Any] | None:
-                logger.info("{label} cycle starting")
-                # TODO: implement loop body
-                return None
-    ''')
-
-
-def _generate_test_file(worker_name: str, label: str, interval: int) -> str:
-    cls = _class_name(worker_name)
-    return textwrap.dedent(f'''\
-        """Tests for {cls}."""
-
-        from __future__ import annotations
-
-        import asyncio
-        from unittest.mock import MagicMock
-
-        import pytest
-
-        from {worker_name}_loop import {cls}
-        from base_background_loop import LoopDeps
-
-
-        def _make_loop(*, config: MagicMock | None = None) -> {cls}:
-            """Create a {cls} with sensible test defaults."""
-            if config is None:
-                config = MagicMock()
-                config.{worker_name}_interval = {interval}
-                config.dry_run = False
-                config.data_root = MagicMock()
-                config.data_root.__truediv__ = MagicMock(return_value=MagicMock(exists=MagicMock(return_value=False)))
-
-            deps = LoopDeps(
-                event_bus=MagicMock(),
-                stop_event=asyncio.Event(),
-                status_cb=MagicMock(),
-                enabled_cb=MagicMock(return_value=True),
-                sleep_fn=MagicMock(),
-                interval_cb=None,
-            )
-            return {cls}(config=config, deps=deps)
-
-
-        class TestDefaultInterval:
-            def test_returns_config_interval(self) -> None:
-                loop = _make_loop()
-                assert loop._get_default_interval() == {interval}
-
-
-        class TestDryRun:
-            @pytest.mark.asyncio
-            async def test_do_work_succeeds(self) -> None:
-                loop = _make_loop()
-                result = await loop._do_work()
-                # Skeleton returns None -- replace with real assertions
-                assert result is None
-    ''')
-
-
-def _print_wiring_instructions(worker_name: str, label: str, interval: int) -> None:
-    cls = _class_name(worker_name)
-    print(f"\n{'=' * 70}")
-    print(f"  Generated: src/{worker_name}_loop.py")
-    print(f"  Generated: tests/test_{worker_name}_loop.py")
-    print(f"{'=' * 70}")
-    print("\n  Manual wiring steps:\n")
-
-    print("  1. src/config.py -- add Field + _ENV_INT_OVERRIDES entry:\n")
-    print(f"     {worker_name}_interval: int = Field({interval}, ge=60, le=604800)")
-    print(
-        f'     ("{worker_name}_interval", "HYDRAFLOW_{worker_name.upper()}_INTERVAL", {interval}),\n'
+def _run(
+    cmd: list[str], *, cwd: Path | None = None, check: bool = True
+) -> subprocess.CompletedProcess:
+    """Thin subprocess.run wrapper with sane defaults."""
+    return subprocess.run(
+        cmd, cwd=cwd or REPO_ROOT, capture_output=True, text=True, check=check
     )
 
-    print("  2. src/service_registry.py -- add import + dataclass field:\n")
-    print(f"     from {worker_name}_loop import {cls}")
-    print(f"     {worker_name}_loop: {cls}  # in ServiceRegistry dataclass\n")
 
-    print("  3. src/service_registry.py -- add to build_services():\n")
-    print(f"     {worker_name}_loop = {cls}(config=config, deps=loop_deps)")
-    print(
-        f"     # and include {worker_name}_loop= in the ServiceRegistry(...) return\n"
-    )
-
-    print("  4. src/orchestrator.py -- add to bg_loop_registry:\n")
-    print(f'     "{worker_name}": svc.{worker_name}_loop,\n')
-
-    print("  5. src/ui/src/constants.js -- add to BACKGROUND_WORKERS:\n")
-    print(
-        f"     {{ key: '{worker_name}', label: '{label}', description: '...', color: theme.accent }},\n"
-    )
-
-    print("  6. src/dashboard_routes/_common.py -- add to _INTERVAL_BOUNDS:\n")
-    print(f'     "{worker_name}": (60, 604800),\n')
-
-    print("  Run tests/test_loop_wiring_completeness.py to verify wiring.\n")
-
-
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Scaffold a new background loop")
-    parser.add_argument("worker_name", help="Snake-case worker name (e.g. my_worker)")
-    parser.add_argument("label", help="Human-readable label (e.g. 'My Worker')")
-    parser.add_argument("description", help="One-line description")
-    parser.add_argument(
-        "--interval", type=int, default=3600, help="Default interval in seconds"
-    )
-    args = parser.parse_args(argv)
-
-    loop_path = SRC / f"{args.worker_name}_loop.py"
-    test_path = TESTS / f"test_{args.worker_name}_loop.py"
-
-    if loop_path.exists():
-        print(f"ERROR: {loop_path} already exists", file=sys.stderr)
-        sys.exit(1)
-    if test_path.exists():
-        print(f"ERROR: {test_path} already exists", file=sys.stderr)
-        sys.exit(1)
-
-    loop_path.write_text(
-        _generate_loop_file(
-            args.worker_name, args.label, args.description, args.interval
+def _ensure_clean_tree() -> None:
+    """Refuse to run on a dirty working tree — apply must be atomic."""
+    out = _run(["git", "status", "--porcelain"]).stdout.strip()
+    if out:
+        sys.stderr.write(
+            "scaffold_loop: working tree is dirty. Stash or commit before running.\n"
+            f"Dirty:\n{out}\n"
         )
-    )
-    test_path.write_text(
-        _generate_test_file(args.worker_name, args.label, args.interval)
-    )
+        sys.exit(2)
 
-    _print_wiring_instructions(args.worker_name, args.label, args.interval)
+
+def _names(snake: str) -> dict[str, str]:
+    """Compute the case variants the templates need."""
+    parts = snake.split("_")
+    pascal = "".join(p.title() for p in parts)
+    return {
+        "snake": snake,
+        "pascal": pascal,
+        "name_title": " ".join(p.title() for p in parts),
+        "upper": snake.upper(),
+        "today": dt.date.today().isoformat(),
+    }
+
+
+def _render_templates(names: dict[str, str], description: str) -> dict[Path, str]:
+    """Return {target_path: rendered_content} for all template-emitted files."""
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(TEMPLATES_DIR),
+        keep_trailing_newline=True,
+    )
+    ctx = {**names, "description": description}
+    return {
+        REPO_ROOT / f"src/{names['snake']}_loop.py": env.get_template(
+            "loop.py.j2"
+        ).render(ctx),
+        REPO_ROOT / f"src/state/_{names['snake']}.py": env.get_template(
+            "state_mixin.py.j2"
+        ).render(ctx),
+        REPO_ROOT / f"tests/test_{names['snake']}_loop.py": env.get_template(
+            "test_loop.py.j2"
+        ).render(ctx),
+    }
+
+
+def _compute_patches(names: dict[str, str], description: str) -> list[tuple[Path, str]]:
+    """Compute (target_path, new_content) for each five-checkpoint file.
+
+    STUB — full implementation lands in T3.3.
+    """
+    return []
+
+
+def _print_planned_edits(
+    rendered: dict[Path, str], patches: list[tuple[Path, str]]
+) -> None:
+    """Print a human-readable summary of all planned edits (the dry-run output)."""
+    print("\n=== New files ===")
+    for path, content in rendered.items():
+        rel = path.relative_to(REPO_ROOT)
+        print(f"  CREATE {rel} ({len(content)} chars)")
+    print("\n=== Five-checkpoint patches ===")
+    if not patches:
+        print("  (T3.3 patcher not yet implemented)")
+    for path, _ in patches:
+        rel = path.relative_to(REPO_ROOT)
+        print(f"  PATCH  {rel}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("name", help="snake_case loop name")
+    parser.add_argument(
+        "label", nargs="?", default=None, help="Human-readable label (optional)"
+    )
+    parser.add_argument("description", nargs="?", default="No description provided.")
+    parser.add_argument(
+        "--interval", type=int, default=3600, help="Default interval seconds"
+    )
+    parser.add_argument(
+        "--type", choices=["caretaker", "subprocess"], default="caretaker"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="default; print diff and exit"
+    )
+    parser.add_argument("--apply", action="store_true", help="skip the y/N prompt")
+    args = parser.parse_args()
+
+    if args.type == "subprocess":
+        sys.stderr.write(
+            "scaffold_loop: --type=subprocess not yet implemented; falling "
+            "back to caretaker template.\n"
+        )
+
+    _ensure_clean_tree()
+
+    names = _names(args.name)
+    rendered = _render_templates(names, args.description)
+    patches = _compute_patches(names, args.description)
+
+    _print_planned_edits(rendered, patches)
+
+    if args.dry_run and not args.apply:
+        print("\nDry-run mode (default). Use --apply to write the files.")
+        return 0
+
+    if not args.apply:
+        ans = input("\nApply all edits? [y/N] ").strip().lower()
+        if ans != "y":
+            print("Aborted.")
+            return 1
+
+    # T3.4 wires the file-level tempdir transaction here.
+    raise NotImplementedError("T3.4 wires the apply transaction.")
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
