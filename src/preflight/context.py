@@ -47,12 +47,12 @@ class PreflightContext:
     prior_attempts: list[PreflightAuditEntry] = field(default_factory=list)
 
 
-class _PRPort(Protocol):
+class _ContextPRSink(Protocol):
     async def get_issue(self, number: int) -> dict[str, Any]: ...
     async def list_issue_comments(self, number: int) -> list[dict[str, Any]]: ...
 
 
-class _WikiPort(Protocol):
+class _WikiSink(Protocol):
     def query(self, repo_slug: str, keywords: list[str], **kwargs: Any) -> str: ...
 
 
@@ -61,8 +61,8 @@ async def gather_context(
     issue_number: int,
     issue_body: str,
     sub_label: str,
-    pr_port: _PRPort,
-    wiki_store: _WikiPort | None,
+    pr_port: _ContextPRSink,
+    wiki_store: _WikiSink | None,
     state: Any,  # StateTracker (avoid circular import)
     audit_store: Any,  # PreflightAuditStore
     repo_slug: str,

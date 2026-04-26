@@ -6,8 +6,11 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W17
 
-- `2d624c9` — feat(arch): freshness badge wired into runner footer *(2026-04-25)*
-- `57862a1` — feat(docs): MkDocs Material site config + index/about pages *(2026-04-25)*
+- `f5041a4` — fix(auto-agent): address fresh-eyes review — 3 critical, 5 important *(2026-04-25)*
+- `c9d3a95` — fix(preflight): wire pr_failed status + correct ADR-0050 source-file citations *(2026-04-25)*
+- `cc3398c` — docs(adr): ADR-0050 — auto-agent HITL pre-flight loop *(2026-04-25)*
+- `70392a6` — fix(arch): correct GitHub org in all site URLs (#8435) (#8435) *(2026-04-25)*
+- `f893069` — feat(arch): Plan C — DiagramLoop (L24) + CI guard + Pages site (#8434) (#8434) *(2026-04-25)*
 - `300c3c7` — feat(arch): Plan B — Functional Areas + ADR-0001 amendment + migration (#8433) (#8433) *(2026-04-25)*
 - `bee256f` — feat(arch): Architecture Knowledge System v1 — spec + 3 plans + Plan A runner (#8432) (#8432) *(2026-04-25)*
 - `87da6ef` — feat(adr-gate): symbol-level precision so unrelated edits stop tripping it (#8428) (#8428) *(2026-04-24)*
@@ -136,4 +139,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `e5948ac` on 2026-04-26 01:20 UTC. Source last changed at `e5948ac`. Status: 🟢 fresh._
+_Regenerated from commit `90f261a` on 2026-04-26 05:14 UTC. Source last changed at `90f261a`. Status: 🟢 fresh._

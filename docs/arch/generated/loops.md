@@ -7,6 +7,7 @@ All `BaseBackgroundLoop` subclasses discovered in `src/`. Generated from AST (no
 | Loop | Module | Tick (s) | Kill Switch | Events | ADRs |
 |---|---|---|---|---|---|
 | **ADRReviewerLoop** | `src.adr_reviewer_loop` | — | — | — | — |
+| **AutoAgentPreflightLoop** | `src.auto_agent_preflight_loop` | — | — | — | — |
 | **CIMonitorLoop** | `src.ci_monitor_loop` | — | — | — | — |
 | **CodeGroomingLoop** | `src.code_grooming_loop` | — | — | — | — |
 | **ContractRefreshLoop** | `src.contract_refresh_loop` | — | — | — | — |
@@ -38,4 +39,4 @@ All `BaseBackgroundLoop` subclasses discovered in `src/`. Generated from AST (no
 | **WikiRotDetectorLoop** | `src.wiki_rot_detector_loop` | — | — | — | — |
 | **WorkspaceGCLoop** | `src.workspace_gc_loop` | — | — | — | — |
 
-_Regenerated from commit `e5948ac` on 2026-04-26 01:20 UTC. Source last changed at `e5948ac`. Status: 🟢 fresh._
+_Regenerated from commit `90f261a` on 2026-04-26 05:14 UTC. Source last changed at `90f261a`. Status: 🟢 fresh._

@@ -26,7 +26,7 @@ class PreflightResult:
     prompt_hash: str = ""  # populated from PreflightSpawn for audit traceability
 
 
-class _PRPort(Protocol):
+class _DecisionPRSink(Protocol):
     """Subset of PRPort used by apply_decision.
 
     Method names match the real PRManager / FakeGitHub surface:
@@ -59,7 +59,7 @@ async def apply_decision(
     issue_number: int,
     sub_label: str,
     result: PreflightResult,
-    pr_port: _PRPort,
+    pr_port: _DecisionPRSink,
     state: Any,
     max_attempts: int,
 ) -> dict[str, Any]:

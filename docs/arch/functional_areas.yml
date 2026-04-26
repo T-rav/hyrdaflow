@@ -65,7 +65,8 @@ areas:
       - RCBudgetLoop
       - StagingBisectLoop
       - TrustFleetSanityLoop
-    related_adrs: ['0042', '0045', '0048']
+      - AutoAgentPreflightLoop
+    related_adrs: ['0042', '0045', '0048', '0050']
 
   hexagonal_boundaries:
     label: Hexagonal Boundaries

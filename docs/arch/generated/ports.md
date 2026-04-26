@@ -53,7 +53,7 @@ graph LR
 ### PRPort
 
 - Module: `src.ports`
-- Methods: `add_labels`, `branch_has_diff_from_main`, `close_issue`, `close_task`, `create_issue`, `create_pr`, `create_promotion_pr`, `create_rc_branch`, `create_task`, `delete_branch`, `expected_pr_title`, `fetch_ci_failure_logs`, `fetch_code_scanning_alerts`, `find_existing_issue`, `find_open_pr_for_branch`, `find_open_promotion_pr`, `get_dependabot_alerts`, `get_issue_state`, `get_issue_updated_at`, `get_latest_ci_status`, `get_pr_approvers`, `get_pr_diff`, `get_pr_diff_names`, `get_pr_head_sha`, `get_pr_mergeable`, `list_hitl_items`, `list_issues_by_label`, `list_rc_branches`, `merge_pr`, `merge_promotion_pr`, `post_comment`, `post_pr_comment`, `pull_main`, `push_branch`, `remove_label`, `submit_review`, `swap_pipeline_labels`, `transition`, `update_issue_body`, `update_pr_title`, `upload_screenshot`, `wait_for_ci`
+- Methods: `add_labels`, `branch_has_diff_from_main`, `close_issue`, `close_task`, `create_issue`, `create_pr`, `create_promotion_pr`, `create_rc_branch`, `create_task`, `delete_branch`, `expected_pr_title`, `fetch_ci_failure_logs`, `fetch_code_scanning_alerts`, `find_existing_issue`, `find_open_pr_for_branch`, `find_open_promotion_pr`, `get_dependabot_alerts`, `get_issue_state`, `get_issue_updated_at`, `get_latest_ci_status`, `get_pr_approvers`, `get_pr_diff`, `get_pr_diff_names`, `get_pr_head_sha`, `get_pr_mergeable`, `list_closed_issues_by_label`, `list_hitl_items`, `list_issue_comments`, `list_issues_by_label`, `list_rc_branches`, `merge_pr`, `merge_promotion_pr`, `post_comment`, `post_pr_comment`, `pull_main`, `push_branch`, `remove_label`, `submit_review`, `swap_pipeline_labels`, `transition`, `update_issue_body`, `update_pr_title`, `upload_screenshot`, `wait_for_ci`
 - Adapters:
   - `PRManager` (`src.pr_manager`)
 - Fake: `FakePR` (`tests.scenarios.fakes.fake_github`)
@@ -82,4 +82,4 @@ graph LR
   - `WorkspaceManager` (`src.workspace`)
 - Fake: `FakeWorkspace` (`tests.scenarios.fakes.fake_workspace`)
 
-_Regenerated from commit `e5948ac` on 2026-04-26 01:20 UTC. Source last changed at `e5948ac`. Status: 🟢 fresh._
+_Regenerated from commit `90f261a` on 2026-04-26 05:14 UTC. Source last changed at `90f261a`. Status: 🟢 fresh._
