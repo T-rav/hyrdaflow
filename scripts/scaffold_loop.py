@@ -153,15 +153,11 @@ def main() -> int:
 
     _print_planned_edits(rendered, patches)
 
-    if args.dry_run and not args.apply:
+    # Default is dry-run: if --apply was not explicitly given, just show the
+    # plan and exit 0.  Use --apply to write files (skips the prompt, safe for CI).
+    if not args.apply:
         print("\nDry-run mode (default). Use --apply to write the files.")
         return 0
-
-    if not args.apply:
-        ans = input("\nApply all edits? [y/N] ").strip().lower()
-        if ans != "y":
-            print("Aborted.")
-            return 1
 
     # T3.4 wires the file-level tempdir transaction here.
     raise NotImplementedError("T3.4 wires the apply transaction.")
