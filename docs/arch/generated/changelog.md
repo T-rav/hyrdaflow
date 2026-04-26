@@ -6,6 +6,8 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W17
 
+- `658d325` — fix(arch): filter underscore-prefixed Protocols in ports extractor + add auto_agent area *(2026-04-25)*
+- `f5041a4` — fix(auto-agent): address fresh-eyes review — 3 critical, 5 important *(2026-04-25)*
 - `c9d3a95` — fix(preflight): wire pr_failed status + correct ADR-0050 source-file citations *(2026-04-25)*
 - `cc3398c` — docs(adr): ADR-0050 — auto-agent HITL pre-flight loop *(2026-04-25)*
 - `70392a6` — fix(arch): correct GitHub org in all site URLs (#8435) (#8435) *(2026-04-25)*
@@ -44,4 +46,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `f2a4971` — feat: HITL queue hygiene — dedup, park, duplicate detection (#6089) (#6089) *(2026-04-05)*
 
 
-_Regenerated from commit `c9d3a95` on 2026-04-26 04:02 UTC. Source last changed at `c9d3a95`. Status: 🟢 fresh._
+_Regenerated from commit `658d325` on 2026-04-26 04:02 UTC. Source last changed at `658d325`. Status: 🟢 fresh._

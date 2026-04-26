@@ -15,6 +15,8 @@ graph LR
     RouteBackCounterPort --> RouteBackStateMixin
     WorkspacePort --> WorkspaceManager
     WorkspacePort -.-> FakeWorkspace
+    _PRPort --> PRManager
+    _PRPort -.-> FakeGitHub
     _WikiPort --> RepoWikiStore
     _WikiPort --> TribalWikiStore
 ```
@@ -55,7 +57,7 @@ graph LR
 ### PRPort
 
 - Module: `src.ports`
-- Methods: `add_labels`, `branch_has_diff_from_main`, `close_issue`, `close_task`, `create_issue`, `create_pr`, `create_promotion_pr`, `create_rc_branch`, `create_task`, `delete_branch`, `expected_pr_title`, `fetch_ci_failure_logs`, `fetch_code_scanning_alerts`, `find_existing_issue`, `find_open_pr_for_branch`, `find_open_promotion_pr`, `get_dependabot_alerts`, `get_issue_state`, `get_issue_updated_at`, `get_latest_ci_status`, `get_pr_approvers`, `get_pr_diff`, `get_pr_diff_names`, `get_pr_head_sha`, `get_pr_mergeable`, `list_closed_issues_by_label`, `list_hitl_items`, `list_issues_by_label`, `list_rc_branches`, `merge_pr`, `merge_promotion_pr`, `post_comment`, `post_pr_comment`, `pull_main`, `push_branch`, `remove_label`, `submit_review`, `swap_pipeline_labels`, `transition`, `update_issue_body`, `update_pr_title`, `upload_screenshot`, `wait_for_ci`
+- Methods: `add_labels`, `branch_has_diff_from_main`, `close_issue`, `close_task`, `create_issue`, `create_pr`, `create_promotion_pr`, `create_rc_branch`, `create_task`, `delete_branch`, `expected_pr_title`, `fetch_ci_failure_logs`, `fetch_code_scanning_alerts`, `find_existing_issue`, `find_open_pr_for_branch`, `find_open_promotion_pr`, `get_dependabot_alerts`, `get_issue_state`, `get_issue_updated_at`, `get_latest_ci_status`, `get_pr_approvers`, `get_pr_diff`, `get_pr_diff_names`, `get_pr_head_sha`, `get_pr_mergeable`, `list_closed_issues_by_label`, `list_hitl_items`, `list_issue_comments`, `list_issues_by_label`, `list_rc_branches`, `merge_pr`, `merge_promotion_pr`, `post_comment`, `post_pr_comment`, `pull_main`, `push_branch`, `remove_label`, `submit_review`, `swap_pipeline_labels`, `transition`, `update_issue_body`, `update_pr_title`, `upload_screenshot`, `wait_for_ci`
 - Adapters:
   - `PRManager` (`src.pr_manager`)
 - Fake: `FakePR` (`tests.scenarios.fakes.fake_github`)
@@ -94,9 +96,10 @@ graph LR
 ### _PRPort
 
 - Module: `src.preflight.decision`
-- Methods: `add_comment`, `add_labels`, `remove_labels`
-- Adapters: —
-- Fake: ⚠️ no fake (every Port needs a fake per ADR-0047)
+- Methods: `add_labels`, `post_comment`, `remove_label`
+- Adapters:
+  - `PRManager` (`src.pr_manager`)
+- Fake: `FakeGitHub` (`tests.scenarios.fakes.fake_github`)
 
 ### _WikiPort
 
@@ -107,4 +110,4 @@ graph LR
   - `TribalWikiStore` (`src.tribal_wiki`)
 - Fake: ⚠️ no fake (every Port needs a fake per ADR-0047)
 
-_Regenerated from commit `c9d3a95` on 2026-04-26 04:02 UTC. Source last changed at `c9d3a95`. Status: 🟢 fresh._
+_Regenerated from commit `658d325` on 2026-04-26 04:02 UTC. Source last changed at `658d325`. Status: 🟢 fresh._
