@@ -506,3 +506,67 @@ def build_per_loop_cost(
             }
         )
     return rows
+
+
+def build_cost_by_model(
+    config: HydraFlowConfig,
+    *,
+    since: datetime,
+    until: datetime,
+    pricing: ModelPricingTable | None = None,
+) -> list[dict[str, Any]]:
+    """Return cross-loop cost broken out by model in ``[since, until)``.
+
+    Each row: ``{model, cost_usd, calls, input_tokens, output_tokens,
+    cache_read_tokens, cache_write_tokens}``. Sorted descending by
+    ``cost_usd``. Records with empty/missing ``model`` bucket under the
+    literal string ``"unknown"``. Unpriced models surface their token
+    counts with ``cost_usd == 0.0``.
+    """
+    pricing = pricing or load_pricing()
+
+    by_model: dict[str, dict[str, float | int]] = defaultdict(
+        lambda: {
+            "cost_usd": 0.0,
+            "calls": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+        }
+    )
+
+    for rec in iter_priced_inferences(
+        config, since=since, until=until, pricing=pricing
+    ):
+        model_key = str(rec.get("model") or "").strip() or "unknown"
+        bucket = by_model[model_key]
+        bucket["cost_usd"] = float(bucket["cost_usd"]) + float(rec["cost_usd"])
+        bucket["calls"] = int(bucket["calls"]) + 1
+        bucket["input_tokens"] = int(bucket["input_tokens"]) + int(
+            rec.get("input_tokens", 0) or 0
+        )
+        bucket["output_tokens"] = int(bucket["output_tokens"]) + int(
+            rec.get("output_tokens", 0) or 0
+        )
+        bucket["cache_read_tokens"] = int(bucket["cache_read_tokens"]) + int(
+            rec.get("cache_read_input_tokens", 0) or 0
+        )
+        bucket["cache_write_tokens"] = int(bucket["cache_write_tokens"]) + int(
+            rec.get("cache_creation_input_tokens", 0) or 0
+        )
+
+    rows = [
+        {
+            "model": model,
+            "cost_usd": round(float(b["cost_usd"]), 6),
+            "calls": int(b["calls"]),
+            "input_tokens": int(b["input_tokens"]),
+            "output_tokens": int(b["output_tokens"]),
+            "cache_read_tokens": int(b["cache_read_tokens"]),
+            "cache_write_tokens": int(b["cache_write_tokens"]),
+        }
+        for model, b in by_model.items()
+    ]
+    rows.sort(key=lambda r: r["cost_usd"], reverse=True)
+    return rows
