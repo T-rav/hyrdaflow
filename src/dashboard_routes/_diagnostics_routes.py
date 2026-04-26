@@ -21,9 +21,11 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, Query
 
+import dashboard_routes._cost_rollups as _cost_rollups_mod
 from dashboard_routes._cost_rollups import (
     _parse_range,
     build_by_loop,
+    build_cost_by_model,
     build_per_loop_cost,
     build_rolling_24h,
     build_top_issues,
@@ -350,6 +352,16 @@ def build_diagnostics_router(config: HydraFlowConfig) -> APIRouter:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         now = datetime.now(UTC)
         return build_by_loop(config, since=now - window, until=now)
+
+    @router.get("/cost/by-model")
+    def cost_by_model_route(range: str = Query("7d")) -> list[dict[str, Any]]:
+        """Cross-loop spend broken out by model over the range."""
+        try:
+            window = _parse_range(range)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        now = _cost_rollups_mod._utcnow()
+        return build_cost_by_model(config, since=now - window, until=now)
 
     @router.get("/loops/cost")
     def loops_cost(range: str = Query("7d")) -> list[dict[str, Any]]:
