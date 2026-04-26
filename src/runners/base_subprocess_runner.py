@@ -23,14 +23,17 @@ from __future__ import annotations
 import abc
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Generic, TypeVar
 
 from config import HydraFlowConfig
 from events import EventBus
+from exception_classify import reraise_on_credit_or_bug
 from model_pricing import load_pricing
 from prompt_telemetry import PromptTelemetry
+from runner_utils import AuthenticationRetryError, StreamConfig, stream_claude_process
 
 logger = logging.getLogger("hydraflow.runners.base_subprocess_runner")
 
@@ -136,3 +139,121 @@ class BaseSubprocessRunner(abc.ABC, Generic[T_Result]):
         except Exception as exc:
             logger.warning("subprocess runner cost estimate failed: %s", exc)
             return 0.0
+
+    async def run(
+        self,
+        *,
+        prompt: str,
+        worktree_path: str,
+        issue_number: int,
+    ) -> T_Result:
+        """Run one subprocess attempt; never raises.
+
+        Auth blips retry up to _AUTH_RETRY_MAX times. Credit/auth-terminal
+        errors propagate (caretaker loop suspends). Other failures collapse
+        to crashed=True in the SpawnOutcome the subclass converts.
+        """
+        from preflight.agent import hash_prompt  # noqa: PLC0415
+
+        self._pre_spawn_hook(prompt)
+        cmd = self._build_command(prompt, Path(worktree_path))
+
+        usage_stats: dict[str, object] = {}
+        prompt_hash = hash_prompt(prompt)
+        timeout_s = self._default_timeout_s()
+        start = time.monotonic()
+        crashed = False
+        transcript = ""
+
+        last_auth_error: AuthenticationRetryError | None = None
+        for attempt in range(1, self._AUTH_RETRY_MAX + 1):
+            try:
+                transcript = await stream_claude_process(
+                    cmd=cmd,
+                    prompt=prompt,
+                    cwd=Path(worktree_path),
+                    active_procs=self._active_procs,
+                    event_bus=self._bus,
+                    event_data={
+                        "issue": issue_number,
+                        "source": self._telemetry_source(),
+                    },
+                    logger=logger,
+                    config=StreamConfig(
+                        timeout=timeout_s,
+                        usage_stats=usage_stats,
+                    ),
+                )
+                last_auth_error = None
+                break
+            except AuthenticationRetryError as exc:
+                last_auth_error = exc
+                if attempt < self._AUTH_RETRY_MAX:
+                    delay = self._AUTH_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                    logger.warning(
+                        "subprocess runner auth retry %d/%d for issue #%d, "
+                        "sleeping %.0fs: %s",
+                        attempt,
+                        self._AUTH_RETRY_MAX,
+                        issue_number,
+                        delay,
+                        exc,
+                    )
+                    await asyncio.sleep(delay)
+            except Exception as exc:
+                # Credit / terminal-auth / programming bugs propagate so the
+                # caretaker loop can suspend or surface the bug; everything
+                # else collapses to crashed=True with a partial transcript.
+                reraise_on_credit_or_bug(exc)
+                crashed = True
+                tail = transcript[-2000:] if transcript else ""
+                transcript = f"{tail}\n\nspawn error: {exc}"
+                logger.warning(
+                    "subprocess runner failed for issue #%d: %s",
+                    issue_number,
+                    exc,
+                )
+                break
+
+        if last_auth_error is not None:
+            crashed = True
+            transcript = (
+                f"{transcript}\n\nauth retry exhausted after "
+                f"{self._AUTH_RETRY_MAX} attempts: {last_auth_error}"
+            )
+            logger.error(
+                "subprocess runner auth retry exhausted for issue #%d after %d attempts",
+                issue_number,
+                self._AUTH_RETRY_MAX,
+            )
+        wall_s = time.monotonic() - start
+
+        # Telemetry — best-effort write to inferences.jsonl.
+        try:
+            self._telemetry.record(
+                source=self._telemetry_source(),
+                tool=self._config.implementation_tool,
+                model=self._config.model,
+                issue_number=issue_number,
+                pr_number=None,
+                session_id=self._bus.current_session_id,
+                prompt_chars=len(prompt),
+                transcript_chars=len(transcript),
+                duration_seconds=wall_s,
+                success=not crashed,
+                stats=usage_stats,
+            )
+        except Exception as exc:
+            logger.warning("subprocess runner telemetry write failed: %s", exc)
+
+        cost_usd = self._estimate_cost(usage_stats)
+
+        outcome = SpawnOutcome(
+            transcript=transcript,
+            usage_stats=usage_stats,
+            wall_clock_s=wall_s,
+            crashed=crashed,
+            prompt_hash=prompt_hash,
+            cost_usd=cost_usd,
+        )
+        return self._make_result(outcome)
