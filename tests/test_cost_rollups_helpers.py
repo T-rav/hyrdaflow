@@ -535,7 +535,7 @@ def test_build_per_loop_cost_no_event_bus(config) -> None:
 
 
 def test_per_loop_cost_includes_model_breakdown_for_mixed_models(
-    tmp_path, monkeypatch
+    tmp_path,
 ) -> None:
     """build_per_loop_cost emits model_breakdown with one entry per model used."""
     from datetime import UTC, datetime, timedelta
