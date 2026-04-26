@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { FactoryCostTab } from '../FactoryCostTab'
 
 // Sanity-check render tests for the §4.11p2 Task 14 composition tab.
-// FactoryCostTab fans out Promise.allSettled([rolling-24h, top-issues, loops/cost]).
+// FactoryCostTab fans out Promise.allSettled([rolling-24h, top-issues, loops/cost, cost/by-model]).
 // We stub fetch per URL so each sub-component receives a valid shape.
 
 const rolling24h = {
@@ -78,11 +78,12 @@ describe('FactoryCostTab', () => {
     // Per-loop row for implementer.
     expect(screen.getByText('implementer')).toBeInTheDocument()
 
-    // All three endpoints were called at least once.
+    // All four endpoints were called at least once.
     const urls = global.fetch.mock.calls.map(([u]) => u)
     expect(urls.some((u) => u.includes('/cost/rolling-24h'))).toBe(true)
     expect(urls.some((u) => u.includes('/cost/top-issues'))).toBe(true)
     expect(urls.some((u) => u.includes('/loops/cost'))).toBe(true)
+    expect(urls.some((u) => u.includes('/cost/by-model'))).toBe(true)
   })
 
   it('renders the waterfall input form', async () => {
@@ -90,5 +91,39 @@ describe('FactoryCostTab', () => {
     render(<FactoryCostTab range="7d" />)
     expect(screen.getByPlaceholderText(/Issue number/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Load/i })).toBeInTheDocument()
+  })
+
+  it('fetches /cost/by-model and passes rows to CostByModelChart', async () => {
+    const byModelRows = [
+      {
+        model: 'claude-opus-4-7',
+        cost_usd: 8.0,
+        calls: 50,
+        input_tokens: 400_000,
+        output_tokens: 25_000,
+        cache_read_tokens: 0,
+        cache_write_tokens: 0,
+      },
+      {
+        model: 'claude-sonnet-4-6',
+        cost_usd: 2.0,
+        calls: 30,
+        input_tokens: 200_000,
+        output_tokens: 15_000,
+        cache_read_tokens: 0,
+        cache_write_tokens: 0,
+      },
+    ]
+    global.fetch = vi.fn((url) => {
+      if (url.includes('/cost/by-model')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(byModelRows) })
+      }
+      return buildFetchStub()(url)
+    })
+    render(<FactoryCostTab range="7d" />)
+    await waitFor(() => {
+      expect(screen.getByTestId('seg-claude-opus-4-7')).toBeInTheDocument()
+      expect(screen.getByTestId('seg-claude-sonnet-4-6')).toBeInTheDocument()
+    })
   })
 })
