@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { theme } from '../../theme'
+import { CostByModelChart } from './CostByModelChart'
 import { FactoryCostSummary } from './FactoryCostSummary'
 import { PerLoopCostTable } from './PerLoopCostTable'
 import { WaterfallView } from './WaterfallView'
@@ -22,6 +23,7 @@ export function FactoryCostTab({ range = '7d' }) {
   const [rollingError, setRollingError] = useState(null)
   const [topIssues, setTopIssues] = useState([])
   const [loopsCost, setLoopsCost] = useState([])
+  const [costByModel, setCostByModel] = useState([])
   const [selectedIssue, setSelectedIssue] = useState(null)
   const [waterfallPayload, setWaterfallPayload] = useState(null)
   const [waterfallError, setWaterfallError] = useState(null)
@@ -34,9 +36,10 @@ export function FactoryCostTab({ range = '7d' }) {
       fetch('/api/diagnostics/cost/rolling-24h').then((r) => r.json()),
       fetch(`/api/diagnostics/cost/top-issues${q}&limit=10`).then((r) => r.json()),
       fetch(`/api/diagnostics/loops/cost${q}`).then((r) => r.json()),
+      fetch(`/api/diagnostics/cost/by-model${q}`).then((r) => r.json()),
     ]).then((results) => {
       if (cancelled) return
-      const [rolling, top, loops] = results
+      const [rolling, top, loops, byModel] = results
       if (rolling.status === 'fulfilled') {
         setRolling24h(rolling.value)
         setRollingError(null)
@@ -49,6 +52,9 @@ export function FactoryCostTab({ range = '7d' }) {
       )
       setLoopsCost(
         loops.status === 'fulfilled' && Array.isArray(loops.value) ? loops.value : [],
+      )
+      setCostByModel(
+        byModel.status === 'fulfilled' && Array.isArray(byModel.value) ? byModel.value : [],
       )
     })
     return () => {
@@ -93,6 +99,11 @@ export function FactoryCostTab({ range = '7d' }) {
   return (
     <div style={styles.wrap}>
       <FactoryCostSummary rolling24h={rolling24h} error={rollingError} />
+
+      <section style={styles.section}>
+        <h3 style={styles.h3}>Cost by Model ({range})</h3>
+        <CostByModelChart rows={costByModel} />
+      </section>
 
       <section style={styles.section}>
         <h3 style={styles.h3}>Per-Loop Cost ({range})</h3>
