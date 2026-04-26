@@ -294,6 +294,17 @@ to be fixed in a follow-up PR or surfaced as user-visible breakage.
    uploading. Both were "succeeding"; user saw Jekyll output. Required
    manual UI flip to "GitHub Actions" source. *Document this as a
    deployment prereq.*
+10. **Underestimating loop-wiring surface area.** The wiki documented a
+   "five-checkpoint" loop wiring pattern. Two more gates were added
+   later (functional-area assignment in `docs/arch/functional_areas.yml`
+   per PR #8434, and the curated/generated drift guard that requires
+   `python -m arch.runner --emit` after wiring) but the wiki entry
+   wasn't updated. PricingRefreshLoop's `make quality` failed on both
+   gates after the implementer thought the loop was complete. Promoted
+   to "Eight-Checkpoint Loop Wiring" in the wiki. *Lesson: when a new
+   gate lands in CI, the canonical "how to add an X" wiki entry is part
+   of the gate's surface area — update it in the same PR or the next
+   X-builder will pay the tax.*
 
 ---
 

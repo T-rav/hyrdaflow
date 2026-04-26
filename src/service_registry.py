@@ -59,6 +59,7 @@ from pr_unsticker import PRUnsticker
 from pr_unsticker_loop import PRUnstickerLoop
 from precondition_gate import PreconditionGate
 from preflight.audit import PreflightAuditStore
+from pricing_refresh_loop import PricingRefreshLoop  # noqa: TCH001
 from principles_audit_loop import PrinciplesAuditLoop
 from rc_budget_loop import RCBudgetLoop
 from repo_wiki import RepoWikiStore
@@ -184,6 +185,7 @@ class ServiceRegistry:
     corpus_learning_loop: CorpusLearningLoop
     auto_agent_preflight_loop: AutoAgentPreflightLoop
     diagram_loop: DiagramLoop
+    pricing_refresh_loop: PricingRefreshLoop
 
     # Optional integrations
 
@@ -743,6 +745,11 @@ def build_services(
         pr_manager=prs,
         deps=loop_deps,
     )
+    pricing_refresh_loop = PricingRefreshLoop(
+        config=config,
+        pr_manager=prs,
+        deps=loop_deps,
+    )
     diagnostic_runner = DiagnosticRunner(config=config, event_bus=event_bus)
     diagnostic_loop = DiagnosticLoop(
         config=config,
@@ -936,4 +943,5 @@ def build_services(
         corpus_learning_loop=corpus_learning_loop,
         auto_agent_preflight_loop=auto_agent_preflight_loop,
         diagram_loop=diagram_loop,
+        pricing_refresh_loop=pricing_refresh_loop,
     )

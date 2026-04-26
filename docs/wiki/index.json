@@ -147,7 +147,7 @@
       "Review patterns from #6334",
       "Trust Fleet — Lights-Off Background Loop Pattern",
       "DedupStore + Reconcile-on-Close Pattern",
-      "Five-Checkpoint Loop Wiring",
+      "Eight-Checkpoint Loop Wiring",
       "Auto-Revert on RC Red — Four-Guardrail Policy",
       "Per-Loop Telemetry — emit_loop_subprocess_trace",
       "Architecture",

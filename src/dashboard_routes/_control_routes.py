@@ -159,6 +159,11 @@ _bg_worker_defs = [
         "Trust Fleet Sanity",
         "Meta-observer — watches the 9 trust loops for stalls, escalation spam, dedup growth, errors, cost spikes.",
     ),
+    (
+        "pricing_refresh",
+        "Pricing Refresh",
+        "Daily upstream-pricing refresh caretaker — fetches LiteLLM JSON, opens PR on drift; bounds-guarded, always human-reviewed.",
+    ),
 ]
 
 # Workers that have independent configurable intervals
@@ -178,6 +183,7 @@ _INTERVAL_WORKERS = {
     "rc_budget",
     "wiki_rot_detector",
     "trust_fleet_sanity",
+    "pricing_refresh",
 }
 # Pipeline loops share poll_interval (read-only display)
 _PIPELINE_WORKERS = {"triage", "plan", "implement", "review"}

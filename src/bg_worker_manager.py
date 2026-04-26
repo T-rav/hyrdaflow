@@ -134,5 +134,7 @@ class BGWorkerManager:
             "report_issue": self._config.report_issue_interval,
             "epic_monitor": self._config.epic_monitor_interval,
             "workspace_gc": self._config.workspace_gc_interval,
+            # Daily caretaker — never falls through to poll_interval.
+            "pricing_refresh": 86400,
         }
         return defaults.get(name, self._config.poll_interval)

@@ -863,6 +863,20 @@ def _build_diagram_loop(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     )
 
 
+def _build_pricing_refresh_loop(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from pricing_refresh_loop import PricingRefreshLoop  # noqa: PLC0415
+
+    loop = PricingRefreshLoop(
+        config=config,
+        pr_manager=ports["github"],
+        deps=deps,
+    )
+    repo_root = ports.get("repo_root")
+    if repo_root is not None:
+        loop._set_repo_root(repo_root)
+    return loop
+
+
 _BUILDERS: dict[str, Any] = {
     # phase 1
     "ci_monitor": _build_ci_monitor,
@@ -902,6 +916,8 @@ _BUILDERS: dict[str, Any] = {
     "principles_audit": _build_principles_audit,
     # architecture knowledge system (Plan C — DiagramLoop L24)
     "diagram_loop": _build_diagram_loop,
+    # pricing refresh (PR #8449; ADR-0029 caretaker pattern)
+    "pricing_refresh": _build_pricing_refresh_loop,
     # auto-agent (spec §1–§11; ADR-0050)
     "auto_agent_preflight": _build_auto_agent_preflight,
 }
