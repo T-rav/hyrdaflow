@@ -34,7 +34,8 @@ Two test tiers backed by **the same MockWorld substrate**:
 │     • hydraflow → python -m mockworld.sandbox_main /seed/...json   │
 │     • ui (nginx serving src/ui/dist + proxying /api, /ws)          │
 │     • playwright runner (headless, drives UI on internal network)  │
-│   Network: internal: true (DNS for external hosts returns NXDOMAIN)│
+│   Network: internal: true (no egress route — TCP to external hosts │
+│            times out / is refused; DNS resolution is undefined)    │
 │   Slow (~30-60s/scenario), runs nightly + on infra-touching PRs.   │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -42,15 +43,15 @@ Two test tiers backed by **the same MockWorld substrate**:
 **Why this shape:**
 
 - **One Fake codebase, two tiers.** Tier 1 catches logic regressions in seconds; Tier 2 catches container/wiring/UI regressions in minutes. The maintenance you do anyway (Port↔Fake conformance, scenario factories) keeps both honest.
-- **MockWorld via injection, not configuration.** The sandbox tier calls the *real* `build_services()` factory but passes Fake adapters as constructor parameters. There is no config flag to "enable MockWorld" — the choice is made at the call site by *which entrypoint runs*. Production runs `python -m hydraflow` (no overrides → real adapters). Sandbox runs `python -m mockworld.sandbox_main` (overrides → Fakes). No conditional in `build_services()`, no env var to flip.
+- **MockWorld via injection, not configuration.** The sandbox tier calls the *real* `build_services()` factory but passes Fake adapters as constructor parameters. There is no config flag to "enable MockWorld" — the choice is made at the call site by *which entrypoint runs*. Production runs the `hydraflow` console script (entry point `server:main` per `pyproject.toml`; equivalent to `python src/server.py`) → no overrides → real adapters. Sandbox runs `python -m mockworld.sandbox_main` → overrides → Fakes. No conditional in `build_services()`, no env var to flip.
 - **Container = closer-to-production fidelity.** Subprocess streaming, `/workspace` mounts, dashboard binding to `0.0.0.0`, agent CLI invocations, FastAPI startup, vite-built UI assets — all run for real. In-process mocking can never surface a "Dockerfile dropped a binary" or "uvicorn refuses to bind in container" bug.
-- **Air-gap is structurally guaranteed,** not honor-system. The compose network is `internal: true`, so even a code path that tries `api.github.com` *cannot reach it* — DNS resolution fails. That is the strongest possible "no external deps" guarantee.
+- **Air-gap is structurally guaranteed,** not honor-system. The compose network is `internal: true`, so containers have no default gateway and any code path that tries `api.github.com` *cannot route to it* — TCP connections time out or are refused. (DNS behavior under `internal: true` is host-runtime-dependent — Docker may still resolve external names but cannot route to them. Tests assert routing failure, not name-resolution failure.)
 
 ## Core concept: MockWorld is always on
 
 MockWorld is not a mode you enable. It is **always available, always loaded, always usable** — a permanent set of alternative adapters that ship alongside the real ones. This drives every design decision below:
 
-1. **No config switch. None.** There is no `HYDRAFLOW_MOCKWORLD_ENABLED` env var, no boolean field on `HydraFlowConfig`, no conditional branch in `build_services()` that selects "fake or real." The system has too many configurable core parts already; MockWorld will not become another. The choice is made at the **entrypoint level**: production runs `python -m hydraflow`; sandbox runs `python -m mockworld.sandbox_main`. The two entrypoints call the same factory with different adapter arguments.
+1. **No config switch. None.** There is no `HYDRAFLOW_MOCKWORLD_ENABLED` env var, no boolean field on `HydraFlowConfig`, no conditional branch in `build_services()` that selects "fake or real." The system has too many configurable core parts already; MockWorld will not become another. The choice is made at the **entrypoint level**: production runs the `hydraflow` console script (`server:main`); sandbox runs `python -m mockworld.sandbox_main`. The two entrypoints call the same factory with different adapter arguments.
 2. **Fakes ship in `src/`, not `tests/`.** They follow production-code conventions: type-checked by pyright, linted by ruff, scanned by bandit, covered by the same quality gates as adapters. They are not "test fixtures" — they are alternative adapters that happen to be primarily used by tests today.
 3. **`build_services()` accepts adapter overrides.** Today the factory constructs `PRManager`, `WorkspaceManager`, `IssueStore`, `IssueFetcher` itself. Tomorrow it accepts each as an optional keyword argument; when omitted, it constructs the real one. Sandbox passes Fakes; production passes nothing. Same factory, different inputs.
 4. **Visibility via duck-typing, not config.** The dashboard renders a `MOCKWORLD MODE` banner when it sees a marker attribute on the injected `PRPort` instance (e.g., `getattr(prs, "_is_fake", False)`). The banner doesn't ask "is the flag set?" — it asks "is the adapter we're holding a Fake?" If yes, render the banner. If no, don't.
@@ -63,18 +64,45 @@ The "cutting off my arm" framing is not hyperbole: removing MockWorld would remo
 
 ### Component 1 — Sandbox entrypoint + adapter-injecting `build_services()`
 
-**No config switch.** Instead, two changes:
+**No config switch.** Instead, four changes — three to existing surfaces, one new module:
 
 1. `build_services()` gains optional adapter overrides for each Port. Defaults preserve today's behavior (factory constructs real adapters).
-2. A new `python -m mockworld.sandbox_main` entrypoint constructs Fakes and passes them via the overrides.
+2. `HydraFlowOrchestrator.__init__` gains an optional `services: ServiceRegistry | None = None` parameter; when provided, the orchestrator skips its own `build_services()` call and uses what was passed in.
+3. The Port-shaped fields on `ServiceRegistry`, `RouteContext`, and the dashboard router signatures are widened from concrete adapter types (`PRManager`, `WorkspaceManager`, `IssueStore`) to their Port protocols (`PRPort`, `WorkspacePort`, `IssueStorePort`). This is required so Fakes that satisfy the Port can be passed without pyright errors.
+4. A new `python -m mockworld.sandbox_main` entrypoint constructs Fakes and passes them via the overrides into both `build_services()` and the orchestrator.
 
-**Change 1 — `src/service_registry.py::build_services()` accepts overrides:**
+**Change 1 — Port-typing widening (preparatory).**
+
+Today `ServiceRegistry.prs` is annotated as the concrete `PRManager` (per `src/service_registry.py:112`), and equivalent fields exist on `RouteContext` (`src/dashboard_routes/_routes.py:309–310`) and the `create_router(pr_manager: PRManager, ...)` signature (line 585). These must be widened to the Port protocol so a `FakeGitHub` (which satisfies `PRPort` but is not a `PRManager`) can be assigned.
+
+Specific widening:
+
+| Site | Today | After |
+|------|-------|-------|
+| `src/service_registry.py:112` | `prs: PRManager` | `prs: PRPort` |
+| `src/service_registry.py` (workspaces field) | `workspaces: WorkspaceManager` | `workspaces: WorkspacePort` |
+| `src/service_registry.py` (store field) | `store: IssueStore` | `store: IssueStorePort` |
+| `src/dashboard_routes/_routes.py:309–310` | `pr_manager: PRManager` | `pr_manager: PRPort` |
+| `src/dashboard_routes/_routes.py:585` | `pr_manager: PRManager` | `pr_manager: PRPort` |
+| `src/dashboard_routes/_routes.py:456` (`pr_manager_for()` return) | `-> PRManager` | `-> PRPort` |
+
+Any downstream code that calls non-Port methods on these fields (i.e., `PRManager`-specific methods that aren't on `PRPort`) is a leaky abstraction and surfaces as a pyright error after widening — fix at the call site by either (a) hoisting the method onto `PRPort`, or (b) using a narrower type at the local call site. Both are appropriate fixes; pick per case.
+
+**Change 2 — `src/service_registry.py::build_services()` accepts overrides:**
 
 ```python
 @dataclass(frozen=True)
 class RunnerSet:
     """Bundle of the four LLM-backed runners. Allows the sandbox entrypoint
     to override all four with FakeLLM-backed variants in a single kwarg.
+
+    These are the raw runners — NOT the phase coordinators (`TriagePhase`,
+    `PlanPhase`, `ImplementPhase`, `ReviewPhase`). The phases are constructed
+    by `build_services()` from the runners passed in here. So:
+        RunnerSet.triage     -> ServiceRegistry.triage (TriageRunner)
+        RunnerSet.planners   -> ServiceRegistry.planners
+        RunnerSet.agents     -> ServiceRegistry.agents
+        RunnerSet.reviewers  -> ServiceRegistry.reviewers
     """
     triage: TriageRunnerPort
     planners: PlannerRunner
@@ -113,7 +141,36 @@ def build_services(
 
 Production callers (`server.py`, `orchestrator.py`) pass nothing — get real adapters as before. Zero behavior change for the production path.
 
-**Change 2 — `src/mockworld/sandbox_main.py` (new):**
+**Change 3 — `src/orchestrator.py::HydraFlowOrchestrator.__init__` accepts a pre-built ServiceRegistry:**
+
+Today `HydraFlowOrchestrator.__init__` (lines 85–141) constructs `build_services()` itself unconditionally. The sandbox entrypoint needs to pre-build the services with Fakes injected, then pass them to the orchestrator. Add an optional kwarg:
+
+```python
+def __init__(
+    self,
+    config: HydraFlowConfig,
+    event_bus: EventBus | None = None,
+    state: StateTracker | None = None,
+    pipeline_enabled: bool = True,
+    *,
+    services: ServiceRegistry | None = None,   # NEW
+) -> None:
+    self._config = config
+    self._bus = event_bus or EventBus()
+    self._state = state or build_state_tracker(config)
+    # ... existing setup ...
+    if services is None:
+        services = build_services(
+            config, self._bus, self._state, self._stop_event,
+            WorkerRegistryCallbacks(...),
+            active_issues_cb=self._sync_active_issue_numbers,
+        )
+    self._svc: ServiceRegistry = services
+```
+
+Production callers pass nothing → orchestrator builds its own services as today (byte-for-byte unchanged). Sandbox passes a pre-built registry.
+
+**Change 4 — `src/mockworld/sandbox_main.py` (new):**
 
 ```python
 """Sandbox entrypoint — boots HydraFlow with Fake adapters injected.
@@ -168,7 +225,9 @@ async def main() -> None:
         prs=prs, workspaces=workspaces, store=store, fetcher=fetcher,
         runners=runners,
     )
-    orch = HydraFlowOrchestrator(config, event_bus=event_bus, state=state, _svc=svc)
+    orch = HydraFlowOrchestrator(
+        config, event_bus=event_bus, state=state, services=svc,
+    )
     await run_dashboard(config, orch, stop_event)
 
 
@@ -191,31 +250,35 @@ The React shell renders the banner conditionally on `state.mockworld_active`. Pe
 
 **Why this shape and not a config switch:**
 - The number of configurable knobs is already a known maintenance burden. Adding `mockworld_enabled` would join 30+ other env-toggleable booleans, each of which the operator must learn about and reason about.
-- Production code paths are byte-for-byte unchanged. The only diff vs. today is `build_services()` accepts kwargs that production never passes.
+- Production runtime behavior is unchanged. `build_services()` and `HydraFlowOrchestrator.__init__` both gain optional kwargs that production never passes; defaults preserve today's behavior. The only production-visible diff is type annotations (Port instead of concrete adapter), which removes a leaky abstraction rather than adding one.
 - "Could MockWorld accidentally run in production?" answer: only if someone runs `python -m mockworld.sandbox_main` in production. That is a deliberate, visible action. There is no flag to fat-finger.
 
 ### Component 2 — Fake relocation: `src/mockworld/fakes/`
 
 Today: 12 Fake classes (~1,851 LOC) live under `tests/scenarios/fakes/`. Sandbox tier requires them to be importable from `src/service_registry.py` (which runs in the production container under MockWorld mode).
 
-**Move plan:**
+**Move plan** (Move = relocate-only; New = create as part of PR A):
 
-| Today | Tomorrow |
-|-------|----------|
-| `tests/scenarios/fakes/fake_github.py` | `src/mockworld/fakes/fake_github.py` |
-| `tests/scenarios/fakes/fake_workspace.py` | `src/mockworld/fakes/fake_workspace.py` |
-| `tests/scenarios/fakes/fake_llm.py` | `src/mockworld/fakes/fake_llm.py` |
-| `tests/scenarios/fakes/fake_clock.py` | `src/mockworld/fakes/fake_clock.py` |
-| `tests/scenarios/fakes/fake_docker.py` | `src/mockworld/fakes/fake_docker.py` |
-| `tests/scenarios/fakes/fake_git.py` | `src/mockworld/fakes/fake_git.py` |
-| `tests/scenarios/fakes/fake_fs.py` | `src/mockworld/fakes/fake_fs.py` |
-| `tests/scenarios/fakes/fake_http.py` | `src/mockworld/fakes/fake_http.py` |
-| `tests/scenarios/fakes/fake_sentry.py` | `src/mockworld/fakes/fake_sentry.py` |
-| `tests/scenarios/fakes/fake_beads.py` | `src/mockworld/fakes/fake_beads.py` |
-| `tests/scenarios/fakes/fake_subprocess_runner.py` | `src/mockworld/fakes/fake_subprocess_runner.py` |
-| `tests/scenarios/fakes/fake_wiki_compiler.py` | `src/mockworld/fakes/fake_wiki_compiler.py` |
-| `tests/scenarios/fakes/test_port_signature_conformance.py` | `tests/test_mockworld_fakes_conformance.py` |
-| `tests/scenarios/fakes/test_port_conformance.py` | `tests/test_mockworld_runtime_conformance.py` |
+| Today | Tomorrow | Status |
+|-------|----------|--------|
+| `tests/scenarios/fakes/fake_github.py` | `src/mockworld/fakes/fake_github.py` | Move + add `from_seed()` classmethod |
+| `tests/scenarios/fakes/fake_workspace.py` | `src/mockworld/fakes/fake_workspace.py` | Move (rename class to `FakeWorkspaceManager` for symmetry with `WorkspaceManager`) |
+| `tests/scenarios/fakes/fake_llm.py` | `src/mockworld/fakes/fake_llm.py` | Move + add `build_fake_runner_set(seed)` factory |
+| `tests/scenarios/fakes/fake_clock.py` | `src/mockworld/fakes/fake_clock.py` | Move |
+| `tests/scenarios/fakes/fake_docker.py` | `src/mockworld/fakes/fake_docker.py` | Move |
+| `tests/scenarios/fakes/fake_git.py` | `src/mockworld/fakes/fake_git.py` | Move |
+| `tests/scenarios/fakes/fake_fs.py` | `src/mockworld/fakes/fake_fs.py` | Move |
+| `tests/scenarios/fakes/fake_http.py` | `src/mockworld/fakes/fake_http.py` | Move |
+| `tests/scenarios/fakes/fake_sentry.py` | `src/mockworld/fakes/fake_sentry.py` | Move |
+| `tests/scenarios/fakes/fake_beads.py` | `src/mockworld/fakes/fake_beads.py` | Move |
+| `tests/scenarios/fakes/fake_subprocess_runner.py` | `src/mockworld/fakes/fake_subprocess_runner.py` | Move |
+| `tests/scenarios/fakes/fake_wiki_compiler.py` | `src/mockworld/fakes/fake_wiki_compiler.py` | Move |
+| (none today) | `src/mockworld/fakes/fake_issue_fetcher.py` | **NEW** — `FakeIssueFetcher(IssueFetcherPort)` with `from_seed()` classmethod. Issue-fetcher behavior is currently emulated by `_wire_targets`'s monkeypatching in `mock_world.py`; PR A extracts it into a standalone class. |
+| (none today) | `src/mockworld/fakes/fake_issue_store.py` | **NEW** — `FakeIssueStore(IssueStorePort)` with `from_seed()` classmethod. Same extraction story as `FakeIssueFetcher`. |
+| `tests/scenarios/fakes/test_port_signature_conformance.py` | `tests/test_mockworld_fakes_conformance.py` | Move |
+| `tests/scenarios/fakes/test_port_conformance.py` | `tests/test_mockworld_runtime_conformance.py` | Move |
+| (none today) | `src/mockworld/seed.py` | **NEW** — `MockWorldSeed` dataclass + `from_json` / `to_json` serialization (see Component 4). |
+| (none today) | `src/mockworld/sandbox_main.py` | **NEW** — entrypoint module (see Component 1). |
 
 **What stays in `tests/scenarios/`:** the orchestration layer (`mock_world.py` with `_wire_targets`, `run_pipeline`, `run_with_loops`, `start_dashboard`, etc.), the catalog (`loop_catalog.py`, `loop_registrations.py`), and the conftest fixtures. These are pytest-only orchestration; only the adapter-shaped Fakes move to `src/`.
 
@@ -240,7 +303,9 @@ version: "3.9"
 
 networks:
   sandbox:
-    internal: true   # the air-gap. No external egress. DNS for external hosts → NXDOMAIN.
+    internal: true   # the air-gap. No default gateway → no external egress.
+                   # DNS resolution behavior is runtime-dependent; rely on routing
+                   # failure (timeouts/refused) for assertions, not on NXDOMAIN.
 
 services:
   hydraflow:
@@ -249,7 +314,8 @@ services:
       dockerfile: Dockerfile.agent
     # The selection of MockWorld vs. production is made by which entrypoint
     # runs — NOT by a config flag. This container always boots the sandbox
-    # entrypoint; the production image runs `python -m hydraflow` instead.
+    # entrypoint; the production image runs the `hydraflow` console script
+    # (entry point `server:main` per pyproject.toml) instead.
     command: ["python", "-m", "mockworld.sandbox_main", "/seed/scenario.json"]
     environment:
       HYDRAFLOW_DASHBOARD_HOST: "0.0.0.0"
@@ -440,6 +506,8 @@ async def assert_outcome(api, page) -> None:
 
 **Reusing in-process MockWorld — the parity test:**
 
+This requires a new method on the existing `MockWorld` class (added in PR A): `apply_seed(seed: MockWorldSeed) -> None` that populates the wired Fakes (`FakeGitHub`, `FakeIssueFetcher`, `FakeIssueStore`, `FakeLLM`) from a seed object. This is a thin convenience wrapper over the existing `add_issue` / `add_pr` / `set_phase_result` fluent API — not a refactor of `_wire_targets`, which stays as-is.
+
 ```python
 # tests/scenarios/test_sandbox_parity.py
 import pytest
@@ -453,7 +521,7 @@ async def test_sandbox_scenario_runs_in_process(mock_world, scenario) -> None:
     If this passes but Tier 2 fails, the bug is in container/wiring/UI.
     """
     seed = scenario.seed()
-    mock_world.apply_seed(seed)
+    mock_world.apply_seed(seed)   # NEW method, added in PR A
     loops = seed.loops_enabled or [
         "triage_loop", "plan_loop", "implement_loop", "review_loop", "merge_loop",
     ]
@@ -468,6 +536,8 @@ async def test_sandbox_scenario_runs_in_process(mock_world, scenario) -> None:
     )
     assert advanced, f"scenario {scenario.NAME} produced no progress in-process"
 ```
+
+**Cycle semantics:** `cycles_to_run` is the number of times `_do_work()` fires on each enabled loop. `MockWorld.run_with_loops` already mocks the inter-cycle sleep, so wall-clock time is bounded by `cycles_to_run × max(loop body duration)` rather than by `cycles_to_run × tick_interval_seconds`. Sandbox tier inherits the same semantics: the container's loops tick at their configured intervals, and `cycles_to_run` becomes a wait budget rather than a fixed-cycle execution.
 
 This parity test is the alignment payoff: every sandbox scenario has a fast in-process counterpart. Triaging a Tier-2 failure starts with "did the parity test pass?" — yes means it's container/wiring; no means it's scenario logic.
 
@@ -611,18 +681,21 @@ Three classes of failure, each with a defined response.
 
 Three sequential PRs. Same staging discipline as the dark-factory infra hardening track: the foundation lands in isolation, then the substantive infrastructure, then the catalog scales out.
 
-**PR A — Fake relocation + adapter-injecting `build_services()` + sandbox entrypoint (foundation)**
-- Move `tests/scenarios/fakes/` → `src/mockworld/fakes/` (12 files + conformance tests).
-- Refactor `build_services()` to accept optional `prs`/`workspaces`/`store`/`fetcher`/`runners` keyword arguments. Defaults preserve current behavior. Production callers pass nothing. Add `RunnerSet` dataclass bundling `triage`/`planners`/`agents`/`reviewers` so the four LLM-backed runners can be overridden as one kwarg.
-- Add `src/mockworld/sandbox_main.py` — the new entrypoint that constructs Fakes from a seed file and calls `build_services()` with overrides.
-- Add `src/mockworld/seed.py` containing `MockWorldSeed` dataclass + `from_json` / `to_json` serialization.
-- Add FakeLLM-backed runner variants (`FakePlannerRunner`, `FakeAgentRunner`, `FakeReviewRunner`, `FakeTriageRunner`) and `build_fake_runner_set(seed)` factory.
-- Add dashboard duck-typed banner: `/api/state` reports `mockworld_active = getattr(prs, "_is_fake_adapter", False)`. React shell renders persistent top bar when true.
-- Add `_is_fake_adapter = True` class attribute to all Fake adapters (5 of them).
-- Add 1 trivial sandbox scenario (`s00_smoke`) that runs in-process via parity test only — proves the wiring works without requiring docker-compose yet.
-- Update wiki: `docs/wiki/dark-factory.md` adds a §7 noting MockWorld is permanently-loaded core infrastructure, selected at entrypoint time, not a test-only fixture.
-- **Risk:** low. Production code path is byte-for-byte unchanged (`build_services()` signature gains kwargs that production never passes). No new env var, no new config field, no new conditional in production code.
-- **Estimated PR size:** ~700 LOC including tests.
+**PR A — Fake relocation + DI plumbing + sandbox entrypoint (foundation)**
+- **Move existing Fakes:** `tests/scenarios/fakes/` → `src/mockworld/fakes/` (12 files + 2 conformance tests). See Component 2 move-table for per-file disposition.
+- **Create new Fakes:** `FakeIssueFetcher` and `FakeIssueStore` (extracted from `mock_world.py`'s `_wire_targets` monkeypatching into standalone classes); add `from_seed()` classmethods to `FakeGitHub`, `FakeIssueFetcher`, `FakeIssueStore`; add `build_fake_runner_set(seed)` factory in `fake_llm.py`.
+- **Widen Port typing on production surfaces:** `ServiceRegistry.{prs, workspaces, store}` from concrete adapter types to Port protocols (`PRPort`, `WorkspacePort`, `IssueStorePort`). Same widening on `RouteContext.pr_manager`, `create_router(pr_manager=)`, and `pr_manager_for() -> PRPort`. Fix any leaky-abstraction call sites that surface as pyright errors.
+- **Add `PRPort.list_prs_by_label(label: str) -> list[PRInfo]`** — a new method on the Port required by Component 10's `SandboxFailureFixerLoop` and by the new `/api/sandbox-hitl` endpoint. Implement on the real `PRManager` (delegates to `gh pr list --label <label>`) and on `FakeGitHub` (filters in-memory PRs by label). The Port-↔-Fake conformance test enforces both implementations stay aligned. This is added in PR A (not PR C) because moving Fakes to `src/mockworld/fakes/` triggers the conformance test on the same commit; deferring would leave the relocation broken.
+- **Refactor `build_services()`** to accept optional `prs`/`workspaces`/`store`/`fetcher`/`runners` keyword arguments. Defaults preserve current behavior. Add `RunnerSet` dataclass bundling `triage`/`planners`/`agents`/`reviewers`.
+- **Refactor `HydraFlowOrchestrator.__init__`** to accept optional `services: ServiceRegistry | None = None`; when provided, skip the internal `build_services()` call. Production callers pass nothing.
+- **Add `src/mockworld/seed.py`** containing `MockWorldSeed` dataclass + `from_json` / `to_json` serialization.
+- **Add `src/mockworld/sandbox_main.py`** — the new entrypoint that loads a seed, constructs Fakes, calls `build_services()` and `HydraFlowOrchestrator` with overrides, and starts the dashboard.
+- **Add `MockWorld.apply_seed(seed: MockWorldSeed)`** convenience method on the existing in-process MockWorld harness — required by the parity test. Thin wrapper over the existing `add_issue` / `add_pr` / `set_phase_result` API.
+- **Add dashboard duck-typed banner:** `/api/state` reports `mockworld_active = getattr(prs, "_is_fake_adapter", False)`. React shell renders persistent top bar when true. Add `_is_fake_adapter = True` class attribute to `FakeGitHub`, `FakeIssueFetcher`, `FakeIssueStore`, `FakeWorkspaceManager`, and the four FakeLLM-backed runners. (The dashboard reads from `prs` only — the other markers are belt-and-suspenders for future debugging.)
+- **Add 1 trivial sandbox scenario (`s00_smoke`)** that runs in-process via parity test only — proves the wiring works without requiring docker-compose yet.
+- **Update wiki:** `docs/wiki/dark-factory.md` adds a §7 noting MockWorld is permanently-loaded core infrastructure, selected at entrypoint time, not a test-only fixture.
+- **Risk:** medium. Production runtime behavior is unchanged (new kwargs default to behavior-preserving values). The Port-typing widening removes a leaky abstraction but may surface real call sites that depended on concrete-type methods — those are fix-at-call-site changes that may cascade in unexpected directions. Mitigation: type-check first (`make typecheck`), absorb cascade fixes into PR A.
+- **Estimated PR size:** ~900 LOC including tests (revised upward from initial ~700 to account for the type-widening cascade and orchestrator refactor).
 
 **PR B — Docker compose stack + harness CLI (the new tier)**
 - Add `docker-compose.sandbox.yml`.
@@ -632,20 +705,137 @@ Three sequential PRs. Same staging discipline as the dark-factory infra hardenin
 - Add `tests/sandbox_scenarios/runner/conftest.py` (Playwright + SandboxAPIClient fixtures).
 - Add `tests/sandbox_scenarios/runner/test_scenarios.py` (single parametrized test that runs each scenario's `assert_outcome`).
 - Implement `s01_happy_single_issue` end-to-end (proves the harness actually works against a real stack).
-- Promote the existing `Browser Scenarios` GitHub Actions job from SKIPPED to running `sandbox_scenario.py run s01_happy_single_issue` on every PR that touches `src/service_registry.py`, `src/mockworld/`, `Dockerfile*`, `docker-compose*`, or `tests/sandbox_scenarios/`.
+- **Add a new `sandbox` job to `.github/workflows/ci.yml`** (greenfield — no existing "Browser Scenarios" job to promote; the `scenario_browser` pytest mark exists but no CI job uses it). The new job runs `sandbox_scenario.py run s01_happy_single_issue` with path-triggers on `src/service_registry.py`, `src/orchestrator.py`, `src/mockworld/`, `Dockerfile*`, `docker-compose*`, or `tests/sandbox_scenarios/`. Provisions Docker daemon (already available on `ubuntu-latest`), uploads `/tmp/sandbox-results/` artifacts on failure with 7-day retention.
 - Add ADR-0052 ("Sandbox-tier scenario testing") capturing the architecture and tier responsibilities.
-- **Risk:** medium. New compose stack, network policy, CI infrastructure. Mitigation: gated to relevant PRs only (path-trigger), nightly run for regressions on unrelated changes.
-- **Estimated PR size:** ~800 LOC.
+- **Risk:** medium. New compose stack, network policy, CI infrastructure. Mitigation: gated to relevant PRs only (path-trigger).
+- **Estimated PR size:** ~900 LOC (revised upward to account for full CI job greenfield instead of "promote existing").
 
-**PR C — Catalog completion (the dozen)**
+**PR C — Catalog completion + full CI integration + self-fix loop (the dozen + automation)**
 - Add `s02` through `s12`, one per task. Each task includes the scenario module, the parity test (auto-discovered via `pytest.mark.parametrize`), and the seed JSON regeneration.
-- Promote the CI job to `sandbox_scenario.py run-all` with nightly schedule + path-trigger as in PR B.
+- Expand the `sandbox` CI job per Component 10: PR-into-staging fast-subset trigger, promotion-PR (`rc/*`) full-suite trigger, nightly schedule. Add CI workflow logic that auto-labels failed promotion PRs with `sandbox-fail-auto-fix`.
+- **Add `SandboxFailureFixerLoop`** — a new caretaker loop scaffolded via `scripts/scaffold_loop.py` (per the dark-factory infra hardening track) that polls open PRs labeled `sandbox-fail-auto-fix`, dispatches `AutoAgentRunner` with the new `prompts/auto_agent/sandbox_fix.md` prompt envelope, applies the proposed fix to the rc/* branch, and tracks per-PR attempt counts in `StateData.sandbox_autofix_attempts`. Cap at 3 attempts; on cap-hit, swap labels (`sandbox-fail-auto-fix` → `sandbox-hitl`).
+- **Add `/api/sandbox-hitl` endpoint** in `src/dashboard_routes/_hitl_routes.py` that returns the open PRs labeled `sandbox-hitl` (via `PRPort.list_prs_by_label("sandbox-hitl")` — added in PR A). Add a small Frontend extension to the System tab's HITL panel to read both `/api/hitl` (existing — issues) and `/api/sandbox-hitl` (new — PRs) and render them in a merged list with a type indicator. Keeping the endpoints separate (rather than contaminating `/api/hitl`'s issue-shaped payload) preserves the existing endpoint's contract.
 - Add `tests/sandbox_scenarios/README.md` documenting "how to add a scenario."
-- Update `docs/wiki/dark-factory.md` §3 (the convergence-loop section) with sandbox-tier expectations: "substantial features require all 12 sandbox scenarios green before merge."
-- **Risk:** low. Each scenario is independent; failures isolated to that scenario. The catalog can land partial (some scenarios merged, some still under review) without breaking the others.
-- **Estimated PR size:** ~1400 LOC, mostly per-scenario seed and assertion code.
+- Update `docs/wiki/dark-factory.md` §3 (the convergence-loop section) with sandbox-tier expectations: "substantial features require all 12 sandbox scenarios green before promotion-PR merge to main."
+- **Risk:** medium. The catalog (s02–s12) is each independently low-risk and tolerates partial landings. The new caretaker loop is medium-risk because it commits to PR branches and triggers CI — the standard caretaker-loop conventions (kill-switch via `enabled_cb`, attempt cap, never-raises subprocess wrapper from `BaseSubprocessRunner`) provide the safety envelope. Mitigation: ship `SandboxFailureFixerLoop` as kill-switched-OFF by default, enable explicitly via static config + dashboard once one or two real fix-cycles have been observed.
+- **Estimated PR size:** ~1900 LOC. Breakdown: ~1400 LOC scenarios + parity tests, ~400 LOC `SandboxFailureFixerLoop` (per typical scaffold-loop output), ~100 LOC CI workflow expansion.
 
-**Why three PRs not one.** PR A is low-risk because production code paths are byte-for-byte unchanged — `build_services()` gains kwargs that production never passes, and the new entrypoint module is dead code unless someone runs `python -m mockworld.sandbox_main`. PR B is the irreversible "we have a sandbox tier now" decision and ships independently so it gets full review attention. PR C is incremental and tolerates partial landings — each scenario lands on its own merits without affecting the others.
+**Why three PRs not one.** PR A is medium-risk because the Port-typing widening may surface unexpected leaky-abstraction call sites that need fixing — but the runtime behavior remains unchanged. PR B is the irreversible "we have a sandbox tier now" decision and ships independently so it gets full review attention. PR C is incremental and tolerates partial landings — each scenario lands on its own merits without affecting the others, and the CI/self-fix wiring lands once the catalog is meaningful enough to gate against.
+
+### Component 10 — CI integration + auto-agent self-fix loop
+
+The sandbox suite earns its "release with confidence" claim by running at three points in the development lifecycle, with a self-fix loop on the highest-confidence gate:
+
+**Trigger 1 — PR → staging (fast feedback, every PR)**
+- Runs a curated 3-scenario subset: `s01_happy_single_issue`, `s10_kill_switch_universal`, `s11_credit_exhaustion_suspends_ticking`. These are the fastest scenarios that collectively cover the highest-blast-radius regressions.
+- Wall-clock budget: ~90 seconds.
+- Path triggers: any change to `src/service_registry.py`, `src/orchestrator.py`, `src/mockworld/`, `Dockerfile*`, `docker-compose*`, `tests/sandbox_scenarios/`, or `src/ui/`.
+- On failure: PR cannot merge to `staging` until green. **No auto-fix at this stage** — the PR author is alive in the loop and the failure is informative.
+- Rationale: catch obvious breakage at human-attention time without burdening every PR with a 10-minute job.
+
+**Trigger 2 — promotion PR (the promotion gate, full suite + self-fix)**
+- Runs the full 12-scenario suite.
+- Wall-clock budget: ~10 minutes (12 scenarios × ~30-60s each, parallelized where compose allows).
+- Triggered automatically on every promotion PR opened by `StagingPromotionLoop` — i.e., PRs whose base is `main` and whose head matches `rc/*` (the release-candidate branch pattern from ADR-0042's staging workflow). Spec for the trigger condition: `on.pull_request.branches: [main]` plus a workflow-level guard `if: startsWith(github.head_ref, 'rc/')`.
+- **On failure: dispatch the auto-agent self-fix loop** (described below).
+- On success: ready to promote. The promotion PR can merge.
+- Rationale: highest-confidence gate. Production code only crosses this line if every sandbox scenario passed within the last 10 minutes against the exact commit that will be deployed.
+
+**Trigger 3 — Nightly on main (regression detection)**
+- Full 12-scenario suite, scheduled run at 03:00 UTC.
+- Records per-scenario duration metrics into the dashboard observability layer for slow-creep detection.
+- On failure: opens a `hydraflow-find` issue with the failure logs attached. Treated as flake until the same scenario fails 3 nights in a row, then promoted to a real bug ticket.
+- Rationale: catches regressions that slip through the gate (e.g., container-runtime drift, dependency updates that require rebuild) and surfaces creeping performance issues.
+
+**Auto-agent self-fix loop (Trigger 2 failures only):**
+
+```
+                                    ┌─────────────────────────┐
+promotion PR (rc/*) ──→ sandbox CI ─┤ All 12 scenarios green? │
+                                    └─────────────────────────┘
+                                       │              │
+                                      yes             no
+                                       │              ▼
+                                       │  ┌──────────────────────────┐
+                                       │  │ CI auto-labels PR with   │
+                                       │  │ `sandbox-fail-auto-fix`, │
+                                       │  │ posts log artifact URL   │
+                                       │  │ to PR body               │
+                                       │  └──────────────────────────┘
+                                       │              │
+                                       │              ▼
+                                       │  ┌──────────────────────────┐
+                                       │  │ NEW: SandboxFailureFixer │
+                                       │  │ Loop polls PRs by label, │
+                                       │  │ enqueues each match      │
+                                       │  └──────────────────────────┘
+                                       │              │
+                                       │              ▼
+                                       │  ┌──────────────────────────┐
+                                       │  │ Reuses AutoAgentRunner   │
+                                       │  │ (the subprocess wrapper  │
+                                       │  │ from #8439) with sandbox │
+                                       │  │ failure prompt envelope  │
+                                       │  └──────────────────────────┘
+                                       │              │
+                                       │              ▼
+                                       │     proposes fix commit
+                                       │     on rc/* branch
+                                       │              │
+                                       │              ▼
+                                       │     sandbox CI re-runs
+                                       │              │
+                                       │   ┌──────────┴──────────┐
+                                       │   ▼                     ▼
+                                       │  green               still red
+                                       │   │                     │
+                                       │   │             ┌───────┴───────┐
+                                       │   │             ▼               ▼
+                                       │   │      attempt < 3?    attempt = 3
+                                       │   │             │               │
+                                       │   │             ▼               ▼
+                                       │   │       loop again      HITL escalation:
+                                       │   │                       remove auto-fix label,
+                                       │   │                       add `sandbox-hitl`
+                                       │   │                       label, surface in
+                                       │   │                       System tab HITL queue
+                                       ▼   ▼                       with full context
+                              promotion PR merges to main
+```
+
+**`SandboxFailureFixerLoop` — what's new vs reused:**
+
+The self-fix mechanism is a NEW caretaker loop (per ADR-0029's caretaker pattern), NOT a label-routing tweak on the existing `AutoAgentPreflightLoop`. The existing loop polls `hitl-escalation` *issues* by label — it does not handle PRs, does not commit to PR branches, does not re-trigger CI on PRs. Those are distinct operations. Be honest about the scope:
+
+| Concern | Reused | New (PR C deliverable) |
+|---------|--------|------------------------|
+| Subprocess invocation of the auto-agent (Claude Code with restricted tools) | `AutoAgentRunner` (PR #8439, post-#8446 refactor onto `BaseSubprocessRunner`) — used as-is | — |
+| Prompt envelope structure (system + tool restrictions + escape hatches) | `prompts/auto_agent/_envelope.md` — used as-is | New domain-specific prompt: `prompts/auto_agent/sandbox_fix.md` framing the failed scenario(s) + sandbox logs + live diff |
+| Polling for work | — | `SandboxFailureFixerLoop._do_work` polls open PRs labeled `sandbox-fail-auto-fix` via `PRPort.list_prs_by_label("sandbox-fail-auto-fix")`. **`list_prs_by_label` is itself a new method on `PRPort` added in PR A** (see PR A scope) — `PRPort` today exposes `list_issues_by_label` and `find_open_pr_for_branch` but no by-label PR enumeration. Implemented on the real `PRManager` and on `FakeGitHub`. |
+| Per-PR attempt cap + state tracking | — | New `StateData.sandbox_autofix_attempts: dict[int, int]` field keyed by PR number; cap at 3 |
+| Branch operations (worktree on rc/* branch, commit + push fix, trigger CI) | `WorkspacePort` operations + `PRPort.push_branch` — used as-is | New: `_apply_fix_commit_to_pr_branch(pr_number, diff)` helper that creates a worktree against the rc/* branch, applies the agent's diff, commits, pushes |
+| HITL escalation surface | The dashboard's existing System tab HITL queue (rendered from `/api/hitl` for issues — see `src/dashboard_routes/_hitl_routes.py:101`) | New: dedicated `/api/sandbox-hitl` endpoint that returns `sandbox-hitl`-labeled PRs (via `PRPort.list_prs_by_label`). Frontend reads both endpoints and merges in the System tab. Keeping the endpoints separate avoids contaminating `/api/hitl`'s issue-shaped payload with PR-shaped data. |
+| Kill-switch convention | `LoopDeps.enabled_cb` callback (a `Callable[[str], bool]` injected at loop construction time by `BGWorkerManager`) + the standard 10-site wiring per the dark-factory infra hardening track | New: `sandbox_failure_fixer` registered at all 10 wiring sites (models.py, state/__init__.py, config.py × 3, service_registry.py × 4, orchestrator.py × 2, ui/src/constants.js × 3, _common.py for `_INTERVAL_BOUNDS`, loop_registrations.py, functional_areas.yml, tests/helpers.py) — generated by `scripts/scaffold_loop.py` from the dark-factory hardening track. |
+
+The scaffold (`scripts/scaffold_loop.py`) emits the 10-site wiring skeleton and a placeholder `_do_work` returning `{"status": "ok"}`. **The `_do_work` body, `_apply_fix_commit_to_pr_branch` helper, the `StateData.sandbox_autofix_attempts` mixin, and the `AutoAgentRunner` invocation are written from scratch on top of the scaffold output** — the scaffold provides the convention-correct skeleton, not the loop's behavior. This is roughly 400 LOC: ~150 LOC scaffold-generated + ~250 LOC manual implementation.
+
+**Self-fix loop bounds:**
+- Maximum auto-fix attempts: 3 per promotion PR (tracked in `StateData.sandbox_autofix_attempts`). After 3 unsuccessful attempts: the `sandbox-fail-auto-fix` label is removed, the `sandbox-hitl` label is added, and the PR surfaces in the System tab HITL queue with full failure context (sandbox logs, all attempted fix commits, current state of each scenario).
+- Per-attempt wall-clock cap: 30 minutes (auto-agent budget).
+- Self-fix opt-out: add the `no-auto-fix` label to the PR. The `SandboxFailureFixerLoop` skips PRs with this label even if `sandbox-fail-auto-fix` is also present. Label-based opt-out reuses existing label-handling infrastructure — no new mechanism. (Earlier draft proposed a `[no-auto-fix]` commit-message trailer; rejected because the loop is label-driven, not commit-message-driven, and adding trailer parsing would be new infrastructure for no clear benefit.)
+
+**Why this works as the dark-factory closure:**
+- Trigger 1 catches the obvious; the PR author fixes it themselves.
+- Trigger 2 catches the subtle; `SandboxFailureFixerLoop` dispatches the auto-agent to fix it without human attention.
+- Trigger 3 catches the slow drift; the wiki's `hydraflow-find` issue surfaces it.
+- Production observability is the catch-all for what no test could anticipate.
+- **The only point at which a human is required is when the auto-agent has tried 3 times and still failed** — and at that point, the human is looking at a fully-contextualized failure (sandbox logs + 3 fix attempts + parity test diagnosis) rather than a bare CI red.
+
+**Failure modes for the self-fix loop:**
+- *Loop oscillation* (auto-fix changes break a different scenario each attempt): bounded by the 3-attempt cap. After cap-hit, the PR carries all attempted commits — the human can pick the best partial fix or revert.
+- *Auto-fix succeeds locally but fails in re-run* (flake): the 3-strikes-then-bug pattern from Trigger 3 applies — three flakes on the same scenario become a real bug.
+- *Auto-agent dispatches infinite parallel fixes*: prevented by the existing `AutoAgentPreflightLoop` per-issue concurrency cap (one auto-agent in flight per issue/PR).
+- *Self-fix changes break unrelated PR-into-staging tests*: by definition, Trigger 1 already passed. If a Trigger-2 fix breaks Trigger 1, the auto-agent's commit fails Trigger 1 on the next push and is reverted before merge.
 
 ## Out of scope
 
@@ -672,14 +862,22 @@ Three sequential PRs. Same staging discipline as the dark-factory infra hardenin
 
 ## Source-file citations
 
-- `src/service_registry.py::build_services()` — primary refactor target. Gains optional adapter-override kwargs in PR A.
+- `src/service_registry.py:103–189` (`ServiceRegistry`), `:209+` (`build_services()`) — primary refactor target. Gains optional adapter-override kwargs and Port-typed fields in PR A.
+- `src/orchestrator.py:85–141` (`HydraFlowOrchestrator.__init__`) — refactor target. Gains optional `services: ServiceRegistry | None` kwarg in PR A.
+- `src/dashboard_routes/_routes.py:309–310` (`RouteContext.pr_manager`), `:456` (`pr_manager_for()`), `:585` (`create_router(pr_manager=...)`) — Port-typing widening sites in PR A.
 - `tests/scenarios/fakes/` — current home of Fakes, moved to `src/mockworld/fakes/` in PR A.
 - `tests/scenarios/fakes/test_port_signature_conformance.py` — load-bearing conformance test, moved to `tests/test_mockworld_fakes_conformance.py` alongside the Fakes.
 - `tests/scenarios/mock_world.py:643–755` — existing in-process dashboard boot, demonstrates the dashboard can be driven from tests today.
-- `src/server.py:318` (`main`), `src/server.py:124` (`_run_with_dashboard`), `src/server.py:260` (`_run_headless`) — the production entrypoint; reference for what `mockworld.sandbox_main` mirrors structurally.
+- `src/server.py` (`main`, `_run_with_dashboard`, `_run_headless`) — the production entrypoint (`hydraflow` console script per `pyproject.toml:30–31`); reference for what `mockworld.sandbox_main` mirrors structurally.
 - `Dockerfile.agent`, `Dockerfile.agent-base` — reused as the container base for the `hydraflow` service in compose.
+- `pyproject.toml:168` — declares the `scenario_browser` pytest mark; the new `sandbox` CI job in PR B uses this mark to scope test collection.
 - `pyproject.toml` — already declares `pytest-playwright>=0.5.0`; no new dep needed for browser automation.
-- `.github/workflows/` (existing `Browser Scenarios` job, currently SKIPPED) — promotion target for the sandbox CI integration.
+- `.github/workflows/ci.yml` — primary CI workflow. PR B adds a new `sandbox` job here (no existing "Browser Scenarios" job to promote — the CI surface for sandbox is greenfield).
+- `src/preflight/auto_agent_runner.py` (the `AutoAgentRunner` post-#8446 refactor onto `BaseSubprocessRunner`) — reused as the subprocess wrapper for the new `SandboxFailureFixerLoop` in PR C. The loop itself is new; the runner is reused as-is.
+- `src/preflight/auto_agent_preflight_loop.py` (the existing `AutoAgentPreflightLoop` from #8431/#8439) — referenced as the structural template for the new `SandboxFailureFixerLoop` (same caretaker pattern, different polling target: PRs by label vs issues by label).
+- `src/staging_promotion_loop.py` (per ADR-0042) — the `StagingPromotionLoop` produces `rc/*` promotion PRs that Trigger 2 fires on. The trigger condition matches against `head_ref` startswith `rc/`.
+- `scripts/scaffold_loop.py` (from PR #8448) — used to scaffold the 10-site wiring + skeleton for `SandboxFailureFixerLoop` in PR C; the `_do_work` body and helpers are written manually on top of the scaffolded skeleton.
+- `src/dashboard_routes/_hitl_routes.py:101` (existing `/api/hitl` endpoint, returns issues filtered by `hitl_label`/`hitl_active_label`) — referenced as the structural template for the new `/api/sandbox-hitl` endpoint added in PR C.
 
 ## Explicitly rejected: a `mockworld_enabled` config switch
 
@@ -687,7 +885,7 @@ An earlier draft of this spec proposed adding `mockworld_enabled: bool` to `Hydr
 
 1. The system already has 30+ env-toggleable booleans and the maintenance burden of each is non-trivial: documentation, tests for both branches, defaults, dashboard surfacing, cross-references in operator runbooks. Adding another for a structural choice that should be made at process-boundary (not config) level worsens that burden.
 2. A flag creates the possibility — however small — of accidental enablement in production. The entrypoint-selection design makes that structurally impossible.
-3. A flag implies "MockWorld is a mode you turn on." MockWorld is not a mode; it is a permanent set of alternative adapters, always loaded, selected by which `python -m` line ran.
+3. A flag implies "MockWorld is a mode you turn on." MockWorld is not a mode; it is a permanent set of alternative adapters, always loaded, selected by which entrypoint ran (the `hydraflow` console script vs `python -m mockworld.sandbox_main`).
 4. The flag-based design produces a `if config.mockworld_enabled:` branch in production code paths. The injection-based design produces no production-code branching at all — the Fakes are simply parameters that production never passes.
 
 If a future use case demands runtime switching (e.g., "flip to MockWorld for the next 10 minutes for a demo without restarting"), revisit this decision then. Until that exists, "different entrypoint" is the right granularity.
