@@ -6,6 +6,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W17
 
+- `a2ebabe` — fix(loop): complete eight-checkpoint wiring for PricingRefreshLoop *(2026-04-26)*
 - `0b82773` — docs(wiki): promote loop-wiring guide to 8 checkpoints *(2026-04-26)*
 - `0701d8d` — docs(arch): regenerate after PricingRefreshLoop addition *(2026-04-26)*
 - `932e12e` — fix(arch): assign PricingRefreshLoop to caretaking functional area *(2026-04-26)*
@@ -145,4 +146,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `0b82773` on 2026-04-26 22:23 UTC. Source last changed at `0b82773`. Status: 🟢 fresh._
+_Regenerated from commit `a83673f` on 2026-04-26 22:51 UTC. Source last changed at `a83673f`. Status: 🟢 fresh._

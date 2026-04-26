@@ -64,7 +64,7 @@ class PricingRefreshLoop(BaseBackgroundLoop):
         deps: LoopDeps,
     ) -> None:
         super().__init__(
-            worker_name="pricing-refresh-loop",
+            worker_name="pricing_refresh",
             config=config,
             deps=deps,
         )
