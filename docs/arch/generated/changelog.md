@@ -6,8 +6,9 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W17
 
-- `65fade3` — chore(arch): regen generated docs after rebase onto main *(2026-04-26)*
-- `146b6f8` — feat(auto-agent): wire real Claude Code subprocess (closes ADR-0050 partial landing) *(2026-04-26)*
+- `ddc1e2f` — fix(adr): correct ADR-0044 filename reference in ADR-0051 Related field *(2026-04-26)*
+- `29c9198` — docs(adr): ADR-0051 — iterative production-readiness review *(2026-04-26)*
+- `717e68f` — feat(auto-agent): wire real Claude Code subprocess (closes ADR-0050 partial landing) (#8439) (#8439) *(2026-04-26)*
 - `204084a` — feat(loop): wire DiagramLoop (L24) into runtime — five-checkpoint pattern (#8440) (#8440) *(2026-04-26)*
 - `5837a29` — feat(arch): trust fleet topology page (curated) (#8438) (#8438) *(2026-04-26)*
 - `64e9f31` — fix(arch): lift modules.md drift exemption (root cause: stale baseline) (#8437) (#8437) *(2026-04-26)*
@@ -142,4 +143,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `ff75db0` on 2026-04-26 17:31 UTC. Source last changed at `ff75db0`. Status: 🟢 fresh._
+_Regenerated from commit `4f6c8e9` on 2026-04-26 19:27 UTC. Source last changed at `4f6c8e9`. Status: 🟢 fresh._
