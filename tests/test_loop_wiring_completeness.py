@@ -56,14 +56,23 @@ def _discover_loops() -> dict[str, str]:
 
     result: dict[str, str] = {}
     class_re = re.compile(r"class\s+(\w+)\s*\(.*BaseBackgroundLoop.*\)")
-    worker_re = re.compile(r'worker_name\s*=\s*["\'](\w+)["\']')
+    # Widened from ``\w+`` to ``[\w-]+`` so hyphenated worker_name values
+    # (e.g. legacy ``diagram-loop``) are not silently skipped by discovery —
+    # a regex that didn't match would yield zero entries for that loop and
+    # the test would pass without enforcing any of the four wiring sites.
+    # See PR #8449 (PricingRefreshLoop) for the catch.
+    worker_re = re.compile(r'worker_name\s*=\s*["\']([\w-]+)["\']')
 
     for path in loop_files:
         text = path.read_text()
         class_match = class_re.search(text)
         worker_match = worker_re.search(text)
         if class_match and worker_match:
-            result[worker_match.group(1)] = class_match.group(1)
+            # Normalise hyphens → underscores so callers can match against
+            # the underscore-canonical registry keys regardless of which
+            # convention a particular loop adopted in its worker_name.
+            worker_name = worker_match.group(1).replace("-", "_")
+            result[worker_name] = class_match.group(1)
 
     return result
 
