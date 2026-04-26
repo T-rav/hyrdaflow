@@ -296,6 +296,37 @@ def _compute_patches(names: dict[str, str], description: str) -> list[tuple[Path
         )
     patches.append((fa_path, fa_text))
 
+    # 10. tests/helpers.py — ConfigFactory.create() signature + call-site passthrough.
+    # Required so generated test files can pass interval/enabled overrides through
+    # make_bg_loop_deps(..., {snake}_interval=N, {snake}_enabled=False).
+    helpers_path = REPO_ROOT / "tests/helpers.py"
+    helpers_text = helpers_path.read_text()
+    sig_param = (
+        f"        {snake}_interval: int = 3600,\n"
+        f"        {snake}_enabled: bool = True,\n"
+    )
+    call_kwarg = (
+        f"                {snake}_interval={snake}_interval,\n"
+        f"                {snake}_enabled={snake}_enabled,\n"
+    )
+    # Append just before the auto_agent_preflight params (last two before the
+    # closing paren) in both the signature and the HydraFlowConfig(...) call.
+    if "        auto_agent_preflight_interval: int = 120," in helpers_text:
+        helpers_text = helpers_text.replace(
+            "        auto_agent_preflight_interval: int = 120,",
+            sig_param + "        auto_agent_preflight_interval: int = 120,",
+        )
+    if (
+        "                auto_agent_preflight_interval=auto_agent_preflight_interval,"
+        in helpers_text
+    ):
+        helpers_text = helpers_text.replace(
+            "                auto_agent_preflight_interval=auto_agent_preflight_interval,",
+            call_kwarg
+            + "                auto_agent_preflight_interval=auto_agent_preflight_interval,",
+        )
+    patches.append((helpers_path, helpers_text))
+
     return patches
 
 
