@@ -49,7 +49,12 @@ def populated_repo(tmp_path: Path):
     return repo
 
 
-def test_emit_writes_all_eight_artifacts(populated_repo: Path):
+def test_emit_writes_all_nine_artifacts(populated_repo: Path):
+    fa_path = populated_repo / "docs/arch/functional_areas.yml"
+    fa_path.parent.mkdir(parents=True, exist_ok=True)
+    fa_path.write_text(
+        "areas:\n  orchestration:\n    label: Orchestration\n    description: x\n"
+    )
     from arch.runner import emit
 
     out = populated_repo / "docs/arch/generated"
@@ -63,6 +68,7 @@ def test_emit_writes_all_eight_artifacts(populated_repo: Path):
         "adr_xref.md",
         "mockworld.md",
         "changelog.md",
+        "functional_areas.md",
     }
     assert {p.name for p in out.iterdir() if p.suffix == ".md"} == expected
     assert (out.parent / ".meta.json").exists()

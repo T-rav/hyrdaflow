@@ -22,6 +22,7 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+from arch._functional_areas_schema import load_functional_areas
 from arch._models import CommitInfo
 from arch.extractors.adr_xref import extract_adr_refs
 from arch.extractors.events import extract_event_topology
@@ -33,6 +34,7 @@ from arch.extractors.ports import extract_ports
 from arch.generators.adr_cross_reference import render_adr_cross_reference
 from arch.generators.changelog import render_changelog
 from arch.generators.event_bus import render_event_bus
+from arch.generators.functional_areas import render_functional_areas
 from arch.generators.label_state import render_label_state
 from arch.generators.loop_registry import render_loop_registry
 from arch.generators.mockworld_map import render_mockworld_map
@@ -48,6 +50,7 @@ _ARTIFACT_FILES = [
     "adr_xref.md",
     "mockworld.md",
     "changelog.md",
+    "functional_areas.md",
 ]
 
 
@@ -99,12 +102,14 @@ def _compute_artifacts(repo_root: Path) -> dict[str, str]:
     fakes_dir = repo_root / "tests/scenarios/fakes"
     scenarios_dir = repo_root / "tests/scenarios"
     adr_dir = repo_root / "docs/adr"
+    fa_path = repo_root / "docs/arch/functional_areas.yml"
 
-    return {
-        "loops.md": render_loop_registry(extract_loops(src_dir)),
-        "ports.md": render_port_map(
-            extract_ports(src_dir=src_dir, fakes_dir=fakes_dir)
-        ),
+    loops = extract_loops(src_dir)
+    ports = extract_ports(src_dir=src_dir, fakes_dir=fakes_dir)
+
+    artifacts = {
+        "loops.md": render_loop_registry(loops),
+        "ports.md": render_port_map(ports),
         "labels.md": render_label_state(extract_labels(src_dir)),
         "modules.md": render_module_graph(extract_module_graph(src_dir)),
         "events.md": render_event_bus(extract_event_topology(src_dir)),
@@ -114,6 +119,20 @@ def _compute_artifacts(repo_root: Path) -> dict[str, str]:
         ),
         "changelog.md": render_changelog(_git_log_changelog(repo_root)),
     }
+    if fa_path.exists():
+        fa = load_functional_areas(fa_path)
+        artifacts["functional_areas.md"] = render_functional_areas(
+            fa, loops=loops, ports=ports
+        )
+    else:
+        # Plan A → Plan B transition state: emit explicit placeholder so the
+        # runner emits 9 artifacts even if the YAML hasn't landed in this
+        # branch yet.
+        artifacts["functional_areas.md"] = (
+            "# Functional Area Map\n\n"
+            "_(awaiting docs/arch/functional_areas.yml — Plan B Task 4)_\n\n{{ARCH_FOOTER}}\n"
+        )
+    return artifacts
 
 
 def _stamp_footer(body: str, sha: str, source_sha: str) -> str:
