@@ -15,10 +15,6 @@ graph LR
     RouteBackCounterPort --> RouteBackStateMixin
     WorkspacePort --> WorkspaceManager
     WorkspacePort -.-> FakeWorkspace
-    _PRPort --> PRManager
-    _PRPort -.-> FakeGitHub
-    _WikiPort --> RepoWikiStore
-    _WikiPort --> TribalWikiStore
 ```
 
 ## Details
@@ -86,28 +82,4 @@ graph LR
   - `WorkspaceManager` (`src.workspace`)
 - Fake: `FakeWorkspace` (`tests.scenarios.fakes.fake_workspace`)
 
-### _PRPort
-
-- Module: `src.preflight.context`
-- Methods: `get_issue`, `list_issue_comments`
-- Adapters: —
-- Fake: ⚠️ no fake (every Port needs a fake per ADR-0047)
-
-### _PRPort
-
-- Module: `src.preflight.decision`
-- Methods: `add_labels`, `post_comment`, `remove_label`
-- Adapters:
-  - `PRManager` (`src.pr_manager`)
-- Fake: `FakeGitHub` (`tests.scenarios.fakes.fake_github`)
-
-### _WikiPort
-
-- Module: `src.preflight.context`
-- Methods: `query`
-- Adapters:
-  - `RepoWikiStore` (`src.repo_wiki`)
-  - `TribalWikiStore` (`src.tribal_wiki`)
-- Fake: ⚠️ no fake (every Port needs a fake per ADR-0047)
-
-_Regenerated from commit `658d325` on 2026-04-26 04:02 UTC. Source last changed at `658d325`. Status: 🟢 fresh._
+_Regenerated from commit `a92c429` on 2026-04-26 04:04 UTC. Source last changed at `a92c429`. Status: 🟢 fresh._

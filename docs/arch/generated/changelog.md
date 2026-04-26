@@ -6,6 +6,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W17
 
+- `a92c429` — chore(arch): re-emit baseline after upstream auto-agent commits *(2026-04-25)*
 - `658d325` — fix(arch): filter underscore-prefixed Protocols in ports extractor + add auto_agent area *(2026-04-25)*
 - `f5041a4` — fix(auto-agent): address fresh-eyes review — 3 critical, 5 important *(2026-04-25)*
 - `c9d3a95` — fix(preflight): wire pr_failed status + correct ADR-0050 source-file citations *(2026-04-25)*
@@ -46,4 +47,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `f2a4971` — feat: HITL queue hygiene — dedup, park, duplicate detection (#6089) (#6089) *(2026-04-05)*
 
 
-_Regenerated from commit `658d325` on 2026-04-26 04:02 UTC. Source last changed at `658d325`. Status: 🟢 fresh._
+_Regenerated from commit `a92c429` on 2026-04-26 04:04 UTC. Source last changed at `a92c429`. Status: 🟢 fresh._
