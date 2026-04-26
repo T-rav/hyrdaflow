@@ -1,0 +1,6 @@
+{
+  "number": 9103,
+  "title": "[Flake] auto-agent emitted unparseable output",
+  "body": "Subprocess wrote a chatty natural-language reply instead of the XML protocol; parser must fall back to needs_human (spec §3.3).",
+  "labels": [{"name": "hitl-escalation"}, {"name": "flaky-test-stuck"}]
+}

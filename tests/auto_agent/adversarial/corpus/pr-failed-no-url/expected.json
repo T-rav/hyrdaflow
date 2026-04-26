@@ -1,0 +1,6 @@
+{
+  "status": "pr_failed",
+  "labels_added": ["human-required", "auto-agent-pr-failed"],
+  "labels_removed": [],
+  "pr_url": null
+}

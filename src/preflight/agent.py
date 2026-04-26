@@ -37,6 +37,7 @@ class PreflightSpawn:
     cost_usd: float
     tokens: int
     crashed: bool
+    prompt_hash: str = ""  # hex prefix; populated by spawn_fn for audit traceability
 
 
 async def run_preflight(
@@ -65,6 +66,7 @@ async def run_preflight(
         **blocks,
     )
 
+    prompt_hash = hash_prompt(prompt)
     start = time.monotonic()
     try:
         spawn = await deps.spawn_fn(prompt=prompt, worktree_path=worktree_path)
@@ -77,9 +79,14 @@ async def run_preflight(
             cost_usd=0.0,
             wall_clock_s=time.monotonic() - start,
             tokens=0,
+            prompt_hash=prompt_hash,
         )
 
     wall_s = time.monotonic() - start
+    # Prefer the hash recorded by spawn_fn when present (some spawn impls hash
+    # the post-redaction prompt the subprocess actually saw); fall back to our
+    # locally-computed hash so the audit always carries a value.
+    spawn_hash = spawn.prompt_hash or prompt_hash
 
     if spawn.crashed:
         return PreflightResult(
@@ -89,6 +96,7 @@ async def run_preflight(
             cost_usd=spawn.cost_usd,
             wall_clock_s=wall_s,
             tokens=spawn.tokens,
+            prompt_hash=spawn_hash,
         )
 
     # Cap checks (post-hoc — caps were enforced inside spawn_fn or by watchers)
@@ -103,6 +111,7 @@ async def run_preflight(
             cost_usd=spawn.cost_usd,
             wall_clock_s=wall_s,
             tokens=spawn.tokens,
+            prompt_hash=spawn_hash,
         )
     if deps.wall_clock_cap_s is not None and wall_s > deps.wall_clock_cap_s:
         return PreflightResult(
@@ -115,6 +124,7 @@ async def run_preflight(
             cost_usd=spawn.cost_usd,
             wall_clock_s=wall_s,
             tokens=spawn.tokens,
+            prompt_hash=spawn_hash,
         )
 
     parsed = parse_agent_response(spawn.output_text)
@@ -133,6 +143,7 @@ async def run_preflight(
         cost_usd=spawn.cost_usd,
         wall_clock_s=wall_s,
         tokens=spawn.tokens,
+        prompt_hash=spawn_hash,
     )
 
 

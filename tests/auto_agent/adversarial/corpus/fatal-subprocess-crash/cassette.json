@@ -1,0 +1,6 @@
+{
+  "output_text": "fatal: out of memory\nKilled",
+  "cost_usd": 0.4,
+  "tokens": 2500,
+  "crashed": true
+}

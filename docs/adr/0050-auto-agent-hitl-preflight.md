@@ -76,6 +76,19 @@ tile + `/api/diagnostics/auto-agent` endpoint surface the relevant data.
 - Runaway cost. Mitigations: caps wired into code paths (default off);
   audit + dashboard surface unusual spend immediately.
 
+**Partial landing — production HITLRunner spawn deferred:**
+The first PR landing this ADR ships the full pipeline (poll → context →
+agent → decision → audit), the prompt envelope + 9 sub-label playbooks,
+the dashboard + /api/diagnostics/auto-agent endpoint, and the adversarial
+corpus harness — but `_build_spawn_fn` in `src/auto_agent_preflight_loop.py`
+is a placeholder that always returns `needs_human` with $0 cost. The
+production wiring (HITLRunner subclass that actually spawns Claude Code in
+the issue's worktree) is the next PR. While the placeholder is in effect,
+every escalation will surface to `human-required` immediately — operationally
+identical to the pre-auto-agent behavior, just with one extra cycle of
+latency. The dashboard's `resolution_rate=0` and `spend_usd=$0` will signal
+the placeholder is still in place.
+
 ## Alternatives Considered
 
 - **Per-call-site interception** (modify each of ~25 escalation sites to call

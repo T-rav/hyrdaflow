@@ -404,6 +404,19 @@ class FakeGitHub:
         ]
         return rows[:limit]
 
+    async def list_issue_comments(self, issue_number: int) -> list[dict[str, Any]]:
+        """Return comments seeded on the issue (oldest first).
+
+        Tests can pre-seed `issue.comments` (a list[dict]) on the underlying
+        FakeIssue; if absent, returns []. Mirrors `gh issue view --json comments`
+        shape (each entry has user.login / body / created_at keys).
+        """
+        self._maybe_rate_limit()
+        issue = self._issues.get(issue_number)
+        if issue is None:
+            return []
+        return list(getattr(issue, "comments", []) or [])
+
     async def get_issue_updated_at(self, issue_number: int) -> str:
         """Return updated_at timestamp for an issue."""
         self._maybe_rate_limit()

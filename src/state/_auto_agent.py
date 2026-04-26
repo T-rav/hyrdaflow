@@ -42,6 +42,12 @@ class AutoAgentStateMixin:
         new_total = current + usd
         spend = dict(self._data.auto_agent_daily_spend)
         spend[date_iso] = new_total
+        # Prune entries older than ~90 days to bound state size — the dashboard
+        # only reads the rolling 7d window from this cache, and the JSONL audit
+        # remains the source of truth for older queries (spec §6.3).
+        if len(spend) > 90:
+            keep_keys = sorted(spend.keys())[-90:]
+            spend = {k: spend[k] for k in keep_keys}
         self._data.auto_agent_daily_spend = spend
         self.save()
         return new_total

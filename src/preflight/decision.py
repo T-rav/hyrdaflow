@@ -23,17 +23,29 @@ class PreflightResult:
     cost_usd: float
     wall_clock_s: float
     tokens: int
+    prompt_hash: str = ""  # populated from PreflightSpawn for audit traceability
 
 
 class _PRPort(Protocol):
-    async def add_labels(self, issue: int, labels: list[str]) -> None: ...
-    async def remove_labels(self, issue: int, labels: list[str]) -> None: ...
-    async def add_comment(self, issue: int, body: str) -> None: ...
+    """Subset of PRPort used by apply_decision.
+
+    Method names match the real PRManager / FakeGitHub surface:
+    `add_labels` (plural), `remove_label` (singular — call once per label),
+    `post_comment` (not `add_comment`). See `src/ports.py` lines 175-198.
+    """
+
+    async def add_labels(self, issue_number: int, labels: list[str]) -> None: ...
+    async def remove_label(self, issue_number: int, label: str) -> None: ...
+    async def post_comment(self, issue_number: int, body: str) -> None: ...
 
 
 # Status → (labels-to-add, labels-to-remove)
+#
+# Note: `resolved` removes `human-required` as well as `hitl-escalation` so a
+# previously-failed-then-re-submitted issue (operator manually reset state)
+# doesn't stay in the human queue after a successful auto-fix.
 _LABEL_MAP: dict[str, tuple[list[str], list[str]]] = {
-    "resolved": ([], ["hitl-escalation"]),
+    "resolved": ([], ["hitl-escalation", "human-required"]),
     "needs_human": (["human-required"], []),
     "fatal": (["human-required", "auto-agent-fatal"], []),
     "pr_failed": (["human-required", "auto-agent-pr-failed"], []),
@@ -65,14 +77,14 @@ async def apply_decision(
 
     if add:
         await pr_port.add_labels(issue_number, add)
-    if remove:
-        await pr_port.remove_labels(issue_number, remove)
+    for label in remove:
+        await pr_port.remove_label(issue_number, label)
 
     comment = _format_comment(
         sub_label, result, current_attempts, exhausted, max_attempts
     )
     if comment:
-        await pr_port.add_comment(issue_number, comment)
+        await pr_port.post_comment(issue_number, comment)
 
     return {
         "issue": issue_number,

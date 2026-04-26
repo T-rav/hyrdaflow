@@ -48,6 +48,18 @@ async def test_kill_switch_short_circuits(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_static_config_disable_short_circuits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Spec §5.1: HYDRAFLOW_AUTO_AGENT_PREFLIGHT_ENABLED=false stops the loop
+    even when the live UI kill-switch is on (deploy-time disable)."""
+    monkeypatch.setenv("HYDRAFLOW_AUTO_AGENT_PREFLIGHT_ENABLED", "false")
+    loop, _ = _make_loop(tmp_path, enabled=True)
+    result = await loop._do_work()
+    assert result == {"status": "config_disabled"}
+
+
+@pytest.mark.asyncio
 async def test_daily_budget_gate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

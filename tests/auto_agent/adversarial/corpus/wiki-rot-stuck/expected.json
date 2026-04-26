@@ -1,6 +1,6 @@
 {
   "status": "resolved",
   "labels_added": [],
-  "labels_removed": ["hitl-escalation"],
+  "labels_removed": ["hitl-escalation", "human-required"],
   "pr_url": "https://github.com/x/y/pull/9051"
 }

@@ -1,0 +1,6 @@
+{
+  "status": "fatal",
+  "labels_added": ["human-required", "auto-agent-fatal"],
+  "labels_removed": [],
+  "pr_url": null
+}

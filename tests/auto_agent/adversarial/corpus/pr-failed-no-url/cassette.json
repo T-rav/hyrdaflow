@@ -1,0 +1,6 @@
+{
+  "output_text": "<status>resolved</status><diagnosis>Patched the race; ran the suite.</diagnosis>",
+  "cost_usd": 1.1,
+  "tokens": 8000,
+  "crashed": false
+}

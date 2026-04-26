@@ -1,0 +1,6 @@
+{
+  "output_text": "I looked at the test and the production code. I think there's a race condition in the fixture. I'd recommend the human review this one because I'm not sure how to test the fix without breaking other tests.",
+  "cost_usd": 0.8,
+  "tokens": 4500,
+  "crashed": false
+}

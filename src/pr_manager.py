@@ -936,6 +936,35 @@ class PRManager:
         """Post a comment on a GitHub pull request."""
         await self._comment("pr", pr_number, body)
 
+    async def list_issue_comments(self, issue_number: int) -> list[dict[str, Any]]:
+        """List comments on a GitHub issue (oldest first; max 100).
+
+        Returns dicts with `user.login`, `body`, `created_at` keys
+        (matches `gh issue view --json comments` shape).
+        """
+        self._assert_repo()
+        try:
+            output, _ = await self._run_gh(
+                "gh",
+                "issue",
+                "view",
+                str(issue_number),
+                "--json",
+                "comments",
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to list comments for issue #%d: %s", issue_number, exc
+            )
+            return []
+        try:
+            payload = json.loads(output)
+        except json.JSONDecodeError as exc:
+            logger.warning("Bad comments JSON for issue #%d: %s", issue_number, exc)
+            return []
+        comments = payload.get("comments") or []
+        return list(comments)
+
     async def submit_review(
         self, pr_number: int, verdict: ReviewVerdict, body: str
     ) -> bool:

@@ -51,6 +51,12 @@ class AutoAgentPreflightLoop(BaseBackgroundLoop):
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
 
+        # Static config gate (defense-in-depth: operator can disable at deploy
+        # time via HYDRAFLOW_AUTO_AGENT_PREFLIGHT_ENABLED=false even when the
+        # UI toggle is unavailable).
+        if not self._config.auto_agent_preflight_enabled:
+            return {"status": "config_disabled"}
+
         cap = self._config.auto_agent_daily_budget_usd
         if cap is not None:
             today = datetime.now(UTC).date().isoformat()
@@ -114,7 +120,7 @@ class AutoAgentPreflightLoop(BaseBackgroundLoop):
 
     async def _process_one(self, issue: dict[str, Any]) -> dict[str, Any]:
         """Run one full pre-flight attempt for a single issue."""
-        from preflight.agent import PreflightAgentDeps, hash_prompt, run_preflight
+        from preflight.agent import PreflightAgentDeps, run_preflight
         from preflight.audit import PreflightAuditEntry
         from preflight.context import gather_context
         from preflight.decision import apply_decision
@@ -122,8 +128,12 @@ class AutoAgentPreflightLoop(BaseBackgroundLoop):
         issue_number = int(issue.get("number", 0))
         issue_body = str(issue.get("body", "") or "")
         labels = {lbl.get("name", "") for lbl in issue.get("labels", [])}
-        sub_labels = labels - {"hitl-escalation"}
-        sub_label = next(iter(sub_labels), "_default")
+        # Deterministic sub-label selection — set iteration is hash-randomised
+        # in CPython, so an issue with multiple sub-labels would otherwise pick
+        # a random playbook each tick (and randomly skip the deny-list). Sort
+        # alphabetically so the same issue always routes to the same playbook.
+        sub_labels = sorted(labels - {"hitl-escalation"})
+        sub_label = sub_labels[0] if sub_labels else "_default"
 
         # Sub-label deny-list.
         if sub_label in self._config.auto_agent_skip_sublabels:
@@ -187,7 +197,7 @@ class AutoAgentPreflightLoop(BaseBackgroundLoop):
                 issue=issue_number,
                 sub_label=sub_label,
                 attempt_n=attempt_n,
-                prompt_hash=hash_prompt(""),  # populated by spawn_fn in real impl
+                prompt_hash=result.prompt_hash,
                 cost_usd=result.cost_usd,
                 wall_clock_s=result.wall_clock_s,
                 tokens=result.tokens,
@@ -207,15 +217,32 @@ class AutoAgentPreflightLoop(BaseBackgroundLoop):
     def _build_spawn_fn(self, issue_number: int):
         """Returns the actual subprocess-spawning callable. Replaced in tests.
 
-        In production: spawns AutoAgentRunner subprocess (HITLRunner-style).
-        Placeholder until full HITLRunner integration is wired.
+        **PARTIAL LANDING — placeholder, not the production HITLRunner spawn.**
+
+        In production this should subclass HITLRunner (per ADR-0050) and spawn
+        a Claude Code subprocess with the auto-agent prompt envelope + tool
+        restrictions. Wiring that subprocess is deferred to a follow-up PR
+        (tracked under ADR-0050 §Consequences). Until then, every pre-flight
+        attempt returns `needs_human` with $0 cost — which is observable on the
+        dashboard (resolution_rate stays at 0 and spend_usd stays at $0) so
+        operators can see the placeholder is in effect.
+
+        Tests monkeypatch this to inject a cassette `PreflightSpawn` so the
+        full pipeline can be exercised end-to-end without a real subprocess.
         """
         from preflight.agent import PreflightSpawn
 
         async def _placeholder(prompt: str, worktree_path: str) -> PreflightSpawn:
+            # See class docstring above — when dashboard shows zero spend +
+            # zero resolved, the production wiring is still pending.
             return PreflightSpawn(
                 process=None,
-                output_text="<status>needs_human</status><diagnosis>not yet wired</diagnosis>",
+                output_text=(
+                    "<status>needs_human</status>"
+                    "<diagnosis>auto-agent spawn_fn is a placeholder; "
+                    "production HITLRunner integration pending (ADR-0050 §Consequences)."
+                    "</diagnosis>"
+                ),
                 cost_usd=0.0,
                 tokens=0,
                 crashed=False,
@@ -224,7 +251,14 @@ class AutoAgentPreflightLoop(BaseBackgroundLoop):
         return _placeholder
 
     async def _resolve_worktree(self, issue_number: int) -> str:
-        """Return worktree path for the issue, or main repo as fallback."""
+        """Return worktree path for the issue.
+
+        Currently returns the main repo root as a placeholder. Once
+        `_build_spawn_fn` is upgraded to the real HITLRunner integration
+        (see ADR-0050 §Partial landing), this should resolve to the
+        per-issue worktree managed by `WorkspacePort` so the agent operates
+        on the issue's own branch instead of main.
+        """
         return str(self._config.repo_root)
 
 

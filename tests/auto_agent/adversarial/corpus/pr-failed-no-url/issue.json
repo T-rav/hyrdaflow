@@ -1,0 +1,6 @@
+{
+  "number": 9102,
+  "title": "[Flake] flake-tracker: agent claimed resolved but no PR URL",
+  "body": "Auto-agent emitted <status>resolved</status> without a <pr_url> tag — demoted to pr_failed (spec §2.2).",
+  "labels": [{"name": "hitl-escalation"}, {"name": "flaky-test-stuck"}]
+}
