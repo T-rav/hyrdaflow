@@ -57,7 +57,7 @@ flowchart LR
     subgraph test_harness["Test Harness (MockWorld)"]
     end
     subgraph arch_knowledge["Architecture Knowledge"]
-        arch_knowledge_DiagramLoop([DiagramLoop]):::unknown
+        arch_knowledge_DiagramLoop([DiagramLoop])
     end
     subgraph dashboard["Dashboard"]
     end
@@ -177,7 +177,7 @@ The self-documenting layer — runner, AST extractors, generators, DiagramLoop (
 
 **Loops**
 
-- ⚠️ `DiagramLoop` — *unknown loop (not found by AST extractor)*
+- `DiagramLoop` — `src.diagram_loop`
 
 **Module globs**
 
@@ -232,4 +232,4 @@ The plan→implement→review pipeline driving each issue from hydraflow-ready t
 **Related ADRs:** `ADR-0001`, `ADR-0004`, `ADR-0011`, `ADR-0012`, `ADR-0029`
 
 
-_Regenerated from commit `57862a1` on 2026-04-26 01:14 UTC. Source last changed at `57862a1`. Status: 🟢 fresh._
+_Regenerated from commit `e5948ac` on 2026-04-26 01:20 UTC. Source last changed at `e5948ac`. Status: 🟢 fresh._

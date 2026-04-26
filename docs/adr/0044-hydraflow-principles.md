@@ -440,7 +440,7 @@ snapshot that rots.
 
 ## Related
 
-- [CLAUDE.md](../../CLAUDE.md) — the table of contents this ADR formalises
+- [CLAUDE.md](https://github.com/T-rav-Hydra-Ops/hydraflow/blob/main/CLAUDE.md) — the table of contents this ADR formalises
 - [ADR-0001](0001-five-concurrent-async-loops.md) — five concurrent async loops (P6)
 - [ADR-0002](0002-labels-as-state-machine.md) — labels as the state machine (P6)
 - [ADR-0003](0003-git-worktrees-for-isolation.md) — worktree isolation (P5)

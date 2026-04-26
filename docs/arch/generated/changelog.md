@@ -6,6 +6,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W17
 
+- `2d624c9` — feat(arch): freshness badge wired into runner footer *(2026-04-25)*
 - `57862a1` — feat(docs): MkDocs Material site config + index/about pages *(2026-04-25)*
 - `300c3c7` — feat(arch): Plan B — Functional Areas + ADR-0001 amendment + migration (#8433) (#8433) *(2026-04-25)*
 - `bee256f` — feat(arch): Architecture Knowledge System v1 — spec + 3 plans + Plan A runner (#8432) (#8432) *(2026-04-25)*
@@ -135,4 +136,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `57862a1` on 2026-04-26 01:14 UTC. Source last changed at `57862a1`. Status: 🟢 fresh._
+_Regenerated from commit `e5948ac` on 2026-04-26 01:20 UTC. Source last changed at `e5948ac`. Status: 🟢 fresh._

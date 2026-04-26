@@ -4,7 +4,7 @@
 - **Date:** 2026-04-20
 - **Supersedes:** none
 - **Superseded by:** none
-- **Related spec:** [`docs/superpowers/specs/2026-04-20-dynamic-skill-loading-design.md`](../superpowers/specs/2026-04-20-dynamic-skill-loading-design.md)
+- **Related spec:** [`docs/superpowers/specs/2026-04-20-dynamic-skill-loading-design.md`](https://github.com/T-rav-Hydra-Ops/hydraflow/blob/main/docs/superpowers/specs/2026-04-20-dynamic-skill-loading-design.md)
 
 ## Context
 
@@ -64,7 +64,7 @@ Marketplace is expressed inline in `required_plugins` (`"name@marketplace"`), de
 
 ## References
 
-- Spec: [`docs/superpowers/specs/2026-04-20-dynamic-skill-loading-design.md`](../superpowers/specs/2026-04-20-dynamic-skill-loading-design.md)
+- Spec: [`docs/superpowers/specs/2026-04-20-dynamic-skill-loading-design.md`](https://github.com/T-rav-Hydra-Ops/hydraflow/blob/main/docs/superpowers/specs/2026-04-20-dynamic-skill-loading-design.md)
 - Prior feature PR (now being extended): #8348
 - Claude Code plugin CLI: <https://code.claude.com/docs/en/plugins-reference#plugin-install>
 - [`ADR-0001: Five concurrent async loops`](0001-five-concurrent-async-loops.md) — the factory-phase names used by `phase_skills` originate here.

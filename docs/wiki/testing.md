@@ -312,8 +312,8 @@ make quality
 
 ## Related
 
-- [`avoided-patterns.md`](avoided-patterns.md) — recurring test-side mistakes (top-level imports of optional deps, wrong-level mocks, falsy optional checks)
-- [`quality-gates.md`](quality-gates.md) — the full quality sequence to run before committing
+- [`gotchas.md`](gotchas.md) — recurring test-side mistakes (top-level imports of optional deps, wrong-level mocks, falsy optional checks)
+- [`patterns.md`](patterns.md) — the full quality sequence to run before committing
 - [`docs/adr/0022-integration-test-architecture-cross-phase.md`](../adr/0022-integration-test-architecture-cross-phase.md) — integration test architecture
 - [`docs/adr/0035-tests-must-match-toggle-state-they-assert.md`](../adr/0035-tests-must-match-toggle-state-they-assert.md) — toggle/test alignment
 

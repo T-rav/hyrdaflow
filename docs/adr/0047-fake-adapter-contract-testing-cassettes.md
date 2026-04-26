@@ -4,7 +4,7 @@
 - **Date:** 2026-04-23
 - **Supersedes:** none
 - **Superseded by:** none
-- **Related:** [ADR-0045](0045-trust-architecture-hardening.md) §4.2 initiated this work; [ADR-0022](0022-integration-test-architecture-cross-phase-pipeline-harness.md) (integration test harness) — this ADR extends it with contract testing of fakes.
+- **Related:** [ADR-0045](0045-trust-architecture-hardening.md) §4.2 initiated this work; [ADR-0022](0022-integration-test-architecture-cross-phase.md) (integration test harness) — this ADR extends it with contract testing of fakes.
 - **Enforced by:** `make trust-contracts`; `tests/trust/contracts/test_fake_*_contract.py`; `src/contract_refresh_loop.py` (the weekly refresh loop that keeps cassettes in sync with reality).
 
 ## Context

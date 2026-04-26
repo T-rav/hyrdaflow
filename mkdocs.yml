@@ -11,6 +11,14 @@ docs_dir: docs
 # Strict mode: broken cross-links fail the build.
 strict: true
 
+# Existing markdown files we deliberately don't render — they reference
+# paths outside docs/ (tests/fixtures/) that mkdocs can't resolve in
+# strict mode, and the superpowers/ tree is in-flight specs/plans
+# (per CLAUDE.md, "PR-tied; not knowledge"). mkdocs 1.5+ exclude_docs.
+exclude_docs: |
+  prompt-audit-*.md
+  superpowers/**
+
 theme:
   name: material
   features:
