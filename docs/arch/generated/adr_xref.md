@@ -57,6 +57,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | ADR-0047 | `src.contract_diff`, `src.contract_recording`, `src.contract_refresh_loop` |
 | ADR-0048 | `src.staging_bisect_loop` |
 | ADR-0049 | `src.base_background_loop`, `src.bg_worker_manager` |
+| ADR-0050 | `src.auto_agent_preflight_loop`, `src.config`, `src.dashboard_routes._diagnostics_routes`, `src.models`, `src.preflight.agent`, `src.preflight.audit`, `src.preflight.context`, `src.preflight.decision`, `src.preflight.runner`, `src.sentry.reverse_lookup`, `src.state._auto_agent` |
 
 ## Module → ADRs
 
@@ -66,12 +67,13 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.adr_reviewer` | ADR-0033, ADR-0034, ADR-0037, ADR-0039, ADR-0040 |
 | `src.agent` | ADR-0024, ADR-0027 |
 | `src.agent_cli` | ADR-0004 |
+| `src.auto_agent_preflight_loop` | ADR-0050 |
 | `src.base_background_loop` | ADR-0049 |
 | `src.base_runner` | ADR-0004, ADR-0032 |
 | `src.bg_worker_manager` | ADR-0049 |
 | `src.caching_issue_store` | ADR-0041 |
 | `src.cli` | ADR-0036 |
-| `src.config` | ADR-0002, ADR-0009, ADR-0010, ADR-0018, ADR-0021, ADR-0022, ADR-0031, ADR-0033, ADR-0034, ADR-0035, ADR-0036, ADR-0045 |
+| `src.config` | ADR-0002, ADR-0009, ADR-0010, ADR-0018, ADR-0021, ADR-0022, ADR-0031, ADR-0033, ADR-0034, ADR-0035, ADR-0036, ADR-0045, ADR-0050 |
 | `src.contract_diff` | ADR-0047 |
 | `src.contract_recording` | ADR-0047 |
 | `src.contract_refresh_loop` | ADR-0045, ADR-0047 |
@@ -79,6 +81,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.dashboard` | ADR-0007, ADR-0008, ADR-0038 |
 | `src.dashboard_routes` | ADR-0007, ADR-0008, ADR-0013, ADR-0019, ADR-0038 |
 | `src.dashboard_routes._cost_rollups` | ADR-0045 |
+| `src.dashboard_routes._diagnostics_routes` | ADR-0050 |
 | `src.dashboard_routes._routes` | ADR-0030 |
 | `src.discover_phase` | ADR-0031, ADR-0045 |
 | `src.discover_runner` | ADR-0031, ADR-0045 |
@@ -100,7 +103,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.issue_fetcher` | ADR-0019 |
 | `src.issue_store` | ADR-0006, ADR-0022, ADR-0041 |
 | `src.metrics_manager` | ADR-0010, ADR-0021 |
-| `src.models` | ADR-0011, ADR-0012, ADR-0013, ADR-0014, ADR-0015, ADR-0016, ADR-0025, ADR-0031, ADR-0037, ADR-0045 |
+| `src.models` | ADR-0011, ADR-0012, ADR-0013, ADR-0014, ADR-0015, ADR-0016, ADR-0025, ADR-0031, ADR-0037, ADR-0045, ADR-0050 |
 | `src.orchestrator` | ADR-0006, ADR-0009, ADR-0014, ADR-0044, ADR-0045 |
 | `src.path` | ADR-0032 |
 | `src.plan_phase` | ADR-0014, ADR-0031 |
@@ -109,6 +112,11 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.pr_manager` | ADR-0002, ADR-0005, ADR-0011, ADR-0013, ADR-0018, ADR-0045 |
 | `src.precondition_gate` | ADR-0041 |
 | `src.preflight` | ADR-0043 |
+| `src.preflight.agent` | ADR-0050 |
+| `src.preflight.audit` | ADR-0050 |
+| `src.preflight.context` | ADR-0050 |
+| `src.preflight.decision` | ADR-0050 |
+| `src.preflight.runner` | ADR-0050 |
 | `src.principles_audit_loop` | ADR-0045 |
 | `src.prompt_builder` | ADR-0043 |
 | `src.prompt_template` | ADR-0043 |
@@ -121,6 +129,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.reviewer` | ADR-0025, ADR-0027 |
 | `src.route_back` | ADR-0041 |
 | `src.screenshot_scanner` | ADR-0018 |
+| `src.sentry.reverse_lookup` | ADR-0050 |
 | `src.server` | ADR-0038 |
 | `src.service_registry` | ADR-0045 |
 | `src.shape_phase` | ADR-0031, ADR-0045 |
@@ -128,6 +137,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.skill_prompt_eval_loop` | ADR-0045 |
 | `src.staging_bisect_loop` | ADR-0045, ADR-0048 |
 | `src.state` | ADR-0006, ADR-0013, ADR-0014, ADR-0017, ADR-0024 |
+| `src.state._auto_agent` | ADR-0050 |
 | `src.state._session` | ADR-0021 |
 | `src.triage_phase` | ADR-0014, ADR-0017, ADR-0031, ADR-0039 |
 | `src.trust_fleet_sanity_loop` | ADR-0045, ADR-0046 |
@@ -136,4 +146,4 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.wiki_rot_detector_loop` | ADR-0045 |
 | `src.worktree` | ADR-0003, ADR-0009, ADR-0010 |
 
-_Regenerated from commit `e5948ac` on 2026-04-26 01:20 UTC. Source last changed at `e5948ac`. Status: 🟢 fresh._
+_Regenerated from commit `c9d3a95` on 2026-04-26 04:02 UTC. Source last changed at `c9d3a95`. Status: 🟢 fresh._

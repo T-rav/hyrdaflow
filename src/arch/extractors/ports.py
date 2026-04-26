@@ -31,7 +31,7 @@ def _public_methods(cls: ast.ClassDef) -> list[str]:
     out = []
     for node in cls.body:
         if isinstance(
-            node, (ast.FunctionDef, ast.AsyncFunctionDef)
+            node, ast.FunctionDef | ast.AsyncFunctionDef
         ) and not node.name.startswith("__"):
             out.append(node.name)
     return sorted(out)
@@ -75,6 +75,11 @@ def extract_ports(*, src_dir: Path, fakes_dir: Path) -> list[PortInfo]:
     ports: list[PortInfo] = []
     for path, cls in src_classes:
         if not cls.name.endswith("Port"):
+            continue
+        # Skip underscore-prefixed classes — they're internal type-hint
+        # helpers, not the ubiquitous-language Ports we map. Mirrors the
+        # loops extractor's `_` filter.
+        if cls.name.startswith("_"):
             continue
         if not _is_protocol_subclass(cls):
             continue

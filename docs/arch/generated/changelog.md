@@ -6,8 +6,10 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W17
 
-- `2d624c9` — feat(arch): freshness badge wired into runner footer *(2026-04-25)*
-- `57862a1` — feat(docs): MkDocs Material site config + index/about pages *(2026-04-25)*
+- `c9d3a95` — fix(preflight): wire pr_failed status + correct ADR-0050 source-file citations *(2026-04-25)*
+- `cc3398c` — docs(adr): ADR-0050 — auto-agent HITL pre-flight loop *(2026-04-25)*
+- `70392a6` — fix(arch): correct GitHub org in all site URLs (#8435) (#8435) *(2026-04-25)*
+- `f893069` — feat(arch): Plan C — DiagramLoop (L24) + CI guard + Pages site (#8434) (#8434) *(2026-04-25)*
 - `300c3c7` — feat(arch): Plan B — Functional Areas + ADR-0001 amendment + migration (#8433) (#8433) *(2026-04-25)*
 - `bee256f` — feat(arch): Architecture Knowledge System v1 — spec + 3 plans + Plan A runner (#8432) (#8432) *(2026-04-25)*
 - `87da6ef` — feat(adr-gate): symbol-level precision so unrelated edits stop tripping it (#8428) (#8428) *(2026-04-24)*
@@ -39,101 +41,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 - `494f736` — docs: ADR-0032 Per-Repo Wiki Knowledge Base (Karpathy pattern) (#6096) (#6096) *(2026-04-05)*
 - `f65f00b` — docs: accept ADR-0023 pair + add diagnostic and HITL plans (#6093) (#6093) *(2026-04-05)*
-- `2977a62` — docs: ADR-0031 Product Track Architecture (Discover/Shape phases) (#6010) (#6010) *(2026-04-05)*
-
-## 2026-W13
-
-- `bbf7336` — docs: Add ADRs for report pipeline, caretaker loops, and routes decomposition (#5904) (#5904) *(2026-03-28)*
-
-## 2026-W12
-
-- `1448b26` — Fixes #3205: [ADR Follow-up] ADR-0022: Council requests changes (#3289) (#3289) *(2026-03-19)*
-- `b5f4f8f` — Fixes #3244: [ADR Follow-up] ADR-0023: Council requests changes (#3284) (#3284) *(2026-03-18)*
-- `b9d0cd2` — Fixes #3231: [ADR Follow-up] ADR-0015: Council requests changes (#3309) (#3309) *(2026-03-18)*
-- `b69cd2d` — hitl-fix: Fix ADR-0004 title mismatch in ADR-0023 citation (#3241) (#3278) (#3278) *(2026-03-18)*
-- `e08512e` — Fixes #3189: [Memory] Merge consecutive identical if-conditions ins... (#3221) (#3221) *(2026-03-18)*
-- `839ac7e` — Fixes #3233: [ADR Follow-up] ADR-0022: Council requests changes (#3254) (#3254) *(2026-03-18)*
-- `17bd4e2` — Fixes #3220: [ADR Pre-validation] ADR-0023: structural issues (#3242) (#3242) *(2026-03-18)*
-- `582338b` — Fixes #3222: [ADR Duplicate] ADR-0023 (#3243) (#3243) *(2026-03-18)*
-- `674566d` — Fixes #3213: [ADR Follow-up] ADR-0023: Council recommends rejection (#3234) (#3234) *(2026-03-18)*
-- `687783d` — Fixes #3229: [ADR Follow-up] ADR-0022: Council requests changes (#3248) (#3248) *(2026-03-18)*
-- `ea5cda4` — Fixes #3183: [Memory] Symmetric field assertion checklist for share... (#3192) (#3192) *(2026-03-16)*
-- `9cb0bb0` — Fixes #3097: [Memory] ADR pre-validator lacks source function name ... (#3130) (#3130) *(2026-03-16)*
-- `0001d59` — Fixes #3021: [ADR Follow-up] ADR-0021: Council requests changes (#3113) (#3113) *(2026-03-16)*
-- `b1ec5e3` — Fixes #3017: [ADR Follow-up] ADR-0021: Council requests changes (#3108) (#3108) *(2026-03-16)*
-- `518657f` — Fixes #3086: [Memory] ADR stale-cross-ref: always update the "requi... (#3110) (#3110) *(2026-03-16)*
-- `8246a43` — Fixes #3025: [Memory] ADR function references should omit line numbers (#3087) (#3087) *(2026-03-16)*
-- `5714f06` — Fixes #3016: [Memory] ADR line number citations are volatile (#3080) (#3080) *(2026-03-16)*
-- `3cc7250` — Fixes #3024: [ADR Follow-up] ADR-0021: Council requests changes (#3067) (#3067) *(2026-03-16)*
-- `235dd4c` — Fixes #3019: [ADR Follow-up] ADR-0021: Council requests changes (#3063) (#3063) *(2026-03-16)*
-- `700289c` — Fixes #2871: [Memory] ADR cross-references must name the referenced... (#3058) (#3058) *(2026-03-16)*
-- `751a6df` — Fixes #3013: [ADR Duplicate] ADR-0023 (#3053) (#3053) *(2026-03-16)*
-
-## 2026-W11
-
-- `6e82818` — Fixes #2763: [ADR Duplicate] ADR-0023 (#2977) (#2977) *(2026-03-15)*
-- `5a1803b` — Fixes #2757: [ADR Duplicate] ADR-0023 (#2966) (#2966) *(2026-03-15)*
-- `f8daa39` — Fixes #2701: [ADR Follow-up] ADR-0015: Council requests changes (#2764) (#2764) *(2026-03-15)*
-- `92b9a20` — Fixes #2755: [ADR Duplicate] ADR-0023 (#2956) (#2956) *(2026-03-15)*
-- `d8dbf5b` — Fixes #2753: [ADR Duplicate] ADR-0023 (#2946) (#2946) *(2026-03-15)*
-- `72134a2` — Fixes #2751: [ADR Duplicate] ADR-0023 (#2938) (#2938) *(2026-03-15)*
-- `fdc3519` — Fixes #2747: [ADR Duplicate] ADR-0023 (#2923) (#2923) *(2026-03-15)*
-- `3d95c4b` — Fixes #2744: [ADR Duplicate] ADR-0023 (#2911) (#2911) *(2026-03-15)*
-- `c26441d` — Fixes #2740: [ADR Duplicate] ADR-0023 (#2892) (#2892) *(2026-03-15)*
-- `9847e40` — Fixes #2733: [ADR Follow-up] ADR-0023: Council requests changes (#2873) (#2873) *(2026-03-15)*
-- `7ac6420` — Fixes #2737: [ADR Duplicate] ADR-0023 (#2883) (#2883) *(2026-03-15)*
-- `4bc1099` — Fixes #2732: [ADR Follow-up] ADR-0023: Council requests changes (#2863) (#2863) *(2026-03-15)*
-- `83cc8b3` — Fixes #2726: [ADR Follow-up] ADR-0012: Council requests changes (#2846) (#2846) *(2026-03-15)*
-- `8b7d06f` — Fixes #2720: Renumber ADR-0023 to ADR-0024 and update status to Accepted (#2816) (#2816) *(2026-03-15)*
-- `4eb1c9a` — Accept ADR-0010: worktree and path isolation (#2696) (#2696) *(2026-03-15)*
-- `a914647` — Fixes #2205: Remove CLI layer and consolidate into server API (#2457) (#2457) *(2026-03-09)*
-
-## 2026-W10
-
-- `29d8268` — Fixes #2382: Add ADR-0023 for duplicate class merge-artifact pattern (#2383) (#2383) *(2026-03-08)*
-- `cad34a6` — Fixes #2253: [ADR] Draft decision from memory #2251: ADR pre-review... (#2254) (#2254) *(2026-03-08)*
-- `4534df5` — Fixes #2373: Add ADR-0023 for dead class artifact detection in mock-based tests (#2378) (#2378) *(2026-03-08)*
-- `312fb6f` — Fixes #2356: Add ADR-0023 for toggle-state test consistency (#2369) (#2369) *(2026-03-08)*
-- `26ed00b` — Fixes #2355: ADR-0023 gate triage call on config toggle, not just HITL fallback (#2360) (#2360) *(2026-03-08)*
-- `1baa85a` — Fixes #2341: Add ADR-0023 for auto-triage toggle routing enforcement (#2344) (#2344) *(2026-03-08)*
-- `12d7c57` — Fixes #2306: Add ADR-0023 for stats counter placement in delegating helpers (#2324) (#2324) *(2026-03-08)*
-- `c22797d` — Fixes #2273: Add ADR-0023 for CLI argparse + config builder pattern (#2302) (#2302) *(2026-03-08)*
-- `7ade583` — Fixes #2267: Add ADR-0023 for multi-repo architecture wiring pattern (#2296) (#2296) *(2026-03-08)*
-- `4c09083` — Fixes #2264: [ADR] Draft decision from memory #2258: Implementation... (#2292) (#2292) *(2026-03-08)*
-- `c4b8ecd` — Fixes #2374: Add ADR-0023 for supersession regex verb form coverage (#2379) (#2379) *(2026-03-08)*
-- `7c6410a` — Fixes #2210: sync ADR index statuses (#2233) (#2233) *(2026-03-07)*
-- `b1df31d` — Fixes #1977: Document cross-phase integration harness (#2146) (#2146) *(2026-03-06)*
-- `548bf0b` — Fixes #2031: normalize superseded ADR statuses (#2158) (#2158) *(2026-03-06)*
-- `6f65afe` — Fix ADR council HITL issues: supersession, gate table, implementation accuracy (#2045) (#2045) *(2026-03-05)*
-- `9ea0458` — Accept ADR-0009 and supersede ADR-0006 (#2044) (#2044) *(2026-03-05)*
-- `d345ecf` — Accept ADR-0007: dashboard api multi repo scoping (#2015) (#2015) *(2026-03-05)*
-- `0f4334a` — Accept ADR 0016/0017/0019 and simplify event_bus fixture (#2012) (#2012) *(2026-03-05)*
-- `86c348d` — Accept ADR-0014: session counter forward progression semantics (#1994) (#1994) *(2026-03-05)*
-- `254f82f` — Accept ADR-0006: repo runtime isolation (#1949) (#1949) *(2026-03-04)*
-- `89e5bd6` — Accept ADR-0008: multi repo dashboard architecture (#1955) (#1955) *(2026-03-04)*
-- `8875cd8` — Accept ADR-0011: epic release creation architecture (#1965) (#1965) *(2026-03-04)*
-- `ac0ecda` — Fixes #1883: [Bug Report] remove the processes tab too, and related... (#1906) (#1906) *(2026-03-04)*
-
-## 2026-W09
-
-- `8825cd5` — Fixes #1633: add ADR-0009 for persistence architecture and data layout (#1680) (#1680) *(2026-03-01)*
-- `b47789e` — Fixes #1818: Add ADR-0009 for autoApproveRow borderTop context awareness (#1820) (#1820) *(2026-03-01)*
-- `9a2d6e9` — Fixes #1798: Add ADR-0009 for background task delegation abstraction layer (#1810) (#1810) *(2026-03-01)*
-- `1fea79a` — Fixes #1749: Add ADR-0009 for screenshot capture pipeline architecture (#1792) (#1792) *(2026-03-01)*
-- `793f790` — Fixes #1748: ADR-0009 documents auto-decompose triage counter exclusion as intentional (#1791) (#1791) *(2026-03-01)*
-- `d26f6b9` — Fixes #1747: ADR-0009 VisualValidation SKIPPED override partial suppression semantics (#1788) (#1788) *(2026-03-01)*
-- `91603e3` — Fixes #1746: Add ADR-0009 for protocol-based callback injection gate pattern (#1786) (#1786) *(2026-03-01)*
-- `bd72277` — Fixes #1703: ADR-0009 session counter forward-progression semantics (#1750) (#1750) *(2026-03-01)*
-- `b0e04ed` — Fixes #1704: ADR-0009 screenshot capture pipeline architecture (#1745) (#1745) *(2026-03-01)*
-- `7fdccc8` — Fixes #1702: ADR-0009 epic merge coordination architecture (#1740) (#1740) *(2026-03-01)*
-- `522e013` — Fixes #1701: ADR-0009 epic release creation architecture (#1739) (#1739) *(2026-03-01)*
-- `961b141` — Fixes #1677: add ADR-0009 for worktree and path isolation architecture (#1683) (#1683) *(2026-03-01)*
-- `7c6fe67` — Fixes #1634: add ADR-0009 for multi-repo process-per-repo model (#1679) (#1679) *(2026-03-01)*
-- `35aa37a` — docs: add ADR-0008 for multi-repo dashboard architecture (#1648) (#1648) *(2026-02-28)*
-- `780b17c` — docs: add ADR-0007 for dashboard API multi-repo scoping (#1647) (#1647) *(2026-02-28)*
-- `83730be` — docs: add ADR-0006 for RepoRuntime isolation architecture (#1646) (#1646) *(2026-02-28)*
-- `bbc273d` — docs: add ADR-0005 for PR recovery and zero-diff branch handling (#1307) (#1307) *(2026-02-26)*
-- `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
+- `f2a4971` — feat: HITL queue hygiene — dedup, park, duplicate detection (#6089) (#6089) *(2026-04-05)*
 
 
-_Regenerated from commit `e5948ac` on 2026-04-26 01:20 UTC. Source last changed at `e5948ac`. Status: 🟢 fresh._
+_Regenerated from commit `c9d3a95` on 2026-04-26 04:02 UTC. Source last changed at `c9d3a95`. Status: 🟢 fresh._

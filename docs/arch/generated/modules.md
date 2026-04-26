@@ -11,13 +11,18 @@ graph LR
     src_arch_extractors["src.arch.extractors"]
     src_arch_generators["src.arch.generators"]
     src_dashboard_routes["src.dashboard_routes"]
+    src_preflight["src.preflight"]
+    src_sentry["src.sentry"]
     src_state["src.state"]
     src -- "4" --> src_arch
     src -- "3" --> src_dashboard_routes
+    src -- "9" --> src_preflight
     src -- "43" --> src_state
     src_arch_extractors -- "7" --> src_arch
     src_arch_generators -- "10" --> src_arch
+    src_dashboard_routes -- "1" --> src_preflight
     src_dashboard_routes -- "1" --> src_state
+    src_preflight -- "1" --> src_sentry
 ```
 
-_Regenerated from commit `e5948ac` on 2026-04-26 01:20 UTC. Source last changed at `e5948ac`. Status: 🟢 fresh._
+_Regenerated from commit `c9d3a95` on 2026-04-26 04:02 UTC. Source last changed at `c9d3a95`. Status: 🟢 fresh._

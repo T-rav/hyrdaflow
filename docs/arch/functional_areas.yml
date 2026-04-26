@@ -133,6 +133,21 @@ areas:
       - src/routes/**
     related_adrs: ['0007', '0008', '0009', '0030']
 
+  auto_agent:
+    label: Auto-Agent (HITL Pre-Flight)
+    description: >
+      The Auto-Agent HITL pre-flight loop intercepts every
+      `hitl-escalation` issue before a human sees it, spawns a Claude
+      Code subprocess with a sub-label-routed "lead engineer" persona
+      prompt, and either auto-resolves or hands off with full context.
+      Per ADR-0050.
+    loops:
+      - AutoAgentPreflightLoop
+    modules:
+      - src/auto_agent_preflight_loop.py
+      - src/preflight/**
+    related_adrs: ['0050']
+
   goal_driven_dev:
     label: Goal-Driven Development
     description: >

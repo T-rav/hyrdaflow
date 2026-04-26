@@ -61,6 +61,9 @@ flowchart LR
     end
     subgraph dashboard["Dashboard"]
     end
+    subgraph auto_agent["Auto-Agent (HITL Pre-Flight)"]
+        auto_agent_AutoAgentPreflightLoop([AutoAgentPreflightLoop])
+    end
     subgraph goal_driven_dev["Goal-Driven Development"]
     end
     subgraph orchestration["Orchestration"]
@@ -200,6 +203,22 @@ The operator-facing FastAPI + React dashboard for observing the fleet and overri
 **Related ADRs:** `ADR-0007`, `ADR-0008`, `ADR-0009`, `ADR-0030`
 
 
+## Auto-Agent (HITL Pre-Flight)
+
+The Auto-Agent HITL pre-flight loop intercepts every `hitl-escalation` issue before a human sees it, spawns a Claude Code subprocess with a sub-label-routed "lead engineer" persona prompt, and either auto-resolves or hands off with full context. Per ADR-0050.
+
+**Loops**
+
+- `AutoAgentPreflightLoop` — `src.auto_agent_preflight_loop`
+
+**Module globs**
+
+- `src/auto_agent_preflight_loop.py`
+- `src/preflight/**`
+
+**Related ADRs:** `ADR-0050`
+
+
 ## Goal-Driven Development
 
 The Discover → Shape → Implement track for vague work that the orchestrator can't take directly. Implemented as call-sites in shape_phase.py and discover_phase.py rather than dedicated loops.
@@ -232,4 +251,4 @@ The plan→implement→review pipeline driving each issue from hydraflow-ready t
 **Related ADRs:** `ADR-0001`, `ADR-0004`, `ADR-0011`, `ADR-0012`, `ADR-0029`
 
 
-_Regenerated from commit `e5948ac` on 2026-04-26 01:20 UTC. Source last changed at `e5948ac`. Status: 🟢 fresh._
+_Regenerated from commit `c9d3a95` on 2026-04-26 04:02 UTC. Source last changed at `c9d3a95`. Status: 🟢 fresh._
