@@ -6,6 +6,8 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W17
 
+- `d415312` — chore(arch): regen for runners package + Fake conformance fixes *(2026-04-26)*
+- `3af8d25` — feat(infra): dark-factory infrastructure hardening — spec + plan + PR1 (ADR-0051 + pre-commit arch-check) (#8445) (#8445) *(2026-04-26)*
 - `6cd7920` — docs(wiki): dark-factory engineering — distill lessons from auto-agent journey (#8443) (#8443) *(2026-04-26)*
 - `717e68f` — feat(auto-agent): wire real Claude Code subprocess (closes ADR-0050 partial landing) (#8439) (#8439) *(2026-04-26)*
 - `204084a` — feat(loop): wire DiagramLoop (L24) into runtime — five-checkpoint pattern (#8440) (#8440) *(2026-04-26)*
@@ -142,4 +144,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `c214afd` on 2026-04-26 19:54 UTC. Source last changed at `c214afd`. Status: 🟢 fresh._
+_Regenerated from commit `d415312` on 2026-04-26 21:04 UTC. Source last changed at `d415312`. Status: 🟢 fresh._
