@@ -12,6 +12,8 @@ from mockworld.fakes.fake_fs import FakeFS
 from mockworld.fakes.fake_git import FakeGit
 from mockworld.fakes.fake_github import FakeGitHub
 from mockworld.fakes.fake_http import FakeHTTP
+from mockworld.fakes.fake_issue_fetcher import FakeIssueFetcher
+from mockworld.fakes.fake_issue_store import FakeIssueStore
 from mockworld.fakes.fake_llm import FakeLLM
 from mockworld.fakes.fake_sentry import FakeSentry
 from mockworld.fakes.fake_subprocess_runner import FakeSubprocessRunner
@@ -26,6 +28,8 @@ __all__ = [
     "FakeGit",
     "FakeGitHub",
     "FakeHTTP",
+    "FakeIssueFetcher",
+    "FakeIssueStore",
     "FakeLLM",
     "FakeSentry",
     "FakeSubprocessRunner",
