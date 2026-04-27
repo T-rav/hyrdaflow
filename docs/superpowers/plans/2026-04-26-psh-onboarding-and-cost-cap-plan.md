@@ -76,14 +76,19 @@ def _build_loop(*, cap: float | None = None):
     state = MagicMock()
     state.get_cost_budget_killed_workers = MagicMock(return_value=set())
     state.set_cost_budget_killed_workers = MagicMock()
+    state.get_disabled_workers = MagicMock(return_value=set())
     deps = MagicMock()
+    # Construct without bg_workers (chicken-and-egg per HealthMonitorLoop /
+    # TrustFleetSanityLoop precedent — BGWorkerManager takes the loop
+    # registry as a constructor input, so loops that need bg_workers get
+    # it injected post-construction via set_bg_workers()).
     loop = CostBudgetWatcherLoop(
         config=config,
-        bg_workers=bg_workers,
         pr_manager=pr_manager,
         state=state,
         deps=deps,
     )
+    loop.set_bg_workers(bg_workers)
     return loop, bg_workers, pr_manager, state
 
 
@@ -170,6 +175,38 @@ async def test_recovery_no_op_when_no_prior_kills() -> None:
         result = await loop._do_work()
     assert result["action"] == "ok"
     bg.set_enabled.assert_not_called()
+
+
+async def test_kill_skips_already_operator_disabled_loops() -> None:
+    """If operator already disabled a loop, watcher must not claim authorship
+    or re-enable it on recovery.
+
+    Mechanic: ``_kill_caretakers`` only adds a worker to
+    ``cost_budget_killed_workers`` if ``bg_workers.is_enabled(name)`` was
+    True at kill time. So operator-pre-disabled workers never enter our
+    set; recovery doesn't touch them.
+    """
+    loop, bg, pr, state = _build_loop(cap=10.0)
+    # Operator had `dependabot_merge` disabled before cap was breached.
+    # bg_workers.is_enabled returns False for it, True for everything else.
+
+    def is_enabled(name: str) -> bool:
+        return name != "dependabot_merge"
+
+    bg.is_enabled = MagicMock(side_effect=is_enabled)
+
+    with patch("cost_budget_watcher_loop.build_rolling_24h") as mock_rolling:
+        mock_rolling.return_value = {"total": {"cost_usd": 15.0}}
+        await loop._do_work()
+
+    # Watcher killed everything EXCEPT dependabot_merge (operator already had it off)
+    state.set_cost_budget_killed_workers.assert_called_once()
+    killed_set = state.set_cost_budget_killed_workers.call_args.args[0]
+    assert "dependabot_merge" not in killed_set
+    # And the actual set_enabled(False) call list also excludes it
+    disable_calls = [c for c in bg.set_enabled.call_args_list if c.args[1] is False]
+    disable_names = {c.args[0] for c in disable_calls}
+    assert "dependabot_merge" not in disable_names
 
 
 async def test_kill_switch_short_circuits(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -264,7 +301,6 @@ class CostBudgetWatcherLoop(BaseBackgroundLoop):
         self,
         *,
         config: HydraFlowConfig,
-        bg_workers: Any,  # BGWorkerManager — Any to avoid import cycle
         pr_manager: Any,  # PRPort
         state: Any,  # StateTracker
         deps: LoopDeps,
@@ -274,9 +310,18 @@ class CostBudgetWatcherLoop(BaseBackgroundLoop):
             config=config,
             deps=deps,
         )
-        self._bg_workers = bg_workers
         self._pr_manager = pr_manager
         self._state = state
+        self._bg_workers: Any = None  # injected post-construction
+
+    def set_bg_workers(self, bg_workers: Any) -> None:
+        """Inject BGWorkerManager post-construction.
+
+        Chicken-and-egg: BGWorkerManager takes the loop registry as a
+        constructor input, so loops that need bg_workers get it injected
+        after both are built. Mirrors HealthMonitorLoop / TrustFleetSanityLoop.
+        """
+        self._bg_workers = bg_workers
 
     def _get_default_interval(self) -> int:
         # 5 minutes; configurable via HydraFlowConfig.
@@ -342,7 +387,22 @@ class CostBudgetWatcherLoop(BaseBackgroundLoop):
         return newly_killed
 
     async def _reenable_caretakers(self, killed: set[str]) -> None:
-        """Re-enable only the loops we previously killed."""
+        """Re-enable only the loops we previously killed.
+
+        Operator-override safety is handled at KILL time, not here:
+        ``_kill_caretakers`` only adds a worker to ``cost_budget_killed_workers``
+        if it was enabled before our kill (`bg_workers.is_enabled` returned
+        True). Workers the operator had already disabled never enter our
+        killed-set, so we never claim authorship of them and never
+        re-enable them on recovery.
+
+        **Known gotcha:** if the operator manually disables a worker
+        AFTER we killed it (i.e., during the kill window), recovery will
+        still re-enable it. There's no clean way to detect that without
+        an event log of (name, source, timestamp) for every set_enabled
+        call. Documented in dark-factory.md as the cost-watcher
+        operator-override gotcha.
+        """
         for name in killed:
             try:
                 self._bg_workers.set_enabled(name, True)
@@ -397,11 +457,9 @@ The watcher reads/writes a set of worker names. `StateTracker` doesn't expose th
 - Modify: `src/models.py` — add field to `StateData`
 - Test: extend a state mixin test if one exists
 
-- [ ] **Step 1: Find the right state mixin**
+- [ ] **Step 1: Confirm the state mixin file**
 
-Run: `grep -rn "set_disabled_workers\|get_disabled_workers" src/state/ | head -5`
-
-Expected: identifies the state file that already manages a similar `set[str]` (the operator-disabled-workers set).
+The relevant mixin is `src/state/_worker.py` (`WorkerStateMixin`, lines 16–87). It already exposes `get_disabled_workers()` and `set_disabled_workers(names)` as the precedent for storing `set[str]` worker names. Add the new methods alongside.
 
 - [ ] **Step 2: Add the new field to StateData**
 
@@ -420,20 +478,22 @@ In `src/models.py`, find the `StateData` model (around line 1688) and add a new 
 
 (List, not set — Pydantic-friendly; convert at the API boundary.)
 
-- [ ] **Step 3: Add the getter/setter on StateTracker**
+- [ ] **Step 3: Add the getter/setter on `WorkerStateMixin`**
 
-Find the matching mixin file via the grep in Step 1 (likely `src/state/_persistent_state.py` or similar). Add a getter and setter that match the operator-disabled-workers pattern:
+In `src/state/_worker.py`, after the existing `set_disabled_workers` (around line 87), append:
 
 ```python
-def get_cost_budget_killed_workers(self) -> set[str]:
-    return set(self._data.cost_budget_killed_workers)
+    def get_cost_budget_killed_workers(self) -> set[str]:
+        """Return workers killed by CostBudgetWatcherLoop (distinct from operator-disabled)."""
+        return set(self._data.cost_budget_killed_workers)
 
-def set_cost_budget_killed_workers(self, workers: set[str]) -> None:
-    self._data.cost_budget_killed_workers = sorted(workers)
-    self._persist()
+    def set_cost_budget_killed_workers(self, names: set[str]) -> None:
+        """Persist the set of workers the cost-budget watcher has killed."""
+        self._data.cost_budget_killed_workers = sorted(names)
+        self.save()
 ```
 
-(`_persist()` here is whatever the existing mixin uses — match it exactly.)
+(Note: `save()` not `_persist()` — verified by reading `src/state/_worker.py:21`.)
 
 - [ ] **Step 4: Run state tests**
 
@@ -483,21 +543,20 @@ In the `Services` / `ServiceRegistry` dataclass:
 
 (Place it near the other `*_loop` fields. Alphabetical against neighbors.)
 
-- [ ] **Step 2: Service registry instantiation**
+- [ ] **Step 2: Service registry instantiation (no bg_workers in __init__ — chicken-and-egg)**
 
 In the same file, find where `pricing_refresh_loop = PricingRefreshLoop(...)` is constructed. Add:
 
 ```python
     cost_budget_watcher_loop = CostBudgetWatcherLoop(
         config=config,
-        bg_workers=bg_workers,
         pr_manager=prs,
         state=state,
         deps=loop_deps,
     )
 ```
 
-(`bg_workers` is the `BGWorkerManager` instance — verify the variable name in this scope; if it's `bg_worker_manager` or similar, use that.)
+**Important:** `BGWorkerManager` is constructed in `orchestrator.py:178` AFTER the service registry — it takes the loop registry as input. So `bg_workers` is NOT available here. Loops that need it (like `HealthMonitorLoop` and `TrustFleetSanityLoop`) get it injected post-construction via `set_bg_workers()`. Step 3 below adds the injector call in `orchestrator.py`.
 
 In the `ServiceRegistry(...)` kwargs at the end of the factory:
 
@@ -505,12 +564,18 @@ In the `ServiceRegistry(...)` kwargs at the end of the factory:
     cost_budget_watcher_loop=cost_budget_watcher_loop,
 ```
 
-- [ ] **Step 3: Orchestrator registry + factories**
+- [ ] **Step 3: Orchestrator registry + factories + post-construction injection**
 
 In `src/orchestrator.py`, find the `bg_loop_registry` dict (around line 175). Add:
 
 ```python
             "cost_budget_watcher": svc.cost_budget_watcher_loop,
+```
+
+Find the existing `set_bg_workers` injections (around lines 181–182 — `svc.trust_fleet_sanity_loop.set_bg_workers(self._bg_workers)` and `svc.health_monitor_loop.set_bg_workers(self._bg_workers)`). Add immediately below:
+
+```python
+        svc.cost_budget_watcher_loop.set_bg_workers(self._bg_workers)
 ```
 
 In `loop_factories` (around line 959), add:
@@ -568,14 +633,14 @@ Replace the existing `'pricing_refresh'])` end-of-set with `'pricing_refresh', '
 (c) Add to `BACKGROUND_WORKERS` array (after `pricing_refresh`):
 
 ```js
-  { key: 'cost_budget_watcher', label: 'Cost Budget Watcher', description: 'Polls rolling-24h LLM spend every 5 min; disables caretaker loops when daily cap exceeded; auto-recovers at UTC midnight. Default unlimited (cap=None).', color: theme.cyan, group: 'operations', tags: ['safety'] },
+  { key: 'cost_budget_watcher', label: 'Cost Budget Watcher', description: 'Polls rolling-24h LLM spend every 5 min; disables caretaker loops when daily cap exceeded; auto-recovers as the rolling window drops below the cap. Default unlimited (cap=None).', color: theme.cyan, group: 'operations', tags: ['monitoring'] },
 ```
 
-(`group` must be a valid `WORKER_GROUPS` key — verify by reading the file. If `operations` doesn't exist, use `learning`.)
+**Verify the group key** by reading `WORKER_GROUPS` in the same file. As of PR #8449 the valid keys are `repo_health`, `learning`, `operations`, `intake`, `autonomy`. The `operations` group's existing tags include `monitoring` — using that. If `operations` is gone or renamed, fall back to `learning`.
 
 - [ ] **Step 7: Test SimpleNamespace + catalog**
 
-In `tests/orchestrator_integration_utils.py`, find `services.diagram_loop = FakeBackgroundLoop()` and add below it:
+In `tests/orchestrator_integration_utils.py`, find `services.pricing_refresh_loop = FakeBackgroundLoop()` (line ~502 — landed in PR #8449) and add immediately below it:
 
 ```python
     services.cost_budget_watcher_loop = FakeBackgroundLoop()
@@ -589,13 +654,16 @@ def _build_cost_budget_watcher_loop(
 ) -> Any:
     from cost_budget_watcher_loop import CostBudgetWatcherLoop  # noqa: PLC0415
 
-    return CostBudgetWatcherLoop(
+    loop = CostBudgetWatcherLoop(
         config=config,
-        bg_workers=ports["bg_workers"],
         pr_manager=ports["github"],
         state=ports["state"],
         deps=deps,
     )
+    bg_workers = ports.get("bg_workers")
+    if bg_workers is not None:
+        loop.set_bg_workers(bg_workers)
+    return loop
 ```
 
 In the `_BUILDERS` dict, add:
@@ -610,7 +678,7 @@ In `docs/arch/functional_areas.yml`, find the `caretaking` block's `loops:` list
 
 - [ ] **Step 9: Bump worker-list assertion**
 
-In `tests/test_bg_worker_status.py`, find `assert len(data["workers"]) == 22` (or whatever the current count is — should be 22 from PR #8449's pricing_refresh add). Bump to 23 and add `"cost_budget_watcher"` to the names list (after `"pricing_refresh"`).
+In `tests/test_bg_worker_status.py`, find the `assert len(data["workers"]) == 22` line. PR #8449 bumped it to 22 by adding `pricing_refresh`. Bump to 23 and add `"cost_budget_watcher"` to the names list immediately after `"pricing_refresh"`.
 
 - [ ] **Step 10: Re-emit arch generated docs**
 
@@ -651,108 +719,100 @@ Create `tests/test_multi_repo_runtime_integration.py`:
 
 Closes ADR-0038's "open question" about missing integration test coverage
 for the registry lifecycle. Exercises:
-- RepoRuntimeRegistry.register() with two distinct slugs
+- RepoRuntimeRegistry.register(config) with two distinct slugs (async)
 - Independent state, event_bus instances per runtime
-- /api/runtimes returns both
-- stop() of one doesn't affect the other
+- Removal of one keeps the other
+- Duplicate slug raises ValueError
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from repo_runtime import RepoRuntime, RepoRuntimeRegistry
+from config import HydraFlowConfig
+from repo_runtime import RepoRuntimeRegistry
 
 
-@pytest.fixture
-def make_config():
-    """Factory for minimal HydraFlowConfig per slug."""
-
-    def _factory(slug: str, tmp_path: Path):
-        config = MagicMock()
-        config.repo = slug
-        config.data_root = tmp_path / slug.replace("/", "-")
-        config.data_root.mkdir(parents=True, exist_ok=True)
-        config.repo_root = config.data_root / "checkout"
-        config.repo_root.mkdir(parents=True, exist_ok=True)
-        return config
-
-    return _factory
+def _make_config(slug: str, root: Path) -> HydraFlowConfig:
+    """Build a minimal HydraFlowConfig pointing at an isolated data_root."""
+    data_root = root / slug.replace("/", "-")
+    data_root.mkdir(parents=True, exist_ok=True)
+    repo_root = data_root / "checkout"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    # HydraFlowConfig() defaults are mostly fine; we override repo + paths.
+    return HydraFlowConfig(
+        repo=slug,
+        data_root=data_root,
+        repo_root=repo_root,
+    )
 
 
-def test_registry_holds_two_distinct_runtimes(make_config, tmp_path: Path) -> None:
-    """register(rt_a) + register(rt_b) → registry holds 2, slugs differ."""
-    cfg_a = make_config("org/repo-a", tmp_path)
-    cfg_b = make_config("org/repo-b", tmp_path)
+async def test_registry_holds_two_distinct_runtimes(tmp_path: Path) -> None:
+    """register(cfg_a) + register(cfg_b) → registry holds 2, slugs differ."""
+    cfg_a = _make_config("org/repo-a", tmp_path)
+    cfg_b = _make_config("org/repo-b", tmp_path)
     registry = RepoRuntimeRegistry()
 
-    rt_a = RepoRuntime(config=cfg_a, slug="org/repo-a")
-    rt_b = RepoRuntime(config=cfg_b, slug="org/repo-b")
-    registry.register(rt_a)
-    registry.register(rt_b)
+    rt_a = await registry.register(cfg_a)
+    rt_b = await registry.register(cfg_b)
 
     assert len(registry) == 2
     assert "org/repo-a" in registry
     assert "org/repo-b" in registry
     assert registry.get("org/repo-a") is rt_a
     assert registry.get("org/repo-b") is rt_b
+    assert rt_a.slug != rt_b.slug
 
 
-def test_runtimes_have_independent_state(make_config, tmp_path: Path) -> None:
+async def test_runtimes_have_independent_state(tmp_path: Path) -> None:
     """rt_a.state and rt_b.state are different objects."""
-    cfg_a = make_config("org/repo-a", tmp_path)
-    cfg_b = make_config("org/repo-b", tmp_path)
-    rt_a = RepoRuntime(config=cfg_a, slug="org/repo-a")
-    rt_b = RepoRuntime(config=cfg_b, slug="org/repo-b")
+    cfg_a = _make_config("org/repo-a", tmp_path)
+    cfg_b = _make_config("org/repo-b", tmp_path)
+    registry = RepoRuntimeRegistry()
+    rt_a = await registry.register(cfg_a)
+    rt_b = await registry.register(cfg_b)
     assert rt_a.state is not rt_b.state
     assert rt_a.event_bus is not rt_b.event_bus
+    assert rt_a.config is not rt_b.config
 
 
-def test_register_rejects_duplicate_slug(make_config, tmp_path: Path) -> None:
-    """Same-slug registration raises (or is rejected per the contract)."""
-    cfg_a = make_config("org/repo-a", tmp_path)
-    rt_a1 = RepoRuntime(config=cfg_a, slug="org/repo-a")
-    rt_a2 = RepoRuntime(config=cfg_a, slug="org/repo-a")
+async def test_register_rejects_duplicate_slug(tmp_path: Path) -> None:
+    """Same-slug registration raises ValueError per RepoRuntimeRegistry contract."""
+    cfg = _make_config("org/repo-a", tmp_path)
     registry = RepoRuntimeRegistry()
-    registry.register(rt_a1)
-    with pytest.raises(Exception):  # noqa: B017,PT011
-        registry.register(rt_a2)
+    await registry.register(cfg)
+    cfg2 = _make_config("org/repo-a", tmp_path)
+    with pytest.raises(ValueError, match="already registered"):
+        await registry.register(cfg2)
 
 
-def test_remove_drops_one_keeps_other(make_config, tmp_path: Path) -> None:
+async def test_remove_drops_one_keeps_other(tmp_path: Path) -> None:
     """remove(rt_a) leaves rt_b intact."""
-    cfg_a = make_config("org/repo-a", tmp_path)
-    cfg_b = make_config("org/repo-b", tmp_path)
+    cfg_a = _make_config("org/repo-a", tmp_path)
+    cfg_b = _make_config("org/repo-b", tmp_path)
     registry = RepoRuntimeRegistry()
-    rt_a = RepoRuntime(config=cfg_a, slug="org/repo-a")
-    rt_b = RepoRuntime(config=cfg_b, slug="org/repo-b")
-    registry.register(rt_a)
-    registry.register(rt_b)
+    await registry.register(cfg_a)
+    await registry.register(cfg_b)
     registry.remove("org/repo-a")
     assert "org/repo-a" not in registry
     assert "org/repo-b" in registry
     assert len(registry) == 1
 
 
-def test_slug_normalization_owner_repo_to_owner_dash_repo(
-    make_config, tmp_path: Path
-) -> None:
-    """If RepoRuntimeRegistry normalizes 'owner/repo' ↔ 'owner-repo', either form works."""
-    cfg = make_config("org/repo-a", tmp_path)
+async def test_stop_all_does_not_raise_on_unstarted_runtimes(tmp_path: Path) -> None:
+    """stop_all() on never-started runtimes should be a no-op, not raise."""
+    cfg_a = _make_config("org/repo-a", tmp_path)
+    cfg_b = _make_config("org/repo-b", tmp_path)
     registry = RepoRuntimeRegistry()
-    rt = RepoRuntime(config=cfg, slug="org/repo-a")
-    registry.register(rt)
-    # Either form should resolve to the same runtime.
-    via_slash = registry.get("org/repo-a")
-    via_dash = registry.get("org-repo-a")
-    # If normalization is in effect, both work; if not, just /slash/ works.
-    assert via_slash is rt
-    if via_dash is not None:
-        assert via_dash is rt
+    await registry.register(cfg_a)
+    await registry.register(cfg_b)
+    # neither started — stop_all should handle it
+    await registry.stop_all()
 ```
+
+Note: tests are `async def` and rely on pytest-asyncio (already a project dep — `tests/conftest.py` sets `asyncio_mode = "auto"` per `pyproject.toml`).
 
 - [ ] **Step 2: Run tests**
 
@@ -1069,7 +1129,7 @@ Expected: lint OK, typecheck OK, security OK, tests OK. **11781 (current main) +
 
 Run: `grep -c '"\w*": svc\.' src/orchestrator.py`
 
-Expected: 26 (was 25 before this PR — +1 for `cost_budget_watcher`).
+Expected: 33 (was 32 before this PR — +1 for `cost_budget_watcher`). If your local count differs, use `git diff origin/main..HEAD -- src/orchestrator.py | grep '+.*svc\.' | wc -l` to confirm the delta is exactly 1.
 
 - [ ] **Step 3: Push branch + open PR**
 

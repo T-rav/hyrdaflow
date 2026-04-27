@@ -62,7 +62,7 @@ async def _do_work(self) -> WorkCycleResult:
         return {"cap": None, "action": "unlimited"}
 
     rolling = await asyncio.to_thread(build_rolling_24h, self._config)
-    total = float(rolling.get("total_cost_usd", 0.0))
+    total = float(rolling.get("total", {}).get("cost_usd", 0.0))
 
     if total > cap:
         await self._disable_all_caretaker_loops(reason=f"daily cap ${cap:.2f} exceeded ($${total:.2f})")
@@ -84,15 +84,17 @@ Mechanics:
 
 Default: `daily_cost_budget_usd = None` (already config default). With None, watcher is a no-op every tick — observability only via the `{"action": "unlimited"}` event payload.
 
-### 3.3 CLI command (optional polish, included in scope)
+### 3.3 CLI command — DEFERRED
 
-`hf repos add <path>` — thin Click/Typer wrapper that:
-1. Resolves path to absolute
-2. Reads dashboard's TCP port from `~/.hydraflow/dashboard-port` or env
-3. POSTs to `/api/repos/add` with the path
-4. Prints the slug + onboarding status
+The original plan included a `hf repos add <path>` CLI wrapper. Dropped from scope on plan-write: there's no `hf_cli` package in current main and building one is significant scope creep. Operators onboard PSH by calling the dashboard's `POST /api/repos/add` endpoint via the UI or `curl`:
 
-This is convenience only — operators can use `curl` or the dashboard UI today. Adding it makes the dark-factory story cleaner ("`hf repos add ../poop-scoop-hero` and it's onboarded").
+```bash
+curl -X POST http://localhost:8080/api/repos/add \
+  -H 'Content-Type: application/json' \
+  -d '{"path":"/Users/travisf/Documents/projects/poop-scoop-hero"}'
+```
+
+Wiki addition documents the curl command. Add a CLI in a follow-up PR if it becomes annoying.
 
 ## 4. Failure modes + handling
 
@@ -148,18 +150,16 @@ This is sufficient isolation to onboard PSH without any new isolation code.
   - No-drift scenario: cap=10, total=5 → no-op
   - Unlimited: cap=None → no-op every tick
 
-### Fixtures
-- `tests/fixtures/inferences_over_budget.jsonl` — minimal LLM-call records summing to >$10
 
 ## 7. Files to create / modify
 
 **Create:**
 - `src/cost_budget_watcher_loop.py` — `CostBudgetWatcherLoop(BaseBackgroundLoop)`
-- `src/hf_cli/repo_commands.py` — `repos add <path>` Click subcommand
 - `tests/test_cost_budget_watcher_scenario.py` — 7 unit tests
 - `tests/test_multi_repo_runtime_integration.py` — 5 integration tests
 - `tests/scenarios/test_cost_budget_watcher_mockworld.py` — 3 MockWorld scenarios
-- `tests/fixtures/inferences_over_budget.jsonl`
+
+(No fixture file needed — tests mock `build_rolling_24h` directly.)
 
 **Modify (eight-checkpoint wiring for the new loop):**
 - `src/service_registry.py` — import + dataclass field + factory
