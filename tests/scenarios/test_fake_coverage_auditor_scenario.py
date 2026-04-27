@@ -20,7 +20,8 @@ onto the instantiated loop — mirroring the F7 FlakeTracker
 
 On-disk layout is seeded under ``config.repo_root`` (which
 ``make_bg_loop_deps`` sets to ``<tmp_path>/repo``), so the loop's
-``repo / "tests" / "scenarios" / "fakes"`` and
+``repo / "src" / "mockworld" / "fakes"`` (post-Task-1.1 relocation;
+see ADR-0052 landing in PR B) and
 ``repo / "tests" / "trust" / "contracts" / "cassettes"`` paths resolve
 to real seeded files.
 """
@@ -49,7 +50,9 @@ class TestFakeCoverageAuditor:
 
         # Seed under config.repo_root (= tmp_path / "repo" per make_bg_loop_deps).
         repo = tmp_path / "repo"
-        fake_dir = repo / "tests" / "scenarios" / "fakes"
+        # Seed at the new canonical Fake location (post-Task-1.1 of the
+        # sandbox-tier scenario testing track; see ADR-0052 landing in PR B).
+        fake_dir = repo / "src" / "mockworld" / "fakes"
         fake_dir.mkdir(parents=True)
         (fake_dir / "fake_github.py").write_text(
             "class FakeGitHub:\n"
@@ -89,7 +92,9 @@ class TestFakeCoverageAuditor:
         fake_pr.create_issue = AsyncMock(return_value=502)
 
         repo = tmp_path / "repo"
-        fake_dir = repo / "tests" / "scenarios" / "fakes"
+        # Seed at the new canonical Fake location (post-Task-1.1 of the
+        # sandbox-tier scenario testing track; see ADR-0052 landing in PR B).
+        fake_dir = repo / "src" / "mockworld" / "fakes"
         fake_dir.mkdir(parents=True)
         (fake_dir / "fake_docker.py").write_text(
             "class FakeDocker:\n    def script_run(self, events): ...\n"
