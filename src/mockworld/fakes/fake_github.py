@@ -117,6 +117,8 @@ class FakeGitHub:
 
     def add_pr_label(self, pr_number: int, label: str) -> None:
         """Seed-API helper: attach a label to a fake PR."""
+        if pr_number not in self._prs:
+            raise KeyError(f"FakeGitHub: no PR {pr_number}")
         pr = self._prs[pr_number]
         if label not in pr.labels:
             pr.labels.append(label)

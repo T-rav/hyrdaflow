@@ -44,3 +44,10 @@ async def test_list_prs_by_label_excludes_merged_prs() -> None:
     prs = await gh.list_prs_by_label("sandbox-fail-auto-fix")
 
     assert prs == [], "merged PRs should not appear in by-label query"
+
+
+@pytest.mark.asyncio
+async def test_add_pr_label_raises_descriptive_keyerror_for_missing_pr() -> None:
+    gh = FakeGitHub()
+    with pytest.raises(KeyError, match="FakeGitHub: no PR 999"):
+        gh.add_pr_label(999, "any-label")

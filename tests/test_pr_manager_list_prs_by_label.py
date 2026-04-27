@@ -43,10 +43,19 @@ async def test_list_prs_by_label_calls_gh_with_label_filter(config, event_bus) -
     cmd_args = mock.call_args.args
     assert "pr" in cmd_args
     assert "list" in cmd_args
-    assert "--label" in cmd_args
-    assert "sandbox-fail-auto-fix" in cmd_args
-    assert "--state" in cmd_args
-    assert "open" in cmd_args
+
+    # Verify --repo is passed (without it, gh defaults to CWD-inferred repo).
+    assert "--repo" in cmd_args
+    repo_idx = cmd_args.index("--repo")
+    assert cmd_args[repo_idx + 1] == "test-org/test-repo"
+
+    # Verify --label passes the right value at the right position.
+    label_idx = cmd_args.index("--label")
+    assert cmd_args[label_idx + 1] == "sandbox-fail-auto-fix"
+
+    # Verify --state open is correctly paired (not e.g. --state closed --foo open).
+    state_idx = cmd_args.index("--state")
+    assert cmd_args[state_idx + 1] == "open"
 
 
 @pytest.mark.asyncio
