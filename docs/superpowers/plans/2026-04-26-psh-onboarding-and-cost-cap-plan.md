@@ -256,8 +256,21 @@ from typing import Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
-from dashboard_routes._cost_rollups import build_rolling_24h
 from models import WorkCycleResult
+
+
+def build_rolling_24h(config: HydraFlowConfig) -> dict[str, Any]:
+    """Lazy wrapper around dashboard_routes._cost_rollups.build_rolling_24h.
+
+    Importing dashboard_routes at module load time triggers a circular
+    import (matches the pattern at src/report_issue_loop.py:43-60).
+    The wrapper is the patch target for tests.
+    """
+    from dashboard_routes._cost_rollups import (  # noqa: PLC0415
+        build_rolling_24h as _impl,
+    )
+
+    return _impl(config)
 
 logger = logging.getLogger(__name__)
 
@@ -495,16 +508,41 @@ In `src/state/_worker.py`, after the existing `set_disabled_workers` (around lin
 
 (Note: `save()` not `_persist()` — verified by reading `src/state/_worker.py:21`.)
 
-- [ ] **Step 4: Run state tests**
+- [ ] **Step 4: Add unit tests for the new mixin methods**
 
-Run: `uv run pytest tests/test_state_*.py tests/test_persistent_state.py -v 2>&1 | tail -10` (find the right pattern via `ls tests/test_state*.py tests/test_*state*.py`)
+Find the existing test file via: `grep -rln "set_disabled_workers\|get_disabled_workers" tests/ | head -3`
 
-Expected: all pass with the new field defaulting to `[]`.
+In that file, append (matching the existing fixture pattern — likely `state_tracker` or a path-based setup):
 
-- [ ] **Step 5: Commit**
+```python
+def test_get_cost_budget_killed_workers_defaults_to_empty(state_tracker) -> None:
+    assert state_tracker.get_cost_budget_killed_workers() == set()
+
+
+def test_set_cost_budget_killed_workers_round_trips(state_tracker) -> None:
+    state_tracker.set_cost_budget_killed_workers({"a", "b", "c"})
+    assert state_tracker.get_cost_budget_killed_workers() == {"a", "b", "c"}
+
+
+def test_set_cost_budget_killed_workers_clearable(state_tracker) -> None:
+    """Recovery path passes set() to clear; round-trips correctly."""
+    state_tracker.set_cost_budget_killed_workers({"x", "y"})
+    state_tracker.set_cost_budget_killed_workers(set())
+    assert state_tracker.get_cost_budget_killed_workers() == set()
+```
+
+(Replace `state_tracker` with whatever fixture name the existing file uses — match the precedent for `set_disabled_workers` exactly. If the file uses a path-based pattern instead of a fixture, fall back to that.)
+
+- [ ] **Step 5: Run state tests**
+
+Run: `uv run pytest tests/test_state_*.py tests/test_persistent_state.py tests/test_state.py -v -k "cost_budget or disabled_workers" 2>&1 | tail -15`
+
+Expected: 3 new tests PASS + the existing operator-disabled-workers tests still pass.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/models.py src/state/
+git add src/models.py src/state/ tests/
 git commit -m "feat(state): cost_budget_killed_workers set on StateTracker"
 ```
 
@@ -705,131 +743,32 @@ git commit -m "feat(loop): wire CostBudgetWatcherLoop into runtime — eight-che
 
 ---
 
-## Task 4: Multi-repo runtime integration test (closes ADR-0038 missing-test gap)
+## Task 4 — DEFERRED: Multi-repo runtime integration test
 
-**Files:**
-- Create: `tests/test_multi_repo_runtime_integration.py`
+**Originally specced** as new tests for `RepoRuntimeRegistry` to close ADR-0038's missing-test gap. **Pass #2 review found** that `tests/test_repo_runtime.py::TestRepoRuntimeRegistry` already provides equivalent coverage:
+- `test_register_and_get`
+- `test_register_duplicate_raises`
+- `test_remove_deregisters_and_stops_runtime`
+- `test_stop_all`
+- `test_two_runtimes_isolated` (lines 269–298)
 
-- [ ] **Step 1: Write the integration test**
+That last one specifically validates 2-runtime isolation (independent state, event_bus, orchestrator) — which is what ADR-0038 flagged as missing. New tests would either duplicate this coverage or require extensive `RepoRuntime.__init__` mocks (the existing tests use `with patch("repo_runtime.HydraFlowOrchestrator"), patch("repo_runtime.EventBus", ...), patch("repo_runtime.build_state_tracker"), patch("repo_runtime.EventLog"):` to keep construction tractable).
 
-Create `tests/test_multi_repo_runtime_integration.py`:
+**Decision:** drop. ADR-0038's missing-test gap is closed by the existing tests; the spec's claim that this PR adds new coverage is incorrect. Update spec §6 + §7 accordingly (covered in the spec-narrative-cleanup edit below).
 
-```python
-"""Integration: register two RepoRuntimes, verify isolation.
+This task has no implementation steps — kept here as documentation of why it was dropped.
 
-Closes ADR-0038's "open question" about missing integration test coverage
-for the registry lifecycle. Exercises:
-- RepoRuntimeRegistry.register(config) with two distinct slugs (async)
-- Independent state, event_bus instances per runtime
-- Removal of one keeps the other
-- Duplicate slug raises ValueError
-"""
+## Task 5 — DEFERRED: MockWorld scenarios for the watcher
 
-from __future__ import annotations
+**Originally specced** as 3 MockWorld `run_with_loops(["cost_budget_watcher"])` scenarios. **Pass #2 review found** two blockers:
+1. `MockWorld` doesn't expose a `.config` attribute the test can mutate; the loop's `config` is built internally by `make_bg_loop_deps(tmp_path)` at `mock_world.py:612`. Setting `world.config.daily_cost_budget_usd` doesn't flow into the loop.
+2. Adding config-mutation plumbing through `_seed_ports` is a bigger architectural change than the scenarios warrant.
 
-from pathlib import Path
+**Decision:** drop. Task 1's 8 unit tests cover the same logic with `build_rolling_24h` mocked directly. Catalog wiring is checked by Task 7's regression test.
 
-import pytest
-
-from config import HydraFlowConfig
-from repo_runtime import RepoRuntimeRegistry
-
-
-def _make_config(slug: str, root: Path) -> HydraFlowConfig:
-    """Build a minimal HydraFlowConfig pointing at an isolated data_root."""
-    data_root = root / slug.replace("/", "-")
-    data_root.mkdir(parents=True, exist_ok=True)
-    repo_root = data_root / "checkout"
-    repo_root.mkdir(parents=True, exist_ok=True)
-    # HydraFlowConfig() defaults are mostly fine; we override repo + paths.
-    return HydraFlowConfig(
-        repo=slug,
-        data_root=data_root,
-        repo_root=repo_root,
-    )
-
-
-async def test_registry_holds_two_distinct_runtimes(tmp_path: Path) -> None:
-    """register(cfg_a) + register(cfg_b) → registry holds 2, slugs differ."""
-    cfg_a = _make_config("org/repo-a", tmp_path)
-    cfg_b = _make_config("org/repo-b", tmp_path)
-    registry = RepoRuntimeRegistry()
-
-    rt_a = await registry.register(cfg_a)
-    rt_b = await registry.register(cfg_b)
-
-    assert len(registry) == 2
-    assert "org/repo-a" in registry
-    assert "org/repo-b" in registry
-    assert registry.get("org/repo-a") is rt_a
-    assert registry.get("org/repo-b") is rt_b
-    assert rt_a.slug != rt_b.slug
-
-
-async def test_runtimes_have_independent_state(tmp_path: Path) -> None:
-    """rt_a.state and rt_b.state are different objects."""
-    cfg_a = _make_config("org/repo-a", tmp_path)
-    cfg_b = _make_config("org/repo-b", tmp_path)
-    registry = RepoRuntimeRegistry()
-    rt_a = await registry.register(cfg_a)
-    rt_b = await registry.register(cfg_b)
-    assert rt_a.state is not rt_b.state
-    assert rt_a.event_bus is not rt_b.event_bus
-    assert rt_a.config is not rt_b.config
-
-
-async def test_register_rejects_duplicate_slug(tmp_path: Path) -> None:
-    """Same-slug registration raises ValueError per RepoRuntimeRegistry contract."""
-    cfg = _make_config("org/repo-a", tmp_path)
-    registry = RepoRuntimeRegistry()
-    await registry.register(cfg)
-    cfg2 = _make_config("org/repo-a", tmp_path)
-    with pytest.raises(ValueError, match="already registered"):
-        await registry.register(cfg2)
-
-
-async def test_remove_drops_one_keeps_other(tmp_path: Path) -> None:
-    """remove(rt_a) leaves rt_b intact."""
-    cfg_a = _make_config("org/repo-a", tmp_path)
-    cfg_b = _make_config("org/repo-b", tmp_path)
-    registry = RepoRuntimeRegistry()
-    await registry.register(cfg_a)
-    await registry.register(cfg_b)
-    registry.remove("org/repo-a")
-    assert "org/repo-a" not in registry
-    assert "org/repo-b" in registry
-    assert len(registry) == 1
-
-
-async def test_stop_all_does_not_raise_on_unstarted_runtimes(tmp_path: Path) -> None:
-    """stop_all() on never-started runtimes should be a no-op, not raise."""
-    cfg_a = _make_config("org/repo-a", tmp_path)
-    cfg_b = _make_config("org/repo-b", tmp_path)
-    registry = RepoRuntimeRegistry()
-    await registry.register(cfg_a)
-    await registry.register(cfg_b)
-    # neither started — stop_all should handle it
-    await registry.stop_all()
-```
-
-Note: tests are `async def` and rely on pytest-asyncio (already a project dep — `tests/conftest.py` sets `asyncio_mode = "auto"` per `pyproject.toml`).
-
-- [ ] **Step 2: Run tests**
-
-Run: `uv run pytest tests/test_multi_repo_runtime_integration.py -v`
-
-Expected: 5 PASS. (The slug-normalization test is permissive — it's defensively coded so either behavior passes.)
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/test_multi_repo_runtime_integration.py
-git commit -m "test(multi-repo): integration tests for RepoRuntimeRegistry — closes ADR-0038 gap"
-```
+This task has no implementation steps.
 
 ---
-
-## Task 5: MockWorld scenarios for the watcher
 
 **Files:**
 - Create: `tests/scenarios/test_cost_budget_watcher_mockworld.py`

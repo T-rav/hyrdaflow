@@ -65,7 +65,7 @@ async def _do_work(self) -> WorkCycleResult:
     total = float(rolling.get("total", {}).get("cost_usd", 0.0))
 
     if total > cap:
-        await self._disable_all_caretaker_loops(reason=f"daily cap ${cap:.2f} exceeded ($${total:.2f})")
+        await self._disable_all_caretaker_loops()
         return {"cap": cap, "total": total, "action": "killed"}
 
     if self._previously_killed():
@@ -77,9 +77,9 @@ async def _do_work(self) -> WorkCycleResult:
 
 Mechanics:
 - Reads existing `cost_rollups.build_rolling_24h(config)` (already shipped in PR #8447) for total spend
-- When over cap → calls `BGWorkerManager.set_enabled(name, False, reason=...)` for every loop in `_TARGET_WORKERS` (a curated list — pricing_refresh, dependabot_merge, security_patch, ci_monitor, principles_audit, etc. The watcher itself is NOT in the list — it must keep running to detect recovery)
-- When 24h rolling drops back below cap (e.g., at UTC midnight) → calls `set_enabled(name, True, reason="daily cap recovered")` for the same set
-- "Previously killed" tracked via state — `state.cost_budget_killed_at: str | None` (ISO timestamp). Set on kill, cleared on recovery.
+- When over cap → calls `BGWorkerManager.set_enabled(name, False)` for every loop in `_TARGET_WORKERS` that is currently enabled (a curated list — pricing_refresh, dependabot_merge, security_patch, ci_monitor, principles_audit, etc. The watcher itself is NOT in the list — it must keep running to detect recovery). Operator-pre-disabled workers are skipped at kill time (`is_enabled(name)` is False) so the watcher never claims authorship of them.
+- When the 24h rolling sliding window drops back below cap (typically as old high-cost inferences age out, often around UTC midnight if the spike was concentrated late in a day) → calls `set_enabled(name, True)` for the worker set the watcher previously killed.
+- "Watcher's killed set" tracked via state — `state.cost_budget_killed_workers: list[str]` (sorted set of worker names). Empty when no prior kill; populated on kill; cleared to empty on recovery.
 - Files a `hydraflow-find` issue with `[cost-budget] daily cap exceeded` title-prefix dedup on first kill of a given calendar day. Issue auto-closes when watcher detects recovery (uses existing `pr_manager.close_issue` if exists, else just leaves a comment).
 
 Default: `daily_cost_budget_usd = None` (already config default). With None, watcher is a no-op every tick — observability only via the `{"action": "unlimited"}` event payload.
@@ -103,7 +103,7 @@ Wiki addition documents the curl command. Add a CLI in a follow-up PR if it beco
 | `daily_cost_budget_usd = None` (default) | Watcher tick is a no-op; emits `{"action": "unlimited"}` for telemetry; never kills anything |
 | Rolling-24h cost compute raises | Log + retry next tick; do NOT kill loops on an unknown cost state |
 | Cap breached, kill executes mid-tick | Other loops finish their current tick, then are gated on next tick by `enabled_cb` |
-| Recovery (rolling drops back below cap) | Re-enable all loops in `_TARGET_WORKERS`; reset `state.cost_budget_killed_at = None`; comment on the dedup'd issue |
+| Recovery (rolling drops back below cap) | Re-enable workers in `state.cost_budget_killed_workers`; reset that set to empty; comment on the dedup'd issue |
 | Operator manually disables loops while watcher is in killed-state | Respect operator state — when watcher tries to re-enable, it only re-enables loops it killed (track in state which loops were killed by the watcher) |
 | Dashboard unreachable when CLI runs | CLI prints clear error, suggests `--dashboard-port` flag |
 | `register_repo_cb` fails (e.g., duplicate slug) | Endpoint returns 409 with detail; CLI surfaces it; PSH state unchanged |
@@ -117,7 +117,7 @@ The existing `RepoRuntime` + `RepoRegistryStore` provide:
 - `data_root/<slug>/state.json` per-repo
 - GitHub `gh` CLI calls take an explicit `--repo <slug>` parameter when the per-runtime `PRPort` is constructed (each `RepoRuntime` builds its own `PRManager(config)` with `config.repo` set to the runtime's slug)
 
-**Caveat:** the three fleet-level loops (`PrinciplesAuditLoop`, `WikiRotDetectorLoop`, `RepoWikiLoop`) currently iterate `managed_repos` from the **primary** runtime and call `gh` with explicit `--repo` flags. They share the primary runtime's PRPort instance. This is fine — they're explicitly cross-repo by design — but it means `state.cost_budget_killed_at` is recorded against the primary runtime, not per-runtime. Acceptable for v1.
+**Caveat:** the three fleet-level loops (`PrinciplesAuditLoop`, `WikiRotDetectorLoop`, `RepoWikiLoop`) currently iterate `managed_repos` from the **primary** runtime and call `gh` with explicit `--repo` flags. They share the primary runtime's PRPort instance. This is fine — they're explicitly cross-repo by design — but it means `state.cost_budget_killed_workers` is recorded against the primary runtime, not per-runtime. Acceptable for v1.
 
 This is sufficient isolation to onboard PSH without any new isolation code.
 
@@ -136,30 +136,24 @@ This is sufficient isolation to onboard PSH without any new isolation code.
 
 ### Integration tests
 
-- `tests/test_multi_repo_runtime_integration.py` — closes the ADR-0038 gap explicitly:
-  - Register `org/repo-a` + `org/repo-b` via `RepoRuntimeRegistry`
-  - Start both runtimes with mocked orchestrators
-  - Assert `state`, `event_bus`, `worktree_path` are isolated
-  - Assert `/api/runtimes` returns both
-  - Stop one, assert the other keeps running
+- `tests/test_state.py` (or whichever existing state test file covers `WorkerStateMixin`) — append 3 unit tests for `get_cost_budget_killed_workers` / `set_cost_budget_killed_workers` (defaults empty, round-trips, clearable).
 
-### MockWorld scenario
+### Multi-repo registry coverage — already exists
 
-- `tests/scenarios/test_cost_budget_watcher_mockworld.py` — full `run_with_loops` path:
-  - Drift scenario: cap=10, total=15 → kill action observed via stats
-  - No-drift scenario: cap=10, total=5 → no-op
-  - Unlimited: cap=None → no-op every tick
+Note: ADR-0038 originally flagged "multi-repo registry has no integration test." Pass #2 review surfaced that `tests/test_repo_runtime.py::TestRepoRuntimeRegistry::test_two_runtimes_isolated` (lines 269–298) already provides this coverage. No new integration tests needed; the gap was closed before this PR.
+
+### MockWorld scenario — DEFERRED
+
+Originally specced. Pass #2 review found `MockWorld` doesn't expose a config attribute the test can mutate to set `daily_cost_budget_usd`. Plumbing this through `_seed_ports` is bigger architectural work than the scenarios warrant. Task 1's 8 unit tests cover the same logic. Catalog wiring is tested by Task 7 regression test.
 
 
 ## 7. Files to create / modify
 
 **Create:**
-- `src/cost_budget_watcher_loop.py` — `CostBudgetWatcherLoop(BaseBackgroundLoop)`
-- `tests/test_cost_budget_watcher_scenario.py` — 7 unit tests
-- `tests/test_multi_repo_runtime_integration.py` — 5 integration tests
-- `tests/scenarios/test_cost_budget_watcher_mockworld.py` — 3 MockWorld scenarios
+- `src/cost_budget_watcher_loop.py` — `CostBudgetWatcherLoop(BaseBackgroundLoop)` (with lazy `build_rolling_24h` wrapper to avoid circular import per `report_issue_loop.py:43-60` precedent)
+- `tests/test_cost_budget_watcher_scenario.py` — 8 unit tests
 
-(No fixture file needed — tests mock `build_rolling_24h` directly.)
+(No fixture file needed — tests mock `build_rolling_24h` directly. Multi-repo registry coverage already exists at `tests/test_repo_runtime.py:269`. MockWorld scenarios deferred per §6.)
 
 **Modify (eight-checkpoint wiring for the new loop):**
 - `src/service_registry.py` — import + dataclass field + factory
