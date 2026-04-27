@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.scenarios.fakes.fake_git import FakeGit
+from mockworld.fakes.fake_git import FakeGit
 from tests.trust.contracts._replay import FakeOutput, list_cassettes, replay_cassette
 from tests.trust.contracts._schema import Cassette
 

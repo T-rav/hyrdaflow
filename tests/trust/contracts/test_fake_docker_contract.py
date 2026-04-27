@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from tests.scenarios.fakes.fake_docker import FakeDocker
+from mockworld.fakes.fake_docker import FakeDocker
 from tests.trust.contracts._replay import FakeOutput, list_cassettes, replay_cassette
 from tests.trust.contracts._schema import Cassette
 

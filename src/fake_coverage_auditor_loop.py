@@ -1,7 +1,7 @@
 """FakeCoverageAuditorLoop — weekly un-cassetted-method detector.
 
 Spec: `docs/superpowers/specs/2026-04-22-trust-architecture-hardening-design.md`
-§4.7. Introspects fake classes under `tests/scenarios/fakes/` via
+§4.7. Introspects fake classes under `src/mockworld/fakes/` via
 ``ast.parse`` and compares two method sets to their coverage sources:
 
 - ``adapter-surface`` — public non-private methods. Covered by a
@@ -285,7 +285,7 @@ class FakeCoverageAuditorLoop(BaseBackgroundLoop):
         await self._reconcile_closed_escalations()
 
         repo = self._config.repo_root
-        fake_dir = repo / "tests" / "scenarios" / "fakes"
+        fake_dir = repo / "src" / "mockworld" / "fakes"
         cassette_root = repo / "tests" / "trust" / "contracts" / "cassettes"
         catalog = catalog_fake_methods(fake_dir)
         if not catalog:

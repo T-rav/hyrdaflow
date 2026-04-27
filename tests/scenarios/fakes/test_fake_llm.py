@@ -19,7 +19,7 @@ pytestmark = pytest.mark.scenario
 
 class TestFakeLLMScriptedResults:
     async def test_returns_scripted_triage_result(self):
-        from tests.scenarios.fakes.fake_llm import FakeLLM
+        from mockworld.fakes.fake_llm import FakeLLM
 
         llm = FakeLLM()
         scripted = TriageResultFactory.create(issue_number=1, ready=False)
@@ -30,7 +30,7 @@ class TestFakeLLMScriptedResults:
         assert result.ready is False
 
     async def test_triage_default_when_no_script(self):
-        from tests.scenarios.fakes.fake_llm import FakeLLM
+        from mockworld.fakes.fake_llm import FakeLLM
 
         llm = FakeLLM()
         task = TaskFactory.create(id=1)
@@ -38,7 +38,7 @@ class TestFakeLLMScriptedResults:
         assert result.ready is True
 
     async def test_plan_pops_sequence(self):
-        from tests.scenarios.fakes.fake_llm import FakeLLM
+        from mockworld.fakes.fake_llm import FakeLLM
 
         llm = FakeLLM()
         fail = PlanResultFactory.create(issue_number=1, success=False)
@@ -52,7 +52,7 @@ class TestFakeLLMScriptedResults:
         assert r2.success is True
 
     async def test_implement_returns_scripted_worker_result(self):
-        from tests.scenarios.fakes.fake_llm import FakeLLM
+        from mockworld.fakes.fake_llm import FakeLLM
 
         llm = FakeLLM()
         fail_result = WorkerResultFactory.create(
@@ -66,9 +66,9 @@ class TestFakeLLMScriptedResults:
         assert result.error == "compilation error"
 
     async def test_review_returns_scripted_result(self):
+        from mockworld.fakes.fake_llm import FakeLLM
         from models import ReviewVerdict
         from tests.conftest import PRInfoFactory
-        from tests.scenarios.fakes.fake_llm import FakeLLM
 
         llm = FakeLLM()
         reject = ReviewResultFactory.create(
@@ -82,7 +82,7 @@ class TestFakeLLMScriptedResults:
         assert result.verdict == ReviewVerdict.REQUEST_CHANGES
 
     async def test_last_scripted_result_is_sticky(self):
-        from tests.scenarios.fakes.fake_llm import FakeLLM
+        from mockworld.fakes.fake_llm import FakeLLM
 
         llm = FakeLLM()
         reject = PlanResultFactory.create(issue_number=1, success=False)
@@ -98,7 +98,7 @@ class TestFakeLLMScriptedResults:
         assert r3.success is False
 
     async def test_tracing_context_methods_are_noops(self):
-        from tests.scenarios.fakes.fake_llm import FakeLLM
+        from mockworld.fakes.fake_llm import FakeLLM
 
         llm = FakeLLM()
         # These must not raise
@@ -113,7 +113,7 @@ class TestFakeLLMScriptedResults:
 
 
 async def test_token_budget_planner_passes_first_call_then_fails() -> None:
-    from tests.scenarios.fakes.fake_llm import FakeLLM
+    from mockworld.fakes.fake_llm import FakeLLM
 
     llm = FakeLLM()
     llm.script_plan(
@@ -135,8 +135,8 @@ async def test_token_budget_planner_passes_first_call_then_fails() -> None:
 
 async def test_token_budget_reviewer_same_behavior() -> None:
     """Reviewer also honors the token budget."""
+    from mockworld.fakes.fake_llm import FakeLLM
     from tests.conftest import PRInfoFactory
-    from tests.scenarios.fakes.fake_llm import FakeLLM
 
     llm = FakeLLM()
     llm.script_review(
@@ -161,7 +161,7 @@ async def test_token_budget_reviewer_same_behavior() -> None:
 
 
 async def test_no_budget_set_means_no_gating() -> None:
-    from tests.scenarios.fakes.fake_llm import FakeLLM
+    from mockworld.fakes.fake_llm import FakeLLM
 
     llm = FakeLLM()
     llm.script_plan(1, [PlanResultFactory.create(issue_number=1, success=True)])
@@ -170,8 +170,8 @@ async def test_no_budget_set_means_no_gating() -> None:
 
 
 async def test_triage_runner_script_decomposition_returns_scripted_result() -> None:
+    from mockworld.fakes.fake_llm import FakeLLM
     from models import EpicDecompResult, NewIssueSpec
-    from tests.scenarios.fakes.fake_llm import FakeLLM
 
     llm = FakeLLM()
     decomp = EpicDecompResult(
@@ -189,7 +189,7 @@ async def test_triage_runner_script_decomposition_returns_scripted_result() -> N
 
 
 async def test_triage_runner_default_decomposition_is_false() -> None:
-    from tests.scenarios.fakes.fake_llm import FakeLLM
+    from mockworld.fakes.fake_llm import FakeLLM
 
     llm = FakeLLM()
     result = await llm.triage_runner.run_decomposition(TaskFactory.create(id=99))
@@ -197,9 +197,9 @@ async def test_triage_runner_default_decomposition_is_false() -> None:
 
 
 async def test_review_runner_captures_code_scanning_alerts() -> None:
+    from mockworld.fakes.fake_llm import FakeLLM
     from models import CodeScanningAlert
     from tests.conftest import PRInfoFactory
-    from tests.scenarios.fakes.fake_llm import FakeLLM
 
     llm = FakeLLM()
     alerts = [
@@ -221,8 +221,8 @@ async def test_review_runner_captures_code_scanning_alerts() -> None:
 
 
 async def test_review_runner_no_alerts_captures_empty_list() -> None:
+    from mockworld.fakes.fake_llm import FakeLLM
     from tests.conftest import PRInfoFactory
-    from tests.scenarios.fakes.fake_llm import FakeLLM
 
     llm = FakeLLM()
     pr = PRInfoFactory.create(number=42, issue_number=7, branch="feat/x")
@@ -234,8 +234,8 @@ async def test_review_runner_no_alerts_captures_empty_list() -> None:
 
 async def test_fix_ci_default_returns_fixes_made_true() -> None:
     """Default fix_ci (no script) returns fixes_made=True."""
+    from mockworld.fakes.fake_llm import FakeLLM
     from tests.conftest import PRInfoFactory
-    from tests.scenarios.fakes.fake_llm import FakeLLM
 
     llm = FakeLLM()
     pr = PRInfoFactory.create(number=42, issue_number=1, branch="feat/x")
@@ -248,9 +248,9 @@ async def test_fix_ci_default_returns_fixes_made_true() -> None:
 
 async def test_fix_ci_scripted_result_overrides_default() -> None:
     """script_fix_ci causes fix_ci to return the scripted result (fixes_made=False)."""
+    from mockworld.fakes.fake_llm import FakeLLM
     from models import ReviewVerdict
     from tests.conftest import PRInfoFactory
-    from tests.scenarios.fakes.fake_llm import FakeLLM
 
     llm = FakeLLM()
     scripted = ReviewResultFactory.create(

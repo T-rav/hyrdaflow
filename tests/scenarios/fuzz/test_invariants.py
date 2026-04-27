@@ -13,10 +13,10 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
+from mockworld.fakes.fake_beads import FakeBeads
+from mockworld.fakes.fake_github import FakeGitHub
 from tests.scenarios.builders.issue import IssueBuilder
 from tests.scenarios.builders.pr import PRBuilder
-from tests.scenarios.fakes.fake_beads import FakeBeads
-from tests.scenarios.fakes.fake_github import FakeGitHub
 from tests.scenarios.fakes.mock_world import MockWorld
 from tests.scenarios.fuzz.strategies import (
     issue_builders,
@@ -159,7 +159,7 @@ async def test_fake_github_pr_numbers_unique(num_prs: int) -> None:
 @_DEFAULT_SETTINGS
 def test_seed_issue_with_valid_labels_preserves_them(labels: list[str]) -> None:
     """Seeding with valid labels round-trips through FakeGitHub unchanged."""
-    from tests.scenarios.fakes.fake_github import FakeGitHub
+    from mockworld.fakes.fake_github import FakeGitHub
 
     gh = FakeGitHub()
     gh.add_issue(1, "t", "b", labels=labels)

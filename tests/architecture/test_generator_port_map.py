@@ -18,8 +18,8 @@ def test_renders_port_with_adapter_and_fake():
             ],
             fake=PortAdapterInfo(
                 name="FakeWidget",
-                module="tests.scenarios.fakes.fake_widget",
-                source_path="tests/scenarios/fakes/fake_widget.py",
+                module="mockworld.fakes.fake_widget",
+                source_path="src/mockworld/fakes/fake_widget.py",
                 is_fake=True,
             ),
         )

@@ -96,7 +96,7 @@ def test_catalog_cassette_methods_reads_input_command(tmp_path: Path) -> None:
 async def test_do_work_files_surface_gap(loop_env, monkeypatch, tmp_path) -> None:
     """Un-cassetted public method → one ``adapter-surface`` issue."""
     cfg, state, pr, dedup = loop_env
-    fake_dir = tmp_path / "tests" / "scenarios" / "fakes"
+    fake_dir = tmp_path / "src" / "mockworld" / "fakes"
     fake_dir.mkdir(parents=True)
     (fake_dir / "fake_github.py").write_text(
         "class FakeGitHub:\n"
@@ -132,7 +132,7 @@ async def test_do_work_files_surface_gap(loop_env, monkeypatch, tmp_path) -> Non
 async def test_do_work_files_helper_gap(loop_env, monkeypatch, tmp_path) -> None:
     """Un-exercised ``script_*`` helper → one ``test-helper`` issue."""
     cfg, state, pr, dedup = loop_env
-    fake_dir = tmp_path / "tests" / "scenarios" / "fakes"
+    fake_dir = tmp_path / "src" / "mockworld" / "fakes"
     fake_dir.mkdir(parents=True)
     (fake_dir / "fake_docker.py").write_text(
         "class FakeDocker:\n    def script_run(self, events): ...\n"
@@ -168,7 +168,7 @@ async def test_escalation_fires_after_three_attempts(
     """3rd re-file of a stuck gap → ``hitl-escalation`` issue, not another gap."""
     cfg, state, pr, dedup = loop_env
     state.inc_fake_coverage_attempts.return_value = 3
-    fake_dir = tmp_path / "tests" / "scenarios" / "fakes"
+    fake_dir = tmp_path / "src" / "mockworld" / "fakes"
     fake_dir.mkdir(parents=True)
     (fake_dir / "fake_github.py").write_text(
         "class FakeGitHub:\n    async def missing(self): ...\n"

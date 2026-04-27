@@ -28,8 +28,8 @@ from __future__ import annotations
 
 import pytest
 
+from mockworld.fakes.fake_beads import FakeBeads
 from tests.conftest import PlanResultFactory
-from tests.scenarios.fakes.fake_beads import FakeBeads
 from tests.scenarios.fakes.mock_world import MockWorld
 from tests.scenarios.helpers.git_worktree_fixture import init_test_worktree
 

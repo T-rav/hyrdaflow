@@ -1,10 +1,10 @@
-"""Extract PortInfo records from src/*.py and tests/scenarios/fakes/*.py.
+"""Extract PortInfo records from src/*.py and src/mockworld/fakes/*.py.
 
 A "Port" is a `typing.Protocol` subclass whose name ends in `Port`. For each
 discovered Port, we find:
 - adapters: concrete classes in `src/` whose public method set is a superset
   of the Port's methods (best-effort heuristic).
-- fake: a class under `tests/scenarios/fakes/` named `Fake<PortStem>`, with a
+- fake: a class under `src/mockworld/fakes/` named `Fake<PortStem>`, with a
   fallback to any `Fake*` whose method set is a superset.
 
 Pure AST analysis — no imports, no instantiation.
@@ -44,16 +44,42 @@ def _src_module_dotted(path: Path, src_dir: Path) -> str:
 
 
 def _repo_relative_module(path: Path, repo_root: Path) -> str:
-    """For repo/tests/scenarios/fakes/fake_x.py, return 'tests.scenarios.fakes.fake_x'."""
+    """For repo/src/mockworld/fakes/fake_x.py, return 'mockworld.fakes.fake_x'.
+
+    Falls back to dotted repo-relative path for any other layout (e.g.
+    fixture paths under ``tests/scenarios/fakes/`` in extractor unit tests).
+    """
     rel = path.relative_to(repo_root)
-    return ".".join(rel.with_suffix("").parts)
+    parts = rel.with_suffix("").parts
+    # Trim a leading "src" so the emitted dotted module matches how the
+    # package is actually imported in production code (mockworld.fakes.X,
+    # not src.mockworld.fakes.X).
+    if parts and parts[0] == "src":
+        parts = parts[1:]
+    return ".".join(parts)
 
 
-def _collect_classes(scan_dir: Path) -> list[tuple[Path, ast.ClassDef]]:
+def _collect_classes(
+    scan_dir: Path, exclude: Path | None = None
+) -> list[tuple[Path, ast.ClassDef]]:
+    """Walk scan_dir for class definitions, optionally excluding a subtree.
+
+    ``exclude`` is used so that adapter discovery in ``src/`` doesn't pull in
+    Fake classes that live under ``src/mockworld/fakes/``. Fakes are
+    re-collected separately by the caller via the dedicated ``fakes_dir``.
+    """
     out: list[tuple[Path, ast.ClassDef]] = []
     if not scan_dir.exists():
         return out
+    exclude_resolved = exclude.resolve() if exclude is not None else None
     for py in sorted(scan_dir.rglob("*.py")):
+        if exclude_resolved is not None:
+            try:
+                py.resolve().relative_to(exclude_resolved)
+            except ValueError:
+                pass  # not under exclude → keep
+            else:
+                continue  # under exclude → skip
         try:
             tree = ast.parse(py.read_text())
         except SyntaxError:
@@ -69,7 +95,10 @@ def extract_ports(*, src_dir: Path, fakes_dir: Path) -> list[PortInfo]:
     fakes_dir = Path(fakes_dir).resolve()
     repo_root = src_dir.parent  # src_dir is <repo>/src; one up is the repo root
 
-    src_classes = _collect_classes(src_dir)
+    # Exclude the fakes subtree from src class discovery so Fakes don't leak
+    # into the adapter list when fakes_dir lives under src_dir
+    # (e.g. src/mockworld/fakes/).
+    src_classes = _collect_classes(src_dir, exclude=fakes_dir)
     fake_classes = _collect_classes(fakes_dir) if fakes_dir.exists() else []
 
     ports: list[PortInfo] = []

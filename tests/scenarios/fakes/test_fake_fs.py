@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.scenarios.fakes.fake_fs import FakeFS
+from mockworld.fakes.fake_fs import FakeFS
 from tests.scenarios.ports import FSPort
 
 

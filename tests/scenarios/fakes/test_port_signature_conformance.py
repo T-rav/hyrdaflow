@@ -28,8 +28,8 @@ from typing import Any
 
 import pytest
 
-from tests.scenarios.fakes.fake_github import FakeGitHub
-from tests.scenarios.fakes.fake_workspace import FakeWorkspace
+from mockworld.fakes.fake_github import FakeGitHub
+from mockworld.fakes.fake_workspace import FakeWorkspace
 from tests.scenarios.ports import PRPort, WorkspacePort
 
 # Hand-maintained Port↔Fake pair list. Add new pairs as Fakes are

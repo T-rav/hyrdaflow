@@ -99,7 +99,7 @@ def _git_log_changelog(repo_root: Path) -> list[CommitInfo]:
 def _compute_artifacts(repo_root: Path) -> dict[str, str]:
     """Run all extractors and generators; return {filename: markdown}."""
     src_dir = repo_root / "src"
-    fakes_dir = repo_root / "tests/scenarios/fakes"
+    fakes_dir = repo_root / "src/mockworld/fakes"
     scenarios_dir = repo_root / "tests/scenarios"
     adr_dir = repo_root / "docs/adr"
     fa_path = repo_root / "docs/arch/functional_areas.yml"

@@ -7,8 +7,8 @@ def test_emits_table_and_mermaid():
         fakes=[
             FakeInfo(
                 name="FakeWidget",
-                module="tests.scenarios.fakes.fake_widget",
-                source_path="tests/scenarios/fakes/fake_widget.py",
+                module="mockworld.fakes.fake_widget",
+                source_path="src/mockworld/fakes/fake_widget.py",
                 implements_port="WidgetPort",
                 used_in_scenarios=["tests/scenarios/test_widget.py"],
             ),

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from mockworld.fakes.fake_github import FakeGitHub
 from tests.scenarios.behaviors.eventual_consistency import EventuallyConsistent
-from tests.scenarios.fakes.fake_github import FakeGitHub
 
 
 async def test_write_visible_after_N_reads() -> None:

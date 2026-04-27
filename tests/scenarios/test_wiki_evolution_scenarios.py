@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.scenarios.fakes.fake_wiki_compiler import FakeWikiCompiler
+from mockworld.fakes.fake_wiki_compiler import FakeWikiCompiler
 
 
 def _write_tracked_entry(

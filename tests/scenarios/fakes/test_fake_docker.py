@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.scenarios.fakes.fake_docker import FakeDocker
+from mockworld.fakes.fake_docker import FakeDocker
 from tests.scenarios.ports import DockerPort
 
 

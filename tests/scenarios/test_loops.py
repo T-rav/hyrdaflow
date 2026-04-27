@@ -246,8 +246,8 @@ class TestL7DependabotMergeAutoMerges:
     async def test_bot_pr_merged_on_ci_pass(self, tmp_path):
         world = MockWorld(tmp_path)
 
+        from mockworld.fakes.fake_github import FakePR
         from models import PRListItem
-        from tests.scenarios.fakes.fake_github import FakePR
 
         bot_pr = PRListItem(
             pr=500,
@@ -282,8 +282,8 @@ class TestL8DependabotMergeSkipsOnFailure:
     async def test_bot_pr_skipped_on_ci_failure(self, tmp_path):
         world = MockWorld(tmp_path)
 
+        from mockworld.fakes.fake_github import FakePR
         from models import PRListItem
-        from tests.scenarios.fakes.fake_github import FakePR
 
         bot_pr = PRListItem(
             pr=600,

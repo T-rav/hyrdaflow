@@ -9,10 +9,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from events import EventBus
-from tests.scenarios.fakes.fake_clock import FakeClock
-from tests.scenarios.fakes.fake_github import FakeGitHub
-from tests.scenarios.fakes.fake_llm import FakeLLM
-from tests.scenarios.fakes.fake_sentry import FakeSentry
+from mockworld.fakes.fake_clock import FakeClock
+from mockworld.fakes.fake_github import FakeGitHub
+from mockworld.fakes.fake_llm import FakeLLM
+from mockworld.fakes.fake_sentry import FakeSentry
 from tests.scenarios.ports import (
     ClockPort,
     LLMPort,
@@ -41,15 +41,15 @@ def test_fake_clock_satisfies_clock_port() -> None:
 
 def test_fake_subprocess_runner_satisfies_subprocess_runner() -> None:
     from execution import SubprocessRunner
-    from tests.scenarios.fakes.fake_docker import FakeDocker
-    from tests.scenarios.fakes.fake_subprocess_runner import FakeSubprocessRunner
+    from mockworld.fakes.fake_docker import FakeDocker
+    from mockworld.fakes.fake_subprocess_runner import FakeSubprocessRunner
 
     assert isinstance(FakeSubprocessRunner(FakeDocker()), SubprocessRunner)
 
 
 def test_real_agent_runner_constructs_via_factory(tmp_path: Path) -> None:
     """Boot smoke — if this fails, AgentRunner API drifted from scenarios."""
-    from tests.scenarios.fakes.fake_docker import FakeDocker
+    from mockworld.fakes.fake_docker import FakeDocker
     from tests.scenarios.helpers.agent_runner_factory import build_real_agent_runner
 
     runner = build_real_agent_runner(

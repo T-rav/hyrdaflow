@@ -13,23 +13,23 @@ def __getattr__(name: str):  # noqa: PLR0911
 
         return MockWorld
     if name == "FakeGitHub":
-        from tests.scenarios.fakes.fake_github import FakeGitHub
+        from mockworld.fakes.fake_github import FakeGitHub
 
         return FakeGitHub
     if name == "FakeLLM":
-        from tests.scenarios.fakes.fake_llm import FakeLLM
+        from mockworld.fakes.fake_llm import FakeLLM
 
         return FakeLLM
     if name == "FakeWorkspace":
-        from tests.scenarios.fakes.fake_workspace import FakeWorkspace
+        from mockworld.fakes.fake_workspace import FakeWorkspace
 
         return FakeWorkspace
     if name == "FakeSentry":
-        from tests.scenarios.fakes.fake_sentry import FakeSentry
+        from mockworld.fakes.fake_sentry import FakeSentry
 
         return FakeSentry
     if name == "FakeClock":
-        from tests.scenarios.fakes.fake_clock import FakeClock
+        from mockworld.fakes.fake_clock import FakeClock
 
         return FakeClock
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

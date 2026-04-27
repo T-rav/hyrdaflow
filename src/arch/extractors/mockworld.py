@@ -1,4 +1,4 @@
-"""Extract MockWorldMap from tests/scenarios/fakes/ and scenario users.
+"""Extract MockWorldMap from src/mockworld/fakes/ and scenario users.
 
 For each Fake* class under fakes_dir (excluding `__*` and `test_*`),
 records its name, dotted module path, repo-relative source path, and
@@ -16,8 +16,18 @@ from arch._models import FakeInfo, MockWorldMap
 
 
 def _repo_relative_module(path: Path, repo_root: Path) -> str:
+    """For repo/src/mockworld/fakes/fake_x.py, return 'mockworld.fakes.fake_x'.
+
+    Trims a leading ``src`` segment so the emitted dotted module matches the
+    importable path (``mockworld.fakes.X``, not ``src.mockworld.fakes.X``).
+    Falls back to the dotted repo-relative path for any other layout (e.g.
+    extractor unit-test fixtures rooted at ``tests/scenarios/fakes/``).
+    """
     rel = path.relative_to(repo_root)
-    return ".".join(rel.with_suffix("").parts)
+    parts = rel.with_suffix("").parts
+    if parts and parts[0] == "src":
+        parts = parts[1:]
+    return ".".join(parts)
 
 
 def _fake_classes(fakes_dir: Path, repo_root: Path) -> list[FakeInfo]:
@@ -65,7 +75,9 @@ def _scenario_uses(scenarios_dir: Path, fake_module: str, fake_name: str) -> lis
 def extract_mockworld_map(*, fakes_dir: Path, scenarios_dir: Path) -> MockWorldMap:
     fakes_dir = Path(fakes_dir).resolve()
     scenarios_dir = Path(scenarios_dir).resolve()
-    # Repo root: assumes fakes_dir == <repo_root>/tests/scenarios/fakes
+    # Repo root: assumes fakes_dir is 3 levels deep
+    # (e.g. <repo_root>/src/mockworld/fakes, or in extractor unit-test
+    # fixtures, <tmp_root>/tests/scenarios/fakes).
     repo_root = fakes_dir.parents[2]
 
     fakes = _fake_classes(fakes_dir, repo_root)

@@ -182,7 +182,7 @@ class DiagramLoop(BaseBackgroundLoop):
         from arch.extractors.ports import extract_ports  # noqa: PLC0415
 
         src_dir = self._repo_root / "src"
-        fakes_dir = self._repo_root / "tests/scenarios/fakes"
+        fakes_dir = self._repo_root / "src/mockworld/fakes"
         yaml_path = self._repo_root / "docs/arch/functional_areas.yml"
 
         if not yaml_path.exists():

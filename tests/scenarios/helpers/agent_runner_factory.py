@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from events import EventBus
-from tests.scenarios.fakes.fake_docker import FakeDocker
-from tests.scenarios.fakes.fake_subprocess_runner import FakeSubprocessRunner
+from mockworld.fakes.fake_docker import FakeDocker
+from mockworld.fakes.fake_subprocess_runner import FakeSubprocessRunner
 
 if TYPE_CHECKING:
     from agent import AgentRunner

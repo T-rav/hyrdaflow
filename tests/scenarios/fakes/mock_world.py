@@ -12,21 +12,21 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from mockworld.fakes.fake_clock import FakeClock
+from mockworld.fakes.fake_docker import FakeDocker
+from mockworld.fakes.fake_fs import FakeFS
+from mockworld.fakes.fake_git import FakeGit
+from mockworld.fakes.fake_github import FakeGitHub
+from mockworld.fakes.fake_http import FakeHTTP
+from mockworld.fakes.fake_llm import FakeLLM
+from mockworld.fakes.fake_sentry import FakeSentry
+from mockworld.fakes.fake_workspace import FakeWorkspace
 from tests.conftest import TaskFactory
 from tests.helpers import PipelineHarness, PipelineRunResult
 from tests.scenarios.catalog import LoopCatalog
 from tests.scenarios.catalog import (
     loop_registrations as _loop_registrations,  # noqa: F401
 )
-from tests.scenarios.fakes.fake_clock import FakeClock
-from tests.scenarios.fakes.fake_docker import FakeDocker
-from tests.scenarios.fakes.fake_fs import FakeFS
-from tests.scenarios.fakes.fake_git import FakeGit
-from tests.scenarios.fakes.fake_github import FakeGitHub
-from tests.scenarios.fakes.fake_http import FakeHTTP
-from tests.scenarios.fakes.fake_llm import FakeLLM
-from tests.scenarios.fakes.fake_sentry import FakeSentry
-from tests.scenarios.fakes.fake_workspace import FakeWorkspace
 from tests.scenarios.fakes.scenario_result import IssueOutcome, ScenarioResult
 
 

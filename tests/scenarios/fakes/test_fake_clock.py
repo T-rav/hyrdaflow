@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.scenarios.fakes.fake_clock import FakeClock
+from mockworld.fakes.fake_clock import FakeClock
 
 
 def test_freeze_accepts_unix_float():
