@@ -1,7 +1,13 @@
-"""Stateful fakes for scenario testing.
+"""Back-compat shim — Fakes have moved to ``src/mockworld/fakes/``.
 
-Fakes are imported lazily so Task 1 can scaffold the directory without
-requiring all fake modules to exist yet (they land in Tasks 2-5).
+This module exists so legacy ``from tests.scenarios.fakes import MockWorld``
+(and the other 5 names below) keeps working until ``mock_world.py`` and
+``scenario_result.py`` themselves move to ``src/mockworld/`` in a later
+task of the sandbox-tier scenario track. Remove this file in the same
+commit that relocates ``mock_world.py``.
+
+See ``docs/superpowers/specs/2026-04-26-sandbox-tier-scenarios-design.md``
+Component 2 (move-table) for the lifecycle.
 """
 
 from __future__ import annotations
