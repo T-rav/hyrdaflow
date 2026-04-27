@@ -11,10 +11,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from mockworld.seed import MockWorldSeed
-
     from events import EventBus
     from mockworld.fakes.fake_github import FakeGitHub
+    from mockworld.seed import MockWorldSeed
 
 
 @dataclass
@@ -49,17 +48,7 @@ class FakeIssueStore:
     def from_seed(cls, seed: MockWorldSeed, event_bus: EventBus) -> FakeIssueStore:
         from mockworld.fakes.fake_github import FakeGitHub
 
-        # TASK 1.6 MIGRATION: when FakeGitHub.from_seed lands, replace these
-        # 6 lines with `github = FakeGitHub.from_seed(seed)`. Same change
-        # required in fake_issue_fetcher.py:from_seed (sister file).
-        github = FakeGitHub()
-        for issue_dict in seed.issues:
-            github.add_issue(
-                number=issue_dict["number"],
-                title=issue_dict["title"],
-                body=issue_dict["body"],
-                labels=list(issue_dict.get("labels", [])),
-            )
+        github = FakeGitHub.from_seed(seed)
         return cls(github=github, event_bus=event_bus)
 
     async def get(self, issue_number: int) -> FakeIssueRecord:

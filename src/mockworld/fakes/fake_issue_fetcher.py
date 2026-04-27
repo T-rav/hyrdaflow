@@ -11,9 +11,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from mockworld.seed import MockWorldSeed
-
     from mockworld.fakes.fake_github import FakeGitHub
+    from mockworld.seed import MockWorldSeed
 
 
 @dataclass
@@ -46,23 +45,11 @@ class FakeIssueFetcher:
     def from_seed(cls, seed: MockWorldSeed) -> FakeIssueFetcher:
         """Build a FakeIssueFetcher from a serialized seed.
 
-        Constructs an internal FakeGitHub from the seed's issue list
-        and wraps it. Same semantics as constructing FakeGitHub.from_seed
-        and passing it in. (FakeGitHub.from_seed lands in Task 1.6.)
+        Constructs an internal FakeGitHub from the seed and wraps it.
         """
         from mockworld.fakes.fake_github import FakeGitHub
 
-        # TASK 1.6 MIGRATION: when FakeGitHub.from_seed lands, replace these
-        # 6 lines with `github = FakeGitHub.from_seed(seed)`. Same change
-        # required in fake_issue_store.py:from_seed (sister file).
-        github = FakeGitHub()
-        for issue_dict in seed.issues:
-            github.add_issue(
-                number=issue_dict["number"],
-                title=issue_dict["title"],
-                body=issue_dict["body"],
-                labels=list(issue_dict.get("labels", [])),
-            )
+        github = FakeGitHub.from_seed(seed)
         return cls(github=github)
 
     async def fetch_open_issues_by_label(self, label: str) -> list[FakeIssueSummary]:

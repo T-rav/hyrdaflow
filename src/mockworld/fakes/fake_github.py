@@ -9,9 +9,12 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tests.conftest import PRInfoFactory
+
+if TYPE_CHECKING:
+    from mockworld.seed import MockWorldSeed
 
 
 class RateLimitError(Exception):
@@ -75,6 +78,29 @@ class FakeGitHub:
         self._rate_limit_reset_in: int = 60
         self._rate_limit_secondary: bool = False
         self._alerts: dict[str, list[Any]] = {}
+
+    @classmethod
+    def from_seed(cls, seed: MockWorldSeed) -> FakeGitHub:
+        """Construct a FakeGitHub populated from a MockWorldSeed."""
+        gh = cls()
+        for issue_dict in seed.issues:
+            gh.add_issue(
+                number=issue_dict["number"],
+                title=issue_dict["title"],
+                body=issue_dict["body"],
+                labels=list(issue_dict.get("labels", [])),
+            )
+        for pr_dict in seed.prs:
+            gh.add_pr(
+                number=pr_dict["number"],
+                issue_number=pr_dict["issue_number"],
+                branch=pr_dict["branch"],
+                ci_status=pr_dict.get("ci_status", "pass"),
+                merged=pr_dict.get("merged", False),
+            )
+            for label in pr_dict.get("labels", []):
+                gh.add_pr_label(pr_dict["number"], label)
+        return gh
 
     # --- Seed API ---
 
