@@ -132,12 +132,19 @@ _FAKE_CLOCK_RE = re.compile(r"class\s+(FakeClock|FrozenClock|DeterministicClock)
 
 @register("P3.13")
 def _fake_clock(ctx: CheckContext) -> Finding:
-    """Look for a clock fake at the canonical Fake locations.
+    """Look for a clock fake.
 
-    See ``_FAKE_DIRS_REL`` above for the rationale behind two paths.
+    Original audit walked all of ``tests/scenarios/`` (FakeClock can
+    reasonably live alongside the harness, not only in ``fakes/``).
+    Post-Task-1.1 of the sandbox-tier scenario testing track, the
+    canonical home for adapter Fakes is ``src/mockworld/fakes/`` —
+    so we walk that too.
     """
-    for parts in _FAKE_DIRS_REL:
-        d = ctx.root.joinpath(*parts)
+    search_roots = (
+        ctx.root / "src" / "mockworld" / "fakes",
+        ctx.root / "tests" / "scenarios",
+    )
+    for d in search_roots:
         if not d.is_dir():
             continue
         for py in d.rglob("*.py"):
@@ -151,7 +158,7 @@ def _fake_clock(ctx: CheckContext) -> Finding:
     return finding(
         "P3.13",
         Status.FAIL,
-        "no FakeClock/FrozenClock/DeterministicClock in src/mockworld/fakes/ or tests/scenarios/fakes/",
+        "no FakeClock/FrozenClock/DeterministicClock in src/mockworld/fakes/ or tests/scenarios/",
     )
 
 
