@@ -258,3 +258,24 @@ See ADR-0051 (when written) for the formal "iterative production-readiness
 review" process and the planned infrastructure improvements
 (`BaseSubprocessRunner`, `scripts/scaffold-loop.py`, auto-PRPort
 conformance, subagent-verify wrapper, pre-commit arch-regen).
+
+## Onboarding a foreign managed repo
+
+The first foreign managed repo is `T-rav/poop-scoop-hero` (PSH, a Phaser.js game). Onboarding flow:
+
+1. Clone the foreign repo locally (`git clone git@github.com:T-rav/poop-scoop-hero.git ~/projects/poop-scoop-hero`).
+2. Register with HydraFlow's runtime registry:
+   ```bash
+   curl -X POST http://localhost:8080/api/repos/add \
+     -H 'Content-Type: application/json' \
+     -d '{"path":"/Users/travisf/Documents/projects/poop-scoop-hero"}'
+   ```
+   This validates the path, detects the slug from the `origin` remote, calls `register_repo_cb` (→ `RepoRuntimeRegistry.register()` + `RepoRegistryStore.upsert()`), and creates HydraFlow lifecycle labels on the repo via `ensure_labels`.
+3. Add the slug to `HYDRAFLOW_MANAGED_REPOS`:
+   ```bash
+   export HYDRAFLOW_MANAGED_REPOS='[{"slug":"T-rav/poop-scoop-hero","main_branch":"main"}]'
+   ```
+   This makes `PrinciplesAuditLoop` audit the repo on its weekly tick. The audit produces a `pending` → `ready` (or `blocked`) onboarding status.
+4. (Optional) Start a `RepoRuntime` for the repo via `POST /api/runtimes/{slug}/start`. The runtime runs the orchestrator-style five-loop set in-process. **Recommend waiting** until the principles audit gives the repo a `ready` status before flipping this on.
+
+**Architectural note (April 2026):** ADR-0009 (Accepted) specifies a subprocess-per-repo model with a TCP supervisor (`hf_cli/supervisor_service.py`). That code lives in a worktree snapshot and was never merged onto main. The in-process `RepoRuntime` is the working path; isolation (state, event bus, worktree paths) is enforced via per-slug data paths but the Python interpreter is shared. Acceptable at 2 repos. Re-landing the supervisor is a separate ADR-0009 closeout.
