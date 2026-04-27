@@ -11,6 +11,8 @@ _WorkspaceFaultKind = Literal["permission", "disk_full", "branch_conflict"]
 class FakeWorkspace:
     """Tracks worktree create/destroy calls with filesystem paths."""
 
+    _is_fake_adapter = True  # read by dashboard for MOCKWORLD banner
+
     def __init__(self, base_path: Path) -> None:
         self._base = base_path
         self.created: list[int] = []

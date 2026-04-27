@@ -233,6 +233,8 @@ class _FakeReviewRunner(_ScriptedRunner):
 class FakeLLM:
     """Composable scripted LLM runners for all pipeline phases."""
 
+    _is_fake_adapter = True  # read by dashboard for MOCKWORLD banner
+
     def __init__(self) -> None:
         self._token_budgets: dict[int, _BudgetState] = {}
         self._fix_ci_scripts: dict[int, Any] = {}

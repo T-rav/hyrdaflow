@@ -61,6 +61,8 @@ class FakePR:
 class FakeGitHub:
     """Stateful fake for GitHub API (PRManager + IssueFetcher)."""
 
+    _is_fake_adapter = True  # read by dashboard for MOCKWORLD banner
+
     def __init__(self) -> None:
         self._issues: dict[int, FakeIssue] = {}
         self._prs: dict[int, FakePR] = {}
