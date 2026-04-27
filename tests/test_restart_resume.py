@@ -283,3 +283,18 @@ class TestCostBudgetKilledWorkersPersistence:
         st.set_cost_budget_killed_workers({"x", "y"})
         st.set_cost_budget_killed_workers(set())
         assert st.get_cost_budget_killed_workers() == set()
+
+    def test_cost_budget_killed_workers_survive_restart(self, tmp_path: Path) -> None:
+        """Set the field on st1; reconstruct st2 from same disk path; assert preserved."""
+        from state import StateTracker  # noqa: PLC0415
+
+        state_file = tmp_path / "state.json"
+        st1 = StateTracker(state_file)
+        st1.set_cost_budget_killed_workers({"watcher_killed_a", "watcher_killed_b"})
+
+        # Reconstruct from disk
+        st2 = StateTracker(state_file)
+        assert st2.get_cost_budget_killed_workers() == {
+            "watcher_killed_a",
+            "watcher_killed_b",
+        }
