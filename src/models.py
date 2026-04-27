@@ -1720,6 +1720,14 @@ class StateData(BaseModel):
     metrics_last_synced: str | None = None
     worker_intervals: dict[str, int] = Field(default_factory=dict)
     disabled_workers: list[str] = Field(default_factory=list)
+    cost_budget_killed_workers: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Workers killed by CostBudgetWatcherLoop because daily cap was "
+            "exceeded. Distinct from disabled_workers (operator-set). "
+            "Preserved across restart."
+        ),
+    )
     interrupted_issues: dict[str, str] = Field(default_factory=dict)
     last_reviewed_shas: dict[str, str] = Field(default_factory=dict)
     pending_reports: list[PendingReport] = Field(default_factory=list)

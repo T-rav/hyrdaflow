@@ -89,6 +89,15 @@ class WorkerStateMixin:
         self._data.disabled_workers = sorted(names)
         self.save()
 
+    def get_cost_budget_killed_workers(self) -> set[str]:
+        """Return workers killed by CostBudgetWatcherLoop (distinct from operator-disabled)."""
+        return set(self._data.cost_budget_killed_workers)
+
+    def set_cost_budget_killed_workers(self, names: set[str]) -> None:
+        """Persist the set of workers the cost-budget watcher has killed."""
+        self._data.cost_budget_killed_workers = sorted(names)
+        self.save()
+
     # --- background worker states ---
 
     def get_worker_heartbeats(self) -> dict[str, PersistedWorkerHeartbeat]:

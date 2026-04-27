@@ -249,3 +249,37 @@ class TestWorkerEnabledPersistence:
         st2 = StateTracker(state_file)
         assert st2.get_disabled_workers() == {"memory_sync"}
         assert st2.get_worker_intervals() == {"memory_sync": 7200}
+
+
+# ---------------------------------------------------------------------------
+# Cost-budget-killed workers persistence
+# ---------------------------------------------------------------------------
+
+
+class TestCostBudgetKilledWorkersPersistence:
+    def test_get_cost_budget_killed_workers_defaults_to_empty(
+        self, tmp_path: Path
+    ) -> None:
+        from state import StateTracker
+
+        state_file = tmp_path / "state.json"
+        st = StateTracker(state_file)
+        assert st.get_cost_budget_killed_workers() == set()
+
+    def test_set_cost_budget_killed_workers_round_trips(self, tmp_path: Path) -> None:
+        from state import StateTracker
+
+        state_file = tmp_path / "state.json"
+        st = StateTracker(state_file)
+        st.set_cost_budget_killed_workers({"a", "b", "c"})
+        assert st.get_cost_budget_killed_workers() == {"a", "b", "c"}
+
+    def test_set_cost_budget_killed_workers_clearable(self, tmp_path: Path) -> None:
+        """Recovery path passes set() to clear; round-trips correctly."""
+        from state import StateTracker
+
+        state_file = tmp_path / "state.json"
+        st = StateTracker(state_file)
+        st.set_cost_budget_killed_workers({"x", "y"})
+        st.set_cost_budget_killed_workers(set())
+        assert st.get_cost_budget_killed_workers() == set()
