@@ -655,8 +655,11 @@ def build_services(
     review_insights = ReviewInsightStore(
         config.memory_dir,
     )
-    # Inject shared store into AgentRunner (replacing its self-constructed copy)
-    agents._insights = review_insights
+    # ``_insights`` is internal AgentRunner plumbing not part of any Port.
+    # Sandbox runners (FakeAgentRunner) don't implement it — gate the
+    # assignment on attribute presence so override runners remain functional.
+    if hasattr(agents, "_insights"):
+        agents._insights = review_insights
 
     reviewer = ReviewPhase(
         config,

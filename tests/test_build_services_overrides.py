@@ -108,6 +108,15 @@ def test_build_services_uses_runners_override(config: HydraFlowConfig) -> None:
     assert svc.agents is fake_llm.agents
     assert svc.reviewers is fake_llm.reviewers
 
+    # Phases were constructed AFTER the runners override — they should
+    # hold the Fake, not the real runner. This pins the override's
+    # placement (lines 357-360 in service_registry.py): if it ever moves
+    # to end-of-function, phase wiring would silently regress.
+    assert svc.triager._triage is fake_llm.triage_runner
+    assert svc.planner_phase._planners is fake_llm.planners
+    assert svc.implementer._agents is fake_llm.agents
+    assert svc.reviewer._reviewers is fake_llm.reviewers
+
 
 @pytest.mark.parametrize(
     "override_kwargs,attr,expected_real",
