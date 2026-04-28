@@ -25,10 +25,10 @@ graph LR
     src_arch_generators -- "10" --> src_arch
     src_dashboard_routes -- "1" --> src_preflight
     src_dashboard_routes -- "1" --> src_state
-    src_mockworld_fakes -- "24" --> src_mockworld
+    src_mockworld_fakes -- "25" --> src_mockworld
     src_preflight -- "1" --> src_runners
     src_preflight -- "1" --> src_sentry
     src_runners -- "1" --> src_preflight
 ```
 
-_Regenerated from commit `72be715` on 2026-04-27 21:39 UTC. Source last changed at `72be715`. Status: 🟢 fresh._
+_Regenerated from commit `110c1c4` on 2026-04-28 20:15 UTC. Source last changed at `110c1c4`. Status: 🟢 fresh._

@@ -59,6 +59,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | ADR-0049 | `src.base_background_loop`, `src.bg_worker_manager` |
 | ADR-0050 | `src.auto_agent_preflight_loop`, `src.config`, `src.dashboard_routes._diagnostics_routes`, `src.models`, `src.preflight.agent`, `src.preflight.audit`, `src.preflight.auto_agent_runner`, `src.preflight.context`, `src.preflight.decision`, `src.preflight.runner`, `src.sentry.reverse_lookup`, `src.state._auto_agent` |
 | ADR-0051 | — |
+| ADR-0052 | `src.contract_diff`, `src.contract_recording`, `src.mockworld.sandbox_main` |
 
 ## Module → ADRs
 
@@ -75,8 +76,8 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.caching_issue_store` | ADR-0041 |
 | `src.cli` | ADR-0036 |
 | `src.config` | ADR-0002, ADR-0009, ADR-0010, ADR-0018, ADR-0021, ADR-0022, ADR-0031, ADR-0033, ADR-0034, ADR-0035, ADR-0036, ADR-0045, ADR-0050 |
-| `src.contract_diff` | ADR-0047 |
-| `src.contract_recording` | ADR-0047 |
+| `src.contract_diff` | ADR-0047, ADR-0052 |
+| `src.contract_recording` | ADR-0047, ADR-0052 |
 | `src.contract_refresh_loop` | ADR-0045, ADR-0047 |
 | `src.corpus_learning_loop` | ADR-0045 |
 | `src.dashboard` | ADR-0007, ADR-0008, ADR-0038 |
@@ -104,6 +105,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.issue_fetcher` | ADR-0019 |
 | `src.issue_store` | ADR-0006, ADR-0022, ADR-0041 |
 | `src.metrics_manager` | ADR-0010, ADR-0021 |
+| `src.mockworld.sandbox_main` | ADR-0052 |
 | `src.models` | ADR-0011, ADR-0012, ADR-0013, ADR-0014, ADR-0015, ADR-0016, ADR-0025, ADR-0031, ADR-0037, ADR-0045, ADR-0050 |
 | `src.orchestrator` | ADR-0006, ADR-0009, ADR-0014, ADR-0044, ADR-0045 |
 | `src.path` | ADR-0032 |
@@ -148,4 +150,4 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.wiki_rot_detector_loop` | ADR-0045 |
 | `src.worktree` | ADR-0003, ADR-0009, ADR-0010 |
 
-_Regenerated from commit `72be715` on 2026-04-27 21:39 UTC. Source last changed at `72be715`. Status: 🟢 fresh._
+_Regenerated from commit `110c1c4` on 2026-04-28 20:15 UTC. Source last changed at `110c1c4`. Status: 🟢 fresh._

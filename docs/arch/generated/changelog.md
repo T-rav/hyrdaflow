@@ -6,12 +6,8 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W18
 
-- `72be715` — fix(mockworld): break src->tests import + clean arch-doc generator (PR A pass-1 follow-ups) *(2026-04-27)*
-- `5c087c4` — chore(arch): regen generated docs after Task 1.10 *(2026-04-27)*
-- `3eb0890` — feat(mockworld): sandbox_main entrypoint + apply_seed + dashboard banner + s00 *(2026-04-27)*
-- `0eb33da` — feat(orchestrator): accept pre-built ServiceRegistry via services= kwarg *(2026-04-27)*
-- `db81ede` — refactor(types): widen Port-shaped fields from concrete adapters to Ports *(2026-04-27)*
-- `76ad04f` — refactor(mockworld): relocate Fakes from tests/scenarios/fakes/ to src/mockworld/fakes/ *(2026-04-27)*
+- `110c1c4` — docs(adr): ADR-0052 — sandbox-tier scenario testing *(2026-04-28)*
+- `32ef615` — feat(mockworld): foundation — Fake relocation + DI plumbing + sandbox entrypoint (PR A of 3) (#8451) (#8451) *(2026-04-28)*
 
 ## 2026-W17
 
@@ -156,4 +152,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `72be715` on 2026-04-27 21:39 UTC. Source last changed at `72be715`. Status: 🟢 fresh._
+_Regenerated from commit `110c1c4` on 2026-04-28 20:15 UTC. Source last changed at `110c1c4`. Status: 🟢 fresh._
