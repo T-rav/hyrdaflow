@@ -31,7 +31,7 @@ Every `EventType` published or subscribed in `src/`. Events with no subscribers 
 | **PIPELINE_STATS** ⚠️ | `src.orchestrator:HydraFlowOrchestrator.emit_pipeline_stats` | — |
 | **PLANNER_UPDATE** ⚠️ | `src.planner:PlannerRunner._emit_status` | — |
 | **PR_CREATED** ⚠️ | `src.pr_manager:PRManager.create_pr`<br>`src.pr_manager:PRManager.create_promotion_pr` | — |
-| **QUEUE_UPDATE** ⚠️ | `src.issue_store:IssueStore._publish_queue_update_nowait`<br>`src.issue_store:IssueStore.refresh` | — |
+| **QUEUE_UPDATE** ⚠️ | `src.issue_store:IssueStore._publish_queue_update_nowait`<br>`src.issue_store:IssueStore.refresh`<br>`src.mockworld.fakes.fake_issue_store:FakeIssueStore.refresh` | — |
 | **REPORT_UPDATE** ⚠️ | `src.report_issue_loop:ReportIssueLoop._emit_report_event` | — |
 | **RETROSPECTIVE_UPDATE** ⚠️ | `src.retrospective_loop:RetrospectiveLoop._publish_update` | — |
 | **REVIEW_UPDATE** ⚠️ | `src.merge_conflict_resolver:MergeConflictResolver._publish_review_status`<br>`src.phase_utils:publish_review_status`<br>`src.reviewer:ReviewRunner.fix_review_findings`<br>`src.reviewer:ReviewRunner.review` | — |
@@ -47,4 +47,4 @@ Every `EventType` published or subscribed in `src/`. Events with no subscribers 
 | **VISUAL_GATE** ⚠️ | `src.post_merge_handler:PostMergeHandler._run_visual_gate`<br>`src.review_phase:ReviewPhase._emit_visual_gate_telemetry`<br>`src.review_phase:ReviewPhase.check_visual_gate` | — |
 | **WORKER_UPDATE** ⚠️ | `src.agent:AgentRunner._emit_status` | — |
 
-_Regenerated from commit `72be715` on 2026-04-27 21:39 UTC. Source last changed at `72be715`. Status: 🟢 fresh._
+_Regenerated from commit `68e7ee3` on 2026-04-28 21:28 UTC. Source last changed at `68e7ee3`. Status: 🟢 fresh._

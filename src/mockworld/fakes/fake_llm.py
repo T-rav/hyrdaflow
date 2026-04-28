@@ -63,6 +63,27 @@ class _ScriptedRunner:
     def clear_tracing_context(self) -> None:
         pass
 
+    @property
+    def active_count(self) -> int:
+        """Number of currently running subprocesses.
+
+        Real ``BaseRunner.active_count`` returns ``len(self._active_procs)``;
+        the orchestrator emits this in pipeline stats. The Fake doesn't
+        spawn subprocesses, so the count is always 0.
+        """
+        return 0
+
+    def terminate(self) -> None:
+        """Stop all in-flight subprocesses (no-op stub).
+
+        Real ``BaseRunner.terminate`` walks ``self._active_procs`` and
+        sends SIGTERM. The Fake doesn't spawn subprocesses, so there's
+        nothing to terminate. Required because ``orchestrator.run()``
+        calls ``self._svc.{planners,agents,reviewers,hitl_runner}.terminate()``
+        unconditionally during shutdown.
+        """
+        return None
+
 
 class _FakeTriageRunner(_ScriptedRunner):
     def __init__(self) -> None:
@@ -243,16 +264,84 @@ class FakeLLM:
         self.reviewers = _FakeReviewRunner(self)
 
     def script_triage(self, issue_number: int, results: list[Any]) -> None:
-        self.triage_runner.add_script(issue_number, results)
+        self.triage_runner.add_script(
+            issue_number, [self._coerce_triage(issue_number, r) for r in results]
+        )
 
     def script_plan(self, issue_number: int, results: list[Any]) -> None:
-        self.planners.add_script(issue_number, results)
+        self.planners.add_script(
+            issue_number, [self._coerce_plan(issue_number, r) for r in results]
+        )
 
     def script_implement(self, issue_number: int, results: list[Any]) -> None:
-        self.agents.add_script(issue_number, results)
+        self.agents.add_script(
+            issue_number, [self._coerce_implement(issue_number, r) for r in results]
+        )
 
     def script_review(self, issue_number: int, results: list[Any]) -> None:
-        self.reviewers.add_script(issue_number, results)
+        self.reviewers.add_script(
+            issue_number, [self._coerce_review(issue_number, r) for r in results]
+        )
+
+    # ------------------------------------------------------------------
+    # Dict → typed-result coercion
+    #
+    # Scenarios are loaded from JSON seeds, where script payloads are
+    # plain dicts. Production code calls ``result.duration_seconds``,
+    # ``result.success`` etc. on the concrete Pydantic model. The Fake
+    # would otherwise leak dicts through ``_pop`` into the implement /
+    # review phases. Each helper either (a) returns the value as-is when
+    # it's already the right type, or (b) routes through the factory to
+    # build a typed instance from the dict's keys.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _filter_kwargs(factory_create: Any, raw: dict[str, Any]) -> dict[str, Any]:
+        """Drop dict keys the factory's `create` method doesn't accept.
+
+        JSON seeds may carry diagnostic fields (``task_count``, ``branch``)
+        that don't map onto the factory's keyword args. Forwarding them
+        unfiltered would raise ``TypeError: unexpected keyword argument``.
+        """
+        import inspect
+
+        sig = inspect.signature(factory_create)
+        accepted = {p for p in sig.parameters if p != "self"}
+        return {k: v for k, v in raw.items() if k in accepted}
+
+    @classmethod
+    def _coerce_triage(cls, issue_number: int, raw: Any) -> Any:
+        if isinstance(raw, dict):
+            kw = cls._filter_kwargs(TriageResultFactory.create, raw)
+            return TriageResultFactory.create(issue_number=issue_number, **kw)
+        return raw
+
+    @classmethod
+    def _coerce_plan(cls, issue_number: int, raw: Any) -> Any:
+        if isinstance(raw, dict):
+            kw = cls._filter_kwargs(PlanResultFactory.create, raw)
+            return PlanResultFactory.create(issue_number=issue_number, **kw)
+        return raw
+
+    @classmethod
+    def _coerce_implement(cls, issue_number: int, raw: Any) -> Any:
+        if isinstance(raw, dict):
+            kw = cls._filter_kwargs(WorkerResultFactory.create, raw)
+            return WorkerResultFactory.create(issue_number=issue_number, **kw)
+        return raw
+
+    @classmethod
+    def _coerce_review(cls, issue_number: int, raw: Any) -> Any:
+        if isinstance(raw, dict):
+            kw = cls._filter_kwargs(ReviewResultFactory.create, raw)
+            kw.setdefault("pr_number", 0)
+            # Coerce string verdict ("approve" / "request-changes" / "comment")
+            # into the StrEnum so pydantic doesn't reject the model.
+            verdict = kw.get("verdict")
+            if isinstance(verdict, str):
+                kw["verdict"] = ReviewVerdict(verdict)
+            return ReviewResultFactory.create(issue_number=issue_number, **kw)
+        return raw
 
     def script_fix_ci(self, issue_number: int, result: Any) -> None:
         """Script the ReviewResult returned by reviewers.fix_ci for an issue.

@@ -11,6 +11,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+# ADR-0052: Sandbox-tier scenarios run only inside the docker-compose stack
+# (`docker-compose.sandbox.yml`). They use their own pytest.ini with a
+# hard-coded `--confcutdir=/work/tests/sandbox_scenarios` that resolves only
+# inside the playwright container. Skipping them at collection time here keeps
+# host-side `pytest tests/` and `make quality` green; CI runs them via the
+# dedicated `sandbox` job (`scripts/sandbox_scenario.py`).
+collect_ignore_glob = ["sandbox_scenarios/*"]
+
 
 def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None) -> None:  # noqa: ARG001 — nextitem required by pytest hook signature
     """Fail any test that leaves a ``MagicMock/`` directory in the repo root.

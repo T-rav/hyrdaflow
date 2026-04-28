@@ -1,0 +1,13 @@
+# Stage 1: build vite assets
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# Stage 2: nginx serving dist + proxying /api and /ws to hydraflow:5555
+FROM nginx:1.27-alpine
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.sandbox.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80

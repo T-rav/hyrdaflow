@@ -135,4 +135,20 @@ FROM ${BASE_IMAGE} AS runtime
 # Copy smoke test script
 COPY scripts/docker-smoke-test.sh /opt/hydraflow/docker-smoke-test.sh
 
+# Copy application source so the sandbox entrypoint
+# (`python -m mockworld.sandbox_main ...`) can import without an editable
+# install. PYTHONPATH points at this location. /workspace is reserved for
+# bind mounts (worktrees in production, repo fixtures in sandbox), so the
+# sources live separately under /opt/hydraflow/src.
+#
+# `tests/` is copied alongside `src/` because contract_diff.py imports
+# `tests.trust.contracts._schema` at module load time (the schema lives
+# next to its consumers in tests/). PYTHONPATH includes /opt/hydraflow
+# so `tests.*` resolves.
+COPY --chown=hydraflow:hydraflow src /opt/hydraflow/src
+COPY --chown=hydraflow:hydraflow tests /opt/hydraflow/tests
+COPY --chown=hydraflow:hydraflow templates /opt/hydraflow/templates
+COPY --chown=hydraflow:hydraflow static /opt/hydraflow/static
+ENV PYTHONPATH=/opt/hydraflow/src:/opt/hydraflow
+
 CMD ["bash"]

@@ -64,9 +64,18 @@ async def main() -> None:
     # runtime the FakeLLM / FakeWorkspace / FakeGitHub adapters carry
     # the entire required surface for the loops PR A actually exercises.
     workspaces = cast(WorkspacePort, FakeWorkspace(config.workspace_base))
-    fetcher = cast(IssueFetcherPort, FakeIssueFetcher.from_seed(seed))
-    store = cast(IssueStorePort, FakeIssueStore.from_seed(seed, event_bus))
-    prs = cast(PRPort, FakeGitHub.from_seed(seed))
+    # Single FakeGitHub instance — shared by all three Fake adapters.
+    # Using ``from_seed`` independently would create three isolated copies,
+    # so a PR created via ``prs.create_pr`` wouldn't be visible to the
+    # fetcher's ``fetch_reviewable_prs`` and the review loop would loop
+    # forever requeuing the issue. The fetcher / store wrap the same
+    # ``FakeGitHub`` so any state mutation is visible to all readers.
+    shared_github = FakeGitHub.from_seed(seed)
+    fetcher = cast(IssueFetcherPort, FakeIssueFetcher(github=shared_github))
+    store = cast(
+        IssueStorePort, FakeIssueStore(github=shared_github, event_bus=event_bus)
+    )
+    prs = cast(PRPort, shared_github)
 
     # FakeLLM provides triage_runner / planners / agents / reviewers from
     # the seed.scripts payload. Without this, the sandbox would attempt
@@ -76,9 +85,28 @@ async def main() -> None:
         for issue_number, results in by_issue.items():
             getattr(fake_llm, f"script_{phase}")(issue_number, results)
 
+    # Loops disabled in sandbox because they call out to real CLIs/services
+    # that block the asyncio event loop on an air-gapped (``internal: true``)
+    # network. The classic offender is ``contract_refresh``: its tick calls
+    # synchronous ``subprocess.run(["claude", "-p", "ping", ...])`` (no
+    # timeout) which hangs forever trying to reach ``api.anthropic.com``,
+    # freezing every other task — including the dashboard's uvicorn bind —
+    # until the kernel kills the container. The real fix (wrap in
+    # ``asyncio.to_thread`` and add a hard timeout) lives in production code;
+    # here we just opt out of the caretaker entirely. None of these loops
+    # exercise the issue→PR pipeline that sandbox scenarios validate.
+    _SANDBOX_DISABLED_WORKERS = frozenset(
+        {
+            "contract_refresh",
+        }
+    )
+
+    def _sandbox_is_enabled(worker_name: str, *_a: object, **_kw: object) -> bool:
+        return worker_name not in _SANDBOX_DISABLED_WORKERS
+
     callbacks = WorkerRegistryCallbacks(
         update_status=lambda *_a, **_kw: None,
-        is_enabled=lambda *_a, **_kw: True,
+        is_enabled=_sandbox_is_enabled,
         get_interval=lambda *_a, **_kw: 60,
     )
 
@@ -114,11 +142,20 @@ async def main() -> None:
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop_event.set)
 
+    # Drive the pipeline. Without this, the dashboard would serve /healthz
+    # but no loops would tick, no issues would advance, and Tier-2
+    # scenarios would always time out at the API-poll step.
+    orch_task = asyncio.create_task(orch.run(), name="hydraflow-orchestrator")
+
     try:
         await stop_event.wait()
     finally:
         if orch.running:
             await orch.stop()
+        # Allow orch_task to clean up (it observes stop_event via orch.stop()).
+        if not orch_task.done():
+            orch_task.cancel()
+        await asyncio.gather(orch_task, return_exceptions=True)
         await dashboard.stop()
 
 

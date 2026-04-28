@@ -1,0 +1,47 @@
+{
+  "repos": [
+    [
+      "owner/repo",
+      "/workspace/repo"
+    ]
+  ],
+  "issues": [
+    {
+      "number": 1,
+      "title": "Add hello world",
+      "body": "Implement a hello-world function in src/hello.py",
+      "labels": [
+        "hydraflow-ready"
+      ]
+    }
+  ],
+  "prs": [],
+  "scripts": {
+    "plan": {
+      "1": [
+        {
+          "success": true,
+          "task_count": 1
+        }
+      ]
+    },
+    "implement": {
+      "1": [
+        {
+          "success": true,
+          "branch": "hf/issue-1"
+        }
+      ]
+    },
+    "review": {
+      "1": [
+        {
+          "verdict": "approve",
+          "comments": []
+        }
+      ]
+    }
+  },
+  "cycles_to_run": 4,
+  "loops_enabled": null
+}

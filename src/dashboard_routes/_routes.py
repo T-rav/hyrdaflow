@@ -7,6 +7,7 @@ import contextlib
 import copy
 import json
 import logging
+import math
 import os
 import re
 import sys
@@ -1215,19 +1216,35 @@ def create_router(
         }
         dashboard_public = not _is_loopback_host(config.dashboard_host)
 
-        # GitHub cache health (if available)
+        # GitHub cache health (if available).
+        # CacheSnapshot.age_seconds returns float("inf") when a dataset has
+        # never been fetched (no orchestrator poll yet, e.g. cold sandbox
+        # boot). JSON encoding chokes on inf, so we coerce to None for
+        # those entries and report the cache as "uninitialized".
         github_cache_health: dict[str, object] = {"status": "unknown"}
         if orchestrator is not None and isinstance(
             getattr(orchestrator, "github_cache", None), GitHubDataCache
         ):
             gh_cache: GitHubDataCache = orchestrator.github_cache
-            cache_ages = {
-                ds: round(gh_cache.get_cache_age(ds), 1)
+            cache_ages_raw = {
+                ds: gh_cache.get_cache_age(ds)
                 for ds in ("open_prs", "hitl_items", "label_counts")
             }
-            max_age = max(cache_ages.values()) if cache_ages else 0
+            cache_ages: dict[str, float | None] = {
+                ds: (None if math.isinf(age) else round(age, 1))
+                for ds, age in cache_ages_raw.items()
+            }
+            finite_ages = [a for a in cache_ages.values() if a is not None]
+            if not finite_ages:
+                cache_status = "uninitialized"
+                max_age = 0.0
+            else:
+                max_age = max(finite_ages)
+                cache_status = (
+                    "stale" if max_age > config.data_poll_interval * 3 else "ok"
+                )
             github_cache_health = {
-                "status": "stale" if max_age > config.data_poll_interval * 3 else "ok",
+                "status": cache_status,
                 "age_seconds": cache_ages,
             }
 

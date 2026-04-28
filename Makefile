@@ -581,3 +581,15 @@ arch-validate:
 arch-serve:
 	@command -v mkdocs >/dev/null 2>&1 || { echo "$(YELLOW)mkdocs not installed; run: pip install -e '.[docs]'$(RESET)"; exit 1; }
 	@$(UV) mkdocs serve --strict
+
+sandbox-up:
+	docker compose -f docker-compose.sandbox.yml up -d --build hydraflow ui
+
+sandbox-down:
+	docker compose -f docker-compose.sandbox.yml down -v
+
+sandbox-test:
+	docker compose -f docker-compose.sandbox.yml run --rm playwright
+
+sandbox-shell:
+	docker compose -f docker-compose.sandbox.yml exec hydraflow /bin/bash

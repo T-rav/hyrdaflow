@@ -17,6 +17,12 @@ jobs:
       python: ${{ steps.filter.outputs.python }}
       ui: ${{ steps.filter.outputs.ui }}
       ci: ${{ steps.filter.outputs.ci }}
+      service_registry: ${{ steps.filter.outputs.service_registry }}
+      orchestrator: ${{ steps.filter.outputs.orchestrator }}
+      mockworld: ${{ steps.filter.outputs.mockworld }}
+      dockerfiles: ${{ steps.filter.outputs.dockerfiles }}
+      compose: ${{ steps.filter.outputs.compose }}
+      sandbox_scenarios: ${{ steps.filter.outputs.sandbox_scenarios }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -32,6 +38,18 @@ jobs:
               - 'src/ui/**'
             ci:
               - '.github/workflows/**'
+            service_registry:
+              - 'src/service_registry.py'
+            orchestrator:
+              - 'src/orchestrator.py'
+            mockworld:
+              - 'src/mockworld/**'
+            dockerfiles:
+              - 'Dockerfile*'
+            compose:
+              - 'docker-compose*.yml'
+            sandbox_scenarios:
+              - 'tests/sandbox_scenarios/**'
 
   lint:
     name: Lint & Format
@@ -238,4 +256,36 @@ jobs:
       - name: Test
         working-directory: src/ui
         run: npm test
+
+  sandbox:
+    name: Sandbox Scenarios (PR B)
+    runs-on: ubuntu-latest
+    needs: [changes]
+    if: |
+      needs.changes.outputs.service_registry == 'true' ||
+      needs.changes.outputs.orchestrator == 'true' ||
+      needs.changes.outputs.mockworld == 'true' ||
+      needs.changes.outputs.dockerfiles == 'true' ||
+      needs.changes.outputs.compose == 'true' ||
+      needs.changes.outputs.sandbox_scenarios == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        run: pip install uv
+      - name: Install deps
+        run: uv pip install --system -e ".[dev]"
+      - name: Build sandbox images
+        run: docker compose -f docker-compose.sandbox.yml build hydraflow ui playwright
+      - name: Run s01_happy_single_issue
+        run: python scripts/sandbox_scenario.py run s01_happy_single_issue
+      - name: Upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-results
+          path: /tmp/sandbox-results/
+          retention-days: 7
 

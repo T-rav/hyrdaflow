@@ -822,12 +822,40 @@ export function reducer(state, action) {
 
 const HydraFlowContext = createContext(null)
 
+// Fallback UUID v4 generator for non-secure contexts (e.g. the
+// sandbox-tier playwright harness, which serves the UI over http://ui
+// and not a secure origin). ``crypto.randomUUID`` is only exposed in
+// secure contexts; ``crypto.getRandomValues`` is universal. Real
+// production deployments are over HTTPS or localhost so the native path
+// is taken; this branch only fires in air-gapped sandbox runs.
+function _fallbackUuidV4() {
+  const bytes = new Uint8Array(16)
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes)
+  } else {
+    for (let i = 0; i < 16; i += 1) bytes[i] = Math.floor(Math.random() * 256)
+  }
+  // RFC 4122 v4: set version + variant bits.
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0'))
+  return (
+    hex.slice(0, 4).join('') + '-' +
+    hex.slice(4, 6).join('') + '-' +
+    hex.slice(6, 8).join('') + '-' +
+    hex.slice(8, 10).join('') + '-' +
+    hex.slice(10, 16).join('')
+  )
+}
+
 function getReporterId() {
   if (typeof window === 'undefined') return ''
   const key = 'hydraflow-user-id'
   let id = localStorage.getItem(key)
   if (!id) {
-    id = crypto.randomUUID()
+    id = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+      ? crypto.randomUUID()
+      : _fallbackUuidV4()
     localStorage.setItem(key, id)
   }
   return id

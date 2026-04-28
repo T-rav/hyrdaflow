@@ -40,8 +40,10 @@ dist/
 # OS
 .DS_Store
 
-# Tests (not needed in agent image — mounted at runtime)
-tests/
+# Tests are needed in the agent image: `tests.trust.contracts._schema`
+# is imported by src/contract_diff.py at module load time, so the package
+# must be importable when the sandbox entrypoint boots HydraFlow.
+# Production worktrees mount their own tests/ over this on the host side.
 
 # CI/CD
 .github/

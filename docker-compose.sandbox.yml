@@ -1,0 +1,78 @@
+version: "3.9"
+
+networks:
+  sandbox:
+    internal: true   # the air-gap. No default gateway → no external egress.
+                     # DNS resolution behavior is runtime-dependent;
+                     # rely on routing failure (timeouts/refused), not NXDOMAIN.
+
+services:
+  hydraflow:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    # The selection of MockWorld vs. production is at the entrypoint level —
+    # this container always runs the sandbox entrypoint. The production
+    # image runs the `hydraflow` console script (entry point `server:main`
+    # per pyproject.toml) instead.
+    command: ["python", "-m", "mockworld.sandbox_main", "/seed/scenario.json"]
+    environment:
+      HYDRAFLOW_DASHBOARD_HOST: "0.0.0.0"
+      HYDRAFLOW_DASHBOARD_PORT: "5555"
+      HYDRAFLOW_ENV: "sandbox"
+      # No real credentials needed — the Fakes don't use them. These
+      # placeholders are present only so legacy code paths that read
+      # `os.environ["GH_TOKEN"]` at startup don't crash before the Fake
+      # adapters take over.
+      GH_TOKEN: "unused-by-fake-github"
+      ANTHROPIC_API_KEY: "unused-by-fake-llm"
+    volumes:
+      - ./tests/sandbox_scenarios/seeds:/seed:ro
+    networks: [sandbox]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5555/healthz"]
+      interval: 2s
+      timeout: 1s
+      retries: 30
+      start_period: 5s
+
+  ui:
+    build:
+      context: ./src/ui
+      dockerfile: Dockerfile.ui
+    depends_on:
+      hydraflow:
+        condition: service_healthy
+    networks: [sandbox]
+    ports:
+      - "127.0.0.1:5556:80"   # bound to localhost ONLY for human debugging.
+
+  playwright:
+    # The MS playwright image ships browsers + the playwright wheel but no
+    # test runner. ``Dockerfile.playwright`` pre-installs pytest etc. at
+    # build time so the sandbox can stay air-gapped (``internal: true``) —
+    # pip cannot reach pypi from inside the sandbox network.
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright
+    volumes:
+      - .:/work:ro
+      - sandbox-results:/results
+    working_dir: /work
+    environment:
+      SANDBOX_BASE_URL: "http://ui"
+      SANDBOX_API_BASE: "http://hydraflow:5555"
+      # ``tests`` is a package at the repo root; the runner conftest +
+      # test_scenarios.py both ``import tests.sandbox_scenarios...``.
+      # ``src`` is on the path so ``mockworld.seed.MockWorldSeed``
+      # resolves when scenario modules are imported by ``loader.py``.
+      PYTHONPATH: "/work:/work/src"
+    depends_on:
+      ui:
+        condition: service_started
+    networks: [sandbox]
+    # The harness CLI overrides this command with the per-scenario invocation.
+    command: ["pytest", "tests/sandbox_scenarios/runner/", "-v", "--junitxml=/results/junit.xml"]
+
+volumes:
+  sandbox-results:
