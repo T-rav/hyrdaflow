@@ -1,0 +1,30 @@
+# Sandbox-only Playwright runner image — Microsoft's playwright/python image
+# ships browsers + the playwright Python wheel but no test runner. We bake
+# pytest + pytest-asyncio + httpx onto it at build time so the sandbox can
+# stay air-gapped (``internal: true``) at runtime — pip cannot reach pypi
+# from inside the sandbox network.
+#
+# Use the ``noble`` (Ubuntu 24.04) variant rather than ``jammy`` because
+# ``tests/conftest.py`` imports ``subprocess_util`` which uses
+# ``from datetime import UTC`` (added in Python 3.11). The jammy image
+# ships Python 3.10 and the import fails before any test collection runs.
+# ``noble`` ships Python 3.12.
+#
+# This is a sandbox carve-out only; production runs Playwright through the
+# host venv via ``make ui-test`` and never builds this image.
+FROM mcr.microsoft.com/playwright/python:v1.49.0-noble
+
+# pytest 8.x + pytest-asyncio 0.24+ for the runner-conftest's @pytest_asyncio
+# fixtures; httpx for the SandboxAPIClient. Surprise: the noble playwright
+# image bundles the *browsers* but NOT the ``playwright`` Python wheel, so
+# install it here at the matching wheel version. Pin tightly so the
+# cassette of this image stays reproducible — a pypi-side patch must not
+# silently flip behaviour underneath the scenario tests.
+# ``--break-system-packages`` is required on noble's PEP-668-marked system
+# Python; the image is single-use (sandbox runner only) so the global
+# install is acceptable here.
+RUN pip install --no-cache-dir --break-system-packages \
+        "pytest==8.3.4" \
+        "pytest-asyncio==0.24.0" \
+        "httpx==0.27.2" \
+        "playwright==1.49.0"

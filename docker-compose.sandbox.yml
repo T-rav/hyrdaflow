@@ -48,7 +48,13 @@ services:
       - "127.0.0.1:5556:80"   # bound to localhost ONLY for human debugging.
 
   playwright:
-    image: mcr.microsoft.com/playwright/python:v1.49.0-jammy
+    # The MS playwright image ships browsers + the playwright wheel but no
+    # test runner. ``Dockerfile.playwright`` pre-installs pytest etc. at
+    # build time so the sandbox can stay air-gapped (``internal: true``) —
+    # pip cannot reach pypi from inside the sandbox network.
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright
     volumes:
       - .:/work:ro
       - sandbox-results:/results
@@ -56,6 +62,11 @@ services:
     environment:
       SANDBOX_BASE_URL: "http://ui"
       SANDBOX_API_BASE: "http://hydraflow:5555"
+      # ``tests`` is a package at the repo root; the runner conftest +
+      # test_scenarios.py both ``import tests.sandbox_scenarios...``.
+      # ``src`` is on the path so ``mockworld.seed.MockWorldSeed``
+      # resolves when scenario modules are imported by ``loader.py``.
+      PYTHONPATH: "/work:/work/src"
     depends_on:
       ui:
         condition: service_started

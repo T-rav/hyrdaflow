@@ -117,7 +117,10 @@ def cmd_run(name: str) -> int:
     target.symlink_to(seed_path.name)
 
     print("[2/5] Building images (cached when possible)...")
-    rc = _compose("build", "hydraflow", "ui").returncode
+    # ``playwright`` must be built explicitly because the MS image ships no
+    # test runner — ``Dockerfile.playwright`` adds pytest at build time so
+    # ``compose run playwright pytest …`` works on the air-gapped network.
+    rc = _compose("build", "hydraflow", "ui", "playwright").returncode
     if rc != 0:
         print(f"BUILD FAILED ({rc})")
         return 2
@@ -137,6 +140,12 @@ def cmd_run(name: str) -> int:
 
     print("[5/5] Running playwright assertions...")
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    # ``-c tests/sandbox_scenarios/pytest.ini`` makes that file the
+    # rootdir-config so pytest does NOT autoload the project-wide
+    # ``tests/conftest.py`` (which imports pydantic/HydraFlow internals
+    # that the slim playwright image doesn't have). The runner's own
+    # conftest under ``tests/sandbox_scenarios/runner/`` still loads
+    # because it's inside the new rootdir.
     rc = _compose(
         "run",
         "--rm",
@@ -144,6 +153,8 @@ def cmd_run(name: str) -> int:
         f"SCENARIO_NAME={name}",
         "playwright",
         "pytest",
+        "-c",
+        "tests/sandbox_scenarios/pytest.ini",
         f"tests/sandbox_scenarios/runner/test_scenarios.py::test_scenario[{name}]",
         "-v",
         "--junitxml=/results/junit.xml",
