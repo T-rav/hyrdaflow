@@ -52,7 +52,7 @@ Both are real production-relevant findings the sandbox tier surfaced — exactly
 **Negative:**
 - Sandbox tier adds ~30–60s per scenario. ~12 scenarios = ~10 min full-suite run.
 - New caretaker loop (`SandboxFailureFixerLoop`, lands in PR C) adds ~400 LOC of code to maintain.
-- Dockerfile.agent must `COPY` `tests/` until `src/contract_diff.py:54` is refactored away from importing `tests.trust.contracts._schema`.
+- Dockerfile.agent must `COPY` `tests/` until `src/contract_diff.py` is refactored away from importing `tests.trust.contracts._schema`.
 
 **Risks:**
 - Sandbox flakes erode trust if not investigated. Mitigation: 3-strikes-then-bug pattern from PR C's Trigger 3 (nightly).
