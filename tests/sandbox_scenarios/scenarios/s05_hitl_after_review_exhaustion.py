@@ -18,9 +18,9 @@ def seed() -> MockWorldSeed:
             "implement": {1: [{"success": True, "branch": "hf/issue-1"}] * 4},
             "review": {
                 1: [
-                    {"verdict": "request_changes", "comments": ["bad 1"]},
-                    {"verdict": "request_changes", "comments": ["bad 2"]},
-                    {"verdict": "request_changes", "comments": ["bad 3"]},
+                    {"verdict": "request-changes", "comments": ["bad 1"]},
+                    {"verdict": "request-changes", "comments": ["bad 2"]},
+                    {"verdict": "request-changes", "comments": ["bad 3"]},
                 ]
             },
         },

@@ -23,7 +23,7 @@ def seed() -> MockWorldSeed:
             },
             "review": {
                 1: [
-                    {"verdict": "request_changes", "comments": ["fix the indent"]},
+                    {"verdict": "request-changes", "comments": ["fix the indent"]},
                     {"verdict": "approve"},
                 ]
             },
