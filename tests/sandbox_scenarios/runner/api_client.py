@@ -7,10 +7,11 @@ to read API state without going through the UI.
 from __future__ import annotations
 
 import asyncio
-import json
 import os
+from collections.abc import Callable
 from urllib.parse import urljoin
-from urllib.request import Request, urlopen
+
+import httpx
 
 
 class SandboxAPIClient:
@@ -23,27 +24,28 @@ class SandboxAPIClient:
 
     async def get(self, path: str) -> dict:
         url = urljoin(self.base_url + "/", path.lstrip("/"))
-        req = Request(url, headers={"Accept": "application/json"})
-        with urlopen(req, timeout=10) as resp:  # noqa: S310 — sandbox-only internal URL
-            return json.loads(resp.read().decode())
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(url, headers={"Accept": "application/json"})
+            resp.raise_for_status()
+            return resp.json()
 
     async def wait_until(
         self,
         path: str,
-        predicate,
+        predicate: Callable[[dict], bool],
         *,
         timeout: float = 30.0,
         poll_interval: float = 1.0,
     ) -> dict:
         """Poll path until predicate(payload) returns True or timeout."""
-        deadline = asyncio.get_event_loop().time() + timeout
+        deadline = asyncio.get_running_loop().time() + timeout
         last = None
-        while asyncio.get_event_loop().time() < deadline:
+        while asyncio.get_running_loop().time() < deadline:
             try:
                 last = await self.get(path)
                 if predicate(last):
                     return last
-            except Exception:  # noqa: BLE001 — best-effort polling
+            except (httpx.HTTPError, ConnectionError, ValueError):
                 pass
             await asyncio.sleep(poll_interval)
         raise TimeoutError(
