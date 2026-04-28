@@ -1,0 +1,4 @@
+# scenario.json is a transient symlink the harness creates per run
+# (cmd_run in scripts/sandbox_scenario.py points it at the active
+# scenario's seed). It MUST NOT be committed.
+scenario.json

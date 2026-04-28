@@ -352,6 +352,47 @@ class TestHealthRoute:
 
         assert payload["checks"]["queue_depths"] == {}
 
+    def test_healthz_handles_uninitialized_github_cache(
+        self, config: HydraFlowConfig, event_bus: EventBus, state
+    ) -> None:
+        """Cold-start GitHub cache returns inf for never-fetched datasets.
+
+        Regression for the sandbox-tier boot path: ``GitHubDataCache``'s
+        ``get_cache_age`` returns ``float("inf")`` when a dataset has not
+        been fetched yet. JSON encoding chokes on ``inf``, so /healthz
+        returned 500 for the entire first-poll window. The fix coerces
+        infinite ages to ``None`` and reports the cache as
+        ``uninitialized``.
+        """
+        from unittest.mock import MagicMock
+
+        from fastapi.testclient import TestClient
+
+        from dashboard import HydraFlowDashboard
+        from github_cache_loop import GitHubDataCache
+
+        gh_cache = MagicMock(spec=GitHubDataCache)
+        gh_cache.get_cache_age.return_value = float("inf")
+
+        orch = make_orchestrator_mock(running=True)
+        orch.github_cache = gh_cache
+
+        dashboard = HydraFlowDashboard(config, event_bus, state, orchestrator=orch)
+        app = dashboard.create_app()
+
+        client = TestClient(app)
+        response = client.get("/healthz")
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        gh = payload["checks"]["github_cache"]
+        assert gh["status"] == "uninitialized"
+        assert gh["age_seconds"] == {
+            "open_prs": None,
+            "hitl_items": None,
+            "label_counts": None,
+        }
+
 
 # ---------------------------------------------------------------------------
 # Accessibility

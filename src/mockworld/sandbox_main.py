@@ -114,11 +114,20 @@ async def main() -> None:
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop_event.set)
 
+    # Drive the pipeline. Without this, the dashboard would serve /healthz
+    # but no loops would tick, no issues would advance, and Tier-2
+    # scenarios would always time out at the API-poll step.
+    orch_task = asyncio.create_task(orch.run(), name="hydraflow-orchestrator")
+
     try:
         await stop_event.wait()
     finally:
         if orch.running:
             await orch.stop()
+        # Allow orch_task to clean up (it observes stop_event via orch.stop()).
+        if not orch_task.done():
+            orch_task.cancel()
+        await asyncio.gather(orch_task, return_exceptions=True)
         await dashboard.stop()
 
 

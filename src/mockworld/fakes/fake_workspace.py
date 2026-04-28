@@ -68,3 +68,13 @@ class FakeWorkspace:
 
     async def sanitize_repo(self) -> None:
         pass
+
+    async def enable_rerere(self) -> None:
+        """Enable git rerere on the managed repo (no-op stub).
+
+        Production WorkspaceManager flips a config flag; FakeWorkspace
+        has no real repo, so this is a no-op. Required because
+        ``HydraFlowOrchestrator.run()`` calls ``workspaces.enable_rerere()``
+        unconditionally during pipeline boot.
+        """
+        return None

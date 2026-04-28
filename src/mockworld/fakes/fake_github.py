@@ -631,3 +631,16 @@ class FakeGitHub:
 
     async def apply_staging_branch_protection(self, branch: str) -> dict[str, Any]:
         return {"status": "protected", "branch": branch}
+
+    # --- Concrete-only PRManager methods invoked at orchestrator boot ---
+
+    async def ensure_labels_exist(self) -> None:
+        """Idempotently create HydraFlow lifecycle labels (no-op stub).
+
+        Production PRManager pushes label definitions to GitHub via
+        ``gh label create``. The seeded FakeGitHub already has whatever
+        labels the seed declared, so this is a no-op. Required because
+        ``HydraFlowOrchestrator.run()`` calls ``prs.ensure_labels_exist()``
+        unconditionally during pipeline boot.
+        """
+        return None

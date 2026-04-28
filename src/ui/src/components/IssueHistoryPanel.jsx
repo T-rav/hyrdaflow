@@ -503,7 +503,7 @@ export function OutcomesPanel() {
     const issueNum = item.issue_number
     const isExpanded = !!expanded[issueNum]
     return (
-      <div key={issueNum} style={styles.rowWrap}>
+      <div key={issueNum} data-testid={`outcome-row-${issueNum}`} style={styles.rowWrap}>
         <div style={{ ...styles.row, gridTemplateColumns: gridColumns }}>
           <button
             type="button"
