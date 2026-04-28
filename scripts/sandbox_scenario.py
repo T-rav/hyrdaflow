@@ -26,7 +26,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 COMPOSE_FILE = REPO_ROOT / "docker-compose.sandbox.yml"
 SEEDS_DIR = REPO_ROOT / "tests" / "sandbox_scenarios" / "seeds"
-RESULTS_DIR = Path("/tmp/sandbox-results")
+RESULTS_DIR = Path("/tmp/sandbox-results")  # noqa: S108  # nosec B108  # Sandbox CLI artifacts dir; not a security boundary, contents are mkdir'd per-run.
 
 # Ensure `tests.sandbox_scenarios.scenarios.*` and `mockworld.*` are
 # importable when this script is invoked directly (e.g.
