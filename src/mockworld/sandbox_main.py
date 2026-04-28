@@ -64,9 +64,18 @@ async def main() -> None:
     # runtime the FakeLLM / FakeWorkspace / FakeGitHub adapters carry
     # the entire required surface for the loops PR A actually exercises.
     workspaces = cast(WorkspacePort, FakeWorkspace(config.workspace_base))
-    fetcher = cast(IssueFetcherPort, FakeIssueFetcher.from_seed(seed))
-    store = cast(IssueStorePort, FakeIssueStore.from_seed(seed, event_bus))
-    prs = cast(PRPort, FakeGitHub.from_seed(seed))
+    # Single FakeGitHub instance — shared by all three Fake adapters.
+    # Using ``from_seed`` independently would create three isolated copies,
+    # so a PR created via ``prs.create_pr`` wouldn't be visible to the
+    # fetcher's ``fetch_reviewable_prs`` and the review loop would loop
+    # forever requeuing the issue. The fetcher / store wrap the same
+    # ``FakeGitHub`` so any state mutation is visible to all readers.
+    shared_github = FakeGitHub.from_seed(seed)
+    fetcher = cast(IssueFetcherPort, FakeIssueFetcher(github=shared_github))
+    store = cast(
+        IssueStorePort, FakeIssueStore(github=shared_github, event_bus=event_bus)
+    )
+    prs = cast(PRPort, shared_github)
 
     # FakeLLM provides triage_runner / planners / agents / reviewers from
     # the seed.scripts payload. Without this, the sandbox would attempt

@@ -78,6 +78,10 @@ class FakeGitHub:
         self._rate_limit_reset_in: int = 60
         self._rate_limit_secondary: bool = False
         self._alerts: dict[str, list[Any]] = {}
+        # Mirrors PRManager._repo. Some loops (StaleIssueLoop) read this
+        # attribute directly when constructing `gh` CLI args via _run_gh.
+        # The value never reaches a real GitHub API in the sandbox.
+        self._repo: str = "owner/repo"
 
     @classmethod
     def from_seed(cls, seed: MockWorldSeed) -> FakeGitHub:
@@ -644,3 +648,148 @@ class FakeGitHub:
         unconditionally during pipeline boot.
         """
         return None
+
+    async def get_label_counts(self, config: Any) -> dict[str, Any]:
+        """Return open-by-label / total-closed / total-merged counts.
+
+        Mirrors ``PRManager.get_label_counts``. Used by ``GitHubCacheLoop``
+        to pre-warm the dashboard's "throughput" tile. The Fake walks
+        ``_issues`` for open counts and ``_prs`` for merged counts.
+        """
+        self._maybe_rate_limit()
+        label_map = {
+            "hydraflow-plan": getattr(config, "planner_label", ["hydraflow-plan"]),
+            "hydraflow-ready": getattr(config, "ready_label", ["hydraflow-ready"]),
+            "hydraflow-review": getattr(config, "review_label", ["hydraflow-review"]),
+            "hydraflow-hitl": getattr(config, "hitl_label", ["hydraflow-hitl"]),
+            "hydraflow-fixed": getattr(config, "fixed_label", ["hydraflow-fixed"]),
+        }
+        open_by_label: dict[str, int] = {}
+        for canonical, labels in label_map.items():
+            wanted = set(labels) if isinstance(labels, list) else {labels}
+            count = sum(
+                1
+                for issue in self._issues.values()
+                if issue.state == "open" and (set(issue.labels) & wanted)
+            )
+            open_by_label[canonical] = count
+
+        fixed_label = (
+            getattr(config, "fixed_label", ["hydraflow-fixed"])[0]
+            if getattr(config, "fixed_label", None)
+            else "hydraflow-fixed"
+        )
+        total_closed = sum(
+            1
+            for issue in self._issues.values()
+            if issue.state != "open" and fixed_label in issue.labels
+        )
+        total_merged = sum(1 for pr in self._prs.values() if pr.merged)
+
+        return {
+            "open_by_label": open_by_label,
+            "total_closed": total_closed,
+            "total_merged": total_merged,
+        }
+
+    async def list_open_prs(self, labels: list[str]) -> list[Any]:
+        """Return open PRs carrying any of *labels* as PRListItem-style objects.
+
+        Mirrors ``PRManager.list_open_prs``. Used by ``GitHubCacheLoop`` to
+        warm its PR-by-label cache. The Fake walks ``_prs`` filtered by
+        ``merged=False`` and label intersection.
+        """
+        self._maybe_rate_limit()
+        from models import PRListItem
+
+        wanted = set(labels)
+        out: list[PRListItem] = []
+        for pr in self._prs.values():
+            if pr.merged:
+                continue
+            if wanted and not (wanted & set(pr.labels)):
+                continue
+            out.append(
+                PRListItem(
+                    pr=pr.number,
+                    issue=pr.issue_number,
+                    branch=pr.branch,
+                    url=pr.url or "",
+                    draft=pr.draft,
+                    title="",
+                    merged=pr.merged,
+                    author="fake-author",
+                )
+            )
+        return out
+
+    async def _run_gh(self, *cmd: str, cwd: Any = None) -> str:
+        """Generic ``gh`` CLI passthrough — returns minimal-shape JSON.
+
+        Production ``PRManager._run_gh`` exec's the ``gh`` CLI and returns
+        stdout. The Fake parses *cmd* far enough to identify which API
+        call it represents (``gh issue list``, ``gh pr list``, etc.) and
+        synthesizes a JSON payload from in-memory state.
+
+        Unknown commands return ``"[]"`` rather than raising — keeps
+        loops that probe rare endpoints quiet during scenario runs.
+        """
+        self._maybe_rate_limit()
+        _ = cwd
+        import json as _json
+
+        args = list(cmd)
+        # Strip leading "gh" if the caller included it (some sites do).
+        if args and args[0] == "gh":
+            args = args[1:]
+        if not args:
+            return "[]"
+
+        verb = args[0]
+
+        if verb == "issue" and len(args) > 1:
+            sub = args[1]
+            if sub == "list":
+                # Return minimally-shaped issue list. StaleIssueLoop expects
+                # number/title/updatedAt/labels.
+                payload = [
+                    {
+                        "number": issue.number,
+                        "title": issue.title,
+                        "updatedAt": getattr(
+                            issue, "updated_at", "2026-01-01T00:00:00Z"
+                        ),
+                        "labels": [{"name": lbl} for lbl in issue.labels],
+                    }
+                    for issue in self._issues.values()
+                    if issue.state == "open"
+                ]
+                return _json.dumps(payload)
+            if sub == "close":
+                # Best-effort: extract issue number from positional args.
+                for a in args[2:]:
+                    if a.isdigit():
+                        await self.close_issue(int(a))
+                        break
+                return ""
+            if sub == "view":
+                return _json.dumps({"comments": []})
+
+        if verb == "pr" and len(args) > 1:
+            sub = args[1]
+            if sub == "list":
+                payload = [
+                    {
+                        "number": pr.number,
+                        "title": "",
+                        "url": pr.url or "",
+                        "labels": [{"name": lbl} for lbl in pr.labels],
+                    }
+                    for pr in self._prs.values()
+                    if not pr.merged
+                ]
+                return _json.dumps(payload)
+
+        # Unknown verb: return empty JSON array — safe default for
+        # callers that ``json.loads`` the output.
+        return "[]"
