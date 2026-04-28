@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from mockworld.fakes.fake_github import FakeGitHub
 from tests.scenarios.behaviors.rate_limit import RateLimited, RateLimitExceeded
-from tests.scenarios.fakes.fake_github import FakeGitHub
 
 
 async def test_under_budget_passes_through() -> None:

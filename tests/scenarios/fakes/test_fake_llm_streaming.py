@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests.scenarios.fakes.fake_llm import FakeLLM
+from mockworld.fakes.fake_llm import FakeLLM
 
 
 async def test_script_stream_attaches_events_to_worker_result() -> None:

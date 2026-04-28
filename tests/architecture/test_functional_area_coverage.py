@@ -47,7 +47,7 @@ def test_every_port_is_assigned_to_an_area(real_repo_root: Path):
         info.name
         for info in extract_ports(
             src_dir=real_repo_root / "src",
-            fakes_dir=real_repo_root / "tests/scenarios/fakes",
+            fakes_dir=real_repo_root / "src/mockworld/fakes",
         )
     }
     missing = discovered - assigned
@@ -75,7 +75,7 @@ def test_no_phantom_assignments(real_repo_root: Path):
         info.name
         for info in extract_ports(
             src_dir=real_repo_root / "src",
-            fakes_dir=real_repo_root / "tests/scenarios/fakes",
+            fakes_dir=real_repo_root / "src/mockworld/fakes",
         )
     }
 

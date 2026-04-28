@@ -7,6 +7,8 @@ from pathlib import Path
 
 
 class FakeGit:
+    _is_fake_adapter = True
+
     def __init__(self) -> None:
         self._worktrees: dict[Path, str] = {}
         self._configs: dict[Path, dict[str, str]] = {}

@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from acceptance_criteria import AcceptanceCriteriaGenerator
 from adr_reviewer import ADRCouncilReviewer
@@ -53,7 +53,7 @@ from models import StatusCallback
 from plan_phase import PlanPhase
 from plan_reviewer import PlanReviewer
 from planner import PlannerRunner
-from ports import IssueStorePort
+from ports import IssueFetcherPort, IssueStorePort, PRPort, WorkspacePort
 from post_merge_handler import PostMergeHandler
 from pr_manager import PRManager
 from pr_unsticker import PRUnsticker
@@ -107,11 +107,11 @@ class ServiceRegistry:
     """Holds all service instances for the orchestrator."""
 
     # Core infrastructure
-    workspaces: WorkspaceManager
+    workspaces: WorkspacePort
     subprocess_runner: SubprocessRunner
     agents: AgentRunner
     planners: PlannerRunner
-    prs: PRManager
+    prs: PRPort
     reviewers: ReviewRunner
     hitl_runner: HITLRunner
     triage: TriageRunner
@@ -119,7 +119,7 @@ class ServiceRegistry:
 
     # Data layer
     fetcher: IssueFetcher
-    store: IssueStore
+    store: IssueStorePort
     # Optional read-through cache decorator wrapping `store`. Phases
     # that want stale-bounded enrich_with_comments + fetch recording
     # consume this instead of `store` directly. Defaults to the same
@@ -218,8 +218,28 @@ def build_services(
     callbacks: WorkerRegistryCallbacks,
     active_issues_cb: Callable[[], None] | None = None,
     credentials: Credentials | None = None,
+    *,
+    # Sandbox overrides — None → construct the real adapter.
+    # Production callers pass nothing and behavior is unchanged. The
+    # sandbox entrypoint (mockworld.sandbox_main, Task 1.10) passes
+    # Fakes here so a real ServiceRegistry can be wired around them
+    # without any conditional in the production code path.
+    prs: PRPort | None = None,
+    workspaces: WorkspacePort | None = None,
+    store: IssueStorePort | None = None,
+    fetcher: IssueFetcherPort | None = None,
+    # ``runners`` is duck-typed: any object exposing the four runner
+    # attrs (triage_runner, planners, agents, reviewers) suffices.
+    # FakeLLM does. See spec Component 1 RunnerSet pattern if a
+    # stricter type is preferred.
+    runners: object | None = None,
 ) -> ServiceRegistry:
     """Create all services wired together.
+
+    Production callers pass no override kwargs and get real adapters
+    constructed from config + credentials. The sandbox entrypoint
+    (``mockworld.sandbox_main``) passes Fake adapters to short-circuit
+    the construction.
 
     This replaces the 170-line orchestrator constructor body.
     """
@@ -241,7 +261,23 @@ def build_services(
     # been extracted via scripts/extract_hindsight_to_wiki.py before merge.
 
     # Core runners
-    workspaces = WorkspaceManager(config, credentials=credentials)  # noqa: F841
+    if workspaces is None:
+        workspaces = WorkspaceManager(config, credentials=credentials)
+    # Cast is duck-safe at runtime: the override (FakeWorkspace, if any)
+    # duck-types as WorkspaceManager for downstream callers in this
+    # function. They only call WorkspacePort methods (which both
+    # WorkspaceManager and FakeWorkspace satisfy), so passing the Fake is
+    # safe.
+    #
+    # WARNING — type-checker blind spot. ``cast`` is a no-op at runtime;
+    # pyright then trusts it and treats ``workspaces`` as the concrete
+    # ``WorkspaceManager``. If a downstream caller starts using a method
+    # that lives on ``WorkspaceManager`` but NOT on ``WorkspacePort`` /
+    # ``FakeWorkspace``, the type checker will *not* flag it — the bug
+    # only surfaces at sandbox runtime. The mitigation is Task 1.9's full
+    # widening of downstream method signatures to take
+    # ``WorkspacePort`` directly, after which this cast can be removed.
+    workspaces = cast(WorkspaceManager, workspaces)
     subprocess_runner = get_docker_runner(config, credentials=credentials)
     # The self-repo's wiki lives at ``docs/wiki/`` so it is
     # git-tracked alongside the code it documents. Other managed repos'
@@ -294,7 +330,22 @@ def build_services(
         wiki_store=repo_wiki_store,
         tribal_wiki_store=tribal_wiki_store,
     )
-    prs = PRManager(config, event_bus, credentials=credentials)
+    if prs is None:
+        prs = PRManager(config, event_bus, credentials=credentials)
+    # Cast is duck-safe at runtime: the override (FakeGitHub, if any)
+    # duck-types as PRManager for downstream callers in this function.
+    # They only call PRPort methods (which both PRManager and
+    # FakeGitHub satisfy), so passing the Fake is safe.
+    #
+    # WARNING — type-checker blind spot. ``cast`` is a no-op at runtime;
+    # pyright then trusts it and treats ``prs`` as the concrete
+    # ``PRManager``. If a downstream caller starts using a method that
+    # lives on ``PRManager`` but NOT on ``PRPort`` / ``FakeGitHub``, the
+    # type checker will *not* flag it — the bug only surfaces at
+    # sandbox runtime. The mitigation is Task 1.9's full widening of
+    # downstream method signatures to take ``PRPort`` directly, after
+    # which this cast can be removed.
+    prs = cast(PRManager, prs)
     reviewers = ReviewRunner(
         config,
         event_bus,
@@ -319,18 +370,69 @@ def build_services(
         wiki_store=repo_wiki_store,
         tribal_wiki_store=tribal_wiki_store,
     )
+    # Sandbox override — replace the four LLM-backed runners with the
+    # caller-supplied set (e.g. FakeLLM in mockworld.sandbox_main). The
+    # real-runner constructions above still execute (they're cheap; we
+    # don't try to skip the work) but the names are immediately rebound
+    # so every downstream consumer (phases, summarizer wiring,
+    # ServiceRegistry fields) sees the override.
+    if runners is not None:
+        triage = runners.triage_runner  # type: ignore[attr-defined]
+        planners = runners.planners  # type: ignore[attr-defined]
+        agents = runners.agents  # type: ignore[attr-defined]
+        reviewers = runners.reviewers  # type: ignore[attr-defined]
     summarizer = TranscriptSummarizer(
         config, prs, event_bus, state, runner=subprocess_runner, credentials=credentials
     )
 
     # Data layer
-    fetcher = IssueFetcher(config, credentials=credentials)
+    if fetcher is None:
+        fetcher = IssueFetcher(config, credentials=credentials)
+    # Cast is duck-safe at runtime: the override (FakeIssueFetcher, if
+    # any) duck-types as IssueFetcher for downstream callers in this
+    # function. They only call IssueFetcherPort methods (which both
+    # IssueFetcher and FakeIssueFetcher satisfy), so passing the Fake is
+    # safe.
+    #
+    # WARNING — type-checker blind spot. ``cast`` is a no-op at runtime;
+    # pyright then trusts it and treats ``fetcher`` as the concrete
+    # ``IssueFetcher``. If a downstream caller starts using a method that
+    # lives on ``IssueFetcher`` but NOT on ``IssueFetcherPort`` /
+    # ``FakeIssueFetcher``, the type checker will *not* flag it — the
+    # bug only surfaces at sandbox runtime. The mitigation is Task 1.9's
+    # full widening of downstream method signatures to take
+    # ``IssueFetcherPort`` directly, after which this cast can be removed.
+    fetcher = cast(IssueFetcher, fetcher)
     gh_cache = GitHubDataCache(config, prs, fetcher)  # noqa: F841
-    store = IssueStore(config, GitHubTaskFetcher(fetcher), event_bus)
+    if store is None:
+        store = IssueStore(config, GitHubTaskFetcher(fetcher), event_bus)
+    # Cast is duck-safe at runtime: the override (FakeIssueStore, if any)
+    # duck-types as IssueStore for downstream callers in this function.
+    # They only call IssueStorePort methods (which both IssueStore and
+    # FakeIssueStore satisfy), so passing the Fake is safe.
+    #
+    # WARNING — type-checker blind spot. ``cast`` is a no-op at runtime;
+    # pyright then trusts it and treats ``store`` as the concrete
+    # ``IssueStore``. If a downstream caller starts using a method that
+    # lives on ``IssueStore`` but NOT on ``IssueStorePort`` /
+    # ``FakeIssueStore``, the type checker will *not* flag it — the bug
+    # only surfaces at sandbox runtime. The mitigation is Task 1.9's
+    # full widening of downstream method signatures to take
+    # ``IssueStorePort`` directly, after which this cast can be removed.
+    #
+    # Note: ``set_crate_manager`` and ``is_in_pipeline`` are
+    # IssueStore-only plumbing not on the Port; both call sites below
+    # are gated on attribute presence so override stores remain functional.
+    store = cast(IssueStore, store)
 
     # Crate management
     crate_manager = CrateManager(config, state, prs, event_bus)
-    store.set_crate_manager(crate_manager)
+    # ``set_crate_manager`` is internal IssueStore plumbing not part of
+    # IssueStorePort. Sandbox stores (FakeIssueStore) don't implement it
+    # and don't need it — gate the call on attribute presence so override
+    # stores remain functional.
+    if hasattr(store, "set_crate_manager"):
+        store.set_crate_manager(crate_manager)
 
     # Local JSONL issue cache (append-only mirror; see src/issue_cache.py and #6422)
     issue_cache = IssueCache(
@@ -591,8 +693,11 @@ def build_services(
     review_insights = ReviewInsightStore(
         config.memory_dir,
     )
-    # Inject shared store into AgentRunner (replacing its self-constructed copy)
-    agents._insights = review_insights
+    # ``_insights`` is internal AgentRunner plumbing not part of any Port.
+    # Sandbox runners (FakeAgentRunner) don't implement it — gate the
+    # assignment on attribute presence so override runners remain functional.
+    if hasattr(agents, "_insights"):
+        agents._insights = review_insights
 
     reviewer = ReviewPhase(
         config,
@@ -645,13 +750,18 @@ def build_services(
         state=state,
         deps=loop_deps,
     )
+    # ``is_in_pipeline`` is internal IssueStore plumbing not part of
+    # IssueStorePort. Sandbox stores (FakeIssueStore) don't implement it
+    # — fall back to a never-in-pipeline lambda so loop construction
+    # succeeds with override stores. Real IssueStore retains its method.
+    is_in_pipeline_cb = getattr(store, "is_in_pipeline", lambda _n: False)
     workspace_gc_loop = WorkspaceGCLoop(  # noqa: F841
         config=config,
         workspaces=workspaces,
         prs=prs,
         state=state,
         deps=loop_deps,
-        is_in_pipeline_cb=store.is_in_pipeline,
+        is_in_pipeline_cb=is_in_pipeline_cb,
         credentials=credentials,
     )
     runs_gc_loop = RunsGCLoop(config=config, run_recorder=run_recorder, deps=loop_deps)

@@ -170,8 +170,8 @@ class TestMockWorldMap:
             fakes=[
                 FakeInfo(
                     name="FakeGitHub",
-                    module="tests.scenarios.fakes.fake_github",
-                    source_path="tests/scenarios/fakes/fake_github.py",
+                    module="mockworld.fakes.fake_github",
+                    source_path="src/mockworld/fakes/fake_github.py",
                     implements_port="GitHubPort",
                     used_in_scenarios=["scenario_pr_lifecycle"],
                 ),

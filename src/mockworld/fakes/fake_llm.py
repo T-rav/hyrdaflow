@@ -13,13 +13,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from models import EpicDecompResult, ReviewVerdict
-from tests.conftest import (
+from mockworld.fakes._factories import (
     PlanResultFactory,
     ReviewResultFactory,
     TriageResultFactory,
     WorkerResultFactory,
 )
+from models import EpicDecompResult, ReviewVerdict
 
 
 @dataclass(slots=True)
@@ -231,6 +231,8 @@ class _FakeReviewRunner(_ScriptedRunner):
 
 class FakeLLM:
     """Composable scripted LLM runners for all pipeline phases."""
+
+    _is_fake_adapter = True  # read by dashboard for MOCKWORLD banner
 
     def __init__(self) -> None:
         self._token_budgets: dict[int, _BudgetState] = {}

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests.scenarios.fakes.fake_llm import FakeLLM
+from mockworld.fakes.fake_llm import FakeLLM
 
 
 async def test_prior_failure_is_captured() -> None:

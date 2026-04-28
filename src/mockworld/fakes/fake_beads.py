@@ -33,6 +33,8 @@ class FakeBeads:
     list_ready → show) without spawning a real ``bd`` process.
     """
 
+    _is_fake_adapter = True
+
     def __init__(self) -> None:
         self._tasks: dict[str, _FakeTask] = {}
         self._next_id: int = 1

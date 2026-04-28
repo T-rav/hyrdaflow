@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from mockworld.fakes.fake_clock import FakeClock
+from mockworld.fakes.fake_github import FakeGitHub
 from tests.scenarios.behaviors.latency import Latency
-from tests.scenarios.fakes.fake_clock import FakeClock
-from tests.scenarios.fakes.fake_github import FakeGitHub
 
 
 async def test_latency_advances_clock() -> None:

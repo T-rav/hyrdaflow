@@ -7,7 +7,7 @@ import contextlib
 import logging
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from adr_utils import is_adr_issue_title
 from bg_worker_manager import BGWorkerManager
@@ -55,7 +55,9 @@ if TYPE_CHECKING:
     from github_cache_loop import GitHubDataCache
     from issue_store import IssueStore
     from metrics_manager import MetricsManager
+    from pr_manager import PRManager
     from run_recorder import RunRecorder
+    from workspace import WorkspaceManager
 
 logger = logging.getLogger("hydraflow.orchestrator")
 
@@ -88,6 +90,8 @@ class HydraFlowOrchestrator:
         event_bus: EventBus | None = None,
         state: StateTracker | None = None,
         pipeline_enabled: bool = True,
+        *,
+        services: ServiceRegistry | None = None,
     ) -> None:
         self._config = config
         # Register config for module-level free-function helpers (e.g.
@@ -123,22 +127,31 @@ class HydraFlowOrchestrator:
         # without this the GC can collect the Task before it completes.
         self._deferred_tasks: set[asyncio.Task[None]] = set()
 
-        # Build all services via the factory
-        svc = build_services(
-            config,
-            self._bus,
-            self._state,
-            self._stop_event,
-            WorkerRegistryCallbacks(
-                update_status=self.update_bg_worker_status,
-                is_enabled=self.is_bg_worker_enabled,
-                get_interval=self.get_bg_worker_interval,
-            ),
-            active_issues_cb=self._sync_active_issue_numbers,
-        )
+        # Build all services via the factory (or use what was passed in).
+        # Production callers pass nothing → build a real registry here.
+        # The sandbox entrypoint (mockworld.sandbox_main, Task 1.10) passes
+        # a pre-built registry containing Fakes so a single ServiceRegistry
+        # is wired through both layers without any conditional in the
+        # production code path.
+        if services is None:
+            services = build_services(
+                config,
+                self._bus,
+                self._state,
+                self._stop_event,
+                WorkerRegistryCallbacks(
+                    update_status=self.update_bg_worker_status,
+                    is_enabled=self.is_bg_worker_enabled,
+                    get_interval=self.get_bg_worker_interval,
+                ),
+                active_issues_cb=self._sync_active_issue_numbers,
+            )
 
         # Store the service registry directly — access via self._svc.<name>
-        self._svc: ServiceRegistry = svc
+        self._svc: ServiceRegistry = services
+        # Local alias kept for downstream readability (the registry was
+        # previously named ``svc`` throughout this constructor).
+        svc = services
 
         # Extracted component managers
         bg_loop_registry: dict[str, BaseBackgroundLoop] = {
@@ -198,8 +211,14 @@ class HydraFlowOrchestrator:
 
     @property
     def issue_store(self) -> IssueStore:
-        """Expose the centralized issue store for dashboard integration."""
-        return self._svc.store
+        """Expose the centralized issue store for dashboard integration.
+
+        Narrowed from ``IssueStorePort`` to the concrete ``IssueStore``
+        because dashboard handlers use orchestrator-only methods
+        (``get_active_issues``, ``get_merged_numbers``, etc.) that are
+        intentionally excluded from the Port surface.
+        """
+        return cast("IssueStore", self._svc.store)
 
     @property
     def state(self) -> StateTracker:
@@ -253,9 +272,16 @@ class HydraFlowOrchestrator:
         session and no retry — a silently broken state.
         """
         try:
-            await self._svc.workspaces.sanitize_repo()
-            await self._svc.prs.ensure_labels_exist()
-            await self._svc.workspaces.enable_rerere()
+            # Concrete-only setup methods (sanitize_repo, ensure_labels_exist,
+            # enable_rerere) are not on the Port — they are real-process
+            # bootstrap operations that Fakes have no business implementing.
+            workspaces: WorkspaceManager = cast(
+                "WorkspaceManager", self._svc.workspaces
+            )
+            prs: PRManager = cast("PRManager", self._svc.prs)
+            await workspaces.sanitize_repo()
+            await prs.ensure_labels_exist()
+            await workspaces.enable_rerere()
             self._warn_if_agents_md_missing()
             if self._current_session is None:
                 await self._start_session()
@@ -417,8 +443,10 @@ class HydraFlowOrchestrator:
         """
         async with self._active_issues_lock:
             interrupted: dict[int, str] = {}
-            # Use IssueStore active tracking as the primary source
-            for issue_number, stage in self._svc.store.get_active_issues().items():
+            # Use IssueStore active tracking as the primary source.
+            # ``get_active_issues`` is orchestrator-only — not on IssueStorePort.
+            store: IssueStore = cast("IssueStore", self._svc.store)
+            for issue_number, stage in store.get_active_issues().items():
                 interrupted[issue_number] = stage
             # Also check in-memory tracking sets for issues not yet in the store
             for issue_number in self._svc.implementer.active_issues:
@@ -448,7 +476,8 @@ class HydraFlowOrchestrator:
         self._running = False
         self._auth_failed = False
         self._credits_paused_until = None
-        self._svc.store.clear_active()
+        # ``clear_active`` is orchestrator-only — not on IssueStorePort.
+        cast("IssueStore", self._svc.store).clear_active()
         self._svc.implementer.active_issues.clear()
         self._svc.reviewer.active_issues.clear()
         self._hitl_ctrl.active_hitl_issues.clear()
@@ -547,7 +576,8 @@ class HydraFlowOrchestrator:
 
     def build_pipeline_stats(self) -> PipelineStats:
         """Build a unified snapshot of the pipeline state."""
-        queue_stats = self._svc.store.get_queue_stats()
+        # ``get_queue_stats`` is orchestrator-only — not on IssueStorePort.
+        queue_stats = cast("IssueStore", self._svc.store).get_queue_stats()
         lifetime = self._state.get_lifetime_stats()
 
         # Compute uptime from session start
@@ -795,9 +825,14 @@ class HydraFlowOrchestrator:
 
         session_started = False
         if self._pipeline_enabled:
-            await self._svc.workspaces.sanitize_repo()
-            await self._svc.prs.ensure_labels_exist()
-            await self._svc.workspaces.enable_rerere()
+            # Concrete-only setup methods — not on Port. See _deferred_pipeline_start.
+            workspaces: WorkspaceManager = cast(
+                "WorkspaceManager", self._svc.workspaces
+            )
+            prs: PRManager = cast("PRManager", self._svc.prs)
+            await workspaces.sanitize_repo()
+            await prs.ensure_labels_exist()
+            await workspaces.enable_rerere()
             self._warn_if_agents_md_missing()
             await self._start_session()
             session_started = True
@@ -812,7 +847,8 @@ class HydraFlowOrchestrator:
             self._svc.reviewers.terminate()
             self._svc.hitl_runner.terminate()
             with contextlib.suppress(Exception):
-                await self._svc.workspaces.sanitize_repo()
+                # Same concrete-only narrowing as the bootstrap above.
+                await cast("WorkspaceManager", self._svc.workspaces).sanitize_repo()
             await asyncio.sleep(0)
             self._running = False
             await self._publish_status()
@@ -914,7 +950,9 @@ class HydraFlowOrchestrator:
             # Only poll GitHub for issues when pipeline is enabled
             while not self._stop_event.is_set():
                 if self._pipeline_enabled:
-                    await self._svc.store.start(self._stop_event)
+                    # ``start`` is the long-running poller — orchestrator-only
+                    # method, not on IssueStorePort.
+                    await cast("IssueStore", self._svc.store).start(self._stop_event)
                     return
                 await self._sleep_or_stop(self._config.poll_interval)
 
@@ -1324,7 +1362,10 @@ class HydraFlowOrchestrator:
                 await self._svc.reviewer.review_adrs([issue])
                 return True
 
-            active_in_store = set(self._svc.store.get_active_issues().keys())
+            # ``get_active_issues`` is orchestrator-only — not on IssueStorePort.
+            active_in_store = set(
+                cast("IssueStore", self._svc.store).get_active_issues().keys()
+            )
             gh_issue = GitHubIssue.from_task(issue)
             prs, gh_issues = await self._svc.fetcher.fetch_reviewable_prs(
                 active_in_store, prefetched_issues=[gh_issue]

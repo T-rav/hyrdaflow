@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,9 @@ class FakeWikiCompiler:
     call (the rest raise AttributeError on access so missed wiring is
     loud).
     """
+
+    # ClassVar so dataclass doesn't promote it to an init field.
+    _is_fake_adapter: ClassVar[bool] = True
 
     compile_calls: list[CompileCall] = field(default_factory=list)
     compiled_entries_per_call: int = 1

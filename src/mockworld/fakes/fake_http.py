@@ -46,6 +46,8 @@ class _RouteBuilder:
 
 
 class FakeHTTP:
+    _is_fake_adapter = True
+
     def __init__(self) -> None:
         self._routes: dict[tuple[str, str], deque[_Response]] = {}
         self.requests: list[_RecordedRequest] = []

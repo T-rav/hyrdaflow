@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from mockworld.fakes.fake_github import FakeGitHub
 from tests.scenarios.behaviors.flaky import Flaky, FlakyError
-from tests.scenarios.fakes.fake_github import FakeGitHub
 
 
 async def test_first_n_calls_fail_then_succeed() -> None:

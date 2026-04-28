@@ -26,6 +26,8 @@ class _Invocation:
 class FakeDocker:
     """Scripted agent-cli container runner."""
 
+    _is_fake_adapter = True
+
     def __init__(self) -> None:
         self._scripts: deque[list[dict[str, Any]]] = deque()
         self._next_fault: FaultKind | None = None

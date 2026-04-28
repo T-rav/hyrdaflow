@@ -8,6 +8,8 @@ from typing import Any
 class FakeSentry:
     """Captures breadcrumbs and events for assertion."""
 
+    _is_fake_adapter = True
+
     def __init__(self) -> None:
         self.breadcrumbs: list[dict[str, Any]] = []
         self.events: list[dict[str, Any]] = []

@@ -4,8 +4,18 @@
 
 Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdocs.yml`. Grouped by ISO week.
 
+## 2026-W18
+
+- `72be715` — fix(mockworld): break src->tests import + clean arch-doc generator (PR A pass-1 follow-ups) *(2026-04-27)*
+- `5c087c4` — chore(arch): regen generated docs after Task 1.10 *(2026-04-27)*
+- `3eb0890` — feat(mockworld): sandbox_main entrypoint + apply_seed + dashboard banner + s00 *(2026-04-27)*
+- `0eb33da` — feat(orchestrator): accept pre-built ServiceRegistry via services= kwarg *(2026-04-27)*
+- `db81ede` — refactor(types): widen Port-shaped fields from concrete adapters to Ports *(2026-04-27)*
+- `76ad04f` — refactor(mockworld): relocate Fakes from tests/scenarios/fakes/ to src/mockworld/fakes/ *(2026-04-27)*
+
 ## 2026-W17
 
+- `7a0e225` — feat: CostBudgetWatcherLoop + PSH onboarding (multi-repo prereq) (#8450) (#8450) *(2026-04-26)*
 - `3738e3d` — feat(loop): PricingRefreshLoop — daily LiteLLM upstream-pricing refresh (#8449) (#8449) *(2026-04-26)*
 - `f07ec68` — feat(scaffold): scripts/scaffold_loop.py upgrade — atomic apply + 5-checkpoint patcher (#8448) (#8448) *(2026-04-26)*
 - `3f349d8` — feat(runners): BaseSubprocessRunner + AutoAgentRunner migration + Port↔Fake signature conformance (#8446) (#8446) *(2026-04-26)*
@@ -146,4 +156,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `c3f3b17` on 2026-04-27 03:03 UTC. Source last changed at `c3f3b17`. Status: 🟢 fresh._
+_Regenerated from commit `72be715` on 2026-04-27 21:39 UTC. Source last changed at `72be715`. Status: 🟢 fresh._

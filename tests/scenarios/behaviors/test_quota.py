@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from mockworld.fakes.fake_llm import FakeLLM
 from tests.scenarios.behaviors.quota import Quota, QuotaExceeded
-from tests.scenarios.fakes.fake_llm import FakeLLM
 
 
 async def test_quota_decrements_on_each_call() -> None:

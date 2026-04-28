@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -11,17 +11,28 @@ from fastapi.responses import JSONResponse
 from dashboard_routes._routes import RouteContext
 from models import CrateCreateRequest, CrateItemsRequest, CrateUpdateRequest
 
+if TYPE_CHECKING:
+    from pr_manager import PRManager
+
 logger = logging.getLogger("hydraflow.dashboard")
 
 
 def register(router: APIRouter, ctx: RouteContext) -> None:
-    """Register crate-related routes on *router*."""
+    """Register crate-related routes on *router*.
+
+    All milestone operations (``list_milestones``, ``create_milestone``,
+    etc.) live on the concrete ``PRManager`` rather than ``PRPort``: they
+    are GitHub-API-shaped operations that the in-memory Fakes do not
+    model.  The handlers narrow ``ctx.pr_manager`` to ``PRManager``
+    locally; production always passes the concrete adapter.
+    """
+    pr: PRManager = cast("PRManager", ctx.pr_manager)
 
     @router.get("/api/crates")
     async def get_crates() -> JSONResponse:
         """List all milestones as crates with enriched progress data."""
         try:
-            crates = await ctx.pr_manager.list_milestones()
+            crates = await pr.list_milestones()
             result = []
             for crate in crates:
                 data = crate.model_dump()
@@ -47,7 +58,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
         if not body.title.strip():
             return JSONResponse({"error": "title is required"}, status_code=400)
         try:
-            crate = await ctx.pr_manager.create_milestone(
+            crate = await pr.create_milestone(
                 title=body.title.strip(),
                 description=body.description,
                 due_on=body.due_on,
@@ -68,7 +79,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
         if not fields:
             return JSONResponse({"error": "no fields to update"}, status_code=400)
         try:
-            crate = await ctx.pr_manager.update_milestone(crate_number, **fields)
+            crate = await pr.update_milestone(crate_number, **fields)
             return JSONResponse(crate.model_dump())
         except RuntimeError as exc:
             logger.error("Failed to update crate #%d: %s", crate_number, exc)
@@ -78,7 +89,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
     async def delete_crate(crate_number: int) -> JSONResponse:
         """Delete a milestone (crate)."""
         try:
-            await ctx.pr_manager.delete_milestone(crate_number)
+            await pr.delete_milestone(crate_number)
             return JSONResponse({"ok": True})
         except RuntimeError as exc:
             logger.error("Failed to delete crate #%d: %s", crate_number, exc)
@@ -91,7 +102,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
         """Assign issues to a milestone (crate)."""
         try:
             for issue_number in body.issue_numbers:
-                await ctx.pr_manager.set_issue_milestone(issue_number, crate_number)
+                await pr.set_issue_milestone(issue_number, crate_number)
             return JSONResponse({"ok": True, "added": len(body.issue_numbers)})
         except RuntimeError as exc:
             logger.error("Failed to add items to crate #%d: %s", crate_number, exc)
@@ -110,12 +121,12 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
         different milestone.
         """
         try:
-            current_issues = await ctx.pr_manager.list_milestone_issues(crate_number)
+            current_issues = await pr.list_milestone_issues(crate_number)
             current_nums = {i.get("number") for i in current_issues}
             removed = 0
             for issue_number in body.issue_numbers:
                 if issue_number in current_nums:
-                    await ctx.pr_manager.set_issue_milestone(issue_number, None)
+                    await pr.set_issue_milestone(issue_number, None)
                     removed += 1
             return JSONResponse({"ok": True, "removed": removed})
         except RuntimeError as exc:
@@ -139,7 +150,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
         }
         if active_number is not None and orch is not None:
             try:
-                crates = await ctx.pr_manager.list_milestones(state="all")
+                crates = await pr.list_milestones(state="all")
                 active = next((c for c in crates if c.number == active_number), None)
                 if active:
                     total = active.open_issues + active.closed_issues
@@ -198,7 +209,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
         ctx.state.set_active_crate_number(None)
         # Now find the next open crate
         try:
-            crates = await ctx.pr_manager.list_milestones(state="open")
+            crates = await pr.list_milestones(state="open")
             candidates = sorted(
                 (c for c in crates if c.open_issues > 0 and c.number != previous),
                 key=lambda c: c.number,

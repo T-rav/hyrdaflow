@@ -9,9 +9,12 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from tests.conftest import PRInfoFactory
+from mockworld.fakes._factories import PRInfoFactory
+
+if TYPE_CHECKING:
+    from mockworld.seed import MockWorldSeed
 
 
 class RateLimitError(Exception):
@@ -56,10 +59,13 @@ class FakePR:
     deletions: int = 0
     reviews: list[tuple[str, str]] = field(default_factory=list)
     checks: list[tuple[str, str]] = field(default_factory=list)
+    labels: list[str] = field(default_factory=list)
 
 
 class FakeGitHub:
     """Stateful fake for GitHub API (PRManager + IssueFetcher)."""
+
+    _is_fake_adapter = True  # read by dashboard for MOCKWORLD banner
 
     def __init__(self) -> None:
         self._issues: dict[int, FakeIssue] = {}
@@ -72,6 +78,29 @@ class FakeGitHub:
         self._rate_limit_reset_in: int = 60
         self._rate_limit_secondary: bool = False
         self._alerts: dict[str, list[Any]] = {}
+
+    @classmethod
+    def from_seed(cls, seed: MockWorldSeed) -> FakeGitHub:
+        """Construct a FakeGitHub populated from a MockWorldSeed."""
+        gh = cls()
+        for issue_dict in seed.issues:
+            gh.add_issue(
+                number=issue_dict["number"],
+                title=issue_dict["title"],
+                body=issue_dict["body"],
+                labels=list(issue_dict.get("labels", [])),
+            )
+        for pr_dict in seed.prs:
+            gh.add_pr(
+                number=pr_dict["number"],
+                issue_number=pr_dict["issue_number"],
+                branch=pr_dict["branch"],
+                ci_status=pr_dict.get("ci_status", "pass"),
+                merged=pr_dict.get("merged", False),
+            )
+            for label in pr_dict.get("labels", []):
+                gh.add_pr_label(pr_dict["number"], label)
+        return gh
 
     # --- Seed API ---
 
@@ -111,6 +140,14 @@ class FakeGitHub:
             merged=merged,
             ci_status=ci_status,
         )
+
+    def add_pr_label(self, pr_number: int, label: str) -> None:
+        """Seed-API helper: attach a label to a fake PR."""
+        if pr_number not in self._prs:
+            raise KeyError(f"FakeGitHub: no PR {pr_number}")
+        pr = self._prs[pr_number]
+        if label not in pr.labels:
+            pr.labels.append(label)
 
     def add_alerts(self, *, branch: str, alerts: list[Any]) -> None:
         """Script code-scanning alerts returned by fetch_code_scanning_alerts."""
@@ -413,6 +450,30 @@ class FakeGitHub:
             if issue.state != "open" and label in issue.labels
         ]
         return rows[:limit]
+
+    async def list_prs_by_label(self, label: str) -> list[Any]:
+        """Return open (non-merged) PRs carrying *label*.
+
+        Mirrors ``PRManager.list_prs_by_label`` (which delegates to
+        ``gh pr list --label <label> --state open``). Used by
+        SandboxFailureFixerLoop to poll auto-fix candidates.
+        """
+        self._maybe_rate_limit()
+        out: list[Any] = []
+        for pr in self._prs.values():
+            if pr.merged:
+                continue
+            if label not in pr.labels:
+                continue
+            out.append(
+                PRInfoFactory.create(
+                    number=pr.number,
+                    issue_number=pr.issue_number,
+                    branch=pr.branch,
+                    draft=pr.draft,
+                )
+            )
+        return out
 
     async def list_issue_comments(self, issue_number: int) -> list[dict[str, Any]]:
         """Return comments seeded on the issue (oldest first).

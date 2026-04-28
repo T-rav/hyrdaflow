@@ -89,7 +89,7 @@ async def test_fail_service_docker_arms_exit_nonzero(tmp_path) -> None:
 async def test_fail_service_github_arms_rate_limit(tmp_path) -> None:
     import pytest
 
-    from tests.scenarios.fakes.fake_github import RateLimitError
+    from mockworld.fakes.fake_github import RateLimitError
     from tests.scenarios.fakes.mock_world import MockWorld
 
     world = MockWorld(tmp_path)
@@ -323,7 +323,7 @@ async def test_mockworld_default_wiki_store_is_none(tmp_path) -> None:
 
 async def test_mockworld_wires_beads_manager_to_phases(tmp_path) -> None:
     """MockWorld threads beads_manager through PipelineHarness to plan + implement phases."""
-    from tests.scenarios.fakes.fake_beads import FakeBeads
+    from mockworld.fakes.fake_beads import FakeBeads
     from tests.scenarios.fakes.mock_world import MockWorld
 
     beads = FakeBeads()
@@ -343,7 +343,7 @@ async def test_mockworld_default_beads_manager_is_none(tmp_path) -> None:
 
 async def test_mockworld_set_agents_preserves_beads_manager(tmp_path) -> None:
     """PipelineHarness.set_agents must not drop the beads_manager binding."""
-    from tests.scenarios.fakes.fake_beads import FakeBeads
+    from mockworld.fakes.fake_beads import FakeBeads
     from tests.scenarios.fakes.mock_world import MockWorld
 
     beads = FakeBeads()

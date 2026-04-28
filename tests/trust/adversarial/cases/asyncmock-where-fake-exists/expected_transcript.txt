@@ -1,4 +1,4 @@
 TEST_ADEQUACY_RESULT: RETRY
 SUMMARY: AsyncMock used where a stateful fake exists
 FINDINGS:
-- tests/test_thing.py — `AsyncMock` stands in for GitHub adapter; use tests/scenarios/fakes/fake_github.py:FakeGitHub instead
+- tests/test_thing.py — `AsyncMock` stands in for GitHub adapter; use src/mockworld/fakes/fake_github.py:FakeGitHub instead

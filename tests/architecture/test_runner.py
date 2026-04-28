@@ -14,7 +14,8 @@ def populated_repo(tmp_path: Path):
         "class WidgetLoop(BaseBackgroundLoop):\n"
         "    pass\n"
     )
-    (repo / "tests/scenarios/fakes").mkdir(parents=True)
+    (repo / "src/mockworld/fakes").mkdir(parents=True)
+    (repo / "tests/scenarios").mkdir(parents=True)
     (repo / "docs/adr").mkdir(parents=True)
     (repo / "docs/adr/0001-thing.md").write_text("# ADR-0001\n")
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)

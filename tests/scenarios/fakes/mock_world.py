@@ -10,23 +10,26 @@ import asyncio
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from mockworld.fakes.fake_clock import FakeClock
+
+if TYPE_CHECKING:
+    from mockworld.seed import MockWorldSeed
+from mockworld.fakes.fake_docker import FakeDocker
+from mockworld.fakes.fake_fs import FakeFS
+from mockworld.fakes.fake_git import FakeGit
+from mockworld.fakes.fake_github import FakeGitHub
+from mockworld.fakes.fake_http import FakeHTTP
+from mockworld.fakes.fake_llm import FakeLLM
+from mockworld.fakes.fake_sentry import FakeSentry
+from mockworld.fakes.fake_workspace import FakeWorkspace
 from tests.conftest import TaskFactory
 from tests.helpers import PipelineHarness, PipelineRunResult
 from tests.scenarios.catalog import LoopCatalog
 from tests.scenarios.catalog import (
     loop_registrations as _loop_registrations,  # noqa: F401
 )
-from tests.scenarios.fakes.fake_clock import FakeClock
-from tests.scenarios.fakes.fake_docker import FakeDocker
-from tests.scenarios.fakes.fake_fs import FakeFS
-from tests.scenarios.fakes.fake_git import FakeGit
-from tests.scenarios.fakes.fake_github import FakeGitHub
-from tests.scenarios.fakes.fake_http import FakeHTTP
-from tests.scenarios.fakes.fake_llm import FakeLLM
-from tests.scenarios.fakes.fake_sentry import FakeSentry
-from tests.scenarios.fakes.fake_workspace import FakeWorkspace
 from tests.scenarios.fakes.scenario_result import IssueOutcome, ScenarioResult
 
 
@@ -380,6 +383,38 @@ class MockWorld:
             msg = f"Unknown phase: {phase}; valid: {list(phase_map)}"
             raise ValueError(msg)
         script_fn(issue, results)
+        return self
+
+    def apply_seed(self, seed: MockWorldSeed) -> MockWorld:
+        """Populate wired Fakes from a serialized MockWorldSeed.
+
+        Convenience wrapper over add_issue / add_pr / set_phase_result for
+        test code that wants to consume a sandbox scenario's seed() output
+        without rewriting it as a fluent chain. Returns self for chaining.
+        """
+        for repo_slug, repo_path in seed.repos:
+            self.add_repo(repo_slug, repo_path)
+        for issue_dict in seed.issues:
+            self.add_issue(
+                number=issue_dict["number"],
+                title=issue_dict["title"],
+                body=issue_dict["body"],
+                labels=list(issue_dict.get("labels", [])),
+            )
+        for pr_dict in seed.prs:
+            self._github.add_pr(
+                number=pr_dict["number"],
+                issue_number=pr_dict["issue_number"],
+                branch=pr_dict["branch"],
+                ci_status=pr_dict.get("ci_status", "pass"),
+                merged=pr_dict.get("merged", False),
+            )
+            for label in pr_dict.get("labels", []):
+                self._github.add_pr_label(pr_dict["number"], label)
+        for phase, by_issue in seed.scripts.items():
+            for issue_number, results in by_issue.items():
+                for result in results:
+                    self.set_phase_result(phase, issue_number, result)
         return self
 
     def on_phase(self, phase: str, callback: Callable[[], None]) -> MockWorld:

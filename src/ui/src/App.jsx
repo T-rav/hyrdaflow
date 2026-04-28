@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { HydraFlowProvider, useHydraFlow } from './context/HydraFlowContext'
 import { Header } from './components/Header'
 import { HumanInputBanner } from './components/HumanInputBanner'
+import MockWorldBanner from './components/MockWorldBanner'
 import { HITLTable } from './components/HITLTable'
 import { SystemPanel } from './components/SystemPanel'
 import { OutcomesPanel } from './components/IssueHistoryPanel'
@@ -149,6 +150,7 @@ function AppContent() {
     requestChanges,
     config,
     reporterId,
+    mockworldActive,
   } = useHydraFlow()
   const [activeTab, setActiveTab] = useState('issues')
   const [expandedStages, setExpandedStages] = useState({})
@@ -166,6 +168,7 @@ function AppContent() {
 
   return (
     <div style={styles.layout}>
+      <MockWorldBanner active={mockworldActive === true} />
       <Header
         connected={connected}
         orchestratorStatus={orchestratorStatus}

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from mockworld.fakes.fake_github import FakeGitHub, RateLimitError
 from tests.conftest import TaskFactory
-from tests.scenarios.fakes.fake_github import FakeGitHub, RateLimitError
 
 pytestmark = pytest.mark.scenario
 

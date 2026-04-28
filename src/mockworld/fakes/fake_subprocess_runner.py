@@ -26,7 +26,7 @@ from collections.abc import AsyncIterator, Sequence
 from typing import Any, cast
 
 from execution import SimpleResult
-from tests.scenarios.fakes.fake_docker import FakeDocker
+from mockworld.fakes.fake_docker import FakeDocker
 
 # Commands that must run on the real host rather than through FakeDocker.
 # Only ``git`` is listed here: AgentRunner._count_commits and _get_branch_diff
@@ -107,6 +107,8 @@ class _FakeProcess:
 
 class FakeSubprocessRunner:
     """SubprocessRunner backed by FakeDocker."""
+
+    _is_fake_adapter = True
 
     def __init__(self, docker: FakeDocker) -> None:
         self._docker = docker

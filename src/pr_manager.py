@@ -1222,6 +1222,43 @@ class PRManager:
             for item in items
         ]
 
+    async def list_prs_by_label(self, label: str) -> list[PRInfo]:
+        """Return open (non-merged) PRs carrying *label*.
+
+        Delegates to ``gh pr list --label <label> --state open --json ...``.
+        Used by SandboxFailureFixerLoop to poll PRs needing auto-fix
+        intervention, and by ``/api/sandbox-hitl`` to surface stuck PRs.
+        """
+        self._assert_repo()
+        output = await self._run_gh(
+            "gh",
+            "pr",
+            "list",
+            "--repo",
+            self._repo,
+            "--label",
+            label,
+            "--state",
+            "open",
+            "--json",
+            "number,headRefName,url,isDraft",
+            "--limit",
+            "100",
+        )
+        items = json.loads(output)
+        return [
+            PRInfo(
+                number=int(item.get("number", 0)),
+                issue_number=self._issue_number_from_branch(
+                    item.get("headRefName", "")
+                ),
+                branch=str(item.get("headRefName", "")),
+                url=str(item.get("url", "")),
+                draft=bool(item.get("isDraft", False)),
+            )
+            for item in items
+        ]
+
     async def get_issue_updated_at(self, issue_number: int) -> str:
         """Return the updated_at timestamp for an issue as ISO string."""
         self._assert_repo()

@@ -19,7 +19,9 @@ def test_finds_protocol_port_with_adapter_and_fake(fixture_src_tree):
                 def make(self) -> str: return ""
                 def break_(self) -> None: pass
         """,
-            "tests/scenarios/fakes/fake_widget.py": """
+            "src/mockworld/__init__.py": "",
+            "src/mockworld/fakes/__init__.py": "",
+            "src/mockworld/fakes/fake_widget.py": """
             class FakeWidget:
                 def make(self) -> str: return "fake"
                 def break_(self) -> None: pass
@@ -27,9 +29,7 @@ def test_finds_protocol_port_with_adapter_and_fake(fixture_src_tree):
         }
     )
 
-    ports = extract_ports(
-        src_dir=root / "src", fakes_dir=root / "tests/scenarios/fakes"
-    )
+    ports = extract_ports(src_dir=root / "src", fakes_dir=root / "src/mockworld/fakes")
 
     assert len(ports) == 1
     p = ports[0]

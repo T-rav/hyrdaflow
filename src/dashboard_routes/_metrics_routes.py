@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from collections import Counter
+from typing import TYPE_CHECKING, cast
 
 from fastapi import APIRouter, Response
 from fastapi.responses import JSONResponse
@@ -20,6 +21,9 @@ from models import (
 )
 from prompt_telemetry import PromptTelemetry
 from route_types import RepoSlugParam
+
+if TYPE_CHECKING:
+    from pr_manager import PRManager
 
 logger = logging.getLogger("hydraflow.dashboard")
 
@@ -127,7 +131,10 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
     ) -> JSONResponse:
         """Query GitHub for issue/PR counts by label state."""
         _cfg, _state, _bus, _get_orch = ctx.resolve_runtime(repo)
-        manager = ctx.pr_manager_for(_cfg, _bus)
+        # ``get_label_counts`` is a GitHub-API helper on the concrete
+        # PRManager, not on PRPort. Production always supplies the real
+        # adapter via ``ctx.pr_manager_for``.
+        manager: PRManager = cast("PRManager", ctx.pr_manager_for(_cfg, _bus))
         counts = await manager.get_label_counts(_cfg)
         return JSONResponse(counts)
 

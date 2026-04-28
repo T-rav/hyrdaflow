@@ -66,15 +66,42 @@ def _mock_world_fixture(ctx: CheckContext) -> Finding:
 _FAKE_CLASS_RE = re.compile(r"^class\s+(Fake\w+|Mock\w+)", re.MULTILINE)
 
 
+# Canonical Fake locations. Fakes were originally housed exclusively
+# under ``tests/scenarios/fakes/`` (per ADR-0022). They were promoted
+# to first-class adapters under ``src/mockworld/fakes/`` by the
+# sandbox-tier scenario testing track (spec
+# 2026-04-26-sandbox-tier-scenarios-design.md, ADR-0052). The audit
+# accepts Fakes at EITHER location during the transition; once
+# ADR-0022 is amended to declare ``src/mockworld/fakes/`` canonical,
+# the legacy path can be dropped.
+_FAKE_DIRS_REL: tuple[tuple[str, ...], ...] = (
+    ("src", "mockworld", "fakes"),
+    ("tests", "scenarios", "fakes"),
+)
+
+
+def _collect_fake_classes(ctx: CheckContext) -> set[str]:
+    """Collect Fake/Mock class names from every canonical Fake directory."""
+    classes: set[str] = set()
+    for parts in _FAKE_DIRS_REL:
+        d = ctx.root.joinpath(*parts)
+        if not d.is_dir():
+            continue
+        for py in d.rglob("*.py"):
+            text = py.read_text(encoding="utf-8", errors="replace")
+            classes.update(_FAKE_CLASS_RE.findall(text))
+    return classes
+
+
 @register("P3.3")
 def _scenario_fakes(ctx: CheckContext) -> Finding:
-    fakes_dir = ctx.root / "tests" / "scenarios" / "fakes"
-    if not fakes_dir.is_dir():
-        return finding("P3.3", Status.FAIL, "tests/scenarios/fakes/ missing")
-    classes: set[str] = set()
-    for py in fakes_dir.rglob("*.py"):
-        text = py.read_text(encoding="utf-8", errors="replace")
-        classes.update(_FAKE_CLASS_RE.findall(text))
+    classes = _collect_fake_classes(ctx)
+    if not classes:
+        return finding(
+            "P3.3",
+            Status.FAIL,
+            "no Fake/Mock classes in src/mockworld/fakes/ or tests/scenarios/fakes/",
+        )
     if len(classes) >= 3:
         return finding(
             "P3.3", Status.PASS, f"{len(classes)} fake classes: {sorted(classes)[:5]}"
@@ -82,7 +109,7 @@ def _scenario_fakes(ctx: CheckContext) -> Finding:
     return finding(
         "P3.3",
         Status.FAIL,
-        f"only {len(classes)} Fake/Mock classes in tests/scenarios/fakes/ (need ≥3)",
+        f"only {len(classes)} Fake/Mock classes (need ≥3): {sorted(classes)}",
     )
 
 
@@ -105,32 +132,60 @@ _FAKE_CLOCK_RE = re.compile(r"class\s+(FakeClock|FrozenClock|DeterministicClock)
 
 @register("P3.13")
 def _fake_clock(ctx: CheckContext) -> Finding:
-    return _grep_in_tree(
-        ctx,
-        root_rel="tests/scenarios",
-        pattern=_FAKE_CLOCK_RE,
-        check_id="P3.13",
-        missing_msg="no FakeClock/FrozenClock/DeterministicClock in tests/scenarios/",
+    """Look for a clock fake.
+
+    Original audit walked all of ``tests/scenarios/`` (FakeClock can
+    reasonably live alongside the harness, not only in ``fakes/``).
+    Post-Task-1.1 of the sandbox-tier scenario testing track, the
+    canonical home for adapter Fakes is ``src/mockworld/fakes/`` —
+    so we walk that too.
+    """
+    search_roots = (
+        ctx.root / "src" / "mockworld" / "fakes",
+        ctx.root / "tests" / "scenarios",
+    )
+    for d in search_roots:
+        if not d.is_dir():
+            continue
+        for py in d.rglob("*.py"):
+            text = py.read_text(encoding="utf-8", errors="replace")
+            if _FAKE_CLOCK_RE.search(text):
+                return finding(
+                    "P3.13",
+                    Status.PASS,
+                    f"clock fake found in {py.relative_to(ctx.root)}",
+                )
+    return finding(
+        "P3.13",
+        Status.FAIL,
+        "no FakeClock/FrozenClock/DeterministicClock in src/mockworld/fakes/ or tests/scenarios/",
     )
 
 
 @register("P3.14")
 def _fakes_are_stateful(ctx: CheckContext) -> Finding:
     """Warn when Fake classes inherit from AsyncMock / MagicMock rather than plain object."""
-    fakes_dir = ctx.root / "tests" / "scenarios" / "fakes"
-    if not fakes_dir.is_dir():
+    fake_dirs = [
+        ctx.root.joinpath(*parts)
+        for parts in _FAKE_DIRS_REL
+        if ctx.root.joinpath(*parts).is_dir()
+    ]
+    if not fake_dirs:
         return finding(
-            "P3.14", Status.NA, "no tests/scenarios/fakes/ — upstream check covers this"
+            "P3.14",
+            Status.NA,
+            "no Fake directories — upstream check covers this",
         )
     bad: list[str] = []
-    for py in fakes_dir.rglob("*.py"):
-        try:
-            tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
-        except SyntaxError:
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef) and _inherits_mock(node):
-                bad.append(f"{py.name}:{node.name}")
+    for fakes_dir in fake_dirs:
+        for py in fakes_dir.rglob("*.py"):
+            try:
+                tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef) and _inherits_mock(node):
+                    bad.append(f"{py.name}:{node.name}")
     if not bad:
         return finding("P3.14", Status.PASS)
     return finding(

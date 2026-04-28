@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.scenarios.fakes.fake_beads import FakeBeads
+from mockworld.fakes.fake_beads import FakeBeads
 
 _CWD = Path("/tmp/fake-beads-test")
 

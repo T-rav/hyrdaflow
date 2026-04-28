@@ -8,6 +8,8 @@ import asyncio
 class FakeClock:
     """Deterministic clock that advances only when told to."""
 
+    _is_fake_adapter = True
+
     def __init__(self, start: float = 0.0) -> None:
         self._time = start
 

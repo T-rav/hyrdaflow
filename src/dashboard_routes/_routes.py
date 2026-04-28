@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import (
     APIRouter,
@@ -64,6 +64,7 @@ from models import (
     QueueStats,
     parse_task_links,
 )
+from ports import PRPort
 from pr_manager import PRManager
 from prompt_telemetry import PromptTelemetry
 from route_types import RepoSlugParam
@@ -306,7 +307,7 @@ class RouteContext:
     credentials: Credentials
     event_bus: EventBus
     state: StateTracker
-    pr_manager: PRManager
+    pr_manager: PRPort
 
     # Orchestrator lifecycle callbacks
     get_orchestrator: Callable[[], HydraFlowOrchestrator | None]
@@ -340,9 +341,12 @@ class RouteContext:
 
     def __post_init__(self) -> None:
         self.issue_fetcher = IssueFetcher(self.config, credentials=self.credentials)
+        # TranscriptSummarizer's __init__ is annotated PRManager (concrete);
+        # production always passes the real adapter. Narrow at the call site
+        # rather than expand TranscriptSummarizer's surface.
         self.hitl_summarizer = TranscriptSummarizer(
             self.config,
-            self.pr_manager,
+            cast("PRManager", self.pr_manager),
             self.event_bus,
             self.state,
             credentials=self.credentials,
@@ -453,7 +457,7 @@ class RouteContext:
             status_code = 500
         return JSONResponse(payload, status_code=status_code)
 
-    def pr_manager_for(self, cfg: HydraFlowConfig, bus: EventBus) -> PRManager:
+    def pr_manager_for(self, cfg: HydraFlowConfig, bus: EventBus) -> PRPort:
         """Return the shared PRManager when config matches; otherwise create a new one."""
         if cfg is self.config and bus is self.event_bus:
             return self.pr_manager
@@ -582,7 +586,7 @@ def create_router(
     config: HydraFlowConfig,
     event_bus: EventBus,
     state: StateTracker,
-    pr_manager: PRManager,
+    pr_manager: PRPort,
     get_orchestrator: Callable[[], HydraFlowOrchestrator | None],
     set_orchestrator: Callable[[HydraFlowOrchestrator], None],
     set_run_task: Callable[[asyncio.Task[None]], None],
@@ -660,7 +664,7 @@ def create_router(
     ) -> JSONResponse:
         return await ctx.execute_admin_task(task_name, task_fn, slug)
 
-    def _pr_manager_for(cfg: HydraFlowConfig, bus: EventBus) -> PRManager:
+    def _pr_manager_for(cfg: HydraFlowConfig, bus: EventBus) -> PRPort:
         return ctx.pr_manager_for(cfg, bus)
 
     def _list_repo_records() -> list[RepoRecord]:
@@ -1015,7 +1019,10 @@ def create_router(
         needs_title = any(i.crate_number and not i.crate_title for i in items)
         if needs_title:
             try:
-                milestones = await pr_manager.list_milestones(state="all")
+                # ``list_milestones`` is concrete-only on PRManager.
+                milestones = await cast("PRManager", pr_manager).list_milestones(
+                    state="all"
+                )
                 title_map = {m.number: m.title for m in milestones}
                 items = [
                     i.model_copy(
@@ -1419,7 +1426,9 @@ def create_router(
         if orch and isinstance(getattr(orch, "github_cache", None), GitHubDataCache):
             items = orch.github_cache.get_open_prs()
         else:
-            manager = _pr_manager_for(_cfg, _bus)
+            # ``list_open_prs`` is a dashboard helper on the concrete
+            # PRManager, not on PRPort.
+            manager = cast("PRManager", _pr_manager_for(_cfg, _bus))
             all_labels = list(
                 {
                     *_cfg.ready_label,

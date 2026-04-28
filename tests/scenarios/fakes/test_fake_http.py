@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.scenarios.fakes.fake_http import FakeHTTP
+from mockworld.fakes.fake_http import FakeHTTP
 from tests.scenarios.ports import HTTPPort
 
 

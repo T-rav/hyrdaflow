@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from mockworld.fakes.fake_clock import FakeClock
+from mockworld.fakes.fake_github import FakeGitHub
+from mockworld.fakes.fake_llm import FakeLLM
 from tests.scenarios.behaviors import (
     EventuallyConsistent,
     Flaky,
@@ -14,9 +17,6 @@ from tests.scenarios.behaviors import (
     RateLimited,
     RateLimitExceeded,
 )
-from tests.scenarios.fakes.fake_clock import FakeClock
-from tests.scenarios.fakes.fake_github import FakeGitHub
-from tests.scenarios.fakes.fake_llm import FakeLLM
 
 pytestmark = pytest.mark.scenario
 

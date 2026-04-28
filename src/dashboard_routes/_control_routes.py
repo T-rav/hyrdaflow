@@ -6,7 +6,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
@@ -35,6 +35,9 @@ from models import (
 from prompt_telemetry import PromptTelemetry
 from route_types import ControlStatusConfig, ControlStatusResponse, RepoSlugParam
 from update_check import load_cached_update_result
+
+if TYPE_CHECKING:
+    from pr_manager import PRManager
 
 logger = logging.getLogger("hydraflow.dashboard")
 
@@ -361,6 +364,17 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
             control_status = ControlStatus(status)
         except ValueError:
             control_status = ControlStatus.IDLE
+        # Detect sandbox-mode by duck-typing the injected PRPort. Fake
+        # adapters carry ``_is_fake_adapter = True``; real ones do not.
+        # No conditional import / no isinstance check — the marker is the
+        # contract (ADR — sandbox tier scenario testing, Task 1.3).
+        mockworld_active = False
+        if orch is not None:
+            svc = getattr(orch, "_svc", None)
+            if svc is not None:
+                mockworld_active = bool(
+                    getattr(getattr(svc, "prs", None), "_is_fake_adapter", False)
+                )
         response = ControlStatusResponse(
             status=control_status,
             credits_paused_until=credits_until,
@@ -386,6 +400,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
                 pr_unstick_batch_size=_cfg.pr_unstick_batch_size,
                 workspace_base=str(_cfg.workspace_base),
             ),
+            mockworld_active=mockworld_active,
         )
         data = response.model_dump()
         data["current_session_id"] = current_session
@@ -632,7 +647,9 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
     ) -> JSONResponse:
         """One-shot: create staging branch from main (if missing) + protect it."""
         _cfg, _state, _bus, _get_orch = ctx.resolve_runtime(repo)
-        pm = ctx.pr_manager_for(_cfg, _bus)
+        # Branch-protection helpers are concrete-only on PRManager — they
+        # call GitHub admin APIs Fakes don't model.
+        pm: PRManager = cast("PRManager", ctx.pr_manager_for(_cfg, _bus))
         try:
             created = await pm.ensure_branch_exists(
                 _cfg.staging_branch, base=_cfg.main_branch
@@ -690,7 +707,9 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
         open_pr = None
         recent: list[dict[str, Any]] = []
         if _cfg.staging_enabled:
-            pm = ctx.pr_manager_for(_cfg, _bus)
+            # ``list_recent_promotion_prs`` is GitHub-API helper on
+            # concrete PRManager (not on PRPort).
+            pm = cast("PRManager", ctx.pr_manager_for(_cfg, _bus))
             try:
                 pr = await pm.find_open_promotion_pr()
             except Exception:  # noqa: BLE001

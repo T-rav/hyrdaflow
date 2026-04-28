@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from mockworld.fakes.fake_github import FakeGitHub
 from tests.conftest import IssueFactory
-from tests.scenarios.fakes.fake_github import FakeGitHub
 from tests.trust.contracts._replay import FakeOutput, list_cassettes, replay_cassette
 from tests.trust.contracts._schema import Cassette
 

@@ -1,9 +1,9 @@
 """Strict Port↔Fake signature conformance (spec §3.3).
 
-Existing test test_port_conformance.py uses isinstance() against the
-runtime-checkable Protocol — passes when method names match, but
-Python's structural subtyping does NOT compare signatures. C2/C3 from
-PR #8439 (``remove_labels`` plural typo, nonexistent
+Sister test ``test_mockworld_runtime_conformance.py`` uses isinstance()
+against the runtime-checkable Protocol — passes when method names match,
+but Python's structural subtyping does NOT compare signatures. C2/C3
+from PR #8439 (``remove_labels`` plural typo, nonexistent
 ``list_issue_comments``) slipped through.
 
 This test fills the Port↔Fake gap: for every (Port, Fake) pair, every
@@ -28,8 +28,8 @@ from typing import Any
 
 import pytest
 
-from tests.scenarios.fakes.fake_github import FakeGitHub
-from tests.scenarios.fakes.fake_workspace import FakeWorkspace
+from mockworld.fakes.fake_github import FakeGitHub
+from mockworld.fakes.fake_workspace import FakeWorkspace
 from tests.scenarios.ports import PRPort, WorkspacePort
 
 # Hand-maintained Port↔Fake pair list. Add new pairs as Fakes are

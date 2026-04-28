@@ -332,8 +332,8 @@ async def test_l7_dependabot_merge_merges_green_pr(world, page) -> None:
     DOM assertion (negative): dashboard renders without crash; pipeline sections visible.
     """
     # --- Step 1: seed (matches reference) ---
+    from mockworld.fakes.fake_github import FakePR
     from models import PRListItem
-    from tests.scenarios.fakes.fake_github import FakePR
 
     bot_pr = PRListItem(
         pr=500,
@@ -377,8 +377,8 @@ async def test_l8_dependabot_merge_skips_red_pr(world, page) -> None:
     DOM assertion (negative): dashboard renders without crash; pipeline sections visible.
     """
     # --- Step 1: seed (matches reference) ---
+    from mockworld.fakes.fake_github import FakePR
     from models import PRListItem
-    from tests.scenarios.fakes.fake_github import FakePR
 
     bot_pr = PRListItem(
         pr=600,

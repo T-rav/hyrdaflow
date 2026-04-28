@@ -87,7 +87,7 @@ class ADRRefIndex(BaseModel):
 
 class FakeInfo(BaseModel):
     name: str  # e.g. "FakeGitHub"
-    module: str  # e.g. "tests.scenarios.fakes.fake_github"
+    module: str  # e.g. "mockworld.fakes.fake_github"
     source_path: str
     implements_port: str | None = None  # if discoverable
     used_in_scenarios: list[str] = Field(default_factory=list)

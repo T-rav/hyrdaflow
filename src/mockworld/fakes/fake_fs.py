@@ -36,6 +36,8 @@ class _FakeLock:
 
 
 class FakeFS:
+    _is_fake_adapter = True
+
     def __init__(self) -> None:
         self._files: dict[Path, str] = {}
         self._locks_held: set[Path] = set()

@@ -7,8 +7,8 @@ import json
 import pytest
 
 from execution import SubprocessRunner
-from tests.scenarios.fakes.fake_docker import FakeDocker
-from tests.scenarios.fakes.fake_subprocess_runner import FakeSubprocessRunner
+from mockworld.fakes.fake_docker import FakeDocker
+from mockworld.fakes.fake_subprocess_runner import FakeSubprocessRunner
 
 
 def test_satisfies_subprocess_runner_protocol() -> None:

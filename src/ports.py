@@ -312,6 +312,15 @@ class PRPort(Protocol):
         """Return closed issues with the given label as a list of typed dicts."""
         ...
 
+    async def list_prs_by_label(self, label: str) -> list[PRInfo]:
+        """Return open (non-merged) PRs with the given label.
+
+        Used by SandboxFailureFixerLoop to poll PRs that need auto-fix
+        intervention. Excludes merged and closed PRs by definition —
+        callers wanting closed PRs use a different method.
+        """
+        ...
+
     async def get_issue_state(self, issue_number: int) -> str:
         """Return the resolved state of a GitHub issue (``'COMPLETED'``, ``'OPEN'``, etc.)."""
         ...

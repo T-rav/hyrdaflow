@@ -2195,6 +2195,11 @@ class ControlStatusResponse(BaseModel):
     status: ControlStatus = ControlStatus.IDLE
     credits_paused_until: str | None = None
     config: ControlStatusConfig = Field(default_factory=ControlStatusConfig)
+    # True when the orchestrator is wired to Fake adapters (sandbox mode).
+    # Detected by duck-typing the injected PRPort for ``_is_fake_adapter``.
+    # The React UI renders MockWorldBanner when this is True so operators
+    # can never confuse a sandbox tab with a production tab.
+    mockworld_active: bool = False
 
 
 # --- TypedDicts for replacing Any annotations ---

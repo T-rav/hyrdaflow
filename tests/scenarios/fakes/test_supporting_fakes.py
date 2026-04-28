@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from tests.scenarios.fakes.fake_clock import FakeClock
-from tests.scenarios.fakes.fake_sentry import FakeSentry
-from tests.scenarios.fakes.fake_workspace import FakeWorkspace
+from mockworld.fakes.fake_clock import FakeClock
+from mockworld.fakes.fake_sentry import FakeSentry
+from mockworld.fakes.fake_workspace import FakeWorkspace
 
 pytestmark = pytest.mark.scenario
 

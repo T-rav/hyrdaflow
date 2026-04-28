@@ -53,6 +53,9 @@ export const initialState = {
   retrospectives: null,
   troubleshooting: null,
   trackedReports: [],
+  // True when the orchestrator backend is wired to Fake adapters (sandbox tier).
+  // Set from /api/control/status. Drives the persistent MOCKWORLD MODE banner.
+  mockworldActive: false,
 }
 
 function normalizeRepoSlug(value) {
@@ -126,10 +129,14 @@ export function reducer(state, action) {
       const creditsPaused = action.data.credits_paused_until || null
       // Clear the system alert banner when credits are no longer paused
       const clearAlert = !creditsPaused && state.systemAlert?.message?.includes('Credit limit')
+      // Sandbox-tier flag — propagated from /api/control/status so the
+      // MockWorldBanner can render whenever orchestrator polling refreshes.
+      const mockworldActive = action.data.mockworld_active === true
       return {
         ...addEvent(state, action),
         orchestratorStatus: newStatus,
         creditsPausedUntil: creditsPaused,
+        mockworldActive,
         ...(clearAlert ? { systemAlert: null } : {}),
         ...(isStopped ? {
           workers: {},
@@ -1362,7 +1369,11 @@ export function HydraFlowProvider({ children }) {
       const data = await res.json()
       dispatch({
         type: 'orchestrator_status',
-        data: { status: data.status, credits_paused_until: data.credits_paused_until },
+        data: {
+          status: data.status,
+          credits_paused_until: data.credits_paused_until,
+          mockworld_active: data.mockworld_active,
+        },
         timestamp: new Date().toISOString(),
       })
       if (data.config) {
@@ -1429,7 +1440,11 @@ export function HydraFlowProvider({ children }) {
         .then(data => {
           dispatch({
             type: 'orchestrator_status',
-            data: { status: data.status, credits_paused_until: data.credits_paused_until },
+            data: {
+              status: data.status,
+              credits_paused_until: data.credits_paused_until,
+              mockworld_active: data.mockworld_active,
+            },
             timestamp: new Date().toISOString(),
           })
           if (data.config) {
