@@ -555,6 +555,28 @@ def _build_staging_bisect(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     return loop
 
 
+def _build_sandbox_failure_fixer(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build SandboxFailureFixerLoop for scenarios.
+
+    Scenarios that exercise the auto-fix path must seed ``ports['github']``
+    (FakeGitHub satisfies the PRPort contract) and ``ports['auto_agent_runner']``
+    (an AsyncMock-style object whose ``run`` returns a ``PreflightSpawn``-like
+    namespace). Scenarios that only need scaffold-wiring smoke can omit both;
+    the loop falls back to a no-op tick.
+    """
+    from sandbox_failure_fixer_loop import SandboxFailureFixerLoop  # noqa: PLC0415
+
+    state = ports.get("sandbox_failure_fixer_state") or MagicMock()
+    ports.setdefault("sandbox_failure_fixer_state", state)
+    return SandboxFailureFixerLoop(
+        config=config,
+        state=state,
+        deps=deps,
+        prs=ports.get("github"),
+        runner=ports.get("auto_agent_runner"),
+    )
+
+
 def _build_auto_agent_preflight(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     """Build AutoAgentPreflightLoop for scenarios (spec §1–§11).
 
@@ -939,6 +961,7 @@ _BUILDERS: dict[str, Any] = {
     "cost_budget_watcher": _build_cost_budget_watcher_loop,
     # auto-agent (spec §1–§11; ADR-0050)
     "auto_agent_preflight": _build_auto_agent_preflight,
+    "sandbox_failure_fixer": _build_sandbox_failure_fixer,
 }
 
 

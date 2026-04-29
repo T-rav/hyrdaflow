@@ -6,8 +6,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W18
 
-- `68e7ee3` — chore(arch): regen generated docs after ADR-0052 + Fakes widening *(2026-04-28)*
-- `110c1c4` — docs(adr): ADR-0052 — sandbox-tier scenario testing *(2026-04-28)*
+- `e1e9c91` — feat(sandbox): docker-compose stack + harness + s01 + ADR-0052 (PR B of 3) (#8452) (#8452) *(2026-04-28)*
 - `32ef615` — feat(mockworld): foundation — Fake relocation + DI plumbing + sandbox entrypoint (PR A of 3) (#8451) (#8451) *(2026-04-28)*
 
 ## 2026-W17
@@ -153,4 +152,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `68e7ee3` on 2026-04-28 21:28 UTC. Source last changed at `68e7ee3`. Status: 🟢 fresh._
+_Regenerated from commit `5cd6808` on 2026-04-29 00:48 UTC. Source last changed at `5cd6808`. Status: 🟢 fresh._

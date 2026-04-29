@@ -65,6 +65,7 @@ flowchart LR
     end
     subgraph auto_agent["Auto-Agent (HITL Pre-Flight)"]
         auto_agent_AutoAgentPreflightLoop([AutoAgentPreflightLoop])
+        auto_agent_SandboxFailureFixerLoop([SandboxFailureFixerLoop])
     end
     subgraph goal_driven_dev["Goal-Driven Development"]
     end
@@ -214,6 +215,7 @@ The Auto-Agent HITL pre-flight loop intercepts every `hitl-escalation` issue bef
 **Loops**
 
 - `AutoAgentPreflightLoop` — `src.auto_agent_preflight_loop`
+- `SandboxFailureFixerLoop` — `src.sandbox_failure_fixer_loop`
 
 **Module globs**
 
@@ -255,4 +257,4 @@ The plan→implement→review pipeline driving each issue from hydraflow-ready t
 **Related ADRs:** `ADR-0001`, `ADR-0004`, `ADR-0011`, `ADR-0012`, `ADR-0029`
 
 
-_Regenerated from commit `68e7ee3` on 2026-04-28 21:28 UTC. Source last changed at `68e7ee3`. Status: 🟢 fresh._
+_Regenerated from commit `5cd6808` on 2026-04-29 00:48 UTC. Source last changed at `5cd6808`. Status: 🟢 fresh._

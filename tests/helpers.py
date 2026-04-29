@@ -388,6 +388,12 @@ class ConfigFactory:
         security_patch_severity_threshold: str = "high",
         code_grooming_interval: int = 86400,
         code_grooming_enabled: bool = False,
+        sandbox_failure_fixer_interval: int = 3600,
+        # Helper default mirrors the production-eager static-config default
+        # (config.py ships with `False`). Unit tests that need the loop to
+        # actually run must pass `sandbox_failure_fixer_enabled=True` to
+        # `_make_loop`/`make_bg_loop_deps`.
+        sandbox_failure_fixer_enabled: bool = False,
         auto_agent_preflight_interval: int = 120,
         auto_agent_daily_budget_usd: float | None = None,
         auto_agent_cost_cap_usd: float | None = None,
@@ -625,6 +631,8 @@ class ConfigFactory:
                 security_patch_severity_threshold=security_patch_severity_threshold,
                 code_grooming_interval=code_grooming_interval,
                 code_grooming_enabled=code_grooming_enabled,
+                sandbox_failure_fixer_interval=sandbox_failure_fixer_interval,
+                sandbox_failure_fixer_enabled=sandbox_failure_fixer_enabled,
                 auto_agent_preflight_interval=auto_agent_preflight_interval,
                 auto_agent_daily_budget_usd=auto_agent_daily_budget_usd,
                 auto_agent_cost_cap_usd=auto_agent_cost_cap_usd,

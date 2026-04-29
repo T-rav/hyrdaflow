@@ -180,6 +180,14 @@ class PRPort(Protocol):
         """Remove *label* from *issue_number* (no-op if absent)."""
         ...
 
+    async def add_pr_labels(self, pr_number: int, labels: list[str]) -> None:
+        """Add *labels* to a GitHub pull request (idempotent)."""
+        ...
+
+    async def remove_pr_label(self, pr_number: int, label: str) -> None:
+        """Remove *label* from a GitHub pull request (no-op if absent)."""
+        ...
+
     async def swap_pipeline_labels(
         self,
         issue_number: int,

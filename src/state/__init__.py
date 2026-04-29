@@ -40,6 +40,7 @@ from ._rc_budget import RCBudgetStateMixin
 from ._report import ReportStateMixin
 from ._review import ReviewStateMixin
 from ._route_back import RouteBackStateMixin
+from ._sandbox_failure_fixer import SandboxFailureFixerStateMixin
 from ._security_patch import SecurityPatchStateMixin
 from ._sentry import SentryStateMixin
 from ._session import SessionStateMixin
@@ -91,6 +92,7 @@ class StateTracker(
     TrustFleetSanityStateMixin,
     ContractRefreshStateMixin,
     AutoAgentStateMixin,
+    SandboxFailureFixerStateMixin,
 ):
     """JSON-file backed state for crash recovery.
 

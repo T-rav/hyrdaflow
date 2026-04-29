@@ -864,6 +864,14 @@ class PRInfo(BaseModel):
     draft: bool = Field(
         default=False, description="Whether the PR was created as a draft"
     )
+    labels: list[str] = Field(
+        default_factory=list,
+        description=(
+            "GitHub label names attached to the PR. Populated by "
+            "``list_prs_by_label`` so callers (e.g. SandboxFailureFixerLoop) "
+            "can apply secondary filters such as the ``no-auto-fix`` opt-out."
+        ),
+    )
 
 
 # --- HITL ---
@@ -1781,6 +1789,8 @@ class StateData(BaseModel):
     )
     # Trust fleet — caretaker loops (Plan 5)
     flake_counts: dict[str, int] = Field(default_factory=dict)
+    # SandboxFailureFixerLoop state
+    sandbox_failure_fixer_attempts: dict[str, int] = Field(default_factory=dict)
     flake_attempts: dict[str, int] = Field(default_factory=dict)
     skill_prompt_last_green: dict[str, str] = Field(default_factory=dict)
     skill_prompt_attempts: dict[str, int] = Field(default_factory=dict)

@@ -378,7 +378,23 @@ class FakeGitHub:
         return True
 
     async def add_pr_labels(self, pr_number: int, labels: list[str]) -> None:
+        """Mirror PRManager.add_pr_labels — append each label idempotently."""
         self._maybe_rate_limit()
+        pr = self._prs.get(pr_number)
+        if pr is None:
+            return
+        for label in labels:
+            if label not in pr.labels:
+                pr.labels.append(label)
+
+    async def remove_pr_label(self, pr_number: int, label: str) -> None:
+        """Mirror PRManager.remove_pr_label — drop *label* if present."""
+        self._maybe_rate_limit()
+        pr = self._prs.get(pr_number)
+        if pr is None:
+            return
+        if label in pr.labels:
+            pr.labels.remove(label)
 
     async def get_pr_diff(self, pr_number: int) -> str:
         self._maybe_rate_limit()
@@ -461,6 +477,10 @@ class FakeGitHub:
         Mirrors ``PRManager.list_prs_by_label`` (which delegates to
         ``gh pr list --label <label> --state open``). Used by
         SandboxFailureFixerLoop to poll auto-fix candidates.
+
+        The returned ``PRInfo`` carries the full label set so secondary
+        filters (e.g. the ``no-auto-fix`` opt-out) can be applied without
+        a second round-trip.
         """
         self._maybe_rate_limit()
         out: list[Any] = []
@@ -475,6 +495,7 @@ class FakeGitHub:
                     issue_number=pr.issue_number,
                     branch=pr.branch,
                     draft=pr.draft,
+                    labels=list(pr.labels),
                 )
             )
         return out
