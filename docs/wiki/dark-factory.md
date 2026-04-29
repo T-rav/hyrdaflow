@@ -166,6 +166,24 @@ Feature-by-feature data points:
 The convergence point is reliably ~3 passes for substantial work. Plan
 for it; don't merge before it.
 
+### Sandbox-tier expectations (added 2026-04-28 — ADR-0052)
+
+For substantial features, the convergence loop now extends to the
+sandbox tier:
+
+- All 12 sandbox scenarios must pass on the rc/* promotion PR before
+  the staging→main merge can complete. CI gates this via the
+  sandbox-full job.
+- Failures auto-dispatch `SandboxFailureFixerLoop`, which gives the
+  auto-agent up to 3 attempts before escalating to the System tab
+  HITL queue (via `/api/sandbox-hitl`).
+- Nightly sandbox runs catch slow drift; failures open
+  `hydraflow-find` issues per the 3-strikes-then-bug pattern.
+
+The same MockWorld substrate (`src/mockworld/fakes/`) backs both
+in-process Tier 1 and sandbox Tier 2; Port↔Fake conformance tests
+keep them aligned.
+
 ## §4 — Recurring footguns
 
 ### 4.1 Subagent claims DONE without committing
