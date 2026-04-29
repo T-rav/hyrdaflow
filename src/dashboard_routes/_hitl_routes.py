@@ -18,12 +18,45 @@ from models import (
     HITLUpdatePayload,
     IssueOutcomeType,
 )
+from ports import PRPort
 from route_types import RepoSlugParam
 
 if TYPE_CHECKING:
     from orchestrator import HydraFlowOrchestrator
 
 logger = logging.getLogger("hydraflow.dashboard")
+
+
+_SANDBOX_HITL_LABEL = "sandbox-hitl"
+
+
+async def sandbox_hitl_handler(prs: PRPort) -> dict[str, Any]:
+    """Return open PRs labeled ``sandbox-hitl`` for the System tab queue.
+
+    PRs land here after :class:`SandboxFailureFixerLoop` hits the 3-attempt
+    auto-fix cap and escalates by swapping the ``sandbox-fail-auto-fix``
+    label for ``sandbox-hitl``. Surfaces the PR + branch so a human can
+    take over.
+
+    Kept separate from ``/api/hitl`` (which returns issue-shaped data via
+    :class:`HITLItem`) so PR-shaped payloads don't contaminate that
+    endpoint's contract — the dashboard merges the two lists client-side.
+    """
+    candidates = await prs.list_prs_by_label(_SANDBOX_HITL_LABEL)
+    return {
+        "items": [
+            {
+                "number": pr.number,
+                "branch": pr.branch,
+                "url": str(pr.url),
+                "draft": pr.draft,
+                "type": "pr",
+                "label": _SANDBOX_HITL_LABEL,
+            }
+            for pr in candidates
+        ],
+    }
+
 
 # Strong references for fire-and-forget warm_hitl_summary tasks — without
 # this the GC can collect the Task before it completes, silently cancelling
@@ -167,6 +200,25 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
             enriched.append(data)
 
         return JSONResponse(enriched)
+
+    @router.get("/api/sandbox-hitl")
+    async def get_sandbox_hitl(
+        repo: RepoSlugParam = None,
+    ) -> JSONResponse:
+        """Return open PRs labeled ``sandbox-hitl`` for the System tab queue.
+
+        Cap-hit escalation surface from :class:`SandboxFailureFixerLoop`
+        (after 3 failed auto-fix attempts the loop swaps
+        ``sandbox-fail-auto-fix`` for ``sandbox-hitl``). Separate from
+        ``/api/hitl`` so PR-shaped payloads don't contaminate the
+        issue-shaped contract there — the dashboard merges client-side.
+        """
+        if not ctx.is_repo_pipeline_active(repo):
+            return JSONResponse({"items": []})
+        _cfg, _state, _bus, _get_orch = ctx.resolve_runtime(repo)
+        manager = ctx.pr_manager_for(_cfg, _bus)
+        payload = await sandbox_hitl_handler(prs=manager)
+        return JSONResponse(payload)
 
     @router.get("/api/hitl/{issue_number}/summary")
     async def get_hitl_summary(issue_number: int) -> JSONResponse:

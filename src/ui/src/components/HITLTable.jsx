@@ -229,12 +229,17 @@ export function HITLTable({ items, onRefresh }) {
                   data-testid={`hitl-row-${item.issue}`}
                 >
                   <td style={styles.td}>
-                    <a href={item.issueUrl || '#'} target="_blank" rel="noreferrer" style={styles.link}
+                    <a href={item.issueUrl || item.prUrl || '#'} target="_blank" rel="noreferrer" style={styles.link}
                        onClick={e => e.stopPropagation()}>
-                      #{item.issue}
+                      {item.type === 'pr' ? `PR #${item.pr || item.number}` : `#${item.issue}`}
                     </a>
                   </td>
-                  <td style={styles.td}>{item.title}</td>
+                  <td style={styles.td}>
+                    <span style={typeBadgeStyle(item.type)} data-testid={`hitl-type-${item.issue}`}>
+                      {item.type === 'pr' ? 'pr' : 'issue'}
+                    </span>
+                    <span style={{ marginLeft: 8 }}>{item.title}</span>
+                  </td>
                   <td style={styles.td}>
                     {item.cause
                       ? <span style={{ ...styles.causeText, color: causeColors(item.cause).fg }}>{item.cause}</span>
@@ -397,6 +402,17 @@ const originColors = Object.fromEntries(
     .filter(s => s.key !== 'merged')
     .map(s => [`from ${s.key}`, { bg: s.subtleColor, fg: s.color }])
 )
+
+function typeBadgeStyle(type) {
+  const colors = type === 'pr'
+    ? { bg: theme.purpleSubtle, fg: theme.purple }
+    : { bg: theme.accentSubtle, fg: theme.accent }
+  return {
+    fontSize: 10, padding: '1px 6px', borderRadius: 4, fontWeight: 700,
+    background: colors.bg, color: colors.fg, textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  }
+}
 
 function statusBadgeStyle(status) {
   const colors = {
