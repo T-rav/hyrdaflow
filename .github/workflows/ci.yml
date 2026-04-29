@@ -5,6 +5,8 @@ on:
     branches: [main, staging]
   pull_request:
     branches: [main, staging]
+  schedule:
+    - cron: "0 3 * * *"   # 03:00 UTC nightly
 
 permissions:
   contents: read
@@ -257,35 +259,95 @@ jobs:
         working-directory: src/ui
         run: npm test
 
-  sandbox:
-    name: Sandbox Scenarios (PR B)
+  sandbox-fast:
+    name: Sandbox (PR→staging fast subset)
     runs-on: ubuntu-latest
     needs: [changes]
     if: |
-      needs.changes.outputs.service_registry == 'true' ||
-      needs.changes.outputs.orchestrator == 'true' ||
-      needs.changes.outputs.mockworld == 'true' ||
-      needs.changes.outputs.dockerfiles == 'true' ||
-      needs.changes.outputs.compose == 'true' ||
-      needs.changes.outputs.sandbox_scenarios == 'true'
+      github.base_ref == 'staging' && (
+        needs.changes.outputs.service_registry == 'true' ||
+        needs.changes.outputs.orchestrator == 'true' ||
+        needs.changes.outputs.mockworld == 'true' ||
+        needs.changes.outputs.dockerfiles == 'true' ||
+        needs.changes.outputs.compose == 'true' ||
+        needs.changes.outputs.sandbox_scenarios == 'true'
+      )
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install uv
-        run: pip install uv
-      - name: Install deps
-        run: uv pip install --system -e ".[dev]"
-      - name: Build sandbox images
-        run: docker compose -f docker-compose.sandbox.yml build hydraflow ui playwright
-      - name: Run s01_happy_single_issue
-        run: python scripts/sandbox_scenario.py run s01_happy_single_issue
-      - name: Upload artifacts on failure
-        if: failure()
+      - run: pip install uv && uv pip install --system -e ".[dev]"
+      - run: docker compose -f docker-compose.sandbox.yml build hydraflow ui playwright
+      - name: Run fast subset (s01, s10, s11)
+        run: |
+          for s in s01_happy_single_issue s10_kill_switch_universal s11_credit_exhaustion_suspends_ticking; do
+            python scripts/sandbox_scenario.py run $s || exit 1
+          done
+      - if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: sandbox-results
+          name: sandbox-fast-results
           path: /tmp/sandbox-results/
           retention-days: 7
+
+  sandbox-full:
+    name: Sandbox (rc/* promotion PR full suite)
+    runs-on: ubuntu-latest
+    needs: [changes]
+    if: github.base_ref == 'main' && startsWith(github.head_ref, 'rc/')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install uv && uv pip install --system -e ".[dev]"
+      - run: docker compose -f docker-compose.sandbox.yml build hydraflow ui playwright
+      - name: Run full suite
+        id: runall
+        run: python scripts/sandbox_scenario.py run-all
+      - name: Auto-label PR for self-fix on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit ${{ github.event.pull_request.number }} --add-label sandbox-fail-auto-fix
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body "Sandbox suite failed. SandboxFailureFixerLoop will dispatch the auto-agent. Logs: \`/tmp/sandbox-results/\`"
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-full-results
+          path: /tmp/sandbox-results/
+          retention-days: 7
+
+  sandbox-nightly:
+    name: Sandbox (nightly regression)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install uv && uv pip install --system -e ".[dev]"
+      - run: docker compose -f docker-compose.sandbox.yml build hydraflow ui playwright
+      - name: Run full suite + record metrics
+        run: python scripts/sandbox_scenario.py run-all
+      - name: Open hydraflow-find issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create --title "Sandbox nightly failure $(date -I)" \
+            --label hydraflow-find,sandbox-nightly \
+            --body "Nightly sandbox run failed. Logs attached as artifact."
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-nightly-results
+          path: /tmp/sandbox-results/
+          retention-days: 14
 

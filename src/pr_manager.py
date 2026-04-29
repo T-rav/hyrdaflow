@@ -1241,7 +1241,7 @@ class PRManager:
             "--state",
             "open",
             "--json",
-            "number,headRefName,url,isDraft",
+            "number,headRefName,url,isDraft,labels",
             "--limit",
             "100",
         )
@@ -1255,6 +1255,11 @@ class PRManager:
                 branch=str(item.get("headRefName", "")),
                 url=str(item.get("url", "")),
                 draft=bool(item.get("isDraft", False)),
+                labels=[
+                    str(lbl.get("name", ""))
+                    for lbl in (item.get("labels") or [])
+                    if lbl.get("name")
+                ],
             )
             for item in items
         ]

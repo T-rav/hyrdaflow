@@ -378,9 +378,15 @@ class MockWorld:
             "implement": self._llm.script_implement,
             "review": self._llm.script_review,
         }
+        # fix_ci uses a single-result scripting API (the latest call wins);
+        # convert per-call here so scenarios can describe it uniformly.
+        if phase == "fix_ci":
+            for result in results:
+                self._llm.script_fix_ci(issue, result)
+            return self
         script_fn = phase_map.get(phase)
         if script_fn is None:
-            msg = f"Unknown phase: {phase}; valid: {list(phase_map)}"
+            msg = f"Unknown phase: {phase}; valid: {list(phase_map) + ['fix_ci']}"
             raise ValueError(msg)
         script_fn(issue, results)
         return self

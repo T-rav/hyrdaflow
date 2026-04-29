@@ -252,6 +252,7 @@ class PRInfoFactory:
         branch: str = "agent/issue-42",
         url: str = "https://github.com/test-org/test-repo/pull/101",
         draft: bool = False,
+        labels: list[str] | None = None,
     ):
         from models import PRInfo
 
@@ -261,6 +262,7 @@ class PRInfoFactory:
             branch=branch,
             url=url,
             draft=draft,
+            labels=list(labels or []),
         )
 
 

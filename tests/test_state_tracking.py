@@ -129,6 +129,8 @@ class TestInitialization:
             # Auto-Agent — AutoAgentPreflightLoop (spec §3.6)
             "auto_agent_attempts",
             "auto_agent_daily_spend",
+            # SandboxFailureFixerLoop (sandbox-tier scenario testing track)
+            "sandbox_failure_fixer_attempts",
         }
         assert set(d.keys()) == expected_keys
 

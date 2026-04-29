@@ -19,8 +19,8 @@ graph LR
     src_state["src.state"]
     src -- "4" --> src_arch
     src -- "4" --> src_dashboard_routes
-    src -- "10" --> src_preflight
-    src -- "43" --> src_state
+    src -- "12" --> src_preflight
+    src -- "44" --> src_state
     src_arch_extractors -- "7" --> src_arch
     src_arch_generators -- "10" --> src_arch
     src_dashboard_routes -- "1" --> src_preflight
@@ -31,4 +31,4 @@ graph LR
     src_runners -- "1" --> src_preflight
 ```
 
-_Regenerated from commit `68e7ee3` on 2026-04-28 21:28 UTC. Source last changed at `68e7ee3`. Status: 🟢 fresh._
+_Regenerated from commit `2f2161b` on 2026-04-29 02:23 UTC. Source last changed at `2f2161b`. Status: 🟢 fresh._

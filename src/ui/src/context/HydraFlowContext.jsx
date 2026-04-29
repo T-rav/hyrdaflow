@@ -913,10 +913,30 @@ export function HydraFlowProvider({ children }) {
   }, [fetchWithRepo])
 
   const fetchHitlItems = useCallback(() => {
-    fetchWithRepo('/api/hitl')
-      .then(r => r.json())
-      .then(data => dispatch({ type: 'HITL_ITEMS', data }))
-      .catch(() => {})
+    // /api/hitl returns issue-shaped HITLItem rows.
+    // /api/sandbox-hitl returns {items: [{number, branch, ...type:'pr'}]}
+    // for PRs that hit the SandboxFailureFixerLoop auto-fix cap. The two
+    // payloads are kept separate on the server (different shapes) and
+    // merged here with a `type` tag so the HITL panel can render both.
+    Promise.all([
+      fetchWithRepo('/api/hitl').then(r => r.json()).catch(() => []),
+      fetchWithRepo('/api/sandbox-hitl').then(r => r.json()).catch(() => ({ items: [] })),
+    ]).then(([hitl, sandbox]) => {
+      const issues = (Array.isArray(hitl) ? hitl : []).map(i => ({ ...i, type: i.type || 'issue' }))
+      const sandboxItems = (sandbox?.items || []).map(p => ({
+        ...p,
+        // Synthesize an `issue` key so HITLTable's per-row state (keyed by
+        // item.issue) doesn't collide with real issue numbers. PR-row
+        // controls degrade gracefully to display-only.
+        issue: `pr-${p.number}`,
+        title: `PR #${p.number} (sandbox-hitl)`,
+        pr: p.number,
+        prUrl: p.url || '',
+        cause: 'Sandbox auto-fix cap reached',
+        status: 'awaiting human',
+      }))
+      dispatch({ type: 'HITL_ITEMS', data: [...issues, ...sandboxItems] })
+    }).catch(() => {})
   }, [fetchWithRepo])
 
   const fetchTrackedReports = useCallback(() => {

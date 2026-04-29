@@ -63,7 +63,8 @@ _INTERVAL_BOUNDS: dict[str, tuple[int, int]] = {
     "trust_fleet_sanity": (60, 3600),  # 1m min, 1h max
     "contract_refresh": (86400, 2_592_000),  # 1d min, 30d max
     "corpus_learning": (3600, 2_592_000),  # 1h min, 30d max
-    "auto_agent_preflight": (60, 600),  # 1m min, 10m max (ADR-0049)
+    "auto_agent_preflight": (60, 600),
+    "sandbox_failure_fixer": (60, 86400),  # 1m min, 10m max (ADR-0049)
     "diagram_loop": (3600, 86400),  # 1h min, 1d max (default 4h, ADR-0029)
     "pricing_refresh": (86400, 2_592_000),  # 1d min, 30d max (default 1d)
     "cost_budget_watcher": (60, 3600),  # 1m min, 1h max (default 5m)

@@ -145,6 +145,7 @@ areas:
       Per ADR-0050.
     loops:
       - AutoAgentPreflightLoop
+      - SandboxFailureFixerLoop
     modules:
       - src/auto_agent_preflight_loop.py
       - src/preflight/**

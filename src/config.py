@@ -211,6 +211,11 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("diagnostic_interval", "HYDRAFLOW_DIAGNOSTIC_INTERVAL", 30),
     ("retrospective_interval", "HYDRAFLOW_RETROSPECTIVE_INTERVAL", 1800),
     ("principles_audit_interval", "HYDRAFLOW_PRINCIPLES_AUDIT_INTERVAL", 604800),
+    (
+        "sandbox_failure_fixer_interval",
+        "HYDRAFLOW_SANDBOX_FAILURE_FIXER_INTERVAL",
+        3600,
+    ),
     ("auto_agent_preflight_interval", "HYDRAFLOW_AUTO_AGENT_PREFLIGHT_INTERVAL", 120),
     ("auto_agent_max_attempts", "HYDRAFLOW_AUTO_AGENT_MAX_ATTEMPTS", 3),
     ("flake_tracker_interval", "HYDRAFLOW_FLAKE_TRACKER_INTERVAL", 14400),
@@ -327,6 +332,11 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("screenshot_gist_public", "HYDRAFLOW_SCREENSHOT_GIST_PUBLIC", False),
     ("skip_preflight", "HYDRAFLOW_SKIP_PREFLIGHT", False),
     ("whatsapp_enabled", "HYDRAFLOW_WHATSAPP_ENABLED", False),
+    (
+        "sandbox_failure_fixer_enabled",
+        "HYDRAFLOW_SANDBOX_FAILURE_FIXER_ENABLED",
+        False,
+    ),
     ("auto_agent_preflight_enabled", "HYDRAFLOW_AUTO_AGENT_PREFLIGHT_ENABLED", True),
     ("staging_enabled", "HYDRAFLOW_STAGING_ENABLED", False),
 ]
@@ -2020,6 +2030,21 @@ class HydraFlowConfig(BaseModel):
     )
 
     # Auto-agent pre-flight loop (ADR-0049, spec §5.1)
+    sandbox_failure_fixer_enabled: bool = Field(
+        default=False,
+        description=(
+            "Static-config kill-switch for SandboxFailureFixerLoop (ADR-0049). "
+            "Ships OFF; flip to True via "
+            "HYDRAFLOW_SANDBOX_FAILURE_FIXER_ENABLED=true once one or two real "
+            "fix-cycles have been observed in production."
+        ),
+    )
+    sandbox_failure_fixer_interval: int = Field(
+        default=3600,
+        ge=60,
+        le=86400,
+        description="Seconds between SandboxFailureFixerLoop cycles (default 1h).",
+    )
     auto_agent_preflight_enabled: bool = Field(
         default=True,
         description="UI kill-switch for AutoAgentPreflightLoop (ADR-0049).",

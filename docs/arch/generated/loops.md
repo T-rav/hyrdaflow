@@ -30,6 +30,7 @@ All `BaseBackgroundLoop` subclasses discovered in `src/`. Generated from AST (no
 | **ReportIssueLoop** | `src.report_issue_loop` | — | — | REPORT_UPDATE | — |
 | **RetrospectiveLoop** | `src.retrospective_loop` | — | — | RETROSPECTIVE_UPDATE | — |
 | **RunsGCLoop** | `src.runs_gc_loop` | — | — | — | — |
+| **SandboxFailureFixerLoop** | `src.sandbox_failure_fixer_loop` | — | — | — | ADR-0049 |
 | **SecurityPatchLoop** | `src.security_patch_loop` | — | — | — | — |
 | **SentryLoop** | `src.sentry_loop` | — | — | — | — |
 | **SkillPromptEvalLoop** | `src.skill_prompt_eval_loop` | — | — | — | — |
@@ -41,4 +42,4 @@ All `BaseBackgroundLoop` subclasses discovered in `src/`. Generated from AST (no
 | **WikiRotDetectorLoop** | `src.wiki_rot_detector_loop` | — | — | — | — |
 | **WorkspaceGCLoop** | `src.workspace_gc_loop` | — | — | — | — |
 
-_Regenerated from commit `68e7ee3` on 2026-04-28 21:28 UTC. Source last changed at `68e7ee3`. Status: 🟢 fresh._
+_Regenerated from commit `2f2161b` on 2026-04-29 02:23 UTC. Source last changed at `2f2161b`. Status: 🟢 fresh._

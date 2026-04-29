@@ -76,6 +76,7 @@ from reviewer import ReviewRunner
 from route_back import RouteBackCoordinator
 from run_recorder import RunRecorder
 from runs_gc_loop import RunsGCLoop
+from sandbox_failure_fixer_loop import SandboxFailureFixerLoop
 from security_patch_loop import SecurityPatchLoop  # noqa: TCH001
 from sentry_loop import SentryLoop  # noqa: TCH001 — used in dataclass field
 from shape_phase import ShapePhase  # noqa: TCH001
@@ -185,6 +186,7 @@ class ServiceRegistry:
     contract_refresh_loop: ContractRefreshLoop
     corpus_learning_loop: CorpusLearningLoop
     auto_agent_preflight_loop: AutoAgentPreflightLoop
+    sandbox_failure_fixer_loop: SandboxFailureFixerLoop
     diagram_loop: DiagramLoop
     cost_budget_watcher_loop: CostBudgetWatcherLoop
     pricing_refresh_loop: PricingRefreshLoop
@@ -996,6 +998,19 @@ def build_services(
         workspaces=workspaces,
     )
 
+    # Sandbox-tier auto-fixer reuses the AutoAgentRunner subprocess wrapper
+    # (no new runner code; ADR-0050 envelope applies to both loops).
+    from preflight.auto_agent_runner import AutoAgentRunner
+
+    sandbox_failure_fixer_runner = AutoAgentRunner(config=config, event_bus=event_bus)
+    sandbox_failure_fixer_loop = SandboxFailureFixerLoop(  # noqa: F841
+        config=config,
+        state=state,
+        deps=loop_deps,
+        prs=prs,
+        runner=sandbox_failure_fixer_runner,
+    )
+
     return ServiceRegistry(
         workspaces=workspaces,
         subprocess_runner=subprocess_runner,
@@ -1060,6 +1075,7 @@ def build_services(
         contract_refresh_loop=contract_refresh_loop,
         corpus_learning_loop=corpus_learning_loop,
         auto_agent_preflight_loop=auto_agent_preflight_loop,
+        sandbox_failure_fixer_loop=sandbox_failure_fixer_loop,
         diagram_loop=diagram_loop,
         cost_budget_watcher_loop=cost_budget_watcher_loop,
         pricing_refresh_loop=pricing_refresh_loop,
