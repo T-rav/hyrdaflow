@@ -68,8 +68,6 @@ def _default_kwargs(event_bus, **overrides):
 
 
 class TestStreamClaudeProcessOutput:
-    """Tests for stream_claude_process output handling."""
-
     @pytest.mark.asyncio
     async def test_returns_transcript_from_stdout(self, event_bus) -> None:
         """stream_claude_process should return stdout content as transcript."""
@@ -147,11 +145,8 @@ class TestStreamClaudeProcessOutput:
 
 
 class TestStreamClaudeProcessEvents:
-    """Tests for event publishing behavior."""
-
     @pytest.mark.asyncio
     async def test_publishes_transcript_line_events(self, event_bus) -> None:
-        """Should publish a TRANSCRIPT_LINE event per non-empty display line."""
         mock_create = make_streaming_proc(
             returncode=0, stdout="Line one\nLine two\nLine three"
         )
@@ -190,7 +185,6 @@ class TestStreamClaudeProcessEvents:
 
     @pytest.mark.asyncio
     async def test_skips_empty_lines_for_events(self, event_bus) -> None:
-        """Should not publish events for blank/whitespace-only lines."""
         mock_create = make_streaming_proc(
             returncode=0, stdout="Line one\n\n   \nLine two"
         )
@@ -209,11 +203,8 @@ class TestStreamClaudeProcessEvents:
 
 
 class TestStreamClaudeProcessConfig:
-    """Tests for subprocess configuration."""
-
     @pytest.mark.asyncio
     async def test_uses_large_stream_limit(self, event_bus) -> None:
-        """Should set limit=1MB on subprocess to handle large stream-json lines."""
         mock_create = make_streaming_proc(returncode=0, stdout="ok")
 
         with patch("asyncio.create_subprocess_exec", mock_create) as mock_exec:
@@ -224,7 +215,6 @@ class TestStreamClaudeProcessConfig:
 
     @pytest.mark.asyncio
     async def test_removes_claudecode_from_env(self, event_bus) -> None:
-        """Should strip CLAUDECODE from the subprocess environment."""
         mock_create = make_streaming_proc(returncode=0, stdout="ok")
 
         with (
@@ -329,11 +319,8 @@ class TestStreamClaudeProcessConfig:
 
 
 class TestStreamClaudeProcessExitHandling:
-    """Tests for non-zero exit code handling."""
-
     @pytest.mark.asyncio
     async def test_logs_warning_on_nonzero_exit(self, event_bus) -> None:
-        """Should log a warning when the process exits non-zero."""
         mock_logger = MagicMock()
         mock_create = make_streaming_proc(
             returncode=1, stdout="output", stderr="error details"
@@ -393,8 +380,6 @@ class TestStreamClaudeProcessExitHandling:
 
 
 class TestStreamClaudeProcessCallback:
-    """Tests for the on_output callback."""
-
     @pytest.mark.asyncio
     async def test_on_output_callback_kills_process(self, event_bus) -> None:
         """Returning True from on_output should kill the process early."""
@@ -442,8 +427,6 @@ class TestStreamClaudeProcessCallback:
 
 
 class TestStreamClaudeProcessLifecycle:
-    """Tests for process lifecycle management."""
-
     @pytest.mark.asyncio
     async def test_cancellation_kills_process(self, event_bus) -> None:
         """CancelledError during streaming should kill the process."""
@@ -652,8 +635,6 @@ class TestStreamClaudeProcessLifecycle:
 
 
 class TestTerminateProcesses:
-    """Tests for the terminate_processes utility."""
-
     def test_kills_all_active_processes(self) -> None:
         """terminate_processes should use os.killpg() on all tracked processes."""
         proc1 = MagicMock()
@@ -725,8 +706,6 @@ class TestTerminateProcesses:
 
 
 class TestStreamClaudeProcessSessionGroup:
-    """Tests for process group (start_new_session) behavior."""
-
     @pytest.mark.asyncio
     async def test_subprocess_spawned_with_start_new_session(self, event_bus) -> None:
         """create_subprocess_exec should be called with start_new_session=True."""
@@ -745,8 +724,6 @@ class TestStreamClaudeProcessSessionGroup:
 
 
 class TestStreamClaudeProcessTimeout:
-    """Tests for stream_claude_process timeout behavior."""
-
     @pytest.mark.asyncio
     async def test_default_timeout_applied(self, event_bus) -> None:
         """Default timeout of 3600s is always applied via wait_for."""
@@ -841,8 +818,6 @@ class TestStreamClaudeProcessTimeout:
 
 
 class TestStreamClaudeProcessGhToken:
-    """Tests for gh_token propagation into subprocess environment."""
-
     @pytest.mark.asyncio
     async def test_gh_token_injected_into_env(self, event_bus) -> None:
         """When gh_token is passed, it should appear in the subprocess env as GH_TOKEN."""
@@ -896,8 +871,6 @@ class TestStreamClaudeProcessGhToken:
 
 
 class TestStreamConfig:
-    """Tests for StreamConfig dataclass."""
-
     def test_defaults(self) -> None:
         """All optional fields default to sensible values."""
         cfg = StreamConfig()
@@ -930,8 +903,6 @@ class TestStreamConfig:
 
 
 class TestPostStreamResult:
-    """Tests for _post_stream_result extracted helper."""
-
     def _make_parser_with_snapshot(
         self, snapshot: dict[str, object] | None = None
     ) -> MagicMock:

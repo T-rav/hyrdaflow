@@ -94,8 +94,6 @@ class TestInit:
 
 
 class TestProperties:
-    """Tests for public properties."""
-
     def test_event_bus_returns_internal_bus(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
         assert orch.event_bus is orch._bus
@@ -129,8 +127,6 @@ class TestProperties:
 
 
 class TestHumanInput:
-    """Tests for provide_human_input and human_input_requests."""
-
     def test_provide_human_input_stores_answer(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
         orch.provide_human_input(42, "Use option B")
@@ -332,8 +328,6 @@ class TestRunCallsSanitizeRepo:
 
 
 class TestRunFinallyTerminatesRunners:
-    """Tests that run() finally block terminates all runners."""
-
     @pytest.mark.asyncio
     async def test_run_finally_terminates_all_runners(
         self, config: HydraFlowConfig
@@ -449,8 +443,6 @@ class TestRunFinallyTerminatesRunners:
 
 
 class TestConstructorInjection:
-    """Tests for optional event_bus / state constructor params."""
-
     def test_uses_provided_event_bus(self, config: HydraFlowConfig, event_bus) -> None:
         orch = HydraFlowOrchestrator(config, event_bus=event_bus)
         assert orch._bus is event_bus
@@ -488,8 +480,6 @@ class TestConstructorInjection:
 
 
 class TestStopMechanism:
-    """Tests for request_stop(), reset(), run_status, and stop-at-batch-boundary."""
-
     @pytest.mark.asyncio
     async def test_request_stop_sets_stop_event(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
@@ -924,8 +914,6 @@ class TestOrchestratorShutdownLifecycle:
 
 
 class TestConcurrentLoops:
-    """Tests for concurrent loop execution in the orchestrator."""
-
     @pytest.mark.asyncio
     async def test_all_loops_run_concurrently(self, config: HydraFlowConfig) -> None:
         """Triage, plan, implement, review should all run concurrently."""
@@ -971,8 +959,6 @@ class TestConcurrentLoops:
 
 
 class TestOrchestratorPropertyAccessors:
-    """Tests for current_session_id, issue_store, metrics_manager, run_recorder."""
-
     def test_current_session_id_none_when_no_session(
         self, config: HydraFlowConfig
     ) -> None:
@@ -998,8 +984,6 @@ class TestOrchestratorPropertyAccessors:
 
 
 class TestServiceRegistry:
-    """Tests that the _svc attribute consolidates all services."""
-
     def test_svc_is_service_registry(self, config: HydraFlowConfig) -> None:
         from service_registry import ServiceRegistry
 

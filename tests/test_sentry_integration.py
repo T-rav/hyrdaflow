@@ -39,10 +39,7 @@ def _ensure_sentry_module():
 
 
 class TestSentryInit:
-    """Tests for _init_sentry in server.py."""
-
     def test_noop_when_dsn_empty(self) -> None:
-        """Should not call sentry_sdk.init when SENTRY_DSN is empty."""
         # Force re-import of server to pick up the mock
         sys.modules.pop("server", None)
         with patch.dict("os.environ", {"SENTRY_DSN": ""}, clear=False):
@@ -53,7 +50,6 @@ class TestSentryInit:
             _mock_sentry.init.assert_not_called()
 
     def test_initializes_when_dsn_set(self) -> None:
-        """Should call sentry_sdk.init with the DSN."""
         sys.modules.pop("server", None)
         with patch.dict(
             "os.environ", {"SENTRY_DSN": "https://key@sentry.io/123"}, clear=False
@@ -68,10 +64,7 @@ class TestSentryInit:
 
 
 class TestScrubSensitiveData:
-    """Tests for the before_send scrubber."""
-
     def test_scrubs_github_token(self) -> None:
-        """Should redact ghp_ tokens from event data."""
         sys.modules.pop("server", None)
         with patch.dict(
             "os.environ", {"SENTRY_DSN": "https://key@sentry.io/123"}, clear=False
@@ -88,7 +81,6 @@ class TestScrubSensitiveData:
         assert "[REDACTED]" in scrubbed["message"]
 
     def test_scrubs_nested_dicts(self) -> None:
-        """Should scrub tokens in nested structures."""
         sys.modules.pop("server", None)
         with patch.dict(
             "os.environ", {"SENTRY_DSN": "https://key@sentry.io/123"}, clear=False
@@ -105,8 +97,6 @@ class TestScrubSensitiveData:
 
 
 class TestCaptureIfBug:
-    """Tests for capture_if_bug helper."""
-
     def test_captures_type_error(self) -> None:
         """TypeError should be sent to Sentry."""
         from exception_classify import capture_if_bug
@@ -127,10 +117,7 @@ class TestCaptureIfBug:
 
 
 class TestSentryTransactionHelper:
-    """Tests for _sentry_transaction context manager in phase_utils."""
-
     def test_noop_when_sentry_not_available(self) -> None:
-        """Should yield without error when sentry_sdk is not importable."""
         # Temporarily hide sentry_sdk from sys.modules
         sys.modules.pop("phase_utils", None)
         original = sys.modules.pop("sentry_sdk", None)
@@ -144,7 +131,6 @@ class TestSentryTransactionHelper:
                 sys.modules["sentry_sdk"] = original
 
     def test_starts_transaction_when_sentry_available(self) -> None:
-        """Should call start_transaction when sentry_sdk is available."""
         sys.modules.pop("phase_utils", None)
         # Set up mock transaction context manager
         mock_txn = MagicMock()
@@ -163,7 +149,6 @@ class TestSentryTransactionHelper:
         )
 
     def test_passes_op_and_name_to_transaction(self) -> None:
-        """Should pass op and name arguments through to start_transaction."""
         sys.modules.pop("phase_utils", None)
         mock_txn = MagicMock()
         mock_txn.__enter__ = MagicMock(return_value=mock_txn)

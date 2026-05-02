@@ -1793,8 +1793,6 @@ class TestEpicEdgeCases:
 
 
 class TestPerItemErrorGuards:
-    """Tests that per-item try/except guards allow loops to continue after failure."""
-
     def test_get_all_progress_continues_after_failure(self, tmp_path: Path) -> None:
         """get_all_progress continues to the next epic when one raises."""
         manager, _, _ = _make_epic_manager(tmp_path)

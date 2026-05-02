@@ -12,8 +12,6 @@ from prep_ignore import PREP_IGNORED_DIRS, load_git_submodule_roots
 
 
 class TestPrepIgnoredDirs:
-    """Tests for the PREP_IGNORED_DIRS constant."""
-
     def test_is_frozenset(self) -> None:
         """PREP_IGNORED_DIRS should be immutable (frozenset)."""
         assert isinstance(PREP_IGNORED_DIRS, frozenset)
@@ -25,16 +23,12 @@ class TestPrepIgnoredDirs:
 
 
 class TestLoadGitSubmoduleRoots:
-    """Tests for load_git_submodule_roots."""
-
     def test_returns_empty_when_gitmodules_absent(self, tmp_path: Path) -> None:
-        """Should return empty tuple when .gitmodules does not exist."""
         result = load_git_submodule_roots(tmp_path)
 
         assert result == ()
 
     def test_returns_paths_for_valid_gitmodules(self, tmp_path: Path) -> None:
-        """Should return resolved absolute paths for each submodule path entry."""
         gitmodules = tmp_path / ".gitmodules"
         gitmodules.write_text(
             '[submodule "vendor/lib"]\n'
@@ -48,7 +42,6 @@ class TestLoadGitSubmoduleRoots:
         assert result[0] == (tmp_path / "vendor/lib").resolve()
 
     def test_returns_empty_for_no_path_lines(self, tmp_path: Path) -> None:
-        """Should return empty tuple when .gitmodules has no path = lines."""
         gitmodules = tmp_path / ".gitmodules"
         gitmodules.write_text(
             '[submodule "vendor/lib"]\n\turl = https://github.com/example/lib.git\n'
@@ -59,7 +52,6 @@ class TestLoadGitSubmoduleRoots:
         assert result == ()
 
     def test_returns_empty_on_oserror(self, tmp_path: Path) -> None:
-        """Should return empty tuple when reading .gitmodules raises OSError."""
         gitmodules = tmp_path / ".gitmodules"
         gitmodules.write_text("path = vendor/lib\n")
 
@@ -69,7 +61,6 @@ class TestLoadGitSubmoduleRoots:
         assert result == ()
 
     def test_handles_multiple_submodules(self, tmp_path: Path) -> None:
-        """Should return paths for all submodules in .gitmodules."""
         gitmodules = tmp_path / ".gitmodules"
         gitmodules.write_text(
             '[submodule "vendor/lib-a"]\n'
@@ -88,7 +79,6 @@ class TestLoadGitSubmoduleRoots:
         assert (tmp_path / "vendor/lib-b").resolve() in resolved
 
     def test_strips_whitespace_from_paths(self, tmp_path: Path) -> None:
-        """Should strip leading/trailing whitespace from path values."""
         gitmodules = tmp_path / ".gitmodules"
         gitmodules.write_text('[submodule "lib"]\n\tpath =   lib/core  \n')
 

@@ -29,8 +29,6 @@ def manager(config: HydraFlowConfig, state: Any) -> BGWorkerManager:
 
 
 class TestUpdateStatus:
-    """Tests for update_status."""
-
     def test_stores_fields(self, manager: BGWorkerManager) -> None:
         manager.update_status("memory_sync", "running")
         s = manager.worker_states["memory_sync"]
@@ -53,8 +51,6 @@ class TestUpdateStatus:
 
 
 class TestEnabled:
-    """Tests for set_enabled / is_enabled."""
-
     def test_defaults_true(self, manager: BGWorkerManager) -> None:
         assert manager.is_enabled("memory_sync") is True
 
@@ -80,8 +76,6 @@ class TestEnabled:
 
 
 class TestGetStates:
-    """Tests for get_states."""
-
     def test_empty_by_default(self, manager: BGWorkerManager) -> None:
         assert manager.get_states() == {}
 
@@ -100,8 +94,6 @@ class TestGetStates:
 
 
 class TestTrigger:
-    """Tests for trigger."""
-
     def test_known_worker(self, config: HydraFlowConfig, state: Any) -> None:
         mock_loop = MagicMock()
         mgr = BGWorkerManager(config, state, {"memory_sync": mock_loop})
@@ -113,8 +105,6 @@ class TestTrigger:
 
 
 class TestInterval:
-    """Tests for set_interval / get_interval."""
-
     def test_override(self, manager: BGWorkerManager) -> None:
         manager.set_interval("memory_sync", 300)
         assert manager.get_interval("memory_sync") == 300
@@ -136,8 +126,6 @@ class TestInterval:
 
 
 class TestRestoreMethods:
-    """Tests for bulk restore methods used by StateRestorer."""
-
     def test_restore_intervals(self, manager: BGWorkerManager) -> None:
         manager._restore_intervals({"memory_sync": 120, "metrics": 60})
         assert manager.get_interval("memory_sync") == 120

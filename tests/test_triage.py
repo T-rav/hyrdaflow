@@ -57,8 +57,6 @@ def runner(event_bus: EventBus, mock_runner: AsyncMock) -> TriageRunner:
 
 
 class TestPreFilter:
-    """Tests for the fast pre-filter (length checks) that skip the LLM."""
-
     @pytest.mark.asyncio
     async def test_not_ready_when_body_empty(
         self, runner: TriageRunner, mock_runner: AsyncMock
@@ -118,8 +116,6 @@ class TestPreFilter:
 
 
 class TestLLMEvaluation:
-    """Tests for the LLM-powered evaluation path."""
-
     @pytest.mark.asyncio
     async def test_ready_when_llm_approves(
         self, runner: TriageRunner, mock_runner: AsyncMock
@@ -373,8 +369,6 @@ class TestLLMEvaluation:
 
 
 class TestParseVerdict:
-    """Tests for TriageRunner._parse_verdict static method."""
-
     def test_direct_json(self) -> None:
         transcript = '{"ready": true, "reasons": []}'
         result = TriageRunner._parse_verdict(transcript, 1)
@@ -516,8 +510,6 @@ class TestStripSystemLines:
 
 
 class TestBuildCommand:
-    """Tests for TriageRunner._build_command."""
-
     def test_command_uses_triage_model(self, event_bus: EventBus) -> None:
         config = ConfigFactory.create(triage_model="sonnet")
         runner = TriageRunner(config, event_bus)
@@ -555,8 +547,6 @@ class TestBuildCommand:
 
 
 class TestBuildPrompt:
-    """Tests for TriageRunner._build_prompt_with_stats."""
-
     def test_prompt_contains_issue_title_and_body(self, config, event_bus) -> None:
         issue = TaskFactory.create(
             id=42,
@@ -595,8 +585,6 @@ class TestBuildPrompt:
 
 
 class TestTriageEvents:
-    """Tests for TRIAGE_UPDATE event emission."""
-
     @pytest.mark.asyncio
     async def test_evaluate_publishes_evaluating_and_done_events(
         self, runner: TriageRunner, event_bus: EventBus, mock_runner: AsyncMock
@@ -733,8 +721,6 @@ class TestTriageEvents:
 
 
 class TestTriageDryRun:
-    """Tests for dry-run mode in TriageRunner."""
-
     @pytest.mark.asyncio
     async def test_dry_run_returns_ready_true(
         self, event_bus: EventBus, mock_runner: AsyncMock
@@ -756,8 +742,6 @@ class TestTriageDryRun:
 
 
 class TestTriageTerminate:
-    """Tests for TriageRunner.terminate."""
-
     def test_terminate_calls_terminate_processes(
         self, event_bus: EventBus, mock_runner: AsyncMock
     ) -> None:
@@ -800,8 +784,6 @@ class TestTriageRunnerInheritance:
 
 
 class TestTriageSaveTranscript:
-    """Tests that TriageRunner saves LLM transcripts to disk via _save_transcript."""
-
     @pytest.mark.asyncio
     async def test_save_transcript_called_after_llm_evaluation(
         self, runner: TriageRunner, mock_runner: AsyncMock

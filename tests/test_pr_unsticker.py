@@ -896,8 +896,6 @@ class TestMergeConflictDelegation:
 
 
 class TestFreshBranchRebuild:
-    """Tests for fresh branch rebuild delegation via the resolver."""
-
     @pytest.mark.asyncio
     async def test_conflict_falls_back_to_fresh_rebuild_via_resolver(
         self, tmp_path: Path
@@ -961,8 +959,6 @@ class TestFreshBranchRebuild:
 
 
 class TestResolverNoneEdgeCases:
-    """Tests for edge cases when the resolver is not configured (resolver=None)."""
-
     @pytest.mark.asyncio
     async def test_merge_conflict_without_resolver_fails_and_releases_to_hitl(
         self, tmp_path: Path
@@ -1040,8 +1036,6 @@ class TestMemorySuggestionExtraction:
 
 
 class TestCITimeoutResolution:
-    """Tests for CI_TIMEOUT cause type and test-isolation fix strategy."""
-
     @pytest.mark.asyncio
     async def test_ci_timeout_runs_isolation_then_agent(self, tmp_path: Path) -> None:
         """Full flow: isolation mock -> agent capture -> verify prompt content."""

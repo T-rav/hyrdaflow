@@ -52,8 +52,6 @@ def _make_record(
 
 
 class TestJSONFormatter:
-    """Tests for JSONFormatter."""
-
     def test_format_produces_valid_json_with_expected_keys(self) -> None:
         record = _make_record("test message")
         output = JSONFormatter().format(record)
@@ -111,8 +109,6 @@ class TestJSONFormatter:
 
 
 class TestSetupLogging:
-    """Tests for setup_logging()."""
-
     def test_returns_hydraflow_logger(self) -> None:
         logger = setup_logging()
         assert logger.name == "hydraflow"
@@ -148,8 +144,6 @@ class TestSetupLogging:
 
 
 class TestSetupLoggingWithFile:
-    """Tests for setup_logging() with the log_file parameter."""
-
     def test_log_file_adds_file_handler(self, tmp_path: Path) -> None:
         """When log_file is provided, a second handler should be added."""
         logger = setup_logging(log_file=tmp_path / "test.log")

@@ -67,8 +67,6 @@ diff --git a/ui/components/Button.jsx b/ui/components/Button.jsx
 
 
 class TestExtractChangedFiles:
-    """Tests for _extract_changed_files."""
-
     def test_extracts_single_file(self) -> None:
         files = _extract_changed_files(_UI_DIFF)
         assert files == ["src/ui/App.tsx"]
@@ -82,8 +80,6 @@ class TestExtractChangedFiles:
 
 
 class TestMatchPatterns:
-    """Tests for _match_patterns."""
-
     def test_glob_star_match(self) -> None:
         patterns = ["src/ui/**", "*.css"]
         assert _match_patterns("src/ui/App.tsx", patterns) == ["src/ui/**"]
@@ -102,8 +98,6 @@ class TestMatchPatterns:
 
 
 class TestFindOverrideLabel:
-    """Tests for _find_override_label."""
-
     def test_finds_required_label(self) -> None:
         labels = ["bug", "hydraflow-visual-required", "priority"]
         result = _find_override_label(
@@ -142,8 +136,6 @@ class TestFindOverrideLabel:
 
 
 class TestExtractOverrideReason:
-    """Tests for _extract_override_reason."""
-
     def test_extracts_reason_from_comment(self) -> None:
         comments = ["hydraflow-visual-skip: No UI changes, only backend refactor"]
         reason = _extract_override_reason(comments, "hydraflow-visual-skip")
@@ -174,8 +166,6 @@ class TestExtractOverrideReason:
 
 
 class TestComputeVisualValidation:
-    """Tests for compute_visual_validation — the core decision function."""
-
     def test_disabled_returns_skipped(self) -> None:
         """When visual_validation_enabled=False, always skip."""
         config = ConfigFactory.create(visual_validation_enabled=False)
@@ -281,8 +271,6 @@ class TestComputeVisualValidation:
 
 
 class TestFormatVisualValidationComment:
-    """Tests for format_visual_validation_comment."""
-
     def test_required_format(self) -> None:
         decision = VisualValidationDecision(
             policy=VisualValidationPolicy.REQUIRED,
@@ -314,8 +302,6 @@ class TestFormatVisualValidationComment:
 
 
 class TestPostMergeVisualDecisionEnforcement:
-    """Tests that _should_create_verification_issue respects visual decisions."""
-
     def _make_handler(self, config: HydraFlowConfig):
         from unittest.mock import AsyncMock
 
@@ -475,8 +461,6 @@ class TestPostMergeVisualDecisionEnforcement:
 
 
 class TestReviewPhaseVisualValidation:
-    """Tests for visual validation integration in ReviewPhase."""
-
     def test_compute_visual_validation_returns_decision(self) -> None:
         """_compute_visual_validation should return a decision when enabled."""
         import asyncio

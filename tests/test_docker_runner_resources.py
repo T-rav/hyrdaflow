@@ -7,8 +7,6 @@ from tests.helpers import ConfigFactory
 
 
 class TestBuildContainerKwargsDefaults:
-    """Tests that default config produces correct Docker SDK kwargs."""
-
     def test_nano_cpus_from_default_cpu_limit(self) -> None:
         """Default 2.0 CPU cores → 2_000_000_000 nanoseconds."""
         cfg = ConfigFactory.create()
@@ -59,8 +57,6 @@ class TestBuildContainerKwargsDefaults:
 
 
 class TestBuildContainerKwargsCustom:
-    """Tests that custom config values are correctly translated to kwargs."""
-
     def test_custom_cpu_limit(self) -> None:
         cfg = ConfigFactory.create(docker_cpu_limit=4.0)
         kwargs = build_container_kwargs(cfg)
@@ -94,8 +90,6 @@ class TestBuildContainerKwargsCustom:
 
 
 class TestBuildContainerKwargsSecurityOpts:
-    """Tests for security_opt behavior based on config."""
-
     def test_no_new_privileges_true_includes_security_opt(self) -> None:
         cfg = ConfigFactory.create(docker_no_new_privileges=True)
         kwargs = build_container_kwargs(cfg)
@@ -120,8 +114,6 @@ class TestBuildContainerKwargsSecurityOpts:
 
 
 class TestBuildContainerKwargsTmpfs:
-    """Tests for tmpfs configuration."""
-
     def test_tmpfs_dict_has_tmp_key(self) -> None:
         cfg = ConfigFactory.create()
         kwargs = build_container_kwargs(cfg)

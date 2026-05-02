@@ -21,13 +21,9 @@ from config import (
 
 
 class TestFindRepoRoot:
-    """Tests for the _find_repo_root() helper."""
-
     def test_finds_git_root_from_repo_subdirectory(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should return the directory containing .git when walking up."""
-        # Arrange
         git_root = tmp_path / "project"
         git_root.mkdir()
         (git_root / ".git").mkdir()
@@ -36,39 +32,31 @@ class TestFindRepoRoot:
 
         monkeypatch.chdir(nested)
 
-        # Act
         result = _find_repo_root()
 
-        # Assert
         assert result == git_root.resolve()
 
     def test_finds_git_root_from_repo_root_itself(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should return cwd when .git exists directly in cwd."""
-        # Arrange
         git_root = tmp_path / "project"
         git_root.mkdir()
         (git_root / ".git").mkdir()
 
         monkeypatch.chdir(git_root)
 
-        # Act
         result = _find_repo_root()
 
-        # Assert
         assert result == git_root.resolve()
 
     def test_returns_cwd_when_no_git_root_found(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should fall back to cwd when no .git directory exists in the hierarchy."""
         # Arrange – tmp_path has no .git anywhere above it inside tmp_path
         no_git_dir = tmp_path / "no_git"
         no_git_dir.mkdir()
         monkeypatch.chdir(no_git_dir)
 
-        # Act
         result = _find_repo_root()
 
         # Assert – result is a resolved Path (either cwd or a real parent that
@@ -79,23 +67,18 @@ class TestFindRepoRoot:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The returned path should be an absolute resolved Path."""
-        # Arrange
         git_root = tmp_path / "proj"
         git_root.mkdir()
         (git_root / ".git").mkdir()
         monkeypatch.chdir(git_root)
 
-        # Act
         result = _find_repo_root()
 
-        # Assert
         assert result.is_absolute()
 
     def test_finds_git_root_initialized_with_subprocess(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should find the root when a .git directory exists."""
-        # Arrange
         git_root = tmp_path / "real_repo"
         git_root.mkdir()
         (git_root / ".git").mkdir()
@@ -103,16 +86,13 @@ class TestFindRepoRoot:
         nested.mkdir(parents=True)
         monkeypatch.chdir(nested)
 
-        # Act
         result = _find_repo_root()
 
-        # Assert
         assert result == git_root.resolve()
 
     def test_prefers_outermost_git_root_when_nested(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should pick the outermost repo when multiple .git roots exist above cwd."""
         outer = tmp_path / "outer"
         inner = outer / "inner"
         nested = inner / "src"
@@ -134,13 +114,9 @@ class TestFindRepoRoot:
 
 
 class TestDetectRepoSlug:
-    """Tests for the _detect_repo_slug() helper."""
-
     def test_ssh_remote_url(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should parse SSH remote URL and strip .git suffix."""
-        # Arrange
         monkeypatch.setattr(
             subprocess,
             "run",
@@ -149,17 +125,13 @@ class TestDetectRepoSlug:
             ),
         )
 
-        # Act
         result = _detect_repo_slug(tmp_path)
 
-        # Assert
         assert result == "owner/repo"
 
     def test_https_remote_url(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should parse HTTPS remote URL and strip .git suffix."""
-        # Arrange
         monkeypatch.setattr(
             subprocess,
             "run",
@@ -168,17 +140,13 @@ class TestDetectRepoSlug:
             ),
         )
 
-        # Act
         result = _detect_repo_slug(tmp_path)
 
-        # Assert
         assert result == "owner/repo"
 
     def test_ssh_url_without_git_suffix(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should parse SSH remote URL without .git suffix."""
-        # Arrange
         monkeypatch.setattr(
             subprocess,
             "run",
@@ -187,17 +155,13 @@ class TestDetectRepoSlug:
             ),
         )
 
-        # Act
         result = _detect_repo_slug(tmp_path)
 
-        # Assert
         assert result == "owner/repo"
 
     def test_https_url_without_git_suffix(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should parse HTTPS remote URL without .git suffix."""
-        # Arrange
         monkeypatch.setattr(
             subprocess,
             "run",
@@ -206,17 +170,13 @@ class TestDetectRepoSlug:
             ),
         )
 
-        # Act
         result = _detect_repo_slug(tmp_path)
 
-        # Assert
         assert result == "owner/repo"
 
     def test_empty_remote_returns_empty_string(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should return empty string when git remote output is empty."""
-        # Arrange
         monkeypatch.setattr(
             subprocess,
             "run",
@@ -225,68 +185,52 @@ class TestDetectRepoSlug:
             ),
         )
 
-        # Act
         result = _detect_repo_slug(tmp_path)
 
-        # Assert
         assert result == ""
 
     def test_subprocess_file_not_found_returns_empty_string(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should return empty string when git is not installed."""
 
-        # Arrange
         def _raise(*_args: object, **_kwargs: object) -> None:
             raise FileNotFoundError("git not found")
 
         monkeypatch.setattr(subprocess, "run", _raise)
 
-        # Act
         result = _detect_repo_slug(tmp_path)
 
-        # Assert
         assert result == ""
 
     def test_subprocess_os_error_returns_empty_string(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should return empty string on OSError."""
 
-        # Arrange
         def _raise(*_args: object, **_kwargs: object) -> None:
             raise OSError("subprocess failed")
 
         monkeypatch.setattr(subprocess, "run", _raise)
 
-        # Act
         result = _detect_repo_slug(tmp_path)
 
-        # Assert
         assert result == ""
 
     def test_subprocess_timeout_returns_empty_string(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should return empty string when git command times out."""
 
-        # Arrange
         def _raise(*_args: object, **_kwargs: object) -> None:
             raise subprocess.TimeoutExpired(cmd="git", timeout=10)
 
         monkeypatch.setattr(subprocess, "run", _raise)
 
-        # Act
         result = _detect_repo_slug(tmp_path)
 
-        # Assert
         assert result == ""
 
     def test_non_github_remote_returns_empty_string(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should return empty string for non-GitHub hosts."""
-        # Arrange
         monkeypatch.setattr(
             subprocess,
             "run",
@@ -295,10 +239,8 @@ class TestDetectRepoSlug:
             ),
         )
 
-        # Act
         result = _detect_repo_slug(tmp_path)
 
-        # Assert
         assert result == ""
 
 
@@ -308,58 +250,46 @@ class TestDetectRepoSlug:
 
 
 class TestHydraFlowConfigPathResolution:
-    """Tests for the resolve_paths model validator."""
-
     def test_explicit_repo_root_is_preserved(self, tmp_path: Path) -> None:
-        # Arrange
         explicit_root = tmp_path / "my_repo"
         explicit_root.mkdir()
 
-        # Act
         cfg = HydraFlowConfig(
             repo_root=explicit_root,
             workspace_base=explicit_root / "wt",
             state_file=explicit_root / "state.json",
         )
 
-        # Assert
         assert cfg.repo_root == explicit_root
 
     def test_explicit_workspace_base_is_preserved(self, tmp_path: Path) -> None:
-        # Arrange
         explicit_root = tmp_path / "repo"
         explicit_wt = tmp_path / "worktrees"
 
-        # Act
         cfg = HydraFlowConfig(
             repo_root=explicit_root,
             workspace_base=explicit_wt,
             state_file=explicit_root / "state.json",
         )
 
-        # Assert
         assert cfg.workspace_base == explicit_wt
 
     def test_explicit_state_file_is_preserved(self, tmp_path: Path) -> None:
-        # Arrange
         explicit_root = tmp_path / "repo"
         explicit_state = tmp_path / "custom-state.json"
 
-        # Act
         cfg = HydraFlowConfig(
             repo_root=explicit_root,
             workspace_base=explicit_root / "wt",
             state_file=explicit_state,
         )
 
-        # Assert
         assert cfg.state_file == explicit_state
 
     def test_default_workspace_base_derived_from_repo_root(
         self, tmp_path: Path
     ) -> None:
         """When workspace_base is left as Path('.'), it should default to ~/.hydraflow/worktrees."""
-        # Arrange
         git_root = tmp_path / "hydra"
         git_root.mkdir()
         (git_root / ".git").mkdir()
@@ -367,22 +297,18 @@ class TestHydraFlowConfigPathResolution:
         # Act – pass repo_root explicitly but leave workspace_base and state_file at their defaults (Path("."))
         cfg = HydraFlowConfig(repo_root=git_root)
 
-        # Assert
         assert (
             cfg.workspace_base == Path("~/.hydraflow/worktrees").expanduser().resolve()
         )
 
     def test_default_state_file_derived_from_repo_root(self, tmp_path: Path) -> None:
         """state_file should resolve to repo_root / '.hydraflow/<slug>/state.json'."""
-        # Arrange
         git_root = tmp_path / "hydra"
         git_root.mkdir()
         (git_root / ".git").mkdir()
 
-        # Act
         cfg = HydraFlowConfig(repo_root=git_root, repo="org/my-repo")
 
-        # Assert
         assert cfg.state_file == git_root / ".hydraflow" / "org-my-repo" / "state.json"
 
     def test_auto_detected_repo_root_is_absolute(
@@ -395,26 +321,21 @@ class TestHydraFlowConfigPathResolution:
         (git_root / ".git").mkdir()
         monkeypatch.chdir(git_root)
 
-        # Act
         cfg = HydraFlowConfig()
 
-        # Assert
         assert cfg.repo_root.is_absolute()
 
     def test_auto_detected_workspace_base_uses_hydraflow_worktrees_name(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Auto-derived workspace_base should be ~/.hydraflow/worktrees."""
-        # Arrange
         git_root = tmp_path / "repo"
         git_root.mkdir()
         (git_root / ".git").mkdir()
         monkeypatch.chdir(git_root)
 
-        # Act
         cfg = HydraFlowConfig()
 
-        # Assert
         assert (
             cfg.workspace_base == Path("~/.hydraflow/worktrees").expanduser().resolve()
         )
@@ -423,16 +344,13 @@ class TestHydraFlowConfigPathResolution:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Auto-derived state_file should be inside .hydraflow/<slug>/ and named 'state.json'."""
-        # Arrange
         git_root = tmp_path / "repo"
         git_root.mkdir()
         (git_root / ".git").mkdir()
         monkeypatch.chdir(git_root)
 
-        # Act
         cfg = HydraFlowConfig()
 
-        # Assert
         assert cfg.state_file.name == "state.json"
         # state_file is at .hydraflow/<repo_slug>/state.json
         assert cfg.state_file.parent.parent.name == ".hydraflow"
@@ -444,8 +362,6 @@ class TestHydraFlowConfigPathResolution:
 
 
 class TestBranchForIssue:
-    """Tests for HydraFlowConfig.branch_for_issue()."""
-
     def test_returns_canonical_branch_name(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -472,8 +388,6 @@ class TestBranchForIssue:
 
 
 class TestWorktreePathForIssue:
-    """Tests for HydraFlowConfig.workspace_path_for_issue()."""
-
     def test_returns_path_under_workspace_base(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo="org/my-repo",
@@ -537,8 +451,6 @@ class TestWorktreePathForIssue:
 
 
 class TestResolveDefaults:
-    """Tests for the resolve_defaults model validator."""
-
     def test_resolve_defaults_sets_event_log_path(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(repo_root=tmp_path, repo="org/my-repo")
         assert (
@@ -587,8 +499,6 @@ class TestResolveDefaults:
 
 
 class TestDirectoryProperties:
-    """Tests for the computed directory @property methods on HydraFlowConfig."""
-
     def test_log_dir_returns_hydraflow_logs_under_repo_root(
         self, tmp_path: Path
     ) -> None:
@@ -642,8 +552,6 @@ class TestDirectoryProperties:
 
 
 class TestNamespaceRepoPaths:
-    """Tests for repo-scoped persistence path namespacing."""
-
     def test_state_file_namespaced_by_repo_slug(self, tmp_path: Path) -> None:
         """Default state_file should be under data_root/<slug>/."""
         cfg = HydraFlowConfig(repo_root=tmp_path, repo="acme/widgets")

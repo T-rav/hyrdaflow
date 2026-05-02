@@ -56,8 +56,6 @@ def _make_loop(
 
 
 class TestReportIssueLoopStartup:
-    """Tests for ReportIssueLoop startup behaviour."""
-
     def test_run_on_startup_disabled_in_favour_of_drain(self, tmp_path: Path) -> None:
         """run_on_startup is False because run() drains the queue itself."""
         loop, _stop, _state, _pr = _make_loop(tmp_path)
@@ -65,8 +63,6 @@ class TestReportIssueLoopStartup:
 
 
 class TestReportIssueLoopDoWork:
-    """Tests for ReportIssueLoop._do_work."""
-
     @pytest.mark.asyncio
     async def test_no_pending_reports_returns_none(self, tmp_path: Path) -> None:
         """When no reports are queued, _do_work returns None (no-op)."""
@@ -398,8 +394,6 @@ class TestReportIssueLoopDoWork:
 
 
 class TestReportStatusTransitions:
-    """Tests for tracked report status transitions during processing."""
-
     @pytest.mark.asyncio
     async def test_successful_processing_sets_filed_not_fixed(
         self, tmp_path: Path
@@ -466,8 +460,6 @@ class TestReportStatusTransitions:
 
 
 class TestReportRetryAndEscalation:
-    """Tests for report retry counting and HITL escalation."""
-
     @pytest.mark.asyncio
     async def test_failed_report_stays_in_queue(self, tmp_path: Path) -> None:
         """A failed report remains in the queue for retry."""
@@ -585,8 +577,6 @@ class TestReportRetryAndEscalation:
 
 
 class TestReportIssueLoopInterval:
-    """Tests for interval configuration."""
-
     def test_default_interval_from_config(self, tmp_path: Path) -> None:
         """The default interval comes from config.report_issue_interval."""
         loop, _stop, _state, _pr = _make_loop(tmp_path)
@@ -724,8 +714,6 @@ class TestHfIssueSkillPrompt:
 
 
 class TestSaveScreenshotResourceManagement:
-    """Tests for _save_screenshot FD and temp file handling."""
-
     def test_writes_directly_via_fdopen(self) -> None:
         """_save_screenshot uses os.fdopen to write directly to the mkstemp FD."""
         raw = b"\x89PNG\r\ntest-data"
@@ -819,8 +807,6 @@ def _enqueue_with_tracking(
 
 
 class TestTrackedReportStatusTransitions:
-    """Tests that _do_work updates TrackedReport status at each lifecycle stage."""
-
     @pytest.mark.asyncio
     async def test_status_transitions_to_in_progress_on_start(
         self, tmp_path: Path
@@ -1044,8 +1030,6 @@ class TestTrackedReportStatusTransitions:
 
 
 class TestStartupDrain:
-    """Tests for the run() override that drains all queued reports on startup."""
-
     @pytest.mark.asyncio
     async def test_drains_multiple_reports_on_startup(self, tmp_path: Path) -> None:
         """All queued reports are processed before entering the polling loop."""
@@ -1127,8 +1111,6 @@ class TestStartupDrain:
 
 
 class TestStaleReportSweep:
-    """Tests for _sweep_stale_reports auto-closing old queued reports."""
-
     @pytest.mark.asyncio
     async def test_stale_report_auto_closed(self, tmp_path: Path) -> None:
         """Reports older than the threshold are removed and marked closed."""
@@ -1294,8 +1276,6 @@ class TestStaleReportSweep:
 
 
 class TestSyncFiledReports:
-    """Tests for _sync_filed_reports auto-transitioning filed reports."""
-
     @pytest.mark.asyncio
     async def test_filed_report_transitions_to_fixed_on_completed(
         self, tmp_path: Path
@@ -1448,8 +1428,6 @@ class TestSyncFiledReports:
 
 
 class TestExtractIssueNumberFromUrl:
-    """Tests for _extract_issue_number_from_url static method."""
-
     def test_valid_url(self) -> None:
         result = ReportIssueLoop._extract_issue_number_from_url(
             "https://github.com/acme/repo/issues/42"

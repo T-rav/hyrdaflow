@@ -17,8 +17,6 @@ from tests.conftest import ReviewResultFactory, WorkerResultFactory
 
 
 class TestWorkerResultValidators:
-    """Tests for WorkerResult field constraints and descriptions."""
-
     def test_duration_seconds_rejects_negative(self) -> None:
         with pytest.raises(ValidationError, match="duration_seconds"):
             WorkerResultFactory.create(
@@ -71,8 +69,6 @@ class TestWorkerResultValidators:
 
 
 class TestHITLResultValidators:
-    """Tests for HITLResult field constraints and descriptions."""
-
     def test_duration_seconds_rejects_negative(self) -> None:
         with pytest.raises(ValidationError, match="duration_seconds"):
             HITLResult(issue_number=1, duration_seconds=-1.0)
@@ -88,8 +84,6 @@ class TestHITLResultValidators:
 
 
 class TestReviewResultValidators:
-    """Tests for ReviewResult field constraints and descriptions."""
-
     def test_duration_seconds_rejects_negative(self) -> None:
         with pytest.raises(ValidationError, match="duration_seconds"):
             ReviewResultFactory.create(
@@ -114,8 +108,6 @@ class TestReviewResultValidators:
 
 
 class TestPRInfoDescriptions:
-    """Tests for PRInfo field descriptions."""
-
     def test_field_descriptions_present(self) -> None:
         fields = PRInfo.model_fields
         for name, info in fields.items():
@@ -128,8 +120,6 @@ class TestPRInfoDescriptions:
 
 
 class TestLoopResult:
-    """Tests for the LoopResult dataclass."""
-
     def test_loop_result_defaults_attempts_to_zero(self) -> None:
         result = LoopResult(passed=True, summary="OK")
         assert result.passed is True
@@ -164,8 +154,6 @@ class TestLoopResult:
 
 
 class TestCodeScanningAlert:
-    """Tests for the CodeScanningAlert model."""
-
     def test_construct_with_all_fields(self):
         alert = CodeScanningAlert(
             number=1,

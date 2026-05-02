@@ -43,8 +43,6 @@ def _make_judge_result(
 
 
 class TestFormatVerificationIssueBody:
-    """Tests for format_verification_issue_body."""
-
     def test_all_criteria_passed(self) -> None:
         """When all criteria pass, body contains the 'all passed' note."""
         issue = TaskFactory.create()

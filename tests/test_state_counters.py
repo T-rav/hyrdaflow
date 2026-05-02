@@ -16,8 +16,6 @@ from tests.helpers import make_tracker
 
 
 class TestRecordingMethods:
-    """Tests for the new lifetime stats recording methods."""
-
     def test_record_quality_fix_rounds(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.record_quality_fix_rounds(3)
@@ -153,8 +151,6 @@ class TestRecordingMethods:
 
 
 class TestMetricsState:
-    """Tests for metrics state tracking methods."""
-
     def test_get_metrics_state_default(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         hash_val, synced = tracker.get_metrics_state()
@@ -184,8 +180,6 @@ class TestMetricsState:
 
 
 class TestThresholdTracking:
-    """Tests for threshold-based improvement proposal logic."""
-
     def test_mark_threshold_fired(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.mark_threshold_fired("quality_fix_rate")
@@ -325,8 +319,6 @@ class TestThresholdTracking:
 
 
 class TestVerificationIssueTracking:
-    """Tests for verification issue state tracking."""
-
     def test_set_and_get_verification_issue(self, tmp_path: Path) -> None:
         """Round-trip: set then get returns the verification issue number."""
         tracker = make_tracker(tmp_path)
@@ -530,8 +522,6 @@ class TestActiveIssueNumbersTracking:
 
 
 class TestWorkerIntervals:
-    """Tests for worker interval override persistence."""
-
     def test_get_returns_empty_dict_initially(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         assert tracker.get_worker_intervals() == {}
@@ -564,8 +554,6 @@ class TestWorkerIntervals:
 
 
 class TestMergeDurationTracking:
-    """Tests for time-to-merge tracking."""
-
     def test_record_merge_duration_stores_value(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.record_merge_duration(3600.5)
@@ -601,8 +589,6 @@ class TestMergeDurationTracking:
 
 
 class TestRetriesPerStage:
-    """Tests for retry-per-stage tracking."""
-
     def test_record_stage_retry_increments(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.record_stage_retry(42, "quality_fix")
@@ -638,8 +624,6 @@ class TestRetriesPerStage:
 
 
 class TestLastReviewedSha:
-    """Tests for set/get/clear_last_reviewed_sha."""
-
     def test_set_and_get(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.set_last_reviewed_sha(42, "abc123def456")

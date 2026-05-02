@@ -32,8 +32,6 @@ class _TestRunner(BaseRunner):
 
 
 class TestBaseRunnerInit:
-    """Tests for BaseRunner.__init__."""
-
     def test_init_stores_config_reference(self, config, event_bus: EventBus) -> None:
         runner = _TestRunner(config, event_bus)
         assert runner._config is config
@@ -81,8 +79,6 @@ class TestBaseRunnerInit:
 
 
 class TestTerminate:
-    """Tests for BaseRunner.terminate."""
-
     def test_calls_terminate_processes(self, config, event_bus: EventBus) -> None:
         runner = _TestRunner(config, event_bus)
         mock_proc = MagicMock()
@@ -107,8 +103,6 @@ class TestTerminate:
 
 
 class TestSaveTranscript:
-    """Tests for BaseRunner._save_transcript."""
-
     def test_writes_file_with_prefix_and_identifier(
         self, config, event_bus: EventBus
     ) -> None:
@@ -161,8 +155,6 @@ class TestSaveTranscript:
 
 
 class TestExecute:
-    """Tests for BaseRunner._execute."""
-
     @pytest.mark.asyncio
     async def test_delegates_to_stream_claude_process(
         self, config, event_bus: EventBus, tmp_path: Path
@@ -264,8 +256,6 @@ class TestExecute:
 
 
 class TestVerifyQuality:
-    """Tests for BaseRunner._verify_quality."""
-
     @pytest.mark.asyncio
     async def test_verify_quality_returns_true_on_success(
         self, config, event_bus: EventBus, tmp_path: Path
@@ -349,8 +339,6 @@ class TestVerifyQuality:
 
 
 class TestBuildCommand:
-    """Tests for BaseRunner._build_command (default implementation-tool command)."""
-
     def test_build_command_starts_with_claude(
         self, config, event_bus: EventBus, tmp_path: Path
     ) -> None:

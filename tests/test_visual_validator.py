@@ -45,61 +45,39 @@ def _make_config(**overrides: Any):  # noqa: ANN202
 
 
 class TestClassifyFailure:
-    """Tests for the classify_failure helper."""
-
     def test_timeout_error_classified_as_timeout(self) -> None:
-        """Should classify TimeoutError as TIMEOUT."""
-        # Arrange
         error = TimeoutError("timed out")
 
-        # Act
         result = classify_failure(error)
 
-        # Assert
         assert result == VisualFailureClass.TIMEOUT
 
     def test_connection_error_classified_as_infra(self) -> None:
-        """Should classify ConnectionError as INFRA_FAILURE."""
-        # Arrange
         error = ConnectionError("connection refused")
 
-        # Act
         result = classify_failure(error)
 
-        # Assert
         assert result == VisualFailureClass.INFRA_FAILURE
 
     def test_os_error_classified_as_infra(self) -> None:
-        """Should classify OSError as INFRA_FAILURE."""
-        # Arrange
         error = OSError("disk full")
 
-        # Act
         result = classify_failure(error)
 
-        # Assert
         assert result == VisualFailureClass.INFRA_FAILURE
 
     def test_generic_error_classified_as_capture_error(self) -> None:
-        """Should classify unknown exceptions as CAPTURE_ERROR."""
-        # Arrange
         error = RuntimeError("screenshot failed")
 
-        # Act
         result = classify_failure(error)
 
-        # Assert
         assert result == VisualFailureClass.CAPTURE_ERROR
 
     def test_value_error_classified_as_capture_error(self) -> None:
-        """Should classify ValueError as CAPTURE_ERROR."""
-        # Arrange
         error = ValueError("bad data")
 
-        # Act
         result = classify_failure(error)
 
-        # Assert
         assert result == VisualFailureClass.CAPTURE_ERROR
 
 
@@ -109,54 +87,34 @@ class TestClassifyFailure:
 
 
 class TestApplyThresholds:
-    """Tests for the apply_thresholds helper."""
-
     def test_below_warn_is_pass(self) -> None:
-        """Should return PASS when diff is below warn threshold."""
-        # Arrange / Act
         verdict = apply_thresholds(0.01, warn_threshold=0.05, fail_threshold=0.15)
 
-        # Assert
         assert verdict == VisualScreenVerdict.PASS
 
     def test_zero_diff_is_pass(self) -> None:
-        """Should return PASS for zero diff."""
-        # Arrange / Act
         verdict = apply_thresholds(0.0, warn_threshold=0.05, fail_threshold=0.15)
 
-        # Assert
         assert verdict == VisualScreenVerdict.PASS
 
     def test_at_warn_threshold_is_warn(self) -> None:
-        """Should return WARN when diff equals warn threshold."""
-        # Arrange / Act
         verdict = apply_thresholds(0.05, warn_threshold=0.05, fail_threshold=0.15)
 
-        # Assert
         assert verdict == VisualScreenVerdict.WARN
 
     def test_between_warn_and_fail_is_warn(self) -> None:
-        """Should return WARN when diff is between thresholds."""
-        # Arrange / Act
         verdict = apply_thresholds(0.10, warn_threshold=0.05, fail_threshold=0.15)
 
-        # Assert
         assert verdict == VisualScreenVerdict.WARN
 
     def test_at_fail_threshold_is_fail(self) -> None:
-        """Should return FAIL when diff equals fail threshold."""
-        # Arrange / Act
         verdict = apply_thresholds(0.15, warn_threshold=0.05, fail_threshold=0.15)
 
-        # Assert
         assert verdict == VisualScreenVerdict.FAIL
 
     def test_above_fail_threshold_is_fail(self) -> None:
-        """Should return FAIL when diff exceeds fail threshold."""
-        # Arrange / Act
         verdict = apply_thresholds(0.50, warn_threshold=0.05, fail_threshold=0.15)
 
-        # Assert
         assert verdict == VisualScreenVerdict.FAIL
 
 
@@ -166,58 +124,41 @@ class TestApplyThresholds:
 
 
 class TestIsTransient:
-    """Tests for the is_transient helper."""
-
     def test_infra_failure_is_transient(self) -> None:
-        """Should return True for INFRA_FAILURE."""
-        # Arrange
         result = VisualScreenResult(
             screen_name="test",
             failure_class=VisualFailureClass.INFRA_FAILURE,
         )
 
-        # Act / Assert
         assert is_transient(result) is True
 
     def test_timeout_is_transient(self) -> None:
-        """Should return True for TIMEOUT."""
-        # Arrange
         result = VisualScreenResult(
             screen_name="test",
             failure_class=VisualFailureClass.TIMEOUT,
         )
 
-        # Act / Assert
         assert is_transient(result) is True
 
     def test_capture_error_is_transient(self) -> None:
-        """Should return True for CAPTURE_ERROR."""
-        # Arrange
         result = VisualScreenResult(
             screen_name="test",
             failure_class=VisualFailureClass.CAPTURE_ERROR,
         )
 
-        # Act / Assert
         assert is_transient(result) is True
 
     def test_visual_diff_is_not_transient(self) -> None:
-        """Should return False for VISUAL_DIFF."""
-        # Arrange
         result = VisualScreenResult(
             screen_name="test",
             failure_class=VisualFailureClass.VISUAL_DIFF,
         )
 
-        # Act / Assert
         assert is_transient(result) is False
 
     def test_no_failure_class_is_not_transient(self) -> None:
-        """Should return False when no failure class is set."""
-        # Arrange
         result = VisualScreenResult(screen_name="test")
 
-        # Act / Assert
         assert is_transient(result) is False
 
 
@@ -227,14 +168,9 @@ class TestIsTransient:
 
 
 class TestVisualScreenResult:
-    """Tests for the VisualScreenResult model."""
-
     def test_minimal_instantiation(self) -> None:
-        """Should create with only screen_name."""
-        # Arrange / Act
         result = VisualScreenResult(screen_name="homepage")
 
-        # Assert
         assert result.screen_name == "homepage"
         assert result.diff_ratio == 0.0
         assert result.verdict == VisualScreenVerdict.PASS
@@ -243,8 +179,6 @@ class TestVisualScreenResult:
         assert result.retries_used == 0
 
     def test_full_instantiation(self) -> None:
-        """Should create with all fields."""
-        # Arrange / Act
         result = VisualScreenResult(
             screen_name="dashboard",
             diff_ratio=0.12,
@@ -254,7 +188,6 @@ class TestVisualScreenResult:
             retries_used=1,
         )
 
-        # Assert
         assert result.screen_name == "dashboard"
         assert result.diff_ratio == 0.12
         assert result.verdict == VisualScreenVerdict.WARN
@@ -269,14 +202,9 @@ class TestVisualScreenResult:
 
 
 class TestVisualValidationReport:
-    """Tests for the VisualValidationReport model."""
-
     def test_empty_report_defaults(self) -> None:
-        """Should create a passing empty report."""
-        # Arrange / Act
         report = VisualValidationReport()
 
-        # Assert
         assert report.screens == []
         assert report.overall_verdict == VisualScreenVerdict.PASS
         assert report.total_retries == 0
@@ -286,38 +214,26 @@ class TestVisualValidationReport:
         assert report.has_warnings is False
 
     def test_has_failures_when_fail(self) -> None:
-        """Should return True for has_failures when overall is FAIL."""
-        # Arrange / Act
         report = VisualValidationReport(overall_verdict=VisualScreenVerdict.FAIL)
 
-        # Assert
         assert report.has_failures is True
         assert report.has_warnings is True
 
     def test_has_warnings_when_warn(self) -> None:
-        """Should return True for has_warnings when overall is WARN."""
-        # Arrange / Act
         report = VisualValidationReport(overall_verdict=VisualScreenVerdict.WARN)
 
-        # Assert
         assert report.has_failures is False
         assert report.has_warnings is True
 
     def test_format_summary_empty(self) -> None:
-        """Should produce header for empty report."""
-        # Arrange
         report = VisualValidationReport()
 
-        # Act
         summary = report.format_summary()
 
-        # Assert
         assert "Visual Validation Report" in summary
         assert "PASS" in summary
 
     def test_format_summary_with_screens(self) -> None:
-        """Should include screen details in summary."""
-        # Arrange
         report = VisualValidationReport(
             screens=[
                 VisualScreenResult(
@@ -339,10 +255,8 @@ class TestVisualValidationReport:
             visual_diffs=1,
         )
 
-        # Act
         summary = report.format_summary()
 
-        # Assert
         assert "login" in summary
         assert "dashboard" in summary
         assert "FAIL" in summary
@@ -351,8 +265,6 @@ class TestVisualValidationReport:
         assert "visual_diff" in summary
 
     def test_format_summary_singular_retry(self) -> None:
-        """Should use 'retry' (singular) when retries_used is 1."""
-        # Arrange
         report = VisualValidationReport(
             screens=[
                 VisualScreenResult(
@@ -366,10 +278,8 @@ class TestVisualValidationReport:
             total_retries=1,
         )
 
-        # Act
         summary = report.format_summary()
 
-        # Assert
         assert "(1 retry)" in summary
         assert "1 retries" not in summary
 
@@ -380,14 +290,9 @@ class TestVisualValidationReport:
 
 
 class TestVisualConfigFields:
-    """Tests for visual validation config fields."""
-
     def test_default_values(self) -> None:
-        """Should have correct defaults when not overridden."""
-        # Arrange / Act
         config = ConfigFactory.create()
 
-        # Assert
         assert config.visual_validation_enabled is True
         assert config.visual_max_retries == 2
         assert config.visual_retry_delay == 0.0  # test factory default
@@ -395,7 +300,6 @@ class TestVisualConfigFields:
         assert config.visual_fail_threshold == 0.15
 
     def test_fail_threshold_must_exceed_warn(self) -> None:
-        """Should reject fail_threshold <= warn_threshold."""
         # Arrange / Act / Assert
         with pytest.raises(ValidationError, match="visual_fail_threshold"):
             ConfigFactory.create(
@@ -404,7 +308,6 @@ class TestVisualConfigFields:
             )
 
     def test_fail_threshold_below_warn_rejected(self) -> None:
-        """Should reject fail_threshold < warn_threshold."""
         # Arrange / Act / Assert
         with pytest.raises(ValidationError, match="visual_fail_threshold"):
             ConfigFactory.create(
@@ -413,14 +316,11 @@ class TestVisualConfigFields:
             )
 
     def test_valid_custom_thresholds(self) -> None:
-        """Should accept valid custom thresholds."""
-        # Arrange / Act
         config = ConfigFactory.create(
             visual_warn_threshold=0.01,
             visual_fail_threshold=0.02,
         )
 
-        # Assert
         assert config.visual_warn_threshold == 0.01
         assert config.visual_fail_threshold == 0.02
 
@@ -428,42 +328,30 @@ class TestVisualConfigFields:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Should pick up HYDRAFLOW_VISUAL_MAX_RETRIES from environment."""
-        # Arrange
         monkeypatch.setenv("HYDRAFLOW_VISUAL_MAX_RETRIES", "4")
 
-        # Act
         config = ConfigFactory.create()
 
-        # Assert
         assert config.visual_max_retries == 4
 
     def test_env_override_visual_warn_threshold(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Should pick up HYDRAFLOW_VISUAL_WARN_THRESHOLD from environment."""
-        # Arrange
         monkeypatch.setenv("HYDRAFLOW_VISUAL_WARN_THRESHOLD", "0.08")
 
-        # Act
         config = ConfigFactory.create()
 
-        # Assert
         assert config.visual_warn_threshold == pytest.approx(0.08)
 
     def test_env_override_visual_fail_threshold(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Should pick up HYDRAFLOW_VISUAL_FAIL_THRESHOLD from environment."""
-        # Arrange
         monkeypatch.setenv("HYDRAFLOW_VISUAL_FAIL_THRESHOLD", "0.30")
 
-        # Act
         config = ConfigFactory.create()
 
-        # Assert
         assert config.visual_fail_threshold == pytest.approx(0.30)
 
     def test_env_override_invalid_threshold_combination_reverts_fail_to_default(
@@ -480,7 +368,6 @@ class TestVisualConfigFields:
         monkeypatch.setenv("HYDRAFLOW_VISUAL_WARN_THRESHOLD", "0.20")
         monkeypatch.setenv("HYDRAFLOW_VISUAL_FAIL_THRESHOLD", "0.10")
 
-        # Act
         config = ConfigFactory.create()
 
         # Assert — fail_threshold must be reverted so the invariant holds
@@ -500,7 +387,6 @@ class TestVisualConfigFields:
         monkeypatch.setenv("HYDRAFLOW_VISUAL_WARN_THRESHOLD", "0.02")
         monkeypatch.setenv("HYDRAFLOW_VISUAL_FAIL_THRESHOLD", "0.01")
 
-        # Act
         config = ConfigFactory.create()
 
         # Assert — warn is preserved; fail is reverted to default (0.15 > 0.02)
@@ -512,11 +398,8 @@ class TestVisualConfigFields:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Should ignore HYDRAFLOW_VISUAL_WARN_THRESHOLD when value exceeds [0, 1]."""
-        # Arrange
         monkeypatch.setenv("HYDRAFLOW_VISUAL_WARN_THRESHOLD", "1.5")
 
-        # Act
         config = ConfigFactory.create()
 
         # Assert — invalid value is rejected; field stays at default
@@ -526,11 +409,8 @@ class TestVisualConfigFields:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Should ignore HYDRAFLOW_VISUAL_MAX_RETRIES when value exceeds le=5."""
-        # Arrange
         monkeypatch.setenv("HYDRAFLOW_VISUAL_MAX_RETRIES", "99")
 
-        # Act
         config = ConfigFactory.create()
 
         # Assert — out-of-bounds value is rejected; field stays at default
@@ -540,11 +420,8 @@ class TestVisualConfigFields:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Should ignore HYDRAFLOW_VISUAL_MAX_RETRIES when value is negative."""
-        # Arrange
         monkeypatch.setenv("HYDRAFLOW_VISUAL_MAX_RETRIES", "-1")
 
-        # Act
         config = ConfigFactory.create()
 
         # Assert — out-of-bounds value is rejected; field stays at default
@@ -557,44 +434,32 @@ class TestVisualConfigFields:
 
 
 class TestVisualValidatorEmptyScreens:
-    """Tests for VisualValidator with empty screen list."""
-
     @pytest.mark.asyncio
     async def test_empty_screens_returns_passing_report(self) -> None:
-        """Should return a passing report with no screens."""
-        # Arrange
         config = _make_config()
         validator = VisualValidator(config)
 
         async def check_fn(name: str) -> VisualScreenResult:
             raise AssertionError("Should not be called")
 
-        # Act
         report = await validator.validate_screens([], check_fn)
 
-        # Assert
         assert report.overall_verdict == VisualScreenVerdict.PASS
         assert report.screens == []
         assert report.total_retries == 0
 
 
 class TestVisualValidatorPassingScreens:
-    """Tests for VisualValidator with all screens passing."""
-
     @pytest.mark.asyncio
     async def test_all_screens_pass(self) -> None:
-        """Should return PASS when all screens are below warn threshold."""
-        # Arrange
         config = _make_config()
         validator = VisualValidator(config)
 
         async def check_fn(name: str) -> VisualScreenResult:
             return VisualScreenResult(screen_name=name, diff_ratio=0.01)
 
-        # Act
         report = await validator.validate_screens(["a", "b"], check_fn)
 
-        # Assert
         assert report.overall_verdict == VisualScreenVerdict.PASS
         assert len(report.screens) == 2
         assert all(s.verdict == VisualScreenVerdict.PASS for s in report.screens)
@@ -602,12 +467,8 @@ class TestVisualValidatorPassingScreens:
 
 
 class TestVisualValidatorWarnScreen:
-    """Tests for VisualValidator with a warning screen."""
-
     @pytest.mark.asyncio
     async def test_warn_screen_produces_warn_overall(self) -> None:
-        """Should return WARN when a screen is between thresholds."""
-        # Arrange
         config = _make_config()
         validator = VisualValidator(config)
 
@@ -615,43 +476,31 @@ class TestVisualValidatorWarnScreen:
             ratio = 0.10 if name == "dashboard" else 0.01
             return VisualScreenResult(screen_name=name, diff_ratio=ratio)
 
-        # Act
         report = await validator.validate_screens(["login", "dashboard"], check_fn)
 
-        # Assert
         assert report.overall_verdict == VisualScreenVerdict.WARN
         dashboard = next(s for s in report.screens if s.screen_name == "dashboard")
         assert dashboard.verdict == VisualScreenVerdict.WARN
 
 
 class TestVisualValidatorFailScreen:
-    """Tests for VisualValidator with a failing screen."""
-
     @pytest.mark.asyncio
     async def test_fail_screen_produces_fail_overall(self) -> None:
-        """Should return FAIL when a screen exceeds fail threshold."""
-        # Arrange
         config = _make_config()
         validator = VisualValidator(config)
 
         async def check_fn(name: str) -> VisualScreenResult:
             return VisualScreenResult(screen_name=name, diff_ratio=0.25)
 
-        # Act
         report = await validator.validate_screens(["page"], check_fn)
 
-        # Assert
         assert report.overall_verdict == VisualScreenVerdict.FAIL
         assert report.screens[0].verdict == VisualScreenVerdict.FAIL
 
 
 class TestVisualValidatorRetryTransient:
-    """Tests for VisualValidator retry logic with transient failures."""
-
     @pytest.mark.asyncio
     async def test_retries_on_timeout_then_succeeds(self) -> None:
-        """Should retry transient failures and succeed if eventual pass."""
-        # Arrange
         config = _make_config(visual_max_retries=2)
         validator = VisualValidator(config)
         call_count = 0
@@ -663,28 +512,22 @@ class TestVisualValidatorRetryTransient:
                 raise TimeoutError("timed out")
             return VisualScreenResult(screen_name=name, diff_ratio=0.01)
 
-        # Act
         report = await validator.validate_screens(["page"], check_fn)
 
-        # Assert
         assert report.overall_verdict == VisualScreenVerdict.PASS
         assert report.total_retries == 1
         assert report.screens[0].retries_used == 1
 
     @pytest.mark.asyncio
     async def test_retries_exhausted_returns_fail(self) -> None:
-        """Should return FAIL when all retries are exhausted."""
-        # Arrange
         config = _make_config(visual_max_retries=2)
         validator = VisualValidator(config)
 
         async def check_fn(name: str) -> VisualScreenResult:
             raise ConnectionError("service down")
 
-        # Act
         report = await validator.validate_screens(["page"], check_fn)
 
-        # Assert
         assert report.overall_verdict == VisualScreenVerdict.FAIL
         assert report.total_retries == 2
         assert report.screens[0].retries_used == 2
@@ -693,8 +536,6 @@ class TestVisualValidatorRetryTransient:
 
     @pytest.mark.asyncio
     async def test_no_retry_for_visual_diff(self) -> None:
-        """Should NOT retry genuine visual diffs."""
-        # Arrange
         config = _make_config(visual_max_retries=3)
         validator = VisualValidator(config)
         call_count = 0
@@ -709,18 +550,14 @@ class TestVisualValidatorRetryTransient:
                 failure_class=VisualFailureClass.VISUAL_DIFF,
             )
 
-        # Act
         report = await validator.validate_screens(["page"], check_fn)
 
-        # Assert
         assert call_count == 1  # No retries
         assert report.total_retries == 0
         assert report.visual_diffs == 1
 
     @pytest.mark.asyncio
     async def test_zero_max_retries_no_retry(self) -> None:
-        """Should not retry when max_retries is 0."""
-        # Arrange
         config = _make_config(visual_max_retries=0)
         validator = VisualValidator(config)
         call_count = 0
@@ -730,18 +567,14 @@ class TestVisualValidatorRetryTransient:
             call_count += 1
             raise TimeoutError("timed out")
 
-        # Act
         report = await validator.validate_screens(["page"], check_fn)
 
-        # Assert
         assert call_count == 1
         assert report.total_retries == 0
         assert report.screens[0].failure_class == VisualFailureClass.TIMEOUT
 
     @pytest.mark.asyncio
     async def test_retry_with_capture_error(self) -> None:
-        """Should retry CAPTURE_ERROR as transient."""
-        # Arrange
         config = _make_config(visual_max_retries=1)
         validator = VisualValidator(config)
         call_count = 0
@@ -753,22 +586,16 @@ class TestVisualValidatorRetryTransient:
                 raise RuntimeError("screenshot capture failed")
             return VisualScreenResult(screen_name=name, diff_ratio=0.0)
 
-        # Act
         report = await validator.validate_screens(["page"], check_fn)
 
-        # Assert
         assert call_count == 2
         assert report.overall_verdict == VisualScreenVerdict.PASS
         assert report.total_retries == 1
 
 
 class TestVisualValidatorMultipleScreens:
-    """Tests for VisualValidator with multiple screens."""
-
     @pytest.mark.asyncio
     async def test_mixed_verdicts_worst_case_wins(self) -> None:
-        """Should use worst-case verdict across all screens."""
-        # Arrange
         config = _make_config()
         validator = VisualValidator(config)
         ratios = {"pass_screen": 0.01, "warn_screen": 0.08, "fail_screen": 0.20}
@@ -776,10 +603,8 @@ class TestVisualValidatorMultipleScreens:
         async def check_fn(name: str) -> VisualScreenResult:
             return VisualScreenResult(screen_name=name, diff_ratio=ratios[name])
 
-        # Act
         report = await validator.validate_screens(list(ratios.keys()), check_fn)
 
-        # Assert
         assert report.overall_verdict == VisualScreenVerdict.FAIL
         verdicts = {s.screen_name: s.verdict for s in report.screens}
         assert verdicts["pass_screen"] == VisualScreenVerdict.PASS
@@ -788,8 +613,6 @@ class TestVisualValidatorMultipleScreens:
 
     @pytest.mark.asyncio
     async def test_infra_failure_counted_separately(self) -> None:
-        """Should count infra failures separately from visual diffs."""
-        # Arrange
         config = _make_config(visual_max_retries=0)
         validator = VisualValidator(config)
 
@@ -803,21 +626,15 @@ class TestVisualValidatorMultipleScreens:
                 failure_class=VisualFailureClass.VISUAL_DIFF,
             )
 
-        # Act
         report = await validator.validate_screens(["infra", "visual"], check_fn)
 
-        # Assert
         assert report.infra_failures == 1
         assert report.visual_diffs == 1
 
 
 class TestVisualValidatorReturnedResult:
-    """Tests for VisualValidator when check_fn returns a result with failure_class already set."""
-
     @pytest.mark.asyncio
     async def test_returned_infra_failure_triggers_retry(self) -> None:
-        """Should retry when check_fn returns a result with transient failure_class."""
-        # Arrange
         config = _make_config(visual_max_retries=1)
         validator = VisualValidator(config)
         call_count = 0
@@ -834,10 +651,8 @@ class TestVisualValidatorReturnedResult:
                 )
             return VisualScreenResult(screen_name=name, diff_ratio=0.02)
 
-        # Act
         report = await validator.validate_screens(["page"], check_fn)
 
-        # Assert
         assert call_count == 2
         assert report.overall_verdict == VisualScreenVerdict.PASS
         assert report.total_retries == 1
@@ -849,14 +664,9 @@ class TestVisualValidatorReturnedResult:
 
 
 class TestVisualFailureClassEnum:
-    """Tests for VisualFailureClass enum members."""
-
     def test_all_members_present(self) -> None:
-        """Should have all expected members."""
-        # Arrange / Act
         members = set(VisualFailureClass)
 
-        # Assert
         assert VisualFailureClass.INFRA_FAILURE in members
         assert VisualFailureClass.VISUAL_DIFF in members
         assert VisualFailureClass.TIMEOUT in members
@@ -864,7 +674,6 @@ class TestVisualFailureClassEnum:
         assert len(members) == 4
 
     def test_string_values(self) -> None:
-        """Should have snake_case string values."""
         assert VisualFailureClass.INFRA_FAILURE.value == "infra_failure"
         assert VisualFailureClass.VISUAL_DIFF.value == "visual_diff"
         assert VisualFailureClass.TIMEOUT.value == "timeout"
@@ -877,10 +686,7 @@ class TestVisualFailureClassEnum:
 
 
 class TestVisualScreenVerdictEnum:
-    """Tests for VisualScreenVerdict enum members."""
-
     def test_all_members_present(self) -> None:
-        """Should have PASS, WARN, FAIL."""
         members = set(VisualScreenVerdict)
         assert len(members) == 3
         assert VisualScreenVerdict.PASS in members

@@ -32,47 +32,33 @@ from tests.conftest import (
 
 
 class TestGitHubIssue:
-    """Tests for the GitHubIssue model."""
-
     def test_minimal_instantiation(self) -> None:
-        """Should create an issue with only required fields."""
-        # Arrange / Act
         issue = GitHubIssue(number=1, title="Fix the bug")
 
-        # Assert
         assert issue.number == 1
         assert issue.title == "Fix the bug"
 
     def test_body_defaults_to_empty_string(self) -> None:
-        # Arrange / Act
         issue = GitHubIssue(number=1, title="t")
 
-        # Assert
         assert issue.body == ""
 
     def test_labels_defaults_to_empty_list(self) -> None:
-        # Arrange / Act
         issue = GitHubIssue(number=1, title="t")
 
-        # Assert
         assert issue.labels == []
 
     def test_comments_defaults_to_empty_list(self) -> None:
-        # Arrange / Act
         issue = GitHubIssue(number=1, title="t")
 
-        # Assert
         assert issue.comments == []
 
     def test_url_defaults_to_empty_string(self) -> None:
-        # Arrange / Act
         issue = GitHubIssue(number=1, title="t")
 
-        # Assert
         assert issue.url == ""
 
     def test_all_fields_set(self) -> None:
-        # Arrange / Act
         issue = IssueFactory.create(
             number=42,
             title="Improve widget",
@@ -82,7 +68,6 @@ class TestGitHubIssue:
             url="https://github.com/org/repo/issues/42",
         )
 
-        # Assert
         assert issue.number == 42
         assert issue.title == "Improve widget"
         assert issue.body == "The widget is slow."
@@ -92,26 +77,20 @@ class TestGitHubIssue:
 
     def test_labels_are_independent_between_instances(self) -> None:
         """Default mutable lists should not be shared between instances."""
-        # Arrange
         issue_a = GitHubIssue(number=1, title="a")
         issue_b = GitHubIssue(number=2, title="b")
 
-        # Act
         issue_a.labels.append("ready")
 
-        # Assert
         assert issue_b.labels == []
 
     def test_serialization_with_model_dump(self) -> None:
-        # Arrange
         issue = IssueFactory.create(
             number=5, title="Serialise me", body="body text", labels=[], comments=[]
         )
 
-        # Act
         data = issue.model_dump()
 
-        # Assert
         assert data["number"] == 5
         assert data["title"] == "Serialise me"
         assert data["body"] == "body text"
@@ -122,47 +101,38 @@ class TestGitHubIssue:
 
     def test_labels_from_string_list(self) -> None:
         """Plain string lists (the canonical format after upstream normalization)."""
-        # Arrange / Act
         issue = IssueFactory.create(number=1, title="t", labels=["bug", "ready"])
 
-        # Assert
         assert issue.labels == ["bug", "ready"]
 
     def test_labels_coerced_to_strings(self) -> None:
         """Non-string iterables are coerced via str() by the validator."""
-        # Arrange / Act
         issue = GitHubIssue.model_validate(
             {"number": 1, "title": "t", "labels": ["bug", "enhancement"]}
         )
 
-        # Assert
         assert issue.labels == ["bug", "enhancement"]
 
     # -- Comment field validator -----------------------------------------------
 
     def test_comments_from_string_list(self) -> None:
         """Plain string lists (the canonical format after upstream normalization)."""
-        # Arrange / Act
         issue = IssueFactory.create(number=1, title="t", comments=["LGTM", "Ship it"])
 
-        # Assert
         assert issue.comments == ["LGTM", "Ship it"]
 
     def test_comments_coerced_to_strings(self) -> None:
         """Non-string values are coerced via str() by the validator."""
-        # Arrange / Act
         issue = GitHubIssue.model_validate(
             {"number": 1, "title": "t", "comments": ["LGTM", "plain"]}
         )
 
-        # Assert
         assert issue.comments == ["LGTM", "plain"]
 
     # -- Full round-trip -------------------------------------------------------
 
     def test_model_validate_full_normalized_json(self) -> None:
         """Full round-trip with pre-normalized data (strings, not dicts)."""
-        # Arrange
         raw = {
             "number": 42,
             "title": "Improve widget",
@@ -172,10 +142,8 @@ class TestGitHubIssue:
             "url": "https://github.com/org/repo/issues/42",
         }
 
-        # Act
         issue = GitHubIssue.model_validate(raw)
 
-        # Assert
         assert issue.number == 42
         assert issue.title == "Improve widget"
         assert issue.body == "The widget is slow."
@@ -222,8 +190,6 @@ class TestGitHubIssue:
 
 
 class TestTask:
-    """Tests for the Task model and GitHubIssue conversion helpers."""
-
     def test_task_requires_id_and_title(self) -> None:
         """Task constructor should store the required id and title fields."""
         task = Task(id=1, title="Fix it")
@@ -286,8 +252,6 @@ class TestTask:
 
 
 class TestPlannerStatus:
-    """Tests for the PlannerStatus enum."""
-
     @pytest.mark.parametrize(
         "member, expected_value",
         [
@@ -319,8 +283,6 @@ class TestPlannerStatus:
 
 
 class TestNewIssueSpec:
-    """Tests for the NewIssueSpec model."""
-
     def test_minimal_instantiation(self) -> None:
         spec = NewIssueSpec(title="Fix bug")
         assert spec.title == "Fix bug"
@@ -345,8 +307,6 @@ class TestNewIssueSpec:
 
 
 class TestPlanResult:
-    """Tests for the PlanResult model."""
-
     @staticmethod
     def _create(**overrides):
         overrides.setdefault("issue_number", 1)
@@ -454,8 +414,6 @@ class TestPlanResult:
 
 
 class TestWorkerStatus:
-    """Tests for the WorkerStatus enum."""
-
     @pytest.mark.parametrize(
         "member, expected_value",
         [
@@ -475,18 +433,14 @@ class TestWorkerStatus:
         assert member.value == expected_value
 
     def test_enum_is_string_subclass(self) -> None:
-        # Assert
         assert isinstance(WorkerStatus.DONE, str)
 
     def test_all_ten_members_present(self) -> None:
-        # Assert
         assert len(WorkerStatus) == 10
 
     def test_lookup_by_value(self) -> None:
-        # Act
         status = WorkerStatus("running")
 
-        # Assert
         assert status is WorkerStatus.RUNNING
 
 
@@ -496,16 +450,11 @@ class TestWorkerStatus:
 
 
 class TestWorkerResult:
-    """Tests for the WorkerResult model."""
-
     def test_minimal_instantiation(self) -> None:
-        """Should create a result with only required fields."""
-        # Arrange / Act
         result = WorkerResultFactory.create(
             use_defaults=True, issue_number=10, branch="agent/issue-10"
         )
 
-        # Assert
         assert result.issue_number == 10
         assert result.branch == "agent/issue-10"
 
@@ -550,7 +499,6 @@ class TestWorkerResult:
         assert result.pr_info.number == 101
 
     def test_all_fields_set(self) -> None:
-        # Arrange / Act
         result = WorkerResultFactory.create(
             issue_number=7,
             branch="agent/issue-7",
@@ -562,7 +510,6 @@ class TestWorkerResult:
             duration_seconds=45.3,
         )
 
-        # Assert
         assert result.issue_number == 7
         assert result.branch == "agent/issue-7"
         assert result.workspace_path == "/tmp/wt/issue-7"
@@ -573,7 +520,6 @@ class TestWorkerResult:
         assert result.duration_seconds == pytest.approx(45.3)
 
     def test_failed_result_stores_error_message(self) -> None:
-        # Arrange / Act
         result = WorkerResultFactory.create(
             issue_number=99,
             branch="agent/issue-99",
@@ -581,20 +527,16 @@ class TestWorkerResult:
             error="TimeoutError: agent exceeded budget",
         )
 
-        # Assert
         assert result.success is False
         assert result.error == "TimeoutError: agent exceeded budget"
 
     def test_serialization_with_model_dump(self) -> None:
-        # Arrange
         result = WorkerResultFactory.create(
             issue_number=3, branch="agent/issue-3", commits=1, success=True
         )
 
-        # Act
         data = result.model_dump()
 
-        # Assert
         assert data["issue_number"] == 3
         assert data["branch"] == "agent/issue-3"
         assert data["commits"] == 1
@@ -607,13 +549,9 @@ class TestWorkerResult:
 
 
 class TestPRInfo:
-    """Tests for the PRInfo model."""
-
     def test_minimal_instantiation(self) -> None:
-        # Arrange / Act
         pr = PRInfoFactory.create(number=101, issue_number=42, branch="agent/issue-42")
 
-        # Assert
         assert pr.number == 101
         assert pr.issue_number == 42
         assert pr.branch == "agent/issue-42"
@@ -631,7 +569,6 @@ class TestPRInfo:
         assert pr.draft is False
 
     def test_all_fields_set(self) -> None:
-        # Arrange / Act
         pr = PRInfoFactory.create(
             number=200,
             issue_number=55,
@@ -640,7 +577,6 @@ class TestPRInfo:
             draft=True,
         )
 
-        # Assert
         assert pr.number == 200
         assert pr.issue_number == 55
         assert pr.branch == "agent/issue-55"
@@ -648,7 +584,6 @@ class TestPRInfo:
         assert pr.draft is True
 
     def test_serialization_with_model_dump(self) -> None:
-        # Arrange
         pr = PRInfoFactory.create(
             number=5,
             issue_number=3,
@@ -656,10 +591,8 @@ class TestPRInfo:
             url="https://example.com/pr/5",
         )
 
-        # Act
         data = pr.model_dump()
 
-        # Assert
         assert data["number"] == 5
         assert data["issue_number"] == 3
         assert data["branch"] == "agent/issue-3"
@@ -673,8 +606,6 @@ class TestPRInfo:
 
 
 class TestReviewerStatus:
-    """Tests for the ReviewerStatus enum."""
-
     @pytest.mark.parametrize(
         "member, expected_value",
         [
@@ -707,8 +638,6 @@ class TestReviewerStatus:
 
 
 class TestReviewVerdict:
-    """Tests for the ReviewVerdict enum."""
-
     @pytest.mark.parametrize(
         "member, expected_value",
         [
@@ -718,7 +647,6 @@ class TestReviewVerdict:
         ],
     )
     def test_enum_values(self, member: ReviewVerdict, expected_value: str) -> None:
-        # Assert
         assert member.value == expected_value
 
     def test_enum_is_string_subclass(self) -> None:
@@ -742,13 +670,9 @@ class TestReviewVerdict:
 
 
 class TestReviewResult:
-    """Tests for the ReviewResult model."""
-
     def test_minimal_instantiation(self) -> None:
-        # Arrange / Act
         review = ReviewResult(pr_number=10, issue_number=5)
 
-        # Assert
         assert review.pr_number == 10
         assert review.issue_number == 5
 
@@ -777,7 +701,6 @@ class TestReviewResult:
         assert review.transcript == ""
 
     def test_all_fields_set(self) -> None:
-        # Arrange / Act
         review = ReviewResultFactory.create(
             pr_number=77,
             issue_number=33,
@@ -788,7 +711,6 @@ class TestReviewResult:
             duration_seconds=12.3,
         )
 
-        # Assert
         assert review.pr_number == 77
         assert review.issue_number == 33
         assert review.verdict is ReviewVerdict.APPROVE
@@ -839,15 +761,12 @@ class TestReviewResult:
         assert review.verdict is ReviewVerdict.REQUEST_CHANGES
 
     def test_serialization_with_model_dump(self) -> None:
-        # Arrange
         review = ReviewResultFactory.create(
             pr_number=8, issue_number=4, verdict=ReviewVerdict.APPROVE, summary="LGTM"
         )
 
-        # Act
         data = review.model_dump()
 
-        # Assert
         assert data["pr_number"] == 8
         assert data["issue_number"] == 4
         assert data["verdict"] == ReviewVerdict.APPROVE
@@ -861,8 +780,6 @@ class TestReviewResult:
 
 
 class TestPhase:
-    """Tests for the Phase enum."""
-
     @pytest.mark.parametrize(
         "member, expected_value",
         [
@@ -875,7 +792,6 @@ class TestPhase:
         ],
     )
     def test_enum_values(self, member: Phase, expected_value: str) -> None:
-        # Assert
         assert member.value == expected_value
 
     def test_enum_is_string_subclass(self) -> None:
@@ -917,8 +833,6 @@ class TestPhase:
 
 
 class TestPRListItem:
-    """Tests for the PRListItem response model."""
-
     def test_minimal_instantiation(self) -> None:
         """Only pr is required."""
         item = PRListItem(pr=42)
@@ -977,8 +891,6 @@ class TestPRListItem:
 
 
 class TestHITLItem:
-    """Tests for the HITLItem response model."""
-
     def test_minimal_instantiation(self) -> None:
         """Only issue is required."""
         item = HITLItem(issue=42)

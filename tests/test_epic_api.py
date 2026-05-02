@@ -35,8 +35,6 @@ class TestEpicEventTypes:
 
 
 class TestEpicReadinessModel:
-    """Tests for the EpicReadiness model."""
-
     def test_epic_readiness_has_expected_defaults(self) -> None:
         readiness = EpicReadiness()
         assert readiness.all_implemented is False
@@ -66,8 +64,6 @@ class TestEpicReadinessModel:
 
 
 class TestEpicChildInfoEnriched:
-    """Tests for the enriched EpicChildInfo fields."""
-
     def test_new_fields_have_defaults(self) -> None:
         child = EpicChildInfo(issue_number=42)
         assert child.pr_number is None
@@ -124,8 +120,6 @@ class TestEpicChildInfoEnriched:
 
 
 class TestEpicDetailEnriched:
-    """Tests for the enriched EpicDetail model."""
-
     def test_new_fields_have_defaults(self) -> None:
         detail = EpicDetail(epic_number=100)
         assert detail.merged_children == 0
@@ -190,8 +184,6 @@ class TestEpicDetailEnriched:
 
 
 class TestEpicProgressEnriched:
-    """Tests for the enriched EpicProgress model."""
-
     def test_merge_strategy_default(self) -> None:
         progress = EpicProgress(epic_number=100)
         assert progress.merge_strategy == MergeStrategy.INDEPENDENT
@@ -265,8 +257,6 @@ class TestWebSocketForwarding:
 
 
 class TestStageFromLabels:
-    """Tests for the _stage_from_labels helper."""
-
     def test_review_label(self, config) -> None:
         from epic import _stage_from_labels
 
@@ -304,8 +294,6 @@ class TestStageFromLabels:
 
 
 class TestEpicEndpoints:
-    """Tests for epic API endpoint handlers."""
-
     @pytest.mark.asyncio
     async def test_get_epics_returns_empty_when_no_orchestrator(
         self, config, event_bus, state, tmp_path
@@ -470,8 +458,6 @@ class TestEpicEndpoints:
 
 
 class TestMergeableEnrichment:
-    """Tests for mergeable field population in _enrich_pr_status."""
-
     @pytest.mark.asyncio
     async def test_mergeable_set_true(self) -> None:
         """_enrich_pr_status populates mergeable=True from PRManager."""

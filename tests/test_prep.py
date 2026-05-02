@@ -88,8 +88,6 @@ def _make_label_side_effect(
 
 
 class TestPrepResultSummary:
-    """Tests for PrepResult.summary() formatting."""
-
     def test_all_created(self) -> None:
         result = PrepResult(created=["a", "b", "c"], existed=[], failed=[])
         assert result.summary() == "Created 3 labels, 0 already existed"
@@ -125,8 +123,6 @@ class TestPrepResultSummary:
 
 
 class TestListExistingLabels:
-    """Tests for _list_existing_labels()."""
-
     @pytest.mark.asyncio
     async def test_parses_json(self) -> None:
         config = ConfigFactory.create()
@@ -167,8 +163,6 @@ class TestListExistingLabels:
 
 
 class TestEnsureLabels:
-    """Tests for ensure_labels()."""
-
     @pytest.mark.asyncio
     async def test_creates_all_labels(self) -> None:
         """When no labels exist, all are created."""
@@ -304,10 +298,7 @@ class TestEnsureLabels:
 
 
 class TestAuditResult:
-    """Tests for the AuditResult model and its format_report method."""
-
     def test_missing_checks_returns_missing_and_partial(self) -> None:
-        """Should include both MISSING and PARTIAL checks."""
         result = AuditResultFactory.create(
             checks=[
                 AuditCheckFactory.create(name="A", status="present"),
@@ -319,7 +310,6 @@ class TestAuditResult:
         assert names == ["B", "C"]
 
     def test_missing_checks_empty_when_all_present(self) -> None:
-        """Should return empty list when all checks pass."""
         result = AuditResultFactory.create(
             checks=[
                 AuditCheckFactory.create(name="A", status="present"),
@@ -329,7 +319,6 @@ class TestAuditResult:
         assert result.missing_checks == []
 
     def test_has_critical_gaps_true(self) -> None:
-        """Should return True when a critical check is MISSING."""
         result = AuditResultFactory.create(
             checks=[
                 AuditCheckFactory.create(name="CI", status="missing", critical=True),
@@ -339,7 +328,6 @@ class TestAuditResult:
         assert result.has_critical_gaps is True
 
     def test_has_critical_gaps_false_when_critical_present(self) -> None:
-        """Should return False when all critical checks pass."""
         result = AuditResultFactory.create(
             checks=[
                 AuditCheckFactory.create(name="CI", status="present", critical=True),
@@ -349,7 +337,6 @@ class TestAuditResult:
         assert result.has_critical_gaps is False
 
     def test_has_critical_gaps_false_when_critical_partial(self) -> None:
-        """Should return False when critical check is PARTIAL (not MISSING)."""
         result = AuditResultFactory.create(
             checks=[
                 AuditCheckFactory.create(
@@ -360,7 +347,6 @@ class TestAuditResult:
         assert result.has_critical_gaps is False
 
     def test_format_report_all_passing(self) -> None:
-        """Should show checkmarks and 'No gaps found' message."""
         result = AuditResultFactory.create(
             repo="owner/repo",
             checks=[
@@ -378,7 +364,6 @@ class TestAuditResult:
         assert "No gaps found" in report
 
     def test_format_report_with_gaps(self) -> None:
-        """Should show X markers and missing count."""
         result = AuditResultFactory.create(
             repo="owner/repo",
             checks=[
@@ -401,10 +386,7 @@ class TestAuditResult:
 
 
 class TestCheckLanguage:
-    """Tests for RepoAuditor._check_language."""
-
     def test_python_repo_with_pyproject_toml(self, tmp_path: Path) -> None:
-        """Should detect Python with version from pyproject.toml."""
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nrequires-python = ">=3.11"\n'
         )
@@ -418,7 +400,6 @@ class TestCheckLanguage:
         assert "3.11" in check.detail
 
     def test_python_with_setup_py(self, tmp_path: Path) -> None:
-        """Should detect Python via setup.py fallback."""
         (tmp_path / "setup.py").write_text("from setuptools import setup\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -429,7 +410,6 @@ class TestCheckLanguage:
         assert "Python" in check.detail
 
     def test_python_with_requirements_txt(self, tmp_path: Path) -> None:
-        """Should detect Python via requirements.txt fallback."""
         (tmp_path / "requirements.txt").write_text("requests\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -440,7 +420,6 @@ class TestCheckLanguage:
         assert "Python" in check.detail
 
     def test_js_repo_with_package_json(self, tmp_path: Path) -> None:
-        """Should detect JS/TS via package.json."""
         (tmp_path / "package.json").write_text('{"name": "test"}\n')
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -451,7 +430,6 @@ class TestCheckLanguage:
         assert "JS/TS" in check.detail
 
     def test_mixed_repo(self, tmp_path: Path) -> None:
-        """Should detect both Python and JS/TS."""
         (tmp_path / "pyproject.toml").write_text("[project]\n")
         (tmp_path / "package.json").write_text('{"name": "test"}\n')
         config = ConfigFactory.create(repo_root=tmp_path)
@@ -464,7 +442,6 @@ class TestCheckLanguage:
         assert "JS/TS" in check.detail
 
     def test_no_language_markers(self, tmp_path: Path) -> None:
-        """Should report MISSING when no language markers found."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
 
@@ -479,10 +456,7 @@ class TestCheckLanguage:
 
 
 class TestCheckMakefile:
-    """Tests for RepoAuditor._check_makefile."""
-
     def test_makefile_with_all_targets(self, tmp_path: Path) -> None:
-        """Should report PRESENT when all required targets exist."""
         (tmp_path / "Makefile").write_text(
             "lint:\n\t@echo lint\n\n"
             "lint-check:\n\t@echo lint-check\n\n"
@@ -503,7 +477,6 @@ class TestCheckMakefile:
         assert check.critical is True
 
     def test_makefile_missing_quality_target(self, tmp_path: Path) -> None:
-        """Should report PARTIAL when some targets are missing."""
         (tmp_path / "Makefile").write_text(
             "lint:\n\t@echo lint\n\ntest:\n\t@echo test\n"
         )
@@ -516,7 +489,6 @@ class TestCheckMakefile:
         assert "quality" in check.detail
 
     def test_no_makefile(self, tmp_path: Path) -> None:
-        """Should report MISSING when no Makefile exists."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
 
@@ -525,7 +497,6 @@ class TestCheckMakefile:
         assert check.status == AuditCheckStatus.MISSING
 
     def test_makefile_with_dependencies_on_targets(self, tmp_path: Path) -> None:
-        """Should detect targets that have dependencies."""
         (tmp_path / "Makefile").write_text(
             "lint:\n\t@echo lint\n\n"
             "lint-check:\n\t@echo lint-check\n\n"
@@ -551,10 +522,7 @@ class TestCheckMakefile:
 
 
 class TestCheckCI:
-    """Tests for RepoAuditor._check_ci."""
-
     def test_workflow_with_push_trigger(self, tmp_path: Path) -> None:
-        """Should report PRESENT when a workflow triggers on push."""
         wf_dir = tmp_path / ".github" / "workflows"
         wf_dir.mkdir(parents=True)
         (wf_dir / "ci.yml").write_text("on:\n  push:\n    branches: [main]\n")
@@ -567,7 +535,6 @@ class TestCheckCI:
         assert check.critical is True
 
     def test_workflow_with_pull_request_trigger(self, tmp_path: Path) -> None:
-        """Should report PRESENT when a workflow triggers on pull_request."""
         wf_dir = tmp_path / ".github" / "workflows"
         wf_dir.mkdir(parents=True)
         (wf_dir / "ci.yaml").write_text("on:\n  pull_request:\n")
@@ -579,7 +546,6 @@ class TestCheckCI:
         assert check.status == AuditCheckStatus.PRESENT
 
     def test_workflow_without_push_trigger(self, tmp_path: Path) -> None:
-        """Should report PARTIAL when workflows exist but none trigger on push/PR."""
         wf_dir = tmp_path / ".github" / "workflows"
         wf_dir.mkdir(parents=True)
         (wf_dir / "release.yml").write_text("on:\n  workflow_dispatch:\n")
@@ -593,7 +559,6 @@ class TestCheckCI:
     def test_workflow_with_push_in_step_name_not_falsely_detected(
         self, tmp_path: Path
     ) -> None:
-        """Should not falsely detect 'push' appearing only in step names or run commands."""
         wf_dir = tmp_path / ".github" / "workflows"
         wf_dir.mkdir(parents=True)
         (wf_dir / "deploy.yml").write_text(
@@ -607,7 +572,6 @@ class TestCheckCI:
         assert check.status == AuditCheckStatus.PARTIAL
 
     def test_no_workflows_dir(self, tmp_path: Path) -> None:
-        """Should report MISSING when .github/workflows/ doesn't exist."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
 
@@ -616,7 +580,6 @@ class TestCheckCI:
         assert check.status == AuditCheckStatus.MISSING
 
     def test_workflow_dir_empty(self, tmp_path: Path) -> None:
-        """Should report MISSING when workflows dir is empty."""
         wf_dir = tmp_path / ".github" / "workflows"
         wf_dir.mkdir(parents=True)
         config = ConfigFactory.create(repo_root=tmp_path)
@@ -633,10 +596,7 @@ class TestCheckCI:
 
 
 class TestCheckGitHooks:
-    """Tests for RepoAuditor._check_git_hooks."""
-
     def test_githooks_dir_with_precommit(self, tmp_path: Path) -> None:
-        """Should report PRESENT when .githooks/pre-commit exists."""
         hooks_dir = tmp_path / ".githooks"
         hooks_dir.mkdir()
         (hooks_dir / "pre-commit").write_text("#!/bin/sh\n")
@@ -648,7 +608,6 @@ class TestCheckGitHooks:
         assert check.status == AuditCheckStatus.PRESENT
 
     def test_husky_dir_with_precommit(self, tmp_path: Path) -> None:
-        """Should report PRESENT when .husky/pre-commit exists."""
         hooks_dir = tmp_path / ".husky"
         hooks_dir.mkdir()
         (hooks_dir / "pre-commit").write_text("#!/bin/sh\n")
@@ -660,7 +619,6 @@ class TestCheckGitHooks:
         assert check.status == AuditCheckStatus.PRESENT
 
     def test_no_hooks_dir(self, tmp_path: Path) -> None:
-        """Should report MISSING when no hooks directories exist."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
 
@@ -669,7 +627,6 @@ class TestCheckGitHooks:
         assert check.status == AuditCheckStatus.MISSING
 
     def test_git_hooks_precommit_file(self, tmp_path: Path) -> None:
-        """Should report PRESENT when .git/hooks/pre-commit exists."""
         hooks_dir = tmp_path / ".git" / "hooks"
         hooks_dir.mkdir(parents=True)
         (hooks_dir / "pre-commit").write_text("#!/bin/sh\n")
@@ -688,10 +645,7 @@ class TestCheckGitHooks:
 
 
 class TestCheckLinting:
-    """Tests for RepoAuditor._check_linting."""
-
     def test_ruff_toml(self, tmp_path: Path) -> None:
-        """Should detect standalone ruff.toml."""
         (tmp_path / "ruff.toml").write_text("[lint]\nselect = ['E']\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -702,7 +656,6 @@ class TestCheckLinting:
         assert "ruff" in check.detail
 
     def test_ruff_in_pyproject_toml(self, tmp_path: Path) -> None:
-        """Should detect [tool.ruff] in pyproject.toml."""
         (tmp_path / "pyproject.toml").write_text("[tool.ruff]\nline-length = 100\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -713,7 +666,6 @@ class TestCheckLinting:
         assert "ruff" in check.detail
 
     def test_check_linting_detects_eslintrc_file(self, tmp_path: Path) -> None:
-        """Should detect .eslintrc.json."""
         (tmp_path / ".eslintrc.json").write_text("{}\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -724,7 +676,6 @@ class TestCheckLinting:
         assert "eslint" in check.detail
 
     def test_check_linting_detects_flat_eslint_config(self, tmp_path: Path) -> None:
-        """Should detect eslint.config.js."""
         (tmp_path / "eslint.config.js").write_text("export default [];\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -735,7 +686,6 @@ class TestCheckLinting:
         assert "eslint" in check.detail
 
     def test_biome_json(self, tmp_path: Path) -> None:
-        """Should detect biome.json."""
         (tmp_path / "biome.json").write_text("{}\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -746,7 +696,6 @@ class TestCheckLinting:
         assert "biome" in check.detail
 
     def test_check_linting_detects_make_lint_target(self, tmp_path: Path) -> None:
-        """Should detect Makefile lint target as linting capability."""
         (tmp_path / "Makefile").write_text("lint-check:\n\t@echo ok\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -759,7 +708,6 @@ class TestCheckLinting:
     def test_check_linting_detects_package_json_lint_script(
         self, tmp_path: Path
     ) -> None:
-        """Should detect package.json lint script as linting capability."""
         (tmp_path / "package.json").write_text(
             json.dumps({"scripts": {"lint": "eslint ."}})
         )
@@ -772,7 +720,6 @@ class TestCheckLinting:
         assert "npm lint script" in check.detail
 
     def test_no_linting_config(self, tmp_path: Path) -> None:
-        """Should report MISSING when no linting config found."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
 
@@ -783,7 +730,6 @@ class TestCheckLinting:
     def test_makefile_oserror_logs_debug(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Should log debug on OSError reading Makefile instead of silently passing."""
         makefile = tmp_path / "Makefile"
         makefile.write_text("lint:\n\t@echo ok\n")
         makefile.chmod(0o000)
@@ -807,10 +753,7 @@ class TestCheckLinting:
 
 
 class TestCheckTypeChecking:
-    """Tests for RepoAuditor._check_type_checking."""
-
     def test_pyrightconfig_json(self, tmp_path: Path) -> None:
-        """Should detect pyrightconfig.json."""
         (tmp_path / "pyrightconfig.json").write_text("{}\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -821,7 +764,6 @@ class TestCheckTypeChecking:
         assert "pyright" in check.detail
 
     def test_pyright_in_pyproject_toml(self, tmp_path: Path) -> None:
-        """Should detect [tool.pyright] in pyproject.toml."""
         (tmp_path / "pyproject.toml").write_text("[tool.pyright]\nvenvPath = '.'\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -832,7 +774,6 @@ class TestCheckTypeChecking:
         assert "pyright" in check.detail
 
     def test_tsconfig_json(self, tmp_path: Path) -> None:
-        """Should detect tsconfig.json."""
         (tmp_path / "tsconfig.json").write_text("{}\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -843,7 +784,6 @@ class TestCheckTypeChecking:
         assert "tsconfig" in check.detail
 
     def test_no_type_checking_config(self, tmp_path: Path) -> None:
-        """Should report MISSING when no type checking config found."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
 
@@ -858,10 +798,7 @@ class TestCheckTypeChecking:
 
 
 class TestCheckTestFramework:
-    """Tests for RepoAuditor._check_test_framework."""
-
     def test_pytest_with_tests_dir(self, tmp_path: Path) -> None:
-        """Should detect pytest with tests/ dir and count test files."""
         tests_dir = tmp_path / "tests"
         tests_dir.mkdir()
         (tests_dir / "test_foo.py").write_text("def test_x(): pass\n")
@@ -877,7 +814,6 @@ class TestCheckTestFramework:
         assert "2" in check.detail  # 2 test files
 
     def test_jest_with_tests_dir(self, tmp_path: Path) -> None:
-        """Should detect jest-style __tests__/ directory."""
         tests_dir = tmp_path / "__tests__"
         tests_dir.mkdir()
         (tests_dir / "foo.test.js").write_text("test('x', () => {})\n")
@@ -889,7 +825,6 @@ class TestCheckTestFramework:
         assert check.status == AuditCheckStatus.PRESENT
 
     def test_vitest_config(self, tmp_path: Path) -> None:
-        """Should detect vitest.config.ts."""
         (tmp_path / "vitest.config.ts").write_text("export default {}\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -900,7 +835,6 @@ class TestCheckTestFramework:
         assert "vitest" in check.detail
 
     def test_jest_config_file(self, tmp_path: Path) -> None:
-        """Should detect jest from jest.config.ts without requiring __tests__/ dir."""
         (tmp_path / "jest.config.ts").write_text("export default {}\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -911,7 +845,6 @@ class TestCheckTestFramework:
         assert "jest" in check.detail
 
     def test_no_test_framework(self, tmp_path: Path) -> None:
-        """Should report MISSING when no test framework detected."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
 
@@ -926,8 +859,6 @@ class TestCheckTestFramework:
 
 
 class TestCheckCoveragePolicy:
-    """Tests for RepoAuditor._check_coverage_policy."""
-
     def test_missing_threshold_reports_partial(self, tmp_path: Path) -> None:
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -974,7 +905,6 @@ class TestCheckCoveragePolicy:
     def test_coveragerc_oserror_logs_debug(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Should log debug on OSError reading .coveragerc instead of silently passing."""
         coveragerc = tmp_path / ".coveragerc"
         coveragerc.write_text("[report]\nfail_under = 80\n")
         coveragerc.chmod(0o000)
@@ -1001,10 +931,7 @@ class TestCheckCoveragePolicy:
 
 
 class TestCheckPackageManager:
-    """Tests for RepoAuditor._check_package_manager."""
-
     def test_uv_lock(self, tmp_path: Path) -> None:
-        """Should detect uv.lock."""
         (tmp_path / "uv.lock").write_text("[[package]]\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -1015,7 +942,6 @@ class TestCheckPackageManager:
         assert "uv" in check.detail
 
     def test_pnpm_lock(self, tmp_path: Path) -> None:
-        """Should detect pnpm-lock.yaml."""
         (tmp_path / "pnpm-lock.yaml").write_text("lockfileVersion: 6\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -1026,7 +952,6 @@ class TestCheckPackageManager:
         assert "pnpm" in check.detail
 
     def test_package_lock_json(self, tmp_path: Path) -> None:
-        """Should detect package-lock.json."""
         (tmp_path / "package-lock.json").write_text("{}\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -1037,7 +962,6 @@ class TestCheckPackageManager:
         assert "npm" in check.detail
 
     def test_yarn_lock(self, tmp_path: Path) -> None:
-        """Should detect yarn.lock."""
         (tmp_path / "yarn.lock").write_text("# yarn lockfile v1\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -1048,7 +972,6 @@ class TestCheckPackageManager:
         assert "yarn" in check.detail
 
     def test_poetry_lock(self, tmp_path: Path) -> None:
-        """Should detect poetry.lock."""
         (tmp_path / "poetry.lock").write_text("[[package]]\n")
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
@@ -1059,7 +982,6 @@ class TestCheckPackageManager:
         assert "poetry" in check.detail
 
     def test_no_lock_file(self, tmp_path: Path) -> None:
-        """Should report MISSING when no lock file found."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
 
@@ -1074,11 +996,8 @@ class TestCheckPackageManager:
 
 
 class TestCheckGhCli:
-    """Tests for RepoAuditor._check_gh_cli."""
-
     @pytest.mark.asyncio
     async def test_authenticated_with_push_access(self, tmp_path: Path) -> None:
-        """Should report PRESENT when gh is authed with push access."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
 
@@ -1097,7 +1016,6 @@ class TestCheckGhCli:
 
     @pytest.mark.asyncio
     async def test_authenticated_with_admin_access(self, tmp_path: Path) -> None:
-        """Should report PRESENT for ADMIN permission."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
 
@@ -1114,7 +1032,6 @@ class TestCheckGhCli:
 
     @pytest.mark.asyncio
     async def test_not_authenticated(self, tmp_path: Path) -> None:
-        """Should report MISSING when gh auth fails."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
 
@@ -1129,7 +1046,6 @@ class TestCheckGhCli:
 
     @pytest.mark.asyncio
     async def test_read_only_access(self, tmp_path: Path) -> None:
-        """Should report PARTIAL when access is read-only."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
 
@@ -1147,7 +1063,6 @@ class TestCheckGhCli:
 
     @pytest.mark.asyncio
     async def test_gh_token_passed_to_subprocess(self, tmp_path: Path) -> None:
-        """Should pass gh_token to every run_subprocess call."""
         config = ConfigFactory.create(repo_root=tmp_path)
         creds = CredentialsFactory.create(gh_token="ghp_test123")
         from prep import RepoAuditor
@@ -1172,11 +1087,8 @@ class TestCheckGhCli:
 
 
 class TestCheckLabels:
-    """Tests for RepoAuditor._check_labels."""
-
     @pytest.mark.asyncio
     async def test_all_labels_present(self, tmp_path: Path) -> None:
-        """Should report PRESENT when all HydraFlow labels exist."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
 
@@ -1192,7 +1104,6 @@ class TestCheckLabels:
 
     @pytest.mark.asyncio
     async def test_partial_labels_returns_partial_status(self, tmp_path: Path) -> None:
-        """Should report PARTIAL when some labels are missing."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
 
@@ -1208,7 +1119,6 @@ class TestCheckLabels:
 
     @pytest.mark.asyncio
     async def test_no_labels_returns_missing_status(self, tmp_path: Path) -> None:
-        """Should report MISSING when no HydraFlow labels exist."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
 
@@ -1222,7 +1132,6 @@ class TestCheckLabels:
 
     @pytest.mark.asyncio
     async def test_label_check_handles_gh_error(self, tmp_path: Path) -> None:
-        """Should report MISSING when gh label list fails."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
 
@@ -1236,7 +1145,6 @@ class TestCheckLabels:
 
     @pytest.mark.asyncio
     async def test_gh_token_passed_to_subprocess(self, tmp_path: Path) -> None:
-        """Should pass gh_token to run_subprocess when listing labels."""
         config = ConfigFactory.create(repo_root=tmp_path)
         creds = CredentialsFactory.create(gh_token="ghp_label_tok")
         from prep import RepoAuditor
@@ -1258,11 +1166,8 @@ class TestCheckLabels:
 
 
 class TestRunAudit:
-    """Tests for the full audit workflow."""
-
     @pytest.mark.asyncio
     async def test_run_audit_produces_all_checks(self, tmp_path: Path) -> None:
-        """Should produce checks for all categories."""
         config = ConfigFactory.create(repo_root=tmp_path)
         from prep import RepoAuditor
 
@@ -1287,8 +1192,6 @@ class TestRunAudit:
 
 
 class TestContextSeed:
-    """Tests for seeding local manifest/memory assets during prep."""
-
     def test_seed_creates_metrics_cache(self, tmp_path: Path) -> None:
         state_file = tmp_path / ".hydraflow" / "state.json"
         config = ConfigFactory.create(repo_root=tmp_path, state_file=state_file)
@@ -1335,8 +1238,6 @@ class TestContextSeed:
 
 
 class TestCheckAgentsMd:
-    """Tests for RepoAuditor._check_agents_md."""
-
     def test_present_when_agents_md_exists(self, tmp_path: Path) -> None:
         """PRESENT when AGENTS.md is in the repo root."""
         (tmp_path / "AGENTS.md").write_text("# AGENTS\n")

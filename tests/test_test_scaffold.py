@@ -23,8 +23,6 @@ from tests.helpers import SMOKE_SUITE_SIZE
 
 
 class TestTestScaffoldResult:
-    """Tests for the TestScaffoldResult dataclass."""
-
     def test_scaffold_result_defaults_to_empty_fields(self) -> None:
         result = TestScaffoldResult()
 
@@ -67,8 +65,6 @@ class TestTestScaffoldResult:
 
 
 class TestHasPytestConfig:
-    """Tests for the private _has_pytest_config helper."""
-
     def test_logs_warning_when_pyproject_unreadable(
         self,
         tmp_path: Path,
@@ -99,8 +95,6 @@ class TestHasPytestConfig:
 
 
 class TestHasTestInfrastructure:
-    """Tests for has_test_infrastructure()."""
-
     # --- Python ---
 
     def test_python_has_tests_dir_and_pytest_config(self, tmp_path: Path) -> None:
@@ -245,8 +239,6 @@ class TestHasTestInfrastructure:
 
 
 class TestScaffoldPythonTests:
-    """Tests for _scaffold_python_tests()."""
-
     def test_creates_tests_directory(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
 
@@ -401,8 +393,6 @@ class TestScaffoldPythonTests:
 
 
 class TestScaffoldJsTests:
-    """Tests for _scaffold_js_tests()."""
-
     def test_creates_tests_directory(self, tmp_path: Path) -> None:
         (tmp_path / "package.json").write_text('{"name": "foo"}\n')
 
@@ -584,8 +574,6 @@ class TestScaffoldJsTests:
 
 
 class TestScaffoldTests:
-    """Tests for scaffold_tests() orchestrator."""
-
     def test_scaffolds_python_repo(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
 

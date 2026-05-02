@@ -21,8 +21,6 @@ from tests.helpers import ConfigFactory, make_conflict_resolver
 
 
 class TestMergeConflictResolver:
-    """Tests for the MergeConflictResolver class."""
-
     @pytest.mark.asyncio
     async def test_merge_with_main_clean_merge(self, config: HydraFlowConfig) -> None:
         """When merge_main succeeds, should push and return True."""
@@ -115,7 +113,6 @@ class TestMergeConflictResolver:
     async def test_resolve_runs_agent_on_conflicts(
         self, config: HydraFlowConfig
     ) -> None:
-        """Should run the agent and verify quality when there are conflicts."""
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(
@@ -160,8 +157,6 @@ class TestMergeConflictResolver:
 
 
 class TestSourceParameter:
-    """Tests for the source parameter in resolve_merge_conflicts and fresh_branch_rebuild."""
-
     @pytest.mark.asyncio
     async def test_save_transcript_uses_source_prefix(
         self, config: HydraFlowConfig
@@ -219,8 +214,6 @@ class TestSourceParameter:
 
 
 class TestWorkerIdNone:
-    """Tests for worker_id=None behavior (PRUnsticker delegation)."""
-
     @pytest.mark.asyncio
     async def test_resolve_with_worker_id_none_skips_status_publish(
         self, config: HydraFlowConfig
@@ -298,8 +291,6 @@ class TestWorkerIdNone:
 
 
 class TestSaveTranscriptOSError:
-    """Tests for OSError handling in _save_conflict_transcript."""
-
     def test_save_transcript_handles_oserror(
         self, config: HydraFlowConfig, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -328,8 +319,6 @@ class TestSaveTranscriptOSError:
 
 
 class TestFreshBranchRebuild:
-    """Tests for the fresh branch rebuild fallback."""
-
     @pytest.mark.asyncio
     async def test_fresh_rebuild_called_after_merge_exhaustion(
         self, tmp_path: Path

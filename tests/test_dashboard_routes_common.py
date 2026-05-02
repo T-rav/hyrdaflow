@@ -94,8 +94,6 @@ class TestSharedConstants:
 
 
 class TestParseIsoOrNone:
-    """Tests for _parse_iso_or_none."""
-
     def test_none_input(self) -> None:
         assert _parse_iso_or_none(None) is None
 
@@ -117,8 +115,6 @@ class TestParseIsoOrNone:
 
 
 class TestCoerceInt:
-    """Tests for _coerce_int."""
-
     def test_int_passthrough(self) -> None:
         assert _coerce_int(42) == 42
 
@@ -140,8 +136,6 @@ class TestCoerceInt:
 
 
 class TestCoerceHistoryStatus:
-    """Tests for _coerce_history_status."""
-
     def test_valid_status_lowered(self) -> None:
         assert _coerce_history_status("MERGED") == "merged"
 
@@ -153,8 +147,6 @@ class TestCoerceHistoryStatus:
 
 
 class TestStatusRank:
-    """Tests for _status_rank."""
-
     def test_merged_is_highest(self) -> None:
         assert _status_rank("merged") == 9
 
@@ -166,8 +158,6 @@ class TestStatusRank:
 
 
 class TestIsTimestampInRange:
-    """Tests for _is_timestamp_in_range."""
-
     def test_none_raw_with_no_bounds(self) -> None:
         assert _is_timestamp_in_range(None, None, None) is True
 
@@ -186,8 +176,6 @@ class TestIsTimestampInRange:
 
 
 class TestStatusSortKey:
-    """Tests for _status_sort_key."""
-
     def test_returns_tuple(self) -> None:
         result = _status_sort_key("merged", "2025-01-15T10:00:00+00:00")
         assert isinstance(result, tuple)
@@ -199,8 +187,6 @@ class TestStatusSortKey:
 
 
 class TestParseCompatJsonObject:
-    """Tests for _parse_compat_json_object."""
-
     def test_none_returns_none(self) -> None:
         assert _parse_compat_json_object(None) is None
 
@@ -218,8 +204,6 @@ class TestParseCompatJsonObject:
 
 
 class TestExtractFieldFromSources:
-    """Tests for _extract_field_from_sources."""
-
     def test_body_dict(self) -> None:
         result = _extract_field_from_sources(
             ("slug", "repo"),

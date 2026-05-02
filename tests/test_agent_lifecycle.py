@@ -29,8 +29,6 @@ def agent_task() -> Task:
 
 
 class TestRunSuccess:
-    """Tests for the happy path of AgentRunner.run."""
-
     @pytest.mark.asyncio
     async def test_run_success_returns_worker_result_with_success_true(
         self, config, event_bus: EventBus, agent_task, tmp_path: Path
@@ -95,8 +93,6 @@ class TestRunSuccess:
 
 
 class TestForceCommitUncommitted:
-    """Tests for the salvage-commit mechanism (always runs on host)."""
-
     @pytest.mark.asyncio
     async def test_force_commit_creates_commit_when_dirty(
         self, config, event_bus: EventBus, tmp_path: Path
@@ -309,8 +305,6 @@ class TestForceCommitE2E:
 
 
 class TestRunFailure:
-    """Tests for failure paths of AgentRunner.run."""
-
     @pytest.mark.asyncio
     async def test_run_failure_when_verify_returns_false_and_fix_loop_fails(
         self, config, event_bus: EventBus, agent_task, tmp_path: Path
@@ -383,8 +377,6 @@ class TestRunFailure:
 
 
 class TestPreQualityReviewLoop:
-    """Tests for AgentRunner pre-quality review/correction loop."""
-
     @pytest.mark.asyncio
     async def test_skips_when_no_commits(
         self, config, event_bus: EventBus, agent_task, tmp_path: Path
@@ -549,8 +541,6 @@ class TestPreQualityReviewLoop:
 
 
 class TestRunDryRun:
-    """Tests for dry-run behaviour of AgentRunner.run."""
-
     @pytest.mark.asyncio
     async def test_dry_run_returns_success_without_executing(
         self, dry_config, event_bus: EventBus, agent_task, tmp_path: Path
@@ -585,8 +575,6 @@ class TestRunDryRun:
 
 
 class TestClaudeMdIntegrityGuard:
-    """Tests for AgentRunner._snapshot_claude_md and _guard_claude_md."""
-
     def test_snapshot_returns_content_when_file_exists(self, tmp_path: Path) -> None:
         (tmp_path / "CLAUDE.md").write_text("# Project\nSome rules\n")
         assert AgentRunner._snapshot_claude_md(tmp_path) == "# Project\nSome rules\n"

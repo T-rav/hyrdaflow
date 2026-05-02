@@ -93,16 +93,12 @@ def _make_loop(
 
 
 class TestStaleIssueLoopInterval:
-    """Tests for interval configuration."""
-
     def test_default_interval_uses_config(self, tmp_path: Path) -> None:
         loop, *_ = _make_loop(tmp_path, interval=86400)
         assert loop._get_default_interval() == 86400
 
 
 class TestStaleIssueLoopDoWork:
-    """Tests for _do_work — the core stale issue scanning logic."""
-
     @pytest.mark.asyncio
     async def test_no_issues_returns_zeroes(self, tmp_path: Path) -> None:
         """When there are no open issues, all counters are zero."""

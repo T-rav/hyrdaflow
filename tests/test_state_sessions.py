@@ -243,8 +243,6 @@ class TestLoadSessionsDedupedOSError:
 
 
 class TestSaveSession:
-    """Tests for StateTracker.save_session."""
-
     def test_save_session_creates_file(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         session = SessionLog(
@@ -290,8 +288,6 @@ class TestSaveSession:
 
 
 class TestMemoryState:
-    """Tests for get_memory_state / update_memory_state."""
-
     def test_get_memory_state_defaults(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         issue_ids, digest_hash, last_synced = tracker.get_memory_state()
@@ -337,8 +333,6 @@ class TestMemoryState:
 
 
 class TestInterruptedIssues:
-    """Tests for get/set/clear_interrupted_issues."""
-
     def test_get_interrupted_issues_defaults_empty(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         assert tracker.get_interrupted_issues() == {}
@@ -386,8 +380,6 @@ class TestInterruptedIssues:
 
 
 class TestPendingReports:
-    """Tests for pending report queue operations."""
-
     def test_enqueue_appends_report(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         report = PendingReport(description="Bug A")

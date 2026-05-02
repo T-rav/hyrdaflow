@@ -17,8 +17,6 @@ from tests.helpers import ConfigFactory
 
 
 class TestParseDecomposition:
-    """Tests for TriageRunner._parse_decomposition."""
-
     def _parse(self, transcript: str) -> EpicDecompResult:
         from triage import TriageRunner
 
@@ -113,8 +111,6 @@ class TestBuildDecompositionPrompt:
 
 
 class TestMaybeDecompose:
-    """Tests for TriagePhase._maybe_decompose."""
-
     def _make_phase(self, config, *, epic_manager=None):
         import asyncio
 

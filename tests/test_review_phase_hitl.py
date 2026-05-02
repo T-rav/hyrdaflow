@@ -59,8 +59,6 @@ def _setup_conflict_scenario(phase: ReviewPhase) -> None:
 
 
 class TestHITLEscalationEvents:
-    """Tests that HITL escalation points emit HITL_ESCALATION events."""
-
     @pytest.mark.asyncio
     async def test_merge_conflict_escalation_emits_hitl_event(
         self, config: HydraFlowConfig, event_bus
@@ -248,8 +246,6 @@ class TestHITLEscalationEvents:
 
 
 class TestRequestChangesRetry:
-    """Tests for the REQUEST_CHANGES → retry → HITL escalation flow."""
-
     def _setup_phase_for_retry(
         self, config: HydraFlowConfig
     ) -> tuple[ReviewPhase, PRInfo, Task]:
@@ -441,8 +437,6 @@ class TestRequestChangesRetry:
 
 
 class TestAdversarialReview:
-    """Tests for the adversarial review re-check logic."""
-
     @pytest.mark.asyncio
     async def test_approve_with_enough_findings_is_accepted(
         self, config: HydraFlowConfig
@@ -656,7 +650,6 @@ class TestEscalateToHitl:
 
     @pytest.mark.asyncio
     async def test_sets_hitl_origin_and_cause(self, config: HydraFlowConfig) -> None:
-        """Should set HITL origin label and cause in state."""
         phase = make_review_phase(config)
         _setup_escalate_to_hitl_mocks(phase)
 
@@ -677,7 +670,6 @@ class TestEscalateToHitl:
     async def test_records_hitl_escalation_counter(
         self, config: HydraFlowConfig
     ) -> None:
-        """Should increment the HITL escalation counter."""
         phase = make_review_phase(config)
         _setup_escalate_to_hitl_mocks(phase)
 
@@ -696,7 +688,6 @@ class TestEscalateToHitl:
 
     @pytest.mark.asyncio
     async def test_swaps_labels_on_issue_and_pr(self, config: HydraFlowConfig) -> None:
-        """Should remove review labels and add diagnose labels."""
         phase = make_review_phase(config)
         _setup_escalate_to_hitl_mocks(phase)
 
@@ -761,7 +752,6 @@ class TestEscalateToHitl:
     async def test_publishes_hitl_escalation_event(
         self, config: HydraFlowConfig, event_bus
     ) -> None:
-        """Should publish an HITL_ESCALATION event."""
         phase = make_review_phase(config, event_bus=event_bus)
         _setup_escalate_to_hitl_mocks(phase)
 
@@ -861,14 +851,11 @@ def _mock_visual_phase(config: HydraFlowConfig, event_bus) -> ReviewPhase:
 
 
 class TestHandleVisualFailure:
-    """Tests for _handle_visual_failure HITL escalation for each failure class."""
-
     @pytest.mark.asyncio
     async def test_infra_only_failure_uses_infra_cause(
         self, config: HydraFlowConfig, event_bus
     ) -> None:
         """Infra-only failures should escalate with infrastructure-specific cause."""
-        # Arrange
         phase = _mock_visual_phase(config, event_bus)
 
         pr = PRInfoFactory.create()
@@ -890,10 +877,8 @@ class TestHandleVisualFailure:
             visual_diffs=0,
         )
 
-        # Act
         updated = await phase._handle_visual_failure(pr, task, result, report, 0)
 
-        # Assert
         assert updated.verdict == ReviewVerdict.REQUEST_CHANGES
         assert "infrastructure failure" in updated.summary.lower()
         assert "not a visual diff" in updated.summary.lower()
@@ -903,7 +888,6 @@ class TestHandleVisualFailure:
         self, config: HydraFlowConfig, event_bus
     ) -> None:
         """Visual diff failures should escalate with generic failure cause."""
-        # Arrange
         phase = _mock_visual_phase(config, event_bus)
 
         pr = PRInfoFactory.create()
@@ -922,10 +906,8 @@ class TestHandleVisualFailure:
             visual_diffs=1,
         )
 
-        # Act
         updated = await phase._handle_visual_failure(pr, task, result, report, 0)
 
-        # Assert
         assert updated.verdict == ReviewVerdict.REQUEST_CHANGES
         assert "detected failures" in updated.summary.lower()
 
@@ -934,7 +916,6 @@ class TestHandleVisualFailure:
         self, config: HydraFlowConfig, event_bus
     ) -> None:
         """Mixed infra + visual diff failures should use the generic cause."""
-        # Arrange
         phase = _mock_visual_phase(config, event_bus)
 
         pr = PRInfoFactory.create()
@@ -958,7 +939,6 @@ class TestHandleVisualFailure:
             visual_diffs=1,
         )
 
-        # Act
         updated = await phase._handle_visual_failure(pr, task, result, report, 0)
 
         # Assert — mixed = generic cause, not infra-only
@@ -970,8 +950,6 @@ class TestHandleVisualFailure:
     async def test_escalation_emits_hitl_event_with_visual_metadata(
         self, config: HydraFlowConfig, event_bus
     ) -> None:
-        """Should emit HITL_ESCALATION event with visual-specific metadata."""
-        # Arrange
         phase = _mock_visual_phase(config, event_bus)
 
         pr = PRInfoFactory.create()
@@ -991,10 +969,8 @@ class TestHandleVisualFailure:
             infra_failures=1,
         )
 
-        # Act
         await phase._handle_visual_failure(pr, task, result, report, 0)
 
-        # Assert
         escalation_events = [
             e for e in event_bus.get_history() if e.type == EventType.HITL_ESCALATION
         ]
@@ -1010,8 +986,6 @@ class TestHandleVisualFailure:
     async def test_escalation_posts_comment_with_report_summary(
         self, config: HydraFlowConfig, event_bus
     ) -> None:
-        """Should post a PR comment containing the visual validation report."""
-        # Arrange
         phase = _mock_visual_phase(config, event_bus)
 
         pr = PRInfoFactory.create()
@@ -1030,10 +1004,8 @@ class TestHandleVisualFailure:
             visual_diffs=1,
         )
 
-        # Act
         await phase._handle_visual_failure(pr, task, result, report, 0)
 
-        # Assert
         phase._prs.post_pr_comment.assert_awaited()
         comment = phase._prs.post_pr_comment.call_args[0][1]
         assert "Visual validation failed" in comment
@@ -1043,8 +1015,6 @@ class TestHandleVisualFailure:
     async def test_escalation_transitions_to_hitl(
         self, config: HydraFlowConfig, event_bus
     ) -> None:
-        """Should transition the issue to diagnostic loop."""
-        # Arrange
         phase = _mock_visual_phase(config, event_bus)
 
         pr = PRInfoFactory.create()
@@ -1055,10 +1025,8 @@ class TestHandleVisualFailure:
             visual_diffs=1,
         )
 
-        # Act
         await phase._handle_visual_failure(pr, task, result, report, 0)
 
-        # Assert
         phase._prs.transition.assert_awaited_once_with(42, "diagnose", pr_number=101)
 
 
@@ -1068,12 +1036,8 @@ class TestHandleVisualFailure:
 
 
 class TestRunVisualValidation:
-    """Tests for the _run_visual_validation method."""
-
     @pytest.mark.asyncio
     async def test_returns_none_when_disabled(self, config: HydraFlowConfig) -> None:
-        """Should return None when visual validation is disabled."""
-        # Arrange
         cfg = ConfigFactory.create(
             visual_validation_enabled=False,
             repo_root=config.repo_root,
@@ -1083,31 +1047,23 @@ class TestRunVisualValidation:
         phase = make_review_phase(cfg)
         pr = PRInfoFactory.create()
 
-        # Act
         result = await phase._run_visual_validation(pr, config.workspace_base, 0)
 
-        # Assert
         assert result is None
 
     @pytest.mark.asyncio
     async def test_returns_report_when_enabled(self, config: HydraFlowConfig) -> None:
-        """Should return a report (empty screens by default) when enabled."""
-        # Arrange
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
 
-        # Act
         result = await phase._run_visual_validation(pr, config.workspace_base, 0)
 
-        # Assert
         assert result is not None
         assert result.overall_verdict == VisualScreenVerdict.PASS
         assert result.screens == []
 
     @pytest.mark.asyncio
     async def test_returns_none_on_exception(self, config: HydraFlowConfig) -> None:
-        """Should catch exceptions and return None."""
-        # Arrange
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         # Force an exception by breaking the validator
@@ -1115,10 +1071,8 @@ class TestRunVisualValidation:
             side_effect=RuntimeError("boom"),
         )
 
-        # Act
         result = await phase._run_visual_validation(pr, config.workspace_base, 0)
 
-        # Assert
         assert result is None
 
 
@@ -1128,8 +1082,6 @@ class TestRunVisualValidation:
 
 
 class TestVisualEvidenceEscalation:
-    """Tests for visual evidence wiring in _escalate_to_hitl and escalate_visual_failure."""
-
     @pytest.mark.asyncio
     async def test_escalate_to_hitl_persists_visual_evidence(
         self, config: HydraFlowConfig

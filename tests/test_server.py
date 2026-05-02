@@ -21,8 +21,6 @@ if "dotenv" not in sys.modules:
 
 
 class TestServerMain:
-    """Tests for server.main() entry point."""
-
     def test_main_loads_config_and_runs(self) -> None:
         """main() should load config, set up logging, and call asyncio.run."""
         mock_config = MagicMock()
@@ -65,8 +63,6 @@ class TestServerMain:
 
 
 class TestRunDispatch:
-    """Tests for _run() dispatch logic."""
-
     @pytest.mark.asyncio
     async def test_run_dispatches_to_dashboard_when_enabled(self) -> None:
         mock_config = MagicMock()

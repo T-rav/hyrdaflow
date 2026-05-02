@@ -19,8 +19,6 @@ from tests.helpers import find_endpoint, make_dashboard_router
 
 
 class TestHITLEndpointCause:
-    """Tests that /api/hitl includes the cause from state."""
-
     @pytest.mark.asyncio
     async def test_hitl_endpoint_includes_cause_from_state(
         self, config, event_bus: EventBus, state, tmp_path: Path
@@ -299,8 +297,6 @@ class TestHITLEndpointCause:
 
 
 class TestHITLSkipImproveTransition:
-    """Tests that /api/hitl/{issue}/skip transitions improve issues to triage."""
-
     @pytest.mark.asyncio
     async def test_hitl_skip_closes_issue(
         self, config, event_bus, state, tmp_path
@@ -458,8 +454,6 @@ class TestHITLSkipImproveTransition:
 
 
 class TestHITLCloseEndpoint:
-    """Tests for POST /api/hitl/{issue_number}/close."""
-
     @pytest.mark.asyncio
     async def test_returns_error_without_orchestrator(
         self, config, event_bus, state, tmp_path
@@ -566,8 +560,6 @@ class TestHITLCloseEndpoint:
 
 
 class TestHITLSkipCommentResilience:
-    """Test that hitl_skip succeeds even when post_comment fails."""
-
     @pytest.mark.asyncio
     async def test_hitl_skip_succeeds_even_if_comment_fails(
         self, config, event_bus, state, tmp_path
@@ -610,8 +602,6 @@ class TestHITLSkipCommentResilience:
 
 
 class TestClearHitlStateHelper:
-    """Tests for the _clear_hitl_state internal helper."""
-
     @pytest.mark.asyncio
     async def test_clear_hitl_state_clears_all_fields_via_skip(
         self, config, event_bus, state, tmp_path
@@ -644,8 +634,6 @@ class TestClearHitlStateHelper:
 
 
 class TestHITLApproveProcessEndpoint:
-    """Tests for POST /api/hitl/{issue_number}/approve-process."""
-
     @pytest.mark.asyncio
     async def test_approve_process_returns_400_without_orchestrator(
         self, config, event_bus, state, tmp_path
@@ -775,8 +763,6 @@ class TestHITLApproveProcessEndpoint:
 
 
 class TestResolveHitlItemHelper:
-    """Tests for the _resolve_hitl_item internal helper."""
-
     @pytest.mark.asyncio
     async def test_resolve_records_outcome_and_publishes_event(
         self, config, event_bus, state, tmp_path
@@ -908,8 +894,6 @@ class TestResolveHitlItemHelper:
 
 
 class TestBuildHitlContextNoneBody:
-    """Test that _build_hitl_context handles None body (issue #2573)."""
-
     @pytest.mark.asyncio
     async def test_none_body_does_not_crash_hitl_summary(
         self, config, event_bus: EventBus, state, tmp_path: Path
@@ -973,8 +957,6 @@ class TestBuildHitlContextNoneBody:
 
 
 class TestHITLRoute:
-    """Tests for the GET /api/hitl route."""
-
     def test_hitl_returns_200(self, config, event_bus: EventBus, state) -> None:
         from fastapi.testclient import TestClient
 
@@ -1091,8 +1073,6 @@ class TestHITLRoute:
 
 
 class TestHITLCorrectEndpoint:
-    """Tests for the POST /api/hitl/{issue}/correct route."""
-
     def test_correct_returns_ok_with_orchestrator(
         self, config, event_bus: EventBus, state
     ) -> None:
@@ -1251,8 +1231,6 @@ class TestHITLCorrectEndpoint:
 
 
 class TestHITLSkipEndpoint:
-    """Tests for the POST /api/hitl/{issue}/skip route."""
-
     def test_skip_returns_ok_with_orchestrator(
         self, config, event_bus: EventBus, state
     ) -> None:
@@ -1369,8 +1347,6 @@ class TestHITLSkipEndpoint:
 
 
 class TestHITLCloseEndpointViaTestClient:
-    """Tests for the POST /api/hitl/{issue}/close route (TestClient integration style)."""
-
     def test_close_returns_ok_with_orchestrator(
         self, config, event_bus: EventBus, state
     ) -> None:
@@ -1483,8 +1459,6 @@ class TestHITLCloseEndpointViaTestClient:
 
 
 class TestHITLApproveProcessEndpointViaTestClient:
-    """Tests for the POST /api/hitl/{issue}/approve-process route (TestClient integration style)."""
-
     def test_bug_report_routes_to_find_label(
         self, config, event_bus: EventBus, state
     ) -> None:
@@ -1563,8 +1537,6 @@ class TestHITLApproveProcessEndpointViaTestClient:
 
 
 class TestHITLEnrichedRoute:
-    """Tests for the enriched GET /api/hitl response with status."""
-
     def test_hitl_includes_status_from_orchestrator(
         self, config, event_bus: EventBus, state
     ) -> None:

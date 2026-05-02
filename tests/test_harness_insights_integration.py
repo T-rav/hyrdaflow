@@ -22,8 +22,6 @@ from phase_utils import record_harness_failure
 
 
 class TestPlanStageHarnessRecording:
-    """Tests that record_harness_failure works for the plan stage."""
-
     def test_appends_plan_failure_to_store(self, config: HydraFlowConfig) -> None:
         memory_dir = config.repo_root / ".hydraflow" / "memory"
         store = HarnessInsightStore(memory_dir)
@@ -78,8 +76,6 @@ class TestPlanStageHarnessRecording:
 
 
 class TestImplementStageHarnessRecording:
-    """Tests that record_harness_failure works for the implement stage."""
-
     def test_appends_implement_failure_to_store(self, config: HydraFlowConfig) -> None:
         memory_dir = config.repo_root / ".hydraflow" / "memory"
         store = HarnessInsightStore(memory_dir)
@@ -116,8 +112,6 @@ class TestImplementStageHarnessRecording:
 
 
 class TestReviewStageHarnessRecording:
-    """Tests that record_harness_failure works for the review stage."""
-
     def test_appends_review_failure_with_pr_number(
         self, config: HydraFlowConfig
     ) -> None:

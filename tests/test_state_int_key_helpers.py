@@ -23,8 +23,6 @@ def make_tracker(tmp_path: Path) -> StateTracker:
 
 
 class TestKey:
-    """Tests for StateTracker._key() static helper."""
-
     def test_converts_int_to_str(self) -> None:
         assert StateTracker._key(42) == "42"
 
@@ -48,8 +46,6 @@ class TestKey:
 
 
 class TestIntKeys:
-    """Tests for StateTracker._int_keys() static helper."""
-
     def test_converts_string_keys_to_int(self) -> None:
         result = StateTracker._int_keys({"1": "a", "2": "b"})
         assert result == {1: "a", 2: "b"}

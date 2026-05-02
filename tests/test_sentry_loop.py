@@ -61,8 +61,6 @@ def _make_deps():
 
 
 class TestSentryLoopDoWork:
-    """Tests for the _do_work cycle."""
-
     @pytest.mark.asyncio
     async def test_skips_when_no_credentials(self, tmp_path: Path) -> None:
         from config import Credentials
@@ -324,8 +322,6 @@ class TestSentryLoopDoWork:
 
 
 class TestSentryLoopFiltering:
-    """Tests for noise filtering (handled errors, low event count)."""
-
     @pytest.mark.asyncio
     async def test_skips_handled_exceptions(self, tmp_path: Path) -> None:
         """Handled exceptions (isUnhandled=False) should be skipped."""
@@ -449,8 +445,6 @@ class TestSentryLoopFiltering:
 
 
 class TestSentryLoopProjectFilter:
-    """Tests for project filtering."""
-
     @pytest.mark.asyncio
     async def test_filters_projects_by_config(self, tmp_path: Path) -> None:
         config = ConfigFactory.create(repo_root=tmp_path)
@@ -487,8 +481,6 @@ class TestSentryLoopProjectFilter:
 
 
 class TestSentryStateMixin:
-    """Tests for sentry state persistence."""
-
     def _make_tracker(self, tmp_path: Path):  # type: ignore[return]
         from state import StateTracker
 
@@ -521,8 +513,6 @@ class TestSentryStateMixin:
 
 
 class TestSentryLoopWiring:
-    """Tests for sentry loop wiring completeness."""
-
     def test_interval_bounds_includes_sentry_ingest(self) -> None:
         from dashboard_routes._common import _INTERVAL_BOUNDS
 
@@ -533,8 +523,6 @@ class TestSentryLoopWiring:
 
 
 class TestSentryLoopErrorClassification:
-    """Tests for proper error classification in catch-all handlers."""
-
     @pytest.mark.asyncio
     async def test_reraises_type_error(self, tmp_path: Path) -> None:
         """TypeError (likely bug) should propagate, not be swallowed."""

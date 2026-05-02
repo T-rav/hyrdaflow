@@ -13,8 +13,6 @@ from tests.helpers import find_endpoint, make_dashboard_router
 
 
 class TestCreateRouter:
-    """Tests for create_router factory function."""
-
     def test_create_router_returns_api_router(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
@@ -86,8 +84,6 @@ class TestCreateRouter:
 
 
 class TestStartOrchestratorBroadcast:
-    """Tests that /api/control/start broadcasts orchestrator_status running event."""
-
     @pytest.mark.asyncio
     async def test_start_publishes_orchestrator_status_running(
         self, config, event_bus: EventBus, state, tmp_path: Path
@@ -136,8 +132,6 @@ class TestStartOrchestratorBroadcast:
 
 
 class TestSubmitIntentEndpoint:
-    """Tests for POST /api/intent."""
-
     @pytest.mark.asyncio
     async def test_submit_intent_creates_issue(
         self, config, event_bus, state, tmp_path
@@ -180,8 +174,6 @@ class TestSubmitIntentEndpoint:
 
 
 class TestSubmitReportEndpoint:
-    """Tests for POST /api/report."""
-
     @pytest.mark.asyncio
     async def test_submit_report_queues_report(
         self, config, event_bus, state, tmp_path
@@ -270,8 +262,6 @@ class TestSubmitReportEndpoint:
 
 
 class TestSPAEndpoints:
-    """Tests for SPA serving endpoints."""
-
     @pytest.mark.asyncio
     async def test_index_returns_placeholder_when_no_dist(
         self, config, event_bus, state, tmp_path
@@ -316,8 +306,6 @@ class TestSPAEndpoints:
 
 
 class TestWebSocketEndpoint:
-    """Tests for WebSocket /ws endpoint."""
-
     def test_websocket_route_is_registered(
         self, config, event_bus, state, tmp_path
     ) -> None:
@@ -375,8 +363,6 @@ class TestWebSocketEndpoint:
 
 
 class TestResolveRuntime:
-    """Tests for the _resolve_runtime helper inside create_router."""
-
     @pytest.mark.asyncio
     async def test_state_endpoint_without_repo_param_uses_default(
         self, config, event_bus, state, tmp_path
@@ -431,8 +417,6 @@ class TestResolveRuntime:
 
 
 class TestRuntimeLifecycleEndpoints:
-    """Tests for /api/runtimes/* lifecycle endpoints."""
-
     @pytest.mark.asyncio
     async def test_list_runtimes_empty_without_registry(
         self, config, event_bus, state, tmp_path
@@ -555,8 +539,6 @@ class TestRuntimeLifecycleEndpoints:
 
 
 class TestStopOrchestratorEndpoint:
-    """Tests for POST /api/control/stop."""
-
     @pytest.mark.asyncio
     async def test_stop_returns_error_when_not_running(
         self, config, event_bus, state, tmp_path
@@ -596,8 +578,6 @@ class TestStopOrchestratorEndpoint:
 
 
 class TestHumanInputEndpoints:
-    """Tests for human-input endpoints."""
-
     @pytest.mark.asyncio
     async def test_get_human_input_empty_without_orchestrator(
         self, config, event_bus, state, tmp_path

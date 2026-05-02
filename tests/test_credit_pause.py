@@ -98,8 +98,6 @@ async def _poll_then_stop(
 
 
 class TestIsCreditExhaustion:
-    """Tests for the is_credit_exhaustion helper."""
-
     def test_detects_usage_limit_reached(self) -> None:
         assert is_credit_exhaustion("Your usage limit reached") is True
 
@@ -138,8 +136,6 @@ class TestIsCreditExhaustion:
 
 
 class TestParseCreditResumeTime:
-    """Tests for parsing reset time from error messages."""
-
     def test_extracts_time_with_timezone(self) -> None:
         text = "Your limit will reset at 3pm (America/New_York)"
         result = parse_credit_resume_time(text)
@@ -232,8 +228,6 @@ class TestParseCreditResumeTime:
 
 
 class TestCreditExhaustedError:
-    """Tests for the CreditExhaustedError exception class."""
-
     def test_inherits_runtime_error(self) -> None:
         err = CreditExhaustedError("credits out")
         assert isinstance(err, RuntimeError)
@@ -258,8 +252,6 @@ class TestCreditExhaustedError:
 
 
 class TestStreamClaudeProcessCreditDetection:
-    """Tests for credit exhaustion detection in stream_claude_process."""
-
     @pytest.mark.asyncio
     async def test_raises_credit_exhausted_on_stderr_match(self, event_bus) -> None:
         """stderr with credit message should raise CreditExhaustedError."""
@@ -376,8 +368,6 @@ class TestStreamClaudeProcessCreditDetection:
 
 
 class TestRunStatusCreditsPaused:
-    """Tests for run_status returning 'credits_paused'."""
-
     def test_run_status_returns_credits_paused(self, config: HydraFlowConfig) -> None:
         """run_status returns 'credits_paused' when _credits_paused_until is in the future."""
         orch = HydraFlowOrchestrator(config)
@@ -424,8 +414,6 @@ class TestRunStatusCreditsPaused:
 
 
 class TestCreditExhaustionPauseResume:
-    """Tests for credit exhaustion triggering pause and resume in the orchestrator."""
-
     @pytest.mark.asyncio
     async def test_credit_exhaustion_publishes_system_alert(
         self, config: HydraFlowConfig, event_bus
@@ -715,8 +703,6 @@ class TestCreditExhaustionPauseResume:
 
 
 class TestConfigCreditPauseBuffer:
-    """Tests for the credit_pause_buffer_minutes config field."""
-
     def test_credit_pause_buffer_default_is_one_minute(self) -> None:
         config = ConfigFactory.create()
         assert config.credit_pause_buffer_minutes == 1
@@ -732,8 +718,6 @@ class TestConfigCreditPauseBuffer:
 
 
 class TestTryClearCreditPause:
-    """Tests for the try_clear_credit_pause method."""
-
     def test_returns_false_when_not_paused(self, config: HydraFlowConfig) -> None:
         """try_clear_credit_pause returns False when no pause is active."""
         orch = HydraFlowOrchestrator(config)
@@ -837,8 +821,6 @@ class TestTryClearCreditPause:
 
 
 class TestCreditRefreshEndpoint:
-    """Tests for the credit-refresh API endpoint."""
-
     @pytest.mark.asyncio
     async def test_returns_not_paused_when_no_pause(
         self, config: HydraFlowConfig, event_bus, state, tmp_path
@@ -929,8 +911,6 @@ class TestCreditRefreshEndpoint:
 
 
 class TestProbeCreditAvailability:
-    """Tests for the lightweight Anthropic API credit probe."""
-
     @pytest.mark.asyncio
     async def test_returns_true_when_no_api_key(self) -> None:
         """Without ANTHROPIC_API_KEY, probe assumes credits are available."""

@@ -15,8 +15,6 @@ from prep_hooks import (
 
 
 class TestDetectLanguage:
-    """Tests for detect_language()."""
-
     def test_detects_python_from_pyproject_toml(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'foo'\n")
         assert detect_language(tmp_path) == "python"

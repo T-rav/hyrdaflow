@@ -497,8 +497,6 @@ class TestWorktreeGCStopEvent:
 
 
 class TestWorktreeGCOrphanedDirsBudget:
-    """Tests for Phase 2 budget exhaustion."""
-
     @pytest.mark.asyncio
     async def test_orphaned_dirs_respect_budget(self, tmp_path: Path) -> None:
         """Phase 2 stops collecting when budget is exhausted."""
@@ -517,8 +515,6 @@ class TestWorktreeGCOrphanedDirsBudget:
 
 
 class TestWorktreeGCOrphanedDirsErrors:
-    """Tests for Phase 2 error handling."""
-
     @pytest.mark.asyncio
     async def test_orphaned_dir_destroy_failure_continues(self, tmp_path: Path) -> None:
         """A destroy failure for one orphaned dir does not stop processing others."""
@@ -546,8 +542,6 @@ class TestWorktreeGCOrphanedDirsErrors:
 
 
 class TestWorktreeGCStopEventPhase2:
-    """Tests for stop event within Phase 2 iteration."""
-
     @pytest.mark.asyncio
     async def test_stop_event_halts_orphaned_dir_iteration(
         self, tmp_path: Path
@@ -575,8 +569,6 @@ class TestWorktreeGCStopEventPhase2:
 
 
 class TestWorktreeGCBranchActiveIssues:
-    """Tests for branch skipping based on active_issue_numbers."""
-
     @pytest.mark.asyncio
     async def test_skips_branches_with_active_issue_number(
         self, tmp_path: Path
@@ -671,8 +663,6 @@ class TestIsSafeToGCDirect:
 
 
 class TestWorktreeGCPipelineProtection:
-    """Tests for pipeline-aware GC protection."""
-
     @pytest.mark.asyncio
     async def test_skips_worktree_for_queued_issue(self, tmp_path: Path) -> None:
         """Worktrees for issues still in the pipeline queue are not collected."""

@@ -47,8 +47,6 @@ def policy(baseline_config, state, event_bus):
 
 
 class TestGlobMatch:
-    """Tests for _glob_match helper with ** glob support."""
-
     def test_standard_fnmatch_still_works(self):
         assert _glob_match("ui/dashboard.snap.png", "**/*.snap.png") is True
 
@@ -83,8 +81,6 @@ class TestGlobMatch:
 
 
 class TestDetectBaselineChanges:
-    """Tests for BaselinePolicy.detect_baseline_changes."""
-
     def test_no_baseline_files(self, policy: BaselinePolicy):
         result = policy.detect_baseline_changes(["src/app.py", "README.md"])
         assert result == []
@@ -150,8 +146,6 @@ class TestDetectBaselineChanges:
 
 
 class TestCheckApproval:
-    """Tests for BaselinePolicy.check_approval."""
-
     @pytest.mark.asyncio
     async def test_no_baseline_files_auto_approved(self, policy: BaselinePolicy):
         result = await policy.check_approval(
@@ -430,8 +424,6 @@ class TestCheckApproval:
 
 
 class TestRollback:
-    """Tests for BaselinePolicy.rollback."""
-
     @pytest.mark.asyncio
     async def test_rollback_records_audit(
         self, policy: BaselinePolicy, state: StateTracker
@@ -577,8 +569,6 @@ class TestRollback:
 
 
 class TestAuditTrail:
-    """Tests for audit trail retrieval and formatting."""
-
     @pytest.mark.asyncio
     async def test_get_audit_trail(self, policy: BaselinePolicy, state: StateTracker):
         await policy.check_approval(
@@ -633,8 +623,6 @@ class TestAuditTrail:
 
 
 class TestStateTrackerBaseline:
-    """Tests for StateTracker baseline audit methods."""
-
     def test_record_and_get(self, state: StateTracker):
         record = BaselineAuditRecord(
             pr_number=101,
@@ -741,8 +729,6 @@ class TestStateTrackerBaseline:
 
 
 class TestConfigFields:
-    """Tests for baseline-related config fields."""
-
     def test_baseline_config_has_expected_defaults(self, tmp_path: Path):
         cfg = ConfigFactory.create(
             repo_root=tmp_path / "repo",
@@ -774,8 +760,6 @@ class TestConfigFields:
 
 
 class TestEventType:
-    """Tests for BASELINE_UPDATE event type."""
-
     def test_baseline_update_exists(self):
         assert EventType.BASELINE_UPDATE == "baseline_update"
 
@@ -789,8 +773,6 @@ class TestEventType:
 
 
 class TestBaselineModels:
-    """Tests for baseline data models."""
-
     def test_baseline_change_type_values(self):
         assert BaselineChangeType.UPDATE == "update"
         assert BaselineChangeType.ROLLBACK == "rollback"

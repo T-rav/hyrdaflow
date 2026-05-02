@@ -43,8 +43,6 @@ def _find_endpoint(router, path, method="POST"):
 
 
 class TestIntentEndpoint:
-    """Tests for POST /api/intent."""
-
     def test_intent_route_is_registered(
         self, config, event_bus: EventBus, state, tmp_path: Path
     ) -> None:

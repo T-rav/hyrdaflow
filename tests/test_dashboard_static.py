@@ -18,8 +18,6 @@ if TYPE_CHECKING:
 
 
 class TestStaticDashboardJS:
-    """Tests for serving /static/dashboard.js."""
-
     def test_static_dashboard_js_is_served(
         self, config: HydraFlowConfig, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
@@ -44,8 +42,6 @@ class TestStaticDashboardJS:
 
 
 class TestFallbackTemplateExternalJS:
-    """Tests that the fallback template references external JS and has no inline onclick."""
-
     def test_fallback_template_references_external_js(
         self, config: HydraFlowConfig, event_bus: EventBus, state, tmp_path: Path
     ) -> None:
@@ -121,8 +117,6 @@ class TestFallbackTemplateExternalJS:
 
 
 class TestSPACatchAll:
-    """Tests for the SPA catch-all route that serves index.html for non-API paths."""
-
     def test_spa_catchall_returns_html_for_system_path(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -302,8 +296,6 @@ class TestSPACatchAll:
 
 
 class TestPipelineStatsRoute:
-    """Tests for the GET /api/pipeline/stats endpoint."""
-
     def test_pipeline_stats_returns_empty_dict_without_orchestrator(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -388,8 +380,6 @@ class TestPipelineStatsRoute:
 
 
 class TestPipelineStatsWebSocketForwarding:
-    """Tests that PIPELINE_STATS events are forwarded via WebSocket."""
-
     def test_pipeline_stats_event_type_exists(self) -> None:
         assert hasattr(EventType, "PIPELINE_STATS")
         assert EventType.PIPELINE_STATS.value == "pipeline_stats"
@@ -413,8 +403,6 @@ class TestPipelineStatsWebSocketForwarding:
 
 
 class TestRegistryForwarding:
-    """Tests that HydraFlowDashboard forwards registry to create_router."""
-
     def test_create_app_passes_registry_to_create_router(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:

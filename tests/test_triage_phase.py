@@ -27,8 +27,6 @@ if TYPE_CHECKING:
 
 
 class TestTriagePhase:
-    """Tests for TriagePhase.triage_issues()."""
-
     @pytest.mark.asyncio
     async def test_triage_promotes_ready_issue_to_planning(
         self, config: HydraFlowConfig

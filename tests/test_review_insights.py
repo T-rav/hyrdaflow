@@ -55,8 +55,6 @@ def _make_record(
 
 
 class TestReviewRecordRawFeedback:
-    """Tests for the raw_feedback field on ReviewRecord."""
-
     def test_defaults_to_empty_string(self) -> None:
         record = _make_record()
         assert record.raw_feedback == ""
@@ -97,8 +95,6 @@ class TestReviewRecordRawFeedback:
 
 
 class TestExtractCategories:
-    """Tests for extract_categories()."""
-
     def test_extracts_missing_tests(self) -> None:
         cats = extract_categories("Missing test coverage for edge cases")
         assert "missing_tests" in cats
@@ -158,8 +154,6 @@ class TestExtractCategories:
 
 
 class TestReviewInsightStore:
-    """Tests for ReviewInsightStore persistence."""
-
     def test_append_creates_file(self, tmp_path: Path) -> None:
         store = ReviewInsightStore(tmp_path / "memory")
         record = _make_record(categories=["missing_tests"])
@@ -250,8 +244,6 @@ class TestReviewInsightStore:
 
 
 class TestAnalyzePatterns:
-    """Tests for analyze_patterns()."""
-
     def test_identifies_patterns_above_threshold(self) -> None:
         records = [
             _make_record(pr_number=i, categories=["missing_tests"]) for i in range(5)
@@ -317,8 +309,6 @@ class TestAnalyzePatterns:
 
 
 class TestBuildInsightIssueBody:
-    """Tests for build_insight_issue_body()."""
-
     def test_contains_category_and_frequency(self) -> None:
         evidence = [_make_record(pr_number=101, summary="Needs more tests")]
         body = build_insight_issue_body("missing_tests", 4, 10, evidence)
@@ -353,8 +343,6 @@ class TestBuildInsightIssueBody:
 
 
 class TestGetCommonFeedbackSection:
-    """Tests for get_common_feedback_section()."""
-
     def test_returns_markdown_section(self) -> None:
         records = [
             _make_record(pr_number=i, categories=["missing_tests"]) for i in range(3)
@@ -446,8 +434,6 @@ class TestGetCommonFeedbackSection:
 
 
 class TestCategoryRemediation:
-    """Tests for the CATEGORY_REMEDIATION mapping."""
-
     def test_missing_tests_remediation_exists(self) -> None:
         assert "missing_tests" in CATEGORY_REMEDIATION
 
@@ -475,8 +461,6 @@ class TestCategoryRemediation:
 
 
 class TestReviewRecord:
-    """Tests for the ReviewRecord Pydantic model."""
-
     def test_serialization_roundtrip(self) -> None:
         record = _make_record(
             pr_number=101,
@@ -540,8 +524,6 @@ class TestAppendReviewOSError:
 
 
 class TestReviewRecordTimestamp:
-    """Tests for ReviewRecord IsoTimestamp validation."""
-
     def test_invalid_timestamp_rejected(self) -> None:
         import pytest
         from pydantic import ValidationError
@@ -576,8 +558,6 @@ class TestReviewRecordTimestamp:
 
 
 class TestReviewRecordFieldDescriptions:
-    """Tests that field descriptions are present in ReviewRecord schema."""
-
     def test_review_record_has_field_descriptions(self) -> None:
         schema = ReviewRecord.model_json_schema()
         props = schema["properties"]
@@ -594,8 +574,6 @@ class TestReviewRecordFieldDescriptions:
 
 
 class TestCategoryEscalations:
-    """Tests for the CATEGORY_ESCALATIONS constant."""
-
     def test_missing_tests_has_mandatory_block(self) -> None:
         assert "missing_tests" in CATEGORY_ESCALATIONS
         esc = CATEGORY_ESCALATIONS["missing_tests"]
@@ -633,8 +611,6 @@ class TestCategoryEscalations:
 
 
 class TestGetEscalationData:
-    """Tests for get_escalation_data()."""
-
     def test_returns_empty_list_when_no_records(self) -> None:
         assert get_escalation_data([]) == []
 
@@ -728,8 +704,6 @@ def _recent_timestamp() -> str:
 
 
 class TestProposalMetadata:
-    """Tests for the ProposalMetadata model."""
-
     def test_defaults(self) -> None:
         meta = ProposalMetadata(pre_count=5, proposed_at="2026-01-01T00:00:00+00:00")
         assert meta.pre_count == 5
@@ -746,8 +720,6 @@ class TestProposalMetadata:
 
 
 class TestReviewInsightStoreProposalMetadata:
-    """Tests for record_proposal, load_proposal_metadata, and update_proposal_verified."""
-
     def test_record_proposal_creates_metadata_file(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
         store.record_proposal("missing_tests", pre_count=4)
@@ -793,8 +765,6 @@ class TestReviewInsightStoreProposalMetadata:
 
 
 class TestVerifyProposals:
-    """Tests for verify_proposals()."""
-
     def _records_with_category(self, category: str, count: int) -> list[ReviewRecord]:
         return [
             _make_record(

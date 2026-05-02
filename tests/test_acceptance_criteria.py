@@ -91,8 +91,6 @@ new file mode 100644
 
 
 class TestBuildPrompt:
-    """Tests for prompt construction."""
-
     def test_includes_issue_body(self, config: HydraFlowConfig, event_bus) -> None:
         gen, _ = _make_generator(config, event_bus)
         issue = IssueFactory.create(body="The frobnicator needs fixing")
@@ -186,8 +184,6 @@ class TestBuildPrompt:
 
 
 class TestExtractCriteria:
-    """Tests for extracting criteria from transcripts."""
-
     def test_parses_ac_and_verify_markers(
         self, config: HydraFlowConfig, event_bus
     ) -> None:
@@ -246,8 +242,6 @@ class TestExtractCriteria:
 
 
 class TestExtractTestFiles:
-    """Tests for extracting test file paths from diffs."""
-
     def test_extracts_test_files_from_diff(
         self, config: HydraFlowConfig, event_bus
     ) -> None:
@@ -282,8 +276,6 @@ class TestExtractTestFiles:
 
 
 class TestSummarizeDiff:
-    """Tests for diff truncation."""
-
     def test_short_diff_unchanged(self, config: HydraFlowConfig, event_bus) -> None:
         gen, _ = _make_generator(config, event_bus)
         diff = "short diff"
@@ -303,8 +295,6 @@ class TestSummarizeDiff:
 
 
 class TestReadPlanFile:
-    """Tests for reading plan files."""
-
     def test_reads_existing_plan(self, config: HydraFlowConfig, event_bus) -> None:
         gen, _ = _make_generator(config, event_bus)
         plan_dir = config.repo_root / ".hydraflow" / "plans"
@@ -325,8 +315,6 @@ class TestReadPlanFile:
 
 
 class TestFormatComment:
-    """Tests for formatting the GitHub comment."""
-
     def test_formats_ac_as_checkboxes(self, config: HydraFlowConfig, event_bus) -> None:
         gen, _ = _make_generator(config, event_bus)
         criteria = VerificationCriteria(
@@ -406,8 +394,6 @@ class TestFormatComment:
 
 
 class TestPersist:
-    """Tests for file persistence."""
-
     def test_creates_verification_directory(
         self, config: HydraFlowConfig, event_bus
     ) -> None:
@@ -490,8 +476,6 @@ class TestPersist:
 
 
 class TestBuildCommand:
-    """Tests for building the claude command."""
-
     def test_includes_model(self, config: HydraFlowConfig, event_bus) -> None:
         gen, _ = _make_generator(config, event_bus)
         cmd = gen._build_command()
@@ -526,8 +510,6 @@ class TestBuildCommand:
 
 
 class TestGenerate:
-    """Tests for the full generate flow."""
-
     @pytest.mark.asyncio
     async def test_generate_posts_comment_and_persists(
         self, config: HydraFlowConfig, event_bus
@@ -647,8 +629,6 @@ class TestGenerate:
 
 
 class TestBuildPrecheckPrompt:
-    """Tests for AcceptanceCriteriaGenerator._build_precheck_prompt."""
-
     def test_includes_issue_and_diff_summary(self, config, event_bus) -> None:
         gen, _ = _make_generator(config, event_bus)
         issue = IssueFactory.create(number=42, title="Fix the widget")
@@ -673,8 +653,6 @@ class TestBuildPrecheckPrompt:
 
 
 class TestRunPrecheckContext:
-    """Tests for AcceptanceCriteriaGenerator._run_precheck_context wiring."""
-
     @pytest.mark.asyncio
     async def test_delegates_to_shared_run_precheck_context(
         self, event_bus, tmp_path

@@ -149,8 +149,6 @@ class TestProjectSignals:
 
 
 class TestRunPrepTask:
-    """Tests for the async run_prep helper."""
-
     @pytest.mark.asyncio
     async def test_run_prep_success_logs_seed_steps(
         self, monkeypatch: pytest.MonkeyPatch
@@ -240,8 +238,6 @@ class TestRunPrepTask:
 
 
 class TestRunScaffoldTask:
-    """Tests for the async run_scaffold helper."""
-
     @pytest.mark.asyncio
     async def test_run_scaffold_reports_created_assets(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -330,8 +326,6 @@ class TestRunScaffoldTask:
 
 
 class TestRunCleanTask:
-    """Tests for the async run_clean helper."""
-
     @pytest.mark.asyncio
     async def test_run_clean_resets_state_and_worktrees(
         self, monkeypatch: pytest.MonkeyPatch
@@ -378,8 +372,6 @@ class TestRunCleanTask:
 
 
 class TestRunEnsureLabels:
-    """Tests for the async run_ensure_labels helper."""
-
     @pytest.mark.asyncio
     async def test_run_ensure_labels_success(
         self, monkeypatch: pytest.MonkeyPatch

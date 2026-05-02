@@ -6,8 +6,6 @@ from config import HydraFlowConfig
 
 
 class TestPluginFields:
-    """Tests for the required_plugins and language_plugins fields on HydraFlowConfig."""
-
     def test_required_plugins_defaults(self) -> None:
         """required_plugins should default to the five tier-1 plugin names."""
         config = HydraFlowConfig()

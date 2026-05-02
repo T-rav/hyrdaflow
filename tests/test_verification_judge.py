@@ -978,7 +978,6 @@ class TestJudgeIntegration:
 
     @pytest.mark.asyncio
     async def test_criteria_file_with_no_instructions(self, tmp_path, event_bus):
-        """Should handle criteria files without an instructions section."""
         cfg = ConfigFactory.create(repo_root=tmp_path)
         judge = VerificationJudge(cfg, event_bus)
 
@@ -1292,8 +1291,6 @@ class TestReviewPhaseWiring:
 
 
 class TestBuildPrecheckPrompt:
-    """Tests for VerificationJudge._build_precheck_prompt."""
-
     def test_includes_criteria_and_diff(self, config) -> None:
         judge = _make_judge(config)
         prompt = judge._build_precheck_prompt(42, "AC-1: Button works", "diff content")
@@ -1322,8 +1319,6 @@ class TestBuildPrecheckPrompt:
 
 
 class TestRunPrecheckContext:
-    """Tests for VerificationJudge._run_precheck_context wiring."""
-
     @pytest.mark.asyncio
     async def test_delegates_to_shared_run_precheck_context(self, config) -> None:
         """Verify VJ delegates to the shared precheck module."""
@@ -1373,8 +1368,6 @@ class TestRunPrecheckContext:
 
 
 class TestExecuteGhToken:
-    """Tests for gh_token propagation in VerificationJudge._execute."""
-
     @pytest.mark.asyncio
     async def test_execute_passes_gh_token_to_stream(self, tmp_path, event_bus):
         """_execute should pass config.gh_token to stream_claude_process."""

@@ -37,8 +37,6 @@ def _make_loop(
 
 
 class TestStaleIssueGCLoop:
-    """Tests for StaleIssueGCLoop._do_work."""
-
     @pytest.mark.asyncio
     async def test_no_issues_returns_zero(self, tmp_path: Path) -> None:
         """When no HITL issues exist, _do_work returns zero closed."""

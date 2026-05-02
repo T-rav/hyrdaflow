@@ -11,8 +11,6 @@ from screenshot_scanner import scan_base64_for_secrets
 
 
 class TestScanBase64ForSecrets:
-    """Tests for scan_base64_for_secrets."""
-
     def test_clean_payload_returns_empty(self) -> None:
         """A payload with no secrets returns an empty list."""
         result = scan_base64_for_secrets("iVBORw0KGgoAAAANSUhEUgAA")

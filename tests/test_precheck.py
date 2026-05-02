@@ -27,8 +27,6 @@ from tests.helpers import ConfigFactory
 
 
 class TestPrecheckResult:
-    """Tests for the PrecheckResult frozen dataclass."""
-
     def test_precheck_result_has_expected_defaults(self) -> None:
         result = PrecheckResult()
         assert result.risk == "medium"
@@ -63,8 +61,6 @@ class TestPrecheckResult:
 
 
 class TestParsePrecheckTranscript:
-    """Tests for parse_precheck_transcript module-level function."""
-
     def test_all_fields_present(self) -> None:
         transcript = (
             "PRECHECK_RISK: low\n"
@@ -178,8 +174,6 @@ class TestParsePrecheckTranscript:
 
 
 class TestBuildSubskillCommand:
-    """Tests for build_subskill_command."""
-
     def test_claude_backend(self) -> None:
         cfg = ConfigFactory.create(subskill_tool="claude", subskill_model="haiku")
         cmd = build_subskill_command(cfg)
@@ -196,8 +190,6 @@ class TestBuildSubskillCommand:
 
 
 class TestBuildDebugCommand:
-    """Tests for build_debug_command."""
-
     def test_claude_backend(self) -> None:
         cfg = ConfigFactory.create(debug_tool="claude", debug_model="opus")
         cmd = build_debug_command(cfg)
@@ -219,8 +211,6 @@ class TestBuildDebugCommand:
 
 
 class TestRunPrecheckContext:
-    """Tests for run_precheck_context shared orchestration."""
-
     @pytest.mark.asyncio
     async def test_disabled_returns_message(self) -> None:
         cfg = ConfigFactory.create(max_subskill_attempts=0)

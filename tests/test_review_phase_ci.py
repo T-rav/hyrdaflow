@@ -32,8 +32,6 @@ from tests.helpers import ConfigFactory, make_review_phase
 
 
 class TestWaitAndFixCI:
-    """Tests for the wait_and_fix_ci method and CI gate in review_prs."""
-
     @pytest.mark.asyncio
     async def test_ci_passes_on_first_check_merges(
         self, config: HydraFlowConfig
@@ -381,8 +379,6 @@ class TestWaitAndFixCIEdgeCases:
 
 
 class TestWaitAndFixCIWithLogs:
-    """Tests for CI log injection in wait_and_fix_ci."""
-
     @pytest.mark.asyncio
     async def test_fetches_ci_logs_when_enabled(self, tmp_path: Path) -> None:
         """fetch_ci_failure_logs is called during CI fix loop."""
@@ -427,8 +423,6 @@ class TestWaitAndFixCIWithLogs:
 
 
 class TestCodeScanningAlertsFetch:
-    """Tests for _fetch_code_scanning_alerts helper."""
-
     @pytest.mark.asyncio
     async def test_returns_alerts_when_present(self, config: HydraFlowConfig) -> None:
         """When code_scanning_enabled is True and alerts exist, returns them."""
@@ -482,8 +476,6 @@ class TestCodeScanningAlertsFetch:
 
 
 class TestCodeScanningAlertThreading:
-    """Tests that code scanning alerts are threaded through the review flow."""
-
     @pytest.mark.asyncio
     async def test_alerts_passed_to_reviewer(self, config: HydraFlowConfig) -> None:
         """Alerts are passed through to the reviewer.review call."""
@@ -541,8 +533,6 @@ class TestCodeScanningAlertThreading:
 
 
 class TestVisualGate:
-    """Tests for check_visual_gate integration with the review phase."""
-
     @pytest.mark.asyncio
     async def test_returns_true_when_disabled(self, config: HydraFlowConfig) -> None:
         """When visual_gate_enabled is False, gate returns True immediately."""

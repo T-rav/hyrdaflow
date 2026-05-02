@@ -19,8 +19,6 @@ from exception_classify import (
 
 
 class TestIsLikelyBug:
-    """Tests for is_likely_bug()."""
-
     def test_returns_true_for_type_error(self) -> None:
         assert is_likely_bug(TypeError("oops")) is True
 
@@ -61,8 +59,6 @@ class TestIsLikelyBug:
 
 
 class TestReraiseOnCreditOrBug:
-    """Tests for reraise_on_credit_or_bug — now in exception_classify."""
-
     def test_reraises_credit_exhausted_error(self) -> None:
         from subprocess_util import CreditExhaustedError
 
@@ -124,8 +120,6 @@ class TestReraiseOnCreditOrBug:
 
 
 class TestCaptureIfBug:
-    """Tests for capture_if_bug — Sentry integration."""
-
     def test_captures_bug_exception(self) -> None:
         mock_sdk = MagicMock()
         with patch.dict("sys.modules", {"sentry_sdk": mock_sdk}):
@@ -144,7 +138,6 @@ class TestCaptureIfBug:
             assert call_kwargs["data"] == {"issue": 42}
 
     def test_noop_when_sentry_not_installed(self) -> None:
-        """Should not raise when sentry_sdk is not available."""
         # Remove sentry_sdk temporarily if present
         original = sys.modules.get("sentry_sdk")
         sys.modules["sentry_sdk"] = None  # type: ignore[assignment]

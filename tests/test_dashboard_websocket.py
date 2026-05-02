@@ -19,8 +19,6 @@ if TYPE_CHECKING:
 
 
 class TestWebSocketEndpoint:
-    """Tests for the WebSocket /ws endpoint."""
-
     def test_websocket_connects_successfully(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -290,8 +288,6 @@ class TestWebSocketEndpoint:
 
 
 class TestWebSocketErrorLogging:
-    """Tests that unexpected WebSocket errors are logged, not silently swallowed."""
-
     def test_websocket_logs_error_on_history_replay_bug(
         self, config: HydraFlowConfig, event_bus, state
     ) -> None:

@@ -14,8 +14,6 @@ from agent_cli import (
 
 
 class TestBuildAgentCommand:
-    """Tests for build_agent_command with various parameter combinations."""
-
     def test_claude_default_command_structure(self) -> None:
         """Claude command should include -p, --output-format, --model, --verbose, --permission-mode."""
         cmd = build_agent_command(tool="claude", model="sonnet")
@@ -160,8 +158,6 @@ class TestBuildAgentCommand:
 
 
 class TestBuildLightweightCommand:
-    """Tests for build_lightweight_command — simplified CLI builder for background workers."""
-
     def test_codex_includes_prompt_as_positional_arg(self) -> None:
         """Codex command should append the prompt as a positional argument."""
         cmd, cmd_input = build_lightweight_command(
@@ -291,8 +287,6 @@ class TestBuildLightweightCommand:
 
 
 class TestPluginDirFlags:
-    """Tests for plugin directory injection into Claude commands."""
-
     def test_plugin_dir_flags_returns_empty_when_root_missing(
         self, tmp_path: Path
     ) -> None:

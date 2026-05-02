@@ -32,14 +32,27 @@ STAGED_ARCH=$(git diff --cached --name-only --diff-filter=ACM \
        'docs/arch/functional_areas.yml' \
        'docs/arch/source/*' \
        'src/*.py' || true)
+STAGED_TESTS=$(git diff --cached --name-only --diff-filter=ACM -- 'tests/test_*.py' || true)
 
-# Short-circuit only when neither trigger fires.
-if [ -z "$STAGED_PY" ] && [ -z "$STAGED_ARCH" ]; then
+# Short-circuit only when no relevant trigger fires.
+if [ -z "$STAGED_PY" ] && [ -z "$STAGED_ARCH" ] && [ -z "$STAGED_TESTS" ]; then
     exit 0
 fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
+
+# Test-sludge guard: reject narrating "Should ..." docstrings, redundant
+# "Tests for ..." class docstrings, and ceremonial AAA comments in staged
+# test files. See scripts/strip_test_sludge.py for the full pattern list.
+if [ -n "$STAGED_TESTS" ]; then
+    echo "pre-commit: running test-sludge check..."
+    # shellcheck disable=SC2086
+    if ! make test-sludge-check FILES="$STAGED_TESTS"; then
+        exit 1
+    fi
+    echo "pre-commit: test-sludge OK"
+fi
 
 if [ -n "$STAGED_PY" ]; then
     echo "pre-commit: running make lint-check..."

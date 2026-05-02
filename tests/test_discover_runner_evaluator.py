@@ -78,8 +78,6 @@ def _make_runner(
 
 
 class TestDiscoverRunnerEvaluator:
-    """Tests for DiscoverRunner evaluator dispatch + retry + escalation."""
-
     async def test_ok_on_first_attempt(self, config) -> None:
         runner, calls = _make_runner(3, config, [_D_START], [_OK])
         result = await runner.discover(_make_task())

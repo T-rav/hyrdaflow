@@ -10,8 +10,6 @@ from makefile_scaffold import (
 
 
 class TestParseMakefile:
-    """Tests for parse_makefile()."""
-
     def test_parses_simple_targets(self) -> None:
         content = "lint:\n\truff check .\n\ntest:\n\tpytest\n"
         result = parse_makefile(content)
@@ -79,8 +77,6 @@ class TestParseMakefile:
 
 
 class TestGenerateMakefile:
-    """Tests for generate_makefile()."""
-
     def test_generates_python_makefile(self) -> None:
         content = generate_makefile("python")
         assert "ruff check" in content
@@ -152,8 +148,6 @@ class TestGenerateMakefile:
 
 
 class TestMergeMakefile:
-    """Tests for merge_makefile()."""
-
     def test_adds_missing_targets_to_existing(self) -> None:
         existing = "lint:\n\truff check . --fix\n"
         new_content, _ = merge_makefile(existing, "python")

@@ -21,8 +21,6 @@ from tests.helpers import find_endpoint, make_dashboard_router
 
 
 class TestCrateEndpoints:
-    """Tests for /api/crates routes backed by GitHub milestones."""
-
     @pytest.mark.asyncio
     async def test_list_crates_returns_empty_list(
         self, config, event_bus, state, tmp_path
@@ -232,8 +230,6 @@ class TestCrateEndpoints:
 
 
 class TestDetectRepoSlugFromPath:
-    """Tests for _detect_repo_slug_from_path helper."""
-
     @pytest.fixture(autouse=True)
     def _setup(self, config, event_bus, state, tmp_path: Path) -> None:
         self.router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
@@ -268,8 +264,6 @@ class TestDetectRepoSlugFromPath:
 
 
 class TestAddRepoByPath:
-    """Tests for POST /api/repos/add endpoint."""
-
     class _FakeGitProcess:
         """Minimal async proc stub for git subprocess calls."""
 
@@ -615,8 +609,6 @@ class TestAddRepoByPath:
 
 
 class TestPickRepoFolder:
-    """Tests for POST /api/repos/pick-folder endpoint."""
-
     @pytest.mark.asyncio
     async def test_no_selection_returns_400(
         self,
@@ -669,8 +661,6 @@ class TestPickRepoFolder:
 
 
 class TestBrowsableFilesystemAPI:
-    """Tests for /api/fs/roots and /api/fs/list endpoints."""
-
     @pytest.mark.asyncio
     async def test_fs_roots_returns_allowed_roots(
         self,
@@ -1079,8 +1069,6 @@ class TestRepoStoreRuntimeIntegration:
 
 
 class TestAddRepoByPathWithCallback:
-    """Tests for POST /api/repos/add when register_repo_cb is provided."""
-
     @pytest.mark.asyncio
     async def test_register_repo_cb_invoked_on_valid_path(
         self, config, event_bus, state, tmp_path
@@ -1175,8 +1163,6 @@ class TestAddRepoByPathWithCallback:
 
 
 class TestListSupervisedReposWithStore:
-    """Tests for GET /api/repos when repo_store is provided (no supervisor)."""
-
     @pytest.mark.asyncio
     async def test_returns_store_records_when_repo_store_set(
         self, config, event_bus, state, tmp_path

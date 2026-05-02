@@ -15,8 +15,6 @@ from delta_verifier import parse_file_delta, verify_delta
 
 
 class TestParseFileDelta:
-    """Tests for parsing the ## File Delta section from plans."""
-
     def test_parses_all_change_types(self) -> None:
         plan = (
             "## File Delta\n"
@@ -70,8 +68,6 @@ class TestParseFileDelta:
 
 
 class TestVerifyDelta:
-    """Tests for comparing planned vs actual file changes."""
-
     def test_no_drift_when_match(self) -> None:
         planned = ["src/a.py", "src/b.py"]
         actual = ["src/a.py", "src/b.py"]

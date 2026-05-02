@@ -40,8 +40,6 @@ def restorer(state: Any, bus: EventBus, bg_workers: BGWorkerManager) -> StateRes
 
 
 class TestRestoreAll:
-    """Tests for restore_all orchestration."""
-
     def test_restores_worker_intervals(
         self, restorer: StateRestorer, state: Any
     ) -> None:
@@ -107,8 +105,6 @@ class TestRestoreAll:
 
 
 class TestPruneStaleDisabledWorkers:
-    """Tests for prune_stale_disabled_workers."""
-
     def test_prunes_stale(
         self,
         restorer: StateRestorer,
@@ -139,8 +135,6 @@ class TestPruneStaleDisabledWorkers:
 
 
 class TestBackfillFromEvents:
-    """Tests for _backfill_bg_worker_states_from_events."""
-
     @pytest.mark.asyncio
     async def test_backfills_from_event_history(
         self,

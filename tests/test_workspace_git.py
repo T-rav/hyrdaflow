@@ -16,8 +16,6 @@ from workspace import WorkspaceManager
 
 
 class TestFetchAndMergeMain:
-    """Tests for WorkspaceManager._fetch_and_merge_main."""
-
     @pytest.mark.asyncio
     async def test_success_returns_true(self, config, tmp_path: Path) -> None:
         """_fetch_and_merge_main should return True when all 3 git commands succeed."""
@@ -117,8 +115,6 @@ class TestFetchAndMergeMain:
 
 
 class TestMergeMain:
-    """Tests for WorkspaceManager.merge_main."""
-
     @pytest.mark.asyncio
     async def test_merge_main_success_returns_true(
         self, config, tmp_path: Path
@@ -226,11 +222,8 @@ class TestMergeMain:
 
 
 class TestDeleteLocalBranch:
-    """Tests for WorkspaceManager._delete_local_branch."""
-
     @pytest.mark.asyncio
     async def test_deletes_existing_branch(self, config, tmp_path: Path) -> None:
-        """Should call git branch -D for the given branch."""
         manager = WorkspaceManager(config)
         success_proc = make_proc(returncode=0)
 
@@ -246,7 +239,6 @@ class TestDeleteLocalBranch:
     async def test_swallows_error_when_branch_missing(
         self, config, tmp_path: Path
     ) -> None:
-        """Should not raise when the branch does not exist."""
         manager = WorkspaceManager(config)
         fail_proc = make_proc(returncode=1, stderr=b"error: branch not found")
 
@@ -265,8 +257,6 @@ class TestDeleteLocalBranch:
 
 
 class TestRemoteBranchExists:
-    """Tests for WorkspaceManager._remote_branch_exists."""
-
     @pytest.mark.asyncio
     async def test_returns_true_when_ls_remote_has_output(
         self, config, tmp_path: Path
@@ -308,8 +298,6 @@ class TestRemoteBranchExists:
 
 
 class TestStartMergeMain:
-    """Tests for WorkspaceManager.start_merge_main."""
-
     @pytest.mark.asyncio
     async def test_start_merge_main_clean_merge_returns_true(
         self, config, tmp_path: Path
@@ -374,8 +362,6 @@ class TestStartMergeMain:
 
 
 class TestAbortMerge:
-    """Tests for WorkspaceManager.abort_merge."""
-
     @pytest.mark.asyncio
     async def test_abort_merge_calls_git_merge_abort(
         self, config, tmp_path: Path
@@ -416,13 +402,10 @@ class TestAbortMerge:
 
 
 class TestGetConflictingFiles:
-    """Tests for WorkspaceManager.get_conflicting_files."""
-
     @pytest.mark.asyncio
     async def test_returns_list_of_conflicting_files(
         self, config, tmp_path: Path
     ) -> None:
-        """Should return file names from git diff --name-only --diff-filter=U."""
         manager = WorkspaceManager(config)
         output = b"src/foo.py\nsrc/bar.py\n"
         proc = make_proc(returncode=0, stdout=output)
@@ -436,7 +419,6 @@ class TestGetConflictingFiles:
     async def test_returns_empty_when_no_conflicts(
         self, config, tmp_path: Path
     ) -> None:
-        """Should return empty list when no files have conflicts."""
         manager = WorkspaceManager(config)
         proc = make_proc(returncode=0, stdout=b"")
 
@@ -447,7 +429,6 @@ class TestGetConflictingFiles:
 
     @pytest.mark.asyncio
     async def test_returns_empty_on_failure(self, config, tmp_path: Path) -> None:
-        """Should return empty list when git command fails."""
         manager = WorkspaceManager(config)
         proc = make_proc(returncode=1, stderr=b"fatal: not a git repo")
 
@@ -460,7 +441,6 @@ class TestGetConflictingFiles:
     async def test_strips_whitespace_from_filenames(
         self, config, tmp_path: Path
     ) -> None:
-        """Should strip leading/trailing whitespace from each filename."""
         manager = WorkspaceManager(config)
         output = b"  foo.py  \n  bar.py  \n\n"
         proc = make_proc(returncode=0, stdout=output)
@@ -477,13 +457,10 @@ class TestGetConflictingFiles:
 
 
 class TestGetMainDiffForFiles:
-    """Tests for WorkspaceManager.get_main_diff_for_files."""
-
     @pytest.mark.asyncio
     async def test_returns_diff_for_specified_files(
         self, config, tmp_path: Path
     ) -> None:
-        """Should return the diff output for the given files."""
         manager = WorkspaceManager(config)
         merge_base_proc = make_proc(returncode=0, stdout=b"abc123\n")
         diff_proc = make_proc(
@@ -505,7 +482,6 @@ class TestGetMainDiffForFiles:
     async def test_returns_empty_for_empty_file_list(
         self, config, tmp_path: Path
     ) -> None:
-        """Should return empty string when no files are provided."""
         manager = WorkspaceManager(config)
 
         with patch("asyncio.create_subprocess_exec") as mock_exec:
@@ -516,7 +492,6 @@ class TestGetMainDiffForFiles:
 
     @pytest.mark.asyncio
     async def test_truncates_large_diff(self, config, tmp_path: Path) -> None:
-        """Should truncate diff exceeding max_chars and append marker."""
         manager = WorkspaceManager(config)
         merge_base_proc = make_proc(returncode=0, stdout=b"abc123\n")
         large_diff = b"x" * 50_000
@@ -539,7 +514,6 @@ class TestGetMainDiffForFiles:
     async def test_returns_empty_on_merge_base_failure(
         self, config, tmp_path: Path
     ) -> None:
-        """Should return empty string when git merge-base fails."""
         manager = WorkspaceManager(config)
         fail_proc = make_proc(returncode=1, stderr=b"fatal: bad revision")
 
@@ -550,7 +524,6 @@ class TestGetMainDiffForFiles:
 
     @pytest.mark.asyncio
     async def test_returns_empty_on_diff_failure(self, config, tmp_path: Path) -> None:
-        """Should return empty string when git diff fails."""
         manager = WorkspaceManager(config)
         merge_base_proc = make_proc(returncode=0, stdout=b"abc123\n")
         diff_fail_proc = make_proc(returncode=1, stderr=b"fatal: bad path")
@@ -567,7 +540,6 @@ class TestGetMainDiffForFiles:
 
     @pytest.mark.asyncio
     async def test_passes_multiple_files(self, config, tmp_path: Path) -> None:
-        """Should pass all files to the git diff command."""
         manager = WorkspaceManager(config)
         merge_base_proc = make_proc(returncode=0, stdout=b"abc123\n")
         diff_proc = make_proc(returncode=0, stdout=b"combined diff\n")
@@ -597,11 +569,8 @@ class TestGetMainDiffForFiles:
 
 
 class TestGetMainCommitsSinceDiverge:
-    """Tests for WorkspaceManager.get_main_commits_since_diverge."""
-
     @pytest.mark.asyncio
     async def test_returns_commit_log(self, config, tmp_path: Path) -> None:
-        """Should return oneline commits from HEAD..origin/main."""
         manager = WorkspaceManager(config)
 
         fetch_proc = make_proc(returncode=0)
@@ -621,7 +590,6 @@ class TestGetMainCommitsSinceDiverge:
 
     @pytest.mark.asyncio
     async def test_returns_empty_on_fetch_failure(self, config, tmp_path: Path) -> None:
-        """Should return empty string when git fetch fails."""
         manager = WorkspaceManager(config)
         fail_proc = make_proc(returncode=1, stderr=b"fatal: network error")
 
@@ -632,7 +600,6 @@ class TestGetMainCommitsSinceDiverge:
 
     @pytest.mark.asyncio
     async def test_returns_empty_on_log_failure(self, config, tmp_path: Path) -> None:
-        """Should return empty string when git log fails."""
         manager = WorkspaceManager(config)
 
         fetch_proc = make_proc(returncode=0)
@@ -652,7 +619,6 @@ class TestGetMainCommitsSinceDiverge:
     async def test_returns_empty_when_no_diverged_commits(
         self, config, tmp_path: Path
     ) -> None:
-        """Should return empty string when branch is up to date with main."""
         manager = WorkspaceManager(config)
 
         fetch_proc = make_proc(returncode=0)
@@ -670,7 +636,6 @@ class TestGetMainCommitsSinceDiverge:
 
     @pytest.mark.asyncio
     async def test_passes_limit_flag(self, config, tmp_path: Path) -> None:
-        """Should pass -30 to limit the number of commits."""
         manager = WorkspaceManager(config)
 
         success_proc = make_proc(returncode=0, stdout=b"abc123 commit\n")
@@ -691,8 +656,6 @@ class TestGetMainCommitsSinceDiverge:
 
 
 class TestEnableRerere:
-    """Tests for WorkspaceManager.enable_rerere."""
-
     @pytest.mark.asyncio
     async def test_enable_rerere_runs_git_config(self, config) -> None:
         """enable_rerere should run ``git config rerere.enabled true`` in repo root."""

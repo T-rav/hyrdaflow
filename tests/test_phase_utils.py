@@ -36,8 +36,6 @@ from phase_utils import (
 
 
 class TestRunConcurrentBatch:
-    """Tests for run_concurrent_batch."""
-
     @pytest.mark.asyncio
     async def test_returns_all_results(self) -> None:
         """All items should produce results."""
@@ -123,8 +121,6 @@ class TestRunConcurrentBatch:
 
 
 class TestRunRefillingPool:
-    """Tests for run_refilling_pool — slot-filling worker pool."""
-
     @pytest.mark.asyncio
     async def test_processes_all_items(self) -> None:
         """All supplied items should be processed."""
@@ -290,11 +286,8 @@ class TestRunRefillingPool:
 
 
 class TestEscalateToHitl:
-    """Tests for escalate_to_hitl."""
-
     @pytest.mark.asyncio
     async def test_records_state(self) -> None:
-        """Should call set_hitl_origin, set_hitl_cause, record_hitl_escalation."""
         state = MagicMock()
         prs = AsyncMock()
 
@@ -313,7 +306,6 @@ class TestEscalateToHitl:
 
     @pytest.mark.asyncio
     async def test_swaps_labels(self) -> None:
-        """Should call swap_pipeline_labels with the HITL label."""
         state = MagicMock()
         prs = AsyncMock()
 
@@ -335,11 +327,8 @@ class TestEscalateToHitl:
 
 
 class TestSafeFileMemorySuggestion:
-    """Tests for safe_file_memory_suggestion."""
-
     @pytest.mark.asyncio
     async def test_delegates_to_file_memory_suggestion(self) -> None:
-        """Should call file_memory_suggestion with correct args."""
         config = MagicMock()
 
         with patch(
@@ -361,7 +350,6 @@ class TestSafeFileMemorySuggestion:
 
     @pytest.mark.asyncio
     async def test_swallows_exception(self) -> None:
-        """Should not raise when file_memory_suggestion fails."""
         config = MagicMock()
 
         with patch(
@@ -377,7 +365,6 @@ class TestSafeFileMemorySuggestion:
 
     @pytest.mark.asyncio
     async def test_logs_error_on_exception(self) -> None:
-        """Should call logger.exception on failure."""
         config = MagicMock()
 
         with (
@@ -402,11 +389,8 @@ class TestSafeFileMemorySuggestion:
 
 
 class TestStoreLifecycle:
-    """Tests for store_lifecycle async context manager."""
-
     @pytest.mark.asyncio
     async def test_marks_active_and_complete(self) -> None:
-        """Should call mark_active on enter and mark_complete on exit."""
         store = MagicMock()
 
         async with store_lifecycle(store, 42, "plan"):
@@ -417,7 +401,6 @@ class TestStoreLifecycle:
 
     @pytest.mark.asyncio
     async def test_marks_complete_on_exception(self) -> None:
-        """Should call mark_complete even when body raises."""
         store = MagicMock()
 
         with pytest.raises(ValueError, match="boom"):
@@ -434,10 +417,7 @@ class TestStoreLifecycle:
 
 
 class TestRecordHarnessFailure:
-    """Tests for record_harness_failure."""
-
     def test_appends_failure_record_to_store(self, tmp_path: Path) -> None:
-        """Should append a FailureRecord with correct fields to the store."""
         memory_dir = tmp_path / "memory"
         memory_dir.mkdir()
         store = HarnessInsightStore(memory_dir)
@@ -458,7 +438,6 @@ class TestRecordHarnessFailure:
         assert records[0].pr_number == 0
 
     def test_noop_when_store_is_none(self) -> None:
-        """Should not raise when harness_insights is None."""
         result = record_harness_failure(
             None,
             42,
@@ -469,7 +448,6 @@ class TestRecordHarnessFailure:
         assert result is None  # noop when store is None
 
     def test_catches_exception_from_store(self) -> None:
-        """Should catch and log exceptions from the store without propagating."""
         mock_store = MagicMock()
         mock_store.append_failure.side_effect = RuntimeError("disk full")
 
@@ -491,7 +469,6 @@ class TestRecordHarnessFailure:
             assert logged_call.kwargs["exc_info"] is True
 
     def test_passes_pr_number_to_record(self, tmp_path: Path) -> None:
-        """Should set pr_number on the FailureRecord when provided."""
         memory_dir = tmp_path / "memory"
         memory_dir.mkdir()
         store = HarnessInsightStore(memory_dir)
@@ -511,7 +488,6 @@ class TestRecordHarnessFailure:
         assert records[0].stage == "review"
 
     def test_extracts_subcategories(self, tmp_path: Path) -> None:
-        """Should extract subcategories from the details string."""
         memory_dir = tmp_path / "memory"
         memory_dir.mkdir()
         store = HarnessInsightStore(memory_dir)
@@ -535,11 +511,8 @@ class TestRecordHarnessFailure:
 
 
 class TestPublishReviewStatus:
-    """Tests for publish_review_status."""
-
     @pytest.mark.asyncio
     async def test_publishes_review_update_event(self) -> None:
-        """Should publish a REVIEW_UPDATE event via the bus."""
         from tests.conftest import PRInfoFactory
 
         bus = AsyncMock()
@@ -560,7 +533,6 @@ class TestPublishReviewStatus:
 
     @pytest.mark.asyncio
     async def test_includes_correct_data_fields(self) -> None:
-        """Should include all five data keys with correct values."""
         from tests.conftest import PRInfoFactory
 
         bus = AsyncMock()
@@ -664,8 +636,6 @@ class TestNextAdrNumber:
 
 
 class TestIsLikelyBug:
-    """Tests for is_likely_bug() and LIKELY_BUG_EXCEPTIONS."""
-
     @pytest.mark.parametrize(
         "exc",
         [
@@ -711,11 +681,8 @@ class TestIsLikelyBug:
 
 
 class TestMemorySuggester:
-    """Tests for MemorySuggester pre-bound callable."""
-
     @pytest.mark.asyncio
     async def test_delegates_to_safe_file_memory_suggestion(self) -> None:
-        """Should forward (transcript, source, reference) with bound config."""
         config = MagicMock()
 
         suggest = MemorySuggester(config)
@@ -757,8 +724,6 @@ class TestMemorySuggester:
 
 
 class TestPipelineEscalator:
-    """Tests for PipelineEscalator helper class."""
-
     def _make_escalator(
         self,
         *,
@@ -784,7 +749,6 @@ class TestPipelineEscalator:
 
     @pytest.mark.asyncio
     async def test_calls_escalate_to_diagnostic(self) -> None:
-        """Should call escalate_to_diagnostic with the correct arguments."""
         state = MagicMock()
         prs = AsyncMock()
         escalator = self._make_escalator(state=state, prs=prs)
@@ -805,7 +769,6 @@ class TestPipelineEscalator:
 
     @pytest.mark.asyncio
     async def test_enqueues_transition(self) -> None:
-        """Should call store.enqueue_transition(issue, 'diagnose')."""
         store = MagicMock()
         issue = MagicMock(id=10)
         escalator = self._make_escalator(store=store)
@@ -821,7 +784,6 @@ class TestPipelineEscalator:
 
     @pytest.mark.asyncio
     async def test_records_harness_failure(self) -> None:
-        """Should call record_harness_failure with correct args."""
         harness = MagicMock()
         escalator = self._make_escalator(
             harness_insights=harness, stage=PipelineStage.IMPLEMENT
@@ -844,7 +806,6 @@ class TestPipelineEscalator:
 
     @pytest.mark.asyncio
     async def test_none_harness_insights_does_not_raise(self) -> None:
-        """Should not raise when harness_insights is None."""
         escalator = self._make_escalator(harness_insights=None)
         issue = MagicMock(id=1)
 
@@ -860,7 +821,6 @@ class TestPipelineEscalator:
 
     @pytest.mark.asyncio
     async def test_uses_configured_labels_and_stage(self) -> None:
-        """Should use origin_label, hitl_label, and stage from constructor."""
         state = MagicMock()
         prs = AsyncMock()
         harness = MagicMock()

@@ -19,8 +19,6 @@ from tests.helpers import ConfigFactory
 
 
 class TestRunContext:
-    """Tests for the RunContext active recording session."""
-
     def test_save_plan_writes_file(self, tmp_path: Path) -> None:
         run_dir = tmp_path / "run1"
         run_dir.mkdir()
@@ -141,8 +139,6 @@ class TestRunContext:
 
 
 class TestRunRecorder:
-    """Tests for the RunRecorder lifecycle management."""
-
     def _make_recorder(self, tmp_path: Path) -> RunRecorder:
         config = ConfigFactory.create(repo_root=tmp_path / "repo")
         (tmp_path / "repo").mkdir(parents=True, exist_ok=True)
@@ -303,8 +299,6 @@ class TestRunRecorder:
 
 
 class TestRunManifest:
-    """Tests for the RunManifest Pydantic model."""
-
     def test_run_manifest_defaults_to_empty_outcome_and_zero_duration(self) -> None:
         m = RunManifest(issue_number=42, timestamp="20260101T000000Z")
         assert m.outcome == ""
@@ -330,8 +324,6 @@ class TestRunManifest:
 
 
 class TestRunManifestOutcome:
-    """Tests for RunManifest.outcome Literal constraint."""
-
     @pytest.mark.parametrize("outcome", ["success", "failed", "stopped", ""])
     def test_valid_outcomes_accepted(self, outcome: str) -> None:
         m = RunManifest(issue_number=42, timestamp="20260101T000000Z", outcome=outcome)

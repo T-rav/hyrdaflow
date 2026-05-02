@@ -19,8 +19,6 @@ from tests.helpers import find_endpoint, make_dashboard_router
 
 
 class TestMetricsEndpoint:
-    """Tests for the GET /api/metrics endpoint."""
-
     @pytest.mark.asyncio
     async def test_metrics_returns_zero_rates_when_no_data(
         self, config, event_bus, state, tmp_path
@@ -135,8 +133,6 @@ class TestMetricsEndpoint:
 
 
 class TestGitHubMetricsEndpoint:
-    """Tests for the GET /api/metrics/github endpoint."""
-
     @pytest.mark.asyncio
     async def test_github_metrics_returns_label_counts(
         self, config, event_bus, state, tmp_path
@@ -170,8 +166,6 @@ class TestGitHubMetricsEndpoint:
 
 
 class TestMetricsHistoryEndpoint:
-    """Tests for GET /api/metrics/history endpoint — local-cache fallback path."""
-
     @pytest.mark.asyncio
     async def test_returns_empty_when_no_cache(
         self, config, event_bus, state, tmp_path
@@ -296,8 +290,6 @@ class TestLoadLocalMetricsCacheExceptionHandling:
 
 
 class TestReviewInsightsEndpoint:
-    """Tests for the /api/review-insights endpoint."""
-
     @pytest.mark.asyncio
     async def test_review_insights_returns_empty(
         self, config, event_bus, state, tmp_path
@@ -371,8 +363,6 @@ class TestReviewInsightsEndpoint:
 
 
 class TestRetrospectivesEndpoint:
-    """Tests for the /api/retrospectives endpoint."""
-
     @pytest.mark.asyncio
     async def test_retrospectives_returns_empty(
         self, config, event_bus, state, tmp_path
@@ -486,8 +476,6 @@ class TestRetrospectivesEdgeCases:
 
 
 class TestHarnessInsightsEndpoints:
-    """Tests for harness-insights endpoints."""
-
     @pytest.mark.asyncio
     async def test_harness_insights_returns_empty(
         self, config, event_bus, state, tmp_path

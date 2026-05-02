@@ -281,8 +281,6 @@ class TestStateDataModel:
 
 
 class TestWorkerResultMeta:
-    """Tests for worker result metadata tracking."""
-
     def test_set_and_get_worker_result_meta(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         meta = {"quality_fix_attempts": 2, "duration_seconds": 120.5, "error": None}

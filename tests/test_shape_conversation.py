@@ -50,8 +50,6 @@ def sample_task() -> Task:
 
 
 class TestConversationStateModel:
-    """Tests for ConversationTurn and ShapeConversation models."""
-
     def test_conversation_turn_creation(self) -> None:
         turn = ConversationTurn(
             role="agent",
@@ -88,8 +86,6 @@ class TestConversationStateModel:
 
 
 class TestFinalizeDetection:
-    """Tests for finalization signal detection."""
-
     @pytest.mark.parametrize(
         "text",
         [
@@ -121,8 +117,6 @@ class TestFinalizeDetection:
 
 
 class TestCancelDetection:
-    """Tests for cancel signal detection."""
-
     def test_cancel_detected(self) -> None:
         assert _CANCEL_RE.search("cancel this")
         assert _CANCEL_RE.search("nevermind")
@@ -133,8 +127,6 @@ class TestCancelDetection:
 
 
 class TestSignalClassification:
-    """Tests for learning signal classification."""
-
     def test_scope_narrow(self, phase: ShapePhase) -> None:
         assert phase._classify_signal("just the calendar widget") == "scope_narrow"
         assert phase._classify_signal("start with MVP") == "scope_narrow"
@@ -157,8 +149,6 @@ class TestSignalClassification:
 
 
 class TestFindHumanReply:
-    """Tests for finding human replies in comments."""
-
     def test_finds_reply_after_agent_turn(self, phase: ShapePhase) -> None:
         comments = [
             "**Shape Turn 1** — Product Design Conversation\n\nHere are options...",
@@ -185,8 +175,6 @@ class TestFindHumanReply:
 
 
 class TestConversationLoop:
-    """Tests for the conversation loop flow."""
-
     @pytest.mark.asyncio
     async def test_first_turn_runs_agent(
         self, phase: ShapePhase, sample_task: Task, deps: dict
@@ -257,8 +245,6 @@ class TestConversationLoop:
 
 
 class TestConversationTurnSource:
-    """Tests that ConversationTurn.source is populated correctly."""
-
     @pytest.mark.asyncio
     async def test_state_response_sets_source_to_whatsapp(
         self, phase: ShapePhase, sample_task: Task, deps: dict
@@ -364,8 +350,6 @@ class TestConversationTurnSource:
 
 
 class TestWhatsAppBridge:
-    """Tests for WhatsApp webhook parsing."""
-
     def test_parse_webhook_extracts_text_and_issue(self) -> None:
         from whatsapp_bridge import WhatsAppBridge
 

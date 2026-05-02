@@ -23,8 +23,6 @@ from tests.helpers import ConfigFactory, make_pr_manager
 
 
 class TestChunkBody:
-    """Tests for PRManager._chunk_body."""
-
     def test_short_body_returns_single_chunk(self):
         result = PRManager._chunk_body("hello world", limit=100)
         assert result == ["hello world"]
@@ -64,8 +62,6 @@ class TestChunkBody:
 
 
 class TestCapBody:
-    """Tests for PRManager._cap_body."""
-
     def test_short_body_unchanged(self):
         result = PRManager._cap_body("hello", limit=100)
         assert result == "hello"
@@ -477,8 +473,6 @@ async def test_create_issue_no_labels(config, event_bus):
 
 
 class TestUploadScreenshotGist:
-    """Tests for PRManager.upload_screenshot_gist."""
-
     @pytest.mark.asyncio
     async def test_dry_run_returns_empty_string(self, dry_config, event_bus):
         mgr = make_pr_manager(dry_config, event_bus)
@@ -2172,8 +2166,6 @@ class TestWaitForCiEdgeCases:
 
 
 class TestCloseIssue:
-    """Tests for PRManager.close_issue."""
-
     @pytest.mark.asyncio
     async def test_close_issue_calls_gh_issue_close(self, config, event_bus):
         manager = make_pr_manager(config, event_bus)
@@ -2220,8 +2212,6 @@ class TestCloseIssue:
 
 
 class TestGetPrDiffNames:
-    """Tests for PRManager.get_pr_diff_names."""
-
     @pytest.mark.asyncio
     async def test_get_pr_diff_names_returns_file_list(self, config, event_bus):
         manager = make_pr_manager(config, event_bus)
@@ -2302,8 +2292,6 @@ class TestGetPrDiffNames:
 
 
 class TestFetchCiFailureLogs:
-    """Tests for PRManager.fetch_ci_failure_logs."""
-
     @pytest.mark.asyncio
     async def test_returns_empty_in_dry_run(self, dry_config, event_bus):
         """Dry-run mode returns empty string."""
@@ -2494,8 +2482,6 @@ class TestFetchCiFailureLogs:
 
 
 class TestUpdateIssueBody:
-    """Tests for PRManager.update_issue_body."""
-
     @pytest.mark.asyncio
     async def test_calls_gh_issue_edit_with_body_file(self, config, event_bus) -> None:
         mgr = make_pr_manager(config, event_bus)
@@ -2552,8 +2538,6 @@ class TestUpdateIssueBody:
 
 
 class TestFetchCodeScanningAlerts:
-    """Tests for PRManager.fetch_code_scanning_alerts."""
-
     @pytest.mark.asyncio
     async def test_returns_empty_in_dry_run(self, dry_config, event_bus):
         """Dry-run mode returns empty list."""
@@ -2631,8 +2615,6 @@ class TestFetchCodeScanningAlerts:
 
 
 class TestExpectedPrTitle:
-    """Tests for PRManager.expected_pr_title."""
-
     def test_short_title(self):
         result = PRManager.expected_pr_title(42, "Fix bug")
         assert result == "Fixes #42: Fix bug"
@@ -2658,8 +2640,6 @@ class TestExpectedPrTitle:
 
 
 class TestUpdatePrTitle:
-    """Tests for PRManager.update_pr_title."""
-
     @pytest.mark.asyncio
     async def test_calls_gh_pr_edit(self, config, event_bus):
         manager = make_pr_manager(config, event_bus)

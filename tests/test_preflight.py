@@ -160,7 +160,6 @@ def test_check_disk_space_oserror(tmp_path: Path) -> None:
 
 
 def test_check_disk_space_nonexistent_path() -> None:
-    """Should walk up to find an existing ancestor."""
     with patch(
         "preflight.shutil.disk_usage",
         return_value=MagicMock(free=5 * 1024**3),

@@ -10,8 +10,6 @@ from phase_utils import park_issue
 
 
 class TestParkIssue:
-    """Tests for park_issue()."""
-
     @pytest.mark.asyncio
     async def test_park_issue_swaps_to_parked_label(self) -> None:
         prs = AsyncMock()

@@ -200,8 +200,6 @@ async def test_remove_pr_label_subprocess_error_does_not_raise(config, event_bus
 
 
 class TestCommentHelper:
-    """Tests for the unified _comment() helper."""
-
     @pytest.mark.asyncio
     async def test_comment_issue_target(self, event_bus, tmp_path):
         cfg = ConfigFactory.create(
@@ -277,8 +275,6 @@ class TestCommentHelper:
 
 
 class TestAddLabelsHelper:
-    """Tests for the unified _add_labels() helper."""
-
     @pytest.mark.asyncio
     async def test_add_labels_issue_target(self, config, event_bus):
         mgr = make_pr_manager(config, event_bus)
@@ -350,8 +346,6 @@ class TestAddLabelsHelper:
 
 
 class TestRemoveLabelHelper:
-    """Tests for the unified _remove_label() helper."""
-
     @pytest.mark.asyncio
     async def test_remove_label_issue_target(self, config, event_bus):
         mgr = make_pr_manager(config, event_bus)
@@ -433,8 +427,6 @@ class TestRemoveLabelHelper:
 
 
 class TestSwapPipelineLabels:
-    """Tests for PRManager.swap_pipeline_labels."""
-
     @pytest.mark.asyncio
     async def test_removes_all_other_pipeline_labels_from_issue(
         self, config, event_bus

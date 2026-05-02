@@ -33,8 +33,6 @@ def _make_session(
 
 
 class TestGetSessions:
-    """Tests for GET /api/sessions endpoint."""
-
     @pytest.mark.asyncio
     async def test_returns_empty_list_when_no_sessions(
         self, config, event_bus, state, tmp_path
@@ -84,8 +82,6 @@ class TestGetSessions:
 
 
 class TestGetSessionDetail:
-    """Tests for GET /api/sessions/{session_id} endpoint."""
-
     @pytest.mark.asyncio
     async def test_returns_session_detail(
         self, config, event_bus, state, tmp_path
@@ -150,8 +146,6 @@ class TestGetSessionDetail:
 
 
 class TestControlStatusIncludesSessionId:
-    """Tests that /api/control/status includes current_session_id."""
-
     @pytest.mark.asyncio
     async def test_control_status_includes_session_id_when_running(
         self, config, event_bus, state, tmp_path

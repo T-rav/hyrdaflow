@@ -22,8 +22,6 @@ from tests.helpers import find_endpoint, make_dashboard_router
 
 
 class TestHitlRecommendationsEndpoint:
-    """Tests for GET /api/hitl-recommendations."""
-
     @pytest.mark.asyncio
     async def test_returns_empty_list_when_file_missing(
         self, config, event_bus: EventBus, state, tmp_path: Path
@@ -96,8 +94,6 @@ class TestHitlRecommendationsEndpoint:
 
 
 class TestAdrDecisionsEndpoint:
-    """Tests for GET /api/adr-decisions."""
-
     @pytest.mark.asyncio
     async def test_returns_empty_list_when_file_missing(
         self, config, event_bus: EventBus, state, tmp_path: Path
@@ -151,8 +147,6 @@ class TestAdrDecisionsEndpoint:
 
 
 class TestVerificationRecordsEndpoint:
-    """Tests for GET /api/verification-records."""
-
     @pytest.mark.asyncio
     async def test_returns_empty_list_when_file_missing(
         self, config, event_bus: EventBus, state, tmp_path: Path

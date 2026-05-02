@@ -21,8 +21,6 @@ from transcript_summarizer import (
 
 
 class TestBuildTranscriptSummaryBody:
-    """Tests for formatting the GitHub issue body."""
-
     def test_includes_all_metadata(self) -> None:
         body = build_transcript_summary_body(
             issue_number=42,
@@ -69,8 +67,6 @@ class TestBuildTranscriptSummaryBody:
 
 
 class TestBuildPhaseSummaryComment:
-    """Tests for formatting phase summary issue comments."""
-
     def test_includes_phase_header_status_and_summary(self) -> None:
         body = build_phase_summary_comment(
             phase="implement",
@@ -127,8 +123,6 @@ class TestBuildPhaseSummaryComment:
 
 
 class TestTruncateTranscript:
-    """Tests for transcript truncation logic."""
-
     def test_under_limit_unchanged(self) -> None:
         text = "Short transcript"
         result = _truncate_transcript(text, max_chars=1000)
@@ -170,8 +164,6 @@ def _make_mock_runner(
 
 
 class TestSummarizeAndComment:
-    """Tests for comment-based transcript summaries."""
-
     @pytest.mark.asyncio
     async def test_happy_path_posts_comment(self, tmp_path: Path) -> None:
         """Model returns summary, post_comment called on correct issue."""

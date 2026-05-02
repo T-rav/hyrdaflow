@@ -91,8 +91,6 @@ def _make_loop(
 
 
 class TestDiagnosticLoopInterval:
-    """Tests for _get_default_interval."""
-
     def test_returns_config_value(self, tmp_path: Path) -> None:
         """_get_default_interval returns the configured diagnostic_interval."""
         loop, _, _, _, _ = _make_loop(tmp_path)
@@ -100,8 +98,6 @@ class TestDiagnosticLoopInterval:
 
 
 class TestDiagnosticLoopDoWork:
-    """Tests for _do_work."""
-
     @pytest.mark.asyncio
     async def test_empty_issue_list_returns_zero_counts(self, tmp_path: Path) -> None:
         """When no issues are labeled, _do_work returns zeroed stats."""

@@ -153,8 +153,6 @@ class TestHydraFlowConfigValidationConstraints:
 
 
 class TestBuildCredentialsGhToken:
-    """Tests for gh_token resolution via build_credentials()."""
-
     def test_gh_token_default_is_empty(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -232,8 +230,6 @@ class GitIdentityEnvMixin:
 
 
 class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
-    """Tests for git_user_name/git_user_email fields and env var resolution."""
-
     def test_git_user_name_default_is_empty(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -363,8 +359,6 @@ class TestHydraFlowConfigGitIdentity(GitIdentityEnvMixin):
 
 
 class TestHydraFlowConfigHitlActiveLabel:
-    """Tests for hitl_active_label env var override."""
-
     def test_hitl_active_label_env_var_not_applied_when_explicit(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -384,8 +378,6 @@ class TestHydraFlowConfigHitlActiveLabel:
 
 
 class TestHydraFlowConfigDupLabel:
-    """Tests for dup_label default, custom value, and env var override."""
-
     def test_dup_label_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -417,8 +409,6 @@ class TestHydraFlowConfigDupLabel:
 
 
 class TestHydraFlowConfigEpicChildLabel:
-    """Tests for epic_child_label default, custom value, and env var override."""
-
     def test_epic_child_label_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -455,8 +445,6 @@ class TestHydraFlowConfigEpicChildLabel:
 
 
 class TestHydraFlowConfigMinPlanWords:
-    """Tests for min_plan_words field and HYDRAFLOW_MIN_PLAN_WORDS env var."""
-
     def test_min_plan_words_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -495,8 +483,6 @@ class TestHydraFlowConfigMinPlanWords:
 
 
 class TestHydraFlowConfigMaxReviewFixAttempts:
-    """Tests for max_review_fix_attempts env var override."""
-
     def test_max_review_fix_attempts_env_var_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -522,8 +508,6 @@ class TestHydraFlowConfigMaxReviewFixAttempts:
 
 
 class TestHydraFlowConfigMaxPreQualityReviewAttempts:
-    """Tests for max_pre_quality_review_attempts env var override."""
-
     def test_max_pre_quality_review_attempts_env_var_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -554,8 +538,6 @@ class TestHydraFlowConfigMaxPreQualityReviewAttempts:
 
 
 class TestHydraFlowConfigMinReviewFindings:
-    """Tests for min_review_findings env var override."""
-
     def test_min_review_findings_env_var_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -586,8 +568,6 @@ class TestHydraFlowConfigMinReviewFindings:
 
 
 class TestHydraFlowConfigMaxMergeConflictFixAttempts:
-    """Tests for max_merge_conflict_fix_attempts env var override."""
-
     def test_env_var_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -624,8 +604,6 @@ class TestHydraFlowConfigMaxMergeConflictFixAttempts:
 
 
 class TestHydraFlowConfigLitePlanLabels:
-    """Tests for lite_plan_labels field and HYDRAFLOW_LITE_PLAN_LABELS env var."""
-
     def test_lite_plan_labels_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -702,8 +680,6 @@ class TestHydraFlowConfigLitePlanLabels:
 
 
 class TestHydraFlowConfigThresholds:
-    """Tests for the threshold configuration fields."""
-
     def test_quality_fix_rate_threshold_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -798,8 +774,6 @@ class TestHydraFlowConfigThresholds:
 
 
 class TestHydraFlowConfigTestCommand:
-    """Tests for the test_command config field."""
-
     def test_test_command_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -847,8 +821,6 @@ class TestHydraFlowConfigTestCommand:
 
 
 class TestHydraFlowConfigMaxIssueBodyChars:
-    """Tests for the max_issue_body_chars config field."""
-
     def test_max_issue_body_chars_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -898,8 +870,6 @@ class TestHydraFlowConfigMaxIssueBodyChars:
 
 
 class TestHydraFlowConfigMaxReviewDiffChars:
-    """Tests for the max_review_diff_chars config field."""
-
     def test_max_review_diff_chars_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -949,8 +919,6 @@ class TestHydraFlowConfigMaxReviewDiffChars:
 
 
 class TestMaxIssueAttempts:
-    """Tests for max_issue_attempts config field."""
-
     def test_default_is_three(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -1021,8 +989,6 @@ class TestUpdatedIntervalDefaults:
 
 
 class TestTranscriptSummarizationConfig:
-    """Tests for transcript summarization configuration fields."""
-
     def test_default_enabled(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -1124,8 +1090,6 @@ class TestTranscriptSummarizationConfig:
 
 
 class TestLabelValidation:
-    """Tests for the field validator that rejects empty label lists."""
-
     @pytest.mark.parametrize(
         "field",
         [
@@ -1189,8 +1153,6 @@ class TestLabelValidation:
 
 
 class TestTimeoutConfigFields:
-    """Tests for agent_timeout and transcript_summary_timeout."""
-
     def test_agent_timeout_default(self) -> None:
         config = HydraFlowConfig(repo="test/repo")
         assert config.agent_timeout == 3600
@@ -1242,8 +1204,6 @@ class TestTimeoutConfigFields:
 
 
 class TestAdrReviewIntervalBounds:
-    """Tests for adr_review_interval Field bounds (ge=28800, le=432000)."""
-
     def test_adr_review_interval_default(self) -> None:
         config = HydraFlowConfig(repo="test/repo")
         assert config.adr_review_interval == 86400
@@ -1282,8 +1242,6 @@ class TestAdrReviewIntervalBounds:
 
 
 class TestTimeoutAndLimitFields:
-    """Tests for quality_timeout, git_command_timeout, summarizer_timeout, error_output_max_chars."""
-
     def test_quality_timeout_default(self, tmp_path: Path) -> None:
         """quality_timeout should default to 3600."""
         cfg = HydraFlowConfig(
@@ -1451,8 +1409,6 @@ class TestTimeoutAndLimitFields:
 
 
 class TestUnstickConfigFields:
-    """Tests for the new unsticker configuration fields."""
-
     def test_unstick_auto_merge_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -1496,8 +1452,6 @@ class TestUnstickConfigFields:
 
 
 class TestAllPipelineLabels:
-    """Tests for HydraFlowConfig.all_pipeline_labels property."""
-
     def test_returns_all_label_fields(self, tmp_path: Path) -> None:
         from tests.helpers import ConfigFactory
 
@@ -1538,8 +1492,6 @@ class TestAllPipelineLabels:
 
 
 class TestLabelsMustNotBeEmpty:
-    """Tests for the labels_must_not_be_empty validator."""
-
     def test_rejects_empty_ready_label(self, tmp_path: Path) -> None:
         from pydantic import ValidationError
 
