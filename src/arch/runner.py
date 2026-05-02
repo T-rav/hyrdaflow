@@ -55,7 +55,17 @@ _ARTIFACT_FILES = [
 
 
 def _run(cmd: list[str], cwd: Path) -> str:
-    res = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=False)
+    # Timeout guards against thread-pool exhaustion when ``emit`` is
+    # called from ``DiagramLoop._regen_and_detect_drift`` via
+    # ``asyncio.to_thread``. Same deadlock class as PR #8454.
+    # 60s covers the heaviest call here (``git log --since=90.days.ago``
+    # with several pathspecs).
+    try:
+        res = subprocess.run(
+            cmd, cwd=cwd, capture_output=True, text=True, check=False, timeout=60
+        )
+    except subprocess.TimeoutExpired:
+        return ""
     return res.stdout
 
 

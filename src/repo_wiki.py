@@ -1217,6 +1217,9 @@ class RepoWikiStore:
         import subprocess  # noqa: PLC0415 — isolated here, not a module-level dep
 
         # Targeted status check: only look at the configured prefix.
+        # Timeouts on every subprocess.run guard against thread-pool
+        # exhaustion when this runs under ``asyncio.to_thread`` from
+        # plan_phase / review_phase — same deadlock class as PR #8454.
         status = subprocess.run(
             [
                 "git",
@@ -1229,6 +1232,7 @@ class RepoWikiStore:
             capture_output=True,
             text=True,
             check=True,
+            timeout=30,
         ).stdout.strip()
         if not status:
             return
@@ -1236,6 +1240,7 @@ class RepoWikiStore:
         subprocess.run(
             ["git", "-C", str(worktree_path), "add", path_prefix],
             check=True,
+            timeout=30,
         )
         subprocess.run(
             [
@@ -1251,6 +1256,7 @@ class RepoWikiStore:
                 f"wiki: ingest {phase} for #{issue_number}",
             ],
             check=True,
+            timeout=60,
         )
 
     # -- public API --------------------------------------------------------
