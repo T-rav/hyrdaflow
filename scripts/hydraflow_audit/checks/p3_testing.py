@@ -66,18 +66,14 @@ def _mock_world_fixture(ctx: CheckContext) -> Finding:
 _FAKE_CLASS_RE = re.compile(r"^class\s+(Fake\w+|Mock\w+)", re.MULTILINE)
 
 
-# Canonical Fake locations. Fakes were originally housed exclusively
-# under ``tests/scenarios/fakes/`` (per ADR-0022). They were promoted
-# to first-class adapters under ``src/mockworld/fakes/`` by the
-# sandbox-tier scenario testing track (spec
-# 2026-04-26-sandbox-tier-scenarios-design.md, ADR-0052). The audit
-# accepts Fakes at EITHER location during the transition; once
-# ADR-0022 is amended to declare ``src/mockworld/fakes/`` canonical,
-# the legacy path can be dropped.
-_FAKE_DIRS_REL: tuple[tuple[str, ...], ...] = (
-    ("src", "mockworld", "fakes"),
-    ("tests", "scenarios", "fakes"),
-)
+# Canonical Fake location: ``src/mockworld/fakes/`` (per ADR-0052,
+# Sandbox-tier scenario testing). Fakes were originally housed under
+# ``tests/scenarios/fakes/``; PR #8451 promoted them to first-class
+# adapters in ``src/mockworld/`` so they can be imported by production
+# code paths (the sandbox entrypoint). The legacy directory now only
+# holds orchestration scaffolding (``mock_world.py``,
+# ``scenario_result.py``) — no actual ``Fake*`` adapter classes.
+_FAKE_DIRS_REL: tuple[tuple[str, ...], ...] = (("src", "mockworld", "fakes"),)
 
 
 def _collect_fake_classes(ctx: CheckContext) -> set[str]:

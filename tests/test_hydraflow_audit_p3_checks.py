@@ -75,7 +75,7 @@ def test_mock_world_fixture_missing_fails(tmp_path: Path) -> None:
 
 def test_scenario_fakes_count(tmp_path: Path) -> None:
     _write(
-        tmp_path / "tests" / "scenarios" / "fakes" / "f.py",
+        tmp_path / "src" / "mockworld" / "fakes" / "f.py",
         "class FakeVCS: ...\nclass FakeLLM: ...\nclass FakeClock: ...\n",
     )
     assert _run("P3.3", _ctx(tmp_path)).status is Status.PASS
@@ -83,7 +83,7 @@ def test_scenario_fakes_count(tmp_path: Path) -> None:
 
 def test_scenario_fakes_under_three_fails(tmp_path: Path) -> None:
     _write(
-        tmp_path / "tests" / "scenarios" / "fakes" / "f.py",
+        tmp_path / "src" / "mockworld" / "fakes" / "f.py",
         "class FakeOnly: ...\n",
     )
     assert _run("P3.3", _ctx(tmp_path)).status is Status.FAIL
@@ -117,7 +117,7 @@ def test_fake_clock_missing_fails(tmp_path: Path) -> None:
 
 def test_mock_inheritance_warns(tmp_path: Path) -> None:
     _write(
-        tmp_path / "tests" / "scenarios" / "fakes" / "bad.py",
+        tmp_path / "src" / "mockworld" / "fakes" / "bad.py",
         "from unittest.mock import AsyncMock\n\nclass FakeVCS(AsyncMock): ...\n",
     )
     assert _run("P3.14", _ctx(tmp_path)).status is Status.WARN
@@ -125,7 +125,7 @@ def test_mock_inheritance_warns(tmp_path: Path) -> None:
 
 def test_stateful_fakes_pass(tmp_path: Path) -> None:
     _write(
-        tmp_path / "tests" / "scenarios" / "fakes" / "good.py",
+        tmp_path / "src" / "mockworld" / "fakes" / "good.py",
         "class FakeVCS:\n    def __init__(self): self.issues = {}\n",
     )
     assert _run("P3.14", _ctx(tmp_path)).status is Status.PASS
