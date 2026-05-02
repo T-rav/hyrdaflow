@@ -1,179 +1,170 @@
 # Wiki Index: T-rav/hydraflow
 
-**249 entries** | Last updated: 2026-04-25T00:47:19.862623+00:00
+**212 entries** | Last updated: 2026-05-02T21:35:55.618433+00:00
 
 
-## Architecture (169)
+## Architecture (21)
 
-- Deferred Imports, Type Checking, and Testing
-- Optional Dependencies: Graceful Degradation and Safe Handling
-- Layer Architecture: Four-Layer Model with Structural Typing
-- State Persistence: Atomic Writes and Backup Recovery
-- Backward Compatibility and Refactoring via Facades and Re-Exports
-- Functional Design: Pure Functions and Module-Level Utilities
-- Background Loops and Skill Infrastructure: Audit Patterns and Wiring
-- Label-Based Async Loop Routing via GitHub Labels
-- Idempotency Guards Prevent Redundant Side Effects
-- Clarity Score Routing: Fast Path vs Multi-Stage Maturation
-- Testing Patterns: Mocking, Parametrized Assertions, and Test Helpers
-- Dynamic Discovery with Convention-Based Naming
-- Feature Gates and Configuration-Driven Behavior
-- Dataclass Design for Schema Evolution and Backward Compatibility
-- Consolidation Patterns for Duplicate Code
-- Dead Code Removal Verification and Code Cleanup
 - ADR Documentation: Format, Citations, Validation, and Superseding
 - Architecture Compliance and Quality Enforcement
 - Workspace Isolation and Command Discovery via CWD
 - Pre-Flight Validation and Escalation Pattern
 - Prevent Scope Creep While Maintaining Correctness
-- Async Patterns: Wrappers, Context Managers, Callbacks, and Resource Lifecycle
-- Prompt Deduplication and Memory Context Capping
-- Side Effect Consumption Pattern for Context Threading
-- Environment Override Validation via get_args() for Literal Types
 - Model Duplication Across Codebase Suggests Ownership Clarity Issue
-- Dead-code removal: three-phase decomposition pattern
-- Wire unconnected config parameters to existing consumers
-- Layer 1 assignment for pure data constants
-- Visual consistency outweighs functional correctness
-- Define explicit scope for extraction refactors
-- Layer checker must track newly added data modules
-- Plan line numbers become stale; search by pattern instead
-- Annotated[str, Validator] pattern for backward-compatible type narrowing
-- Parametrized validation rejection tests follow annotated-type pattern
-- Use Literal types for bounded enum-like fields
-- Cross-cutting methods as callbacks, not new classes
-- Import-site patch targets must migrate with extracted functions
-- Strict no-circular-import rule for extracted coordinators
-- Dict-to-Model Conversion Pattern for Type Safety
-- Move generic utilities to module-level functions to keep classes small
-- Regex-based test parsing creates hard constraints on source structure
-- Use callbacks to decouple isolated components from orchestrator state
-- Restrict extracted component imports to prevent circular dependencies
-- Logger names resolve to full module path from __name__
-- TYPE_CHECKING guard pattern for type-only imports
-- noqa: TCH004 required for TYPE_CHECKING imports
-- In-Place Mutation Requirement for Shared Dicts
-- Callback Construction Order: State → Snapshot → Router → Tracker
-- Immutable Scalars in Shared State Pattern
-- Facade Exception: Public Method Limits for Behavioral Classes
-- Coordinator pattern with call-order sensitivity
-- NamedTuple for multi-return extracted methods
-- Parameter threading across extracted methods
-- TYPE_CHECKING prevents circular imports on cross-module TypedDicts
-- Use sibling file patterns as architectural reference for consistency
-- Template method exception to 50-line logic limit
-- Coordinator + focused helpers decomposition pattern
-- Preserve deferred imports for optional dependencies
 - Validate diagram references point to existing code
 - Hindsight client cleanup ownership must be explicit
 - Create regression test files before documentation reference
 - Architecture diagram scope can exceed implementation plan
-- Sub-factory coordination via intermediate frozen dataclass
-- Distinguish local wiring from cross-group wiring at architecture boundary
-- Empty String Sentinel with Union Type Annotation
-- StrEnum Fields Serialize Without Migration
-- Naming conventions are pipeline-layer scoped
-- f-string output decoupled from parameter naming
-- Facade + Composition for Large Class Refactoring
-- Acceptance Criteria: Distinguish Public Facades from Implementation
-- Module-Level State via Constructor Injection
-- FastAPI route registration order affects specificity matching
-- Convert closure mutable state to class-based encapsulation
-- Endpoint path preservation enables test reuse across refactors
-- Orchestrator pattern composes modules via deferred registration calls
-- Avoid thin-wrapper abstractions—target concrete duplication
-- Preserve lazy imports to avoid module-level coupling
-- Document variant patterns; resist premature parameterization
-- Dependency injection + re-export for backward-compatible class splits
-- Strategy dispatcher pattern for conditional behavior branches
-- Pydantic Field() accepts module-level int constants safely
-- Export widely-reused constants without underscore prefix
-- Grep word-boundary verification for constant extraction refactors
-- Design extracted methods for future integration without implementing it
-- Preserve organizational comments during dead code removal
-- Backward-compat layers require individual liveness evaluation
-- Use method names not line numbers for refactoring plans
-- Document trade-off when removing implicit documentation
-- Line number shifts in multi-PR merges break implementation plans
-- Preserve module-specific guards when extracting duplicated logic
-- Structured transcript parsing: markers, summaries, and item lists
-- Separate parsing utilities from subprocess and streaming concerns
-- Thin public wrappers replace private method access
-- Line/method budgets force better decomposition
-- Selective EventBus threading by behavioral side effects
-- Deferred imports preserve test mocking patterns
-- Config tuples enable clean parameterized loops
-- Accept typed enums, call .value internally
-- Path prefix pattern for hierarchical object keys
-- Partial migrations of similar components create maintenance burden
-- Use underscore prefix for local implementation details in functions
-- Deferred Imports Must Remain Inside Helpers
-- Return Value Threading in Orchestrator Pattern
-- Deferred imports in helper methods avoid circular dependencies
-- Deferred imports remain at usage sites with lint suppression
-- Sentry integration: ERROR+ only triggers alerts
-- Fatal error hierarchy—propagate vs. suppress
-- Polling loops must sleep when service disabled
-- Context manager protocol for async resource pooling
-- httpx.AsyncClient.aclose() is idempotent and safe
-- AST-based regression tests are fragile to refactoring
-- Never-raise contract uses broad exception catching
-- Service composition root needs async cleanup method
-- exc_info=True parameter preserves full tracebacks at lower levels
-- Distinguish similarly-named modules during cleanup
-- Test class names describe scenarios, not test subjects
-- Inline implementations preferred over extracted utility classes
-- Grep-based verification validates dead code removal completeness
-- Dead code removal verification via grep across codebase
-- Audit __all__ exports when removing public functions
-- Review patterns from #6311
-- Review patterns from #6309
-- Review patterns from #6310
-- Review patterns from #6312
-- Review patterns from #6313
-- Review patterns from #6315
-- Review patterns from #6314
-- Review patterns from #6316
-- Review patterns from #6318
-- Review patterns from #6320
-- Review patterns from #6294
-- Review patterns from #6322
-- Review patterns from #6297
-- Review patterns from #6323
-- Review patterns from #6328
-- Review patterns from #6299
-- Review patterns from #6327
-- Review patterns from #6330
-- Review patterns from #6300
-- Review patterns from #6301
-- Review patterns from #6331
-- Review patterns from #6334
 - Trust Fleet — Lights-Off Background Loop Pattern
 - DedupStore + Reconcile-on-Close Pattern
 - Eight-Checkpoint Loop Wiring
 - Auto-Revert on RC Red — Four-Guardrail Policy
 - Per-Loop Telemetry — emit_loop_subprocess_trace
-- Architecture
-- Key Files
 - Spawning background sleep loops to poll for results
 - Mocking at the wrong level
 - Hardcoded path lists that duplicate filesystem state
 - Adding a new avoided pattern
 - Background Loop Guidelines
-- Design rationale
-- Sequence before committing
-- Related
-- Layout
-- Style consistency
-- Component patterns
-- Worktrees and Branch Protection
-- ADR Reference
-- EC2 Deployment Guide
-- 1. Prerequisites
-- 2. Bootstrap the runtime
-- 4. Install the systemd unit
-- 6. Updates
-- 7. Troubleshooting checklist
+- Daily Cost-Cap Kill-Switch
+
+## Architecture Async Control (16)
+
+- Async Patterns: Wrappers, Context Managers, Callbacks, and Resource Lifecycle
+- Background Loops and Skill Infrastructure: Audit Patterns and Wiring
+- Label-Based Async Loop Routing via GitHub Labels
+- Idempotency Guards Prevent Redundant Side Effects
+- Clarity Score Routing: Fast Path vs Multi-Stage Maturation
+- Side Effect Consumption Pattern for Context Threading
+- Callback Construction Order: State → Snapshot → Router → Tracker
+- Use callbacks to decouple isolated components from orchestrator state
+- Return Value Threading in Orchestrator Pattern
+- Config tuples enable clean parameterized loops
+- Polling loops must sleep when service disabled
+- Context manager protocol for async resource pooling
+- httpx.AsyncClient.aclose() is idempotent and safe
+- Service composition root needs async cleanup method
+- Sentry integration: ERROR+ only triggers alerts
+- Fatal error hierarchy—propagate vs. suppress
+
+## Architecture Imports Types (17)
+
+- Deferred Imports, Type Checking, and Testing
+- Optional Dependencies: Graceful Degradation and Safe Handling
+- TYPE_CHECKING guard pattern for type-only imports
+- noqa: TCH004 required for TYPE_CHECKING imports
+- TYPE_CHECKING prevents circular imports on cross-module TypedDicts
+- Preserve deferred imports for optional dependencies
+- Deferred Imports Must Remain Inside Helpers
+- Deferred imports in helper methods avoid circular dependencies
+- Deferred imports remain at usage sites with lint suppression
+- Deferred imports preserve test mocking patterns
+- Preserve lazy imports to avoid module-level coupling
+- Logger names resolve to full module path from __name__
+- Environment Override Validation via get_args() for Literal Types
+- Distinguish similarly-named modules during cleanup
+- Import-site patch targets must migrate with extracted functions
+- Strict no-circular-import rule for extracted coordinators
+- Restrict extracted component imports to prevent circular dependencies
+
+## Architecture Layers (16)
+
+- Layer Architecture: Four-Layer Model with Structural Typing
+- Functional Design: Pure Functions and Module-Level Utilities
+- Layer 1 assignment for pure data constants
+- Layer checker must track newly added data modules
+- Backward Compatibility and Refactoring via Facades and Re-Exports
+- Facade Exception: Public Method Limits for Behavioral Classes
+- Facade + Composition for Large Class Refactoring
+- Acceptance Criteria: Distinguish Public Facades from Implementation
+- Template method exception to 50-line logic limit
+- Coordinator + focused helpers decomposition pattern
+- Orchestrator pattern composes modules via deferred registration calls
+- Avoid thin-wrapper abstractions—target concrete duplication
+- Move generic utilities to module-level functions to keep classes small
+- Use sibling file patterns as architectural reference for consistency
+- Module-Level State via Constructor Injection
+- Preserve organizational comments during dead code removal
+
+## Architecture Patterns Practices (22)
+
+- Testing Patterns: Mocking, Parametrized Assertions, and Test Helpers
+- Dynamic Discovery with Convention-Based Naming
+- Coordinator pattern with call-order sensitivity
+- NamedTuple for multi-return extracted methods
+- Parameter threading across extracted methods
+- Structured transcript parsing: markers, summaries, and item lists
+- Separate parsing utilities from subprocess and streaming concerns
+- Thin public wrappers replace private method access
+- Line/method budgets force better decomposition
+- Selective EventBus threading by behavioral side effects
+- Never-raise contract uses broad exception catching
+- exc_info=True parameter preserves full tracebacks at lower levels
+- Test class names describe scenarios, not test subjects
+- Inline implementations preferred over extracted utility classes
+- Prompt Deduplication and Memory Context Capping
+- Strategy dispatcher pattern for conditional behavior branches
+- Export widely-reused constants without underscore prefix
+- Document variant patterns; resist premature parameterization
+- Dependency injection + re-export for backward-compatible class splits
+- Sub-factory coordination via intermediate frozen dataclass
+- Distinguish local wiring from cross-group wiring at architecture boundary
+- AST-based regression tests are fragile to refactoring
+
+## Architecture Refactoring (21)
+
+- Consolidation Patterns for Duplicate Code
+- Dead Code Removal Verification and Code Cleanup
+- Dead-code removal: three-phase decomposition pattern
+- Wire unconnected config parameters to existing consumers
+- Visual consistency outweighs functional correctness
+- Define explicit scope for extraction refactors
+- Plan line numbers become stale; search by pattern instead
+- Cross-cutting methods as callbacks, not new classes
+- Regex-based test parsing creates hard constraints on source structure
+- Grep-based verification validates dead code removal completeness
+- Dead code removal verification via grep across codebase
+- Audit __all__ exports when removing public functions
+- Preserve module-specific guards when extracting duplicated logic
+- Grep word-boundary verification for constant extraction refactors
+- Design extracted methods for future integration without implementing it
+- Backward-compat layers require individual liveness evaluation
+- Use method names not line numbers for refactoring plans
+- Document trade-off when removing implicit documentation
+- Line number shifts in multi-PR merges break implementation plans
+- Use underscore prefix for local implementation details in functions
+- Partial migrations of similar components create maintenance burden
+
+## Architecture State Persistence (19)
+
+- State Persistence: Atomic Writes and Backup Recovery
+- In-Place Mutation Requirement for Shared Dicts
+- Immutable Scalars in Shared State Pattern
+- Feature Gates and Configuration-Driven Behavior
+- Dataclass Design for Schema Evolution and Backward Compatibility
+- Annotated[str, Validator] pattern for backward-compatible type narrowing
+- Use Literal types for bounded enum-like fields
+- Dict-to-Model Conversion Pattern for Type Safety
+- Empty String Sentinel with Union Type Annotation
+- StrEnum Fields Serialize Without Migration
+- Naming conventions are pipeline-layer scoped
+- f-string output decoupled from parameter naming
+- FastAPI route registration order affects specificity matching
+- Convert closure mutable state to class-based encapsulation
+- Endpoint path preservation enables test reuse across refactors
+- Pydantic Field() accepts module-level int constants safely
+- Path prefix pattern for hierarchical object keys
+- Accept typed enums, call .value internally
+- Parametrized validation rejection tests follow annotated-type pattern
+
+## Dark Factory (7)
+
+- §1 — The contract
+- §2 — Load-bearing conventions for new code
+- §3 — The production-readiness convergence loop
+- §4 — Recurring footguns
+- §5 — Verifying the contract is honored
+- §6 — The meta-pattern
+- Onboarding a foreign managed repo
 
 ## Dependencies (7)
 
@@ -185,7 +176,7 @@
 - Imported Skills
 - Runtime Loop
 
-## Gotchas (25)
+## Gotchas (23)
 
 - Code Quality, Imports, Types, and Refactoring
 - Testing — Mocking, Serialization, and File Verification
@@ -205,15 +196,13 @@
 - What goes to Sentry
 - What does NOT go to Sentry
 - Rules for new code
-- Key files
 - Never skip commit hooks
 - Scenario Matrix
 - Scenario Catalog (Extended)
-- 5. Health checks and monitoring
 - Notes
 - Recommended Alerts
 
-## Patterns (20)
+## Patterns (18)
 
 - Backward compatibility and schema evolution
 - Refactoring and testing practices
@@ -226,17 +215,15 @@
 - Avoided Patterns
 - Underscore-prefixed names imported across modules
 - `_name` for unused loop variables (prefer bare `_`)
-- Run and dev
-- UI
+- Development and Local Testing Workflow
 - UI Development Standards
 - DRY principle
 - Workflow for every code change
 - Conventions
-- 3. Bind the dashboard to a public interface
 - Sentry Alert Configuration for HydraFlow
 - Why This Is "Harnessed"
 
-## Testing (28)
+## Testing (25)
 
 - Core Testing Strategy and Design for Testability
 - Type System and Data Model Consistency Testing
@@ -245,16 +232,13 @@
 - Meta-Observability with Bounded Recursion
 - Cassette-Based Fake Adapter Contract Testing
 - Kill-Switch Tests — Direct _do_work Invocation
-- Tech stack
 - Pydantic field additions without updating serialization tests
 - Falsy checks on optional objects
 - Writing a new test helper without checking conftest
-- Tests
-- Quality
-- Setup and scaffolding
+- Test Environment Setup and Scaffolding
 - Quick validation loop
 - Quality Gates
-- Testing Is Mandatory
+- Required Testing Coverage and Validation
 - ADR testing rules
 - Related
 - Scenario Testing Framework

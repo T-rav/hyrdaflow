@@ -36,7 +36,13 @@ Look up the relevant entry in [`docs/wiki/`](docs/wiki/index.md):
 
 | Topic file | Looks like |
 |---|---|
-| [`architecture.md`](docs/wiki/architecture.md) | Architecture, layers, ports, async patterns, trust fleet, telemetry, deployment |
+| [`architecture.md`](docs/wiki/architecture.md) | Cross-cutting architecture entries that don't fit a sub-topic (residual after the May-2026 split). Prefer the focused files below first. |
+| [`architecture-layers.md`](docs/wiki/architecture-layers.md) | Four-layer model, facades, coordinator/orchestrator decomposition, module-level state |
+| [`architecture-async-control.md`](docs/wiki/architecture-async-control.md) | Async patterns, background loops, label routing, callbacks, idempotency, error hierarchy |
+| [`architecture-imports-types.md`](docs/wiki/architecture-imports-types.md) | Deferred imports, TYPE_CHECKING, type narrowing, optional dependencies, circular-import rules |
+| [`architecture-state-persistence.md`](docs/wiki/architecture-state-persistence.md) | State persistence, schema evolution, Pydantic patterns, FastAPI route registration |
+| [`architecture-refactoring.md`](docs/wiki/architecture-refactoring.md) | Dead-code removal, extraction, scope discipline, line-number-vs-pattern, multi-PR drift |
+| [`architecture-patterns-practices.md`](docs/wiki/architecture-patterns-practices.md) | Coordinator + parameter threading, transcript parsing, EventBus threading, dispatcher patterns |
 | [`patterns.md`](docs/wiki/patterns.md) | Kill-switch convention, dedup, escalation, quality gates, sentry, UI standards, commands |
 | [`gotchas.md`](docs/wiki/gotchas.md) | Worktree rules, avoided patterns, five-checkpoint loop wiring, recurring footguns |
 | [`testing.md`](docs/wiki/testing.md) | Test conventions, scenarios, cassettes, kill-switch tests, benchmarks |
