@@ -54,7 +54,6 @@ def _init_sentry() -> None:
 
     def _before_send(event, hint):  # type: ignore[no-untyped-def]
         """Drop transient errors, fingerprint bugs, scrub credentials."""
-        # Check if this event has an exception attached
         exc_info = hint.get("exc_info")
         if exc_info:
             exc_type = exc_info[0]

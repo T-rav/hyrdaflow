@@ -16,15 +16,7 @@ from typing import Any
 
 from issue_store import IssueStoreStage
 
-# ---------------------------------------------------------------------------
-# Regex patterns
-# ---------------------------------------------------------------------------
-
 _SAFE_SLUG_COMPONENT = re.compile(r"^[A-Za-z0-9_.\-]+$")
-
-# ---------------------------------------------------------------------------
-# Mapping tables
-# ---------------------------------------------------------------------------
 
 # Interval bounds per editable worker.
 # memory_sync, metrics, pr_unsticker, adr_reviewer bounds must match config.py Field constraints.
@@ -112,10 +104,6 @@ _INFERENCE_COUNTER_KEYS: tuple[str, ...] = (
     "cache_hits",
     "cache_misses",
 )
-
-# ---------------------------------------------------------------------------
-# History helpers
-# ---------------------------------------------------------------------------
 
 _HISTORY_STATUSES: set[str] = {
     "unknown",

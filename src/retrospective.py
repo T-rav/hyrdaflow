@@ -217,7 +217,6 @@ class RetrospectiveCollector:
         return sorted(set(files))
 
     async def _get_actual_files(self, pr_number: int) -> list[str]:
-        """Get the list of files actually changed in the PR."""
         return await self._prs.get_pr_diff_names(pr_number)
 
     @staticmethod

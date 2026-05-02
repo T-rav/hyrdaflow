@@ -159,8 +159,6 @@ def _disable_hitl_summary_autowarm(config) -> None:
 
 @pytest.fixture
 def config(tmp_path: Path) -> HydraFlowConfig:
-    """A HydraFlowConfig using tmp_path for all file operations."""
-
     return ConfigFactory.create(
         repo_root=tmp_path / "repo",
         workspace_base=tmp_path / "worktrees",
@@ -170,7 +168,6 @@ def config(tmp_path: Path) -> HydraFlowConfig:
 
 @pytest.fixture
 def dry_config(tmp_path: Path) -> HydraFlowConfig:
-    """A HydraFlowConfig in dry-run mode."""
     return ConfigFactory.create(
         dry_run=True,
         repo_root=tmp_path / "repo",
@@ -689,7 +686,6 @@ def state(tmp_path: Path):
 
 
 def make_state(tmp_path: Path) -> StateTracker:
-    """Create a StateTracker backed by a temp file."""
     from state import StateTracker as ST
 
     return ST(tmp_path / "state.json")
@@ -713,7 +709,6 @@ def make_orchestrator_mock(
     running: bool = False,
     run_status: str = "idle",
 ) -> MagicMock:
-    """Return a minimal orchestrator mock."""
     orch = MagicMock()
     orch.human_input_requests = requests if requests is not None else {}
     orch.provide_human_input = MagicMock()

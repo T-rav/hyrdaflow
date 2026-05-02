@@ -431,7 +431,6 @@ class ReviewPhase:
 
     @property
     def active_issues(self) -> set[int]:
-        """Return the set of currently active review issues."""
         return self._active_issues
 
     async def post_review_transcript_hooks(

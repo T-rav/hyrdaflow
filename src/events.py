@@ -327,7 +327,6 @@ class EventBus:
 
     @property
     def current_session_id(self) -> str | None:
-        """Return the active session ID, if any."""
         return self._active_session_id
 
     async def publish(self, event: HydraFlowEvent) -> None:
