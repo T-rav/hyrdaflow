@@ -387,6 +387,47 @@ class TestActiveLint:
         assert index is not None
         assert index.last_lint is not None
 
+    def test_rebuild_index_preserves_last_lint(self, store: RepoWikiStore) -> None:
+        # Regression: _rebuild_index used to construct a fresh WikiIndex with
+        # last_lint=None, wiping the recorded lint timestamp on every rebuild.
+        # The post-rebuild write in active_lint masked this most of the time
+        # but lost the value if the second write failed.
+        store._ensure_repo_dir(REPO)
+        store.active_lint(REPO)
+        original = store._load_index(REPO)
+        assert original is not None
+        assert original.last_lint is not None
+        original_lint_ts = original.last_lint
+
+        store._rebuild_index(REPO)
+
+        rebuilt = store._load_index(REPO)
+        assert rebuilt is not None
+        assert rebuilt.last_lint == original_lint_ts
+
+    def test_active_lint_persists_last_lint_across_modification_path(
+        self, store: RepoWikiStore
+    ) -> None:
+        # When active_lint marks an entry stale (any_modified=True), it calls
+        # _rebuild_index then re-writes last_lint. Verify the final on-disk
+        # index has last_lint populated through the rebuild path.
+        store.ingest(
+            REPO,
+            [
+                WikiEntry(
+                    title="Closed source",
+                    content="Stale via close.",
+                    source_type="plan",
+                    source_issue=99,
+                ),
+            ],
+        )
+        result = store.active_lint(REPO, closed_issues={99})
+        assert result.index_rebuilt is True
+        index = store._load_index(REPO)
+        assert index is not None
+        assert index.last_lint is not None
+
     def test_no_rebuild_when_unchanged(self, store: RepoWikiStore) -> None:
         store.ingest(
             REPO,

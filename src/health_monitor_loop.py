@@ -348,6 +348,12 @@ class HealthMonitorLoop(BaseBackgroundLoop):
         self._sanity_noop_streak: int = 0
         self._pending: list[PendingAdjustment] = []
         self._last_log_scan: datetime | None = None
+        # Dedup for the wiki-freshness dead-man-switch — file one wiki-stale
+        # issue per stall event; clear on recovery.
+        self._wiki_stall_dedup = DedupStore(
+            "health_monitor_wiki_stall",
+            config.data_root / "dedup" / "health_monitor_wiki_stall.json",
+        )
 
     def set_bg_workers(self, bg_workers: BGWorkerManager) -> None:
         """Late-binding for the post-ctor BGWorkerManager wiring."""
@@ -378,6 +384,12 @@ class HealthMonitorLoop(BaseBackgroundLoop):
             await self._check_sanity_loop_staleness()
         except Exception:  # noqa: BLE001
             logger.debug("sanity-loop stall check failed", exc_info=True)
+
+        # Dead-man-switch: detect a stalled RepoWikiLoop via log.jsonl mtime.
+        try:
+            await self._check_wiki_freshness()
+        except Exception:  # noqa: BLE001
+            logger.debug("wiki-freshness check failed", exc_info=True)
 
         metrics = compute_trend_metrics(
             self._outcomes_path, self._scores_path, self._failures_path
@@ -1111,3 +1123,76 @@ class HealthMonitorLoop(BaseBackgroundLoop):
         )
         filed_keys = self._sanity_stall_dedup.get()
         self._sanity_stall_dedup.set_all(filed_keys | {dedup_key})
+
+    async def _check_wiki_freshness(self) -> None:
+        """Dead-man-switch for `RepoWikiLoop` via `docs/wiki/log.jsonl` mtime.
+
+        The wiki loop appends to `log.jsonl` on every ingest, compile, and
+        active_lint operation. When the file's mtime hasn't moved in
+        `wiki_freshness_stale_days`, file one `wiki-stale` issue per stall
+        event. Clears dedup on recovery (file moves again).
+
+        Quietly no-ops when the wiki directory or log file does not exist —
+        new repos won't have one yet, and that is not a stall.
+        """
+        prs = self._prs
+        if prs is None:
+            return
+
+        log_path = self._config.repo_root / "docs" / "wiki" / "log.jsonl"
+        if not log_path.exists():
+            return
+
+        try:
+            mtime = datetime.fromtimestamp(log_path.stat().st_mtime, tz=UTC)
+        except OSError:
+            return
+
+        elapsed_s = (datetime.now(UTC) - mtime).total_seconds()
+        threshold_s = self._config.wiki_freshness_stale_days * 86400
+
+        dedup_key = "health_monitor:repo_wiki:stalled"
+        filed_keys = self._wiki_stall_dedup.get()
+
+        if elapsed_s < threshold_s:
+            # Recovered — clear dedup so a future stall files a fresh issue.
+            if dedup_key in filed_keys:
+                self._wiki_stall_dedup.set_all(filed_keys - {dedup_key})
+            return
+
+        if dedup_key in filed_keys:
+            # Already filed for the current stall; wait for recovery.
+            return
+
+        elapsed_days = int(elapsed_s // 86400)
+        title = (
+            f"wiki-stale: docs/wiki/log.jsonl has not moved in "
+            f"{elapsed_days}d (threshold {self._config.wiki_freshness_stale_days}d)"
+        )
+        body = (
+            f"## RepoWikiLoop dead-man-switch tripped\n\n"
+            f"`docs/wiki/log.jsonl` is the append-only operation log for the "
+            f"repo wiki. It moves on every ingest, compile, and active_lint "
+            f"tick; an unmoved log indicates the wiki loop has not run "
+            f"successfully in `{elapsed_days}` days.\n\n"
+            f"- Last log entry: `{mtime.isoformat()}`\n"
+            f"- Threshold: `{self._config.wiki_freshness_stale_days}` days "
+            f"(`wiki_freshness_stale_days`)\n"
+            f"- Loop interval: `{self._config.repo_wiki_interval}s`\n\n"
+            f"### Operator playbook\n"
+            f"1. Check the System tab — is `repo_wiki` enabled? If not, "
+            f"flip the kill-switch back on.\n"
+            f"2. Check orchestrator logs for the `repo_wiki` task "
+            f"(uncaught exceptions, credit/auth failures).\n"
+            f"3. Confirm HydraFlow is actually running on this repo "
+            f"(the loop only ticks while the harness is up).\n\n"
+            f"_Auto-filed by HydraFlow `health_monitor` "
+            f"(wiki-freshness dead-man-switch)._"
+        )
+        await prs.create_issue(
+            title,
+            body,
+            ["hydraflow-find", "wiki-stale"],
+        )
+        filed_keys = self._wiki_stall_dedup.get()
+        self._wiki_stall_dedup.set_all(filed_keys | {dedup_key})
