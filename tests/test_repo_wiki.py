@@ -310,6 +310,53 @@ class TestRoundTrip:
         assert entries[0].content == original.content
         assert entries[0].source_issue == 99
 
+    def test_inline_metadata_omits_duplicated_content_field(
+        self, store: RepoWikiStore
+    ) -> None:
+        # Schema-slim: the inline json:entry block must NOT carry the content
+        # field — it is reconstructed from the prose section above the block.
+        # This keeps topic files ~50% smaller and human-readable.
+        entry = WikiEntry(
+            title="Schema check",
+            content="The point of this entry is to verify the metadata block "
+            "stays slim and does not double-store the prose.",
+            source_type="implement",
+            source_issue=7,
+        )
+        store.ingest(REPO, [entry])
+        repo_dir = store._repo_dir(REPO)
+        topic = store._classify_topic(entry)
+        topic_path = repo_dir / f"{topic}.md"
+        text = topic_path.read_text()
+        # Prose appears once (above the json:entry block).
+        assert text.count("The point of this entry is to verify") == 1
+        # Metadata block exists but does not carry the content field.
+        assert "```json:entry" in text
+        assert '"content"' not in text
+
+    def test_round_trip_with_slim_schema_preserves_content(
+        self, store: RepoWikiStore
+    ) -> None:
+        # The reader reconstructs `content` from the prose section even though
+        # it is no longer in the json:entry block.
+        entry = WikiEntry(
+            title="Multi-paragraph entry",
+            content=(
+                "First paragraph explaining the rule.\n\n"
+                "Second paragraph with an example: `foo(bar) -> baz`.\n"
+            ),
+            source_type="plan",
+            source_issue=42,
+        )
+        store.ingest(REPO, [entry])
+        repo_dir = store._repo_dir(REPO)
+        topic = store._classify_topic(entry)
+        loaded = store._load_topic_entries(repo_dir / f"{topic}.md")
+        assert len(loaded) == 1
+        assert "First paragraph explaining the rule." in loaded[0].content
+        assert "`foo(bar) -> baz`" in loaded[0].content
+        assert loaded[0].source_issue == 42
+
 
 class TestActiveLint:
     def test_marks_entries_stale_for_closed_issues(self, store: RepoWikiStore) -> None:

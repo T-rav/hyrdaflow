@@ -172,6 +172,20 @@ def classify_topic(entry: WikiEntry) -> str:
     return best_topic
 
 
+_SOURCE_FOOTER_RE = re.compile(r"^_Source:[^\n]*_\s*$", re.MULTILINE)
+
+
+def _strip_prose_chrome(body: str) -> str:
+    """Strip the optional ``_Source: ..._`` footer and surrounding blank
+    lines from a parsed entry body, leaving the prose content.
+
+    Used by ``_load_topic_entries`` to reconstruct ``WikiEntry.content``
+    from the prose section above each ``json:entry`` metadata block.
+    """
+    cleaned = _SOURCE_FOOTER_RE.sub("", body)
+    return cleaned.strip()
+
+
 def _sanitize_body_for_frontmatter(content: str) -> str:
     """Prevent a leading ``---`` in body content from being parsed as a
     second YAML document.
@@ -1385,7 +1399,15 @@ class RepoWikiStore:
     def _load_topic_entries(self, topic_path: Path) -> list[WikiEntry]:
         """Parse a topic markdown file back into entries.
 
-        Each entry is stored as a JSON code block under an H3 heading.
+        Schema-slim layout: each entry is rendered as a `## Title`
+        section followed by prose, an optional `_Source: #N (kind)_`
+        footer, and a `json:entry` code block carrying metadata WITHOUT
+        the `content` field. The reader reconstructs ``WikiEntry.content``
+        from the prose section above the metadata block.
+
+        Legacy entries that still embed ``content`` in the JSON continue
+        to load — the prose section overrides if present, otherwise the
+        JSON-embedded copy is used.
         """
         if not topic_path.exists():
             return []
@@ -1393,9 +1415,19 @@ class RepoWikiStore:
         text = topic_path.read_text()
         entries: list[WikiEntry] = []
 
-        for match in re.finditer(r"```json:entry\n(.+?)\n```", text, re.DOTALL):
+        for match in re.finditer(
+            r"## (?P<title>[^\n]+)\n(?P<body>.*?)```json:entry\n(?P<meta>.+?)\n```",
+            text,
+            re.DOTALL,
+        ):
             try:
-                entries.append(WikiEntry.model_validate_json(match.group(1)))
+                metadata = json.loads(match.group("meta"))
+                prose = _strip_prose_chrome(match.group("body"))
+                if prose:
+                    metadata["content"] = prose
+                elif "content" not in metadata:
+                    metadata["content"] = ""
+                entries.append(WikiEntry.model_validate(metadata))
             except Exception:  # noqa: BLE001
                 logger.warning("Skipping malformed entry in %s", topic_path)
 
@@ -1407,7 +1439,12 @@ class RepoWikiStore:
         topic_name: str,
         entries: list[WikiEntry],
     ) -> None:
-        """Write a topic page with entries stored as JSON code blocks."""
+        """Write a topic page with slim per-entry metadata blocks.
+
+        The `content` field is stored only in the prose section (not
+        duplicated inside the json:entry block) — see _load_topic_entries
+        for the read-side contract.
+        """
         lines = [f"# {topic_name.replace('_', ' ').title()}\n"]
 
         if not entries:
@@ -1420,8 +1457,8 @@ class RepoWikiStore:
                     lines.append(
                         f"_Source: #{entry.source_issue} ({entry.source_type})_\n"
                     )
-                # Store structured data for round-tripping
-                lines.append(f"\n```json:entry\n{entry.model_dump_json()}\n```\n")
+                slim = entry.model_dump_json(exclude={"content", "valid_from"})
+                lines.append(f"\n```json:entry\n{slim}\n```\n")
 
         topic_path.write_text("\n".join(lines))
 
