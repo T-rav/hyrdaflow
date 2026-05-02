@@ -108,11 +108,43 @@ Your job is to compile them into a clean, deduplicated set of entries.
 4. **Remove stale content**: If an entry's insight has been superseded by a newer one, drop it.
 5. **Preserve source attribution**: Keep source_issue and source_type from the original entries.
 
+## Voice and structure (load-bearing — do not skip)
+
+Each entry's `content` field MUST be **scannable** documentation, not a wall
+of prose. Agents and humans read the title to decide whether to read the
+entry, then read the entry to apply a rule — both audiences need structure.
+
+Required shape for each entry:
+
+- Open with a one-sentence rule statement (no narrative ramp-up).
+- Follow with a short example (inline code, file path, or 2-3 bullet
+  points) showing the rule in use. If the rule is purely conceptual,
+  skip the example.
+- Close with a `**Why:**` line in one sentence, naming the failure mode
+  or constraint the rule prevents.
+
+Hard length budget per entry:
+
+- `title`: ≤ 80 characters, specific enough that a reader can decide
+  relevance from the title alone (avoid generic labels like "Notes",
+  "Findings", "Background").
+- `content`: ≤ 150 words. If the source material exceeds this, **split
+  into multiple entries** rather than producing a single long blob.
+
+Anti-patterns to avoid:
+
+- Long single-paragraph dumps with no structure.
+- Retrospective voice ("This entry captures the lesson that…", "We
+  learned in PR #N that…"). Write in rule voice ("Use X. Avoid Y.").
+- Restating the title in the first sentence.
+- Inline JSON or code fences spanning more than 5 lines (link to the
+  source instead).
+
 ## Output format
 
 Return a JSON array of compiled entries. Each entry must be a JSON object with these fields:
-- "title": string (short, descriptive)
-- "content": string (the compiled insight, with cross-references)
+- "title": string (short, descriptive — see length budget above)
+- "content": string (rule + example + Why; see structure above)
 - "source_type": string (plan, implement, review, hitl, or "compiled")
 - "source_issue": number or null
 - "stale": false
