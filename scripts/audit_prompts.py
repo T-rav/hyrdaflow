@@ -661,6 +661,11 @@ def render_target(target: AuditTarget) -> str:
             # classified as a bug by is_likely_bug and re-raised.
             instance._insights = None
             instance._context_cache = _NullContextCache()
+            # _adr_index: required since #8460 dropped the getattr defensiveness
+            # in BaseRunner. None is a valid runtime value (loaded lazily).
+            instance._adr_index = None
+            instance._tribal_wiki_store = None
+            instance._bus = None
             callable_obj = getattr(instance, parts[2])
     else:
         raise ValueError(f"unsupported qualname depth: {target.builder_qualname!r}")

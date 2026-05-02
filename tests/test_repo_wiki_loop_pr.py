@@ -86,6 +86,10 @@ def _stub_loop(
     loop._open_pr_url = None
     loop._worker_name = "repo_wiki"
     loop._enabled_cb = lambda _name: True
+    # Required since #8460 dropped the getattr defensiveness in
+    # RepoWikiLoop._do_work; the production __init__ always sets these.
+    loop._tribal_store = None
+    loop._bus = None
     return loop
 
 
