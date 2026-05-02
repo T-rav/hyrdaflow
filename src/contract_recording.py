@@ -33,8 +33,13 @@ Design notes
   ``asyncio.create_subprocess_exec`` because the refresh tick runs once
   a week and these calls are dominated by network/IO latency; the
   synchronous form is simpler to mock and simpler to reason about. The
-  loop wraps these calls behind ``asyncio.to_thread`` in Task 20's
-  telemetry instrumentation so the event loop is not blocked.
+  loop wraps these calls behind ``asyncio.to_thread`` so the event
+  loop is not blocked while the recorder runs. As a defence-in-depth
+  measure, every ``subprocess.run`` here passes
+  ``timeout=_RECORDER_SUBPROCESS_TIMEOUT_S`` (120 s) so a hung
+  subprocess (network-degraded host, expired auth, rate-limited
+  ``api.anthropic.com``) cannot deadlock the event loop even if the
+  ``to_thread`` wrapper is bypassed.
 
 Ubiquitous language
 -------------------
@@ -69,6 +74,16 @@ _ALPINE_IMAGE = "alpine:3.19"
 # ``_schema.py`` collapse the volatile bits.
 _CLAUDE_PROMPT = "ping"
 
+# Hard wall-clock cap on every recorder subprocess. 120s is generous
+# enough for a healthy ``gh``/``git``/``docker``/``claude`` round-trip
+# while ensuring a hung subprocess (network-degraded host, expired auth,
+# rate-limited ``api.anthropic.com``, frozen Docker daemon) cannot
+# deadlock the asyncio event loop forever. Originally surfaced by
+# sandbox-tier work (PR #8452 Task 2.5c) where the air-gapped network
+# made ``claude -p ping`` hang indefinitely, freezing the orchestrator
+# (and the dashboard server with it).
+_RECORDER_SUBPROCESS_TIMEOUT_S = 120
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -78,6 +93,11 @@ def _recorder_sha() -> str:
     """Return the short SHA of ``HEAD`` for the recording context, or
     ``"unknown"`` if ``git`` is unavailable. Stamped into every cassette so
     ``git blame`` on a drifted fixture leads back to the recording run.
+
+    A 120-second hard timeout prevents event-loop deadlock when the
+    subprocess hangs (network failure, expired auth, frozen filesystem,
+    etc.). On timeout we degrade gracefully to ``"unknown"`` rather than
+    raise — the cassette payload is best-effort metadata.
     """
     try:
         proc = subprocess.run(
@@ -85,8 +105,9 @@ def _recorder_sha() -> str:
             capture_output=True,
             text=True,
             check=False,
+            timeout=_RECORDER_SUBPROCESS_TIMEOUT_S,
         )
-    except (FileNotFoundError, OSError):
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
         return "unknown"
     sha = proc.stdout.strip()
     return sha or "unknown"
@@ -140,8 +161,17 @@ def _write_yaml_cassette(path: Path, payload: dict[str, Any]) -> None:
 
 def _run(argv: list[str]) -> subprocess.CompletedProcess[str] | None:
     """Run *argv* with captured text output. Return None on
-    ``FileNotFoundError`` / ``OSError`` / ``SubprocessError`` and warn-log the
-    failure — the caller propagates that as an empty recording list.
+    ``FileNotFoundError`` / ``OSError`` / ``SubprocessError`` /
+    ``TimeoutExpired`` and warn-log the failure — the caller propagates
+    that as an empty recording list.
+
+    A 120-second hard timeout prevents event-loop deadlock when the
+    subprocess hangs (network failure, expired auth, rate-limited
+    ``api.anthropic.com``, frozen Docker daemon, etc.). On timeout we
+    log a warning and return None so the recorder degrades to "no
+    cassette written" rather than freezing the orchestrator's asyncio
+    event loop. ``subprocess.TimeoutExpired`` is a subclass of
+    ``SubprocessError`` but caught explicitly here for clearer logs.
     """
     try:
         return subprocess.run(
@@ -149,9 +179,17 @@ def _run(argv: list[str]) -> subprocess.CompletedProcess[str] | None:
             capture_output=True,
             text=True,
             check=False,
+            timeout=_RECORDER_SUBPROCESS_TIMEOUT_S,
         )
     except FileNotFoundError as exc:
         logger.warning("contract_recording: binary missing for %s: %s", argv[0], exc)
+    except subprocess.TimeoutExpired as exc:
+        logger.warning(
+            "contract_recording: subprocess timed out after %ss for %s: %s",
+            _RECORDER_SUBPROCESS_TIMEOUT_S,
+            argv[0],
+            exc,
+        )
     except (OSError, subprocess.SubprocessError) as exc:
         logger.warning("contract_recording: subprocess failed for %s: %s", argv[0], exc)
     return None

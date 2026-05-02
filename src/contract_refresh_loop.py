@@ -170,7 +170,7 @@ class ContractRefreshLoop(BaseBackgroundLoop):
     # Recording
     # ------------------------------------------------------------------
 
-    def _record_all(self, tmp_root: Path) -> dict[str, list[Path]]:
+    async def _record_all(self, tmp_root: Path) -> dict[str, list[Path]]:
         """Run each adapter's recorder into a dedicated tmp subdirectory.
 
         Returns a ``{adapter_name: [recorded_paths]}`` mapping suitable
@@ -186,35 +186,44 @@ class ContractRefreshLoop(BaseBackgroundLoop):
         the loop. The synthetic ``command`` identifies the recorder
         symbolically; the real argv lives inside :mod:`contract_recording`
         and does not round-trip here.
+
+        Async (G14): each recorder is dispatched via
+        ``asyncio.to_thread`` so the blocking ``subprocess.run`` calls
+        inside :mod:`contract_recording` do not freeze the event loop
+        for the duration of the recorder. Originally surfaced by
+        sandbox-tier work (PR #8452 Task 2.5c): the ``claude -p ping``
+        recorder hung indefinitely on the air-gapped sandbox network,
+        deadlocking the orchestrator and preventing the dashboard from
+        binding port 5555.
         """
         sandbox_dir = self._config.repo_root / _GIT_SANDBOX_RELPATH
 
         recorded: dict[str, list[Path]] = {}
-        recorded["github"] = self._record_with_trace(
+        recorded["github"] = await self._record_with_trace(
             "contract_recording.record_github",
             record_github,
             _SANDBOX_GITHUB_REPO,
             tmp_root / "github",
         )
-        recorded["git"] = self._record_with_trace(
+        recorded["git"] = await self._record_with_trace(
             "contract_recording.record_git",
             record_git,
             sandbox_dir,
             tmp_root / "git",
         )
-        recorded["docker"] = self._record_with_trace(
+        recorded["docker"] = await self._record_with_trace(
             "contract_recording.record_docker",
             record_docker,
             tmp_root / "docker",
         )
-        recorded["claude"] = self._record_with_trace(
+        recorded["claude"] = await self._record_with_trace(
             "contract_recording.record_claude_stream",
             record_claude_stream,
             tmp_root / "claude",
         )
         return recorded
 
-    def _record_with_trace(
+    async def _record_with_trace(
         self,
         label: str,
         recorder: Callable[..., list[Path]],
@@ -229,10 +238,18 @@ class ContractRefreshLoop(BaseBackgroundLoop):
         unhandled exception is surfaced as ``exit_code=2`` + the
         exception message, then re-raised — we refuse to swallow
         recorder crashes but must ensure telemetry sees them first.
+
+        Async (G14): the recorder body is dispatched through
+        :func:`asyncio.to_thread` so the underlying ``subprocess.run``
+        calls do not block the asyncio event loop. The 120-second hard
+        timeout inside :mod:`contract_recording` provides
+        defence-in-depth — even if a future caller forgets the
+        ``to_thread`` wrapper, no recorder can hang the orchestrator
+        forever.
         """
         t0 = time.perf_counter()
         try:
-            result = recorder(*args)
+            result = await asyncio.to_thread(recorder, *args)
         except Exception as exc:
             duration_ms = int((time.perf_counter() - t0) * 1000)
             trace_collector.emit_loop_subprocess_trace(
@@ -592,7 +609,7 @@ class ContractRefreshLoop(BaseBackgroundLoop):
 
         tmp_root = self._config.data_root / "contract_refresh" / "recordings"
         tmp_root.mkdir(parents=True, exist_ok=True)
-        recordings = self._record_all(tmp_root)
+        recordings = await self._record_all(tmp_root)
 
         fleet: FleetDriftReport = detect_fleet_drift(recordings, self._config.repo_root)
 
