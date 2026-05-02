@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import logging
 
-from src.subprocess_util import CreditExhaustedError
-
 logger = logging.getLogger("exception_classify")
 
 #: Exception types that almost certainly indicate a code bug rather than a
@@ -73,7 +71,7 @@ def reraise_on_credit_or_bug(exc: BaseException) -> None:
         except Exception as exc:
             reraise_on_credit_or_bug(exc)
     """
-    from subprocess_util import AuthenticationError
+    from subprocess_util import AuthenticationError, CreditExhaustedError
 
     if isinstance(exc, AuthenticationError | CreditExhaustedError):
         raise exc

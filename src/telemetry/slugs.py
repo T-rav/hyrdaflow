@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import subprocess
 
-from src.exception_classify import CreditExhaustedError
+from src.subprocess_util import CreditExhaustedError
 
 EXCEPTION_SLUGS: dict[type[BaseException], str] = {
     CreditExhaustedError: "err-credit-exhausted",

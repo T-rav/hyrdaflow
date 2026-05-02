@@ -8,7 +8,7 @@ class _UnknownErr(Exception):
 
 
 def test_credit_exhausted_known_slug():
-    from src.exception_classify import CreditExhaustedError
+    from src.subprocess_util import CreditExhaustedError
 
     assert slug_for(CreditExhaustedError("oops")) == "err-credit-exhausted"
 
@@ -27,7 +27,7 @@ def test_slug_for_handles_none():
 
 
 def test_slug_is_low_cardinality_string():
-    from src.exception_classify import CreditExhaustedError
+    from src.subprocess_util import CreditExhaustedError
 
     slug = slug_for(CreditExhaustedError("oops"))
     assert isinstance(slug, str)
