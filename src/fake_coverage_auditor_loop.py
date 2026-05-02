@@ -102,7 +102,7 @@ def catalog_cassette_methods(cassette_dir: Path) -> set[str]:
 
     Each cassette is a YAML file with an ``input.command`` field naming
     the method invoked (per §4.2 cassette schema, landed in
-    `tests/trust/contracts/_schema.py`).
+    `src/contracts/_schema.py`).
     """
     methods: set[str] = set()
     if not cassette_dir.exists():

@@ -10,6 +10,7 @@ graph LR
     src_arch["src.arch"]
     src_arch_extractors["src.arch.extractors"]
     src_arch_generators["src.arch.generators"]
+    src_contracts["src.contracts"]
     src_dashboard_routes["src.dashboard_routes"]
     src_mockworld["src.mockworld"]
     src_mockworld_fakes["src.mockworld.fakes"]
@@ -18,6 +19,7 @@ graph LR
     src_sentry["src.sentry"]
     src_state["src.state"]
     src -- "4" --> src_arch
+    src -- "1" --> src_contracts
     src -- "4" --> src_dashboard_routes
     src -- "12" --> src_preflight
     src -- "44" --> src_state
@@ -31,4 +33,4 @@ graph LR
     src_runners -- "1" --> src_preflight
 ```
 
-_Regenerated from commit `2f2161b` on 2026-04-29 02:23 UTC. Source last changed at `2f2161b`. Status: 🟢 fresh._
+_Regenerated from commit `54f940e` on 2026-05-02 18:32 UTC. Source last changed at `54f940e`. Status: 🟢 fresh._

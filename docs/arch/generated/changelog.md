@@ -6,7 +6,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W18
 
-- `ef73db7` — feat(loop): SandboxFailureFixerLoop — auto-agent self-fix on Trigger 2 failures *(2026-04-28)*
+- `54f940e` — feat(sandbox): catalog s02-s12 + SandboxFailureFixerLoop + 3-trigger CI (PR C of 3) (#8453) (#8453) *(2026-04-28)*
 - `e1e9c91` — feat(sandbox): docker-compose stack + harness + s01 + ADR-0052 (PR B of 3) (#8452) (#8452) *(2026-04-28)*
 - `32ef615` — feat(mockworld): foundation — Fake relocation + DI plumbing + sandbox entrypoint (PR A of 3) (#8451) (#8451) *(2026-04-28)*
 
@@ -153,4 +153,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `2f2161b` on 2026-04-29 02:23 UTC. Source last changed at `2f2161b`. Status: 🟢 fresh._
+_Regenerated from commit `54f940e` on 2026-05-02 18:32 UTC. Source last changed at `54f940e`. Status: 🟢 fresh._

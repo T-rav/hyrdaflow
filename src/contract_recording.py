@@ -6,7 +6,7 @@
 Each ``record_<adapter>`` function runs the *real* CLI for its adapter
 (``gh`` / ``git`` / ``docker`` / ``claude``) and writes one or more
 cassette fixtures to a caller-supplied temp directory. The shape of the
-YAML payload matches :class:`tests.trust.contracts._schema.Cassette` so
+YAML payload matches :class:`contracts._schema.Cassette` so
 later stages of the ``ContractRefreshLoop`` tick (Tasks 14–18) can diff
 the fresh recordings against the committed cassettes and drive
 refresh-PRs / drift-repair issues.
@@ -40,7 +40,7 @@ Ubiquitous language
 -------------------
 
 ``cassette``, ``adapter``, ``fixture_repo``, ``interaction``,
-``normalizers`` — see ``tests/trust/contracts/_schema.py``.
+``normalizers`` — see ``src/contracts/_schema.py``.
 """
 
 from __future__ import annotations
