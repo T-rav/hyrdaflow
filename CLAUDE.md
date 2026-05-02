@@ -15,6 +15,7 @@ This file is a table of contents. Operational knowledge lives in the wiki at [`d
 - **Always verify subagent DONE claims** with `git status --porcelain` and `git log -1 --stat`. Subagents sometimes report DONE with edits applied but not committed.
 - **Subprocess-spawning runners MUST call `reraise_on_credit_or_bug(exc)`** in their broad `except` block. Without it, `CreditExhaustedError` is silently eaten and the loop burns attempt budget against an exhausted billing signal. See [`docs/wiki/dark-factory.md`](docs/wiki/dark-factory.md) §2.2.
 - **For substantial features, plan for 2–3 fresh-eyes review iterations** before merge. Convergence = next pass finds nothing material. See [`docs/wiki/dark-factory.md`](docs/wiki/dark-factory.md) §3.
+- **Code-cleanup PRs (defensive-guard removal, dead-code drops) MUST be verified with full `make quality`**, not file-targeted test subsets. PR #8460 over-pruned `getattr(self, "_X", None)` checks where `_X` was set conditionally in subclasses or `__new__`-bypassed test scaffolding; the implementer ran 211 tests in three targeted files (all green) and shipped — but `tests/test_audit_prompts.py` and `tests/test_repo_wiki_loop_pr.py` had 7 failures the subset missed. Hotfix PR #8463 followed. Cleanup work has higher blast radius than its diff suggests.
 
 ## Knowledge Lookup
 
