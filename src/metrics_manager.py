@@ -51,12 +51,10 @@ class MetricsManager:
 
     @property
     def latest_snapshot(self) -> MetricsSnapshot | None:
-        """Return the most recent in-memory snapshot."""
         return self._latest_snapshot
 
     @property
     def _cache_dir(self) -> Path:
-        """Return the local metrics cache directory for the current repo."""
         return get_metrics_cache_dir(self._config)
 
     async def sync(self, queue_stats: QueueStats | None = None) -> MetricsSyncResult:

@@ -57,10 +57,6 @@ from contracts._schema import (
     load_cassette,
 )
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
 # The four recorder-side adapter names. Must stay aligned with
 # ``ADAPTER_PLANS`` in ``src/contract_refresh_loop.py`` and with the
 # three YAML adapters accepted by ``_schema.Cassette._validate_adapter``
@@ -77,10 +73,6 @@ _COMMITTED_DIR_RELPATH: dict[str, str] = {
     "docker": "tests/trust/contracts/cassettes/docker",
     "claude": "tests/trust/contracts/claude_streams",
 }
-
-# ---------------------------------------------------------------------------
-# Reports
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -115,11 +107,6 @@ class FleetDriftReport:
 
     reports: list[AdapterDriftReport]
     has_drift: bool
-
-
-# ---------------------------------------------------------------------------
-# Canonicalization
-# ---------------------------------------------------------------------------
 
 
 def _canonical_payload(cassette: Cassette) -> bytes:
@@ -242,11 +229,6 @@ def _canonicalize(adapter: str, path: Path) -> bytes:
     if adapter == "claude":
         return _canonical_jsonl(path)
     return _canonical_yaml(path)
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 
 
 def detect_adapter_drift(
