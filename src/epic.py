@@ -223,14 +223,13 @@ class EpicCompletionChecker:
                 )
                 return False
 
-            if fixed_label and fixed_label in issue.labels:
-                sub_issue_titles.append(issue.title)
-                continue
-
-            if (
-                epic_labels & set(issue.labels)
+            issue_labels = set(issue.labels)
+            is_fixed = bool(fixed_label) and fixed_label in issue_labels
+            is_closed_nested_epic = (
+                bool(epic_labels & issue_labels)
                 and issue.state == GitHubIssueState.CLOSED
-            ):
+            )
+            if is_fixed or is_closed_nested_epic:
                 sub_issue_titles.append(issue.title)
                 continue
 
@@ -244,7 +243,7 @@ class EpicCompletionChecker:
                 )
                 continue
 
-            if hitl_labels & set(issue.labels):
+            if hitl_labels & issue_labels:
                 hitl_blocked.append(issue_number)
                 continue
 
