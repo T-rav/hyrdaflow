@@ -7,7 +7,12 @@ from pathlib import Path
 import pytest
 
 from repo_wiki import RepoWikiStore
-from repo_wiki_ingest import _extract_sections, ingest_from_plan, ingest_from_review
+from repo_wiki_ingest import (
+    _derive_title,
+    _extract_sections,
+    ingest_from_plan,
+    ingest_from_review,
+)
 
 
 @pytest.fixture
@@ -16,6 +21,45 @@ def store(tmp_path: Path) -> RepoWikiStore:
 
 
 REPO = "acme/widget"
+
+
+class TestDeriveTitle:
+    def test_uses_first_informative_line(self) -> None:
+        content = (
+            "## Background\n"
+            "The plan introduces a write-ahead log for atomic state updates, "
+            "preventing partial-write corruption.\n"
+        )
+        title = _derive_title(content, kind="Architecture notes", issue_number=42)
+        assert title.startswith("The plan introduces a write-ahead log")
+        assert title.endswith("(#42)")
+
+    def test_skips_short_heading_in_favour_of_prose(self) -> None:
+        content = "### Goals\n- Simplify the merge path for the orchestrator\n"
+        title = _derive_title(content, kind="Plan", issue_number=7)
+        assert title.startswith("Simplify the merge path")
+        assert "###" not in title
+
+    def test_keeps_descriptive_heading(self) -> None:
+        content = "## Atomic state writes via WAL\nbody...\n"
+        title = _derive_title(content, kind="Notes", issue_number=3)
+        assert title.startswith("Atomic state writes via WAL")
+
+    def test_truncates_long_first_line(self) -> None:
+        content = "Reduce per-cycle GitHub API calls by batching label mutations into a single edit batch per issue and avoiding redundant fetches in the orchestrator hot path."
+        title = _derive_title(content, kind="Notes", issue_number=99)
+        assert "…" in title
+        assert len(title) < 90
+
+    def test_falls_back_when_content_has_no_lead(self) -> None:
+        content = "# \n\n## \n\n"
+        title = _derive_title(content, kind="Review patterns", issue_number=12)
+        assert title == "Review patterns from #12"
+
+    def test_skips_lines_under_eight_chars(self) -> None:
+        content = "Notes\nFix\n\nThe routing logic now respects the staging label.\n"
+        title = _derive_title(content, kind="Plan", issue_number=4)
+        assert title.startswith("The routing logic")
 
 
 class TestExtractSections:
