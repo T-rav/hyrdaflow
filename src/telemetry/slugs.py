@@ -7,15 +7,15 @@ without depending on exception messages or stack traces.
 
 from __future__ import annotations
 
-import asyncio
 import subprocess
 
 from src.subprocess_util import CreditExhaustedError
 
+# On Python 3.11+ asyncio.TimeoutError is an alias for the builtin
+# TimeoutError, so a single TimeoutError entry covers both.
 EXCEPTION_SLUGS: dict[type[BaseException], str] = {
     CreditExhaustedError: "err-credit-exhausted",
     TimeoutError: "err-subprocess-timeout",
-    asyncio.TimeoutError: "err-subprocess-timeout",
     subprocess.TimeoutExpired: "err-subprocess-timeout",
     PermissionError: "err-permission-denied",
     FileNotFoundError: "err-file-not-found",
@@ -31,10 +31,3 @@ def slug_for(exc: BaseException | None) -> str:
         if isinstance(exc, cls):
             return slug
     return "err-unclassified"
-
-
-def register_slug(exc_cls: type[BaseException], slug: str) -> None:
-    """Add a class → slug mapping at startup. Caller is responsible for
-    using a stable, low-cardinality slug. Phase B will grow this catalog
-    from production data."""
-    EXCEPTION_SLUGS[exc_cls] = slug
