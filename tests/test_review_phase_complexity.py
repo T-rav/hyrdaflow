@@ -44,8 +44,6 @@ from tests.helpers import make_review_phase
 
 
 class TestHitlEscalation:
-    """Tests for the HitlEscalation dataclass."""
-
     def test_required_fields(self) -> None:
         """HitlEscalation requires issue_number, pr_number, cause, origin_label, comment."""
         esc = HitlEscalation(
@@ -204,11 +202,8 @@ class TestEscalateToHitlWithDataclass:
 
 
 class TestRunSingleReviewFix:
-    """Tests for the extracted _run_single_review_fix method."""
-
     @pytest.mark.asyncio
     async def test_returns_none_when_no_fixes(self, config: HydraFlowConfig) -> None:
-        """Should return None when fix agent makes no changes."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         task = TaskFactory.create()
@@ -233,7 +228,6 @@ class TestRunSingleReviewFix:
     async def test_returns_result_when_fixes_made(
         self, config: HydraFlowConfig
     ) -> None:
-        """Should return (re_result, updated_diff) when fixes are made."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         task = TaskFactory.create()
@@ -309,11 +303,8 @@ class TestRunSingleReviewFix:
 
 
 class TestHandleCiExhaustion:
-    """Tests for the extracted _handle_ci_exhaustion method."""
-
     @pytest.mark.asyncio
     async def test_sets_ci_passed_false(self, config: HydraFlowConfig) -> None:
-        """Should set result.ci_passed to False."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         task = TaskFactory.create()
@@ -335,7 +326,6 @@ class TestHandleCiExhaustion:
 
     @pytest.mark.asyncio
     async def test_calls_escalate_ci_failure(self, config: HydraFlowConfig) -> None:
-        """Should call _escalate_ci_failure."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         task = TaskFactory.create()
@@ -354,7 +344,6 @@ class TestHandleCiExhaustion:
     async def test_suggests_memory_when_transcript(
         self, config: HydraFlowConfig
     ) -> None:
-        """Should call _suggest_memory when result has a transcript."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         task = TaskFactory.create()
@@ -380,11 +369,8 @@ class TestHandleCiExhaustion:
 
 
 class TestEmitVisualGateTelemetry:
-    """Tests for the extracted _emit_visual_gate_telemetry method."""
-
     @pytest.mark.asyncio
     async def test_emits_event(self, config: HydraFlowConfig, event_bus) -> None:
-        """Should publish a VISUAL_GATE event."""
         phase = make_review_phase(config, event_bus=event_bus)
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
@@ -407,7 +393,6 @@ class TestEmitVisualGateTelemetry:
 
     @pytest.mark.asyncio
     async def test_no_bus_no_error(self, config: HydraFlowConfig) -> None:
-        """Should not raise when bus is None."""
         phase = make_review_phase(config)
         phase._bus = None  # type: ignore[assignment]
         pr = PRInfoFactory.create()
@@ -419,11 +404,8 @@ class TestEmitVisualGateTelemetry:
 
 
 class TestHandleVisualGatePass:
-    """Tests for the extracted _handle_visual_gate_pass method."""
-
     @pytest.mark.asyncio
     async def test_sets_visual_passed(self, config: HydraFlowConfig) -> None:
-        """Should set result.visual_passed to True."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         result = ReviewResultFactory.create(
@@ -437,7 +419,6 @@ class TestHandleVisualGatePass:
 
     @pytest.mark.asyncio
     async def test_posts_sign_off_comment(self, config: HydraFlowConfig) -> None:
-        """Should post sign-off comment on PR."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         result = ReviewResultFactory.create(
@@ -454,7 +435,6 @@ class TestHandleVisualGatePass:
 
     @pytest.mark.asyncio
     async def test_includes_artifacts_in_comment(self, config: HydraFlowConfig) -> None:
-        """Should include artifact links in sign-off comment."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         result = ReviewResultFactory.create(
@@ -474,7 +454,6 @@ class TestHandleVisualGatePass:
     async def test_tolerates_comment_post_failure(
         self, config: HydraFlowConfig
     ) -> None:
-        """Should not raise when comment posting fails."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         result = ReviewResultFactory.create(
@@ -488,11 +467,8 @@ class TestHandleVisualGatePass:
 
 
 class TestHandleVisualGateFailure:
-    """Tests for the extracted _handle_visual_gate_failure method."""
-
     @pytest.mark.asyncio
     async def test_sets_visual_passed_false(self, config: HydraFlowConfig) -> None:
-        """Should set result.visual_passed to False."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
@@ -512,7 +488,6 @@ class TestHandleVisualGateFailure:
 
     @pytest.mark.asyncio
     async def test_posts_block_comment(self, config: HydraFlowConfig) -> None:
-        """Should post block comment on PR."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
@@ -534,7 +509,6 @@ class TestHandleVisualGateFailure:
 
     @pytest.mark.asyncio
     async def test_escalates_to_hitl(self, config: HydraFlowConfig) -> None:
-        """Should call _escalate_to_hitl with HitlEscalation."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()
@@ -560,7 +534,6 @@ class TestHandleVisualGateFailure:
     async def test_tolerates_comment_post_failure(
         self, config: HydraFlowConfig
     ) -> None:
-        """Should still escalate even when comment posting fails."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         issue = TaskFactory.create()

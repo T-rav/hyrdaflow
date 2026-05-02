@@ -18,8 +18,6 @@ from tests.helpers import find_endpoint, make_dashboard_router
 
 
 class TestPipelineEndpoint:
-    """Tests for the GET /api/pipeline endpoint."""
-
     def test_pipeline_route_is_registered(
         self, config, event_bus, state, tmp_path
     ) -> None:
@@ -121,8 +119,6 @@ class TestPipelineEndpoint:
 
 
 class TestOutcomesEndpoint:
-    """Tests for GET /api/issues/outcomes."""
-
     @pytest.mark.asyncio
     async def test_outcomes_returns_empty_dict_by_default(
         self, config, event_bus, state, tmp_path
@@ -169,8 +165,6 @@ class TestOutcomesEndpoint:
 
 
 class TestRequestChangesEndpoint:
-    """Tests for POST /api/request-changes endpoint."""
-
     def _setup_router(self, config, event_bus, state, tmp_path):
         router, pr_mgr = make_dashboard_router(config, event_bus, state, tmp_path)
         pr_mgr.remove_label = AsyncMock()
@@ -365,8 +359,6 @@ class TestRequestChangesEndpoint:
 
 
 class TestRunsEndpoints:
-    """Tests for the /api/runs route family."""
-
     # --- GET /api/runs (list_run_issues) ---
 
     @pytest.mark.asyncio
@@ -519,8 +511,6 @@ class TestRunsEndpoints:
 
 
 class TestGetStateEndpoint:
-    """Tests for GET /api/state."""
-
     @pytest.mark.asyncio
     async def test_returns_state_dict(self, config, event_bus, state, tmp_path) -> None:
         router, _ = make_dashboard_router(config, event_bus, state, tmp_path)
@@ -550,8 +540,6 @@ class TestGetStateEndpoint:
 
 
 class TestGetStatsEndpoint:
-    """Tests for GET /api/stats."""
-
     @pytest.mark.asyncio
     async def test_returns_lifetime_stats(
         self, config, event_bus, state, tmp_path
@@ -596,8 +584,6 @@ class TestGetStatsEndpoint:
 
 
 class TestGetQueueEndpoint:
-    """Tests for GET /api/queue."""
-
     @pytest.mark.asyncio
     async def test_returns_default_when_no_orchestrator(
         self, config, event_bus, state, tmp_path
@@ -632,8 +618,6 @@ class TestGetQueueEndpoint:
 
 
 class TestGetEventsEndpoint:
-    """Tests for GET /api/events."""
-
     @pytest.mark.asyncio
     async def test_returns_empty_history_initially(
         self, config, event_bus, state, tmp_path
@@ -674,8 +658,6 @@ class TestGetEventsEndpoint:
 
 
 class TestGetPRsEndpoint:
-    """Tests for GET /api/prs."""
-
     @pytest.mark.asyncio
     async def test_returns_pr_list(self, config, event_bus, state, tmp_path) -> None:
         from models import PRListItem
@@ -767,8 +749,6 @@ class TestGetPRsEndpoint:
 
 
 class TestListSupervisedReposEndpoint:
-    """Tests for GET /api/repos when no repo_store or callback is configured."""
-
     @pytest.mark.asyncio
     async def test_returns_empty_repos_when_supervisor_unavailable(
         self, config, event_bus, state, tmp_path
@@ -903,8 +883,6 @@ class TestSupervisorStubsRemoved:
 
 
 class TestGetSessionsEndpoint:
-    """Tests for GET /api/sessions."""
-
     @pytest.mark.asyncio
     async def test_returns_empty_sessions(
         self, config, event_bus, state, tmp_path
@@ -935,8 +913,6 @@ class TestGetSessionsEndpoint:
 
 
 class TestGetSessionDetailEndpoint:
-    """Tests for GET /api/sessions/{session_id}."""
-
     @pytest.mark.asyncio
     async def test_returns_404_for_missing_session(
         self, config, event_bus, state, tmp_path
@@ -973,8 +949,6 @@ class TestGetSessionDetailEndpoint:
 
 
 class TestGetSystemWorkersEndpoint:
-    """Tests for GET /api/system/workers."""
-
     @pytest.mark.asyncio
     async def test_returns_workers_without_orchestrator(
         self, config, event_bus, state, tmp_path
@@ -1076,8 +1050,6 @@ class TestGetSystemWorkersEndpoint:
 
 
 class TestGetTimelineEndpoint:
-    """Tests for GET /api/timeline."""
-
     @pytest.mark.asyncio
     async def test_returns_empty_timeline(
         self, config, event_bus, state, tmp_path
@@ -1090,8 +1062,6 @@ class TestGetTimelineEndpoint:
 
 
 class TestGetTimelineIssueEndpoint:
-    """Tests for GET /api/timeline/issue/{issue_number}."""
-
     @pytest.mark.asyncio
     async def test_returns_404_for_unknown_issue(
         self, config, event_bus, state, tmp_path
@@ -1125,8 +1095,6 @@ class TestGetTimelineIssueEndpoint:
 
 
 class TestTroubleshootingEndpoint:
-    """Tests for the /api/troubleshooting endpoint."""
-
     @pytest.mark.asyncio
     async def test_troubleshooting_returns_empty(
         self, config, event_bus, state, tmp_path
@@ -1219,8 +1187,6 @@ class TestTroubleshootingEndpoint:
 
 
 class TestRepoScopedEndpoints:
-    """Tests for repo-scoped endpoints resolving runtime-specific state."""
-
     @pytest.mark.asyncio
     async def test_get_prs_uses_runtime_pr_manager(self, config, tmp_path) -> None:
         runtime_config = config.model_copy()
@@ -1405,8 +1371,6 @@ class TestRepoScopedEndpoints:
 
 
 class TestRuntimeEndpointsWithRegistry:
-    """Tests for /api/runtimes/* endpoints when a registry is provided."""
-
     @pytest.mark.asyncio
     async def test_list_runtimes_empty_registry(
         self, config, event_bus: EventBus, state, tmp_path: Path

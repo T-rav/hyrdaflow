@@ -199,8 +199,6 @@ class TestOrchestratorBgWorkerTracking:
 
 
 class TestBgWorkerEnabled:
-    """Tests for is_bg_worker_enabled / set_bg_worker_enabled."""
-
     def test_is_bg_worker_enabled_defaults_to_true(
         self, config, event_bus: EventBus
     ) -> None:
@@ -240,8 +238,6 @@ class TestBgWorkerEnabled:
 
 
 class TestSystemWorkersEndpoint:
-    """Tests for GET /api/system/workers."""
-
     def _make_router(
         self,
         config,
@@ -382,8 +378,6 @@ class TestSystemWorkersEndpoint:
 
 
 class TestMetricsEndpoint:
-    """Tests for GET /api/metrics."""
-
     @pytest.mark.asyncio
     async def test_returns_lifetime_stats(
         self, config, event_bus: EventBus, state, tmp_path: Path
@@ -486,8 +480,6 @@ class TestRouteRegistration:
 
 
 class TestBackgroundWorkerStatusIntervalFields:
-    """Tests for interval_seconds and next_run fields on BackgroundWorkerStatus."""
-
     def test_default_interval_fields_are_none(self) -> None:
         status = BackgroundWorkerStatus(name="test", label="Test")
         assert status.interval_seconds is None
@@ -507,8 +499,6 @@ class TestBackgroundWorkerStatusIntervalFields:
 
 
 class TestSystemWorkersEndpointIntervals:
-    """Tests for interval data in GET /api/system/workers."""
-
     def _make_router(self, config, event_bus, tmp_path, orch=None):
         from dashboard_routes import create_router
         from pr_manager import PRManager
@@ -635,8 +625,6 @@ class TestSystemWorkersEndpointIntervals:
 
 
 class TestBgWorkerIntervalEndpoint:
-    """Tests for POST /api/control/bg-worker/interval endpoint."""
-
     def _make_router(self, config, event_bus, state, tmp_path, get_orch=None):
         from dashboard_routes import create_router
         from pr_manager import PRManager
@@ -762,8 +750,6 @@ class TestBgWorkerIntervalEndpoint:
 
 
 class TestDisabledWorkerPersistenceAcrossRestart:
-    """Tests for disabled worker state persisting across orchestrator restarts."""
-
     def test_disabled_worker_persists_across_restore(
         self, config, event_bus: EventBus, tmp_path: Path
     ) -> None:
@@ -932,8 +918,6 @@ class TestDisabledWorkerPersistenceAcrossRestart:
 
 
 class TestStaleDisabledWorkerPruning:
-    """Tests for pruning stale worker names from disabled_workers on startup."""
-
     def test_stale_worker_name_pruned_on_startup(
         self, config, event_bus: EventBus, tmp_path: Path
     ) -> None:
@@ -1005,8 +989,6 @@ class TestStaleDisabledWorkerPruning:
 
 
 class TestOrchestratorIntervalManagement:
-    """Tests for set_bg_worker_interval/get_bg_worker_interval."""
-
     def test_get_returns_config_default_when_no_override(
         self, config, event_bus: EventBus
     ) -> None:

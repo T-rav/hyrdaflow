@@ -15,8 +15,6 @@ def repo(tmp_path: Path) -> Path:
 
 
 class TestDetectLanguages:
-    """Tests for detect_languages() — marker-based language detection."""
-
     def test_python_from_pyproject_toml(self, repo: Path) -> None:
         """pyproject.toml presence should detect python."""
         (repo / "pyproject.toml").write_text("[project]\nname = 'x'\n")

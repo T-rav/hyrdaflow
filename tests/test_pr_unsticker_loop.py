@@ -46,8 +46,6 @@ def _make_loop(
 
 
 class TestPRUnstickerLoopRun:
-    """Tests for PRUnstickerLoop.run."""
-
     @pytest.mark.asyncio
     async def test_run__calls_status_cb_on_success(self, tmp_path: Path) -> None:
         """The loop calls the status callback with 'ok' on success."""

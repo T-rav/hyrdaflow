@@ -270,6 +270,10 @@ lint-check: deps
 	@cd $(HYDRAFLOW_DIR) && $(UV) ruff check . && $(UV) ruff format . --check
 	@echo "$(GREEN)Lint check passed$(RESET)"
 
+# FILES is space-separated; defaults to scanning all tests/test_*.py.
+test-sludge-check: deps
+	@cd $(HYDRAFLOW_DIR) && $(UV) python scripts/strip_test_sludge.py --check $(FILES)
+
 lint-fix: lint
 	@echo "$(GREEN)Auto-repair complete$(RESET)"
 

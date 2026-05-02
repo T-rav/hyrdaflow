@@ -15,8 +15,6 @@ from tests.helpers import make_tracker
 
 
 class TestEpicStateProgress:
-    """Tests for EpicState.progress, remaining_children, is_child_resolved."""
-
     def test_empty_epic_progress(self) -> None:
         epic = EpicState(epic_number=1)
         p = epic.progress
@@ -105,8 +103,6 @@ class TestEpicStateProgress:
 
 
 class TestTrackedReportTransition:
-    """Tests for TrackedReport.transition with valid and invalid transitions."""
-
     def _make_report(self, status: str = "queued") -> TrackedReport:
         report = TrackedReport(
             reporter_id="user1",
@@ -195,8 +191,6 @@ class TestTrackedReportTransition:
 
 
 class TestRecordSuccessfulMerge:
-    """Tests for StateTracker.record_successful_merge consolidation."""
-
     def test_basic_merge_records_all_state(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         proposals = tracker.record_successful_merge(
@@ -281,8 +275,6 @@ class TestRecordSuccessfulMerge:
 
 
 class TestClearHITLState:
-    """Tests for StateTracker.clear_hitl_state consolidation."""
-
     def test_clears_all_hitl_data(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.set_hitl_origin(42, "hydraflow-review")

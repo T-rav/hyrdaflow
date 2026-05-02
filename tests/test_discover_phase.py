@@ -47,8 +47,6 @@ def sample_task() -> Task:
 
 
 class TestDiscoverPhase:
-    """Tests for DiscoverPhase."""
-
     @pytest.mark.asyncio
     async def test_discover_single_posts_research_brief(
         self, phase: DiscoverPhase, sample_task: Task, deps: dict

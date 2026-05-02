@@ -33,8 +33,6 @@ def _make_hooks_subprocess_mock(hooks_dir: Path):
 
 
 class TestSetupEnvDocker:
-    """Tests for _setup_env when execution_mode='docker'."""
-
     def test_setup_env_docker_copies_dotenv(self, tmp_path: Path) -> None:
         """In docker mode, .env should be copied (not symlinked) into worktree."""
         manager = make_docker_manager(tmp_path)
@@ -242,8 +240,6 @@ class TestSetupEnvDocker:
 
 
 class TestInstallHooksDocker:
-    """Tests for _install_hooks when execution_mode='docker'."""
-
     @pytest.mark.asyncio
     async def test_install_hooks_docker_copies_hook_files(self, tmp_path: Path) -> None:
         """In docker mode, hook files should be copied to the git hooks dir."""
@@ -441,10 +437,7 @@ class TestInstallHooksDocker:
 
 
 class TestDetectUiDirs:
-    """Tests for WorkspaceManager._detect_ui_dirs."""
-
     def test_detects_package_json_dirs(self, tmp_path: Path) -> None:
-        """Should discover UI dirs from package.json files in repo root."""
         repo_root = tmp_path / "repo"
         repo_root.mkdir()
         # Create two UI dirs with package.json
@@ -464,7 +457,6 @@ class TestDetectUiDirs:
         assert "ui" in manager._ui_dirs
 
     def test_skips_node_modules_package_json(self, tmp_path: Path) -> None:
-        """Should not detect package.json inside node_modules."""
         repo_root = tmp_path / "repo"
         repo_root.mkdir()
         (repo_root / "ui").mkdir()
@@ -484,7 +476,6 @@ class TestDetectUiDirs:
         assert manager._ui_dirs == ["ui"]
 
     def test_skips_hidden_dirs(self, tmp_path: Path) -> None:
-        """Should not detect package.json inside hidden directories."""
         repo_root = tmp_path / "repo"
         repo_root.mkdir()
         (repo_root / ".hidden" / "sub").mkdir(parents=True)
@@ -501,7 +492,6 @@ class TestDetectUiDirs:
         assert manager._ui_dirs == ["ui"]
 
     def test_skips_root_level_package_json(self, tmp_path: Path) -> None:
-        """Should not include root-level package.json as a UI dir."""
         repo_root = tmp_path / "repo"
         repo_root.mkdir()
         (repo_root / "package.json").write_text("{}")
@@ -517,7 +507,6 @@ class TestDetectUiDirs:
         assert manager._ui_dirs == ["ui"]
 
     def test_falls_back_to_config_when_no_package_json(self, tmp_path: Path) -> None:
-        """Should use config.ui_dirs when no package.json files are found."""
         repo_root = tmp_path / "repo"
         repo_root.mkdir()
 
@@ -555,8 +544,6 @@ class TestDetectUiDirs:
 
 
 class TestSanitizeRepo:
-    """Tests for WorkspaceManager.sanitize_repo."""
-
     @pytest.mark.asyncio
     async def test_sanitize_fetches_and_prunes_orphan_branches(self, config) -> None:
         """sanitize_repo fetches latest main and prunes agent/* branches."""
@@ -635,8 +622,6 @@ class TestSanitizeRepo:
 
 
 class TestResetToMain:
-    """Tests for the reset_to_main method."""
-
     @pytest.mark.asyncio
     async def test_reset_runs_fetch_reset_clean(self, tmp_path: Path) -> None:
         """reset_to_main should fetch, hard-reset, and clean."""
@@ -697,8 +682,6 @@ class TestResetToMain:
 
 
 class TestPreWorkCheck:
-    """Tests for WorkspaceManager.pre_work_check."""
-
     @pytest.mark.asyncio
     async def test_pre_work_fetches_main(self, config) -> None:
         manager = WorkspaceManager(config)
@@ -717,8 +700,6 @@ class TestPreWorkCheck:
 
 
 class TestPostWorkCleanup:
-    """Tests for WorkspaceManager.post_work_cleanup."""
-
     @pytest.mark.asyncio
     async def test_post_work_destroys(self, config) -> None:
         manager = WorkspaceManager(config)

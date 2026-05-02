@@ -6,8 +6,6 @@ from discover_runner import _DISCOVER_END, _DISCOVER_START, DiscoverRunner
 
 
 class TestExtractResult:
-    """Tests for DiscoverRunner._extract_result."""
-
     def test_extracts_valid_json(self) -> None:
         runner = DiscoverRunner.__new__(DiscoverRunner)
         transcript = f"""Some preamble text.
@@ -50,8 +48,6 @@ Some trailing text."""
 
 
 class TestExtractRawBrief:
-    """Tests for DiscoverRunner._extract_raw_brief."""
-
     def test_extracts_text_between_markers(self) -> None:
         runner = DiscoverRunner.__new__(DiscoverRunner)
         transcript = f"{_DISCOVER_START}\nSome raw research text.\n{_DISCOVER_END}"
@@ -65,8 +61,6 @@ class TestExtractRawBrief:
 
 
 class TestBuildPrompt:
-    """Tests for DiscoverRunner._build_prompt."""
-
     def test_prompt_includes_issue_details(self, config, event_bus) -> None:
         from unittest.mock import MagicMock
 

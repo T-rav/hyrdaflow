@@ -24,8 +24,6 @@ from config import (
 
 
 class TestEnvVarOverrideTable:
-    """Tests for the _ENV_INT_OVERRIDES and _ENV_STR_OVERRIDES tables."""
-
     @pytest.mark.parametrize(
         ("field", "env_key", "default"),
         _ENV_INT_OVERRIDES,
@@ -439,7 +437,6 @@ class TestEnvVarOverrideTable:
         This prevents silent drift when a field default is changed without updating
         the corresponding entry in _ENV_INT_OVERRIDES or _ENV_STR_OVERRIDES.
         """
-        # Arrange
         model_fields = HydraFlowConfig.model_fields
 
         # Act / Assert — int overrides

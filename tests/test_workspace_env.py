@@ -16,8 +16,6 @@ from workspace import WorkspaceManager
 
 
 class TestSetupEnv:
-    """Tests for WorkspaceManager._setup_env."""
-
     def test_setup_env_does_not_symlink_venv(self, config, tmp_path: Path) -> None:
         """_setup_env should NOT create a symlink for venv/ (independent venvs via uv sync)."""
         manager = WorkspaceManager(config)
@@ -182,8 +180,6 @@ class TestSetupEnv:
 
 
 class TestSetupDotenv:
-    """Tests for WorkspaceManager._setup_dotenv."""
-
     def test_host_mode_symlinks_dotenv(self, config, tmp_path: Path) -> None:
         """In host mode, _setup_dotenv should symlink .env."""
         manager = WorkspaceManager(config)
@@ -244,8 +240,6 @@ class TestSetupDotenv:
 
 
 class TestSetupClaudeSettings:
-    """Tests for WorkspaceManager._setup_claude_settings."""
-
     def test_copies_settings_file(self, config, tmp_path: Path) -> None:
         """_setup_claude_settings should copy settings.local.json into worktree."""
         manager = WorkspaceManager(config)
@@ -306,8 +300,6 @@ class TestSetupClaudeSettings:
 
 
 class TestSetupNodeModules:
-    """Tests for WorkspaceManager._setup_node_modules."""
-
     def test_host_mode_symlinks_node_modules(self, config, tmp_path: Path) -> None:
         """In host mode, _setup_node_modules should symlink node_modules."""
         manager = WorkspaceManager(config)
@@ -373,8 +365,6 @@ class TestSetupNodeModules:
 
 
 class TestConfigureGitIdentity:
-    """Tests for WorkspaceManager._configure_git_identity."""
-
     @staticmethod
     def _clear_git_identity_env(monkeypatch: pytest.MonkeyPatch) -> None:
         for var in (
@@ -389,7 +379,6 @@ class TestConfigureGitIdentity:
 
     @pytest.mark.asyncio
     async def test_sets_user_name_and_email(self, tmp_path: Path) -> None:
-        """Should run git config for both user.name and user.email."""
         cfg = ConfigFactory.create(
             git_user_name="Bot",
             git_user_email="bot@example.com",
@@ -414,7 +403,6 @@ class TestConfigureGitIdentity:
     async def test_skips_when_both_empty(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should not run any git config commands when identity is empty."""
         self._clear_git_identity_env(monkeypatch)
 
         cfg = ConfigFactory.create(
@@ -433,7 +421,6 @@ class TestConfigureGitIdentity:
     async def test_sets_only_name_when_email_empty(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should only set user.name when email is empty."""
         self._clear_git_identity_env(monkeypatch)
 
         cfg = ConfigFactory.create(
@@ -459,7 +446,6 @@ class TestConfigureGitIdentity:
     async def test_sets_only_email_when_name_empty(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Should only set user.email when name is empty."""
         self._clear_git_identity_env(monkeypatch)
 
         cfg = ConfigFactory.create(
@@ -537,8 +523,6 @@ class TestConfigureGitIdentity:
 
 
 class TestCreateVenv:
-    """Tests for WorkspaceManager._create_venv."""
-
     @pytest.mark.asyncio
     async def test_create_venv_runs_uv_sync(self, config, tmp_path: Path) -> None:
         """_create_venv should run 'uv sync' in the worktree."""
@@ -589,8 +573,6 @@ class TestCreateVenv:
 
 
 class TestInstallHooks:
-    """Tests for WorkspaceManager._install_hooks."""
-
     @pytest.mark.asyncio
     async def test_install_hooks_sets_hooks_path(self, config, tmp_path: Path) -> None:
         """_install_hooks should set core.hooksPath to .githooks."""

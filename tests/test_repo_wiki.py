@@ -312,8 +312,6 @@ class TestRoundTrip:
 
 
 class TestActiveLint:
-    """Tests for the self-healing active lint pass."""
-
     def test_marks_entries_stale_for_closed_issues(self, store: RepoWikiStore) -> None:
         store.ingest(
             REPO,
@@ -432,8 +430,6 @@ class TestActiveLint:
 
 
 class TestDedupTracking:
-    """Tests for ingest deduplication."""
-
     def test_not_ingested_initially(self, store: RepoWikiStore) -> None:
         store._ensure_repo_dir(REPO)
         assert store.is_ingested(REPO, 42, "review") is False

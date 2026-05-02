@@ -569,8 +569,6 @@ class TestIssueHistoryEndpoint:
 
 
 class TestIssueHistoryEpicBackfill:
-    """Tests that epic field is backfilled from state's epic tracking."""
-
     @pytest.mark.asyncio
     async def test_epic_backfilled_from_epic_state(
         self, config, event_bus: EventBus, state, tmp_path: Path
@@ -679,8 +677,6 @@ class TestIssueHistoryEpicBackfill:
 
 
 class TestIssueHistoryEpicLabelFiltering:
-    """Tests that internal epic labels are filtered out during enrichment."""
-
     @pytest.mark.asyncio
     async def test_internal_epic_labels_skipped(
         self, config, event_bus: EventBus, state, tmp_path: Path
@@ -735,8 +731,6 @@ class TestIssueHistoryEpicLabelFiltering:
 
 
 class TestIssueHistoryOutcomeDerivation:
-    """Tests that outcome is derived from merged PRs when not explicitly recorded."""
-
     @pytest.mark.asyncio
     async def test_outcome_derived_from_merged_pr(
         self, config, event_bus: EventBus, state, tmp_path: Path
@@ -845,8 +839,6 @@ class TestIssueHistoryOutcomeDerivation:
 
 
 class TestIssueHistoryPRTitlePropagation:
-    """Tests for PR title propagation into the /api/issues/history prs array."""
-
     @pytest.mark.asyncio
     async def test_pr_created_title_appears_in_history_prs(
         self, config, event_bus: EventBus, state, tmp_path: Path
@@ -953,8 +945,6 @@ class TestIssueHistoryPRTitlePropagation:
 
 
 class TestIssueHistoryCache:
-    """Tests for issue history disk cache (save / load / warm-up / invalidation)."""
-
     @pytest.mark.asyncio
     async def test_save_load_round_trip_preserves_int_keys(
         self, config, event_bus: EventBus, state, tmp_path: Path
@@ -1161,8 +1151,6 @@ class TestIssueHistoryCache:
 
 
 class TestEnrichmentErrorResilience:
-    """Tests for error handling in _enrich_issue_history_with_github (issue #2573)."""
-
     @pytest.mark.asyncio
     async def test_gather_return_exceptions_survives_failing_fetch(
         self, config, event_bus: EventBus, state, tmp_path: Path

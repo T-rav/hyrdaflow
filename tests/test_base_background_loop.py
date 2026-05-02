@@ -86,8 +86,6 @@ def _make_stub(
 
 
 class TestBaseBackgroundLoopRun:
-    """Tests for the base run loop mechanics."""
-
     @pytest.mark.asyncio
     async def test_run__calls_do_work_and_reports_success(self, tmp_path: Path) -> None:
         """The loop calls _do_work and reports success via status_cb and bus."""
@@ -207,8 +205,6 @@ class TestBaseBackgroundLoopRun:
 
 
 class TestBaseBackgroundLoopInterval:
-    """Tests for interval handling."""
-
     def test_get_interval__uses_default_interval(self, tmp_path: Path) -> None:
         """Without a callback, _get_interval returns _get_default_interval()."""
         loop, _ = _make_stub(tmp_path, default_interval=300)
@@ -223,8 +219,6 @@ class TestBaseBackgroundLoopInterval:
 
 
 class TestBaseBackgroundLoopTrigger:
-    """Tests for the trigger() method and _sleep_or_trigger() helper."""
-
     @pytest.mark.asyncio
     async def test_trigger__skips_sleep(self, tmp_path: Path) -> None:
         """trigger() causes _sleep_or_trigger to return True immediately."""
@@ -356,8 +350,6 @@ class TestBaseBackgroundLoopTrigger:
 
 
 class TestBaseBackgroundLoopRunOnStartup:
-    """Tests for the run_on_startup flag."""
-
     @pytest.mark.asyncio
     async def test_run__run_on_startup_executes_immediately(
         self, tmp_path: Path
@@ -397,8 +389,6 @@ class TestBaseBackgroundLoopRunOnStartup:
 
 
 class TestLoopDeps:
-    """Tests for the LoopDeps dataclass."""
-
     def test_creates_with_required_fields(self) -> None:
         """LoopDeps should accept the 4 required fields (sleep_fn is optional)."""
         bus = EventBus()
@@ -489,8 +479,6 @@ class TestLoopDeps:
 
 
 class TestMissedCycleCatchUp:
-    """Tests for _should_run_catchup and _record_last_run."""
-
     @pytest.mark.asyncio
     async def test_runs_catchup_when_last_run_exceeds_interval(
         self, tmp_path: Path
@@ -546,8 +534,6 @@ class TestMissedCycleCatchUp:
 
 
 class TestDerivedSleepFn:
-    """Tests for the stop_event-derived sleep when sleep_fn is not provided."""
-
     @pytest.mark.asyncio
     async def test_loop_works_without_explicit_sleep_fn(self, tmp_path: Path) -> None:
         """When sleep_fn=None in LoopDeps, BaseBackgroundLoop derives one from stop_event."""

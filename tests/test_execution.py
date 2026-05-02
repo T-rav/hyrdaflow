@@ -51,8 +51,6 @@ class TestSimpleResult:
 
 
 class TestHostRunnerCreateStreamingProcess:
-    """Tests for HostRunner.create_streaming_process."""
-
     @pytest.mark.asyncio
     async def test_calls_create_subprocess_exec_with_correct_args(self) -> None:
         mock_proc = AsyncMock()
@@ -126,8 +124,6 @@ class TestHostRunnerCreateStreamingProcess:
 
 
 class TestHostRunnerRunSimple:
-    """Tests for HostRunner.run_simple."""
-
     @pytest.mark.asyncio
     async def test_success_returns_simple_result(self) -> None:
         mock_proc = AsyncMock()
@@ -289,8 +285,6 @@ class TestHostRunnerRunSimple:
 
 
 class TestGetDefaultRunner:
-    """Tests for get_default_runner factory."""
-
     def test_returns_host_runner(self) -> None:
         import execution
 

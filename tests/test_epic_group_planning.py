@@ -73,8 +73,6 @@ def _make_phase(
 
 
 class TestGroupByEpic:
-    """Tests for PlanPhase._group_by_epic()."""
-
     def test_separates_children_from_standalone(self, config: HydraFlowConfig) -> None:
         phase, *_ = _make_phase(config)
         standalone = TaskFactory.create(id=1, tags=["hydraflow-plan"])
@@ -135,8 +133,6 @@ class TestGroupByEpic:
 
 
 class TestParseGapReview:
-    """Tests for PlanPhase._parse_gap_review()."""
-
     def test_full_parse(self) -> None:
         transcript = (
             "GAP_REVIEW_START\n"
@@ -184,8 +180,6 @@ class TestParseGapReview:
 
 
 class TestPlanEpicGroup:
-    """Tests for PlanPhase._plan_epic_group()."""
-
     @pytest.mark.asyncio
     async def test_runs_gap_review(self, config: HydraFlowConfig) -> None:
         """When >=2 children succeed, gap review should run."""
@@ -364,8 +358,6 @@ class TestPlanEpicGroup:
 
 
 class TestGapReviewComment:
-    """Tests for PlanPhase._post_gap_review_comment()."""
-
     @pytest.mark.asyncio
     async def test_posts_comment_on_epic(self, config: HydraFlowConfig) -> None:
         phase, _planners, prs, _store, _stop = _make_phase(config)
@@ -392,8 +384,6 @@ class TestGapReviewComment:
 
 
 class TestPipelineSnapshotIncludesEpicFields:
-    """Tests for IssueStore pipeline snapshot epic field enrichment."""
-
     def test_snapshot_includes_epic_fields_for_child(
         self, config: HydraFlowConfig
     ) -> None:
@@ -469,8 +459,6 @@ class TestPipelineSnapshotIncludesEpicFields:
 
 
 class TestPlanIssuesMixedEpicAndStandalone:
-    """Tests for plan_issues() with mixed epic and standalone issues."""
-
     @pytest.mark.asyncio
     async def test_plans_both_groups(self, config: HydraFlowConfig) -> None:
         """plan_issues should handle both standalone and epic children."""

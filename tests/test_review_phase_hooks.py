@@ -38,8 +38,6 @@ def _build_phase(config: HydraFlowConfig) -> ReviewPhase:
 
 
 class TestPostReviewTranscriptHooks:
-    """Tests for post_review_transcript_hooks — status determination + dispatch."""
-
     @pytest.mark.asyncio
     async def test_calls_hooks_for_transcripts(self, config: HydraFlowConfig) -> None:
         """Review results with transcripts trigger memory + summarize."""
@@ -146,8 +144,6 @@ class TestPostReviewTranscriptHooks:
 
 
 class TestPostReviewTranscript:
-    """Tests for _post_review_transcript — single result processing."""
-
     @pytest.mark.asyncio
     async def test_memory_suggestion_failure_does_not_block_summarize(
         self, config: HydraFlowConfig
@@ -238,8 +234,6 @@ class TestPostReviewTranscript:
 
 
 class TestReviewLogReference:
-    """Tests for _review_log_reference helper."""
-
     def test_returns_display_path(self, config: HydraFlowConfig) -> None:
         phase = _build_phase(config)
         ref = phase._review_log_reference(101)

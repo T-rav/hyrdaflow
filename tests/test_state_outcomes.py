@@ -16,8 +16,6 @@ from tests.helpers import make_tracker
 
 
 class TestIssueOutcomeTracking:
-    """Tests for record_outcome/get_outcome/get_all_outcomes."""
-
     def test_record_and_get_outcome(self, tmp_path: Path) -> None:
         from models import IssueOutcomeType
 
@@ -256,8 +254,6 @@ class TestIssueOutcomeTracking:
 
 
 class TestHookFailureTracking:
-    """Tests for record_hook_failure/get_hook_failures."""
-
     def test_record_and_get_hook_failure(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         tracker.record_hook_failure(42, "AC generation", "Connection timeout")
@@ -714,8 +710,6 @@ class TestDisabledWorkersPersistence:
 
 
 class TestActiveCrate:
-    """Tests for active crate number persistence."""
-
     def test_defaults_to_none(self, tmp_path: Path) -> None:
         tracker = make_tracker(tmp_path)
         assert tracker.get_active_crate_number() is None
@@ -796,8 +790,6 @@ class TestGetActiveWorktreesValueError:
 
 
 class TestStateKeyHelpers:
-    """Tests for the centralized _key and _int_keys helpers."""
-
     def test_key_converts_int_to_str(self, tmp_path: Path) -> None:
         tracker = StateTracker(tmp_path / "state.json")
         assert tracker._key(42) == "42"

@@ -128,8 +128,6 @@ class TestScoreActionability:
 
 
 class TestScoreTaskGraph:
-    """Tests for the _score_task_graph helper."""
-
     def test_empty_plan_returns_zero(self):
         from plan_scoring import _score_task_graph  # noqa: PLC0415
 
@@ -179,8 +177,6 @@ class TestScoreTaskGraph:
 
 
 class TestScoreImplSteps:
-    """Tests for the _score_impl_steps helper."""
-
     def test_empty_plan_returns_zero(self):
         from plan_scoring import _score_impl_steps  # noqa: PLC0415
 
@@ -235,8 +231,6 @@ class TestScoreImplSteps:
 
 
 class TestScoreFileDelta:
-    """Tests for the _score_file_delta helper."""
-
     def test_empty_plan_returns_zero(self):
         from plan_scoring import _score_file_delta  # noqa: PLC0415
 
@@ -262,8 +256,6 @@ class TestScoreFileDelta:
 
 
 class TestScoreTestingStrategy:
-    """Tests for the _score_testing_strategy helper."""
-
     def test_empty_plan_returns_zero(self):
         from plan_scoring import _score_testing_strategy  # noqa: PLC0415
 

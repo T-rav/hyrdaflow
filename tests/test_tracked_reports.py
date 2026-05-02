@@ -59,8 +59,6 @@ def _find_route_endpoint(router, path, method="GET"):
 
 
 class TestTrackedReportModel:
-    """Tests for TrackedReport and related models."""
-
     def test_tracked_report_defaults(self) -> None:
         report = TrackedReport(reporter_id="user-1", description="Bug")
         assert report.status == "queued"
@@ -112,8 +110,6 @@ class TestTrackedReportModel:
 
 
 class TestTrackedReportState:
-    """Tests for StateTracker tracked report methods."""
-
     def test_add_and_get_tracked_reports(self, state) -> None:
         report = TrackedReport(id="rpt-1", reporter_id="user-1", description="Bug A")
         state.add_tracked_report(report)
@@ -233,8 +229,6 @@ class TestTrackedReportState:
 
 
 class TestTrackedReportEndpoints:
-    """Tests for tracked report API endpoints."""
-
     def _make_router(self, config, event_bus, state, tmp_path):
         return _build_router_and_mgr(config, event_bus, state, tmp_path)
 
@@ -488,8 +482,6 @@ class TestTrackedReportPersistence:
 
 
 class TestFiledStatus:
-    """Tests for the new 'filed' status in TrackedReport."""
-
     def test_tracked_report_filed_status_valid(self) -> None:
         report = TrackedReport(reporter_id="u1", description="Bug", status="filed")
         assert report.status == "filed"
@@ -510,8 +502,6 @@ class TestFiledStatus:
 
 
 class TestFiledAndStaleStateMethods:
-    """Tests for get_filed_reports and get_stale_queued_reports."""
-
     def test_get_filed_reports_returns_only_filed(self, state) -> None:
         state.add_tracked_report(
             TrackedReport(id="r1", reporter_id="u1", description="A", status="filed")
@@ -580,8 +570,6 @@ class TestFiledAndStaleStateMethods:
 
 
 class TestExtractIssueNumber:
-    """Tests for _extract_issue_number from dashboard_routes."""
-
     def test_valid_issue_url(self) -> None:
         from dashboard_routes._routes import _extract_issue_number
 
@@ -604,8 +592,6 @@ class TestExtractIssueNumber:
 
 
 class TestRefreshReportStatuses:
-    """Tests for POST /api/reports/refresh endpoint."""
-
     def _make_router(self, config, event_bus, state, tmp_path):
         return _build_router_and_mgr(config, event_bus, state, tmp_path)
 
@@ -805,8 +791,6 @@ class TestRefreshReportStatuses:
 
 
 class TestFiledStatusTransitions:
-    """Tests for state machine transitions involving the 'filed' status."""
-
     def _make_router(self, config, event_bus, state, tmp_path):
         return _build_router_and_mgr(config, event_bus, state, tmp_path)
 

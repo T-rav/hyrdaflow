@@ -54,8 +54,6 @@ class TestAgentRunnerInheritance:
 
 
 class TestBuildCommand:
-    """Tests for AgentRunner._build_command."""
-
     def test_build_command_starts_with_claude(
         self, config, event_bus: EventBus, tmp_path: Path
     ) -> None:
@@ -137,8 +135,6 @@ class TestBuildCommand:
 
 
 class TestBuildPrompt:
-    """Tests for AgentRunner._build_prompt_with_stats."""
-
     @pytest.mark.asyncio
     async def test_prompt_includes_issue_number(
         self, config, event_bus: EventBus, agent_task
@@ -777,8 +773,6 @@ class TestBuildPrompt:
 
 
 class TestGetEscalationData:
-    """Tests for the _get_escalation_data method (JSON round-trip and error handling)."""
-
     def test_returns_empty_list_when_no_reviews(
         self, config, event_bus: EventBus
     ) -> None:
@@ -849,8 +843,6 @@ class TestGetEscalationData:
 
 
 class TestDiffSanityLoop:
-    """Tests for the diff sanity check skill integration."""
-
     @pytest.mark.asyncio
     async def test_skipped_when_disabled(
         self, config, event_bus: EventBus, agent_task, tmp_path: Path
@@ -1005,8 +997,6 @@ class TestDiffSanityLoop:
 
 
 class TestScopeCheckLoop:
-    """Tests for the scope-check skill integration (blocking)."""
-
     @pytest.mark.asyncio
     async def test_skipped_when_disabled(
         self, config, event_bus: EventBus, agent_task, tmp_path: Path
@@ -1126,8 +1116,6 @@ class TestScopeCheckLoop:
 
 
 class TestPlanComplianceLoop:
-    """Tests for the plan compliance skill integration."""
-
     @pytest.mark.asyncio
     async def test_skipped_when_disabled(
         self, config, event_bus: EventBus, agent_task, tmp_path: Path
@@ -1240,8 +1228,6 @@ class TestPlanComplianceLoop:
 
 
 class TestTestAdequacyLoop:
-    """Tests for the test adequacy check skill integration."""
-
     @pytest.mark.asyncio
     async def test_skipped_when_disabled(
         self, config, event_bus: EventBus, agent_task, tmp_path: Path

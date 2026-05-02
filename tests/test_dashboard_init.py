@@ -19,8 +19,6 @@ if TYPE_CHECKING:
 
 
 class TestInit:
-    """Tests for HydraFlowDashboard.__init__."""
-
     def test_stores_config(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -101,8 +99,6 @@ class TestInit:
 
 
 class TestControlStartEndpoint:
-    """Tests for the POST /api/control/start route."""
-
     def test_start_returns_started(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -151,8 +147,6 @@ class TestControlStartEndpoint:
 
 
 class TestControlStopEndpoint:
-    """Tests for the POST /api/control/stop route."""
-
     def test_stop_returns_400_when_not_running(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -210,8 +204,6 @@ class TestControlStopEndpoint:
 
 
 class TestControlStatusEndpoint:
-    """Tests for the GET /api/control/status route."""
-
     def test_status_returns_idle_when_no_orchestrator(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:

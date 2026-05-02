@@ -19,8 +19,6 @@ from dashboard_routes._routes import (
 
 
 class TestParseCompatJsonObject:
-    """Tests for _parse_compat_json_object."""
-
     def test_returns_none_for_none(self) -> None:
         assert _parse_compat_json_object(None) is None
 
@@ -52,8 +50,6 @@ class TestParseCompatJsonObject:
 
 
 class TestExtractFieldFromSources:
-    """Tests for _extract_field_from_sources."""
-
     # --- Basic extraction from query params ---
 
     def test_extracts_from_primary_query_param(self) -> None:
@@ -218,8 +214,6 @@ class TestExtractFieldFromSources:
 
 
 class TestExtractRepoSlug:
-    """Tests for _extract_repo_slug via the actual wrapper function."""
-
     def test_slug_from_query_param(self) -> None:
         assert _extract_repo_slug(None, None, "owner/repo", None) == "owner/repo"
 
@@ -271,8 +265,6 @@ class TestExtractRepoSlug:
 
 
 class TestExtractRepoPath:
-    """Tests for _extract_repo_path via the actual wrapper function."""
-
     def test_path_from_body(self) -> None:
         assert _extract_repo_path({"path": "/tmp/r"}, None, None, None) == "/tmp/r"
 

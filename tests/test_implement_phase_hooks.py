@@ -34,8 +34,6 @@ def _build_phase(config: HydraFlowConfig) -> ImplementPhase:
 
 
 class TestPostImplTranscript:
-    """Tests for _post_impl_transcript — memory suggestion + transcript summary."""
-
     @pytest.mark.asyncio
     async def test_calls_memory_suggestion_and_summarize(
         self, config: HydraFlowConfig
@@ -167,8 +165,6 @@ class TestPostImplTranscript:
 
 
 class TestImplLogReference:
-    """Tests for _impl_log_reference helper."""
-
     def test_returns_display_path(self, config: HydraFlowConfig) -> None:
         phase = _build_phase(config)
         ref = phase._impl_log_reference(42)

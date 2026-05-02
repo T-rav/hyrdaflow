@@ -2136,8 +2136,6 @@ async def test_build_prompt_no_task_graph_guidance_for_lite(config, event_bus, i
 
 
 class TestValidateAlreadySatisfiedEvidence:
-    """Tests for PlannerRunner.validate_already_satisfied_evidence()."""
-
     def test_valid_evidence_returns_empty_errors(self) -> None:
         summary = (
             "Evidence:\n"
@@ -2329,8 +2327,6 @@ class TestValidateAlreadySatisfiedEvidence:
 
 
 class TestDiagramHelpers:
-    """Tests for diagram temp-file helpers on PlannerRunner."""
-
     def test_diagram_dir_for_issue(self) -> None:
         d = PlannerRunner.diagram_dir_for_issue(42)
         assert d == Path("/tmp/hydraflow-diagrams/issue-42")
@@ -2389,7 +2385,6 @@ class TestDiagramHelpers:
         assert not d.exists()
 
     def test_cleanup_diagrams_noop_when_missing(self) -> None:
-        """Should not raise when directory doesn't exist."""
         PlannerRunner.cleanup_diagrams(999999)
 
     @pytest.mark.parametrize(

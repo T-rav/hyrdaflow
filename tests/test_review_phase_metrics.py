@@ -39,8 +39,6 @@ from tests.helpers import make_review_phase
 
 
 class TestLifecycleMetricRecording:
-    """Tests that review_prs records new lifecycle metrics in state."""
-
     @pytest.mark.asyncio
     async def test_records_review_verdict_approve(
         self, config: HydraFlowConfig
@@ -252,8 +250,6 @@ class TestLifecycleMetricRecording:
 
 
 class TestRetrospectiveIntegration:
-    """Tests that retrospective.record() is called correctly after merge."""
-
     @pytest.mark.asyncio
     async def test_retrospective_called_on_successful_merge(
         self, config: HydraFlowConfig
@@ -338,8 +334,6 @@ class TestRetrospectiveIntegration:
 
 
 class TestReviewInsightIntegration:
-    """Tests for review insight recording during the review flow."""
-
     @pytest.mark.asyncio
     async def test_review_records_insight_after_review(
         self, config: HydraFlowConfig
@@ -468,8 +462,6 @@ class TestReviewInsightIntegration:
 
 
 class TestGranularReviewStatusEvents:
-    """Tests that review_phase emits granular status events at each lifecycle stage."""
-
     @pytest.mark.asyncio
     async def test_merge_main_status_emitted(
         self, config: HydraFlowConfig, event_bus
@@ -742,8 +734,6 @@ class TestGranularReviewStatusEvents:
 
 
 class TestCountReviewFindings:
-    """Tests for ReviewPhase._count_review_findings."""
-
     def test_counts_bullet_points(self, config: HydraFlowConfig) -> None:
         phase = make_review_phase(config)
         assert phase._count_review_findings("- Fix A\n- Fix B\n- Fix C") == 3
@@ -973,8 +963,6 @@ class TestSelfFixReReview:
 
 
 class TestGetJudgeResult:
-    """Tests for ReviewPhase._get_judge_result verdict-to-result conversion."""
-
     def test_returns_none_when_verdict_is_none(self, config: HydraFlowConfig) -> None:
         """When no verdict is produced, returns None."""
         phase = make_review_phase(config)
@@ -1239,7 +1227,6 @@ class TestRunDeltaVerification:
 
     @pytest.mark.asyncio
     async def test_calls_get_pr_diff_names(self, config: HydraFlowConfig) -> None:
-        """Should call get_pr_diff_names with the PR number."""
         plans_dir = config.repo_root / ".hydraflow" / "plans"
         plans_dir.mkdir(parents=True, exist_ok=True)
         (plans_dir / "issue-42.md").write_text(
@@ -1266,13 +1253,10 @@ class TestRunDeltaVerification:
 
 
 class TestRecordReviewInsight:
-    """Tests for ReviewPhase._record_review_insight."""
-
     @pytest.mark.asyncio
     async def test_appends_review_record_on_approve(
         self, config: HydraFlowConfig
     ) -> None:
-        """Should append a ReviewRecord to the insight store for every result."""
         phase = make_review_phase(config)
         result = ReviewResultFactory.create(
             verdict=ReviewVerdict.APPROVE,
@@ -1343,7 +1327,6 @@ class TestRecordReviewInsight:
     async def test_skips_already_proposed_category(
         self, config: HydraFlowConfig
     ) -> None:
-        """Should not create a duplicate issue for an already-proposed category."""
         phase = make_review_phase(config)
         result = ReviewResultFactory.create(verdict=ReviewVerdict.REQUEST_CHANGES)
         phase._prs.create_task = AsyncMock(return_value=None)

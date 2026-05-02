@@ -48,8 +48,6 @@ from tests.conftest import IssueFactory, PRInfoFactory
 
 
 class TestUrlValidation:
-    """Tests for HttpUrl validation on URL fields."""
-
     def test_valid_https_url_accepted_on_github_issue(self) -> None:
         issue = IssueFactory.create(
             number=1, title="t", url="https://github.com/org/repo/issues/1"
@@ -247,8 +245,6 @@ class TestEnumValidation:
 
 
 class TestMetricsSnapshotRateBounds:
-    """Tests for MetricsSnapshot rate field constraints."""
-
     def test_valid_zero_rates_accepted(self) -> None:
         snap = MetricsSnapshot(timestamp="2026-01-01T00:00:00+00:00")
         assert snap.merge_rate == 0.0
@@ -306,8 +302,6 @@ class TestMetricsSnapshotRateBounds:
 
 
 class TestIsoTimestampValidation:
-    """Tests for IsoTimestamp validation on timestamp fields."""
-
     def test_valid_iso_with_timezone_accepted(self) -> None:
         vc = VerificationCriteria(
             issue_number=1,
@@ -351,8 +345,6 @@ class TestIsoTimestampValidation:
 
 
 class TestFrozenModelConfig:
-    """Tests for frozen model_config on immutable models."""
-
     def test_pipeline_issue_rejects_attribute_assignment(self) -> None:
         pi = PipelineIssue(issue_number=1, title="t")
         with pytest.raises(ValidationError):
@@ -370,8 +362,6 @@ class TestFrozenModelConfig:
 
 
 class TestPipelineStageEnum:
-    """Tests for the PipelineStage StrEnum."""
-
     @pytest.mark.parametrize(
         "member, expected",
         [
@@ -393,8 +383,6 @@ class TestPipelineStageEnum:
 
 
 class TestStageStatusEnum:
-    """Tests for the StageStatus StrEnum."""
-
     @pytest.mark.parametrize(
         "member, expected",
         [
@@ -413,8 +401,6 @@ class TestStageStatusEnum:
 
 
 class TestSessionStatusEnum:
-    """Tests for the SessionStatus StrEnum."""
-
     @pytest.mark.parametrize(
         "member, expected",
         [
@@ -431,8 +417,6 @@ class TestSessionStatusEnum:
 
 
 class TestPipelineIssueStatusEnum:
-    """Tests for the PipelineIssueStatus StrEnum."""
-
     @pytest.mark.parametrize(
         "member, expected",
         [
@@ -452,8 +436,6 @@ class TestPipelineIssueStatusEnum:
 
 
 class TestBGWorkerHealthEnum:
-    """Tests for the BGWorkerHealth StrEnum."""
-
     @pytest.mark.parametrize(
         "member, expected",
         [
@@ -476,8 +458,6 @@ class TestBGWorkerHealthEnum:
 
 
 class TestValidationRejection:
-    """Tests that invalid values are rejected by Pydantic validation."""
-
     def test_session_log_rejects_invalid_status(self) -> None:
         with pytest.raises(ValidationError):
             SessionLog(id="x", repo="r", started_at="t", status="bogus")
@@ -525,8 +505,6 @@ class TestValidationRejection:
 
 
 class TestJSONLDeserialization:
-    """Tests that models correctly deserialize from JSON strings (JSONL files)."""
-
     def test_failure_record_deserializes_from_json_string(self) -> None:
         from harness_insights import FailureCategory, FailureRecord
 

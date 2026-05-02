@@ -94,8 +94,6 @@ def _make_loop(
 
 
 class TestDependabotMergeLoopInterval:
-    """Tests for interval configuration."""
-
     def test_default_interval_uses_config(self, tmp_path: Path) -> None:
         """_get_default_interval returns config.dependabot_merge_interval."""
         loop, *_ = _make_loop(tmp_path, interval=120)
@@ -103,8 +101,6 @@ class TestDependabotMergeLoopInterval:
 
 
 class TestDependabotMergeLoopDoWork:
-    """Tests for _do_work — the core auto-merge logic."""
-
     @pytest.mark.asyncio
     async def test_no_bot_prs_returns_zeros(self, tmp_path: Path) -> None:
         """When no open PRs match bot authors, all counters are zero."""
@@ -282,8 +278,6 @@ class TestDependabotMergeLoopDoWork:
 
 
 class TestDependabotMergeLoopRun:
-    """Tests for the full run() lifecycle (via BaseBackgroundLoop)."""
-
     @pytest.mark.asyncio
     async def test_run_publishes_worker_status_event(self, tmp_path: Path) -> None:
         """The loop publishes a BACKGROUND_WORKER_STATUS event on success."""

@@ -34,8 +34,6 @@ def controller(hitl_phase: MagicMock, fetcher: MagicMock) -> HITLController:
 
 
 class TestHumanInput:
-    """Tests for human input request/response flow."""
-
     def test_requests_starts_empty(self, controller: HITLController) -> None:
         assert controller.human_input_requests == {}
 
@@ -61,8 +59,6 @@ class TestHumanInput:
 
 
 class TestHITLDelegation:
-    """Tests for methods that delegate to hitl_phase."""
-
     def test_submit_correction(
         self, controller: HITLController, hitl_phase: MagicMock
     ) -> None:
@@ -96,8 +92,6 @@ class TestHITLDelegation:
 
 
 class TestDoWork:
-    """Tests for do_work async method."""
-
     @pytest.mark.asyncio
     async def test_fetches_and_processes(
         self, controller: HITLController, fetcher: MagicMock, hitl_phase: MagicMock

@@ -33,8 +33,6 @@ class GitIdentityEnvMixin:
 
 
 class TestDockerConfigDefaults:
-    """Tests that Docker config fields have correct default values."""
-
     def test_execution_mode_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,
@@ -122,8 +120,6 @@ class TestDockerConfigDefaults:
 
 
 class TestDockerConfigCustomValues:
-    """Tests that custom Docker config values take precedence over defaults."""
-
     def test_custom_execution_mode(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -208,8 +204,6 @@ class TestDockerConfigCustomValues:
 
 
 class TestDockerConfigValidation(GitIdentityEnvMixin):
-    """Tests for Docker config validation constraints."""
-
     def test_invalid_execution_mode_raises(self, tmp_path: Path) -> None:
         from pydantic import ValidationError
 
@@ -472,8 +466,6 @@ class TestDockerConfigValidation(GitIdentityEnvMixin):
 
 
 class TestDockerSizeNotationValidator:
-    """Tests for the validate_docker_size_notation field validator."""
-
     def test_valid_size_512m(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             docker_memory_limit="512m",
@@ -592,8 +584,6 @@ class TestDockerSizeNotationValidator:
 
 
 class TestDockerConfigEnvVarOverrides:
-    """Tests for Docker-specific env var overrides."""
-
     def test_execution_mode_env_override(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -826,8 +816,6 @@ class TestDockerConfigEnvVarOverrides:
 
 
 class TestDockerConfig:
-    """Tests for Docker-related configuration fields."""
-
     def test_docker_image_has_default(self, tmp_path: Path) -> None:
         cfg = HydraFlowConfig(
             repo_root=tmp_path,

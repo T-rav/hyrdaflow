@@ -38,8 +38,6 @@ def _make_loop(
 
 
 class TestCIMonitorLoop:
-    """Tests for CIMonitorLoop._do_work."""
-
     @pytest.mark.asyncio
     async def test_green_ci_returns_no_action(self, tmp_path: Path) -> None:
         """When CI is green, no issue is created."""

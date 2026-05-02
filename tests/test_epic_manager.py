@@ -454,8 +454,6 @@ class TestStateCrud:
 
 
 class TestGetDetailEnriched:
-    """Tests for the enriched get_detail with PR/CI/review data."""
-
     @pytest.mark.asyncio
     async def test_completed_child_has_merged_stage(self, tmp_path: Path) -> None:
         from tests.conftest import IssueFactory
@@ -578,8 +576,6 @@ class TestGetDetailEnriched:
 
 
 class TestReadiness:
-    """Tests for _compute_readiness."""
-
     @pytest.mark.asyncio
     async def test_readiness_all_done(self, tmp_path: Path) -> None:
         from tests.conftest import IssueFactory
@@ -636,8 +632,6 @@ class TestReadiness:
 
 
 class TestCache:
-    """Tests for the background caching mechanism."""
-
     @pytest.mark.asyncio
     async def test_cache_returns_stale_data(self, tmp_path: Path) -> None:
         from tests.conftest import IssueFactory
@@ -712,8 +706,6 @@ class TestCache:
 
 
 class TestTriggerRelease:
-    """Tests for the trigger_release method."""
-
     @pytest.mark.asyncio
     async def test_trigger_release_returns_job_id(self, tmp_path: Path) -> None:
         mgr, state, bus, prs, fetcher = _make_manager(tmp_path)
@@ -758,8 +750,6 @@ class TestTriggerRelease:
 
 
 class TestGetAllDetail:
-    """Tests for the get_all_detail method."""
-
     @pytest.mark.asyncio
     async def test_returns_all_epic_details(self, tmp_path: Path) -> None:
         from tests.conftest import IssueFactory
@@ -811,8 +801,6 @@ class TestGetAllDetail:
 
 
 class TestReleaseEpic:
-    """Tests for the release_epic merge sequence."""
-
     @staticmethod
     def _approve_children_directly(state, epic_number: int, children: list[int]):
         """Approve children via state directly to avoid triggering auto-merge."""
@@ -934,8 +922,6 @@ class TestReleaseEpic:
 
 
 class TestExecuteRelease:
-    """Tests for the _execute_release background task events."""
-
     @staticmethod
     def _approve_children_directly(state, epic_number: int, children: list[int]):
         """Approve children via state directly to avoid triggering auto-merge."""
@@ -1145,8 +1131,6 @@ class TestCacheInvalidation:
 
 
 class TestRefreshCacheReadyGuard:
-    """Tests for EPIC_READY event publishing with released guard."""
-
     @pytest.mark.asyncio
     async def test_publishes_ready_when_all_conditions_met(
         self, tmp_path: Path
@@ -1404,8 +1388,6 @@ class TestReadinessEdgeCases:
 
 
 class TestOnChildApproved:
-    """Tests for on_child_approved and bundled strategy handling."""
-
     @pytest.mark.asyncio
     async def test_marks_approved_and_publishes(self, tmp_path: Path) -> None:
         mgr, state, bus, _, _ = _make_manager(tmp_path)
@@ -1447,8 +1429,6 @@ class TestOnChildApproved:
 
 
 class TestReleaseData:
-    """Tests for release data in epic detail."""
-
     @pytest.mark.asyncio
     async def test_release_data_included_when_present(self, tmp_path: Path) -> None:
         from models import Release
@@ -1497,8 +1477,6 @@ class TestReleaseData:
 
 
 class TestFindParentEpics:
-    """Tests for find_parent_epics."""
-
     @pytest.mark.asyncio
     async def test_finds_parent_epics(self, tmp_path: Path) -> None:
         mgr, _, _, _, _ = _make_manager(tmp_path)

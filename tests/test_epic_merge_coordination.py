@@ -30,8 +30,6 @@ from tests.helpers import ConfigFactory
 
 
 class TestBlocksAndBlockedByLinkKind:
-    """Tests for the BLOCKS and BLOCKED_BY link kinds."""
-
     def test_blocks_enum_value(self) -> None:
         assert TaskLinkKind.BLOCKS == "blocks"
 
@@ -99,8 +97,6 @@ class TestBlocksAndBlockedByLinkKind:
 
 
 class TestTaskParentEpic:
-    """Tests for the Task.parent_epic field."""
-
     def test_parent_epic_defaults_to_none(self) -> None:
         task = TaskFactory.create(id=1, title="test")
         assert task.parent_epic is None
@@ -121,8 +117,6 @@ class TestTaskParentEpic:
 
 
 class TestEpicStateNewFields:
-    """Tests for approved_children and merge_strategy on EpicState."""
-
     def test_approved_children_defaults_to_empty(self) -> None:
         epic = EpicState(epic_number=1)
         assert epic.approved_children == []
@@ -154,8 +148,6 @@ class TestEpicStateNewFields:
 
 
 class TestEpicProgressNewFields:
-    """Tests for new fields on EpicProgress."""
-
     def test_approved_defaults_to_zero(self) -> None:
         progress = EpicProgress(epic_number=1)
         assert progress.approved == 0
@@ -175,8 +167,6 @@ class TestEpicProgressNewFields:
 
 
 class TestEpicChildInfoApproved:
-    """Tests for the is_approved field on EpicChildInfo."""
-
     def test_is_approved_defaults_to_false(self) -> None:
         child = EpicChildInfo(issue_number=1)
         assert child.is_approved is False
@@ -192,8 +182,6 @@ class TestEpicChildInfoApproved:
 
 
 class TestEpicDetailNewFields:
-    """Tests for new fields on EpicDetail."""
-
     def test_approved_defaults_to_zero(self) -> None:
         detail = EpicDetail(epic_number=1)
         assert detail.approved == 0
@@ -213,8 +201,6 @@ class TestEpicDetailNewFields:
 
 
 class TestStateTrackerEpicApproval:
-    """Tests for StateTracker epic approval methods."""
-
     def test_mark_epic_child_approved(self, tmp_path: Path) -> None:
         state = StateTracker(tmp_path / "state.json")
         epic = EpicState(
@@ -341,8 +327,6 @@ def _make_manager(tmp_path: Path, **config_kw):
 
 
 class TestOnChildApproved:
-    """Tests for EpicManager.on_child_approved."""
-
     @pytest.mark.asyncio
     async def test_marks_child_approved(self, tmp_path: Path) -> None:
         mgr, state, bus, _, _ = _make_manager(tmp_path)
@@ -481,8 +465,6 @@ class TestOnChildApproved:
 
 
 class TestFindParentEpics:
-    """Tests for EpicManager.find_parent_epics."""
-
     @pytest.mark.asyncio
     async def test_finds_parent(self, tmp_path: Path) -> None:
         mgr, state, _, _, _ = _make_manager(tmp_path)
@@ -516,8 +498,6 @@ class TestFindParentEpics:
 
 
 class TestReleaseEpic:
-    """Tests for EpicManager.release_epic."""
-
     @pytest.mark.asyncio
     async def test_release_not_found(self, tmp_path: Path) -> None:
         mgr, _, _, _, _ = _make_manager(tmp_path)
@@ -735,8 +715,6 @@ class TestReleaseEpic:
 
 
 class TestEpicProgressApprovalTracking:
-    """Tests for EpicManager.get_progress with approved/ready_to_merge."""
-
     @pytest.mark.asyncio
     async def test_progress_includes_approved_count(self, tmp_path: Path) -> None:
         mgr, state, _, _, _ = _make_manager(tmp_path, epic_merge_strategy="bundled")
@@ -825,8 +803,6 @@ class TestEpicProgressApprovalTracking:
 
 
 class TestEpicMergeStrategyConfig:
-    """Tests for the epic_merge_strategy config field."""
-
     def test_default_is_independent(self) -> None:
         config = ConfigFactory.create()
         assert config.epic_merge_strategy == "independent"
@@ -850,8 +826,6 @@ class TestEpicMergeStrategyConfig:
 
 
 class TestRegisterEpicMergeStrategy:
-    """Tests for merge_strategy propagation during epic registration."""
-
     @pytest.mark.asyncio
     async def test_inherits_config_strategy(self, tmp_path: Path) -> None:
         mgr, state, _, _, _ = _make_manager(
@@ -879,8 +853,6 @@ class TestRegisterEpicMergeStrategy:
 
 
 class TestPostMergeHandlerDeferMerge:
-    """Tests for _should_defer_merge and _notify_epic_approval."""
-
     def _make_handler(self, tmp_path: Path, epic_merge_strategy: str = "independent"):
         from epic import EpicManager
         from post_merge_handler import PostMergeHandler
@@ -965,8 +937,6 @@ class TestPostMergeHandlerDeferMerge:
 
 
 class TestTriageParentEpicEnrichment:
-    """Tests for TriagePhase._enrich_parent_epic."""
-
     def _make_triage_phase(
         self, tmp_path: Path, epic_merge_strategy: str = "independent"
     ):
@@ -1057,8 +1027,6 @@ class TestTriageParentEpicEnrichment:
 
 
 class TestReleaseEpicConcurrency:
-    """Tests for concurrent-call safety of release_epic."""
-
     @pytest.mark.asyncio
     async def test_concurrent_release_calls_merge_prs_once(
         self, tmp_path: Path
@@ -1091,8 +1059,6 @@ class TestReleaseEpicConcurrency:
 
 
 class TestEpicReadyEventType:
-    """Tests for the EPIC_READY event type."""
-
     def test_epic_ready_exists(self) -> None:
         assert hasattr(EventType, "EPIC_READY")
         assert EventType.EPIC_READY == "epic_ready"

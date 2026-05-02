@@ -28,8 +28,6 @@ from tests.helpers import make_review_phase
 
 
 class TestResolveMergeConflicts:
-    """Tests for the _resolve_merge_conflicts method."""
-
     @pytest.mark.asyncio
     async def test_returns_false_when_no_agents(self, config: HydraFlowConfig) -> None:
         """Without an agent runner, should return False immediately."""
@@ -68,7 +66,6 @@ class TestResolveMergeConflicts:
     async def test_runs_agent_and_verifies_on_conflicts(
         self, config: HydraFlowConfig
     ) -> None:
-        """Should run the agent and verify quality when there are conflicts."""
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(
@@ -115,7 +112,6 @@ class TestResolveMergeConflicts:
 
     @pytest.mark.asyncio
     async def test_retries_on_verify_failure(self, config: HydraFlowConfig) -> None:
-        """Should retry when verify fails, and succeed on second attempt."""
         mock_agents = AsyncMock()
         mock_agents._execute = AsyncMock(return_value="transcript")
         mock_agents._verify_result = AsyncMock(
@@ -259,7 +255,6 @@ class TestResolveMergeConflicts:
 
     @pytest.mark.asyncio
     async def test_respects_config_max_attempts(self, config: HydraFlowConfig) -> None:
-        """Should honor a custom max_merge_conflict_fix_attempts value."""
         from tests.helpers import ConfigFactory
 
         cfg = ConfigFactory.create(

@@ -11,8 +11,6 @@ from runner_constants import MEMORY_SUGGESTION_PROMPT
 
 
 class TestMemorySuggestionPrompt:
-    """Tests for the MEMORY_SUGGESTION_PROMPT constant."""
-
     def test_contains_start_marker(self) -> None:
         assert "MEMORY_SUGGESTION_START" in MEMORY_SUGGESTION_PROMPT
 

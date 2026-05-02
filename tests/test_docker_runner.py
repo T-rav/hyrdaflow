@@ -126,8 +126,6 @@ def _make_mock_docker_client(
 
 
 class TestDockerStdinWriter:
-    """Tests for the DockerStdinWriter wrapper."""
-
     def test_write_delegates_to_socket(self) -> None:
         sock = MagicMock()
         sock._sock = MagicMock()
@@ -177,8 +175,6 @@ class TestDockerStdinWriter:
 
 
 class TestDockerStdoutReader:
-    """Tests for the DockerStdoutReader async demultiplexing iterator."""
-
     @pytest.mark.asyncio
     async def test_yields_lines_from_stdout_frames(self) -> None:
         sock = _make_mock_socket(b"line1\nline2\n")
@@ -356,8 +352,6 @@ class TestDockerStdoutReader:
 
 
 class TestDockerStderrAdapter:
-    """Tests for the DockerStderrAdapter."""
-
     @pytest.mark.asyncio
     async def test_read_returns_collected_stderr(self) -> None:
         sock = _make_mock_socket_from_frames(
@@ -395,8 +389,6 @@ class TestDockerStderrAdapter:
 
 
 class TestDockerProcess:
-    """Tests for the DockerProcess wrapper."""
-
     def test_kill_calls_container_kill(self) -> None:
         container = _make_mock_container()
         sock = _make_mock_socket()
@@ -495,8 +487,6 @@ def _make_runner(
 
 
 class TestDockerRunnerCreateStreamingProcess:
-    """Tests for DockerRunner.create_streaming_process."""
-
     @pytest.mark.asyncio
     async def test_creates_container_with_correct_volumes(self, tmp_path: Path) -> None:
         runner, client = _make_runner(
@@ -709,8 +699,6 @@ class TestDockerRunnerCreateStreamingProcess:
 
 
 class TestDockerRunnerRunSimple:
-    """Tests for DockerRunner.run_simple."""
-
     @pytest.mark.asyncio
     async def test_run_simple_success(self, tmp_path: Path) -> None:
         container = _make_mock_container(exit_code=0)
@@ -799,8 +787,6 @@ class TestDockerRunnerRunSimple:
 
 
 class TestStaggeredSpawning:
-    """Tests for staggered container spawn delay."""
-
     @pytest.mark.asyncio
     async def test_staggered_spawning_enforces_delay(self, tmp_path: Path) -> None:
         runner, _client = _make_runner(spawn_delay=0.1, log_dir=tmp_path / "logs")
@@ -844,8 +830,6 @@ class TestStaggeredSpawning:
 
 
 class TestDockerRunnerCleanup:
-    """Tests for DockerRunner.cleanup."""
-
     @pytest.mark.asyncio
     async def test_cleanup_removes_all_tracked_containers(self, tmp_path: Path) -> None:
         # Use distinct container mocks so the set tracks both
@@ -916,8 +900,6 @@ class TestDockerRunnerCleanup:
 
 
 class TestCheckDockerAvailable:
-    """Tests for _check_docker_available."""
-
     def test_returns_true_when_docker_available(self) -> None:
         mock_client = MagicMock()
         mock_client.ping.return_value = True
@@ -959,8 +941,6 @@ class TestCheckDockerAvailable:
 
 
 class TestGetDockerRunner:
-    """Tests for get_docker_runner factory."""
-
     @pytest.fixture(autouse=True)
     def _mock_docker_on_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import shutil
@@ -1109,8 +1089,6 @@ class TestGetDockerRunner:
 
 
 class TestDockerRunnerAsyncContext:
-    """Tests for DockerRunner __aenter__/__aexit__ context manager."""
-
     @pytest.mark.asyncio
     async def test_async_context_manager_calls_cleanup(self, tmp_path: Path) -> None:
         """async with DockerRunner() calls cleanup() on normal exit."""
@@ -1149,8 +1127,6 @@ class TestDockerRunnerAsyncContext:
 
 
 class TestDockerProcessKillSuppression:
-    """Tests for DockerProcess.kill() narrowed exception suppression."""
-
     def test_kill_suppresses_os_error(self) -> None:
         """kill() should suppress OSError (e.g. network errors)."""
         container = _make_mock_container()
@@ -1191,8 +1167,6 @@ class TestDockerProcessKillSuppression:
 
 
 class TestBuildContainerKwargs:
-    """Tests for build_container_kwargs."""
-
     def test_tmpfs_includes_writable_home(self) -> None:
         from docker_runner import build_container_kwargs
         from tests.helpers import ConfigFactory
@@ -1208,8 +1182,6 @@ class TestBuildContainerKwargs:
 
 
 class TestBuildMounts:
-    """Tests for DockerRunner._build_mounts."""
-
     def test_includes_workspace_when_cwd_provided(self, tmp_path: Path) -> None:
         runner, _ = _make_runner(log_dir=tmp_path / "logs")
         (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
@@ -1436,8 +1408,6 @@ class TestBuildMountsNoGitDir:
 
 
 class TestContainerCleanupLogging:
-    """Tests that container cleanup failures are logged at WARNING level."""
-
     @pytest.mark.asyncio
     async def test_create_streaming_process_logs_cleanup_failure(
         self, tmp_path: Path
@@ -1546,8 +1516,6 @@ class TestContainerCleanupLogging:
 
 
 class TestEnsureClientLogging:
-    """Tests for _ensure_client error handling and logging."""
-
     def test_initial_ping_failure_logs_debug(self) -> None:
         """Initial ping failure should log at DEBUG with exc_info."""
         runner, client = _make_runner()
@@ -1596,8 +1564,6 @@ class TestEnsureClientLogging:
 
 
 class TestContainerTrackingOrder:
-    """Tests that containers are only tracked after successful start()."""
-
     @pytest.mark.asyncio
     async def test_container_not_tracked_when_start_fails_streaming(
         self, tmp_path: Path

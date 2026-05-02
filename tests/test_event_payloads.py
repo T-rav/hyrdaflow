@@ -291,8 +291,6 @@ class TestReviewerStatusFixFindingsDone:
 
 
 class TestTypedData:
-    """Test the typed_data() helper on HydraFlowEvent."""
-
     def test_returns_payload_keys(self) -> None:
         from events import EventType, HydraFlowEvent
         from models import WorkerUpdatePayload

@@ -1073,8 +1073,6 @@ class TestLoadSyncOSError:
 
 
 class TestCounterAdvance:
-    """Tests for _Counter.advance."""
-
     def test_advance_sets_minimum(self) -> None:
         from events import _Counter
 
@@ -1107,8 +1105,6 @@ class TestCounterAdvance:
 
 
 class TestEventLogAppend:
-    """Tests for EventLog.append."""
-
     @pytest.mark.asyncio
     async def test_append_writes_jsonl_line(self, tmp_path: Path) -> None:
         event_log = EventLog(tmp_path / "events.jsonl")

@@ -115,8 +115,6 @@ def _setup_approved(
 
 
 class TestPostMergeHandler:
-    """Tests for the PostMergeHandler class."""
-
     @pytest.mark.asyncio
     async def test_handle_approved_merges_and_labels(
         self, config: HydraFlowConfig
@@ -305,7 +303,6 @@ class TestPostMergeHandler:
         assert result is None
 
     def test_get_judge_result_converts_verdict(self, config: HydraFlowConfig) -> None:
-        """Should convert JudgeVerdict into JudgeResult."""
         handler = _make_handler(config)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
@@ -636,8 +633,6 @@ class TestPostMergeHandler:
 
 
 class TestSafeHookFailureVisibility:
-    """Tests for _safe_hook failure recording, alerting, and commenting."""
-
     @pytest.mark.asyncio
     async def test_safe_hook_records_failure_in_state(
         self, config: HydraFlowConfig
@@ -728,8 +723,6 @@ class TestSafeHookFailureVisibility:
 
 
 class TestSafeHookRecovery:
-    """Tests that _safe_hook survives secondary failures in error handling."""
-
     @pytest.mark.asyncio
     async def test_safe_hook_record_failure_survives_secondary_crash(
         self, config: HydraFlowConfig
@@ -808,8 +801,6 @@ class TestSafeHookRecovery:
 
 
 class TestVisualGateInHandleApproved:
-    """Tests for visual gate integration in handle_approved."""
-
     @pytest.mark.asyncio
     async def test_visual_gate_disabled_skips_check(
         self, config: HydraFlowConfig
@@ -1385,8 +1376,6 @@ class TestNarrowedExceptionHandling:
 
 
 class TestRunCiGate:
-    """Tests for _run_ci_gate extracted from handle_approved."""
-
     @pytest.mark.asyncio
     async def test_ci_gate_skipped_when_max_attempts_zero(
         self, config: HydraFlowConfig

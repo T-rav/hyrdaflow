@@ -48,8 +48,6 @@ def _make_package_json(repo: Path, content: dict | None = None) -> Path:
 
 
 class TestHasTypescriptFiles:
-    """Tests for has_typescript_files."""
-
     def test_finds_ts_files_in_src(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
         src.mkdir()
@@ -99,8 +97,6 @@ class TestHasTypescriptFiles:
 
 
 class TestHasRuffConfig:
-    """Tests for _has_ruff_config."""
-
     def test_detects_ruff_toml(self, tmp_path: Path) -> None:
         (tmp_path / "ruff.toml").write_text("line-length = 80\n")
         assert _has_ruff_config(tmp_path) is True
@@ -134,8 +130,6 @@ class TestHasRuffConfig:
 
 
 class TestHasPyrightConfig:
-    """Tests for _has_pyright_config."""
-
     def test_detects_pyrightconfig_json(self, tmp_path: Path) -> None:
         (tmp_path / "pyrightconfig.json").write_text("{}")
         assert _has_pyright_config(tmp_path) is True
@@ -162,8 +156,6 @@ class TestHasPyrightConfig:
 
 
 class TestHasEslintConfig:
-    """Tests for _has_eslint_config."""
-
     def test_detects_eslintrc_json(self, tmp_path: Path) -> None:
         (tmp_path / ".eslintrc.json").write_text("{}")
         assert _has_eslint_config(tmp_path) is True
@@ -190,8 +182,6 @@ class TestHasEslintConfig:
 
 
 class TestHasTsconfig:
-    """Tests for _has_tsconfig."""
-
     def test_detects_tsconfig(self, tmp_path: Path) -> None:
         (tmp_path / "tsconfig.json").write_text("{}")
         assert _has_tsconfig(tmp_path) is True
@@ -206,8 +196,6 @@ class TestHasTsconfig:
 
 
 class TestScaffoldRuff:
-    """Tests for _scaffold_ruff."""
-
     def test_appends_ruff_to_existing_pyproject(self, tmp_path: Path) -> None:
         _make_pyproject(tmp_path, "[project]\nname = 'test'\n")
         modified, created = _scaffold_ruff(tmp_path)
@@ -258,8 +246,6 @@ class TestScaffoldRuff:
 
 
 class TestScaffoldPyright:
-    """Tests for _scaffold_pyright."""
-
     def test_appends_pyright_to_existing_pyproject(self, tmp_path: Path) -> None:
         _make_pyproject(tmp_path, "[project]\nname = 'test'\n")
         modified, created = _scaffold_pyright(tmp_path)
@@ -293,8 +279,6 @@ class TestScaffoldPyright:
 
 
 class TestEnsurePythonDevDeps:
-    """Tests for _ensure_python_dev_deps."""
-
     def test_adds_ruff_and_pyright_to_dev_deps(self, tmp_path: Path) -> None:
         _make_pyproject(
             tmp_path,
@@ -341,7 +325,6 @@ class TestEnsurePythonDevDeps:
     def test_skips_when_optional_deps_exists_but_no_dev_key(
         self, tmp_path: Path
     ) -> None:
-        """Should not create duplicate [project.optional-dependencies] when section exists without dev."""
         _make_pyproject(
             tmp_path,
             '[project]\nname = "test"\n\n[project.optional-dependencies]\ntest = [\n    "pytest",\n]\n',
@@ -372,8 +355,6 @@ class TestEnsurePythonDevDeps:
 
 
 class TestScaffoldEslint:
-    """Tests for _scaffold_eslint."""
-
     def test_creates_eslint_config_js(self, tmp_path: Path) -> None:
         created = _scaffold_eslint(tmp_path)
         assert created == ["eslint.config.js"]
@@ -399,8 +380,6 @@ class TestScaffoldEslint:
 
 
 class TestScaffoldTsconfig:
-    """Tests for _scaffold_tsconfig."""
-
     def test_creates_tsconfig_json(self, tmp_path: Path) -> None:
         created = _scaffold_tsconfig(tmp_path)
         assert created == ["tsconfig.json"]
@@ -432,8 +411,6 @@ class TestScaffoldTsconfig:
 
 
 class TestEnsureJsDevDeps:
-    """Tests for _ensure_js_dev_deps."""
-
     def test_adds_eslint_to_devdeps(self, tmp_path: Path) -> None:
         _make_package_json(tmp_path, {"name": "test"})
         result = _ensure_js_dev_deps(tmp_path)

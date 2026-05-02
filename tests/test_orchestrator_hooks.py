@@ -32,8 +32,6 @@ from tests.helpers import make_review_result, make_worker_result, mock_fetcher_n
 
 
 class TestCrashRecoveryActiveIssues:
-    """Tests for crash recovery via persisted active_issue_numbers."""
-
     def test_crash_recovery_loads_active_issues(self, config: HydraFlowConfig) -> None:
         """On init, recovered issues from state should populate _recovered_issues after run()."""
         orch = HydraFlowOrchestrator(config)
@@ -802,8 +800,6 @@ class TestTranscriptSummaryFiling:
 
 
 class TestStartSession:
-    """Tests for the extracted _start_session helper."""
-
     @pytest.mark.asyncio
     async def test_creates_session_log_with_correct_repo(
         self, config: HydraFlowConfig
@@ -848,8 +844,6 @@ class TestStartSession:
 
 
 class TestEndSession:
-    """Tests for the extracted _end_session helper."""
-
     @pytest.mark.asyncio
     async def test_publishes_session_end_event(self, config: HydraFlowConfig) -> None:
         """_end_session should publish exactly one SESSION_END event."""
@@ -908,8 +902,6 @@ class TestEndSession:
 
 
 class TestRestoreState:
-    """Tests for the extracted _restore_state helper."""
-
     def test_restores_intervals_and_crash_recovery(
         self, config: HydraFlowConfig
     ) -> None:
@@ -954,8 +946,6 @@ class TestRestoreState:
 
 
 class TestMemoryErrorPropagation:
-    """Tests that MemoryError propagates through _polling_loop."""
-
     @pytest.mark.asyncio
     async def test_memory_error_propagates_through_polling_loop(
         self, config: HydraFlowConfig
@@ -1053,8 +1043,6 @@ class TestMemoryErrorPropagation:
 
 
 class TestBgWorkerEnabled:
-    """Tests for is_bg_worker_enabled / set_bg_worker_enabled."""
-
     def test_is_bg_worker_enabled_defaults_true(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
         assert orch.is_bg_worker_enabled("memory_sync") is True
@@ -1082,8 +1070,6 @@ class TestBgWorkerEnabled:
 
 
 class TestBgWorkerStates:
-    """Tests for get_bg_worker_states / update_bg_worker_status."""
-
     def test_get_bg_worker_states_empty(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
         assert orch.get_bg_worker_states() == {}
@@ -1107,8 +1093,6 @@ class TestBgWorkerStates:
 
 
 class TestBgWorkerInterval:
-    """Tests for set_bg_worker_interval."""
-
     def test_set_bg_worker_interval_stores_value(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
         orch.set_bg_worker_interval("memory_sync", 300)
@@ -1128,8 +1112,6 @@ class TestBgWorkerInterval:
 
 
 class TestUpdateBgWorkerStatus:
-    """Tests for update_bg_worker_status."""
-
     def test_update_bg_worker_status_stores_fields(
         self, config: HydraFlowConfig
     ) -> None:
@@ -1213,8 +1195,6 @@ class TestUpdateBgWorkerStatus:
 
 
 class TestPipelineStatsEmission:
-    """Tests for _build_pipeline_stats and emit_pipeline_stats."""
-
     def test_build_pipeline_stats_without_session(
         self, config: HydraFlowConfig
     ) -> None:

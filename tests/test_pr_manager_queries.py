@@ -32,8 +32,6 @@ def _assert_search_api_cmd(cmd: tuple[str, ...]) -> None:
 
 
 class TestListOpenPrs:
-    """Tests for PRManager.list_open_prs."""
-
     @pytest.mark.asyncio
     async def test_returns_empty_on_no_labels(self, config, event_bus):
         mgr = make_pr_manager(config, event_bus)
@@ -167,8 +165,6 @@ class TestListOpenPrs:
 
 
 class TestListHitlItems:
-    """Tests for PRManager.list_hitl_items."""
-
     @pytest.mark.asyncio
     async def test_returns_empty_when_no_issues(self, config, event_bus):
         mgr = make_pr_manager(config, event_bus)
@@ -468,8 +464,6 @@ class TestRetryWrapperUsage:
 
 
 class TestGetLabelCounts:
-    """Tests for PRManager.get_label_counts."""
-
     @pytest.mark.asyncio
     async def test_returns_label_counts(self, config, event_bus):
         mgr = make_pr_manager(config, event_bus)
@@ -785,8 +779,6 @@ class TestListHitlItemsExceptionHandling:
 
 
 class TestGetPrHeadSha:
-    """Tests for PRManager.get_pr_head_sha."""
-
     @pytest.mark.asyncio
     async def test_returns_sha_on_success(self, config, event_bus):
         """get_pr_head_sha should parse headRefOid from JSON response."""
@@ -831,8 +823,6 @@ class TestGetPrHeadSha:
 
 
 class TestGetPrReviews:
-    """Tests for PRManager.get_pr_reviews."""
-
     @pytest.mark.asyncio
     async def test_returns_reviews_on_success(self, config, event_bus):
         """get_pr_reviews should parse review data from JSON response."""
@@ -888,8 +878,6 @@ class TestGetPrReviews:
 
 
 class TestGetPrMergeable:
-    """Tests for PRManager.get_pr_mergeable."""
-
     @pytest.mark.asyncio
     async def test_returns_true_when_mergeable(self, config, event_bus):
         """get_pr_mergeable returns True when GitHub says 'true'."""
@@ -955,8 +943,6 @@ class TestGetPrMergeable:
 
 
 class TestGetPrComments:
-    """Tests for PRManager.get_pr_comments."""
-
     @pytest.mark.asyncio
     async def test_returns_comments_on_success(self, config, event_bus):
         """get_pr_comments should parse comment data from JSON response."""
@@ -1010,8 +996,6 @@ class TestGetPrComments:
 
 
 class TestCountHelpers:
-    """Tests for _count_open_issues_by_label, _count_closed_issues, _count_merged_prs."""
-
     @pytest.mark.asyncio
     async def test_count_open_issues_by_label(self, config, event_bus):
         mgr = make_pr_manager(config, event_bus)
@@ -1185,8 +1169,6 @@ class TestCountHelpers:
 
 
 class TestQueryIssuesByLabels:
-    """Tests for the shared _query_issues_by_labels helper."""
-
     @pytest.mark.asyncio
     async def test_deduplicates_across_labels(self, config, event_bus):
         """Items appearing under multiple labels should only be returned once."""
@@ -1376,8 +1358,6 @@ class TestQueryIssuesByLabels:
 
 
 class TestGetIssueState:
-    """Tests for PRManager.get_issue_state."""
-
     @pytest.mark.asyncio
     async def test_open_issue_returns_open(self, config, event_bus):
         mgr = make_pr_manager(config, event_bus)

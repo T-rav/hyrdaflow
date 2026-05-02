@@ -26,8 +26,6 @@ from tests.conftest import PlanResultFactory
 
 
 class TestIssueOutcomeModels:
-    """Tests for outcome tracking models."""
-
     def test_issue_outcome_type_values(self) -> None:
         from models import IssueOutcomeType
 
@@ -289,8 +287,6 @@ class TestPipelineStats:
 
 
 class TestVisualEvidenceItem:
-    """Tests for the VisualEvidenceItem model."""
-
     def test_minimal_instantiation(self) -> None:
         item = VisualEvidenceItem(screen_name="login", status="pass")
         assert item.screen_name == "login"
@@ -326,8 +322,6 @@ class TestVisualEvidenceItem:
 
 
 class TestVisualEvidence:
-    """Tests for the VisualEvidence model."""
-
     def test_visual_evidence_has_empty_defaults(self) -> None:
         ev = VisualEvidence()
         assert ev.items == []
@@ -372,8 +366,6 @@ class TestVisualEvidence:
 
 
 class TestHITLItemVisualEvidence:
-    """Tests for the visual_evidence field on HITLItem."""
-
     def test_default_is_none(self) -> None:
         item = HITLItem(issue=1)
         assert item.visual_evidence is None
@@ -411,8 +403,6 @@ class TestHITLItemVisualEvidence:
 
 
 class TestTriageResultValidators:
-    """Tests for TriageResult field constraints and descriptions."""
-
     def test_complexity_score_accepts_valid_range(self) -> None:
         for score in (0, 5, 10):
             result = TriageResult(issue_number=1, complexity_score=score)
@@ -433,8 +423,6 @@ class TestTriageResultValidators:
 
 
 class TestPlanResultValidators:
-    """Tests for PlanResult field constraints and descriptions."""
-
     def test_duration_seconds_rejects_negative(self) -> None:
         with pytest.raises(ValidationError, match="duration_seconds"):
             PlanResultFactory.create(

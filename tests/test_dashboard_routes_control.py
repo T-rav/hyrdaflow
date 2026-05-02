@@ -16,8 +16,6 @@ from tests.helpers import find_endpoint, make_dashboard_router
 
 
 class TestControlStatusMaxTriagers:
-    """Tests that /api/control/status includes max_triagers."""
-
     @pytest.mark.asyncio
     async def test_control_status_includes_max_triagers(
         self, config, event_bus: EventBus, state, tmp_path: Path
@@ -36,8 +34,6 @@ class TestControlStatusMaxTriagers:
 
 
 class TestControlStatusAppVersion:
-    """Tests that /api/control/status includes app_version."""
-
     @pytest.mark.asyncio
     async def test_control_status_includes_app_version(
         self, config, event_bus: EventBus, state, tmp_path: Path
@@ -81,8 +77,6 @@ class TestControlStatusAppVersion:
 
 
 class TestPatchConfigUnknownField:
-    """Tests that PATCH /api/control/config ignores unknown fields."""
-
     @pytest.mark.asyncio
     async def test_patch_config_ignored_field(
         self, config, event_bus: EventBus, state, tmp_path: Path
@@ -100,8 +94,6 @@ class TestPatchConfigUnknownField:
 
 
 class TestPatchConfigMaxTriagers:
-    """Tests that PATCH /api/control/config accepts max_triagers."""
-
     @pytest.mark.asyncio
     async def test_patch_config_updates_max_triagers(
         self, config, event_bus: EventBus, state, tmp_path: Path
@@ -221,8 +213,6 @@ class TestStagingPromotionStatus:
 
 
 class TestPatchConfigWithRegistry:
-    """Tests that PATCH /api/control/config updates repo-specific configs via registry."""
-
     def _make_runtime(self, cfg, event_bus, state):
         class _StubRuntime:
             def __init__(self, config, bus, tracker):
@@ -316,8 +306,6 @@ class TestPatchConfigWithRegistry:
 
 
 class TestBgWorkerToggleEndpoint:
-    """Tests for POST /api/control/bg-worker endpoint."""
-
     @pytest.mark.asyncio
     async def test_bg_worker_toggle_returns_error_without_orchestrator(
         self, config, event_bus, state, tmp_path
@@ -379,8 +367,6 @@ class TestBgWorkerToggleEndpoint:
 
 
 class TestBgWorkerIntervalEndpoint:
-    """Tests for POST /api/control/bg-worker/interval endpoint."""
-
     @pytest.fixture
     def _endpoint(self, config, event_bus, state, tmp_path):
         """Return ``(endpoint, mock_orch)`` for interval endpoint tests."""
@@ -622,8 +608,6 @@ class TestBgWorkerIntervalEndpoint:
 
 
 class TestClearCreditPauseEndpoint:
-    """Tests for POST /api/control/clear-credit-pause endpoint."""
-
     @pytest.mark.asyncio
     async def test_returns_error_without_orchestrator(
         self, config, event_bus, state, tmp_path

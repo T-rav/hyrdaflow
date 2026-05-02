@@ -13,8 +13,6 @@ from file_util import append_jsonl, atomic_write, file_lock
 
 
 class TestAtomicWrite:
-    """Tests for the atomic_write() utility."""
-
     def test_writes_data_to_path(self, tmp_path: Path) -> None:
         target = tmp_path / "out.json"
         atomic_write(target, '{"key": "value"}')
@@ -101,8 +99,6 @@ class TestAtomicWrite:
 
 
 class TestAppendJsonl:
-    """Tests for the append_jsonl() utility."""
-
     def test_appends_line_with_newline(self, tmp_path: Path) -> None:
         target = tmp_path / "log.jsonl"
         append_jsonl(target, '{"a":1}')
@@ -123,8 +119,6 @@ class TestAppendJsonl:
 
 
 class TestFileLock:
-    """Tests for file_lock()."""
-
     def test_creates_parent_directory_and_lock_file(self, tmp_path: Path) -> None:
         lock_path = tmp_path / "locks" / "hydra.lock"
         with file_lock(lock_path):
@@ -146,8 +140,6 @@ class TestFileLock:
 
 
 class TestRotateBackups:
-    """Tests for the rotate_backups() utility."""
-
     def test_creates_bak_from_source(self, tmp_path: Path) -> None:
         target = tmp_path / "state.json"
         target.write_text("v1")

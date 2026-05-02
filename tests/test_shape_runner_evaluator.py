@@ -78,8 +78,6 @@ def _make_runner(
 
 
 class TestShapeRunnerEvaluator:
-    """Tests for ShapeRunner evaluator dispatch + retry + escalation."""
-
     async def test_non_final_turn_bypasses_evaluator(self, config) -> None:
         runner, calls = _make_runner(
             max_attempts=3,

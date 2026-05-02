@@ -29,8 +29,6 @@ from tests.helpers import ConfigFactory, make_review_phase
 
 
 class TestStateInterruptedIssues:
-    """Tests for interrupted_issues round-trip via StateTracker."""
-
     def test_set_and_get_interrupted_issues(self, tmp_path: Path) -> None:
         from state import StateTracker
 
@@ -147,8 +145,6 @@ def _make_orchestrator(tmp_path: Path) -> HydraFlowOrchestrator:
 
 
 class TestOrchestratorStop:
-    """Tests for orchestrator stop() behavior."""
-
     @pytest.mark.asyncio
     async def test_stop_cancels_loop_tasks(self, tmp_path: Path) -> None:
         """stop() cancels _loop_tasks, causing _supervise_loops to exit."""
@@ -289,8 +285,6 @@ class TestOrchestratorStop:
 
 
 class TestOrchestratorResume:
-    """Tests for restoring interrupted issues on restart."""
-
     @pytest.mark.asyncio
     async def test_restart_removes_plan_issue_from_active_tracking(
         self, tmp_path: Path
@@ -406,8 +400,6 @@ class TestOrchestratorResume:
 
 
 class TestOrchestratorReset:
-    """Tests for reset() clearing interrupted issues and asyncio.Event state."""
-
     def test_reset_clears_interrupted_issues(self, tmp_path: Path) -> None:
         orch = _make_orchestrator(tmp_path)
         orch._state.set_interrupted_issues({42: "implement"})
@@ -455,8 +447,6 @@ class TestOrchestratorReset:
 
 
 class TestWorktreePreservation:
-    """Tests for preserving worktrees when stop is requested."""
-
     @pytest.mark.asyncio
     async def test_review_phase_skips_worktree_cleanup_on_stop(self, config) -> None:
         """_review_one_inner() skips worktree cleanup for interrupted (not merged) reviews."""
@@ -577,8 +567,6 @@ class TestWorktreePreservation:
 
 
 class TestReviewPhaseStop:
-    """Tests for review_prs cancellation on stop."""
-
     @pytest.mark.asyncio
     async def test_review_prs_cancels_remaining_on_stop(self, config) -> None:
         """Setting stop_event mid-review cancels remaining PR reviews."""
@@ -633,8 +621,6 @@ class TestReviewPhaseStop:
 
 
 class TestBuildInterruptedIssues:
-    """Tests for the _build_interrupted_issues helper."""
-
     @pytest.mark.asyncio
     async def test_combines_store_and_memory_tracking(self, tmp_path: Path) -> None:
         """Merges IssueStore active + in-memory tracking sets."""
@@ -684,8 +670,6 @@ class TestBuildInterruptedIssues:
 
 
 class TestSuperviseLoopsTaskStorage:
-    """Tests that _supervise_loops stores tasks on self._loop_tasks."""
-
     @pytest.mark.asyncio
     async def test_loop_tasks_populated_via_stop(self, tmp_path: Path) -> None:
         """stop() can cancel loop tasks that were stored by _supervise_loops."""

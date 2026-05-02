@@ -23,8 +23,6 @@ from tests.helpers import ConfigFactory
 
 
 class TestUnstickResult:
-    """Tests for the UnstickResult TypedDict added to models.py."""
-
     def test_has_required_keys(self) -> None:
         """UnstickResult must accept all four counter keys."""
         result: UnstickResult = {
@@ -69,8 +67,6 @@ class TestUnstickResult:
 
 
 class TestDockerSocketProtocol:
-    """Tests that Docker socket protocol is importable and structurally usable."""
-
     def test_protocol_importable(self) -> None:
         """DockerSocket protocol should be importable from docker_runner."""
         from docker_runner import DockerSocket
@@ -95,8 +91,6 @@ class TestDockerSocketProtocol:
 
 
 class TestContainerLikeProtocol:
-    """Tests that ContainerLike protocol is importable and structurally usable."""
-
     def test_protocol_importable(self) -> None:
         """ContainerLike protocol should be importable from docker_runner."""
         from docker_runner import ContainerLike
@@ -130,8 +124,6 @@ class TestContainerLikeProtocol:
 
 
 class TestHitlPhaseCallableType:
-    """Tests that HITLPhase accepts Callable[[], None] for active_issues_cb."""
-
     def test_accepts_none_callback(self) -> None:
         """HITLPhase should accept None for active_issues_cb."""
         from hitl_phase import HITLPhase
@@ -173,8 +165,6 @@ class TestHitlPhaseCallableType:
 
 
 class TestServiceRegistrySubprocessRunnerType:
-    """Tests that ServiceRegistry.subprocess_runner accepts SubprocessRunner."""
-
     def test_subprocess_runner_field_accepts_host_runner(self) -> None:
         """HostRunner should be assignable to the subprocess_runner field."""
         from execution import HostRunner, SubprocessRunner
@@ -189,8 +179,6 @@ class TestServiceRegistrySubprocessRunnerType:
 
 
 class TestPrUnstickerReturnType:
-    """Tests that PRUnsticker.unstick returns an UnstickResult-compatible dict."""
-
     @pytest.mark.asyncio
     async def test_empty_items_returns_unstick_result_shape(self) -> None:
         """unstick([]) should return a dict matching UnstickResult keys."""
@@ -223,8 +211,6 @@ class TestPrUnstickerReturnType:
 
 
 class TestStreamParserDictAnnotations:
-    """Tests that stream_parser functions accept dict[str, Any] args."""
-
     def test_parse_assistant_with_typed_dict(self) -> None:
         """_parse_assistant should work with dict[str, Any] input."""
         from stream_parser import StreamParser

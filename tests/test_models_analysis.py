@@ -19,8 +19,6 @@ from tests.conftest import AnalysisResultFactory
 
 
 class TestDeltaReport:
-    """Tests for DeltaReport properties and methods."""
-
     def test_has_drift_false_when_no_missing_or_unexpected(self) -> None:
         from models import DeltaReport
 
@@ -89,8 +87,6 @@ class TestDeltaReport:
 
 
 class TestAnalysisResult:
-    """Tests for AnalysisResult properties and methods."""
-
     def test_blocked_false_when_no_block_verdicts(self) -> None:
         from models import AnalysisSection, AnalysisVerdict
 
@@ -159,8 +155,6 @@ class TestAnalysisResult:
 
 
 class TestAuditResult:
-    """Tests for AuditResult properties and methods."""
-
     def test_missing_checks_returns_missing_and_partial(self) -> None:
         from tests.helpers import AuditCheckFactory, AuditResultFactory
 
@@ -258,8 +252,6 @@ class TestAuditResult:
 
 
 class TestMemoryType:
-    """Tests for MemoryType.is_actionable classmethod."""
-
     def test_is_actionable_knowledge_false(self) -> None:
         from models import MemoryType
 
@@ -287,8 +279,6 @@ class TestMemoryType:
 
 
 class TestPrecheckResultModel:
-    """Tests for the PrecheckResult dataclass."""
-
     def test_fields_accessible_by_name(self) -> None:
         result = PrecheckResult(
             risk="low",
@@ -338,8 +328,6 @@ class TestPrecheckResultModel:
 
 
 class TestConflictResolutionResult:
-    """Tests for the ConflictResolutionResult dataclass."""
-
     def test_fields_accessible_by_name(self) -> None:
         result = ConflictResolutionResult(success=True, used_rebuild=False)
         assert result.success is True
@@ -369,8 +357,6 @@ class TestConflictResolutionResult:
 
 
 class TestPlanAccuracyResult:
-    """Tests for the PlanAccuracyResult NamedTuple."""
-
     def test_supports_positional_unpacking(self) -> None:
         accuracy, unplanned, missed = PlanAccuracyResult(1.0, [], [])
         assert accuracy == 1.0
@@ -385,8 +371,6 @@ class TestPlanAccuracyResult:
 
 
 class TestPRInfoExtract:
-    """Tests for the PRInfoExtract NamedTuple."""
-
     def test_supports_positional_unpacking(self) -> None:
         pr_number, url, branch = PRInfoExtract(42, "https://example.com", "fix/42")
         assert pr_number == 42
@@ -399,8 +383,6 @@ class TestPRInfoExtract:
 
 
 class TestInstructionsQualityResult:
-    """Tests for the InstructionsQualityResult NamedTuple."""
-
     def test_supports_positional_unpacking(self) -> None:
         quality, feedback = InstructionsQualityResult(
             InstructionsQuality.READY, "Looks good"
@@ -410,8 +392,6 @@ class TestInstructionsQualityResult:
 
 
 class TestParsedCriteria:
-    """Tests for the ParsedCriteria NamedTuple."""
-
     def test_supports_positional_unpacking(self) -> None:
         criteria_list, instructions_text = ParsedCriteria(["AC-1"], "Step 1")
         assert criteria_list == ["AC-1"]

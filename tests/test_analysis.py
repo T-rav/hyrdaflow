@@ -61,8 +61,6 @@ def _setup_repo(tmp_path: Path, files: list[str] | None = None) -> Path:
 
 
 class TestExtractFilePaths:
-    """Tests for PlanAnalyzer._extract_file_paths."""
-
     def test_extract_file_paths_from_list_items(self) -> None:
         section = "- models.py: Add enum\n- config.py: Update config"
         result = PlanAnalyzer._extract_file_paths(section)
@@ -122,8 +120,6 @@ class TestExtractFilePaths:
 
 
 class TestExtractSection:
-    """Tests for PlanAnalyzer._extract_section."""
-
     def test_extract_section_finds_files_to_modify(self) -> None:
         text = "## Files to Modify\n\n- `models.py`\n\n## New Files\n\n- `analysis.py`"
         result = PlanAnalyzer._extract_section(text, "Files to Modify")
@@ -155,8 +151,6 @@ class TestExtractSection:
 
 
 class TestFileValidation:
-    """Tests for _validate_file_references."""
-
     def test_validate_file_references_all_exist(self, tmp_path: Path) -> None:
         repo = _setup_repo(tmp_path, ["models.py", "orchestrator.py"])
         analyzer = PlanAnalyzer(repo_root=repo)
@@ -215,8 +209,6 @@ class TestFileValidation:
 
 
 class TestTestPatternValidation:
-    """Tests for _validate_test_patterns."""
-
     def test_validate_test_patterns_valid(self, tmp_path: Path) -> None:
         repo = _setup_repo(tmp_path)  # creates tests/ and pyproject.toml with pytest
         analyzer = PlanAnalyzer(repo_root=repo)
@@ -310,8 +302,6 @@ class TestTestPatternValidation:
 
 
 class TestAnalyze:
-    """Tests for the full analyze() method."""
-
     def test_analyze_all_pass(self, tmp_path: Path) -> None:
         repo = _setup_repo(tmp_path, ["models.py", "orchestrator.py"])
         analyzer = PlanAnalyzer(repo_root=repo)
@@ -332,8 +322,6 @@ class TestAnalyze:
 
 
 class TestFormatComment:
-    """Tests for AnalysisResult.format_comment."""
-
     def test_format_comment_includes_all_sections(self) -> None:
         result = AnalysisResultFactory.create(
             sections=[
@@ -407,8 +395,6 @@ class TestFormatComment:
 
 
 class TestDuplicateTypeAliasDetection:
-    """Tests for _validate_duplicate_type_aliases."""
-
     def test_no_package_files_passes(self, tmp_path: Path) -> None:
         """Single top-level files (no shared package) → PASS."""
         repo = _setup_repo(tmp_path, ["models.py", "config.py"])

@@ -32,8 +32,6 @@ def _make_callbacks() -> WorkerRegistryCallbacks:
 
 
 class TestBuildServices:
-    """Tests for the build_services factory function."""
-
     def test_returns_service_registry(self, config: HydraFlowConfig) -> None:
         """build_services should return a ServiceRegistry instance."""
         bus = EventBus()
@@ -271,8 +269,6 @@ class TestServiceRegistryWiring:
 
 
 class TestWorkerRegistryCallbacks:
-    """Tests for the focused WorkerRegistryCallbacks interface."""
-
     def test_has_three_fields_only(self) -> None:
         """WorkerRegistryCallbacks should expose exactly 3 focused callbacks."""
         fields = set(WorkerRegistryCallbacks.__dataclass_fields__)

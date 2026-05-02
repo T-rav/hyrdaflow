@@ -63,8 +63,6 @@ def _make_telemetry(
 
 
 class TestComputeRollingAverages:
-    """Tests for compute_rolling_averages()."""
-
     def test_empty_entries(self):
         from factory_health import compute_rolling_averages
 
@@ -155,8 +153,6 @@ class TestComputeRollingAverages:
 
 
 class TestComputeCohorts:
-    """Tests for compute_cohorts()."""
-
     def test_empty_inputs(self):
         from factory_health import compute_cohorts
 
@@ -202,8 +198,6 @@ class TestComputeCohorts:
 
 
 class TestDetectRegressions:
-    """Tests for detect_regressions()."""
-
     def test_empty_entries(self):
         from factory_health import detect_regressions
 
@@ -270,8 +264,6 @@ class TestDetectRegressions:
 
 
 class TestComputeSummary:
-    """Tests for compute_summary()."""
-
     def test_empty_entries(self):
         from factory_health import compute_summary
 
@@ -304,8 +296,6 @@ def _write_jsonl(path: Path, entries: list[dict]) -> None:
 
 
 class TestFactoryHealthRoute:
-    """Tests for the /api/factory-health/summary endpoint."""
-
     def test_returns_summary_structure(self, tmp_path: Path):
         from fastapi import FastAPI
         from fastapi.testclient import TestClient

@@ -25,8 +25,6 @@ from tests.conftest import IssueFactory, TaskFactory
 
 
 class TestControlStatusConfig:
-    """Tests for the ControlStatusConfig response model."""
-
     def test_minimal_instantiation(self) -> None:
         """No required fields."""
         cfg = ControlStatusConfig()
@@ -76,8 +74,6 @@ class TestControlStatusConfig:
 
 
 class TestControlStatusResponse:
-    """Tests for the ControlStatusResponse response model."""
-
     def test_minimal_instantiation(self) -> None:
         resp = ControlStatusResponse()
         assert resp.status == "idle"
@@ -128,8 +124,6 @@ class TestControlStatusResponse:
 
 
 class TestLifetimeStats:
-    """Tests for the LifetimeStats model."""
-
     def test_new_volume_counter_defaults(self) -> None:
         stats = LifetimeStats()
         assert stats.total_quality_fix_rounds == 0
@@ -181,8 +175,6 @@ class TestLifetimeStats:
 
 
 class TestVerificationCriterion:
-    """Tests for the VerificationCriterion model."""
-
     def test_basic_instantiation(self) -> None:
         cr = VerificationCriterion(
             description="Tests pass", passed=True, details="All 10 pass"
@@ -210,8 +202,6 @@ class TestVerificationCriterion:
 
 
 class TestJudgeResult:
-    """Tests for the JudgeResult model."""
-
     def test_all_passed_when_all_criteria_pass(self) -> None:
         judge = JudgeResult(
             issue_number=42,
@@ -284,8 +274,6 @@ class TestJudgeResult:
 
 
 class TestStateDataVerificationIssues:
-    """Tests for the verification_issues field on StateData."""
-
     def test_defaults_to_empty_dict(self) -> None:
         data = StateData()
         assert data.verification_issues == {}
@@ -302,8 +290,6 @@ class TestStateDataVerificationIssues:
 
 
 class TestTaskLink:
-    """Tests for the TaskLink and TaskLinkKind models."""
-
     def test_tasklink_kind_values(self) -> None:
         # Arrange / Act / Assert
         assert TaskLinkKind.RELATES_TO == "relates_to"
@@ -356,8 +342,6 @@ class TestTaskLink:
 
 
 class TestParseTaskLinks:
-    """Tests for the parse_task_links() function."""
-
     # --- Empty / plain body ---
 
     def test_empty_body_returns_empty_list(self) -> None:

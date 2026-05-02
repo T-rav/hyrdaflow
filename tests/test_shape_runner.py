@@ -6,8 +6,6 @@ from shape_runner import _SHAPE_END, _SHAPE_START, ShapeRunner
 
 
 class TestExtractResult:
-    """Tests for ShapeRunner._extract_result."""
-
     def test_extracts_valid_directions(self) -> None:
         runner = ShapeRunner.__new__(ShapeRunner)
         transcript = f"""{_SHAPE_START}
@@ -61,8 +59,6 @@ class TestExtractResult:
 
 
 class TestBuildPrompt:
-    """Tests for ShapeRunner._build_prompt."""
-
     def test_prompt_includes_issue_and_perspectives(self) -> None:
         from unittest.mock import MagicMock
 
@@ -111,8 +107,6 @@ class TestBuildPrompt:
 
 
 class TestCriticPrompt:
-    """Tests for ShapeRunner._build_critic_prompt."""
-
     def test_critic_prompt_includes_advocate_directions(self) -> None:
         from unittest.mock import MagicMock
 
@@ -149,8 +143,6 @@ class TestCriticPrompt:
 
 
 class TestFormatOptionsHtml:
-    """Tests for ShapePhase.format_options_html."""
-
     def test_html_contains_directions(self) -> None:
         from unittest.mock import MagicMock
 

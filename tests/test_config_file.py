@@ -25,8 +25,6 @@ _ALL_WORKER_FIELDS = {
 
 
 class TestLoadConfigFile:
-    """Tests for the load_config_file() helper."""
-
     def test_returns_empty_dict_when_file_missing(self, tmp_path: Path) -> None:
         """Missing config file should silently return empty dict."""
         result = load_config_file(tmp_path / "nonexistent.json")
@@ -38,7 +36,6 @@ class TestLoadConfigFile:
         assert result == {}
 
     def test_loads_valid_json_file(self, tmp_path: Path) -> None:
-        """Should parse a valid JSON config file."""
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"max_workers": 5, "model": "opus"}))
 
@@ -65,7 +62,6 @@ class TestLoadConfigFile:
         assert result == {}
 
     def test_loads_all_supported_fields(self, tmp_path: Path) -> None:
-        """Should load various config fields from JSON."""
         config_path = tmp_path / "config.json"
         data = {
             "max_workers": 4,
@@ -87,10 +83,7 @@ class TestLoadConfigFile:
 
 
 class TestSaveConfigFile:
-    """Tests for the save_config_file() helper."""
-
     def test_writes_json_to_file(self, tmp_path: Path) -> None:
-        """Should write a JSON config file."""
         config_path = tmp_path / ".hydraflow" / "config.json"
 
         save_config_file(config_path, {"max_workers": 4, "model": "opus"})
@@ -100,7 +93,6 @@ class TestSaveConfigFile:
         assert data == {"max_workers": 4, "model": "opus"}
 
     def test_creates_parent_directories(self, tmp_path: Path) -> None:
-        """Should create parent directories if they don't exist."""
         config_path = tmp_path / "deep" / "nested" / "config.json"
 
         save_config_file(config_path, {"model": "haiku"})
@@ -110,7 +102,6 @@ class TestSaveConfigFile:
         assert data == {"model": "haiku"}
 
     def test_merges_with_existing_file(self, tmp_path: Path) -> None:
-        """Should merge new values into existing config file."""
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"max_workers": 3, "model": "sonnet"}))
 
@@ -120,7 +111,6 @@ class TestSaveConfigFile:
         assert data == {"max_workers": 5, "model": "sonnet"}
 
     def test_overwrites_existing_keys(self, tmp_path: Path) -> None:
-        """Should overwrite existing keys with new values."""
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"model": "sonnet"}))
 
@@ -130,7 +120,6 @@ class TestSaveConfigFile:
         assert data == {"model": "opus"}
 
     def test_does_nothing_when_path_is_none(self) -> None:
-        """Should not raise when path is None."""
         result = save_config_file(None, {"model": "opus"})
         assert result is None
 
@@ -151,8 +140,6 @@ class TestSaveConfigFile:
 
 
 class TestConfigFileMergePriority:
-    """Tests that config file values are merged correctly with other sources."""
-
     def test_config_file_overrides_defaults(self, tmp_path: Path) -> None:
         """Config file values should override HydraFlowConfig defaults."""
         config_path = tmp_path / "config.json"
@@ -278,8 +265,6 @@ class TestWorkerCountRoundTrip:
 
 
 class TestSaveConfigFileAtomicAndLogging:
-    """Tests for atomic write behaviour and logging in save_config_file."""
-
     def test_save_uses_atomic_write(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

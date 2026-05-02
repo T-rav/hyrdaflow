@@ -44,8 +44,6 @@ class TestHITLRunnerInheritance:
 
 
 class TestClassifyCause:
-    """Tests for _classify_cause helper function."""
-
     def test_ci_failure_maps_to_ci(self) -> None:
         assert _classify_cause("CI failed after 2 fix attempt(s)") == "ci"
 
@@ -107,8 +105,6 @@ class TestClassifyCause:
 
 
 class TestBuildPrompt:
-    """Tests for HITLRunner._build_prompt_with_stats."""
-
     @pytest.mark.asyncio
     async def test_prompt_includes_issue_title(self, hitl_runner) -> None:
         issue = IssueFactory.create(number=42, title="Fix the widget")
@@ -239,8 +235,6 @@ class TestBuildPrompt:
 
 
 class TestBuildCommand:
-    """Tests for HITLRunner._build_command."""
-
     def test_command_includes_claude(self, hitl_runner) -> None:
         cmd = hitl_runner._build_command(Path("/tmp/wt"))
         assert cmd[0] == "claude"
@@ -276,8 +270,6 @@ class TestBuildCommand:
 
 
 class TestRunDryMode:
-    """Tests for HITLRunner.run in dry-run mode."""
-
     @pytest.mark.asyncio
     async def test_dry_run_returns_success(self, dry_config, event_bus) -> None:
         runner = HITLRunner(dry_config, event_bus)
@@ -303,8 +295,6 @@ class TestRunDryMode:
 
 
 class TestRunExecution:
-    """Tests for HITLRunner.run with mocked execution."""
-
     @pytest.mark.asyncio
     async def test_run_success_returns_result(self, config, event_bus) -> None:
         runner = HITLRunner(config, event_bus)
@@ -415,8 +405,6 @@ class TestRunExecution:
 
 
 class TestSaveTranscript:
-    """Tests for HITLRunner._save_transcript."""
-
     def test_saves_transcript_to_disk(self, hitl_runner, config) -> None:
         config.repo_root.mkdir(parents=True, exist_ok=True)
         hitl_runner._save_transcript("hitl-issue", 42, "test transcript content")
@@ -443,8 +431,6 @@ class TestSaveTranscript:
 
 
 class TestTerminate:
-    """Tests for HITLRunner.terminate."""
-
     def test_terminate_with_no_active_procs(self, hitl_runner) -> None:
         assert len(hitl_runner._active_procs) == 0
         hitl_runner.terminate()  # Should not raise
@@ -461,8 +447,6 @@ class TestTerminate:
 
 
 class TestHITLResult:
-    """Tests for the HITLResult Pydantic model."""
-
     def test_hitl_result_failure_has_empty_transcript_and_zero_duration(self) -> None:
         result = HITLResultFactory.create(success=False)
         assert result.issue_number == 42
@@ -483,8 +467,6 @@ class TestHITLResult:
 
 
 class TestVerifyQualityTimeout:
-    """Tests for _verify_quality timeout behavior."""
-
     @pytest.mark.asyncio
     async def test_verify_quality_timeout_returns_failure(
         self, config: HydraFlowConfig

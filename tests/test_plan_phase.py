@@ -28,8 +28,6 @@ if TYPE_CHECKING:
 
 
 class TestPlanPhase:
-    """Tests for PlanPhase.plan_issues()."""
-
     @pytest.mark.asyncio
     async def test_plan_issues_posts_comment_on_success(
         self, config: HydraFlowConfig
@@ -529,8 +527,6 @@ class TestPlanPhase:
 
 
 class TestPlanPhaseAlreadySatisfied:
-    """Tests for already_satisfied handling in the plan phase."""
-
     @pytest.mark.asyncio
     async def test_plan_already_satisfied_closes_issue_with_dup_label(
         self, config: HydraFlowConfig
@@ -629,8 +625,6 @@ class TestPlanPhaseAlreadySatisfied:
 
 
 class TestPlanPhaseTranscriptSummary:
-    """Tests for transcript summary comments after plan phase."""
-
     @pytest.mark.asyncio
     async def test_successful_plan_calls_summarize_and_comment(
         self, config: HydraFlowConfig
@@ -811,8 +805,6 @@ class TestPlanPhaseTranscriptSummary:
 
 
 class TestPlanPhaseEvidenceValidation:
-    """Tests for already_satisfied evidence validation and outcome recording."""
-
     @pytest.mark.asyncio
     async def test_valid_evidence_closes_issue(self, config: HydraFlowConfig) -> None:
         """Valid evidence should close the issue normally."""
@@ -1058,8 +1050,6 @@ class TestPlanPhaseBatchScaling:
 
 
 class TestPlanPhaseResearch:
-    """Tests for pre-plan research triggering."""
-
     def test_should_research_true_when_runner_present(self, config):
         """Research runs when runner is wired."""
         phase, *_ = make_plan_phase(config)
@@ -1132,8 +1122,6 @@ class TestPlanPhaseResearch:
 
 
 class TestPlanPhaseErrorPaths:
-    """Tests for planner timeout/crash and empty/None plan text edge cases."""
-
     @pytest.mark.asyncio
     async def test_planner_crash_with_retry_no_plan_body_skips_silently(
         self, config: HydraFlowConfig

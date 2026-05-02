@@ -32,8 +32,6 @@ def _make_manager(
 
 
 class TestIsInActiveCrate:
-    """Tests for is_in_active_crate gating logic."""
-
     def test_returns_true_when_task_matches_active_crate(self) -> None:
         cm, _, _, _ = _make_manager(active_crate=5)
         task = TaskFactory.create(id=10, tags=["hydraflow-plan"])
@@ -63,8 +61,6 @@ class TestIsInActiveCrate:
 
 
 class TestActivateCrate:
-    """Tests for activate_crate persistence and event publishing."""
-
     @pytest.mark.asyncio
     async def test_persists_to_state_and_publishes_event(self) -> None:
         cm, state_mock, _, bus = _make_manager()
@@ -80,8 +76,6 @@ class TestActivateCrate:
 
 
 class TestCheckAndAdvance:
-    """Tests for check_and_advance crate progression."""
-
     @pytest.mark.asyncio
     async def test_does_nothing_when_no_active_crate(self) -> None:
         cm, state_mock, pr_mock, _ = _make_manager(active_crate=None)
@@ -147,8 +141,6 @@ class TestCheckAndAdvance:
 
 
 class TestAutoPackageIfNeeded:
-    """Tests for auto_package_if_needed milestone creation."""
-
     @pytest.mark.asyncio
     async def test_does_nothing_when_active_crate_exists(self) -> None:
         cm, _, pr_mock, _ = _make_manager(active_crate=5)
@@ -215,8 +207,6 @@ class TestAutoPackageIfNeeded:
 
 
 class TestNextCrateTitle:
-    """Tests for _next_crate_title iteration naming."""
-
     @pytest.mark.asyncio
     async def test_first_crate_of_day_gets_dot_one(self) -> None:
         cm, _, pr_mock, _ = _make_manager()

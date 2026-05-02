@@ -37,8 +37,6 @@ from tests.helpers import ImplementPhaseMockBuilder, make_implement_phase
 
 
 class TestImplementBatch:
-    """Tests for the ImplementPhase.run_batch method."""
-
     @pytest.mark.asyncio
     async def test_returns_worker_results_for_each_issue(
         self, config: HydraFlowConfig
@@ -167,8 +165,6 @@ class TestImplementBatch:
 
 
 class TestImplementIncludesPush:
-    """Tests that run_batch pushes and creates PRs per worker."""
-
     @pytest.mark.asyncio
     async def test_worker_result_contains_pr_info(
         self, config: HydraFlowConfig
@@ -288,8 +284,6 @@ class TestImplementIncludesPush:
 
 
 class TestWorkerExceptionIsolation:
-    """Tests that _worker catches exceptions and returns failed results."""
-
     @pytest.mark.asyncio
     async def test_worker_exception_returns_failed_result(
         self, config: HydraFlowConfig
@@ -414,8 +408,6 @@ class TestWorkerExceptionIsolation:
 
 
 class TestWorktreeCreationFailure:
-    """Tests for worktree creation failure during run_batch."""
-
     @pytest.mark.asyncio
     async def test_worktree_creation_failure_returns_error_result(
         self, config: HydraFlowConfig
@@ -630,8 +622,6 @@ class TestWorktreeCreationFailure:
 
 
 class TestImplementLifecycleMetrics:
-    """Tests that run_batch records new lifecycle metrics in state."""
-
     @pytest.mark.asyncio
     async def test_records_implementation_duration(
         self, config: HydraFlowConfig
@@ -770,8 +760,6 @@ class TestImplementLifecycleMetrics:
 
 
 class TestReviewFeedbackPassing:
-    """Tests that review feedback is fetched, passed to agent, and cleared."""
-
     @pytest.mark.asyncio
     async def test_passes_review_feedback_to_agent(
         self, config: HydraFlowConfig
@@ -963,8 +951,6 @@ class TestReviewFeedbackPassing:
 
 
 class TestWorkerResultMetaPersistence:
-    """Tests that worker result metadata is persisted to state."""
-
     @pytest.mark.asyncio
     async def test_worker_result_meta_persisted_after_run(
         self, config: HydraFlowConfig
@@ -1041,8 +1027,6 @@ class TestWorkerResultMetaPersistence:
 
 
 class TestZeroCommitEscalation:
-    """Tests that zero-commit failures are handled as retryable failures."""
-
     @pytest.mark.asyncio
     async def test_zero_commit_marks_failed_without_hitl(
         self, config: HydraFlowConfig
@@ -1326,8 +1310,6 @@ class TestPostMortemMemoryFiling:
 
 
 class TestRetryCapEscalation:
-    """Tests that issues exceeding max_issue_attempts escalate to HITL."""
-
     @pytest.mark.asyncio
     async def test_issue_under_cap_proceeds_normally(self, tmp_path: Path) -> None:
         """Issues under the cap should proceed to agent run."""
@@ -1439,8 +1421,6 @@ class TestRetryCapEscalation:
 
 
 class TestCommitsPersistedInMeta:
-    """Tests that commits field is included in worker_result_meta."""
-
     @pytest.mark.asyncio
     async def test_commits_in_worker_result_meta(self, config: HydraFlowConfig) -> None:
         """After agent run, worker_result_meta should contain 'commits' key."""
@@ -1482,8 +1462,6 @@ class TestCommitsPersistedInMeta:
 
 
 class TestActiveIssuePersistence:
-    """Tests that active issues are persisted to state."""
-
     @pytest.mark.asyncio
     async def test_active_issue_persisted_and_removed(
         self, config: HydraFlowConfig
@@ -2046,8 +2024,6 @@ class TestReadPlanForRecording:
 
 
 class TestCriticalExceptionPropagation:
-    """Tests that critical exceptions propagate through the worker."""
-
     @pytest.mark.asyncio
     async def test_auth_error_propagates_through_worker(
         self, config: HydraFlowConfig
@@ -2124,8 +2100,6 @@ class TestCriticalExceptionPropagation:
 
 
 class TestADRSequence:
-    """Tests for ADR-specific implementation sequencing."""
-
     @pytest.fixture(autouse=True)
     def _clear_assigned(self) -> Generator[None, None, None]:
         """Reset the module-level assigned set before and after each test."""
@@ -2210,8 +2184,6 @@ class TestADRSequence:
 
 
 class TestWorktreeResetOnRetry:
-    """Tests for worktree reset when prior failure context exists."""
-
     @pytest.mark.asyncio
     async def test_resets_worktree_when_prior_error_exists(
         self, config: HydraFlowConfig
@@ -2234,7 +2206,6 @@ class TestWorktreeResetOnRetry:
 
     @pytest.mark.asyncio
     async def test_no_reset_when_no_prior_error(self, config: HydraFlowConfig) -> None:
-        """Should not reset worktree when there's no prior error."""
         issue = TaskFactory.create()
         wt_path = config.workspace_path_for_issue(42)
         wt_path.mkdir(parents=True, exist_ok=True)
@@ -2289,8 +2260,6 @@ class TestWorktreeResetOnRetry:
 
 
 class TestPriorFailureFeedback:
-    """Tests for feeding prior failure context to the agent on retry."""
-
     @pytest.mark.asyncio
     async def test_prior_failure_passed_to_agent(self, config: HydraFlowConfig) -> None:
         """Agent should receive prior_failure from state on retry."""
@@ -2353,8 +2322,6 @@ class TestPriorFailureFeedback:
 
 
 class TestZeroCommitCorrectiveRetry:
-    """Tests that zero-commit results get corrective retries via attempt cap."""
-
     @pytest.mark.asyncio
     async def test_zero_commit_comment_includes_attempt_count(
         self, config: HydraFlowConfig
@@ -2386,8 +2353,6 @@ class TestZeroCommitCorrectiveRetry:
 
 
 class TestIsZeroCommitFailure:
-    """Tests for the _is_zero_commit_failure static helper."""
-
     def test_returns_true_for_zero_commit_failure(self) -> None:
         result = WorkerResultFactory.create(
             issue_number=1,
@@ -2442,8 +2407,6 @@ class TestIsZeroCommitFailure:
 
 
 class TestHandleZeroCommits:
-    """Tests for the extracted _handle_zero_commits method."""
-
     @pytest.mark.asyncio
     async def test_marks_failed_and_posts_comment(
         self, config: HydraFlowConfig
@@ -2474,8 +2437,6 @@ class TestHandleZeroCommits:
 
 
 class TestHandleSuccessfulPush:
-    """Tests for the extracted _handle_successful_push method."""
-
     @pytest.mark.asyncio
     async def test_creates_pr_on_first_attempt(self, config: HydraFlowConfig) -> None:
         issue = TaskFactory.create()
@@ -2574,8 +2535,6 @@ class TestHandleSuccessfulPush:
 
 
 class TestHandleNoPrFallback:
-    """Tests for the extracted _handle_no_pr_fallback method."""
-
     @pytest.mark.asyncio
     async def test_no_diff_escalates_to_hitl(self, config: HydraFlowConfig) -> None:
         issue = TaskFactory.create()

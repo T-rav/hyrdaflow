@@ -667,8 +667,6 @@ class TestLifecycle:
 
 
 class TestFetchAllHydraFlowIssues:
-    """Tests for IssueFetcher.fetch_all_hydraflow_issues."""
-
     @pytest.mark.asyncio
     async def test_fetch_all_hydraflow_issues_calls_fetch_by_labels(self) -> None:
         from issue_fetcher import IssueFetcher
@@ -721,8 +719,6 @@ class TestFetchAllHydraFlowIssues:
 
 
 class TestPipelineSnapshot:
-    """Tests for get_pipeline_snapshot()."""
-
     def test_empty_store_returns_empty_stages(self) -> None:
         store = _make_store()
         snapshot = store.get_pipeline_snapshot()
@@ -966,8 +962,6 @@ class TestInFlightProtection:
 
 
 class TestIsInPipeline:
-    """Tests for is_in_pipeline() used by worktree GC safety checks."""
-
     def test_queued_issue_is_in_pipeline(self) -> None:
         store = _make_store()
         store._route_issues([TaskFactory.create(id=1, tags=["hydraflow-plan"])])
@@ -1388,8 +1382,6 @@ class TestEnrichWithComments:
 
 
 class TestMergedTracking:
-    """Tests for mark_merged() and merged snapshot integration."""
-
     def test_mark_merged_adds_to_merged_set(self) -> None:
         store = _make_store()
         store.mark_merged(42)

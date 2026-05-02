@@ -200,22 +200,17 @@ def test_node_ui_framework_repo_is_handled_generically(tmp_path: Path) -> None:
 
 
 class TestGoPackageName:
-    """Tests for _go_package_name error handling."""
-
     def test_returns_package_name_from_file(self, tmp_path: Path) -> None:
-        """Should extract package name from Go source file."""
         go_file = tmp_path / "calc.go"
         go_file.write_text("package calc\n\nfunc Add() {}\n")
         assert _go_package_name(go_file) == "calc"
 
     def test_returns_main_on_missing_file(self, tmp_path: Path) -> None:
-        """Should fall back to 'main' when the file does not exist."""
         assert _go_package_name(tmp_path / "nonexistent.go") == "main"
 
     def test_oserror_logs_debug(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Should log debug on OSError reading Go file instead of silently passing."""
         go_file = tmp_path / "calc.go"
         go_file.write_text("package calc\n")
         go_file.chmod(0o000)

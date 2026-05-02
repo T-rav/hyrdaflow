@@ -1591,7 +1591,6 @@ async def test_build_review_prompt_diff_truncation_configurable(
 async def test_build_review_prompt_logs_warning_on_truncation(
     config, event_bus, pr_info, task
 ):
-    """Should log a warning when diff is truncated."""
     runner = _make_runner(config, event_bus)
     long_diff = "x" * 20_000
 
@@ -1757,8 +1756,6 @@ async def test_has_changes_timeout_returns_false(config, event_bus, tmp_path):
 
 
 class TestRecordFixOutcome:
-    """Tests for ReviewRunner._record_fix_outcome."""
-
     @pytest.fixture
     def runner(self, config, event_bus):
         return _make_runner(config, event_bus)
@@ -1948,8 +1945,6 @@ class TestRecordFixOutcome:
 
 
 class TestBuildPrecheckPrompt:
-    """Tests for ReviewRunner._build_precheck_prompt."""
-
     def test_includes_pr_and_issue_info(self, config, event_bus, pr_info, task) -> None:
         runner = _make_runner(config, event_bus)
         prompt = runner._build_precheck_prompt(pr_info, task, "some diff content")
@@ -1981,8 +1976,6 @@ class TestBuildPrecheckPrompt:
 
 
 class TestRunPrecheckContext:
-    """Tests for ReviewRunner._run_precheck_context wiring."""
-
     @pytest.mark.asyncio
     async def test_delegates_to_shared_run_precheck_context(
         self, config, event_bus, pr_info, task, tmp_path
@@ -2152,8 +2145,6 @@ async def test_build_review_prompt_excludes_runtime_logs_when_disabled(
 
 
 class TestFormatCodeScanningAlerts:
-    """Tests for ReviewRunner._format_code_scanning_alerts."""
-
     def test_empty_alerts_returns_empty_string(self):
         assert ReviewRunner._format_code_scanning_alerts([], 6000) == ""
 

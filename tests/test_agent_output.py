@@ -30,8 +30,6 @@ def agent_task() -> Task:
 
 
 class TestVerifyResult:
-    """Tests for AgentRunner._verify_result."""
-
     @pytest.mark.asyncio
     async def test_verify_returns_false_when_no_commits(
         self, config, event_bus: EventBus, tmp_path: Path
@@ -147,8 +145,6 @@ class TestVerifyResult:
 
 
 class TestCountCommits:
-    """Tests for AgentRunner._count_commits."""
-
     @pytest.mark.asyncio
     async def test_count_commits_returns_parsed_count(
         self, config, event_bus: EventBus, tmp_path: Path
@@ -233,8 +229,6 @@ class TestCountCommits:
 
 
 class TestBuildQualityFixPrompt:
-    """Tests for AgentRunner._build_quality_fix_prompt."""
-
     def test_prompt_includes_error_output(
         self, config, event_bus: EventBus, agent_task
     ) -> None:
@@ -285,8 +279,6 @@ class TestBuildQualityFixPrompt:
 
 
 class TestQualityFixLoop:
-    """Tests for AgentRunner._run_quality_fix_loop."""
-
     @pytest.mark.asyncio
     async def test_succeeds_on_first_attempt(
         self, config, event_bus: EventBus, agent_task, tmp_path: Path
@@ -440,8 +432,6 @@ class TestQualityFixLoop:
 
 
 class TestSaveTranscript:
-    """Tests for AgentRunner._save_transcript."""
-
     def test_save_transcript_writes_to_hydraflow_logs(
         self, config, event_bus: EventBus, tmp_path: Path
     ) -> None:

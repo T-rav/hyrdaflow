@@ -505,8 +505,6 @@ class TestCheckVolatileLineCitations:
 
 
 class TestCheckStaleAmendmentNotes:
-    """Tests for cross-reference-aware stale amendment note detection."""
-
     def _adr_entry(
         self, num: int, title: str, status: str = "Proposed"
     ) -> tuple[int, str, str, str]:
@@ -926,8 +924,6 @@ class TestMismatchedADRTitle:
 
 
 class TestCheckSourceFunctionRefs:
-    """Tests for phantom source symbol detection."""
-
     def test_valid_function_reference_passes(
         self, validator: ADRPreValidator, tmp_path: Path
     ) -> None:
@@ -1101,8 +1097,6 @@ class TestCheckSourceFunctionRefs:
 
 
 class TestCheckCrossReferenceTitles:
-    """Tests for _check_cross_reference_titles — abbreviated title detection."""
-
     def test_exact_title_match_passes(self, validator: ADRPreValidator) -> None:
         """A cross-reference with the exact full title produces no issue."""
         content = _valid_adr(
@@ -1284,8 +1278,6 @@ class TestCheckCrossReferenceTitles:
 
 
 class TestWordPrefixOverlap:
-    """Tests for _word_prefix_overlap — handles em-dash trailing prose."""
-
     def test_matching_prefix_returns_true(self) -> None:
         """Strings sharing a word-prefix longer than the real title are detected."""
         assert ADRPreValidator._word_prefix_overlap(
@@ -1352,8 +1344,6 @@ class TestWordPrefixOverlap:
 
 
 class TestDictCollisionSharedNumbers:
-    """Tests that title checking handles multiple ADRs sharing the same number."""
-
     def test_mismatched_title_with_shared_numbers(
         self, validator: ADRPreValidator
     ) -> None:

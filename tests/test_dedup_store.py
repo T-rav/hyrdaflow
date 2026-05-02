@@ -13,8 +13,6 @@ from dedup_store import DedupStore
 
 
 class TestDedupStoreFileBacked:
-    """Tests for DedupStore using file-backed JSON."""
-
     def test_get_empty_when_file_missing(self, tmp_path: Path) -> None:
         store = DedupStore("test_set", tmp_path / "missing.json")
         assert store.get() == set()

@@ -55,8 +55,6 @@ def _make_record(
 
 
 class TestFailureCategory:
-    """Tests for the FailureCategory enum."""
-
     def test_all_categories_have_descriptions(self) -> None:
         for cat in FailureCategory:
             assert cat.value in CATEGORY_DESCRIPTIONS
@@ -72,8 +70,6 @@ class TestFailureCategory:
 
 
 class TestExtractSubcategories:
-    """Tests for extract_subcategories()."""
-
     def test_extracts_lint_error(self) -> None:
         subs = extract_subcategories("ruff lint error on line 42")
         assert "lint_error" in subs
@@ -148,8 +144,6 @@ class TestExtractSubcategories:
 
 
 class TestVisualFailureCategories:
-    """Tests for VISUAL_FAIL and VISUAL_WARN categories."""
-
     def test_visual_fail_in_enum(self) -> None:
         assert FailureCategory.VISUAL_FAIL == "visual_fail"
 
@@ -185,8 +179,6 @@ class TestVisualFailureCategories:
 
 
 class TestFailureRecord:
-    """Tests for the FailureRecord Pydantic model."""
-
     def test_serialization_roundtrip(self) -> None:
         record = _make_record(subcategories=["lint_error", "test_failure"])
         json_str = record.model_dump_json()
@@ -219,8 +211,6 @@ class TestFailureRecord:
 
 
 class TestHarnessInsightStore:
-    """Tests for HarnessInsightStore persistence."""
-
     def test_append_creates_file(self, tmp_path: Path) -> None:
         store = HarnessInsightStore(tmp_path / "memory")
         record = _make_record()
@@ -310,8 +300,6 @@ class TestHarnessInsightStore:
 
 
 class TestAnalyzeCategoryPatterns:
-    """Tests for analyze_category_patterns()."""
-
     def test_identifies_patterns_above_threshold(self) -> None:
         records = [
             _make_record(issue_number=i, category=FailureCategory.QUALITY_GATE)
@@ -368,8 +356,6 @@ class TestAnalyzeCategoryPatterns:
 
 
 class TestAnalyzeSubcategoryPatterns:
-    """Tests for analyze_subcategory_patterns()."""
-
     def test_identifies_subcategory_patterns(self) -> None:
         records = [
             _make_record(issue_number=i, subcategories=["lint_error"]) for i in range(4)
@@ -414,8 +400,6 @@ class TestAnalyzeSubcategoryPatterns:
 
 
 class TestGenerateSuggestions:
-    """Tests for generate_suggestions()."""
-
     def test_generates_category_suggestion(self) -> None:
         records = [
             _make_record(issue_number=i, category=FailureCategory.QUALITY_GATE)
@@ -486,8 +470,6 @@ class TestGenerateSuggestions:
 
 
 class TestConfigFields:
-    """Tests that config fields are properly defined."""
-
     def test_harness_insight_window_default(self) -> None:
         config = ConfigFactory.create()
         assert config.harness_insight_window == 20
@@ -511,8 +493,6 @@ class TestConfigFields:
 
 
 class TestImprovementSuggestion:
-    """Tests for the ImprovementSuggestion model."""
-
     def test_serialization_roundtrip(self) -> None:
         suggestion = ImprovementSuggestion(
             category=FailureCategory.QUALITY_GATE,
@@ -676,8 +656,6 @@ class TestAppendFailureOSError:
 
 
 class TestFailureRecordTimestamp:
-    """Tests for FailureRecord IsoTimestamp validation."""
-
     def test_default_timestamp_is_valid_iso(self) -> None:
         record = FailureRecord(issue_number=1, category="quality_gate")
         from datetime import datetime
@@ -710,8 +688,6 @@ class TestFailureRecordTimestamp:
 
 
 class TestFieldDescriptions:
-    """Tests that field descriptions are present in model schemas."""
-
     def test_failure_record_has_field_descriptions(self) -> None:
         schema = FailureRecord.model_json_schema()
         props = schema["properties"]

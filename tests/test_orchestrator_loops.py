@@ -30,8 +30,6 @@ from tests.helpers import mock_fetcher_noop
 
 
 class TestHITLCorrection:
-    """Tests for HITL correction methods on HydraFlowOrchestrator."""
-
     def test_hitl_corrections_starts_empty(self, config: HydraFlowConfig) -> None:
         orch = HydraFlowOrchestrator(config)
         assert orch._hitl_corrections == {}
@@ -377,8 +375,6 @@ class TestLoopExceptionIsolation:
 
 
 class TestSupervisorLoops:
-    """Tests for the _supervise_loops supervisor that restarts crashed loops."""
-
     @pytest.mark.asyncio
     async def test_run_completes_normally_with_stop(
         self, config: HydraFlowConfig
@@ -487,8 +483,6 @@ class TestSupervisorLoops:
 
 
 class TestStoreBasedActiveIssueTracking:
-    """Tests that active issue tracking uses the centralized IssueStore."""
-
     def test_implementer_receives_store(self, config: HydraFlowConfig) -> None:
         """ImplementPhase receives the shared IssueStore."""
         orch = HydraFlowOrchestrator(config)
@@ -561,8 +555,6 @@ class TestStoreBasedActiveIssueTracking:
 
 
 class TestHITLLoop:
-    """Tests for the HITL correction loop in the orchestrator."""
-
     def test_hitl_runner_is_created_in_init(self, config: HydraFlowConfig) -> None:
         from hitl_runner import HITLRunner
 
@@ -683,8 +675,6 @@ class TestHITLLoop:
 
 
 class TestAuthFailure:
-    """Tests for AuthenticationError handling in the orchestrator."""
-
     @pytest.mark.asyncio
     async def test_auth_failure_stops_all_loops(self, config: HydraFlowConfig) -> None:
         """An AuthenticationError in any loop should stop the orchestrator."""
@@ -801,8 +791,6 @@ class TestAuthFailure:
 
 
 class TestHandleLoopException:
-    """Tests for the extracted _handle_loop_exception helper."""
-
     @pytest.mark.asyncio
     async def test_auth_error_sets_stop_and_flag(self, config: HydraFlowConfig) -> None:
         """AuthenticationError should set _auth_failed and stop_event."""
@@ -868,8 +856,6 @@ class TestHandleLoopException:
 
 
 class TestPollingLoopExceptionClassification:
-    """Tests for exception classification and circuit breaker in _polling_loop."""
-
     @pytest.mark.asyncio
     async def test_likely_bug_logged_at_critical(self, config: HydraFlowConfig) -> None:
         """TypeError/KeyError etc. should be logged at CRITICAL level."""

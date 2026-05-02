@@ -79,8 +79,6 @@ def _make_stub(
 
 
 class TestTriggerEvent:
-    """Tests for the trigger() method on BaseBackgroundLoop."""
-
     def test_trigger_sets_event(self, tmp_path: Path) -> None:
         """trigger() sets the internal asyncio.Event."""
         loop, _ = _make_stub(tmp_path)
@@ -164,8 +162,6 @@ class TestTriggerEvent:
 
 
 class TestOrchestratorTriggerBgWorker:
-    """Tests for HydraFlowOrchestrator.trigger_bg_worker()."""
-
     def test_trigger_known_worker(self) -> None:
         """trigger_bg_worker returns True and calls trigger() for known workers."""
         orch = MagicMock()
@@ -194,8 +190,6 @@ class TestOrchestratorTriggerBgWorker:
 
 
 class TestTriggerBgWorkerRoute:
-    """Tests for the POST /api/control/bg-worker/trigger endpoint."""
-
     def _create_router(self, tmp_path: Path, orch: Any = None) -> Any:
         from dashboard_routes import create_router
         from pr_manager import PRManager

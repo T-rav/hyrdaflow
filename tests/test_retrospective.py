@@ -726,8 +726,6 @@ class TestRetrospectiveEntry:
 
 
 class TestFileImprovementIssueSetsOrigin:
-    """Tests for memory-routed suggestion filing in _file_improvement_issue."""
-
     @pytest.mark.asyncio
     async def test_file_improvement_issue_writes_to_jsonl(
         self, config: HydraFlowConfig

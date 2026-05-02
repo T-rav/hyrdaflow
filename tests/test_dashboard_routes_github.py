@@ -16,8 +16,6 @@ from tests.helpers import find_endpoint, make_dashboard_router
 
 
 class TestGitHubRepoEndpoints:
-    """Tests for /api/github/repos and /api/github/clone routes."""
-
     # -----------------------------------------------------------------------
     # GET /api/github/repos
     # -----------------------------------------------------------------------

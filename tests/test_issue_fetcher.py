@@ -72,8 +72,6 @@ def make_pr_fake_run(batch_json: str):
 
 
 class TestFetchReadyIssues:
-    """Tests for the fetch_ready_issues method."""
-
     @pytest.mark.asyncio
     async def test_returns_parsed_issues_from_gh_output(
         self, config: HydraFlowConfig
@@ -595,8 +593,6 @@ RAW_PLAN_ISSUE_JSON = json.dumps(
 
 
 class TestFetchPlanIssues:
-    """Tests for the fetch_plan_issues method."""
-
     @pytest.mark.asyncio
     async def test_returns_parsed_issues_from_gh_output(
         self, config: HydraFlowConfig
@@ -706,8 +702,6 @@ SINGLE_ISSUE_JSON = json.dumps(
 
 
 class TestFetchIssueByNumber:
-    """Tests for IssueFetcher.fetch_issue_by_number."""
-
     @pytest.mark.asyncio
     async def test_returns_parsed_issue_on_success(
         self, config: HydraFlowConfig
@@ -771,8 +765,6 @@ class TestFetchIssueByNumber:
 
 
 class TestFetchIssueComments:
-    """Tests for IssueFetcher.fetch_issue_comments."""
-
     @pytest.mark.asyncio
     async def test_returns_comment_bodies(self, config: HydraFlowConfig) -> None:
         fetcher = IssueFetcher(config)
@@ -824,8 +816,6 @@ class TestFetchIssueComments:
 
 
 class TestFetchIssuesByLabels:
-    """Tests for IssueFetcher.fetch_issues_by_labels."""
-
     @pytest.mark.asyncio
     async def test_fetches_and_deduplicates_by_number(
         self, config: HydraFlowConfig
@@ -1089,8 +1079,6 @@ class TestFetchIssuesByLabels:
 
 
 class TestFetchAllHydraFlowIssues:
-    """Tests for IssueFetcher.fetch_all_hydraflow_issues."""
-
     @pytest.mark.asyncio
     async def test_collects_all_pipeline_labels(self, config: HydraFlowConfig) -> None:
         fetcher = IssueFetcher(config)
@@ -1184,8 +1172,6 @@ def _collab_config(tmp_path: Path, *, enabled: bool = True) -> HydraFlowConfig:
 
 
 class TestCollaboratorCheck:
-    """Tests for the collaborator filtering in IssueFetcher."""
-
     @pytest.mark.asyncio
     async def test_non_collaborator_issues_skipped(self, tmp_path: Path) -> None:
         cfg = _collab_config(tmp_path, enabled=True)
@@ -1393,8 +1379,6 @@ class TestCollaboratorCheck:
 
 
 class TestNormalizeGraphQLIssue:
-    """Tests for the GraphQL payload normalizer."""
-
     def test_maps_standard_graphql_node(self) -> None:
         node = {
             "number": 42,
@@ -1446,8 +1430,6 @@ class TestNormalizeGraphQLIssue:
 
 
 class TestFetchAllGraphQL:
-    """Tests for the GraphQL batch issue fetch."""
-
     @pytest.mark.asyncio
     async def test_graphql_batch_returns_deduplicated_issues(
         self, config: HydraFlowConfig

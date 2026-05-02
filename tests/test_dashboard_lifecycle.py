@@ -25,8 +25,6 @@ if TYPE_CHECKING:
 
 
 class TestCreateApp:
-    """Tests for HydraFlowDashboard.create_app()."""
-
     def test_create_app_returns_fastapi_instance(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -75,8 +73,6 @@ class TestCreateApp:
 
 
 class TestIndexRoute:
-    """Tests for the GET / route."""
-
     def test_get_root_returns_200(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -153,8 +149,6 @@ class TestIndexRoute:
 
 
 class TestHealthRoute:
-    """Tests for the GET /healthz health-check endpoint."""
-
     def test_healthz_returns_ok_payload(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -400,8 +394,6 @@ class TestHealthRoute:
 
 
 class TestAccessibility:
-    """Tests for accessibility attributes in the dashboard HTML."""
-
     @pytest.mark.skip(
         reason="aria attribute is rendered by React in the browser, not in the HTML shell"
     )
@@ -428,8 +420,6 @@ class TestAccessibility:
 
 
 class TestStateRoute:
-    """Tests for the GET /api/state route."""
-
     def test_get_state_returns_200(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -503,8 +493,6 @@ class TestStateRoute:
 
 
 class TestStatsRoute:
-    """Tests for the GET /api/stats route."""
-
     def test_stats_endpoint_returns_lifetime_stats(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -556,8 +544,6 @@ class TestStatsRoute:
 
 
 class TestEventsRoute:
-    """Tests for the GET /api/events route."""
-
     def test_get_events_returns_200(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -635,8 +621,6 @@ class TestEventsRoute:
 
 
 class TestPRsRoute:
-    """Tests for the GET /api/prs route."""
-
     def test_prs_returns_200(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -876,8 +860,6 @@ class TestPRsRoute:
 
 
 class TestHumanInputGetRoute:
-    """Tests for the GET /api/human-input route."""
-
     def test_get_human_input_returns_200(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -933,8 +915,6 @@ class TestHumanInputGetRoute:
 
 
 class TestHumanInputPostRoute:
-    """Tests for the POST /api/human-input/{issue_number} route."""
-
     def test_post_human_input_returns_ok_status(
         self, config: HydraFlowConfig, event_bus: EventBus, state
     ) -> None:
@@ -1023,8 +1003,6 @@ class TestHumanInputPostRoute:
 
 
 class TestStartStop:
-    """Tests for HydraFlowDashboard.start() and stop()."""
-
     @pytest.mark.asyncio
     async def test_start_creates_server_task(
         self, config: HydraFlowConfig, event_bus: EventBus, state

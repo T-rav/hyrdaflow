@@ -47,8 +47,6 @@ def _make_loop(
 
 
 class TestADRReviewerLoopRun:
-    """Tests for ADRReviewerLoop.run."""
-
     @pytest.mark.asyncio
     async def test_do_work__calls_reviewer_when_enabled(self, tmp_path: Path) -> None:
         """The loop calls review_proposed_adrs when enabled."""

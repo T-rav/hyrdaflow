@@ -47,8 +47,6 @@ def sample_task() -> Task:
 
 
 class TestShapePhaseGenerate:
-    """Tests for option generation (Part A)."""
-
     @pytest.mark.asyncio
     async def test_generate_options_posts_comment(
         self, phase: ShapePhase, sample_task: Task, deps: dict
@@ -80,8 +78,6 @@ class TestShapePhaseGenerate:
 
 
 class TestShapePhaseSelection:
-    """Tests for selection detection (Part B)."""
-
     @pytest.mark.asyncio
     async def test_detects_direction_selection(
         self, phase: ShapePhase, sample_task: Task, deps: dict
@@ -135,8 +131,6 @@ class TestShapePhaseSelection:
 
 
 class TestSelectionParsing:
-    """Tests for the _find_selection helper."""
-
     def test_finds_direction_a(self, phase: ShapePhase) -> None:
         comments = [f"{_SHAPE_OPTIONS_MARKER} for #42", "Direction A"]
         assert phase._find_selection(comments) == "A"
@@ -164,8 +158,6 @@ class TestSelectionParsing:
 
 
 class TestFormatOptions:
-    """Tests for option formatting."""
-
     def test_format_includes_marker(self, phase: ShapePhase, sample_task: Task) -> None:
         from models import ProductDirection, ShapeResult
 

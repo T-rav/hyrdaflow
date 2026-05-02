@@ -26,8 +26,6 @@ if TYPE_CHECKING:
 
 
 class TestHITLPhaseProcessing:
-    """Tests for HITLPhase correction processing."""
-
     @pytest.mark.asyncio
     async def test_process_corrections_skips_when_empty(
         self, config: HydraFlowConfig
@@ -357,8 +355,6 @@ class TestHITLPhaseProcessing:
 
 
 class TestHITLGetStatus:
-    """Tests for HITLPhase.get_status() display mapping."""
-
     def test_get_status_returns_from_review_for_review_origin(
         self, config: HydraFlowConfig
     ) -> None:
@@ -398,8 +394,6 @@ class TestHITLPhaseCorrections:
 
 
 class TestHITLResetsAttempts:
-    """Tests that HITL correction resets issue_attempts."""
-
     @pytest.mark.asyncio
     async def test_hitl_correction_resets_issue_attempts(
         self, config: HydraFlowConfig
@@ -649,8 +643,6 @@ class TestHITLMemorySuggestionFiling:
 
 
 class TestHITLExceptionPropagation:
-    """Tests that critical exceptions propagate through _process_one_hitl."""
-
     @pytest.mark.asyncio
     async def test_auth_error_propagates_through_process_correction(
         self, config: HydraFlowConfig

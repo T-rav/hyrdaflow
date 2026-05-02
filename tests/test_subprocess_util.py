@@ -239,8 +239,6 @@ def test_make_clean_env_does_not_mutate_os_environ() -> None:
 
 
 class TestIsRetryableError:
-    """Tests for the _is_retryable_error helper."""
-
     def test_not_retryable_on_rate_limit(self) -> None:
         """Rate limits are handled by the global cooldown, not per-call retry."""
         assert _is_retryable_error("API rate limit exceeded") is False
@@ -281,8 +279,6 @@ class TestIsRetryableError:
 
 
 class TestRunSubprocessWithRetry:
-    """Tests for run_subprocess_with_retry."""
-
     @pytest.mark.asyncio
     async def test_succeeds_on_first_try(self) -> None:
         with patch(
@@ -464,8 +460,6 @@ class TestRunSubprocessWithRetry:
 
 
 class TestAuthenticationError:
-    """Tests for AuthenticationError and _is_auth_error."""
-
     def test_auth_error_inherits_runtime_error(self) -> None:
         err = AuthenticationError("auth failed")
         assert isinstance(err, RuntimeError)
@@ -521,8 +515,6 @@ class TestAuthenticationError:
 
 
 class TestSubprocessTimeoutError:
-    """Tests for SubprocessTimeoutError."""
-
     def test_inherits_runtime_error(self) -> None:
         err = SubprocessTimeoutError("timed out")
         assert isinstance(err, RuntimeError)
@@ -536,8 +528,6 @@ class TestSubprocessTimeoutError:
 
 
 class TestRunSubprocessTimeout:
-    """Tests for run_subprocess timeout behavior."""
-
     @pytest.mark.asyncio
     async def test_timeout_kills_process_and_raises(self) -> None:
         """When proc.communicate exceeds timeout, process is killed and error raised."""
@@ -594,8 +584,6 @@ class TestRunSubprocessTimeout:
 
 
 class TestRetryWithTimeout:
-    """Tests for run_subprocess_with_retry timeout interactions."""
-
     @pytest.mark.asyncio
     async def test_retry_retries_on_timeout(self) -> None:
         """SubprocessTimeoutError should be retried (matches 'timed out' pattern)."""
@@ -636,8 +624,6 @@ class TestRetryWithTimeout:
 
 
 class TestMakeDockerEnv:
-    """Tests for the make_docker_env helper."""
-
     def test_sets_home_to_hydraflow_user(self) -> None:
         env = make_docker_env()
         assert env["HOME"] == "/home/hydraflow"
@@ -816,8 +802,6 @@ class TestMakeDockerEnv:
 
 
 class TestGhApiSemaphore:
-    """Tests for the global GitHub API concurrency limiter."""
-
     @pytest.fixture(autouse=True)
     def _reset_semaphore(self) -> None:
         """Reset the global semaphore before each test."""
@@ -908,8 +892,6 @@ class TestGhApiSemaphore:
 
 
 class TestRateLimitCooldown:
-    """Tests for the global rate-limit cooldown."""
-
     @pytest.fixture(autouse=True)
     def _reset_state(self) -> None:
         """Reset global state before each test."""

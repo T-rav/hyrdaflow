@@ -78,8 +78,6 @@ def _setup_rejected_review_mocks(phase: ReviewPhase) -> None:
 
 
 class TestReviewPRs:
-    """Tests for the ReviewPhase.review_prs method."""
-
     @pytest.mark.asyncio
     async def test_returns_empty_list_when_no_prs(
         self, config: HydraFlowConfig
@@ -152,8 +150,6 @@ class TestReviewPRs:
 
 
 class TestPostMergeConflictFix:
-    """Tests for post-merge conflict recovery helper."""
-
     @pytest.mark.asyncio
     async def test_attempt_post_merge_conflict_fix_pushes_branch_on_success(
         self, config: HydraFlowConfig
@@ -785,8 +781,6 @@ class TestPostMergeConflictFix:
 
 
 class TestReviewExceptionIsolation:
-    """Tests that _review_one catches exceptions and returns failed results."""
-
     @pytest.mark.asyncio
     async def test_review_exception_returns_failed_result(
         self, config: HydraFlowConfig
@@ -891,8 +885,6 @@ class TestReviewExceptionIsolation:
 
 
 class TestActiveIssuesCleanup:
-    """Tests that _store marks issues complete on all code paths."""
-
     @pytest.mark.asyncio
     async def test_active_issues_cleaned_on_early_return_issue_not_found(
         self, config: HydraFlowConfig
@@ -997,8 +989,6 @@ class TestActiveIssuesCleanup:
 
 
 class TestReviewUpdateStartEvent:
-    """Tests that a REVIEW_UPDATE event is published at the start of _review_one()."""
-
     @pytest.mark.asyncio
     async def test_review_update_start_event_published_before_review(
         self, config: HydraFlowConfig, event_bus
@@ -1254,7 +1244,6 @@ class TestRunPostMergeHooks:
 
     @pytest.mark.asyncio
     async def test_calls_ac_generator(self, config: HydraFlowConfig) -> None:
-        """Should call ac_generator.generate when configured."""
         mock_ac = AsyncMock()
         phase = make_review_phase(config)
         phase._post_merge._ac_generator = mock_ac
@@ -1269,7 +1258,6 @@ class TestRunPostMergeHooks:
 
     @pytest.mark.asyncio
     async def test_calls_retrospective(self, config: HydraFlowConfig) -> None:
-        """Should call retrospective.record when configured."""
         mock_retro = AsyncMock()
         phase = make_review_phase(config)
         phase._post_merge._retrospective = mock_retro
@@ -1432,7 +1420,6 @@ class TestReviewOneInner:
     async def test_coordinates_merge_review_and_verdict(
         self, config: HydraFlowConfig
     ) -> None:
-        """Should coordinate merge, review, state recording, and verdict handling."""
         phase = make_review_phase(config, default_mocks=True)
         issue = TaskFactory.create()
         pr = PRInfoFactory.create()
@@ -1662,8 +1649,6 @@ class TestHandleRejectedReview:
 
 
 class TestAttemptReviewFix:
-    """Tests for _attempt_review_fix — sub-agent fix then re-review."""
-
     def _setup(self, config: HydraFlowConfig) -> tuple[ReviewPhase, PRInfo, Task, Path]:
         phase = make_review_phase(config)
         issue = TaskFactory.create()
@@ -1723,7 +1708,6 @@ class TestAttemptReviewFix:
 
     @pytest.mark.asyncio
     async def test_retries_up_to_two_times(self, config: HydraFlowConfig) -> None:
-        """Should try fix+review up to 2 times before giving up."""
         phase, pr, issue, wt = self._setup(config)
         original = ReviewResultFactory.create(
             verdict=ReviewVerdict.REQUEST_CHANGES, fixes_made=False
@@ -1889,8 +1873,6 @@ class TestHandleSelfFixReReview:
 
 
 class TestCriticalExceptionPropagation:
-    """Tests that critical exceptions propagate through review handlers."""
-
     @pytest.mark.asyncio
     async def test_auth_error_propagates_through_review_one(
         self, config: HydraFlowConfig
@@ -2041,8 +2023,6 @@ class TestCriticalExceptionPropagation:
 
 
 class TestCheckShaSkipGuard:
-    """Tests for the _check_sha_skip_guard extracted helper."""
-
     @pytest.mark.asyncio
     async def test_returns_none_for_new_commits(self, config: HydraFlowConfig) -> None:
         """When stored SHA differs from current HEAD, should return None."""
@@ -2098,11 +2078,8 @@ class TestCheckShaSkipGuard:
 
 
 class TestRecordReviewOutcome:
-    """Tests for the _record_review_outcome extracted helper."""
-
     @pytest.mark.asyncio
     async def test_records_all_state(self, config: HydraFlowConfig) -> None:
-        """Should call all expected state tracker methods."""
         phase = make_review_phase(config)
         pr = PRInfoFactory.create()
         result = ReviewResultFactory.create(duration_seconds=42.0)
@@ -2118,7 +2095,6 @@ class TestRecordReviewOutcome:
     async def test_records_harness_failure_on_rejection(
         self, config: HydraFlowConfig
     ) -> None:
-        """Should record harness failure when verdict is not APPROVE."""
         from unittest.mock import MagicMock, patch
 
         phase = make_review_phase(config)
@@ -2135,7 +2111,6 @@ class TestRecordReviewOutcome:
     async def test_records_harness_failure_on_comment_verdict(
         self, config: HydraFlowConfig
     ) -> None:
-        """Should record harness failure when verdict is COMMENT (also non-APPROVE)."""
         from unittest.mock import MagicMock, patch
 
         phase = make_review_phase(config)
@@ -2152,7 +2127,6 @@ class TestRecordReviewOutcome:
     async def test_skips_harness_failure_on_approve(
         self, config: HydraFlowConfig
     ) -> None:
-        """Should NOT record harness failure when verdict is APPROVE."""
         from unittest.mock import MagicMock, patch
 
         phase = make_review_phase(config)
@@ -2169,7 +2143,6 @@ class TestRecordReviewOutcome:
     async def test_increments_reviewed_session_counter_on_approve(
         self, config: HydraFlowConfig
     ) -> None:
-        """Should increment 'reviewed' session counter only on APPROVE verdict."""
         phase = make_review_phase(config)
         phase._state.reset_session_counters("2026-01-01T00:00:00+00:00")
         pr = PRInfoFactory.create()
@@ -2185,7 +2158,6 @@ class TestRecordReviewOutcome:
     async def test_does_not_increment_reviewed_session_counter_on_request_changes(
         self, config: HydraFlowConfig
     ) -> None:
-        """Should NOT increment 'reviewed' session counter on REQUEST_CHANGES."""
         from unittest.mock import MagicMock, patch
 
         phase = make_review_phase(config)
@@ -2205,7 +2177,6 @@ class TestRecordReviewOutcome:
     async def test_skips_duration_recording_when_zero(
         self, config: HydraFlowConfig
     ) -> None:
-        """Should not record duration when duration_seconds is 0."""
         from unittest.mock import patch
 
         phase = make_review_phase(config)
@@ -2219,8 +2190,6 @@ class TestRecordReviewOutcome:
 
 
 class TestCleanupWorktree:
-    """Tests for the _cleanup_worktree extracted helper."""
-
     @pytest.mark.asyncio
     async def test_destroys_when_not_skipped(self, config: HydraFlowConfig) -> None:
         """Worktree should be cleaned up when skip=False and stop_event not set."""
@@ -2279,8 +2248,6 @@ class TestCleanupWorktree:
 
 
 class TestRequiredDIParameters:
-    """Tests that ReviewPhase requires DI parameters (no fallback constructors)."""
-
     def test_conflict_resolver_injected(self, config: HydraFlowConfig) -> None:
         """ReviewPhase should receive a MergeConflictResolver via DI."""
         from merge_conflict_resolver import MergeConflictResolver
@@ -2299,8 +2266,6 @@ class TestRequiredDIParameters:
 
 
 class TestADRReviewPath:
-    """Tests for ADR review path without PRs."""
-
     @pytest.mark.asyncio
     async def test_review_adrs_approves_and_closes_valid_adr(
         self, config: HydraFlowConfig
@@ -2390,8 +2355,6 @@ class TestADRReviewPath:
 
 
 class TestRunInitialGuards:
-    """Tests for the refactored _run_initial_guards helper."""
-
     @pytest.mark.asyncio
     async def test_returns_context_when_all_guards_pass(
         self, config: HydraFlowConfig
@@ -2419,8 +2382,6 @@ class TestRunInitialGuards:
 
 
 class TestPreReviewChecks:
-    """Tests for the _run_pre_review_checks helper."""
-
     @pytest.mark.asyncio
     async def test_baseline_violation_returns_review_result(
         self, config: HydraFlowConfig
@@ -2482,8 +2443,6 @@ class TestPreReviewChecks:
 
 
 class TestRunPostReviewActions:
-    """Tests for the _run_post_review_actions helper."""
-
     @pytest.mark.asyncio
     async def test_self_fix_re_review_and_merge_flow(
         self, config: HydraFlowConfig

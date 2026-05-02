@@ -18,8 +18,6 @@ from tests.helpers import ConfigFactory
 
 
 class TestTruncateLog:
-    """Tests for truncate_log()."""
-
     def test_no_truncation_under_limit(self) -> None:
         """Short text is returned unchanged."""
         text = "line 1\nline 2\nline 3"
@@ -59,8 +57,6 @@ class TestTruncateLog:
 
 
 class TestLoadRuntimeLogs:
-    """Tests for load_runtime_logs()."""
-
     def test_returns_empty_when_file_missing(self, tmp_path: Path) -> None:
         """Returns empty string when log file doesn't exist."""
         config = ConfigFactory.create(

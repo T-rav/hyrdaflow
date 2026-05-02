@@ -108,8 +108,6 @@ class TestADRFileREShared:
 
 
 class TestFindProposedADRs:
-    """Tests for _find_proposed_adrs."""
-
     def test_empty_dir(self, tmp_path: Path) -> None:
         adr_dir = tmp_path / "docs" / "adr"
         adr_dir.mkdir(parents=True)
@@ -193,8 +191,6 @@ class TestFindProposedADRs:
 
 
 class TestLoadAllADRs:
-    """Tests for _load_all_adrs."""
-
     def test_skips_unreadable_files(self, tmp_path: Path) -> None:
         adr_dir = tmp_path / "docs" / "adr"
         _write_adr(adr_dir, 1, "Good ADR", "Proposed")
@@ -222,8 +218,6 @@ class TestLoadAllADRs:
 
 
 class TestBuildIndexContext:
-    """Tests for _build_index_context."""
-
     def test_empty_list(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         result = reviewer._build_index_context([])
@@ -259,8 +253,6 @@ class TestBuildIndexContext:
 
 
 class TestDuplicateDetection:
-    """Tests for _detect_duplicates."""
-
     def test_identical_titles(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         all_adrs = [
@@ -384,8 +376,6 @@ class TestDuplicateDetection:
 
 
 class TestBuildOrchestratorPrompt:
-    """Tests for _build_orchestrator_prompt."""
-
     def test_contains_role_instructions(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         prompt = reviewer._build_orchestrator_prompt("ADR content", "index", "no dupes")
@@ -426,8 +416,6 @@ class TestBuildOrchestratorPrompt:
 
 
 class TestParseCouncilResult:
-    """Tests for _parse_council_result."""
-
     def _make_transcript(
         self,
         *,
@@ -581,8 +569,6 @@ minority_note: Pragmatist dissented
 
 
 class TestVerdictRouting:
-    """Tests for _route_result."""
-
     @pytest.mark.asyncio
     async def test_approve_routes_to_accept(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
@@ -822,8 +808,6 @@ class TestVerdictRouting:
 
 
 class TestDeliberationRounds:
-    """Tests for round count parsing and tracking."""
-
     def test_one_round_unanimous(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         transcript = """COUNCIL_RESULT:
@@ -891,8 +875,6 @@ minority_note: Architect wanted to approve but was outvoted
 
 
 class TestAcceptADR:
-    """Tests for _accept_adr."""
-
     @pytest.mark.asyncio
     async def test_updates_status_in_file(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
@@ -986,8 +968,6 @@ class TestAcceptADR:
 
 
 class TestEscalateToHITL:
-    """Tests for _escalate_to_hitl."""
-
     @pytest.mark.asyncio
     async def test_creates_issue_with_summary(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
@@ -1045,8 +1025,6 @@ class TestEscalateToHITL:
 
 
 class TestRouteToTriage:
-    """Tests for _route_to_triage."""
-
     @pytest.mark.asyncio
     async def test_creates_find_labeled_issue(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
@@ -1173,8 +1151,6 @@ class TestADRTriageIntegration:
 
 
 class TestClerkAmendment:
-    """Tests for clerk amendment + re-vote behavior."""
-
     @pytest.mark.asyncio
     async def test_clerk_revote_accepts_and_commits(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
@@ -1344,8 +1320,6 @@ class TestClerkAmendment:
 
 
 class TestHandleDuplicate:
-    """Tests for _handle_duplicate."""
-
     @pytest.mark.asyncio
     async def test_creates_duplicate_issue(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
@@ -1419,8 +1393,6 @@ class TestHandleDuplicate:
 
 
 class TestExecuteOrchestrator:
-    """Tests for _execute_orchestrator."""
-
     @pytest.mark.asyncio
     async def test_claude_tool(self, tmp_path: Path) -> None:
         """Default tool uses claude CLI."""
@@ -1539,8 +1511,6 @@ class TestExecuteOrchestrator:
 
 
 class TestRunCouncilSession:
-    """Tests for _run_council_session."""
-
     @pytest.mark.asyncio
     async def test_none_transcript_returns_no_consensus(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
@@ -1612,8 +1582,6 @@ class TestAcceptADREdgeCases:
 
 
 class TestCommitAcceptance:
-    """Tests for _commit_acceptance."""
-
     @pytest.mark.asyncio
     async def test_dry_run_skips_git_ops(self, tmp_path: Path) -> None:
         """Bug fix: dry_run should skip all git operations."""
@@ -1668,8 +1636,6 @@ class TestCommitAcceptance:
 
 
 class TestTitleTruncation:
-    """Tests for title truncation in escalation and duplicate methods."""
-
     @pytest.mark.asyncio
     async def test_escalation_title_truncated(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
@@ -1712,8 +1678,6 @@ class TestTitleTruncation:
 
 
 class TestBuildCouncilSummary:
-    """Tests for _build_council_summary."""
-
     def test_multi_round_format(self, tmp_path: Path) -> None:
         reviewer = _make_reviewer(tmp_path)
         result = ADRCouncilResult(
@@ -1961,8 +1925,6 @@ class TestReviewProposedADRs:
 
 
 class TestAutoTriage:
-    """Tests for the auto-triage behavior (always on)."""
-
     @pytest.mark.asyncio
     async def test_auto_triage_increments_auto_triaged_not_escalated(
         self, tmp_path: Path
@@ -2049,8 +2011,6 @@ class TestAutoTriage:
 
 
 class TestPreValidationGate:
-    """Tests for pre-review validation integration in review_proposed_adrs."""
-
     @pytest.mark.asyncio
     async def test_skips_council_on_validation_failure(self, tmp_path: Path) -> None:
         """ADRs that fail pre-validation should not go to council."""
@@ -2302,8 +2262,6 @@ class TestPreValidationGate:
 
 
 class TestStatsIntegrity:
-    """Tests that stats counters are mutually exclusive — no double-counting."""
-
     @pytest.mark.asyncio
     async def test_no_double_increment_on_auto_triage_success(
         self, tmp_path: Path
@@ -2341,8 +2299,6 @@ class TestStatsIntegrity:
 
 
 class TestReviewProposedADRsPerItemGuard:
-    """Tests that the per-item try/except in review_proposed_adrs continues after failure."""
-
     @pytest.mark.asyncio
     async def test_loop_continues_after_single_adr_failure(
         self, tmp_path: Path
@@ -2456,8 +2412,6 @@ class TestADRCouncilReviewerCredentials:
 
 
 class TestWriteAdrDecision:
-    """Tests for _write_adr_decision using append_jsonl."""
-
     def test_calls_append_jsonl_with_correct_args(self, tmp_path: Path) -> None:
         """_write_adr_decision delegates to append_jsonl with path and JSON."""
         import json

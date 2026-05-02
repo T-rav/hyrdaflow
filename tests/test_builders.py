@@ -18,8 +18,6 @@ from tests.conftest import (
 
 
 class TestWorkerResultBuilder:
-    """Tests for WorkerResultBuilder fluent API."""
-
     def test_build_defaults_match_factory(self):
         """Builder with no overrides produces same result as factory defaults."""
         from_factory = WorkerResultFactory.create()
@@ -108,8 +106,6 @@ class TestWorkerResultBuilder:
 
 
 class TestPlanResultBuilder:
-    """Tests for PlanResultBuilder fluent API."""
-
     def test_build_defaults_match_factory(self):
         from_factory = PlanResultFactory.create()
         from_builder = PlanResultBuilder().build()
@@ -218,8 +214,6 @@ class TestPlanResultBuilder:
 
 
 class TestReviewResultBuilder:
-    """Tests for ReviewResultBuilder fluent API."""
-
     def test_build_defaults_match_factory(self):
         from_factory = ReviewResultFactory.create()
         from_builder = ReviewResultBuilder().build()

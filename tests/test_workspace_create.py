@@ -17,8 +17,6 @@ from workspace import WorkspaceManager
 
 
 class TestCreate:
-    """Tests for WorkspaceManager.create."""
-
     @pytest.mark.asyncio
     async def test_create_calls_git_clone_and_checkout(
         self, config, tmp_path: Path
@@ -475,8 +473,6 @@ class TestCreate:
 
 
 class TestDestroy:
-    """Tests for WorkspaceManager.destroy."""
-
     @pytest.mark.asyncio
     async def test_destroy_removes_directory(self, config, tmp_path: Path) -> None:
         """destroy should call shutil.rmtree on the workspace directory."""
@@ -539,8 +535,6 @@ class TestDestroy:
 
 
 class TestDestroyAll:
-    """Tests for WorkspaceManager.destroy_all."""
-
     @pytest.mark.asyncio
     async def test_destroy_all_iterates_issue_directories(
         self, config, tmp_path: Path
