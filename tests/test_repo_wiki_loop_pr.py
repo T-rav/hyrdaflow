@@ -86,6 +86,11 @@ def _stub_loop(
     loop._open_pr_url = None
     loop._worker_name = "repo_wiki"
     loop._enabled_cb = lambda _name: True
+    # _tribal_store is set in RepoWikiLoop.__init__; since __new__ bypasses
+    # __init__, stub it as None so the direct attr read in _do_work doesn't
+    # AttributeError (the call site is None-safe — generalization pass is
+    # skipped when tribal_store is None).
+    loop._tribal_store = None
     return loop
 
 
