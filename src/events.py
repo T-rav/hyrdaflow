@@ -332,7 +332,7 @@ class EventBus:
 
     async def publish(self, event: HydraFlowEvent) -> None:
         """Publish *event* to all subscribers and append to history."""
-        if event.session_id is None and getattr(self, "_active_session_id", None):
+        if event.session_id is None and self._active_session_id:
             event.session_id = self._active_session_id
         if self._active_repo and event.repo is None:
             event.repo = self._active_repo

@@ -434,14 +434,14 @@ class RepoWikiLoop(BaseBackgroundLoop):
         await self._poll_and_merge_open_pr(stats)
         await self._maybe_open_maintenance_pr(stats)
 
-        tribal_store = getattr(self, "_tribal_store", None)
+        tribal_store = self._tribal_store
         if tribal_store is not None and self._wiki_compiler is not None:
             try:
                 await run_generalization_pass(
                     per_repo=self._wiki_store,
                     tribal=tribal_store,
                     compiler=self._wiki_compiler,
-                    event_bus=getattr(self, "_bus", None),
+                    event_bus=self._bus,
                 )
             except Exception:  # noqa: BLE001
                 logger.warning("generalization pass failed", exc_info=True)

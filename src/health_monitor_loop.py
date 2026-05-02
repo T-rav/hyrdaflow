@@ -461,7 +461,7 @@ class HealthMonitorLoop(BaseBackgroundLoop):
                     enrich_patterns_with_events,  # noqa: PLC0415
                 )
 
-                history = self._bus.get_history() if hasattr(self, "_bus") else []
+                history = self._bus.get_history()
                 event_dicts = [{"type": e.type.value, "data": e.data} for e in history]
                 enrich_patterns_with_events(patterns, event_dicts)
             except Exception:  # noqa: BLE001
