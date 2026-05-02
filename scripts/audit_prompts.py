@@ -661,6 +661,12 @@ def render_target(target: AuditTarget) -> str:
             # classified as a bug by is_likely_bug and re-raised.
             instance._insights = None
             instance._context_cache = _NullContextCache()
+            # _adr_index and _tribal_wiki_store are set in BaseRunner.__init__;
+            # since __new__ bypasses __init__, stub them as None so direct attr
+            # reads in _inject_adr_index / _process_transcript_for_adr_draft don't
+            # AttributeError. Both call sites are None-safe.
+            instance._adr_index = None
+            instance._tribal_wiki_store = None
             callable_obj = getattr(instance, parts[2])
     else:
         raise ValueError(f"unsupported qualname depth: {target.builder_qualname!r}")
