@@ -20,7 +20,7 @@ Why normalize before compare
 ----------------------------
 
 Raw YAML bytes would always differ: ``recorded_at`` and ``recorder_sha``
-change every tick. The :mod:`tests.trust.contracts._schema` module
+change every tick. The :mod:`contracts._schema` module
 already defines the normalizer registry used by the replay harness —
 reuse it here so the diff side agrees with the replay side on what
 counts as "the same interaction". A cassette declares its normalizers
@@ -51,7 +51,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from tests.trust.contracts._schema import (
+from contracts._schema import (
     Cassette,
     apply_normalizers,
     load_cassette,
