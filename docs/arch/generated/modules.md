@@ -18,6 +18,7 @@ graph LR
     src_runners["src.runners"]
     src_sentry["src.sentry"]
     src_state["src.state"]
+    src_telemetry["src.telemetry"]
     src -- "4" --> src_arch
     src -- "1" --> src_contracts
     src -- "4" --> src_dashboard_routes
@@ -31,6 +32,7 @@ graph LR
     src_preflight -- "1" --> src_runners
     src_preflight -- "1" --> src_sentry
     src_runners -- "1" --> src_preflight
+    src_telemetry -- "2" --> src
 ```
 
-_Regenerated from commit `54f940e` on 2026-05-02 18:32 UTC. Source last changed at `54f940e`. Status: 🟢 fresh._
+_Regenerated from commit `fe6306d` on 2026-05-02 23:42 UTC. Source last changed at `fe6306d`. Status: 🟢 fresh._
