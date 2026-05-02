@@ -730,6 +730,10 @@ def _porcelain_paths(repo_root: Path, path_prefix: str) -> list[str]:
         check=True,
         capture_output=True,
         text=True,
+        # Hard cap — caller wraps this in ``asyncio.to_thread`` (line 471)
+        # but an unbounded git can leak the thread forever and exhaust
+        # the pool. Same deadlock class as PR #8454.
+        timeout=30,
     )
     paths: list[str] = []
     for line in proc.stdout.splitlines():

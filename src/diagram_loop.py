@@ -110,6 +110,11 @@ class DiagramLoop(BaseBackgroundLoop):
             capture_output=True,
             text=True,
             check=False,
+            # Hard cap to prevent thread-pool exhaustion on a hung git
+            # process. Same deadlock class as PR #8454 — even though the
+            # caller wraps this in ``asyncio.to_thread`` (line 82), an
+            # unbounded subprocess can leak the worker thread forever.
+            timeout=30,
         )
         if res.returncode != 0:
             return _DriftResult(has_drift=False, changed_files=[])
