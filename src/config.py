@@ -200,6 +200,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
         50_000,
     ),
     ("health_monitor_interval", "HYDRAFLOW_HEALTH_MONITOR_INTERVAL", 7200),
+    ("wiki_freshness_stale_days", "HYDRAFLOW_WIKI_FRESHNESS_STALE_DAYS", 7),
     ("stale_issue_interval", "HYDRAFLOW_STALE_ISSUE_INTERVAL", 86400),
     ("sentry_poll_interval", "SENTRY_POLL_INTERVAL", 600),
     ("sentry_min_events", "SENTRY_MIN_EVENTS", 2),
@@ -1664,6 +1665,16 @@ class HydraFlowConfig(BaseModel):
         ge=60,
         le=86400,
         description="Health monitor cycle interval in seconds",
+    )
+    wiki_freshness_stale_days: int = Field(
+        default=7,
+        ge=1,
+        le=365,
+        description=(
+            "Wiki-freshness threshold (days). HealthMonitorLoop files a "
+            "`wiki-stale` issue when docs/wiki/log.jsonl has not moved in "
+            "this many days, surfacing silent RepoWikiLoop stalls."
+        ),
     )
 
     # Config file persistence

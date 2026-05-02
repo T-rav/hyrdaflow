@@ -1458,11 +1458,13 @@ class RepoWikiStore:
                 topics[topic_name] = [e.title for e in entries]
                 total += len(entries)
 
+        prior = self._load_index(repo_slug)
         index = WikiIndex(
             repo_slug=repo_slug,
             topics=topics,
             total_entries=total,
             last_updated=datetime.now(UTC).isoformat(),
+            last_lint=prior.last_lint if prior is not None else None,
         )
 
         # Write JSON index
