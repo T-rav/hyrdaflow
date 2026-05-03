@@ -6,6 +6,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W18
 
+- `e2c0d7e` — exception_classify: tag active span with exception.slug before re-raise *(2026-05-02)*
 - `df72b8a` — loop: decorate BaseBackgroundLoop._execute_cycle with @loop_span() *(2026-05-02)*
 - `16e3969` — test: FakeHoneycomb fake for scenario tests *(2026-05-02)*
 - `68a42e9` — telemetry: subprocess_bridge.py — trace_collector → span events *(2026-05-02)*
@@ -160,4 +161,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `72ff2fc` on 2026-05-03 03:31 UTC. Source last changed at `72ff2fc`. Status: 🟢 fresh._
+_Regenerated from commit `c4e33d0` on 2026-05-03 04:14 UTC. Source last changed at `c4e33d0`. Status: 🟢 fresh._
