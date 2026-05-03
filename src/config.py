@@ -254,6 +254,9 @@ _ENV_STR_OVERRIDES: list[tuple[str, str, str]] = [
     ("sentry_org", "SENTRY_ORG", ""),
     ("sentry_project_filter", "SENTRY_PROJECT_FILTER", ""),
     ("dashboard_url", "HYDRAFLOW_DASHBOARD_URL", "http://localhost:5555"),
+    ("otel_endpoint", "OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.honeycomb.io"),
+    ("otel_service_name", "OTEL_SERVICE_NAME", "hydraflow"),
+    ("otel_environment", "HF_ENV", "local"),
 ]
 
 _ENV_FLOAT_OVERRIDES: list[tuple[str, str, float]] = [
@@ -339,6 +342,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ),
     ("auto_agent_preflight_enabled", "HYDRAFLOW_AUTO_AGENT_PREFLIGHT_ENABLED", True),
     ("staging_enabled", "HYDRAFLOW_STAGING_ENABLED", False),
+    ("otel_enabled", "HYDRAFLOW_OTEL_ENABLED", False),
 ]
 
 # Literal-typed env-var overrides.
@@ -1102,6 +1106,24 @@ class HydraFlowConfig(BaseModel):
         ge=1,
         le=10,
         description="Max times to retry filing a GitHub issue for a Sentry error before parking",
+    )
+
+    # OpenTelemetry / Honeycomb instrumentation
+    otel_enabled: bool = Field(
+        default=False,
+        description="Enable OpenTelemetry tracing export to Honeycomb",
+    )
+    otel_endpoint: str = Field(
+        default="https://api.honeycomb.io",
+        description="OTLP HTTP endpoint for trace export",
+    )
+    otel_service_name: str = Field(
+        default="hydraflow",
+        description="OTel service.name resource attribute",
+    )
+    otel_environment: str = Field(
+        default="local",
+        description="Deployment environment tag (e.g. local, staging, production)",
     )
 
     # Security patch monitoring
