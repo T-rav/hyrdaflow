@@ -27,6 +27,7 @@ from runner_utils import (
     stream_claude_process,
     terminate_processes,
 )
+from src.telemetry.spans import runner_span  # noqa: E402
 from tracing_context import TracingContext
 from wiki_compiler import parse_adr_draft_suggestion
 
@@ -128,9 +129,15 @@ class BaseRunner:
         """Kill all active subprocesses."""
         terminate_processes(self._active_procs)
 
+    @property
+    def phase(self) -> str:
+        """Canonical phase name for OTel span naming; mirrors ``_phase_name``."""
+        return self._phase_name
+
     _AUTH_RETRY_MAX = 3
     _AUTH_RETRY_BASE_DELAY = 5.0  # seconds
 
+    @runner_span()
     async def _execute(
         self,
         cmd: list[str],
