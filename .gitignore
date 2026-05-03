@@ -226,7 +226,6 @@ jolly-sea-65a9/
 
 # HydraFlow hook cache (generated artifacts, machine-specific)
 .hydraflow-hook-cache/
-.hydraflow-audit-baseline
 
 # Claude Code
 .claude/plans/

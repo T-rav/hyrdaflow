@@ -255,18 +255,27 @@ def _ubiquitous_language(ctx: CheckContext) -> Finding:
     duplicated architecture content; the new layout intentionally moves
     architecture into the wiki, so the check now flows ToC → wiki.
     """
-    arch = ctx.root / "docs" / "wiki" / "architecture.md"
+    # Architecture content lived in a single ``architecture.md`` until PR
+    # #8462 split it into focused topic files (``architecture-layers.md``,
+    # etc.). Read every ``architecture*.md`` so a term documented in a
+    # sub-topic still resolves. The residual ``architecture.md`` remains
+    # the entry point — it carries the ubiquitous-language reference table
+    # — but is no longer the sole source of truth.
+    wiki = ctx.root / "docs" / "wiki"
+    arch_files = sorted(wiki.glob("architecture*.md"))
     claude = ctx.root / "CLAUDE.md"
-    if not arch.exists() or not claude.exists():
+    if not arch_files or not claude.exists():
         return finding(
             "P2.9",
             Status.NA,
-            "architecture.md or CLAUDE.md missing — upstream P1 checks cover this",
+            "architecture wiki topic or CLAUDE.md missing — upstream P1 checks cover this",
         )
     claude_terms = _capitalised_terms(
         claude.read_text(encoding="utf-8", errors="replace")
     )
-    arch_text = arch.read_text(encoding="utf-8", errors="replace")
+    arch_text = "\n".join(
+        f.read_text(encoding="utf-8", errors="replace") for f in arch_files
+    )
     if len(claude_terms) < 3:
         return finding(
             "P2.9",
