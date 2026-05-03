@@ -349,6 +349,19 @@ class EventBus:
                     queue.get_nowait()
                 queue.put_nowait(event)
 
+        # OTel: emit a span event on the active span (best-effort)
+        try:
+            from opentelemetry import trace as _trace
+
+            _span = _trace.get_current_span()
+            if _span is not None and _span.is_recording():
+                _span.add_event(
+                    "hf.event",
+                    attributes={"hf.event.type": str(event.type)},
+                )
+        except Exception:  # noqa: BLE001
+            pass
+
         if self._event_log is not None:
             task = asyncio.create_task(self._persist_event(event))
             self._pending_persists.add(task)
