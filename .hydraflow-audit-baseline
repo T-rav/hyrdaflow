@@ -1,0 +1,9 @@
+# Principles-audit baseline. The P10.3 check (regression-test discipline)
+# scans fix commits between this SHA and HEAD; commits before this point
+# are excluded as historical drift predating the rule's adoption.
+#
+# Bumped 2026-05-02 to current main HEAD: ADR-0044 + the P3/P10 audit
+# framework now run on every Python-touching PR (see
+# .github/workflows/ci.yml `audit` job, ADR-0051), so the rule is in
+# effect from this commit forward.
+d0d18382

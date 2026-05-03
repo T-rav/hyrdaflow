@@ -1,6 +1,24 @@
 # Architecture
 
 
+## Ubiquitous Language Reference
+
+Names that load-bearing pipeline code uses. Use these literal names, not paraphrases. Each links to the topic file where the concept is treated in depth.
+
+- **HydraFlowConfig** — central Pydantic config (50+ env-var overrides), built by `runtime_config.load_runtime_config()`. See [`architecture-state-persistence.md`](architecture-state-persistence.md).
+- **StateData** — JSON-backed crash-recovery payload for the orchestrator's per-issue state. Carried by `StateTracker`. See [`architecture-state-persistence.md`](architecture-state-persistence.md).
+- **SessionLog** — append-only per-issue session record (phase transitions, runner outputs). See [`architecture-state-persistence.md`](architecture-state-persistence.md).
+- **WorkspacePort** — Port that abstracts the workspace lifecycle (worktree create/destroy, git ops). Adapters implement it; runners call it. See [`architecture-layers.md`](architecture-layers.md).
+- **AgentRunner**, **PlannerRunner**, **ReviewRunner** — three subprocess-spawning runners that drive the implementation, planning, and review phases. Share `BaseSubprocessRunner` plumbing. See [`architecture-async-control.md`](architecture-async-control.md).
+- **WorktreeManager** — owner of git-worktree lifecycle (create, mark in-use, garbage-collect). See [`architecture-async-control.md`](architecture-async-control.md).
+- **RepoWikiLoop** — caretaker loop that keeps `docs/wiki/` fresh from live pipeline events ([ADR-0029](../adr/0029-caretaker-loop-pattern.md), [ADR-0032](../adr/0032-per-repo-wiki-knowledge-base.md)).
+- **RepoWikiStore** — persistence layer for the repo wiki entries (JSONL + Markdown round-trip). See [`architecture-state-persistence.md`](architecture-state-persistence.md).
+- **DiagramLoop** — caretaker loop that regenerates the system-topology Markdown+Mermaid every 4h ([ADR-0029](../adr/0029-caretaker-loop-pattern.md)).
+- **MockWorld** — in-process fake-adapter set (FakeGitHub, FakeWorkspace, FakeLLM, FakeIssueStore, FakeIssueFetcher) used by sandbox-tier scenario tests ([ADR-0052](../adr/0052-sandbox-tier-scenario-testing.md)).
+
+When CLAUDE.md adds a term to its ubiquitous-language vocabulary, it must show up here so the principles audit (P2.9) and any agent looking it up can resolve to real context.
+
+
 ## ADR Documentation: Format, Citations, Validation, and Superseding
 
 ADRs use markdown with structured sections: Date, Status, Title, Context, Decision, Rationale, Consequences. Validation checklist: structural checks first (missing sections, status format), then semantic checks (scope significance, contradiction audit). Source citations use module:function format without line numbers per CLAUDE.md. Set status to Accepted for documenting existing implicit patterns, not just new proposals. Reference authoritative runtime sources (e.g., src/config.py:all_pipeline_labels) instead of copying definitions to avoid drift. Skip TYPE_CHECKING imports in citations since they're compile-time-only. Ghost entries (README listing files that don't exist) indicate stale migrations—validate documentation against filesystem reality. ADR Superseding Pattern: when a planned feature documented in an ADR is removed as dead code (never implemented), update the ADR status to 'Superseded by removal' and cross-reference the removal issue. This preserves architectural decision history and clarifies for future reimplementation attempts without duplicating work.
