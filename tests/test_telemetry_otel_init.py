@@ -23,7 +23,7 @@ def _config(**overrides):
     return cfg
 
 
-def test_init_otel_disabled_is_noop(caplog):
+def test_init_otel_disabled_is_noop():
     cfg = _config(otel_enabled=False)
     with patch.object(otel_mod, "_install_provider") as install:
         otel_mod.init_otel(cfg)
