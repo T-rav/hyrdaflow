@@ -109,13 +109,23 @@ async def test_runner_span_credit_exhausted_gets_known_slug(captured_spans):
 
 @pytest.mark.asyncio
 async def test_runner_span_swallows_telemetry_exception(captured_spans, monkeypatch):
-    """A bug in our telemetry helpers must not break the wrapped call."""
+    """If the OTel SDK itself raises on every span operation, the wrapped
+    business call must still return its value with no exception leaked.
+
+    Tests the layered safety guarantee at the deepest level (the SDK), not
+    a specific private helper — so the test stays valid even if the helper
+    structure is refactored, as long as the contract holds.
+    """
+    from opentelemetry.sdk.trace import Span as SDKSpan
+
     runner = _FakeRunner()
 
-    def _broken(*a, **kw):
-        raise RuntimeError("telemetry bug")
+    def _broken_set_attribute(self, key, value):
+        raise RuntimeError("OTel SDK bug")
 
-    monkeypatch.setattr("src.telemetry.spans._safe_set_runner_attrs", _broken)
+    # Break Span.set_attribute at the SDK layer — every _safe_set_attr call
+    # in the decorator chain now hits a raising path.
+    monkeypatch.setattr(SDKSpan, "set_attribute", _broken_set_attribute)
 
     @runner_span()
     async def _execute(self):

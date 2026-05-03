@@ -15,7 +15,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
 from opentelemetry import trace
-from opentelemetry.trace import Span, Status, StatusCode
+from opentelemetry.trace import Span, Status, StatusCode, Tracer
 
 from src.telemetry.slugs import slug_for
 
@@ -26,6 +26,16 @@ _F = TypeVar("_F", bound=Callable[..., Awaitable[Any]])
 _RUNNER_TRACER_NAME = "hydraflow.runner"
 _LOOP_TRACER_NAME = "hydraflow.loop"
 _PORT_TRACER_NAME = "hydraflow.port"
+
+
+@functools.lru_cache(maxsize=8)
+def _get_tracer(name: str) -> Tracer:
+    """Cache one Tracer per scope name. The OTel SDK's `get_tracer` allocates
+    a fresh Tracer object on every call (no internal cache); at HydraFlow's
+    span rates we want to allocate once per scope and reuse. Tests should
+    call `_get_tracer.cache_clear()` between provider swaps."""
+    return trace.get_tracer(name)
+
 
 # Allow-list of attribute prefixes / bare keys.
 _ALLOWED_PREFIXES = (
@@ -143,7 +153,7 @@ def runner_span() -> Callable[[_F], _F]:
         @functools.wraps(fn)
         async def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
             phase = getattr(self, "phase", "unknown")
-            tracer = trace.get_tracer(_RUNNER_TRACER_NAME)
+            tracer = _get_tracer(_RUNNER_TRACER_NAME)
             with tracer.start_as_current_span(f"hf.runner.{phase}") as span:
                 try:
                     _safe_set_runner_attrs(span, self)
@@ -169,7 +179,7 @@ def loop_span() -> Callable[[_F], _F]:
         @functools.wraps(fn)
         async def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
             name = getattr(self, "name", "unknown")
-            tracer = trace.get_tracer(_LOOP_TRACER_NAME)
+            tracer = _get_tracer(_LOOP_TRACER_NAME)
             with tracer.start_as_current_span(f"hf.loop.{name}") as span:
                 try:
                     _safe_set_loop_attrs(span, self)
@@ -194,7 +204,7 @@ def port_span(span_name: str) -> Callable[[_F], _F]:
     def decorator(fn: _F) -> _F:
         @functools.wraps(fn)
         async def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
-            tracer = trace.get_tracer(_PORT_TRACER_NAME)
+            tracer = _get_tracer(_PORT_TRACER_NAME)
             with tracer.start_as_current_span(span_name) as span:
                 try:
                     result = await fn(self, *args, **kwargs)

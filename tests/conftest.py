@@ -162,11 +162,14 @@ def _reset_otel_tracer_provider():
     trade-off accepted for ``_reset_gh_semaphore``.
     """
     from opentelemetry import trace as _trace
+    from src.telemetry.spans import _get_tracer
 
     yield
-    # Teardown: undo whatever the test installed
+    # Teardown: undo whatever the test installed and clear our tracer cache
+    # so the next test resolves Tracer instances against its fresh provider.
     _trace._TRACER_PROVIDER = None  # noqa: SLF001
     _trace._TRACER_PROVIDER_SET_ONCE._done = False  # noqa: SLF001
+    _get_tracer.cache_clear()
 
 
 @pytest.fixture(autouse=True)
