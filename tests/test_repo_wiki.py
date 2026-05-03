@@ -357,6 +357,67 @@ class TestRoundTrip:
         assert "`foo(bar) -> baz`" in loaded[0].content
         assert loaded[0].source_issue == 42
 
+    def test_content_with_embedded_json_entry_fence_round_trips(
+        self, store: RepoWikiStore
+    ) -> None:
+        # Regression: PR #8465's lazy-regex parser stopped at any embedded
+        # ```json:entry fence in the prose, parsing the wrong block as
+        # metadata and silently dropping the entry. Wiki entries that
+        # describe the wiki format itself (or PR review notes about ingest
+        # output) realistically contain such fences.
+        prose = (
+            "When ingesting an entry the writer emits a metadata block.\n\n"
+            "Example:\n\n"
+            "```json:entry\n"
+            '{"id":"sample","title":"X"}\n'
+            "```\n\n"
+            "End of example."
+        )
+        entry = WikiEntry(
+            title="Wiki schema example",
+            content=prose,
+            source_type="plan",
+            source_issue=99,
+        )
+        store.ingest(REPO, [entry])
+        repo_dir = store._repo_dir(REPO)
+        topic = store._classify_topic(entry)
+        loaded = store._load_topic_entries(repo_dir / f"{topic}.md")
+        assert len(loaded) == 1, "entry with embedded fence was silently dropped"
+        assert loaded[0].title == "Wiki schema example"
+        assert "End of example" in loaded[0].content
+
+    def test_section_heading_without_metadata_does_not_eat_next_entry(
+        self, store: RepoWikiStore
+    ) -> None:
+        # Regression: PR #8465's unanchored regex with lazy `.*?` would
+        # span across a `## Heading` lacking a json:entry block and consume
+        # the next real entry's metadata, silently dropping the next entry.
+        # No production write path emits this shape today, but a stray
+        # hand-edit or future free-form preamble should not corrupt parsing.
+        repo_dir = store._repo_dir(REPO)
+        store._ensure_repo_dir(REPO)
+        topic_path = repo_dir / "patterns.md"
+        good_entry = WikiEntry(
+            title="Real entry",
+            content="Body of the real entry.",
+            source_type="plan",
+            source_issue=7,
+        )
+        store.ingest(REPO, [good_entry])
+        # Inject a free-form `## ` section ahead of the real entry.
+        text = topic_path.read_text()
+        topic_path.write_text(
+            text.replace(
+                "# Patterns\n",
+                "# Patterns\n\n## Free-form section\n\nNo metadata here.\n",
+            )
+        )
+        loaded = store._load_topic_entries(topic_path)
+        assert any(e.title == "Real entry" for e in loaded), (
+            "real entry was eaten by the free-form section"
+        )
+
 
 class TestActiveLint:
     def test_marks_entries_stale_for_closed_issues(self, store: RepoWikiStore) -> None:
