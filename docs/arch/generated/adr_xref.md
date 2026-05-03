@@ -150,4 +150,4 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.wiki_rot_detector_loop` | ADR-0045 |
 | `src.worktree` | ADR-0003, ADR-0009, ADR-0010 |
 
-_Regenerated from commit `c48cc85` on 2026-05-03 03:13 UTC. Source last changed at `c48cc85`. Status: 🟢 fresh._
+_Regenerated from commit `72ff2fc` on 2026-05-03 03:31 UTC. Source last changed at `72ff2fc`. Status: 🟢 fresh._

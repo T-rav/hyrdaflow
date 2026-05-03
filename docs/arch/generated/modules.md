@@ -33,7 +33,7 @@ graph LR
     src_preflight -- "1" --> src_runners
     src_preflight -- "1" --> src_sentry
     src_runners -- "1" --> src_preflight
-    src_telemetry -- "5" --> src
+    src_telemetry -- "4" --> src
 ```
 
-_Regenerated from commit `c48cc85` on 2026-05-03 03:13 UTC. Source last changed at `c48cc85`. Status: 🟢 fresh._
+_Regenerated from commit `72ff2fc` on 2026-05-03 03:31 UTC. Source last changed at `72ff2fc`. Status: 🟢 fresh._

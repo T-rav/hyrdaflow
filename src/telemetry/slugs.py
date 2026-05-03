@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import subprocess
 
-from src.subprocess_util import CreditExhaustedError
+from subprocess_util import CreditExhaustedError
 
 # On Python 3.11+ asyncio.TimeoutError is an alias for the builtin
 # TimeoutError, so a single TimeoutError entry covers both.
