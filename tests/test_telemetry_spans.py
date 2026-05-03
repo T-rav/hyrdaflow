@@ -93,7 +93,7 @@ async def test_runner_span_reraises_business_exception(captured_spans):
 
 @pytest.mark.asyncio
 async def test_runner_span_credit_exhausted_gets_known_slug(captured_spans):
-    from src.subprocess_util import CreditExhaustedError
+    from subprocess_util import CreditExhaustedError
 
     runner = _FakeRunner()
 
