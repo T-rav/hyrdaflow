@@ -6,6 +6,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W18
 
+- `05271e1` — telemetry: exception slug catalog (slugs.py) *(2026-05-02)*
 - `4183700` — fix(contracts): break src→tests import — relocate _schema to src/contracts/ (#8457) (#8457) *(2026-05-02)*
 - `14e066b` — fix(subprocess): timeouts on subprocess.run in async loop paths (#8456) (#8456) *(2026-05-02)*
 - `54f940e` — feat(sandbox): catalog s02-s12 + SandboxFailureFixerLoop + 3-trigger CI (PR C of 3) (#8453) (#8453) *(2026-04-28)*
@@ -155,4 +156,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `fe6306d` on 2026-05-02 23:42 UTC. Source last changed at `fe6306d`. Status: 🟢 fresh._
+_Regenerated from commit `1dc18ac` on 2026-05-03 00:12 UTC. Source last changed at `1dc18ac`. Status: 🟢 fresh._
