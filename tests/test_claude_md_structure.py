@@ -62,14 +62,16 @@ class TestGotchasContent:
 
     def test_gotchas_doc_covers_known_rules(self) -> None:
         doc = DOCS_WIKI / "gotchas.md"
-        content = doc.read_text(encoding="utf-8")
+        content = doc.read_text(encoding="utf-8").lower()
         # Topic markers from the legacy avoided-patterns content. As wiki
         # entries get rewritten by the librarian some terminology may
         # shift — keep this list short and rooted in concrete domain
-        # terms, not exact phrasing.
+        # terms, not exact phrasing. Match case-insensitively because the
+        # librarian may write "mock" inline rather than "Mocking" as a
+        # heading.
         required_markers = [
-            "Pydantic",
-            "Mocking",
+            "pydantic",
+            "mock",
         ]
         missing = [m for m in required_markers if m not in content]
         assert not missing, f"docs/wiki/gotchas.md is missing topic markers: {missing}"

@@ -1,249 +1,279 @@
 # Architecture-Refactoring
 
 
-## Consolidation Patterns for Duplicate Code
+## Consolidate patterns with explicit scope to avoid partial migrations
 
-Three similar items (e.g., Handlers, Runners, Loops) warrant consolidation if the same pattern exists elsewhere (e.g., 8 runners total vs 3 currently refactored). Partial migrations create maintenance burden. Extract duplicated path patterns into module-level constants and shared helper functions. Consolidate label field lists via module-level constants (ALL_LIFECYCLE_LABEL_FIELDS) to allow cross-module imports without circular dependencies. When extracting methods from large classes, preserve original public API via thin delegation methods to avoid cascading changes across callers. Backward-compatible JSONL schema evolution: add optional fields with sensible defaults that existing consumers handle automatically. Example: fixing one missing label field requires fixing all missing label fields at once, not just the mentioned ones, to prevent latent bugs. See also: Backward Compatibility for preservation strategies, Dead Code Removal for cleanup verification.
+Consolidate patterns only when systemic (e.g., 8 runners total, not 3) and consolidate all instances together or none, not partially.
+
+Example: Extract duplicated paths into module-level constants like ALL_LIFECYCLE_LABEL_FIELDS to enable cross-module imports without circular dependencies.
+
+**Why:** Partial migrations create maintenance burden; full consolidation with constants enables safe reuse.
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0W4","title":"Consolidation Patterns for Duplicate Code","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-10T03:41:18.849574+00:00","updated_at":"2026-04-10T03:41:18.849575+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0DZNDCVJVV0YHTG430T2X","title":"Consolidate patterns with explicit scope to avoid partial migrations","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:09:34.637287+00:00","updated_at":"2026-05-03T04:09:34.637531+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Dead Code Removal Verification and Code Cleanup
+## Verify dead code removal via tests, lint, and layer checks
 
-Verify dead code removal via: (1) `make test` confirms no hidden dependencies, (2) `make quality-lite` for lint/type/security, (3) `make layer-check` validates layer boundaries, (4) comprehensive grep -r across src/ and tests/ for remaining references. When removing modules: update scripts/check_layer_imports.py MODULE_LAYERS dict, verify all imports are removed, delete entire files not stubs. Empty files create ambiguity—delete them entirely. Layer checker warns about nonexistent modules if entries aren't removed from MODULE_LAYERS. When deleting code from a subsection, preserve section heading comments (e.g., '# --- Structured Return Types ---') if other items in that section remain. The comment applies to all remaining members and improves navigation for future readers. ADR Superseding Pattern: when a planned feature documented in an ADR is removed as dead code (never implemented), update the ADR status to 'Superseded by removal' and cross-reference the removal issue. This preserves architectural decision history and clarifies for future reimplementation attempts.
+Verify dead code removal with a four-step checklist: (1) make test for dependencies, (2) make quality-lite for lint/types/security, (3) make layer-check for boundaries, (4) grep across src/ and tests/ for references.
+
+Example: Run all four steps sequentially to catch hidden dependencies and incomplete removals.
+
+**Why:** Ensures no hidden dependencies remain and validates completeness.
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0W5","title":"Dead Code Removal Verification and Code Cleanup","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-10T03:41:18.849578+00:00","updated_at":"2026-04-10T03:41:18.849579+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0DZNDCVJVV0YHTG430T2Y","title":"Verify dead code removal via tests, lint, and layer checks","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:09:34.637582+00:00","updated_at":"2026-05-03T04:09:34.637584+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Complete dead code removal: update MODULE_LAYERS, delete stubs, preserve comments
+
+When removing modules, update MODULE_LAYERS dict, delete entire files (not stubs), and preserve section heading comments if other items remain.
+
+Example: In check_layer_imports.py, remove the module entry; delete the file entirely; keep '# --- Return Types ---' comment if other return types remain.
+
+**Why:** Empty stubs create ambiguity; preserved comments document remaining members and maintain section structure.
+
+
+```json:entry
+{"id":"01KQP0DZNDCVJVV0YHTG430T2Z","title":"Complete dead code removal: update MODULE_LAYERS, delete stubs, preserve comments","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:09:34.637596+00:00","updated_at":"2026-05-03T04:09:34.637597+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Dead-code removal: three-phase decomposition pattern
 
-Systematic approach: P1 removes core methods and constructor plumbing; P2 removes dependent tests and updates helpers; P3 verifies via grep and type checking. This phased structure prevents partial removals and ensures all callers are updated before verification.
+Decompose dead-code removal into three phases: P1 removes core methods and plumbing, P2 removes tests and helpers, P3 verifies with grep and type checking.
+
+Example: PR #6315 phases removals as: remove method implementations → remove tests → verify no references remain.
+
+**Why:** Phased approach prevents partial removals; ensures all callers updated before final verification.
 
 _Source: #6315 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0WG","title":"Dead-code removal: three-phase decomposition pattern","topic":null,"source_type":"plan","source_issue":6315,"source_repo":null,"created_at":"2026-04-10T03:43:46.872729+00:00","updated_at":"2026-04-10T03:43:46.872755+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0DZNDCVJVV0YHTG430T30","title":"Dead-code removal: three-phase decomposition pattern","topic":null,"source_type":"plan","source_issue":6315,"source_repo":null,"created_at":"2026-05-03T04:09:34.637607+00:00","updated_at":"2026-05-03T04:09:34.637608+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Wire unconnected config parameters to existing consumers
 
-When a consumer (e.g., StateTracker) already accepts constructor parameters matching config fields, but the wiring is missing from the service builder, this is a low-risk one-line fix. Check StateTracker's signature before assuming the parameter doesn't exist; it often does with sensible defaults.
+When a consumer already accepts constructor parameters matching config fields but wiring is missing from the service builder, add the one-line connection.
+
+Example: StateTracker accepts constructor params; check its signature first—it often has sensible defaults. Wire the param in the service builder.
+
+**Why:** Low-risk, high-value fix; the consumer already supports the parameter.
 
 _Source: #6314 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0WH","title":"Wire unconnected config parameters to existing consumers","topic":null,"source_type":"plan","source_issue":6314,"source_repo":null,"created_at":"2026-04-10T03:45:26.654545+00:00","updated_at":"2026-04-10T03:45:26.654546+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0DZNDCVJVV0YHTG430T31","title":"Wire unconnected config parameters to existing consumers","topic":null,"source_type":"plan","source_issue":6314,"source_repo":null,"created_at":"2026-05-03T04:09:34.637616+00:00","updated_at":"2026-05-03T04:09:34.637617+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Visual consistency outweighs functional correctness
+## Visual alignment of code dicts overrides logical layer assignment
 
-Code dict entries should visually align with their layer assignment comment blocks, not with the layer they logically belong to. Even when functionally harmless, misalignment is visually misleading and reduces code clarity for future maintainers.
+Code dict entries should visually align with their layer assignment comment blocks, not their logical layer placement.
+
+Example: In a type layer section, position dict entries to align with the comment header '# --- Types ---', not where they logically belong.
+
+**Why:** Misalignment is visually misleading and reduces code clarity for future maintainers.
 
 _Source: #6295 (review)_
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0WK","title":"Visual consistency outweighs functional correctness","topic":null,"source_type":"review","source_issue":6295,"source_repo":null,"created_at":"2026-04-10T03:47:50.097416+00:00","updated_at":"2026-04-10T03:47:50.097419+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0DZNDCVJVV0YHTG430T32","title":"Visual alignment of code dicts overrides logical layer assignment","topic":null,"source_type":"review","source_issue":6295,"source_repo":null,"created_at":"2026-05-03T04:09:34.637625+00:00","updated_at":"2026-05-03T04:09:34.637626+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Define explicit scope for extraction refactors
+## Define explicit scope for extraction refactors to prevent scope creep
 
-Extraction issues should explicitly name the target files/functions in scope. This prevents scope creep and clarifies what duplicates are intentionally excluded (e.g., similar patterns in other modules). Scope clarity prevents false-positive review flags.
+Extraction refactors must explicitly name target files and functions in scope, not just the pattern to extract.
+
+Example: 'Extract duplicates from runners.py and handlers.py; exclude similar patterns in coordinators.py' instead of vague 'consolidate duplication'.
+
+**Why:** Clarifies intentional exclusions; prevents false-positive review flags when boundaries are ambiguous.
 
 _Source: #6295 (review)_
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0WM","title":"Define explicit scope for extraction refactors","topic":null,"source_type":"review","source_issue":6295,"source_repo":null,"created_at":"2026-04-10T03:47:50.097424+00:00","updated_at":"2026-04-10T03:47:50.097427+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0DZNDCVJVV0YHTG430T33","title":"Define explicit scope for extraction refactors to prevent scope creep","topic":null,"source_type":"review","source_issue":6295,"source_repo":null,"created_at":"2026-05-03T04:09:34.637633+00:00","updated_at":"2026-05-03T04:09:34.637634+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Plan line numbers become stale; search by pattern instead
+## Use symbol names instead of line numbers in refactoring plans
 
-When implementing a plan generated in a prior session, files may have been modified since the plan was written. Prefer searching for method signature patterns rather than relying on exact line numbers provided in the plan.
+Identify code by symbol name and signature, not line numbers, in refactoring plans and PRs.
 
-_Source: #6317 (plan)_
+Example: Remove `invalidate_cache()` from PlannerRunner instead of 'line 287 of X'.
+
+**Why:** Line numbers shift during merges and file changes; symbols remain stable across refactorings.
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0WP","title":"Plan line numbers become stale; search by pattern instead","topic":null,"source_type":"plan","source_issue":6317,"source_repo":null,"created_at":"2026-04-10T03:55:35.397280+00:00","updated_at":"2026-04-10T03:55:35.397281+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0DZNDCVJVV0YHTG430T34","title":"Use symbol names instead of line numbers in refactoring plans","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:09:34.637650+00:00","updated_at":"2026-05-03T04:09:34.637652+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Cross-cutting methods as callbacks, not new classes
 
-Methods called by 4+ concerns (like `_escalate_to_hitl` and `_publish_review_status`) should stay on the origin class and be passed as bound-method callbacks to extracted coordinators. This avoids creating yet another coordinator just for common operations and matches the established PostMergeHandler/MergeApprovalContext callback pattern.
+Methods called by 4+ concerns should stay on the origin class as callbacks, not extract to new coordinators.
+
+Example: `_escalate_to_hitl` stays on origin class; pass as bound-method callback to extracted coordinators.
+
+**Why:** Avoids creating another coordinator; matches PostMergeHandler/MergeApprovalContext callback pattern.
 
 _Source: #6321 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0WT","title":"Cross-cutting methods as callbacks, not new classes","topic":null,"source_type":"plan","source_issue":6321,"source_repo":null,"created_at":"2026-04-10T04:19:28.375208+00:00","updated_at":"2026-04-10T04:19:28.375220+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0DZNDCVJVV0YHTG430T35","title":"Cross-cutting methods as callbacks, not new classes","topic":null,"source_type":"plan","source_issue":6321,"source_repo":null,"created_at":"2026-05-03T04:09:34.637660+00:00","updated_at":"2026-05-03T04:09:34.637661+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Regex-based test parsing creates hard constraints on source structure
+## Regex-based test parsing constrains source structure format
 
-`test_loop_wiring_completeness.py` uses regex to parse `orchestrator.py` source for patterns like `('triage', self._triage_loop)` in loop_factories. Refactoring must preserve both the physical location and format of these definitions in orchestrator.py, not just the functionality. Any change to how loop_factories is defined will break the regex match and cause test failures, making this a critical constraint.
+Tests using regex to parse source (e.g., test_loop_wiring_completeness.py) require specific physical format and location of definitions.
+
+Example: loop_factories regex expects `('triage', self._triage_loop)` format; changing location or format breaks the test even if functionality is preserved.
+
+**Why:** Regex-based tests constrain source structure; refactoring must preserve both format and location.
 
 _Source: #6323 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0WZ","title":"Regex-based test parsing creates hard constraints on source structure","topic":null,"source_type":"plan","source_issue":6323,"source_repo":null,"created_at":"2026-04-10T04:47:03.630689+00:00","updated_at":"2026-04-10T04:47:03.630691+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0DZNDCVJVV0YHTG430T36","title":"Regex-based test parsing constrains source structure format","topic":null,"source_type":"plan","source_issue":6323,"source_repo":null,"created_at":"2026-05-03T04:09:34.637668+00:00","updated_at":"2026-05-03T04:09:34.637669+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Grep-based verification validates dead code removal completeness
+## Verify dead code removal with grep across src/ and tests/
 
-After removing orphaned modules, use systematic grep for `from X import` patterns across src/ and tests/ to confirm no remaining references. This catches both direct imports and transitive dependencies, and serves as the acceptance criterion for cleanup completeness.
+Verify dead code removal completeness with systematic grep across src/ and tests/ for remaining references.
 
-_Source: #6365 (plan)_
+Example: `grep -rn 'from X import' src/ tests/` and `grep -rn '\bsymbol_name\b' src/ tests/` should both return zero.
+
+**Why:** Catches direct imports, transitive dependencies, and validates removal completeness.
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQQC","title":"Grep-based verification validates dead code removal completeness","topic":null,"source_type":"plan","source_issue":6365,"source_repo":null,"created_at":"2026-04-10T07:59:04.461050+00:00","updated_at":"2026-04-10T07:59:04.461051+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0DZNDCVJVV0YHTG430T37","title":"Verify dead code removal with grep across src/ and tests/","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:09:34.637675+00:00","updated_at":"2026-05-03T04:09:34.637676+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Dead code removal verification via grep across codebase
+## Audit __all__ exports and module re-exports when removing public functions
 
-When removing unused functions, verify with grep across both src/ and tests/ directories to ensure no remaining references. Pattern: grep -rn "symbol_name" src/ and grep -rn "symbol_name" tests/ should both return zero results after removal.
+Audit __all__ exports and module re-exports when removing public functions to prevent stale references.
+
+Example: Check for stale __all__ or re-exports like `from X import removed_func` after function removal.
+
+**Why:** Prevents subtle import errors; keeps public API surface clean and explicit.
 
 _Source: #6366 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQQD","title":"Dead code removal verification via grep across codebase","topic":null,"source_type":"plan","source_issue":6366,"source_repo":null,"created_at":"2026-04-10T08:02:02.177024+00:00","updated_at":"2026-04-10T08:02:02.177033+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
-```
-
-
-## Audit __all__ exports when removing public functions
-
-When removing public functions, check for stale __all__ exports or module re-exports that might still reference the removed symbols. This prevents subtle import errors and keeps the public API surface clean and explicit.
-
-_Source: #6366 (plan)_
-
-
-```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQQE","title":"Audit __all__ exports when removing public functions","topic":null,"source_type":"plan","source_issue":6366,"source_repo":null,"created_at":"2026-04-10T08:02:02.177061+00:00","updated_at":"2026-04-10T08:02:02.177063+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0DZNDCVJVV0YHTG430T38","title":"Audit __all__ exports and module re-exports when removing public functions","topic":null,"source_type":"plan","source_issue":6366,"source_repo":null,"created_at":"2026-05-03T04:09:34.637681+00:00","updated_at":"2026-05-03T04:09:34.637682+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Preserve module-specific guards when extracting duplicated logic
 
-When consolidating duplicated parsing patterns, keep module-specific behavior (e.g., empty-transcript guards) outside the shared helper. In plan_compliance.py, the early-return guard precedes the shared pattern and must not be folded into the helper function. Extract only the common logic, leaving module-specific pre- or post-conditions in place.
+Keep module-specific behavior outside shared helpers when consolidating duplicated logic.
+
+Example: Empty-transcript guard in plan_compliance.py must precede shared pattern and stay local, not folded into helper.
+
+**Why:** Shared helpers must not carry module-specific constraints; preserves reusability.
 
 _Source: #6349 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQPG","title":"Preserve module-specific guards when extracting duplicated logic","topic":null,"source_type":"plan","source_issue":6349,"source_repo":null,"created_at":"2026-04-10T06:47:04.972401+00:00","updated_at":"2026-04-10T06:47:04.972412+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0DZNDCVJVV0YHTG430T39","title":"Preserve module-specific guards when extracting duplicated logic","topic":null,"source_type":"plan","source_issue":6349,"source_repo":null,"created_at":"2026-05-03T04:09:34.637693+00:00","updated_at":"2026-05-03T04:09:34.637695+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Grep word-boundary verification for constant extraction refactors
+## Grep word-boundary verification validates constant extraction
 
-After extracting magic numbers, verify completeness using grep word-boundary searches: grep -rn '\\b<literal>\\b' src/ tests/ should return exactly 1 match (the constant definition). Catches incomplete replacements and is language-agnostic, working across files and modules.
+Validate constant extraction completeness using word-boundary grep to find all magic number occurrences.
+
+Example: `grep -rn '\b<literal>\b' src/ tests/` should return exactly 1 match (the constant definition).
+
+**Why:** Language-agnostic technique; catches incomplete replacements systematically.
 
 _Source: #6341 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQP9","title":"Grep word-boundary verification for constant extraction refactors","topic":null,"source_type":"plan","source_issue":6341,"source_repo":null,"created_at":"2026-04-10T06:22:03.281162+00:00","updated_at":"2026-04-10T06:22:03.281163+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0DZNDCVJVV0YHTG430T3A","title":"Grep word-boundary verification validates constant extraction","topic":null,"source_type":"plan","source_issue":6341,"source_repo":null,"created_at":"2026-05-03T04:09:34.637700+00:00","updated_at":"2026-05-03T04:09:34.637703+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Design extracted methods for future integration without implementing it
+## Design extracted methods to accept unused parameters for future integration
 
-Accept parameters that aren't currently used (e.g., `release_url` in `_build_close_comment()` is always passed as empty string) if they enable future feature work without forcing changes later. This is the inverse of premature abstraction: you're adding a seam, not a full feature.
+Accept unused parameters in extracted methods if they enable future feature extensibility without implementing now.
+
+Example: `_build_close_comment(release_url)` where release_url is currently empty string; creates seam for future use.
+
+**Why:** Avoids forcing API changes later; enables future extensibility without premature implementation.
 
 _Source: #6342 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQPA","title":"Design extracted methods for future integration without implementing it","topic":null,"source_type":"plan","source_issue":6342,"source_repo":null,"created_at":"2026-04-10T06:32:57.301525+00:00","updated_at":"2026-04-10T06:32:57.301526+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0DZNDCVJVV0YHTG430T3B","title":"Design extracted methods to accept unused parameters for future integration","topic":null,"source_type":"plan","source_issue":6342,"source_repo":null,"created_at":"2026-05-03T04:09:34.637708+00:00","updated_at":"2026-05-03T04:09:34.637709+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Backward-compat layers require individual liveness evaluation
+## Backward-compat layers require individual liveness evaluation per item
 
-Backward-compatibility property collections may contain both live and dead items that cannot be blanket-evaluated. Example: review_phase.py has active _run_post_merge_hooks alongside dead _save_conflict_transcript. Verify each property individually rather than assuming a layer is wholly live or wholly dead.
+Evaluate each item in backward-compatibility property collections individually, not as a blanket layer.
+
+Example: review_phase.py has active _run_post_merge_hooks and dead _save_conflict_transcript; each needs individual evaluation.
+
+**Why:** Cannot assume entire layer is wholly live or dead; mixed liveness within collections is common.
 
 _Source: #6345 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQPC","title":"Backward-compat layers require individual liveness evaluation","topic":null,"source_type":"plan","source_issue":6345,"source_repo":null,"created_at":"2026-04-10T06:35:05.468495+00:00","updated_at":"2026-04-10T06:35:05.468496+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0DZNDCVJVV0YHTG430T3C","title":"Backward-compat layers require individual liveness evaluation per item","topic":null,"source_type":"plan","source_issue":6345,"source_repo":null,"created_at":"2026-05-03T04:09:34.637715+00:00","updated_at":"2026-05-03T04:09:34.637716+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Use method names not line numbers for refactoring plans
+## Document trade-off when removing implicit documentation methods
 
-Identify code to remove by symbol name (def method_name) rather than line numbers. Files drift; methods remain stable. This reduces off-by-N errors and makes plans self-correcting when file structure changes.
+When removing implicit documentation methods, document the trade-off between explicitness and simplicity.
+
+Example: Removing `invalidate()` that lists cache attributes trades explicitness for simplicity; __init__ remains self-documenting.
+
+**Why:** Helps readers understand design decisions; acknowledges what implicit documentation is lost.
 
 _Source: #6346 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQPD","title":"Use method names not line numbers for refactoring plans","topic":null,"source_type":"plan","source_issue":6346,"source_repo":null,"created_at":"2026-04-10T06:38:22.369945+00:00","updated_at":"2026-04-10T06:38:22.369947+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0DZNDCVJVV0YHTG430T3D","title":"Document trade-off when removing implicit documentation methods","topic":null,"source_type":"plan","source_issue":6346,"source_repo":null,"created_at":"2026-05-03T04:09:34.637721+00:00","updated_at":"2026-05-03T04:09:34.637722+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Document trade-off when removing implicit documentation
+## Use underscore prefix for local implementation details in module-level functions
 
-When a method like invalidate() serves as implicit documentation (its list of attributes documents cache structure), note that removal trades explicitness for simplicity. The data structure remains self-documenting through __init__ and usage patterns.
+Use underscore prefix for intermediate variables in module-level functions to signal private implementation details.
 
-_Source: #6346 (plan)_
+Example: `_runner_kwargs = {...}` in module-level function signals internal-only variable.
 
-
-```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQPE","title":"Document trade-off when removing implicit documentation","topic":null,"source_type":"plan","source_issue":6346,"source_repo":null,"created_at":"2026-04-10T06:38:22.369952+00:00","updated_at":"2026-04-10T06:38:22.369953+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
-```
-
-
-## Line number shifts in multi-PR merges break implementation plans
-
-When a plan specifies exact line numbers for edits, document the search pattern (e.g., `def approve_count`) as a fallback. If other PRs merge first, line numbers shift—search-based edits remain valid and reduce merge conflicts.
-
-_Source: #6347 (plan)_
-
-
-```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQPF","title":"Line number shifts in multi-PR merges break implementation plans","topic":null,"source_type":"plan","source_issue":6347,"source_repo":null,"created_at":"2026-04-10T06:40:05.820990+00:00","updated_at":"2026-04-10T06:40:05.820992+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
-```
-
-
-## Use underscore prefix for local implementation details in functions
-
-When defining intermediate variables in module-level functions (e.g., `_runner_kwargs`), use leading underscore to signal they are private implementation details, not public API. This convention improves readability and signals intent to future readers that the variable is not meant for external use.
+**Why:** Signals private implementation; improves readability and code clarity.
 
 _Source: #6354 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQPV","title":"Use underscore prefix for local implementation details in functions","topic":null,"source_type":"plan","source_issue":6354,"source_repo":null,"created_at":"2026-04-10T07:09:55.773138+00:00","updated_at":"2026-04-10T07:09:55.773141+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
-```
-
-
-## Partial migrations of similar components create maintenance burden
-
-When multiple similar classes share the same pattern (e.g., 8 runner instantiations with identical kwargs), refactoring only some of them creates future maintenance risk. Always refactor all instances together, even if some seem unnecessary. Use explicit line-number lists to catch all occurrences and prevent partial migrations.
-
-_Source: #6354 (plan)_
-
-
-```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQPT","title":"Partial migrations of similar components create maintenance burden","topic":null,"source_type":"plan","source_issue":6354,"source_repo":null,"created_at":"2026-04-10T07:09:55.773107+00:00","updated_at":"2026-04-10T07:09:55.773111+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0DZNDCVJVV0YHTG430T3E","title":"Use underscore prefix for local implementation details in module-level functions","topic":null,"source_type":"plan","source_issue":6354,"source_repo":null,"created_at":"2026-05-03T04:09:34.637727+00:00","updated_at":"2026-05-03T04:09:34.637728+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```

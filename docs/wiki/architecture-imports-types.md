@@ -1,201 +1,159 @@
 # Architecture-Imports-Types
 
 
-## Deferred Imports, Type Checking, and Testing
+## TYPE_CHECKING guard pattern for type-only imports
 
-Import optional or circular-dependent modules inside function bodies rather than at module level to break circular import chains. Use `from __future__ import annotations` globally to enable TYPE_CHECKING guards for import-time-only types without runtime overhead. Use Protocol types in TYPE_CHECKING blocks while concrete implementations are imported normally. Keep deferred imports inside the specific method that uses them—do not hoist to module level, even if multiple methods use the same import (annotate with `# noqa: PLC0415` to suppress linting). Exception classification functions import specific exception types in the function body to prevent circular imports while keeping type-checking available. In tests, patch at the source module level where the deferred import happens. Use pytest monkeypatch.delitem() with raising=False for sys.modules manipulation to handle both existing and missing keys safely. Never import optional dependencies at test module level; use deferred imports inside test methods. Critical for optional services (hindsight, docker, file_util) and cross-module utilities, avoiding import-time side effects and enabling graceful degradation. See also: Layer Architecture for module organization, Optional Dependencies for service handling.
+Use `TYPE_CHECKING` to import types only for annotations, avoiding runtime overhead. With `from __future__ import annotations`, import under `if TYPE_CHECKING: from module import TypedDict  # noqa: TCH004`. Suppress ruff linting with the `# noqa: TCH004` comment.
+
+**Why:** Prevents circular dependencies while preserving type information for static analysis.
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0VP","title":"Deferred Imports, Type Checking, and Testing","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-10T03:41:18.849500+00:00","updated_at":"2026-04-10T03:41:18.849508+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQNYW9WM9NY7XJ0DNPVW4GDG","title":"TYPE_CHECKING guard pattern for type-only imports","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:42:26.708353+00:00","updated_at":"2026-05-03T03:42:26.708383+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Deferred imports in function bodies
+
+Keep imports inside method bodies where used, not hoisted to module level. Use `# noqa: PLC0415` to suppress linting. Example: `def helper(): from trace_rollup import trace_context` rather than at module level. Apply to optional services (hindsight, docker) and cross-module utilities.
+
+**Why:** Avoids startup overhead, enables graceful degradation for optional dependencies, prevents circular imports, and preserves test mocking patterns.
+
+
+```json:entry
+{"id":"01KQNYW9WM9NY7XJ0DNPVW4GDH","title":"Deferred imports in function bodies","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:42:26.708408+00:00","updated_at":"2026-05-03T03:42:26.708411+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Exception classification functions defer exception imports
+
+Functions classifying specific exception types should import those types in the function body, not module-level, using `# noqa: PLC0415`. Example: `def check_error(exc): import CustomException; return isinstance(exc, CustomException)`.
+
+**Why:** Prevents circular imports in error-handling code while keeping type information available.
+
+
+```json:entry
+{"id":"01KQNYW9WM9NY7XJ0DNPVW4GDJ","title":"Exception classification functions defer exception imports","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:42:26.708418+00:00","updated_at":"2026-05-03T03:42:26.708420+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## monkeypatch.delitem() safely removes modules in tests
+
+Use `monkeypatch.delitem('sys.modules', key, raising=False)` when removing modules from sys.modules to handle both existing and missing keys safely. Critical for testing code using deferred imports where sys.modules reset is needed between tests.
+
+**Why:** Prevents KeyError when the module key doesn't exist in sys.modules.
+
+
+```json:entry
+{"id":"01KQNYW9WM9NY7XJ0DNPVW4GDK","title":"monkeypatch.delitem() safely removes modules in tests","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:42:26.708425+00:00","updated_at":"2026-05-03T03:42:26.708426+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Optional Dependencies: Graceful Degradation and Safe Handling
 
-Services like Hindsight, Docker, and others may be unavailable or disabled. Design via: (1) **Never-raise pattern**: wrap all calls to optional features in try/except blocks that return safe defaults rather than raising. Catch broad exception types (Exception, OSError, ConnectionError) instead of importing optional module exception types. (2) **Graceful degradation**: when unavailable, fall back to JSONL file storage or no-op behavior; use dual-write pattern during migration. (3) **Explicit None checks**: guard with `if hindsight is not None:` (never falsy checks, as MagicMock can be falsy-but-not-None). (4) **Fire-and-forget async variants**: wrap blocking I/O without blocking callers. (5) **Property-based access**: expose optional services via properties rather than constructor parameters. Core principle: failures in non-critical or optional features must never crash the pipeline. See also: Feature Gates for feature flags that gate incomplete features, Deferred Imports for import-time handling.
+Services like Hindsight, Docker may be unavailable. Design via: (1) **Never-raise pattern**: wrap calls in try/except returning safe defaults, catch broad exceptions. (2) **Graceful degradation**: fall back to file storage or no-op. (3) **Explicit None checks**: guard with `if hindsight is not None:`. (4) **Fire-and-forget async variants**. In tests, never import optional dependencies at module level; use deferred imports in test methods instead.
+
+**Why:** Failures in non-critical features must never crash the pipeline.
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0VQ","title":"Optional Dependencies: Graceful Degradation and Safe Handling","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-10T03:41:18.849518+00:00","updated_at":"2026-04-10T03:41:18.849521+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
-```
-
-
-## TYPE_CHECKING guard pattern for type-only imports
-
-Use TYPE_CHECKING-guarded imports to avoid circular dependencies and runtime costs for type annotations. When a type is only needed for annotations (enabled by PEP 563 via `from __future__ import annotations`), import it under `if TYPE_CHECKING:` to prevent runtime import. This pattern is used consistently across 8+ files in the codebase and prevents the annotated name from triggering an actual import at runtime.
-
-_Source: #6326 (plan)_
-
-
-```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0X3","title":"TYPE_CHECKING guard pattern for type-only imports","topic":null,"source_type":"plan","source_issue":6326,"source_repo":null,"created_at":"2026-04-10T04:56:50.953037+00:00","updated_at":"2026-04-10T04:56:50.953047+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
-```
-
-
-## noqa: TCH004 required for TYPE_CHECKING imports
-
-When using TYPE_CHECKING imports, always append `# noqa: TCH004` to suppress ruff's rule about imports appearing only in type checking. This is intentional and required for the pattern to work correctly. Omitting this comment will cause lint failures in the quality gates.
-
-_Source: #6326 (plan)_
-
-
-```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0X4","title":"noqa: TCH004 required for TYPE_CHECKING imports","topic":null,"source_type":"plan","source_issue":6326,"source_repo":null,"created_at":"2026-04-10T04:56:50.953061+00:00","updated_at":"2026-04-10T04:56:50.953062+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
-```
-
-
-## TYPE_CHECKING prevents circular imports on cross-module TypedDicts
-
-When a TypedDict is shared between a loop module and service module (ADRReviewResult in adr_reviewer_loop.py used by adr_reviewer.py), import under TYPE_CHECKING guard to avoid circular imports while preserving type information for static analysis. Codebase already uses this pattern extensively.
-
-_Source: #6331 (plan)_
-
-
-```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0XC","title":"TYPE_CHECKING prevents circular imports on cross-module TypedDicts","topic":null,"source_type":"plan","source_issue":6331,"source_repo":null,"created_at":"2026-04-10T05:23:05.143432+00:00","updated_at":"2026-04-10T05:23:05.143433+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
-```
-
-
-## Preserve deferred imports for optional dependencies
-
-Use deferred imports (import inside method body, not module-level) for optional or infrequently-used dependencies like `prompt_dedup`. This avoids startup cost and avoids hard dependency failures in unrelated code paths. When refactoring such code, preserve the deferred import pattern.
-
-_Source: #6332 (plan)_
-
-
-```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0XG","title":"Preserve deferred imports for optional dependencies","topic":null,"source_type":"plan","source_issue":6332,"source_repo":null,"created_at":"2026-04-10T05:33:08.098298+00:00","updated_at":"2026-04-10T05:33:08.098299+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
-```
-
-
-## Deferred Imports Must Remain Inside Helpers
-
-Optional module imports that live inside a method should stay inside extracted helpers, not moved to module level. This preserves graceful degradation when optional modules are missing. Moving deferred imports breaks the intent of the original error-isolation pattern.
-
-_Source: #6355 (plan)_
-
-
-```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQPW","title":"Deferred Imports Must Remain Inside Helpers","topic":null,"source_type":"plan","source_issue":6355,"source_repo":null,"created_at":"2026-04-10T07:14:58.678248+00:00","updated_at":"2026-04-10T07:14:58.678250+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
-```
-
-
-## Deferred imports in helper methods avoid circular dependencies
-
-When extracting helper methods that need imports like trace_rollup, tracing_context, or phase_utils, place deferred imports (with # noqa: PLC0415) at the start of each helper's method body rather than hoisting to module level. This prevents circular import chains while keeping dependencies explicit and scoped to the methods that use them.
-
-_Source: #6356 (plan)_
-
-
-```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQPY","title":"Deferred imports in helper methods avoid circular dependencies","topic":null,"source_type":"plan","source_issue":6356,"source_repo":null,"created_at":"2026-04-10T07:18:10.589088+00:00","updated_at":"2026-04-10T07:18:10.589099+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
-```
-
-
-## Deferred imports remain at usage sites with lint suppression
-
-Deferred imports (MemoryScorer, CompletedTimeline, json) must stay inside method bodies where used, not hoisted to module level. Annotate with `# noqa: PLC0415` to suppress linting warnings. This keeps import coupling local to method scope and avoids unintended module-level dependencies.
-
-_Source: #6358 (plan)_
-
-
-```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQPZ","title":"Deferred imports remain at usage sites with lint suppression","topic":null,"source_type":"plan","source_issue":6358,"source_repo":null,"created_at":"2026-04-10T07:30:03.436784+00:00","updated_at":"2026-04-10T07:30:03.436785+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQNYW9WM9NY7XJ0DNPVW4GDM","title":"Optional Dependencies: Graceful Degradation and Safe Handling","topic":null,"source_type":"plan","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:42:26.708431+00:00","updated_at":"2026-05-03T03:42:26.708432+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Deferred imports preserve test mocking patterns
 
-Import hindsight and recall_tracker inside method bodies (not module-level) to allow `patch("hindsight.recall_safe", ...)` to intercept calls correctly. When imports are at the top of the file, patches may not apply to the actual import binding used by the method. This pattern is critical for testing async helpers that depend on external services.
+Import external services (hindsight, recall_tracker) inside method bodies, not module-level, to allow `patch("hindsight.recall_safe", ...)` to intercept calls correctly. When imports are at module level, patches may not apply to the actual import binding used by the method.
+
+**Why:** Ensures patches target the correct import binding when testing code depending on external services.
 
 _Source: #6350 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQPP","title":"Deferred imports preserve test mocking patterns","topic":null,"source_type":"plan","source_issue":6350,"source_repo":null,"created_at":"2026-04-10T06:55:39.084035+00:00","updated_at":"2026-04-10T06:55:39.084043+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
-```
-
-
-## Preserve lazy imports to avoid module-level coupling
-
-When extracting a helper that imports heavy or optional dependencies like `PromptDeduplicator`, keep the import lazy inside the method body, not at module level. This matches existing patterns in the codebase and avoids import-time coupling to utilities that may not be needed on every execution path.
-
-_Source: #6340 (plan)_
-
-
-```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQP3","title":"Preserve lazy imports to avoid module-level coupling","topic":null,"source_type":"plan","source_issue":6340,"source_repo":null,"created_at":"2026-04-10T06:11:06.699159+00:00","updated_at":"2026-04-10T06:11:06.699162+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQNYW9WM9NY7XJ0DNPVW4GDN","title":"Deferred imports preserve test mocking patterns","topic":null,"source_type":"plan","source_issue":6350,"source_repo":null,"created_at":"2026-05-03T03:42:26.708438+00:00","updated_at":"2026-05-03T03:42:26.708439+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Logger names resolve to full module path from __name__
 
-Modules using logging.getLogger(__name__) resolve to the full dotted module path (e.g., hydraflow.shape_phase), not just the filename (shape_phase). Tests that capture logs must use the full module path or logger name matchers will fail to find the expected logs.
+Modules using `logging.getLogger(__name__)` resolve to the full dotted module path (e.g., hydraflow.shape_phase), not just the filename. Tests capturing logs must use the full module path or logger name matchers will fail.
+
+**Why:** Log capture and filtering depend on exact module path matching.
 
 _Source: #6325 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0X2","title":"Logger names resolve to full module path from __name__","topic":null,"source_type":"plan","source_issue":6325,"source_repo":null,"created_at":"2026-04-10T04:51:52.058659+00:00","updated_at":"2026-04-10T04:51:52.058666+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQNYW9WM9NY7XJ0DNPVW4GDP","title":"Logger names resolve to full module path from __name__","topic":null,"source_type":"plan","source_issue":6325,"source_repo":null,"created_at":"2026-05-03T03:42:26.708443+00:00","updated_at":"2026-05-03T03:42:26.708444+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Environment Override Validation via get_args() for Literal Types
 
-The `_ENV_LITERAL_OVERRIDES` table and its validation handler use `get_args()` to extract allowed values from Literal types and validate environment variable inputs at startup. This pattern decouples override validation from field defaults, enabling a cleaner separation between string overrides (with defaults) and literal overrides (options only). Enables dynamic validation of environment overrides without hardcoding literal values in validation code.
+The `_ENV_LITERAL_OVERRIDES` table and validation handler use `get_args()` to extract allowed values from Literal types and validate environment variable inputs at startup. This pattern decouples override validation from field defaults.
+
+**Why:** Enables dynamic validation of environment overrides without hardcoding literal values in validation code.
 
 _Source: #6310 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0WE","title":"Environment Override Validation via get_args() for Literal Types","topic":null,"source_type":"plan","source_issue":6310,"source_repo":null,"created_at":"2026-04-10T03:41:18.852325+00:00","updated_at":"2026-04-10T03:41:18.852328+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQNYW9WM9NY7XJ0DNPVW4GDQ","title":"Environment Override Validation via get_args() for Literal Types","topic":null,"source_type":"plan","source_issue":6310,"source_repo":null,"created_at":"2026-05-03T03:42:26.708449+00:00","updated_at":"2026-05-03T03:42:26.708450+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Distinguish similarly-named modules during cleanup
 
-When removing dead code, watch for naming collisions—e.g., `verification.py` (orphaned formatter) vs `verification_judge.py` (active production code with real callers). Confusion between them can lead to removing live code or missing dependencies. Always verify caller graphs and module purpose separately.
+When removing dead code, watch for naming collisions—e.g., `verification.py` (orphaned formatter) vs `verification_judge.py` (active production code). Confusion between them can lead to removing live code. Always verify caller graphs and module purpose separately.
+
+**Why:** Prevents accidentally deleting active modules that have similar names to dead code.
 
 _Source: #6365 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQQ9","title":"Distinguish similarly-named modules during cleanup","topic":null,"source_type":"plan","source_issue":6365,"source_repo":null,"created_at":"2026-04-10T07:59:04.461030+00:00","updated_at":"2026-04-10T07:59:04.461033+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQNYW9WM9NY7XJ0DNPVW4GDR","title":"Distinguish similarly-named modules during cleanup","topic":null,"source_type":"plan","source_issue":6365,"source_repo":null,"created_at":"2026-05-03T03:42:26.708457+00:00","updated_at":"2026-05-03T03:42:26.708458+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Import-site patch targets must migrate with extracted functions
 
-When tests patch functions at import sites (e.g., `patch('review_phase.analyze_patterns')`), extracting those functions to new modules breaks the patch. Update test patches to target the new module where the function is now imported: `patch('review_insight_recorder.analyze_patterns')`. Attribute mocking via instance assignment (e.g., `phase.attr = Mock()`) continues to work unchanged.
+When tests patch functions at import sites (e.g., `patch('review_phase.analyze_patterns')`), extracting those functions to new modules breaks the patch. Update test patches to target the new module: `patch('review_insight_recorder.analyze_patterns')`. Attribute mocking via instance assignment continues to work unchanged.
+
+**Why:** Patch targets must match the actual import location where the function is used.
 
 _Source: #6321 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0WV","title":"Import-site patch targets must migrate with extracted functions","topic":null,"source_type":"plan","source_issue":6321,"source_repo":null,"created_at":"2026-04-10T04:19:28.375232+00:00","updated_at":"2026-04-10T04:19:28.375235+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQNYW9WM9NY7XJ0DNPVW4GDS","title":"Import-site patch targets must migrate with extracted functions","topic":null,"source_type":"plan","source_issue":6321,"source_repo":null,"created_at":"2026-05-03T03:42:26.708463+00:00","updated_at":"2026-05-03T03:42:26.708464+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Strict no-circular-import rule for extracted coordinators
 
-Extracted coordinator classes must never import the original ReviewPhase class. Coordinators should only import domain modules, models, config, and phase_utils. Back-references to ReviewPhase methods must flow through callback parameters passed at construction time. Violating this creates circular imports that break the extraction.
+Extracted coordinator classes must never import the original ReviewPhase class. Coordinators should only import domain modules, models, config, and phase_utils. Back-references to ReviewPhase methods must flow through callback parameters passed at construction time.
+
+**Why:** Prevents circular imports that break module independence and extraction.
 
 _Source: #6321 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0WW","title":"Strict no-circular-import rule for extracted coordinators","topic":null,"source_type":"plan","source_issue":6321,"source_repo":null,"created_at":"2026-04-10T04:19:28.375241+00:00","updated_at":"2026-04-10T04:19:28.375243+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQNYW9WM9NY7XJ0DNPVW4GDT","title":"Strict no-circular-import rule for extracted coordinators","topic":null,"source_type":"plan","source_issue":6321,"source_repo":null,"created_at":"2026-05-03T03:42:26.708470+00:00","updated_at":"2026-05-03T03:42:26.708471+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Restrict extracted component imports to prevent circular dependencies
 
-Extracted modules (PipelineStatsBuilder, CreditPauseManager, LoopSupervisor) must only import from a safe set: config, events, models, subprocess_util, service_registry, bg_worker_manager. Never import from orchestrator.py, even transitively. This strict boundary prevents import-time deadlocks and keeps extracted components independently testable and reusable.
+Extracted modules (PipelineStatsBuilder, CreditPauseManager, LoopSupervisor) must only import from a safe set: config, events, models, subprocess_util, service_registry, bg_worker_manager. Never import from orchestrator.py, even transitively.
+
+**Why:** Keeps extracted components independently testable and reusable without hidden dependencies.
 
 _Source: #6323 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0X1","title":"Restrict extracted component imports to prevent circular dependencies","topic":null,"source_type":"plan","source_issue":6323,"source_repo":null,"created_at":"2026-04-10T04:47:03.630704+00:00","updated_at":"2026-04-10T04:47:03.630706+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQNYW9WM9NY7XJ0DNPVW4GDV","title":"Restrict extracted component imports to prevent circular dependencies","topic":null,"source_type":"plan","source_issue":6323,"source_repo":null,"created_at":"2026-05-03T03:42:26.708476+00:00","updated_at":"2026-05-03T03:42:26.708477+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```

@@ -1,259 +1,363 @@
 # Architecture-Patterns-Practices
 
 
-## Testing Patterns: Mocking, Parametrized Assertions, and Test Helpers
+## Use monkeypatch.delitem(raising=False) for sys.modules cleanup
 
-For test isolation with sys.modules manipulation, use pytest's monkeypatch.delitem() with raising=False to handle both existing and missing keys, and monkeypatch guarantees cleanup on teardown. Save original module state via `had = k in sys.modules; original = sys.modules.get(k)`, then restore with monkeypatch. Use parametrized tests with dual lists (_REQUIRED_METHODS, _SIGNED_METHODS) to validate interface conformance via set subtraction. Tests should check presence via content assertion, not just structure (verify specific module names, not just that labels exist). Follow existing test class patterns (TestBuildStage, TestEdgeCases, TestPartialTimelines) when adding similar validators. Conftest at session scope handles sys.path setup, making explicit sys.path.insert calls in test modules redundant. For deferred imports in tests, see Deferred Imports, Type Checking, and Testing.
+Use pytest's monkeypatch.delitem() with raising=False to handle both existing and missing keys in sys.modules manipulation. Save original state via `had = k in sys.modules; original = sys.modules.get(k)`, then restore with monkeypatch.
+
+**Why:** monkeypatch guarantees cleanup on teardown, preventing test isolation issues from lingering module imports.
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0W0","title":"Testing Patterns: Mocking, Parametrized Assertions, and Test Helpers","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-10T03:41:18.849559+00:00","updated_at":"2026-04-10T03:41:18.849561+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R436FFWVR0NXQKFRYR0V","title":"Use monkeypatch.delitem(raising=False) for sys.modules cleanup","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:15:06.854778+00:00","updated_at":"2026-05-03T04:15:06.855119+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Dynamic Discovery with Convention-Based Naming
+## Parametrized tests with dual lists for interface conformance
 
-Avoid import-time registry population; instead call discovery functions on-demand (e.g., `discover_skills(repo_root)` per call without caching). Discovery must happen at runtime not import-time to stay fresh and avoid blocking startup. Establish reversible naming conventions: hf.diff-sanity command → diff_sanity module with `build_diff_sanity_prompt()` and `parse_diff_sanity_result()` functions. This eliminates need for separate registry mapping files. Lightweight frontmatter parsing (split on `---` delimiters) avoids adding parser dependencies. Catch broad exceptions during module imports (not just ImportError) to handle syntax errors, missing dependencies, and other runtime errors. Dynamic skill definitions in JSONL use generic templated builders (functools.partial) + result markers. Multiple registration mechanisms (bg_loop_registry dict, loop_factories tuple) require unified discovery via set union. See also: Workspace Isolation for command discovery patterns, Background Loops for registration.
+Use parametrized tests with dual lists (_REQUIRED_METHODS, _SIGNED_METHODS) to validate interface conformance via set subtraction across multiple implementations. Verify specific module names in assertions, not just structure.
+
+**Why:** Interface validation at scale without repeating assertions; specific module names catch refactorings that structural checks miss.
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0W1","title":"Dynamic Discovery with Convention-Based Naming","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-10T03:41:18.849563+00:00","updated_at":"2026-04-10T03:41:18.849564+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZP0","title":"Parametrized tests with dual lists for interface conformance","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:15:06.855175+00:00","updated_at":"2026-05-03T04:15:06.855178+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Use conftest session-scope setup for deferred imports in tests
+
+Use conftest session-scope setup to avoid redundant sys.path.insert calls across test files. Configure path manipulation once at session scope rather than per-test.
+
+**Why:** Reduces test startup time and prevents repeated path manipulation that can hide module resolution issues.
+
+
+```json:entry
+{"id":"01KQP0R43781VJFJ9HZRWQCZP1","title":"Use conftest session-scope setup for deferred imports in tests","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:15:06.855220+00:00","updated_at":"2026-05-03T04:15:06.855222+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Call discovery functions on-demand at runtime
+
+Call discovery functions on-demand at runtime (e.g., `discover_skills(repo_root)` per call without caching) rather than populating registries at import-time.
+
+**Why:** Discovery must happen at runtime to stay fresh and avoid blocking startup; import-time registration risks cache staleness and startup delays.
+
+
+```json:entry
+{"id":"01KQP0R43781VJFJ9HZRWQCZP2","title":"Call discovery functions on-demand at runtime","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:15:06.855237+00:00","updated_at":"2026-05-03T04:15:06.855239+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Use reversible naming conventions to eliminate registry files
+
+Establish reversible naming conventions that map command names to modules and functions without separate registry files. Example: hf.diff-sanity command maps to diff_sanity module with `build_diff_sanity_prompt()` and `parse_diff_sanity_result()` functions.
+
+**Why:** Self-documenting discovery patterns eliminate manual registry mapping files and reduce coupling between naming and registration logic.
+
+
+```json:entry
+{"id":"01KQP0R43781VJFJ9HZRWQCZP3","title":"Use reversible naming conventions to eliminate registry files","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:15:06.855251+00:00","updated_at":"2026-05-03T04:15:06.855253+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Catch broad exceptions during module discovery
+
+Catch broad exceptions (not just ImportError) during module imports in discovery functions to handle syntax errors and missing dependencies. Use lightweight frontmatter parsing (split on `---` delimiters) for dynamic definitions.
+
+**Why:** Prevents discovery from failing on transient import issues, syntax errors in modules, or missing optional dependencies; broad catching is safer than selective.
+
+
+```json:entry
+{"id":"01KQP0R43781VJFJ9HZRWQCZP4","title":"Catch broad exceptions during module discovery","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:15:06.855264+00:00","updated_at":"2026-05-03T04:15:06.855266+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Coordinator pattern with call-order sensitivity
 
-When extracting sub-methods from a large method, the original method becomes a thin orchestrator calling extracted methods in sequence. Execution order is critical—e.g., builder.record_history() must happen before builder.build_stats(). Preserve exact call order in the coordinator; tests should verify this order is maintained after extraction.
+When extracting sub-methods from a large method, the original becomes a thin orchestrator calling extracted methods in sequence. Preserve exact call order; execution order is critical—e.g., builder.record_history() must precede builder.build_stats().
+
+**Why:** Method reordering breaks assumptions about prior state or side effects; tests should verify order is maintained after extraction.
 
 _Source: #6330 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0X9","title":"Coordinator pattern with call-order sensitivity","topic":null,"source_type":"plan","source_issue":6330,"source_repo":null,"created_at":"2026-04-10T05:17:59.124008+00:00","updated_at":"2026-04-10T05:17:59.124009+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZP5","title":"Coordinator pattern with call-order sensitivity","topic":null,"source_type":"plan","source_issue":6330,"source_repo":null,"created_at":"2026-05-03T04:15:06.855279+00:00","updated_at":"2026-05-03T04:15:06.855281+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## NamedTuple for multi-return extracted methods
 
-When an extracted method returns multiple related values (like _build_context_sections returning multiple section strings), use a lightweight NamedTuple instead of creating a dataclass or new class. This avoids test infrastructure breakage while providing named access and self-documenting return types.
+When an extracted method returns multiple related values (e.g., _build_context_sections returning multiple section strings), use a lightweight NamedTuple instead of creating a dataclass. This provides named access and self-documenting return types.
+
+**Why:** NamedTuple avoids test infrastructure breakage while enabling named access; keeps the extracted method's interface simple and testable.
 
 _Source: #6330 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0XA","title":"NamedTuple for multi-return extracted methods","topic":null,"source_type":"plan","source_issue":6330,"source_repo":null,"created_at":"2026-04-10T05:17:59.124011+00:00","updated_at":"2026-04-10T05:17:59.124012+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZP6","title":"NamedTuple for multi-return extracted methods","topic":null,"source_type":"plan","source_issue":6330,"source_repo":null,"created_at":"2026-05-03T04:15:06.855312+00:00","updated_at":"2026-05-03T04:15:06.855314+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Parameter threading across extracted methods
 
-Some parameters (like bead_mapping) appear as arguments to multiple extracted methods across different extraction phases. Watch for these cross-cutting parameters during design—they indicate a concern that spans multiple extracted methods and should be threaded consistently through the coordinator to avoid silent bugs from missing arguments.
+Watch for parameters (like bead_mapping) that appear as arguments to multiple extracted methods across different extraction phases. Thread these cross-cutting parameters consistently through the coordinator to avoid silent bugs from missing arguments.
+
+**Why:** Cross-cutting parameters indicate a concern spanning multiple methods; tracking parameter dependencies during design ensures completeness.
 
 _Source: #6330 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0XB","title":"Parameter threading across extracted methods","topic":null,"source_type":"plan","source_issue":6330,"source_repo":null,"created_at":"2026-04-10T05:17:59.124014+00:00","updated_at":"2026-04-10T05:17:59.124016+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZP7","title":"Parameter threading across extracted methods","topic":null,"source_type":"plan","source_issue":6330,"source_repo":null,"created_at":"2026-05-03T04:15:06.855328+00:00","updated_at":"2026-05-03T04:15:06.855330+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Structured transcript parsing: markers, summaries, and item lists
+## Structured transcript parsing: markers and lists
 
-Transcripts can be parsed via three markers: result key (OK/RETRY status), summary section (captured text), and item list (extracted from bullet points). Case-insensitive matching and whitespace-tolerant list parsing make this pattern robust across variations in formatting and capitalization.
+Parse transcripts via three markers: result key (OK/RETRY status), summary section (captured text), and item list (extracted from bullet points). Use case-insensitive matching and whitespace-tolerant list parsing to handle formatting variations.
+
+**Why:** This approach handles variability in capitalization and indentation without requiring rigid formatting contracts from callers.
 
 _Source: #6349 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQPH","title":"Structured transcript parsing: markers, summaries, and item lists","topic":null,"source_type":"plan","source_issue":6349,"source_repo":null,"created_at":"2026-04-10T06:47:04.972424+00:00","updated_at":"2026-04-10T06:47:04.972425+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZP8","title":"Structured transcript parsing: markers and lists","topic":null,"source_type":"plan","source_issue":6349,"source_repo":null,"created_at":"2026-05-03T04:15:06.855341+00:00","updated_at":"2026-05-03T04:15:06.855343+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Separate parsing utilities from subprocess and streaming concerns
+## Separate parsing utilities from subprocess concerns
 
-Create new utility modules with clear, single responsibilities. Transcript parsing belongs in its own module, distinct from runner_utils which handles subprocess/streaming. This boundary prevents utility modules from becoming dumping grounds and keeps dependencies focused.
+Create parsing utility modules with clear, single responsibilities, distinct from runner_utils which handles subprocess/streaming. Transcript parsing belongs in its own module with its own test file.
+
+**Why:** This boundary prevents utility modules from becoming dumping grounds; each concern evolves independently with focused dependencies.
 
 _Source: #6349 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQPJ","title":"Separate parsing utilities from subprocess and streaming concerns","topic":null,"source_type":"plan","source_issue":6349,"source_repo":null,"created_at":"2026-04-10T06:47:04.972432+00:00","updated_at":"2026-04-10T06:47:04.972433+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZP9","title":"Separate parsing utilities from subprocess concerns","topic":null,"source_type":"plan","source_issue":6349,"source_repo":null,"created_at":"2026-05-03T04:15:06.855356+00:00","updated_at":"2026-05-03T04:15:06.855357+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Thin public wrappers replace private method access
 
-When internal callers (e.g., `stale_issue_loop`, `sentry_loop`) access private methods on a façaded class (`_run_gh`, `_repo`), add thin public wrapper methods on the appropriate sub-client rather than exposing infrastructure. Example: add `list_open_issues_raw()` to `IssueClient` for `stale_issue_loop` to call instead of `_run_gh`. This maintains encapsulation boundaries while serving legitimate internal dependencies.
+When internal callers (e.g., stale_issue_loop, sentry_loop) access private methods on a façaded class (_run_gh, _repo), add thin public wrapper methods on appropriate sub-clients instead. Example: add list_open_issues_raw() to IssueClient rather than exposing _run_gh.
+
+**Why:** This maintains encapsulation boundaries while serving legitimate internal dependencies; preserves the façade contract.
 
 _Source: #6348 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQPK","title":"Thin public wrappers replace private method access","topic":null,"source_type":"plan","source_issue":6348,"source_repo":null,"created_at":"2026-04-10T06:49:24.638890+00:00","updated_at":"2026-04-10T06:49:24.638891+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZPA","title":"Thin public wrappers replace private method access","topic":null,"source_type":"plan","source_issue":6348,"source_repo":null,"created_at":"2026-05-03T04:15:06.855370+00:00","updated_at":"2026-05-03T04:15:06.855372+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Line/method budgets force better decomposition
 
-Hard constraints (≤200 lines, ~7 public methods per class) push better architectural decisions than soft targets. During this refactor, the large query methods didn't fit in a single 200-line `PRQueryClient`, forcing a split into `PRQueryClient` and `DashboardQueryClient`. The constraint prevented a bloated compromise class and revealed natural subdomain boundaries.
+Hard constraints (≤200 lines, ~7 public methods per class) push better architectural decisions than soft targets. During large refactors, line budgets force splits that reveal natural subdomain boundaries. Example: a bloated query client naturally splits into PRQueryClient and DashboardQueryClient.
+
+**Why:** Budget prevents architectural shortcuts; constraints reveal natural boundaries better than iterative design decisions.
 
 _Source: #6348 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQPM","title":"Line/method budgets force better decomposition","topic":null,"source_type":"plan","source_issue":6348,"source_repo":null,"created_at":"2026-04-10T06:49:24.638893+00:00","updated_at":"2026-04-10T06:49:24.638894+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZPB","title":"Line/method budgets force better decomposition","topic":null,"source_type":"plan","source_issue":6348,"source_repo":null,"created_at":"2026-05-03T04:15:06.855382+00:00","updated_at":"2026-05-03T04:15:06.855384+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Selective EventBus threading by behavioral side effects
+## Selective EventBus threading by behavioral intent
 
-Not all sub-clients need the same dependencies. Only sub-clients with behavioral side effects (publishing events: `PRLifecycle`, `IssueClient`, `CIStatusClient`) receive `EventBus` in `__init__`. Pure query clients (`PRQueryClient`, `MetricsClient`) don't. This selective dependency injection pattern avoids threading unnecessary dependencies through constructors and signals intent about what each component does.
+Only thread EventBus to sub-clients with behavioral side effects (publishing events: PRLifecycle, IssueClient, CIStatusClient). Pure query clients (PRQueryClient, MetricsClient) omit EventBus. Dependency presence signals behavioral responsibilities.
+
+**Why:** Avoids threading unnecessary dependencies through constructors; selective injection prevents silent coupling creep.
 
 _Source: #6348 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQPN","title":"Selective EventBus threading by behavioral side effects","topic":null,"source_type":"plan","source_issue":6348,"source_repo":null,"created_at":"2026-04-10T06:49:24.638897+00:00","updated_at":"2026-04-10T06:49:24.638897+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZPC","title":"Selective EventBus threading by behavioral intent","topic":null,"source_type":"plan","source_issue":6348,"source_repo":null,"created_at":"2026-05-03T04:15:06.855393+00:00","updated_at":"2026-05-03T04:15:06.855395+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Never-raise contract uses broad exception catching
 
-Health checks and diagnostic functions should catch `Exception` (not specific types like `httpx.HTTPError`) and return False/safe default rather than propagate. Matches the `*_safe` pattern used for functions that must not raise (e.g., `retain_safe`, `recall_safe`).
+Health checks and diagnostic functions should catch Exception (not specific types like httpx.HTTPError) and return False/safe default rather than propagate. Matches the *_safe pattern for functions that must not raise (e.g., retain_safe, recall_safe).
+
+**Why:** Broad catching prevents cascading failures when diagnostics themselves encounter issues; "never raise" is stronger than handling specific exceptions.
 
 _Source: #6362 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQQ6","title":"Never-raise contract uses broad exception catching","topic":null,"source_type":"plan","source_issue":6362,"source_repo":null,"created_at":"2026-04-10T07:44:23.400476+00:00","updated_at":"2026-04-10T07:44:23.400479+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZPD","title":"Never-raise contract uses broad exception catching","topic":null,"source_type":"plan","source_issue":6362,"source_repo":null,"created_at":"2026-05-03T04:15:06.855403+00:00","updated_at":"2026-05-03T04:15:06.855405+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## exc_info=True parameter preserves full tracebacks at lower levels
+## Use exc_info=True to preserve full exception tracebacks
 
-logger.warning(..., exc_info=True) captures the full exception traceback in logs (visible in structured logs and observability tools) while downgrading the severity level. This enables post-incident debugging without triggering alerting systems designed for ERROR-level events.
+Use logger.warning(..., exc_info=True) to capture full exception traceback in logs (visible in structured logs and observability tools) while downgrading severity level. Enables post-incident debugging without triggering alerting systems.
+
+**Why:** Full traceback visibility at WARNING level helps debugging without paging oncall; useful for expected failures warranting investigation but not immediate alerting.
 
 _Source: #6363 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQQ8","title":"exc_info=True parameter preserves full tracebacks at lower levels","topic":null,"source_type":"plan","source_issue":6363,"source_repo":null,"created_at":"2026-04-10T07:48:21.129667+00:00","updated_at":"2026-04-10T07:48:21.129669+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZPE","title":"Use exc_info=True to preserve full exception tracebacks","topic":null,"source_type":"plan","source_issue":6363,"source_repo":null,"created_at":"2026-05-03T04:15:06.855414+00:00","updated_at":"2026-05-03T04:15:06.855416+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Test class names describe scenarios, not test subjects
+## Test class names describe scenarios, not subjects
 
-Test class names like `TestGCLoopNoCircuitBreaker` describe the scenario being tested (GC loop behavior without circuit breaking) rather than the code under test. When removing a module, check whether test classes with that name actually import or test it, or are simply documenting a test scenario.
+Test class names like TestGCLoopNoCircuitBreaker describe the scenario being tested (GC loop behavior without circuit breaking) rather than the code under test. When removing a module, check whether test classes with that name actually import it or document test scenario.
+
+**Why:** Scenario names survive refactoring better than code-reference names; intent-based naming helps other developers understand test organization.
 
 _Source: #6365 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQQA","title":"Test class names describe scenarios, not test subjects","topic":null,"source_type":"plan","source_issue":6365,"source_repo":null,"created_at":"2026-04-10T07:59:04.461043+00:00","updated_at":"2026-04-10T07:59:04.461045+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZPF","title":"Test class names describe scenarios, not subjects","topic":null,"source_type":"plan","source_issue":6365,"source_repo":null,"created_at":"2026-05-03T04:15:06.855424+00:00","updated_at":"2026-05-03T04:15:06.855426+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Inline implementations preferred over extracted utility classes
+## Inline implementations preferred over extracted utilities
 
-The orchestrator implements its own circuit-breaking logic (consecutive-failure counter at :926-1026) rather than using the extracted `CircuitBreaker` class. This suggests the project favors inline implementations for simple patterns over shared utility classes, reducing coupling and import complexity.
+Implement simple patterns (circuit-breaking, retry logic) inline in orchestrators rather than extracting to reusable utility classes. Example: implement circuit-breaking logic inline rather than using an extracted CircuitBreaker class.
+
+**Why:** Inline implementations reduce coupling and import complexity; reserve extraction for patterns used across multiple modules.
 
 _Source: #6365 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQQB","title":"Inline implementations preferred over extracted utility classes","topic":null,"source_type":"plan","source_issue":6365,"source_repo":null,"created_at":"2026-04-10T07:59:04.461047+00:00","updated_at":"2026-04-10T07:59:04.461048+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZPG","title":"Inline implementations preferred over extracted utilities","topic":null,"source_type":"plan","source_issue":6365,"source_repo":null,"created_at":"2026-05-03T04:15:06.855435+00:00","updated_at":"2026-05-03T04:15:06.855437+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Prompt Deduplication and Memory Context Capping
+## Multi-bank memory deduplication via PromptDeduplicator
 
-Multi-bank Hindsight recall causes duplicate or overlapping memories in prompts. Deduplication strategy: (1) Pool items from all banks, track via exact-text matching with character counts; (2) Deduplicate via PromptDeduplicator.dedup_bank_items() which merges duplicate text and tracks which banks contributed; (3) Rebuild per-bank strings avoiding exact-string set-rebuilding (which fails for merged items)—instead return per-bank surviving items directly from dedup; (4) Cap memory injection with multi-tier limits: max_recall_thread_items_per_phase (5), max_inherited_memory_chars (2000), max_memory_prompt_chars (4000). Semantic vs exact matching: dedup removes exact duplicates while preserving content overlap between banks (acceptable). Text-based dedup respects display modifications (e.g., prefixes like **AVOID:**). Antipatterns use 1.15x boost multiplier for recall priority, but must be tuned if antipatterns dominate results. See also: Optional Dependencies for Hindsight service handling, Side Effect Consumption for context threading.
+Pool items from all Hindsight banks via exact-text matching with character counts. Deduplicate using PromptDeduplicator.dedup_bank_items() to merge duplicates and track contributing banks. Rebuild per-bank strings from dedup results instead of set-rebuilding, which loses merged item metadata.
+
+**Why:** Prevents memory injection bloat from multi-bank recall while maintaining recall quality across banks; respects display modifications like **AVOID:** prefixes.
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0WC","title":"Prompt Deduplication and Memory Context Capping","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-10T03:41:18.852310+00:00","updated_at":"2026-04-10T03:41:18.852312+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZPH","title":"Multi-bank memory deduplication via PromptDeduplicator","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:15:06.855446+00:00","updated_at":"2026-05-03T04:15:06.855447+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Strategy dispatcher pattern for conditional behavior branches
+## Multi-tier context capping for memory injection
 
-For methods with conditional logic based on an enum (e.g., release strategy: BUNDLED vs ORDERED vs HITL), create a single dispatcher method (`handle_ready(strategy)`) that routes to private strategy handlers. This centralizes the branching logic and makes it testable without exposing individual handlers.
+Cap memory injection using three tiers after deduplication: max_recall_thread_items_per_phase (5), max_inherited_memory_chars (2000), max_memory_prompt_chars (4000). Enforce each tier in sequence during context assembly for graduated cutoff.
+
+**Why:** Prevents context explosion while preserving signal from multiple memory banks; tiered limits provide fallback cutoffs at different scales.
+
+
+```json:entry
+{"id":"01KQP0R43781VJFJ9HZRWQCZPJ","title":"Multi-tier context capping for memory injection","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:15:06.855456+00:00","updated_at":"2026-05-03T04:15:06.855457+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Strategy dispatcher pattern for conditional behavior
+
+For methods with conditional logic based on an enum (e.g., release strategy: BUNDLED vs ORDERED vs HITL), create a single dispatcher method (handle_ready(strategy)) that routes to private strategy handlers. Centralizes branching logic and makes it testable.
+
+**Why:** Cleaner than nested if/elif chains; dispatcher pattern makes test coverage explicit for each strategy path.
 
 _Source: #6339 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQP6","title":"Strategy dispatcher pattern for conditional behavior branches","topic":null,"source_type":"plan","source_issue":6339,"source_repo":null,"created_at":"2026-04-10T06:19:03.788199+00:00","updated_at":"2026-04-10T06:19:03.788202+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZPK","title":"Strategy dispatcher pattern for conditional behavior","topic":null,"source_type":"plan","source_issue":6339,"source_repo":null,"created_at":"2026-05-03T04:15:06.855466+00:00","updated_at":"2026-05-03T04:15:06.855468+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## Export widely-reused constants without underscore prefix
 
-Time duration constants imported across multiple modules (config.py, _common.py, tests/) should use public names without underscore prefix (ONE_DAY_SECS, not _ONE_DAY_SECS). Reserve underscore prefix for file-local-only constants to signal scope.
+Time duration constants imported across multiple modules (config.py, _common.py, tests/) should use public names without underscore prefix (ONE_DAY_SECS, not _ONE_DAY_SECS). Reserve underscore prefix for file-local-only constants.
+
+**Why:** Clear public API signals safe re-export; underscore convention makes internal-only scope explicit for future readers.
 
 _Source: #6341 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQP8","title":"Export widely-reused constants without underscore prefix","topic":null,"source_type":"plan","source_issue":6341,"source_repo":null,"created_at":"2026-04-10T06:22:03.281145+00:00","updated_at":"2026-04-10T06:22:03.281148+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZPM","title":"Export widely-reused constants without underscore prefix","topic":null,"source_type":"plan","source_issue":6341,"source_repo":null,"created_at":"2026-05-03T04:15:06.855476+00:00","updated_at":"2026-05-03T04:15:06.855478+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Document variant patterns; resist premature parameterization
+## Document variant patterns; defer premature parameterization
 
-The plan notes that `triage.py` uses a similar memory context pattern but with space separator instead of newline. Rather than force parameterization to handle both, the plan keeps scope narrow and documents the variant for future follow-up. Over-parameterizing early adds complexity without immediate need.
+When similar patterns use different implementations (e.g., triage.py uses space separator while another uses newline for memory context), keep scope narrow and document the variant for future follow-up rather than force parameterization. Unify if a third variant appears.
+
+**Why:** Over-parameterizing early adds complexity without immediate need; documentation lets variants coexist safely until convergence signals a real abstraction.
 
 _Source: #6340 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQP4","title":"Document variant patterns; resist premature parameterization","topic":null,"source_type":"plan","source_issue":6340,"source_repo":null,"created_at":"2026-04-10T06:11:06.699170+00:00","updated_at":"2026-04-10T06:11:06.699173+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZPN","title":"Document variant patterns; defer premature parameterization","topic":null,"source_type":"plan","source_issue":6340,"source_repo":null,"created_at":"2026-05-03T04:15:06.855486+00:00","updated_at":"2026-05-03T04:15:06.855488+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Dependency injection + re-export for backward-compatible class splits
+## Dependency injection + re-export for backward-compatible splits
 
-When splitting a large class into focused subclasses, inject the new dependencies into the parent constructor and re-export the new classes from the original module. This maintains API compatibility (`from epic import EpicStatusReporter` works) while separating concerns. Wiring happens in `ServiceRegistry`, not in the class constructors.
+When splitting a large class into focused subclasses, inject the new dependencies into the parent constructor and re-export the new classes from the original module. Example: from epic import EpicStatusReporter works post-split. Wiring happens in ServiceRegistry.
+
+**Why:** Maintains API compatibility while separating concerns; gradual migration of callers avoids forced refactoring downstream.
 
 _Source: #6339 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQP5","title":"Dependency injection + re-export for backward-compatible class splits","topic":null,"source_type":"plan","source_issue":6339,"source_repo":null,"created_at":"2026-04-10T06:19:03.788137+00:00","updated_at":"2026-04-10T06:19:03.788154+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZPP","title":"Dependency injection + re-export for backward-compatible splits","topic":null,"source_type":"plan","source_issue":6339,"source_repo":null,"created_at":"2026-05-03T04:15:06.855496+00:00","updated_at":"2026-05-03T04:15:06.855501+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Sub-factory coordination via intermediate frozen dataclass
+## Sub-factory coordination via frozen dataclass
 
-When decomposing a large factory function, bundle frequently-shared infrastructure (10+) into a frozen dataclass (e.g., `_CoreDeps`) and pass it to downstream sub-factories. This pattern, inherited from `LoopDeps` in `base_background_loop.py`, reduces parameter explosion and makes dependency ownership explicit without requiring typed classes for every service group.
+When decomposing a large factory function, bundle frequently-shared infrastructure (10+) into a frozen dataclass (e.g., _CoreDeps) and pass it to downstream sub-factories. Pattern inherited from LoopDeps in base_background_loop.py.
+
+**Why:** Reduces parameter explosion and makes dependency ownership explicit without requiring typed classes for every service group.
 
 _Source: #6334 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0XN","title":"Sub-factory coordination via intermediate frozen dataclass","topic":null,"source_type":"plan","source_issue":6334,"source_repo":null,"created_at":"2026-04-10T05:40:10.652297+00:00","updated_at":"2026-04-10T05:40:10.652309+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZPQ","title":"Sub-factory coordination via frozen dataclass","topic":null,"source_type":"plan","source_issue":6334,"source_repo":null,"created_at":"2026-05-03T04:15:06.855512+00:00","updated_at":"2026-05-03T04:15:06.855514+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Distinguish local wiring from cross-group wiring at architecture boundary
+## Distinguish local from cross-group wiring at architecture boundary
 
-Post-construction mutations fall into two categories: local (both objects created in same sub-factory, e.g., `shape_phase._council = ExpertCouncil(...)`) and cross-group (objects from different sub-factories, e.g., `agents._insights = review_insights`). Local wiring stays in the sub-factory; cross-group wiring moves to the thin orchestrator. This boundary clarifies dependency coupling.
+Post-construction mutations fall into two categories: local (both objects in same sub-factory, e.g., `shape_phase._council = ExpertCouncil(...)`) and cross-group (objects from different sub-factories, e.g., `agents._insights = review_insights`). Local wiring stays in sub-factory; cross-group moves to orchestrator.
+
+**Why:** This boundary clarifies dependency coupling and prevents wiring logic from drifting into wrong layers. See also: Sub-factory coordination via frozen dataclass.
 
 _Source: #6334 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G7XE7SDHTKBKF7S0XP","title":"Distinguish local wiring from cross-group wiring at architecture boundary","topic":null,"source_type":"plan","source_issue":6334,"source_repo":null,"created_at":"2026-04-10T05:40:10.652318+00:00","updated_at":"2026-04-10T05:40:10.652320+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZPR","title":"Distinguish local from cross-group wiring at architecture boundary","topic":null,"source_type":"plan","source_issue":6334,"source_repo":null,"created_at":"2026-05-03T04:15:06.855522+00:00","updated_at":"2026-05-03T04:15:06.855524+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
 ## AST-based regression tests are fragile to refactoring
 
-Tests that walk the AST looking for specific function/variable names and nesting patterns break if code is renamed, wrapped, or restructured. Keep cleanup calls simple and direct—no indirection, no renaming, no extra nesting. Fragility is the cost of catching accidental refactorings.
+Tests that walk the AST looking for specific function/variable names and nesting patterns break if code is renamed, wrapped, or restructured. Keep cleanup calls simple and direct—no indirection, no renaming, no extra nesting. Fragility is a tradeoff for regression coverage.
+
+**Why:** AST patterns couple tightly to implementation; accept fragility as cost of catching accidental refactorings.
 
 _Source: #6362 (plan)_
 
 
 ```json:entry
-{"id":"01KQ11A4G8FNMGPZN5Y298JQQ5","title":"AST-based regression tests are fragile to refactoring","topic":null,"source_type":"plan","source_issue":6362,"source_repo":null,"created_at":"2026-04-10T07:44:23.400467+00:00","updated_at":"2026-04-10T07:44:23.400470+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0R43781VJFJ9HZRWQCZPS","title":"AST-based regression tests are fragile to refactoring","topic":null,"source_type":"plan","source_issue":6362,"source_repo":null,"created_at":"2026-05-03T04:15:06.855532+00:00","updated_at":"2026-05-03T04:15:06.855534+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
