@@ -98,6 +98,10 @@ class BaseRunner:
         # ADR runtime index — injected into plan/implement/review prompts.
         # Relative path from the worktree cwd. None-safe at read time.
         self._adr_index: ADRIndex | None = ADRIndex(Path("docs/adr"))
+        # Keeps strong references to fire-and-forget background tasks so the
+        # garbage collector cannot cancel them mid-flight (and so OTel context
+        # propagation is not broken by bare create_task calls).
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def active_count(self) -> int:
@@ -298,7 +302,9 @@ class BaseRunner:
                 "_save_transcript called outside event loop — ADR-draft pipeline skipped"
             )
             return
-        loop.create_task(self._process_transcript_for_adr_draft(transcript))
+        task = loop.create_task(self._process_transcript_for_adr_draft(transcript))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _process_transcript_for_adr_draft(self, transcript: str) -> None:
         """Scan transcript for ADR_DRAFT_SUGGESTION and run the 4-gate pipeline.
