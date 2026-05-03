@@ -6,6 +6,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W18
 
+- `16e3969` — test: FakeHoneycomb fake for scenario tests *(2026-05-02)*
 - `68a42e9` — telemetry: subprocess_bridge.py — trace_collector → span events *(2026-05-02)*
 - `e3ca22c` — telemetry: SDK bootstrap (otel.py) *(2026-05-02)*
 - `05271e1` — telemetry: exception slug catalog (slugs.py) *(2026-05-02)*
@@ -158,4 +159,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `482dcdc` on 2026-05-03 02:56 UTC. Source last changed at `482dcdc`. Status: 🟢 fresh._
+_Regenerated from commit `c48cc85` on 2026-05-03 03:13 UTC. Source last changed at `c48cc85`. Status: 🟢 fresh._
