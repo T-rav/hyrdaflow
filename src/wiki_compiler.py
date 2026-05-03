@@ -238,11 +238,43 @@ Extract 1-5 durable knowledge entries from this output. Focus on:
 Skip ephemeral details (specific variable names, one-off debugging steps).
 Each entry should be a standalone insight useful for future work on this repo.
 
+## Voice and structure (load-bearing — do not skip)
+
+Each entry's `content` field MUST be **scannable** documentation, not a wall
+of prose. Agents and humans read the title to decide whether to read the
+entry, then read the entry to apply a rule — both audiences need structure.
+
+Required shape for each entry:
+
+- Open with a one-sentence rule statement (no narrative ramp-up).
+- Follow with a short example (inline code, file path, or 2-3 bullet
+  points) showing the rule in use. If the rule is purely conceptual,
+  skip the example.
+- Close with a `**Why:**` line in one sentence, naming the failure mode
+  or constraint the rule prevents.
+
+Hard length budget per entry:
+
+- `title`: ≤ 80 characters, specific enough that a reader can decide
+  relevance from the title alone (avoid generic labels like "Notes",
+  "Findings", "Background", or "{source_type} from #{issue_number}").
+- `content`: ≤ 150 words. If the source material exceeds this, **emit
+  multiple entries** rather than producing a single long blob.
+
+Anti-patterns to avoid:
+
+- Long single-paragraph dumps with no structure.
+- Retrospective voice ("This entry captures the lesson that…", "We
+  learned in PR #N that…"). Write in rule voice ("Use X. Avoid Y.").
+- Restating the title in the first sentence.
+- Inline JSON or code fences spanning more than 5 lines (link to the
+  source instead).
+
 ## Output format
 
 Return a JSON array of entries. Each entry must be:
-- "title": string (10 words max, descriptive)
-- "content": string (2-5 sentences, self-contained insight)
+- "title": string (≤ 80 chars, descriptive — see length budget above)
+- "content": string (rule + example + Why; ≤ 150 words)
 - "source_type": "{source_type}"
 - "source_issue": {issue_number}
 

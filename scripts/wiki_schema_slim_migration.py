@@ -63,6 +63,18 @@ def migrate() -> int:
                 len(roundtrip),
             )
             return 1
+        # Content-equality check: count parity is necessary but not
+        # sufficient. _strip_prose_chrome calls .strip(), so trailing
+        # whitespace silently disappears; without this check the migration
+        # would report success while mutating content.
+        for original, reloaded in zip(entries, roundtrip, strict=True):
+            if original.content.strip() != reloaded.content.strip():
+                logger.error(
+                    "MIGRATION FAILED for %s: content mismatch on entry %r",
+                    md_file.name,
+                    original.title,
+                )
+                return 1
 
         if before != after:
             files_rewritten += 1

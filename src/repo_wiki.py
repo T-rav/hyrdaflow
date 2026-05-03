@@ -1053,14 +1053,18 @@ class RepoWikiStore:
 
         **WARNING (Phase 2 transition):** Other methods on ``RepoWikiStore``
         (``ingest``, ``query``, ``lint``, ``active_lint``, ``_ensure_repo_dir``,
-        ``_rebuild_index``, ``_load_topic_entries``) still hardcode the
-        legacy topic-level layout (``{topic}.md`` files + ``index.json``).
-        Pointing a live ``RepoWikiStore`` at a new-layout directory will
-        corrupt it: ``_ensure_repo_dir`` seeds topic ``.md`` files on top of
-        the new per-entry subdirectories.  Phase 3 refactors those methods.
-        Until then, the production runtime keeps pointing at the legacy
-        ``.hydraflow/repo_wiki/`` path; the tracked ``repo_wiki/`` is
-        populated by the migration script but not yet read at runtime.
+        ``_rebuild_index``, ``_load_topic_entries``) target the topic-level
+        layout (``{topic}.md`` files + ``index.json``). PR #8465 slimmed the
+        on-disk format — each entry is now a ``## Title`` section with
+        prose followed by a slim ``json:entry`` metadata block — but the
+        layout shape (one ``.md`` per topic, central ``index.json``) is
+        unchanged. Pointing a live ``RepoWikiStore`` at a new-layout
+        per-entry-file directory will still corrupt it: ``_ensure_repo_dir``
+        seeds topic ``.md`` files on top of the new per-entry subdirectories.
+        Phase 3 refactors those methods. Until then, the production runtime
+        keeps pointing at the legacy ``.hydraflow/repo_wiki/`` path; the
+        tracked ``repo_wiki/`` is populated by the migration script but not
+        yet read at runtime.
         """
         if not self._wiki_root.exists():
             return []
@@ -1408,25 +1412,43 @@ class RepoWikiStore:
         Legacy entries that still embed ``content`` in the JSON continue
         to load — the prose section overrides if present, otherwise the
         JSON-embedded copy is used.
+
+        Parsing strategy: split the file at line-start ``## `` boundaries
+        into entry sections, then within each section locate the LAST
+        ``json:entry`` code block as the metadata block. This is robust
+        against (a) prose containing embedded ```` ```json:entry ```` fences
+        (e.g., wiki entries about the wiki schema itself), and (b) free-form
+        ``## Heading`` sections without a metadata block (silently skipped
+        rather than eating the next entry).
         """
         if not topic_path.exists():
             return []
 
         text = topic_path.read_text()
+        # Split at line-start "## " — first chunk is the file preamble.
+        sections = re.split(r"(?:^|\n)## ", text)
         entries: list[WikiEntry] = []
 
-        for match in re.finditer(
-            r"## (?P<title>[^\n]+)\n(?P<body>.*?)```json:entry\n(?P<meta>.+?)\n```",
-            text,
-            re.DOTALL,
-        ):
+        for section in sections[1:]:
+            title, _, body = section.partition("\n")
+            title = title.strip()
+            if not title:
+                continue
+            meta_matches = list(
+                re.finditer(r"```json:entry\n(.+?)\n```", body, re.DOTALL),
+            )
+            if not meta_matches:
+                continue  # free-form section without metadata — skip silently
+            meta_match = meta_matches[-1]  # always the LAST block
             try:
-                metadata = json.loads(match.group("meta"))
-                prose = _strip_prose_chrome(match.group("body"))
+                metadata = json.loads(meta_match.group(1))
+                prose = _strip_prose_chrome(body[: meta_match.start()])
                 if prose:
                     metadata["content"] = prose
                 elif "content" not in metadata:
                     metadata["content"] = ""
+                if not metadata.get("title"):
+                    metadata["title"] = title
                 entries.append(WikiEntry.model_validate(metadata))
             except Exception:  # noqa: BLE001
                 logger.warning("Skipping malformed entry in %s", topic_path)
