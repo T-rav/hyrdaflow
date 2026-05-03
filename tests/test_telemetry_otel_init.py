@@ -87,3 +87,38 @@ def test_init_otel_redacts_api_key_from_logs(monkeypatch, caplog):
         otel_mod.init_otel(cfg)
     for record in caplog.records:
         assert "secret-not-to-log" not in record.getMessage()
+
+
+def test_main_calls_init_otel_after_sentry(monkeypatch):
+    """server.main() must call init_otel after _init_sentry."""
+    from unittest.mock import MagicMock
+
+    from src import server
+
+    call_order: list[str] = []
+
+    def _fake_sentry():
+        call_order.append("sentry")
+
+    def _fake_otel(cfg):
+        call_order.append("otel")
+
+    monkeypatch.setattr(server, "_init_sentry", _fake_sentry)
+    monkeypatch.setattr("src.telemetry.otel.init_otel", _fake_otel)
+
+    # Stub out everything in main() that does real I/O
+    fake_config = MagicMock()
+    fake_config.dashboard_enabled = False
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **kw: None)
+    monkeypatch.setattr("src.server.load_runtime_config", lambda: fake_config)
+    monkeypatch.setattr("src.server.setup_logging", lambda *a, **kw: None)
+    import asyncio as _asyncio
+
+    def _fake_asyncio_run(coro, **kw):
+        # Close the coroutine to avoid "never awaited" warnings.
+        coro.close()
+
+    monkeypatch.setattr(_asyncio, "run", _fake_asyncio_run)
+
+    server.main()
+    assert call_order == ["sentry", "otel"]
