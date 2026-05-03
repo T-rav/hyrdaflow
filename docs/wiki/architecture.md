@@ -14,7 +14,7 @@ Names that load-bearing pipeline code uses. Use these literal names, not paraphr
 - **RepoWikiLoop** — caretaker loop that keeps `docs/wiki/` fresh from live pipeline events ([ADR-0029](../adr/0029-caretaker-loop-pattern.md), [ADR-0032](../adr/0032-per-repo-wiki-knowledge-base.md)).
 - **RepoWikiStore** — persistence layer for the repo wiki entries (JSONL + Markdown round-trip). See [`architecture-state-persistence.md`](architecture-state-persistence.md).
 - **DiagramLoop** — caretaker loop that regenerates the system-topology Markdown+Mermaid every 4h ([ADR-0029](../adr/0029-caretaker-loop-pattern.md)).
-- **MockWorld** — in-process fake-adapter set (FakeGitHub, FakeWorkspace, FakeLLM, FakeIssueStore, FakeIssueFetcher) used by sandbox-tier scenario tests ([ADR-0052](../adr/0052-sandbox-tier-scenario-testing.md)).
+- **MockWorld** — in-process fake-adapter set (FakeGitHub, FakeWorkspace, FakeLLM, FakeIssueStore, FakeIssueFetcher) used by sandbox-tier scenario tests ([ADR-0052](../adr/0052-sandbox-tier-scenarios.md)).
 
 When CLAUDE.md adds a term to its ubiquitous-language vocabulary, it must show up here so the principles audit (P2.9) and any agent looking it up can resolve to real context.
 
