@@ -45,6 +45,17 @@ BOT_NAME = "HydraFlow"
 # may contain "/" and other characters; sanitize for the worktree dir name.
 _SANITIZE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
+# Hard timeout for every ``subprocess.run`` invocation in this module.
+# ``open_automated_pr_async`` runs these wrappers under ``asyncio.to_thread``,
+# so an unbounded subprocess (hung ``git push`` against a stale remote, ``gh``
+# blocking on auth refresh, pre-push hook deadlock, etc.) leaks the worker
+# thread and eventually exhausts the asyncio thread pool. Same deadlock class
+# as PR #8454 / regression test ``test_async_subprocess_timeouts.py``.
+# 120 s comfortably covers the slowest legitimate operation (a ``git push``
+# that triggers a slow pre-push hook against origin); anything beyond is a
+# hang we want to surface, not wait on.
+_SUBPROCESS_TIMEOUT_S = 120
+
 
 # ---------------------------------------------------------------------------
 # Public types
@@ -90,6 +101,7 @@ def _run_git(
         check=check,
         capture_output=True,
         text=True,
+        timeout=_SUBPROCESS_TIMEOUT_S,
     )
 
 
@@ -105,6 +117,7 @@ def _run_gh(cmd: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
         check=False,
         capture_output=True,
         text=True,
+        timeout=_SUBPROCESS_TIMEOUT_S,
     )
 
 
