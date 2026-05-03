@@ -20,6 +20,7 @@ from mockworld.fakes.fake_docker import FakeDocker
 from mockworld.fakes.fake_fs import FakeFS
 from mockworld.fakes.fake_git import FakeGit
 from mockworld.fakes.fake_github import FakeGitHub
+from mockworld.fakes.fake_honeycomb import FakeHoneycomb
 from mockworld.fakes.fake_http import FakeHTTP
 from mockworld.fakes.fake_llm import FakeLLM
 from mockworld.fakes.fake_sentry import FakeSentry
@@ -237,6 +238,7 @@ class MockWorld:
         self._llm = FakeLLM()
         self._github = FakeGitHub()
         self._sentry = FakeSentry()
+        self._honeycomb = FakeHoneycomb()
         self._workspace = FakeWorkspace(tmp_path / "worktrees")
         self._clock = FakeClock(start=time.time())
         if clock_start is not None:
@@ -458,6 +460,10 @@ class MockWorld:
     @property
     def sentry(self) -> FakeSentry:
         return self._sentry
+
+    @property
+    def honeycomb(self) -> FakeHoneycomb:
+        return self._honeycomb
 
     @property
     def clock(self) -> FakeClock:
