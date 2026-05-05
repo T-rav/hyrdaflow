@@ -18,6 +18,7 @@ from ubiquitous_language import (
     dump_term_file,
     lint_anchor_resolution,
     lint_paraphrases,
+    lint_reverse_coverage,
     load_term_file,
     resolve_anchor,
 )
@@ -268,3 +269,32 @@ class TestParaphraseLint:
         ]
         violations = lint_paraphrases(terms, wiki)
         assert violations == []
+
+
+class TestReverseCoverageLint:
+    def test_reports_uncovered_load_bearing_classes(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.py").write_text(
+            "class FooLoop:\n    pass\nclass HelperUtil:\n    pass\n"
+        )
+        (src / "b.py").write_text("class BarRunner:\n    pass\n")
+        terms = [
+            Term(
+                name="FooLoop",
+                kind=TermKind.LOOP,
+                bounded_context=BoundedContext.SHARED_KERNEL,
+                definition="x",
+                code_anchor="src/a.py:FooLoop",
+            )
+        ]
+        uncovered = lint_reverse_coverage(terms, src)
+        # FooLoop covered; HelperUtil isn't load-bearing; BarRunner is uncovered
+        assert uncovered == ["src/b.py:BarRunner"]
+
+    def test_returns_empty_when_full_coverage(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.py").write_text("class Helper:\n    pass\n")
+        terms: list[Term] = []
+        assert lint_reverse_coverage(terms, src) == []

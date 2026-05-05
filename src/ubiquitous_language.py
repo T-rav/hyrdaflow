@@ -272,3 +272,24 @@ def lint_paraphrases(terms: list[Term], wiki_root: Path) -> list[str]:
                     f"{path.relative_to(wiki_root)}: '{alias}' should be '{canonical}'"
                 )
     return violations
+
+
+_LOAD_BEARING_SUFFIXES = ("Loop", "Runner", "Port", "Adapter")
+
+
+def lint_reverse_coverage(terms: list[Term], src_root: Path) -> list[str]:
+    """Return load-bearing symbols in src_root with no corresponding Term.
+
+    Load-bearing = class name ends in Loop/Runner/Port/Adapter. Warn-only;
+    the caller decides whether to fail.
+    """
+    index = build_symbol_index(src_root)
+    covered = {t.code_anchor for t in terms}
+    uncovered: list[str] = []
+    for name, locations in index.items():
+        if not name.endswith(_LOAD_BEARING_SUFFIXES):
+            continue
+        for loc in locations:
+            if loc not in covered:
+                uncovered.append(loc)
+    return sorted(uncovered)
