@@ -1,0 +1,70 @@
+"""Verifies seed terms parse, anchors resolve, contexts/kinds are valid."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from ubiquitous_language import (
+    BoundedContext,
+    Term,
+    TermKind,
+    TermStore,
+    build_symbol_index,
+    resolve_anchor,
+)
+
+REPO_ROOT = Path(__file__).parent.parent
+TERMS_DIR = REPO_ROOT / "docs" / "wiki" / "terms"
+SRC_DIR = REPO_ROOT / "src"
+
+EXPECTED_NAMES = {
+    "HydraFlowConfig",
+    "EventBus",
+    "StateTracker",
+    "BaseBackgroundLoop",
+    "RepoWikiStore",
+    "PRPort",
+    "WorkspacePort",
+    "IssueStorePort",
+    "AgentRunner",
+}
+
+
+@pytest.fixture(scope="module")
+def seed_terms() -> list[Term]:
+    return TermStore(TERMS_DIR).list()
+
+
+def test_all_expected_seed_terms_present(seed_terms: list[Term]) -> None:
+    actual = {t.name for t in seed_terms}
+    missing = EXPECTED_NAMES - actual
+    assert not missing, f"Missing seed terms: {missing}"
+
+
+def test_all_seed_anchors_resolve(seed_terms: list[Term]) -> None:
+    index = build_symbol_index(SRC_DIR)
+    unresolved = [
+        (t.name, t.code_anchor)
+        for t in seed_terms
+        if not resolve_anchor(t.code_anchor, index)
+    ]
+    assert not unresolved, f"Unresolved anchors: {unresolved}"
+
+
+def test_seed_terms_use_valid_kinds_and_contexts(seed_terms: list[Term]) -> None:
+    for t in seed_terms:
+        assert isinstance(t.kind, TermKind)
+        assert isinstance(t.bounded_context, BoundedContext)
+
+
+def test_seed_terms_have_definitions_and_anchors(seed_terms: list[Term]) -> None:
+    for t in seed_terms:
+        assert len(t.definition) >= 30, f"{t.name}: definition too short"
+        assert ":" in t.code_anchor, f"{t.name}: malformed anchor"
+
+
+def test_seed_terms_are_accepted(seed_terms: list[Term]) -> None:
+    for t in seed_terms:
+        assert t.confidence == "accepted", f"{t.name} should ship as accepted"
