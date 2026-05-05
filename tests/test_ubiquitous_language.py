@@ -20,6 +20,8 @@ from ubiquitous_language import (
     lint_paraphrases,
     lint_reverse_coverage,
     load_term_file,
+    render_context_map,
+    render_glossary,
     resolve_anchor,
 )
 
@@ -298,3 +300,58 @@ class TestReverseCoverageLint:
         (src / "a.py").write_text("class Helper:\n    pass\n")
         terms: list[Term] = []
         assert lint_reverse_coverage(terms, src) == []
+
+
+class TestGlossaryRender:
+    def test_renders_alphabetical_with_header(self) -> None:
+        terms = [
+            Term(
+                name="ZebraPort",
+                kind=TermKind.PORT,
+                bounded_context=BoundedContext.SHARED_KERNEL,
+                definition="zzz",
+                code_anchor="src/z.py:ZebraPort",
+            ),
+            Term(
+                name="AlphaLoop",
+                kind=TermKind.LOOP,
+                bounded_context=BoundedContext.BUILDER,
+                definition="aaa",
+                code_anchor="src/a.py:AlphaLoop",
+            ),
+        ]
+        out = render_glossary(terms)
+        assert out.startswith("<!-- DO NOT EDIT")
+        # Alphabetical order
+        assert out.index("AlphaLoop") < out.index("ZebraPort")
+        assert "src/a.py:AlphaLoop" in out
+        assert "builder" in out
+
+
+class TestContextMapRender:
+    def test_groups_by_context_and_emits_edges(self) -> None:
+        terms = [
+            Term(
+                id="01HX01",
+                name="EventBus",
+                kind=TermKind.SERVICE,
+                bounded_context=BoundedContext.SHARED_KERNEL,
+                definition="x",
+                code_anchor="src/event_bus.py:EventBus",
+                related=[TermRel(kind=TermRelKind.CONSUMES, target="01HX02")],
+            ),
+            Term(
+                id="01HX02",
+                name="AgentRunner",
+                kind=TermKind.RUNNER,
+                bounded_context=BoundedContext.BUILDER,
+                definition="x",
+                code_anchor="src/agent.py:AgentRunner",
+            ),
+        ]
+        out = render_context_map(terms)
+        assert "```mermaid" in out
+        assert "subgraph shared-kernel" in out
+        assert "subgraph builder" in out
+        # Edge label encodes the rel kind
+        assert "consumes" in out
