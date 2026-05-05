@@ -7,8 +7,10 @@ lint rules, and renderers.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -78,3 +80,85 @@ class Term(BaseModel):
     confidence: Literal["proposed", "accepted", "deprecated"] = "proposed"
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+
+_FRONTMATTER_DELIM = "---"
+
+
+def dump_term_file(path: Path, term: Term) -> None:
+    """Write a Term to disk as YAML-ish frontmatter + prose body.
+
+    Body section captures `definition` as paragraphs and `invariants` as a
+    bulleted list — readable by humans, parsed deterministically.
+    """
+    fm: dict[str, object] = {
+        "id": term.id,
+        "name": term.name,
+        "kind": term.kind.value,
+        "bounded_context": term.bounded_context.value,
+        "code_anchor": term.code_anchor,
+        "aliases": term.aliases,
+        "related": [r.model_dump() for r in term.related],
+        "evidence": term.evidence,
+        "superseded_by": term.superseded_by,
+        "superseded_reason": term.superseded_reason,
+        "confidence": term.confidence,
+        "created_at": term.created_at,
+        "updated_at": term.updated_at,
+    }
+    lines = [_FRONTMATTER_DELIM]
+    for key, value in fm.items():
+        lines.append(f"{key}: {json.dumps(value)}")
+    lines.append(_FRONTMATTER_DELIM)
+    lines.append("")
+    lines.append("## Definition")
+    lines.append("")
+    lines.append(term.definition)
+    if term.invariants:
+        lines.append("")
+        lines.append("## Invariants")
+        lines.append("")
+        for inv in term.invariants:
+            lines.append(f"- {inv}")
+    lines.append("")
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def load_term_file(path: Path) -> Term:
+    """Parse a term file. Inverse of dump_term_file."""
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != _FRONTMATTER_DELIM:
+        raise ValueError(f"{path}: missing frontmatter delimiter")
+    fm: dict[str, object] = {}
+    i = 1
+    while i < len(lines) and lines[i].strip() != _FRONTMATTER_DELIM:
+        line = lines[i]
+        if ":" in line:
+            key, _, raw = line.partition(":")
+            fm[key.strip()] = json.loads(raw.strip())
+        i += 1
+    if i >= len(lines):
+        raise ValueError(f"{path}: unterminated frontmatter")
+    body = "\n".join(lines[i + 1 :]).strip()
+
+    definition, invariants = _parse_term_body(body)
+    fm["definition"] = definition
+    fm["invariants"] = invariants
+    return Term.model_validate(fm)
+
+
+def _parse_term_body(body: str) -> tuple[str, list[str]]:
+    """Split body into definition + invariants. Sections delimited by `## `."""
+    definition_lines: list[str] = []
+    invariants: list[str] = []
+    current: str | None = None
+    for line in body.splitlines():
+        if line.startswith("## "):
+            current = line[3:].strip().lower()
+            continue
+        if current == "definition":
+            definition_lines.append(line)
+        elif current == "invariants" and line.startswith("- "):
+            invariants.append(line[2:].strip())
+    return "\n".join(definition_lines).strip(), invariants

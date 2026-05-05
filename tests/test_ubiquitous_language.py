@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -11,6 +13,8 @@ from ubiquitous_language import (
     TermKind,
     TermRel,
     TermRelKind,
+    dump_term_file,
+    load_term_file,
 )
 
 
@@ -60,3 +64,36 @@ class TestTermModel:
                 code_anchor="src/x.py:Y",
                 confidence="bogus",  # type: ignore[arg-type]
             )
+
+
+class TestTermFileFormat:
+    def test_round_trip_through_disk(self, tmp_path: Path) -> None:
+        original = Term(
+            id="01HX000000000000000000000A",
+            name="RepoWikiLoop",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            definition="Background loop ingesting session events into the repo wiki.",
+            invariants=[
+                "Idempotent — re-ingesting the same session is a no-op.",
+                "Never blocks the main pipeline.",
+            ],
+            code_anchor="src/repo_wiki_loop.py:RepoWikiLoop",
+            aliases=["repo wiki loop", "wiki ingest loop"],
+            confidence="accepted",
+        )
+        path = tmp_path / "repo-wiki-loop.md"
+        dump_term_file(path, original)
+
+        loaded = load_term_file(path)
+        assert loaded.id == original.id
+        assert loaded.name == original.name
+        assert loaded.invariants == original.invariants
+        assert loaded.aliases == original.aliases
+        assert loaded.confidence == "accepted"
+
+    def test_load_rejects_missing_frontmatter(self, tmp_path: Path) -> None:
+        path = tmp_path / "bad.md"
+        path.write_text("just prose, no frontmatter")
+        with pytest.raises(ValueError, match="frontmatter"):
+            load_term_file(path)
