@@ -640,6 +640,18 @@ class LintResult(BaseModel):
     orphans_pruned: int = 0
     review_candidates_flagged: int = 0  # stale + age > 90d (no longer pruned)
     index_rebuilt: bool = False
+    unresolved_anchors: list[str] = Field(
+        default_factory=list,
+        description="UL: term anchors that don't resolve in src/",
+    )
+    paraphrase_violations: list[str] = Field(
+        default_factory=list,
+        description="UL: wiki entry text using term aliases instead of canonical names",
+    )
+    uncovered_symbols: list[str] = Field(
+        default_factory=list,
+        description="UL: load-bearing symbols in src/ with no corresponding Term (warn-only)",
+    )
 
 
 class IngestResult(BaseModel):

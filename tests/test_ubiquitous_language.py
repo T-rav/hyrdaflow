@@ -16,6 +16,7 @@ from ubiquitous_language import (
     TermStore,
     build_symbol_index,
     dump_term_file,
+    lint_anchor_resolution,
     load_term_file,
     resolve_anchor,
 )
@@ -173,3 +174,36 @@ class TestSymbolIndexer:
         (src / "a.py").write_text("class Bar:\n    pass\n")
         index = build_symbol_index(src)
         assert resolve_anchor("src/b.py:Bar", index) is False
+
+
+class TestAnchorResolutionLint:
+    def test_clean_when_all_resolve(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.py").write_text("class Bar:\n    pass\n")
+        terms = [
+            Term(
+                name="Bar",
+                kind=TermKind.SERVICE,
+                bounded_context=BoundedContext.SHARED_KERNEL,
+                definition="x",
+                code_anchor="src/foo.py:Bar",
+            )
+        ]
+        unresolved = lint_anchor_resolution(terms, src)
+        assert unresolved == []
+
+    def test_reports_unresolved(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        terms = [
+            Term(
+                name="Ghost",
+                kind=TermKind.SERVICE,
+                bounded_context=BoundedContext.SHARED_KERNEL,
+                definition="x",
+                code_anchor="src/ghost.py:Ghost",
+            )
+        ]
+        unresolved = lint_anchor_resolution(terms, src)
+        assert unresolved == ["Ghost -> src/ghost.py:Ghost"]

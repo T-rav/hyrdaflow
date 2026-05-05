@@ -232,3 +232,15 @@ def resolve_anchor(anchor: str, index: dict[str, list[str]]) -> bool:
         return False
     _, _, name = anchor.rpartition(":")
     return anchor in index.get(name, [])
+
+
+def lint_anchor_resolution(terms: list[Term], src_root: Path) -> list[str]:
+    """Return human-readable failure strings for terms whose anchors
+    do not resolve. Empty list = clean.
+    """
+    index = build_symbol_index(src_root)
+    failures: list[str] = []
+    for term in terms:
+        if not resolve_anchor(term.code_anchor, index):
+            failures.append(f"{term.name} -> {term.code_anchor}")
+    return failures
