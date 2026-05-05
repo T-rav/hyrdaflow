@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
+
 from ubiquitous_language import (
     BoundedContext,
     Term,
