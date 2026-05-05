@@ -8,6 +8,7 @@ lint rules, and renderers.
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -162,3 +163,44 @@ def _parse_term_body(body: str) -> tuple[str, list[str]]:
         elif current == "invariants" and line.startswith("- "):
             invariants.append(line[2:].strip())
     return "\n".join(definition_lines).strip(), invariants
+
+
+def _slugify_term_name(name: str) -> str:
+    """Convert a term name (e.g., 'RepoWikiLoop') to a slug (e.g., 'repo-wiki-loop')."""
+    # Insert hyphens before uppercase letters that follow lowercase
+    step1 = re.sub(r"(?<=[a-z])(?=[A-Z])", "-", name)
+    # Also insert before uppercase followed by lowercase and not at word start
+    step2 = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", "-", step1)
+    # Convert to lowercase
+    step3 = step2.lower()
+    # Remove any sequences of non-alphanumeric chars and replace with single hyphen
+    step4 = re.sub(r"[^a-z0-9]+", "-", step3)
+    # Strip leading/trailing hyphens
+    return step4.strip("-")
+
+
+class TermStore:
+    """File-based store for Term records (one file per term)."""
+
+    def __init__(self, root: Path) -> None:
+        self._root = root
+
+    def write(self, term: Term) -> Path:
+        self._root.mkdir(parents=True, exist_ok=True)
+        path = self._root / f"{_slugify_term_name(term.name)}.md"
+        dump_term_file(path, term)
+        return path
+
+    def list(self) -> list[Term]:
+        if not self._root.is_dir():
+            return []
+        return sorted(
+            (load_term_file(p) for p in self._root.glob("*.md")),
+            key=lambda t: t.name.lower(),
+        )
+
+    def load_by_name(self, name: str) -> Term | None:
+        path = self._root / f"{_slugify_term_name(name)}.md"
+        if not path.exists():
+            return None
+        return load_term_file(path)

@@ -10,7 +10,7 @@ Accepted
 
 ## Enforced by
 
-(none)
+`tests/test_ubiquitous_language.py`, `tests/test_seed_terms.py`
 
 ## Context
 

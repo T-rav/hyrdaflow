@@ -13,6 +13,7 @@ from ubiquitous_language import (
     TermKind,
     TermRel,
     TermRelKind,
+    TermStore,
     dump_term_file,
     load_term_file,
 )
@@ -97,3 +98,46 @@ class TestTermFileFormat:
         path.write_text("just prose, no frontmatter")
         with pytest.raises(ValueError, match="frontmatter"):
             load_term_file(path)
+
+
+class TestTermStore:
+    def test_write_and_list(self, tmp_path: Path) -> None:
+        store = TermStore(tmp_path / "terms")
+        term = Term(
+            name="RepoWikiLoop",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            definition="x",
+            code_anchor="src/repo_wiki_loop.py:RepoWikiLoop",
+        )
+        store.write(term)
+        listed = store.list()
+        assert len(listed) == 1
+        assert listed[0].name == "RepoWikiLoop"
+
+    def test_filename_is_slugified_name(self, tmp_path: Path) -> None:
+        store = TermStore(tmp_path / "terms")
+        term = Term(
+            name="RepoWikiLoop",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            definition="x",
+            code_anchor="src/repo_wiki_loop.py:RepoWikiLoop",
+        )
+        store.write(term)
+        assert (tmp_path / "terms" / "repo-wiki-loop.md").exists()
+
+    def test_load_by_name(self, tmp_path: Path) -> None:
+        store = TermStore(tmp_path / "terms")
+        term = Term(
+            name="PRPort",
+            kind=TermKind.PORT,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            definition="x",
+            code_anchor="src/pr_port.py:PRPort",
+        )
+        store.write(term)
+        loaded = store.load_by_name("PRPort")
+        assert loaded is not None
+        assert loaded.name == "PRPort"
+        assert store.load_by_name("Nonexistent") is None
