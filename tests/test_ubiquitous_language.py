@@ -14,8 +14,10 @@ from ubiquitous_language import (
     TermRel,
     TermRelKind,
     TermStore,
+    build_symbol_index,
     dump_term_file,
     load_term_file,
+    resolve_anchor,
 )
 
 
@@ -141,3 +143,33 @@ class TestTermStore:
         assert loaded is not None
         assert loaded.name == "PRPort"
         assert store.load_by_name("Nonexistent") is None
+
+
+class TestSymbolIndexer:
+    def test_finds_class_in_src(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.py").write_text("class Bar:\n    pass\n")
+        (src / "baz.py").write_text("def quux():\n    pass\n\nclass Bar:\n    pass\n")
+        index = build_symbol_index(src)
+        assert "Bar" in index
+        assert sorted(index["Bar"]) == ["src/baz.py:Bar", "src/foo.py:Bar"]
+
+    def test_resolve_anchor_finds_existing(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.py").write_text("class Bar:\n    pass\n")
+        index = build_symbol_index(src)
+        assert resolve_anchor("src/foo.py:Bar", index) is True
+        assert resolve_anchor("src/foo.py:Missing", index) is False
+        assert resolve_anchor("src/missing.py:Bar", index) is False
+
+    def test_resolve_anchor_via_alias_lookup(self, tmp_path: Path) -> None:
+        """Anchor names that match by class name even with different paths
+        should still produce a useful diagnostic — but resolution requires
+        exact path match. This documents the exact-path policy."""
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.py").write_text("class Bar:\n    pass\n")
+        index = build_symbol_index(src)
+        assert resolve_anchor("src/b.py:Bar", index) is False

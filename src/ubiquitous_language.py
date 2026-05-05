@@ -7,6 +7,7 @@ lint rules, and renderers.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from datetime import UTC, datetime
@@ -204,3 +205,30 @@ class TermStore:
         if not path.exists():
             return None
         return load_term_file(path)
+
+
+def build_symbol_index(src_root: Path) -> dict[str, list[str]]:
+    """Walk *.py under src_root, return {ClassName: [path:ClassName, ...]}.
+
+    Uses AST so syntax errors localize to one file. Skips files that fail
+    to parse (logged via a warn-only mechanism added in lint).
+    """
+    index: dict[str, list[str]] = {}
+    for path in sorted(src_root.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                rel = path.relative_to(src_root.parent)
+                index.setdefault(node.name, []).append(f"{rel}:{node.name}")
+    return index
+
+
+def resolve_anchor(anchor: str, index: dict[str, list[str]]) -> bool:
+    """True iff anchor (path:ClassName) appears in the index."""
+    if ":" not in anchor:
+        return False
+    _, _, name = anchor.rpartition(":")
+    return anchor in index.get(name, [])
