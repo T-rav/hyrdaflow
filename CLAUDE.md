@@ -59,11 +59,10 @@ regression test in `tests/regressions/`. See [`docs/wiki/testing.md`](docs/wiki/
 
 For substantial features (new loop, new runner, spec → multi-task work), end with **2–3 fresh-eyes review iterations** until convergence per [ADR-0051](docs/adr/0051-iterative-production-readiness-review.md) — convergence = next pass finds nothing material.
 
-## Ubiquitous language (ADR-0044 P2.9)
+## Ubiquitous language (ADR-0053)
 
-Names are load-bearing — don't paraphrase. Look up specific terms in [`docs/wiki/architecture.md`](docs/wiki/architecture.md):
-
-- `HydraFlowConfig`, `StateTracker` / `StateData`, `EventBus`, `SessionLog`, `ReviewResult`
-- `BaseBackgroundLoop`, `RepoWikiStore`
-- `PRPort` / `WorkspacePort` / `IssueStorePort` — hexagonal boundaries
-- `AgentRunner` / `PlannerRunner` / `ReviewRunner`, `WorktreeManager`
+Names are load-bearing — don't paraphrase. The canonical glossary lives at
+[`docs/wiki/terms/`](docs/wiki/terms/) (one file per term) and is rendered to
+[`docs/arch/generated/ubiquitous-language.md`](docs/arch/generated/ubiquitous-language.md)
+on every PR. Drift between term anchors and live code is a CI failure; see
+[ADR-0053](docs/adr/0053-ubiquitous-language-as-living-artifact.md).
