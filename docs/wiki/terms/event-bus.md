@@ -4,7 +4,7 @@ name: "EventBus"
 kind: "service"
 bounded_context: "shared-kernel"
 code_anchor: "src/events.py:EventBus"
-aliases: ["event bus", "pub/sub bus", "hydraflow event bus"]
+aliases: ["pub/sub bus", "hydraflow event bus"]
 related: []
 evidence: []
 superseded_by: null

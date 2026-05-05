@@ -17,4 +17,8 @@ graph LR
     StateTracker["StateTracker<br/><i>service</i>"]
     WorkspacePort["WorkspacePort<br/><i>port</i>"]
   end
+  AgentRunner -->|depends_on| PRPort
+  AgentRunner -->|depends_on| WorkspacePort
+  AgentRunner -->|depends_on| IssueStorePort
+  BaseBackgroundLoop -->|depends_on| EventBus
 ```

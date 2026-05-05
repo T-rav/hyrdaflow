@@ -21,7 +21,7 @@ Subprocess runner for the implement phase: launches a `claude -p` process inside
 ## BaseBackgroundLoop
 
 **Kind:** `loop` · **Context:** `shared-kernel` · **Anchor:** `src/base_background_loop.py:BaseBackgroundLoop` · **Confidence:** `accepted`
-**Aliases:** `base background loop`, `background loop`, `loop base class`
+**Aliases:** `base background loop`, `loop base class`
 
 Abstract base class for every concurrent worker loop in the HydraFlow orchestrator (ADR-0001, ADR-0029). Owns the run-loop skeleton — enabled-check, interval management, status callbacks, BACKGROUND_WORKER_STATUS event publishing, error reporting, and trigger-based early wake-up — leaving subclasses to implement only the domain-specific _do_work and _get_default_interval hooks.
 
@@ -33,7 +33,7 @@ Abstract base class for every concurrent worker loop in the HydraFlow orchestrat
 ## EventBus
 
 **Kind:** `service` · **Context:** `shared-kernel` · **Anchor:** `src/events.py:EventBus` · **Confidence:** `accepted`
-**Aliases:** `event bus`, `pub/sub bus`, `hydraflow event bus`
+**Aliases:** `pub/sub bus`, `hydraflow event bus`
 
 Async pub/sub bus that fans HydraFlowEvent objects out to subscriber asyncio.Queues, retains a bounded in-memory history for replay, and optionally persists every event through an EventLog. Auto-injects the active session_id and repo slug onto outbound events so downstream consumers always see a fully tagged event stream.
 

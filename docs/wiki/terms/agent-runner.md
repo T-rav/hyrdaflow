@@ -5,7 +5,7 @@ kind: "runner"
 bounded_context: "builder"
 code_anchor: "src/agent.py:AgentRunner"
 aliases: ["agent runner", "implement runner", "claude agent runner"]
-related: []
+related: [{"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K7"}, {"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K8"}, {"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K9"}]
 evidence: []
 superseded_by: null
 superseded_reason: null

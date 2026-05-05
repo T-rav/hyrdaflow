@@ -4,8 +4,8 @@ name: "BaseBackgroundLoop"
 kind: "loop"
 bounded_context: "shared-kernel"
 code_anchor: "src/base_background_loop.py:BaseBackgroundLoop"
-aliases: ["base background loop", "background loop", "loop base class"]
-related: []
+aliases: ["base background loop", "loop base class"]
+related: [{"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K3"}]
 evidence: []
 superseded_by: null
 superseded_reason: null
