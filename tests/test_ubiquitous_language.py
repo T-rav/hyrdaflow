@@ -17,6 +17,7 @@ from ubiquitous_language import (
     build_symbol_index,
     dump_term_file,
     lint_anchor_resolution,
+    lint_paraphrases,
     load_term_file,
     resolve_anchor,
 )
@@ -207,3 +208,63 @@ class TestAnchorResolutionLint:
         ]
         unresolved = lint_anchor_resolution(terms, src)
         assert unresolved == ["Ghost -> src/ghost.py:Ghost"]
+
+
+class TestParaphraseLint:
+    def test_clean_when_canonical_only(self, tmp_path: Path) -> None:
+        wiki = tmp_path / "wiki"
+        wiki.mkdir()
+        (wiki / "patterns.md").write_text("Use RepoWikiStore directly.")
+        terms = [
+            Term(
+                name="RepoWikiStore",
+                kind=TermKind.SERVICE,
+                bounded_context=BoundedContext.SHARED_KERNEL,
+                definition="x",
+                code_anchor="src/repo_wiki.py:RepoWikiStore",
+                aliases=["repo wiki store"],
+            )
+        ]
+        violations = lint_paraphrases(terms, wiki)
+        assert violations == []
+
+    def test_flags_alias_usage(self, tmp_path: Path) -> None:
+        wiki = tmp_path / "wiki"
+        wiki.mkdir()
+        (wiki / "patterns.md").write_text("The repo wiki store handles ingest.")
+        terms = [
+            Term(
+                name="RepoWikiStore",
+                kind=TermKind.SERVICE,
+                bounded_context=BoundedContext.SHARED_KERNEL,
+                definition="x",
+                code_anchor="src/repo_wiki.py:RepoWikiStore",
+                aliases=["repo wiki store"],
+            )
+        ]
+        violations = lint_paraphrases(terms, wiki)
+        assert len(violations) == 1
+        assert "repo wiki store" in violations[0]
+        assert "patterns.md" in violations[0]
+
+    def test_ignores_aliases_inside_term_files_themselves(self, tmp_path: Path) -> None:
+        """Term files DEFINE aliases — they aren't paraphrase violations."""
+        wiki = tmp_path / "wiki"
+        terms_dir = wiki / "terms"
+        terms_dir.mkdir(parents=True)
+        (terms_dir / "repo-wiki-store.md").write_text(
+            "frontmatter naming the alias 'repo wiki store' is fine"
+        )
+        (wiki / "patterns.md").write_text("Use RepoWikiStore.")  # canonical
+        terms = [
+            Term(
+                name="RepoWikiStore",
+                kind=TermKind.SERVICE,
+                bounded_context=BoundedContext.SHARED_KERNEL,
+                definition="x",
+                code_anchor="src/repo_wiki.py:RepoWikiStore",
+                aliases=["repo wiki store"],
+            )
+        ]
+        violations = lint_paraphrases(terms, wiki)
+        assert violations == []

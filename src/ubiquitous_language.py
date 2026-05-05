@@ -244,3 +244,31 @@ def lint_anchor_resolution(terms: list[Term], src_root: Path) -> list[str]:
         if not resolve_anchor(term.code_anchor, index):
             failures.append(f"{term.name} -> {term.code_anchor}")
     return failures
+
+
+def lint_paraphrases(terms: list[Term], wiki_root: Path) -> list[str]:
+    """Scan wiki/*.md (excluding wiki/terms/) for alias usage.
+
+    Returns one human-readable string per violation. Case-insensitive
+    word-boundary match. The terms/ subdirectory is excluded — those
+    files DEFINE aliases.
+    """
+    if not wiki_root.is_dir():
+        return []
+    alias_map: dict[str, str] = {}
+    for term in terms:
+        for alias in term.aliases:
+            alias_map[alias.lower()] = term.name
+
+    violations: list[str] = []
+    for path in sorted(wiki_root.rglob("*.md")):
+        if "terms" in path.relative_to(wiki_root).parts:
+            continue
+        text = path.read_text(encoding="utf-8").lower()
+        for alias, canonical in alias_map.items():
+            pattern = re.compile(rf"\b{re.escape(alias)}\b")
+            if pattern.search(text):
+                violations.append(
+                    f"{path.relative_to(wiki_root)}: '{alias}' should be '{canonical}'"
+                )
+    return violations
