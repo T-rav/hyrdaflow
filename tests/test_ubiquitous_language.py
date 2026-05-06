@@ -355,3 +355,62 @@ class TestContextMapRender:
         assert "subgraph builder" in out
         # Edge label encodes the rel kind
         assert "consumes" in out
+
+
+class TestTermProvenance:
+    def test_provenance_fields_default_none(self) -> None:
+        term = Term(
+            name="X",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            definition="A test term used in unit tests for provenance defaults.",
+            code_anchor="src/x.py:X",
+        )
+        assert term.proposed_by is None
+        assert term.proposed_at is None
+        assert term.proposal_signals is None
+        assert term.proposal_imports_seen is None
+
+    def test_provenance_round_trip_through_disk(self, tmp_path: Path) -> None:
+        original = Term(
+            name="FooLoop",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            definition="A test loop term used in unit tests for provenance round-trip.",
+            code_anchor="src/foo.py:FooLoop",
+            proposed_by="TermProposerLoop",
+            proposed_at="2026-05-08T12:00:00+00:00",
+            proposal_signals=["S1", "S2"],
+            proposal_imports_seen=3,
+        )
+        path = tmp_path / "foo-loop.md"
+        dump_term_file(path, original)
+        loaded = load_term_file(path)
+        assert loaded.proposed_by == "TermProposerLoop"
+        assert loaded.proposed_at == "2026-05-08T12:00:00+00:00"
+        assert loaded.proposal_signals == ["S1", "S2"]
+        assert loaded.proposal_imports_seen == 3
+
+    def test_hand_authored_term_loads_without_provenance(self, tmp_path: Path) -> None:
+        """Existing seed-term files have no provenance; they must still load."""
+        path = tmp_path / "hand-authored.md"
+        path.write_text(
+            "---\n"
+            'id: "01HX01"\n'
+            'name: "HandAuthored"\n'
+            'kind: "service"\n'
+            'bounded_context: "shared-kernel"\n'
+            'code_anchor: "src/x.py:HandAuthored"\n'
+            "aliases: []\n"
+            "related: []\n"
+            "evidence: []\n"
+            "superseded_by: null\n"
+            "superseded_reason: null\n"
+            'confidence: "accepted"\n'
+            'created_at: "2026-05-04T00:00:00+00:00"\n'
+            'updated_at: "2026-05-04T00:00:00+00:00"\n'
+            "---\n\n## Definition\n\nA hand-authored term loaded as a smoke check.\n"
+        )
+        loaded = load_term_file(path)
+        assert loaded.proposed_by is None
+        assert loaded.proposal_signals is None

@@ -80,6 +80,23 @@ class Term(BaseModel):
     superseded_by: str | None = None
     superseded_reason: str | None = None
     confidence: Literal["proposed", "accepted", "deprecated"] = "proposed"
+    proposed_by: str | None = Field(
+        default=None,
+        description="Name of the loop that proposed this term (e.g., 'TermProposerLoop'); None for hand-authored",
+    )
+    proposed_at: str | None = Field(
+        default=None,
+        description="ISO8601 timestamp when proposed; None for hand-authored",
+    )
+    proposal_signals: list[str] | None = Field(
+        default=None,
+        description="Detection signals that flagged this candidate (e.g., ['S1', 'S2'])",
+    )
+    proposal_imports_seen: int | None = Field(
+        default=None,
+        ge=0,
+        description="Count of covered-anchor modules importing this candidate at proposal time",
+    )
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
@@ -108,6 +125,14 @@ def dump_term_file(path: Path, term: Term) -> None:
         "created_at": term.created_at,
         "updated_at": term.updated_at,
     }
+    if term.proposed_by is not None:
+        fm["proposed_by"] = term.proposed_by
+    if term.proposed_at is not None:
+        fm["proposed_at"] = term.proposed_at
+    if term.proposal_signals is not None:
+        fm["proposal_signals"] = term.proposal_signals
+    if term.proposal_imports_seen is not None:
+        fm["proposal_imports_seen"] = term.proposal_imports_seen
     lines = [_FRONTMATTER_DELIM]
     for key, value in fm.items():
         lines.append(f"{key}: {json.dumps(value)}")
