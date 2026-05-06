@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
+
 from term_proposer_llm import (
     DraftContext,
     TermDraft,
     TermProposerLLM,
 )
-
 from ubiquitous_language import (
     BoundedContext,
     Candidate,
@@ -59,7 +57,7 @@ def existing_terms() -> list[Term]:
 class TestTermProposerLLM:
     @pytest.mark.asyncio
     async def test_returns_validated_draft(
-        self, candidate: Candidate, existing_terms: list[Term], tmp_path: Path
+        self, candidate: Candidate, existing_terms: list[Term]
     ) -> None:
         fake = FakeLLMClient(
             response={
