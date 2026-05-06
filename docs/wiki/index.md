@@ -2,6 +2,14 @@
 
 **293 entries** | Last updated: 2026-05-03T04:19:35.650996+00:00
 
+## Terms — Ubiquitous Language
+
+The system's canonical vocabulary lives in [`terms/`](terms/) — one file per
+term. The rendered glossary is at
+[`../arch/generated/ubiquitous-language.md`](../arch/generated/ubiquitous-language.md);
+the context map at
+[`../arch/generated/ubiquitous-language-context-map.md`](../arch/generated/ubiquitous-language-context-map.md).
+See [ADR-0053](../adr/0053-ubiquitous-language-as-living-artifact.md).
 
 ## Architecture (33)
 

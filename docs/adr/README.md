@@ -84,6 +84,7 @@ ADR and that named test files actually exist.
 | [0050](0050-auto-agent-hitl-preflight.md) | Auto-Agent HITL Pre-Flight Loop | Accepted |
 | [0051](0051-iterative-production-readiness-review.md) | Iterative production-readiness review | Accepted |
 | [0052](0052-sandbox-tier-scenarios.md) | Sandbox-tier scenario testing | Accepted |
+| [0053](0053-ubiquitous-language-as-living-artifact.md) | Ubiquitous Language as a Living Artifact | Accepted |
 
 ## Adding a new ADR
 
