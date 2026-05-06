@@ -18,12 +18,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import ValidationError
 
 from ubiquitous_language import (
     BoundedContext,
     Candidate,
     Term,
+    TermDraft,
     TermKind,
 )
 
@@ -40,23 +41,6 @@ class LLMClient(Protocol):
     async def complete_structured(
         self, *, prompt: str, schema: dict[str, Any]
     ) -> dict[str, Any]: ...
-
-
-class TermDraft(BaseModel):
-    """The LLM's structured output. Validated against closed sets at parse."""
-
-    definition: str = Field(min_length=30)
-    kind: TermKind
-    bounded_context: BoundedContext
-    aliases: list[str] = Field(default_factory=list, max_length=4)
-    invariants: list[str] = Field(default_factory=list, max_length=3)
-    depends_on_anchors: list[str] = Field(default_factory=list)
-
-    @field_validator("aliases")
-    @classmethod
-    def _aliases_lowercase_no_dup(cls, v: list[str]) -> list[str]:
-        lowered = [a.lower().strip() for a in v if a.strip()]
-        return list(dict.fromkeys(lowered))
 
 
 @dataclass(frozen=True)

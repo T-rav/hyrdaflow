@@ -7,8 +7,10 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from term_proposer_llm import TermDraft
 from ubiquitous_language import (
     BoundedContext,
+    Candidate,
     Term,
     TermKind,
     TermRel,
@@ -25,6 +27,7 @@ from ubiquitous_language import (
     render_context_map,
     render_glossary,
     resolve_anchor,
+    validate_draft,
 )
 
 
@@ -551,3 +554,153 @@ class TestCandidateDetection:
         assert c.name == "FooLoop"
         assert c.code_anchor == "src/a.py:FooLoop"
         assert "S1" in c.signals
+
+
+class TestValidateDraft:
+    def test_valid_draft_produces_term(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.py").write_text("class FooLoop:\n    pass\n")
+        index = build_symbol_index(src)
+        candidate = Candidate(
+            name="FooLoop",
+            code_anchor="src/foo.py:FooLoop",
+            signals=("S1",),
+            imports_seen=0,
+            importing_term_anchors=(),
+        )
+        draft = TermDraft(
+            definition="A test loop drafted by the proposer for validate_draft happy path.",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            aliases=["foo loop"],
+            invariants=[],
+            depends_on_anchors=[],
+        )
+        term, reason = validate_draft(
+            candidate, draft, existing_terms=[], symbol_index=index
+        )
+        assert reason is None
+        assert term is not None
+        assert term.name == "FooLoop"
+        assert term.confidence == "proposed"
+        assert term.proposed_by == "TermProposerLoop"
+
+    def test_rejects_unresolved_anchor(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        # Note: foo.py NOT created
+        index = build_symbol_index(src)
+        candidate = Candidate(
+            name="GhostLoop",
+            code_anchor="src/foo.py:GhostLoop",
+            signals=("S1",),
+            imports_seen=0,
+            importing_term_anchors=(),
+        )
+        draft = TermDraft(
+            definition="A ghost loop draft to verify anchor resolution is required.",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            aliases=[],
+            invariants=[],
+            depends_on_anchors=[],
+        )
+        term, reason = validate_draft(
+            candidate, draft, existing_terms=[], symbol_index=index
+        )
+        assert term is None
+        assert reason is not None
+        assert "anchor" in reason.lower()
+
+    def test_rejects_name_collision_with_existing_term(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.py").write_text("class FooLoop:\n    pass\n")
+        index = build_symbol_index(src)
+        existing = Term(
+            name="FooLoop",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            definition="An already-existing FooLoop term to verify collision detection works.",
+            code_anchor="src/foo.py:FooLoop",
+        )
+        candidate = Candidate(
+            name="FooLoop",
+            code_anchor="src/foo.py:FooLoop",
+            signals=("S1",),
+            imports_seen=0,
+            importing_term_anchors=(),
+        )
+        draft = TermDraft(
+            definition="A duplicate draft to verify name-collision rejection is enforced.",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            aliases=[],
+            invariants=[],
+            depends_on_anchors=[],
+        )
+        term, reason = validate_draft(
+            candidate, draft, existing_terms=[existing], symbol_index=index
+        )
+        assert term is None
+        assert "collision" in reason.lower() or "exists" in reason.lower()
+
+    def test_rejects_alias_collision_with_other_canonical(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.py").write_text("class FooLoop:\n    pass\n")
+        index = build_symbol_index(src)
+        existing = Term(
+            name="BarLoop",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            definition="An existing BarLoop term to verify alias-collision rejection works.",
+            code_anchor="src/bar.py:BarLoop",
+        )
+        candidate = Candidate(
+            name="FooLoop",
+            code_anchor="src/foo.py:FooLoop",
+            signals=("S1",),
+            imports_seen=0,
+            importing_term_anchors=(),
+        )
+        draft = TermDraft(
+            definition="A draft whose alias collides with another canonical term name.",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            aliases=["barloop"],
+            invariants=[],
+            depends_on_anchors=[],
+        )
+        term, reason = validate_draft(
+            candidate, draft, existing_terms=[existing], symbol_index=index
+        )
+        assert term is None
+        assert "alias" in reason.lower()
+
+    def test_rejects_unresolvable_depends_on(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.py").write_text("class FooLoop:\n    pass\n")
+        index = build_symbol_index(src)
+        candidate = Candidate(
+            name="FooLoop",
+            code_anchor="src/foo.py:FooLoop",
+            signals=("S1",),
+            imports_seen=0,
+            importing_term_anchors=(),
+        )
+        draft = TermDraft(
+            definition="A draft naming a depends_on anchor that isn't an existing term anchor.",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            aliases=[],
+            invariants=[],
+            depends_on_anchors=["src/missing.py:Missing"],
+        )
+        term, reason = validate_draft(
+            candidate, draft, existing_terms=[], symbol_index=index
+        )
+        assert term is None
+        assert "depends_on" in reason.lower() or "anchor" in reason.lower()
