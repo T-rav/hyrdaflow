@@ -6,6 +6,8 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W19
 
+- `7998ac3` — fix(ul): address convergence-review feedback (C1/C2/I1/I2/M4) *(2026-05-06)*
+- `875bb89` — feat(ul): wire TermProposerLoop into ServiceRegistry + orchestrator *(2026-05-06)*
 - `c6494ee` — docs(adr): add ADR-0054 term auto-proposer loop *(2026-05-06)*
 - `9ce2397` — feat(ul): ubiquitous language as a living artifact (ADR-0053 slice 1) (#8474) (#8474) *(2026-05-06)*
 
@@ -166,4 +168,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `4018547` on 2026-05-06 22:41 UTC. Source last changed at `4018547`. Status: 🟢 fresh._
+_Regenerated from commit `7998ac3` on 2026-05-06 23:07 UTC. Source last changed at `7998ac3`. Status: 🟢 fresh._
