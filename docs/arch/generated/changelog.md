@@ -4,8 +4,24 @@
 
 Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdocs.yml`. Grouped by ISO week.
 
+## 2026-W19
+
+- `b68c5ca` — fix(ul): address convergence-review feedback *(2026-05-05)*
+- `f379cff` — docs(ul): replace CLAUDE.md UL list with pointer to rendered glossary *(2026-05-05)*
+- `51c13d6` — feat(ul): render Mermaid context map *(2026-05-04)*
+- `30bd118` — feat(ul): render glossary view *(2026-05-04)*
+- `56a6a9d` — feat(ul): seed 9 hand-authored terms from CLAUDE.md UL list *(2026-05-04)*
+- `3de3f49` — feat(ul): TermStore — directory load/write/list *(2026-05-04)*
+- `f93f8e3` — docs(adr): add ADR-0053 ubiquitous language as living artifact *(2026-05-04)*
+
 ## 2026-W18
 
+- `692dc64` — chore(wiki): backfill all topics with new doc-voice prompt + harden compiler prompt (#8472) (#8472) *(2026-05-02)*
+- `525f135` — chore(audit): unblock principles audit (P2.9 split-aware + P10.3 baseline) (#8469) (#8469) *(2026-05-02)*
+- `a1ad80f` — chore(wiki): slim json:entry blocks (drop content+valid_from) + tighten compiler doc-voice prompt (#8465) (#8465) *(2026-05-02)*
+- `f2c7d81` — chore(wiki): split architecture topic + scrub bad-title entries + fix ingest title source (#8462) (#8462) *(2026-05-02)*
+- `1ddef37` — fix(wiki): preserve last_lint across rebuild + add wiki-freshness dead-man-switch (#8459) (#8459) *(2026-05-02)*
+- `63e59cc` — chore(cleanup): drop redundant docstrings + comments + section markers (#8458) (#8458) *(2026-05-02)*
 - `4183700` — fix(contracts): break src→tests import — relocate _schema to src/contracts/ (#8457) (#8457) *(2026-05-02)*
 - `14e066b` — fix(subprocess): timeouts on subprocess.run in async loop paths (#8456) (#8456) *(2026-05-02)*
 - `54f940e` — feat(sandbox): catalog s02-s12 + SandboxFailureFixerLoop + 3-trigger CI (PR C of 3) (#8453) (#8453) *(2026-04-28)*
@@ -155,4 +171,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `4183700` on 2026-05-02 21:24 UTC. Source last changed at `4183700`. Status: 🟢 fresh._
+_Regenerated from commit `b68c5ca` on 2026-05-06 20:07 UTC. Source last changed at `b68c5ca`. Status: 🟢 fresh._
