@@ -14,6 +14,7 @@ from ubiquitous_language import (
     TermRel,
     TermRelKind,
     TermStore,
+    build_import_graph,
     build_symbol_index,
     dump_term_file,
     lint_anchor_resolution,
@@ -414,3 +415,39 @@ class TestTermProvenance:
         loaded = load_term_file(path)
         assert loaded.proposed_by is None
         assert loaded.proposal_signals is None
+
+
+class TestImportGraph:
+    def test_finds_imports_from_python_files(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.py").write_text(
+            "from bar import Bar\nfrom baz import Baz, Qux\n\nclass Foo:\n    pass\n"
+        )
+        (src / "bar.py").write_text("class Bar:\n    pass\n")
+        (src / "baz.py").write_text("class Baz:\n    pass\nclass Qux:\n    pass\n")
+        graph = build_import_graph(src)
+        assert graph["src/foo.py"] == {"Bar", "Baz", "Qux"}
+        assert graph["src/bar.py"] == set()
+        assert graph["src/baz.py"] == set()
+
+    def test_handles_relative_imports(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        pkg = src / "pkg"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (pkg / "child.py").write_text(
+            "from .sibling import Sibling\n\nclass Child:\n    pass\n"
+        )
+        (pkg / "sibling.py").write_text("class Sibling:\n    pass\n")
+        graph = build_import_graph(src)
+        assert "Sibling" in graph["src/pkg/child.py"]
+
+    def test_skips_unparseable_files(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "good.py").write_text("from x import Y\n")
+        (src / "broken.py").write_text("def : :\n")  # syntax error
+        graph = build_import_graph(src)
+        assert graph["src/good.py"] == {"Y"}
+        assert "src/broken.py" not in graph

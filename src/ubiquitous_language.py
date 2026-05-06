@@ -251,6 +251,33 @@ def build_symbol_index(src_root: Path) -> dict[str, list[str]]:
     return index
 
 
+def build_import_graph(src_root: Path) -> dict[str, set[str]]:
+    """Walk *.py under src_root, return {path:relative-from-src-parent: {ImportedName, ...}}.
+
+    Captures `from X import Name` (alias resolved to original name) and `import X.Y as Z`
+    (records the leaf name `Y`). Used by candidate-detection (S2) and edge-inference (E2).
+    Skips files that fail to parse — same policy as build_symbol_index.
+    """
+    graph: dict[str, set[str]] = {}
+    for path in sorted(src_root.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        rel = str(path.relative_to(src_root.parent))
+        names: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    names.add(alias.name)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    leaf = alias.asname or alias.name.rsplit(".", 1)[-1]
+                    names.add(leaf)
+        graph[rel] = names
+    return graph
+
+
 def resolve_anchor(anchor: str, index: dict[str, list[str]]) -> bool:
     """True iff anchor (path:ClassName) appears in the index."""
     if ":" not in anchor:
