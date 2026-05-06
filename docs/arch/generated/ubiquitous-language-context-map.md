@@ -9,6 +9,7 @@ graph LR
   end
   subgraph shared-kernel
     BaseBackgroundLoop["BaseBackgroundLoop<br/><i>loop</i>"]
+    BotPRPort["BotPRPort<br/><i>port</i>"]
     EventBus["EventBus<br/><i>service</i>"]
     HydraFlowConfig["HydraFlowConfig<br/><i>aggregate</i>"]
     IssueStorePort["IssueStorePort<br/><i>port</i>"]

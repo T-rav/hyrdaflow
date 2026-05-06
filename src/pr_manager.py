@@ -117,10 +117,6 @@ class PRManager:
             msg = f"PRManager: repo is not configured or invalid ({self._repo!r}) — refusing to mutate GitHub"
             raise RuntimeError(msg)
 
-    def _is_term_proposer_pr(self, pr: PRInfo) -> bool:
-        """True iff PR carries the term-proposer label (ADR-0054); routing skips it."""
-        return "hydraflow-ul-proposed" in (pr.labels or [])
-
     async def _run_gh(self, *cmd: str, cwd: Path | None = None) -> str:
         """Run a gh/git command with retry logic."""
         return await run_subprocess_with_retry(

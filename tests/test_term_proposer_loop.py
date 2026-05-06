@@ -103,17 +103,23 @@ class TestTermProposerLoopFlow:
         assert result["candidates"] >= 1
         assert result["drafted"] == 1
         assert result["validated"] == 1
-        assert result["filed_issues"] == 0
+        assert result["dropped_drafts"] == 0
         assert result["opened_pr"] is True
 
     @pytest.mark.asyncio
-    async def test_invalid_draft_filed_as_issue_not_pr(
-        self, synthetic_repo: Path
-    ) -> None:
+    async def test_invalid_draft_from_llm_dropped(self, synthetic_repo: Path) -> None:
+        """LLM returns malformed payload → Pydantic validation in ``TermDraft``
+        raises → counted under ``dropped_drafts`` via the LLM-failure branch.
+
+        This exercises the LLM-failure path, NOT the F1 ``validate_draft`` path
+        (definition shorter than ``min_length=30`` is rejected before
+        ``validate_draft`` ever runs). For real F1 coverage see
+        ``test_validation_rejects_unresolvable_depends_on``.
+        """
         loop, _, port = _build_loop(
             synthetic_repo,
             fake_llm_response={
-                "definition": "Short",  # too short — fails F1
+                "definition": "Short",  # < 30 chars → TermDraft validation raises
                 "kind": "runner",
                 "bounded_context": "builder",
                 "aliases": [],
@@ -123,8 +129,40 @@ class TestTermProposerLoopFlow:
         )
         result = await loop._do_work()
         assert port.calls == []
+        assert result["drafted"] == 0  # LLM call failed before counting
         assert result["validated"] == 0
-        assert result["filed_issues"] >= 1
+        assert result["dropped_drafts"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_validation_rejects_unresolvable_depends_on(
+        self, synthetic_repo: Path
+    ) -> None:
+        """LLM returns a structurally valid draft pointing at a depends_on
+        anchor that doesn't match any existing term → ``validate_draft`` (F1)
+        returns ``(None, reason)``. The candidate must be counted as drafted
+        (LLM call succeeded) and dropped (validation rejected), and no PR
+        must open.
+        """
+        loop, _, port = _build_loop(
+            synthetic_repo,
+            fake_llm_response={
+                "definition": (
+                    "BarRunner is a structurally valid draft used to verify "
+                    "that unresolvable depends_on anchors trigger F1 rejection."
+                ),
+                "kind": "runner",
+                "bounded_context": "builder",
+                "aliases": ["bar runner"],
+                "invariants": [],
+                "depends_on_anchors": ["src/nonexistent.py:Foo"],
+            },
+        )
+        result = await loop._do_work()
+        assert port.calls == []
+        assert result["drafted"] == 1, "LLM call succeeded; should be counted"
+        assert result["validated"] == 0, "F1 must reject the unresolvable depends_on"
+        assert result["dropped_drafts"] == 1
+        assert result["opened_pr"] is False
 
     @pytest.mark.asyncio
     async def test_no_candidates_no_pr_no_issues(self, tmp_path: Path) -> None:

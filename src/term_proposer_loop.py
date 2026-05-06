@@ -56,7 +56,12 @@ class BotPRPort(Protocol):
     ) -> int: ...
 
 
-_PR_LABEL = "hydraflow-ul-proposed"
+TERM_PROPOSER_PR_LABEL = "hydraflow-ul-proposed"
+"""Label applied to bot-PRs opened by ``TermProposerLoop``.
+
+Public constant — imported by ``review_phase`` to skip routing such PRs through
+the agent pipeline (the LLM call inside this loop IS the work). See ADR-0054.
+"""
 
 
 async def open_proposer_pr(
@@ -105,7 +110,7 @@ async def open_proposer_pr(
         branch=f"ul-proposer/{run_id}",
         title=title,
         body="\n".join(body_lines),
-        labels=[_PR_LABEL],
+        labels=[TERM_PROPOSER_PR_LABEL],
         files=files,
     )
 
@@ -169,7 +174,7 @@ class TermProposerLoop(BaseBackgroundLoop):
         candidates = candidates[: self._config.term_proposer_max_per_tick]
 
         validated: list[Term] = []
-        filed_issues = 0
+        dropped_drafts = 0
         drafted = 0
 
         for candidate in candidates:
@@ -177,11 +182,12 @@ class TermProposerLoop(BaseBackgroundLoop):
             try:
                 draft = await self._llm.draft(ctx)
             except (ValueError, RuntimeError) as e:
+                # No dedup on failure — the candidate falls through to natural
+                # re-detection on the next tick (Fix C1; see ADR-0054 I2).
                 logger.warning(
                     "term_proposer: LLM draft failed for %s: %s", candidate.name, e
                 )
-                filed_issues += 1
-                self._dedup.add(candidate.code_anchor)
+                dropped_drafts += 1
                 continue
             drafted += 1
 
@@ -189,13 +195,13 @@ class TermProposerLoop(BaseBackgroundLoop):
                 candidate, draft, existing_terms=existing_terms, symbol_index=index
             )
             if term is None:
+                # No dedup on validation rejection — same rationale as above.
                 logger.info(
                     "term_proposer: draft for %s rejected — %s",
                     candidate.name,
                     reason,
                 )
-                filed_issues += 1
-                self._dedup.add(candidate.code_anchor)
+                dropped_drafts += 1
                 continue
 
             validated.append(term)
@@ -219,7 +225,7 @@ class TermProposerLoop(BaseBackgroundLoop):
             "candidates": len(candidates),
             "drafted": drafted,
             "validated": len(validated),
-            "filed_issues": filed_issues,
+            "dropped_drafts": dropped_drafts,
             "opened_pr": opened_pr,
         }
 

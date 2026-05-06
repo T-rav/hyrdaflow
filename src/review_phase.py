@@ -502,7 +502,9 @@ class ReviewPhase:
                 return []
 
         # Skip term-proposer PRs (handled by DependabotMergeLoop, ADR-0054)
-        prs = [pr for pr in prs if "hydraflow-ul-proposed" not in (pr.labels or [])]
+        from term_proposer_loop import TERM_PROPOSER_PR_LABEL  # noqa: PLC0415
+
+        prs = [pr for pr in prs if TERM_PROPOSER_PR_LABEL not in (pr.labels or [])]
         if not prs:
             logger.debug(
                 "review_phase: all PRs filtered out (term-proposer candidates)"

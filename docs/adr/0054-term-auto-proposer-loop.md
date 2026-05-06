@@ -33,7 +33,7 @@ The detection is conservative on purpose: utility helpers nothing important impo
 
 ### Output — auto-merged bot PRs as `proposed`
 
-For each tick, the loop drafts ≤N candidates (default 10), validates each draft locally, and ships ALL surviving drafts as ONE bundled PR labelled `hydraflow-ul-proposed`. `DependabotMergeLoop` auto-merges on CI green. Bad drafts (anchor doesn't resolve, kind not in vocabulary, etc.) are dropped pre-PR and filed as `hydraflow-find` issues with the raw LLM output for human inspection. `PRManager` gets a routing exception so the agent pipeline ignores `hydraflow-ul-proposed` PRs (the LLM call inside the loop IS the work).
+For each tick, the loop drafts ≤N candidates (default 10), validates each draft locally, and ships ALL surviving drafts as ONE bundled PR labelled `hydraflow-ul-proposed`. `DependabotMergeLoop` auto-merges on CI green. Bad drafts (anchor doesn't resolve, kind not in vocabulary, etc.) are dropped pre-PR and logged as worker stats (`dropped_drafts`); their candidates fall through to natural re-detection on the next tick. Filing dropped drafts as `hydraflow-find` issues for human inspection is deferred to a follow-up (the proposer's `IssueFilerPort` integration). `ReviewPhase` gets a routing exception so the agent pipeline ignores `hydraflow-ul-proposed` PRs (the LLM call inside the loop IS the work).
 
 Drafts ship as `confidence: proposed`. The Confidence-Promoter (chunk 2 of the program — separate ADR, separate slice) is what later ages `proposed` → `accepted`.
 
