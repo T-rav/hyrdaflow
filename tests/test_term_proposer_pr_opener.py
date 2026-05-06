@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from term_proposer_loop import open_proposer_pr
 
+from term_proposer_loop import open_proposer_pr
 from ubiquitous_language import (
     BoundedContext,
     Term,
