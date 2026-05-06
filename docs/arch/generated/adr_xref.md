@@ -61,6 +61,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | ADR-0051 | — |
 | ADR-0052 | `src.contract_diff`, `src.contract_recording`, `src.mockworld.sandbox_main` |
 | ADR-0053 | `src.repo_wiki`, `src.repo_wiki_loop` |
+| ADR-0054 | `src.term_proposer_loop`, `src.ubiquitous_language` |
 
 ## Module → ADRs
 
@@ -144,11 +145,13 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.state` | ADR-0006, ADR-0013, ADR-0014, ADR-0017, ADR-0024 |
 | `src.state._auto_agent` | ADR-0050 |
 | `src.state._session` | ADR-0021 |
+| `src.term_proposer_loop` | ADR-0054 |
 | `src.triage_phase` | ADR-0014, ADR-0017, ADR-0031, ADR-0039 |
 | `src.trust_fleet_sanity_loop` | ADR-0045, ADR-0046 |
+| `src.ubiquitous_language` | ADR-0054 |
 | `src.visual_validation` | ADR-0015 |
 | `src.wiki_compiler` | ADR-0032 |
 | `src.wiki_rot_detector_loop` | ADR-0045 |
 | `src.worktree` | ADR-0003, ADR-0009, ADR-0010 |
 
-_Regenerated from commit `b68c5ca` on 2026-05-06 20:07 UTC. Source last changed at `b68c5ca`. Status: 🟢 fresh._
+_Regenerated from commit `4018547` on 2026-05-06 22:41 UTC. Source last changed at `4018547`. Status: 🟢 fresh._
