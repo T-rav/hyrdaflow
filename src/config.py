@@ -229,6 +229,13 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ),
     ("rc_budget_interval", "HYDRAFLOW_RC_BUDGET_INTERVAL", 14400),
     ("wiki_rot_detector_interval", "HYDRAFLOW_WIKI_ROT_DETECTOR_INTERVAL", 604800),
+    ("term_proposer_interval", "HYDRAFLOW_TERM_PROPOSER_INTERVAL", 14400),
+    ("term_proposer_max_per_tick", "HYDRAFLOW_TERM_PROPOSER_MAX_PER_TICK", 10),
+    (
+        "term_proposer_cooldown_seconds",
+        "HYDRAFLOW_TERM_PROPOSER_COOLDOWN_SECONDS",
+        86400,
+    ),
     ("trust_fleet_sanity_interval", "HYDRAFLOW_TRUST_FLEET_SANITY_INTERVAL", 600),
     ("loop_anomaly_issues_per_hour", "HYDRAFLOW_LOOP_ANOMALY_ISSUES_PER_HOUR", 10),
     ("corpus_learning_interval", "HYDRAFLOW_CORPUS_LEARNING_INTERVAL", 3600),
@@ -340,6 +347,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ),
     ("auto_agent_preflight_enabled", "HYDRAFLOW_AUTO_AGENT_PREFLIGHT_ENABLED", True),
     ("staging_enabled", "HYDRAFLOW_STAGING_ENABLED", False),
+    ("term_proposer_enabled", "HYDRAFLOW_TERM_PROPOSER_ENABLED", True),
 ]
 
 # Literal-typed env-var overrides.
@@ -1904,6 +1912,30 @@ class HydraFlowConfig(BaseModel):
         ge=86400,
         le=2_592_000,
         description="Seconds between WikiRotDetectorLoop ticks (default 7d)",
+    )
+
+    # Trust fleet — TermProposerLoop (ADR-0054)
+    term_proposer_enabled: bool = Field(
+        default=True,
+        description="Kill-switch for TermProposerLoop (ADR-0054).",
+    )
+    term_proposer_interval: int = Field(
+        default=14400,
+        ge=3600,
+        le=86400,
+        description="Seconds between TermProposerLoop ticks.",
+    )
+    term_proposer_max_per_tick: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Max term drafts produced per tick.",
+    )
+    term_proposer_cooldown_seconds: int = Field(
+        default=86400,
+        ge=3600,
+        le=604800,
+        description="Cooldown before retrying a candidate that previously failed validation or LLM draft.",
     )
 
     # Trust fleet — CorpusLearningLoop (spec §4.1 v2)
