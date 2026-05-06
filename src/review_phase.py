@@ -501,6 +501,14 @@ class ReviewPhase:
             if not prs:
                 return []
 
+        # Skip term-proposer PRs (handled by DependabotMergeLoop, ADR-0054)
+        prs = [pr for pr in prs if "hydraflow-ul-proposed" not in (pr.labels or [])]
+        if not prs:
+            logger.debug(
+                "review_phase: all PRs filtered out (term-proposer candidates)"
+            )
+            return []
+
         issue_map = {i.id: i for i in issues}
         semaphore = asyncio.Semaphore(self._config.max_reviewers)
 
