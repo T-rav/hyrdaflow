@@ -1651,7 +1651,9 @@ class Release(BaseModel):
 class DependabotMergeSettings(BaseModel):
     """Configuration for the Dependabot merge auto-merge worker."""
 
-    authors: list[str] = Field(default_factory=lambda: ["dependabot[bot]"])
+    authors: list[str] = Field(
+        default_factory=lambda: ["dependabot[bot]", "hydraflow-ul-bot"]
+    )
     failure_strategy: Literal["skip", "hitl", "close"] = "skip"
     review_mode: Literal["ci_only", "llm_review"] = "ci_only"
 

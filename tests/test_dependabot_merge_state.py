@@ -11,7 +11,7 @@ from state import StateTracker
 
 def test_dependabot_merge_settings_defaults():
     settings = DependabotMergeSettings()
-    assert settings.authors == ["dependabot[bot]"]
+    assert settings.authors == ["dependabot[bot]", "hydraflow-ul-bot"]
     assert settings.failure_strategy == "skip"
     assert settings.review_mode == "ci_only"
 
@@ -41,7 +41,7 @@ def test_state_tracker_dependabot_merge_settings_roundtrip(tmp_path):
     state = StateTracker(config.state_file)
 
     settings = state.get_dependabot_merge_settings()
-    assert settings.authors == ["dependabot[bot]"]
+    assert settings.authors == ["dependabot[bot]", "hydraflow-ul-bot"]
 
     new_settings = DependabotMergeSettings(
         authors=["dependabot[bot]", "renovate[bot]"],
