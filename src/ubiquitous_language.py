@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -412,3 +413,75 @@ def render_context_map(terms: list[Term]) -> str:
     lines.append("```")
     lines.append("")
     return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class Candidate:
+    """A class flagged as a possible new term, ready for LLM drafting."""
+
+    name: str
+    code_anchor: str  # "src/path.py:ClassName"
+    signals: tuple[str, ...]  # subset of ("S1", "S2")
+    imports_seen: int  # in-degree from covered-anchor modules
+    importing_term_anchors: tuple[str, ...] = field(default_factory=tuple)
+    """Anchors of covered terms whose modules import this candidate.
+    Used by the proposer's LLM call to ground depends_on edges (E2)."""
+
+
+def detect_candidates(
+    index: dict[str, list[str]],
+    import_graph: dict[str, set[str]],
+    terms: list[Term],
+) -> list[Candidate]:
+    """Return ranked list of Candidates from the live codebase.
+
+    Combines S1 (load-bearing suffix) and S2 (imported by a covered-term anchor's module),
+    excludes already-covered anchors, ranks by S5 (in-degree from covered modules then by
+    name for stability).
+    """
+    covered_anchors = {t.code_anchor for t in terms}
+    covered_modules: set[str] = set()
+    for anchor in covered_anchors:
+        if ":" in anchor:
+            module, _, _ = anchor.partition(":")
+            covered_modules.add(module)
+
+    in_degree: dict[str, int] = {}
+    importers_of: dict[str, list[str]] = {}
+    for module, names in import_graph.items():
+        if module not in covered_modules:
+            continue
+        for name in names:
+            in_degree[name] = in_degree.get(name, 0) + 1
+            importers_of.setdefault(name, []).append(module)
+
+    candidates_by_name: dict[str, Candidate] = {}
+    for name, locations in index.items():
+        for location in locations:
+            if location in covered_anchors:
+                continue
+            signals: list[str] = []
+            if name.endswith(_LOAD_BEARING_SUFFIXES):
+                signals.append("S1")
+            if name in in_degree:
+                signals.append("S2")
+            if not signals:
+                continue
+            importing_anchors: list[str] = []
+            for importer in importers_of.get(name, []):
+                for term in terms:
+                    if term.code_anchor.startswith(f"{importer}:"):
+                        importing_anchors.append(term.code_anchor)
+            if name not in candidates_by_name:
+                candidates_by_name[name] = Candidate(
+                    name=name,
+                    code_anchor=location,
+                    signals=tuple(signals),
+                    imports_seen=in_degree.get(name, 0),
+                    importing_term_anchors=tuple(sorted(set(importing_anchors))),
+                )
+
+    return sorted(
+        candidates_by_name.values(),
+        key=lambda c: (-c.imports_seen, c.name),
+    )

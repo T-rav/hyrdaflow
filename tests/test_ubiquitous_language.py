@@ -16,6 +16,7 @@ from ubiquitous_language import (
     TermStore,
     build_import_graph,
     build_symbol_index,
+    detect_candidates,
     dump_term_file,
     lint_anchor_resolution,
     lint_paraphrases,
@@ -451,3 +452,102 @@ class TestImportGraph:
         graph = build_import_graph(src)
         assert graph["src/good.py"] == {"Y"}
         assert "src/broken.py" not in graph
+
+
+class TestCandidateDetection:
+    def test_s1_finds_load_bearing_suffix_classes(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.py").write_text("class FooLoop:\n    pass\nclass Helper:\n    pass\n")
+        (src / "b.py").write_text(
+            "class BarRunner:\n    pass\nclass BazPort:\n    pass\n"
+        )
+        index = build_symbol_index(src)
+        graph = build_import_graph(src)
+        candidates = detect_candidates(index, graph, terms=[])
+        names = {c.name for c in candidates}
+        assert names == {"FooLoop", "BarRunner", "BazPort"}
+
+    def test_s2_finds_imported_by_term_anchors(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "term_class.py").write_text(
+            "from helper import HelperService\n\nclass MyLoop:\n    pass\n"
+        )
+        (src / "helper.py").write_text("class HelperService:\n    pass\n")
+        index = build_symbol_index(src)
+        graph = build_import_graph(src)
+        my_loop_term = Term(
+            name="MyLoop",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            definition="A test term anchoring src/term_class.py for the S2 detection test.",
+            code_anchor="src/term_class.py:MyLoop",
+        )
+        candidates = detect_candidates(index, graph, terms=[my_loop_term])
+        names = {c.name for c in candidates}
+        assert "HelperService" in names
+        assert "MyLoop" not in names
+
+    def test_s5_ranks_by_in_degree(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.py").write_text("from helper import Helper\nclass ALoop:\n    pass\n")
+        (src / "b.py").write_text("from helper import Helper\nclass BLoop:\n    pass\n")
+        (src / "c.py").write_text(
+            "from other_helper import OtherHelper\nclass CLoop:\n    pass\n"
+        )
+        (src / "helper.py").write_text("class Helper:\n    pass\n")
+        (src / "other_helper.py").write_text("class OtherHelper:\n    pass\n")
+        index = build_symbol_index(src)
+        graph = build_import_graph(src)
+        terms = [
+            Term(
+                name=n,
+                kind=TermKind.LOOP,
+                bounded_context=BoundedContext.SHARED_KERNEL,
+                definition="x" * 30,
+                code_anchor=anchor,
+            )
+            for n, anchor in [
+                ("ALoop", "src/a.py:ALoop"),
+                ("BLoop", "src/b.py:BLoop"),
+                ("CLoop", "src/c.py:CLoop"),
+            ]
+        ]
+        candidates = detect_candidates(index, graph, terms=terms)
+        helper = next(c for c in candidates if c.name == "Helper")
+        other = next(c for c in candidates if c.name == "OtherHelper")
+        assert helper.imports_seen == 2
+        assert other.imports_seen == 1
+        names_in_order = [c.name for c in candidates]
+        assert names_in_order.index("Helper") < names_in_order.index("OtherHelper")
+
+    def test_excludes_already_covered_classes(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.py").write_text("class FooLoop:\n    pass\n")
+        index = build_symbol_index(src)
+        graph = build_import_graph(src)
+        covered_term = Term(
+            name="FooLoop",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            definition="An already-covered loop used to verify detection excludes it.",
+            code_anchor="src/a.py:FooLoop",
+        )
+        candidates = detect_candidates(index, graph, terms=[covered_term])
+        assert candidates == []
+
+    def test_candidate_carries_signals_and_anchor(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.py").write_text("class FooLoop:\n    pass\n")
+        index = build_symbol_index(src)
+        graph = build_import_graph(src)
+        candidates = detect_candidates(index, graph, terms=[])
+        assert len(candidates) == 1
+        c = candidates[0]
+        assert c.name == "FooLoop"
+        assert c.code_anchor == "src/a.py:FooLoop"
+        assert "S1" in c.signals
