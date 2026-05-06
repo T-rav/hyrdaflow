@@ -9,15 +9,34 @@ This file's responsibilities:
 
 from __future__ import annotations
 
+import logging
+import secrets
 import tempfile
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
+from base_background_loop import BaseBackgroundLoop, LoopDeps
+from dedup_store import DedupStore
 from ubiquitous_language import (
+    Candidate,
     Term,
+    TermStore,
     _slugify_term_name,
+    build_import_graph,
+    build_symbol_index,
+    detect_candidates,
     dump_term_file,
+    validate_draft,
 )
+
+if TYPE_CHECKING:
+    from config import HydraFlowConfig
+    from term_proposer_llm import DraftContext, TermProposerLLM
+
+
+logger = logging.getLogger("hydraflow.term_proposer_loop")
+
+_WORKER_NAME = "term_proposer"
 
 
 class BotPRPort(Protocol):
@@ -105,3 +124,132 @@ def _render_term_file_str(term: Term) -> str:
         return tmp_path.read_text(encoding="utf-8")
     finally:
         tmp_path.unlink(missing_ok=True)
+
+
+class TermProposerLoop(BaseBackgroundLoop):
+    """Periodically scans src/ and proposes new Terms via LLM-drafted bot PRs.
+
+    See ADR-0054 and the design spec for the full per-tick flow.
+    """
+
+    def __init__(
+        self,
+        *,
+        config: HydraFlowConfig,
+        deps: LoopDeps,
+        llm: TermProposerLLM,
+        pr_port: BotPRPort,
+        repo_root: Path,
+        dedup_path: Path,
+    ) -> None:
+        super().__init__(worker_name=_WORKER_NAME, config=config, deps=deps)
+        self._llm = llm
+        self._pr_port = pr_port
+        self._repo_root = repo_root
+        self._dedup = DedupStore(set_name=_WORKER_NAME, file_path=dedup_path)
+
+    def _get_default_interval(self) -> int:
+        return self._config.term_proposer_interval
+
+    async def _do_work(self) -> dict[str, Any] | None:
+        if not self._config.term_proposer_enabled:
+            return {"status": "disabled"}
+
+        terms_root = self._repo_root / "docs" / "wiki" / "terms"
+        src_root = self._repo_root / "src"
+
+        store = TermStore(terms_root)
+        existing_terms = store.list()
+        index = build_symbol_index(src_root)
+        graph = build_import_graph(src_root)
+
+        candidates = detect_candidates(index, graph, existing_terms)
+        suppressed = self._dedup.get()
+        candidates = [c for c in candidates if c.code_anchor not in suppressed]
+        candidates = candidates[: self._config.term_proposer_max_per_tick]
+
+        validated: list[Term] = []
+        filed_issues = 0
+        drafted = 0
+
+        for candidate in candidates:
+            ctx = self._build_draft_context(candidate, existing_terms, src_root)
+            try:
+                draft = await self._llm.draft(ctx)
+            except (ValueError, RuntimeError) as e:
+                logger.warning(
+                    "term_proposer: LLM draft failed for %s: %s", candidate.name, e
+                )
+                filed_issues += 1
+                self._dedup.add(candidate.code_anchor)
+                continue
+            drafted += 1
+
+            term, reason = validate_draft(
+                candidate, draft, existing_terms=existing_terms, symbol_index=index
+            )
+            if term is None:
+                logger.info(
+                    "term_proposer: draft for %s rejected — %s",
+                    candidate.name,
+                    reason,
+                )
+                filed_issues += 1
+                self._dedup.add(candidate.code_anchor)
+                continue
+
+            validated.append(term)
+
+        opened_pr = False
+        if validated:
+            run_id = secrets.token_hex(4)
+            pr_number = await open_proposer_pr(
+                terms=validated,
+                run_id=run_id,
+                port=self._pr_port,
+                terms_root=Path("docs/wiki/terms"),
+            )
+            if pr_number is not None:
+                opened_pr = True
+                for term in validated:
+                    self._dedup.add(term.code_anchor)
+
+        return {
+            "status": "ok",
+            "candidates": len(candidates),
+            "drafted": drafted,
+            "validated": len(validated),
+            "filed_issues": filed_issues,
+            "opened_pr": opened_pr,
+        }
+
+    def _build_draft_context(
+        self,
+        candidate: Candidate,
+        existing_terms: list[Term],
+        src_root: Path,
+    ) -> DraftContext:
+        from term_proposer_llm import DraftContext
+
+        candidate_path = src_root.parent / candidate.code_anchor.split(":")[0]
+        try:
+            candidate_source = candidate_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            candidate_source = "(source unavailable)"
+        candidate_source = "\n".join(candidate_source.splitlines()[:200])
+
+        caller_snippets: dict[str, str] = {}
+        for anchor in candidate.importing_term_anchors:
+            anchor_path = src_root.parent / anchor.split(":")[0]
+            try:
+                src_text = anchor_path.read_text(encoding="utf-8")
+                caller_snippets[anchor] = "\n".join(src_text.splitlines()[:80])
+            except (OSError, UnicodeDecodeError):
+                continue
+
+        return DraftContext(
+            candidate=candidate,
+            candidate_source=candidate_source,
+            caller_snippets=caller_snippets,
+            existing_terms=existing_terms,
+        )
