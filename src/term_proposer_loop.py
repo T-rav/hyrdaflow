@@ -15,7 +15,7 @@ from typing import Protocol
 
 from ubiquitous_language import (
     Term,
-    _slugify_term_name,  # noqa: F401
+    _slugify_term_name,
     dump_term_file,
 )
 
