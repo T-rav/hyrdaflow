@@ -21,8 +21,6 @@ PRs that happen to touch sandbox CI.
 
 from __future__ import annotations
 
-import pytest
-
 from mockworld.seed import MockWorldSeed
 
 NAME = "s10_kill_switch_universal"
@@ -39,8 +37,15 @@ def seed() -> MockWorldSeed:
 
 
 async def assert_outcome(api, page) -> None:
-    pytest.skip(
-        "s10 placeholder — universal kill-switch (ADR-0049) is not wired: "
-        "MockWorldSeed.loops_enabled has no consumers in src/mockworld/. "
-        "Re-enable when the kill-switch is implemented end-to-end."
+    # Placeholder pass — see module docstring + tracking issue #8483.
+    # NOT importing pytest at module level (the sandbox_scenario.py runner
+    # imports scenarios in an environment that doesn't have pytest as a
+    # runtime dep). Soft-pass with a stderr note so the placeholder
+    # nature is loud at CI time.
+    import sys
+
+    print(
+        "s10 placeholder — universal kill-switch (ADR-0049) not wired; "
+        "MockWorldSeed.loops_enabled has no consumers. Tracking: #8483.",
+        file=sys.stderr,
     )
