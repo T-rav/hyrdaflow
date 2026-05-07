@@ -981,8 +981,8 @@ TROUBLESHOOTING_PATTERN_END
             )
             return False
 
-        # Squash merge
-        success = await self._prs.merge_pr(pr_number)
+        # Squash merge with rebase-on-conflict recovery (ADR-0042 dark-factory pattern)
+        success = await self._prs.merge_pr(pr_number, auto_rebase=True)
         if success:
             self._finalize_resolved(issue_number, merged=True)
             if self._store is not None:

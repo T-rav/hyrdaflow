@@ -710,41 +710,116 @@ class PRManager:
             logger.warning("Failed to delete branch %s", branch, exc_info=True)
             return False
 
-    async def merge_promotion_pr(self, pr_number: int) -> bool:
+    async def update_pr_branch(self, pr_number: int, *, method: str = "rebase") -> bool:
+        """Rebase the PR head onto its target branch via GitHub's API.
+
+        Wraps ``PUT /repos/{owner}/{repo}/pulls/{n}/update-branch`` with
+        ``update_method=rebase``. Returns True when GitHub successfully
+        updates the head ref (HTTP 202), False on conflict (HTTP 422) or
+        any other failure. The factory's "process-driven merge" pattern
+        uses this to recover when ``merge_pr`` / ``merge_promotion_pr``
+        fail because the head fell behind target.
+
+        Real conflicts (overlap that GitHub can't auto-rebase) surface
+        as False; callers fall through to their existing failure paths
+        (find-issue, HITL release) — we never auto-resolve conflict
+        markers locally.
+        """
+        self._assert_repo()
+        if self._config.dry_run:
+            logger.info(
+                "[dry-run] Would update branch on PR #%d via %s", pr_number, method
+            )
+            return True
+        try:
+            await self._run_gh(
+                "gh",
+                "api",
+                "--method",
+                "PUT",
+                f"repos/{self._repo}/pulls/{pr_number}/update-branch",
+                "--field",
+                f"update_method={method}",
+            )
+            return True
+        except RuntimeError as exc:
+            logger.warning(
+                "update_pr_branch(#%d, method=%s) failed: %s", pr_number, method, exc
+            )
+            return False
+
+    async def _rebase_and_recheck_ci(
+        self,
+        pr_number: int,
+        *,
+        ci_timeout: int = 300,
+        ci_poll_interval: int = 30,
+    ) -> bool:
+        """Try to rebase the PR head and re-poll CI. Returns True only when
+        both succeed (caller should retry merge). False = give up: the
+        rebase hit a real conflict, or post-rebase CI failed."""
+        if not await self.update_pr_branch(pr_number):
+            return False
+        # Fresh stop_event: this is a one-shot recovery, not bound to the
+        # caller's loop lifecycle.
+        passed, _summary = await self.wait_for_ci(
+            pr_number, ci_timeout, ci_poll_interval, asyncio.Event()
+        )
+        return passed
+
+    async def merge_promotion_pr(
+        self, pr_number: int, *, auto_rebase: bool = False
+    ) -> bool:
         """Merge *pr_number* via ``--merge`` (merge commit), not squash.
 
         Used exclusively by :class:`StagingPromotionLoop`. Merge commit
         preserves the staging integration history on ``main`` and avoids
         the growing-diff problem a squash-merged promotion PR would create
         on the next RC cycle. See ADR-0042.
+
+        When ``auto_rebase=True`` and the merge fails, attempts one
+        rebase-via-GitHub + re-poll-CI + retry-merge cycle before giving up.
         """
         self._assert_repo()
         if self._config.dry_run:
             logger.info("[dry-run] Would promotion-merge PR #%d", pr_number)
             return True
-        try:
-            await run_subprocess(
-                "gh",
-                "pr",
-                "merge",
-                str(pr_number),
-                "--repo",
-                self._repo,
-                "--merge",
-                "--delete-branch",
-                cwd=self._config.repo_root,
-                gh_token=self._credentials.gh_token,
-            )
-            await self._bus.publish(
-                HydraFlowEvent(
-                    type=EventType.MERGE_UPDATE,
-                    data=MergeUpdatePayload(pr=pr_number, status="merged"),
+        for attempt in range(2):
+            try:
+                await run_subprocess(
+                    "gh",
+                    "pr",
+                    "merge",
+                    str(pr_number),
+                    "--repo",
+                    self._repo,
+                    "--merge",
+                    "--delete-branch",
+                    cwd=self._config.repo_root,
+                    gh_token=self._credentials.gh_token,
                 )
-            )
-            return True
-        except RuntimeError as exc:
-            logger.warning("Promotion merge failed for PR #%d: %s", pr_number, exc)
-            return False
+                await self._bus.publish(
+                    HydraFlowEvent(
+                        type=EventType.MERGE_UPDATE,
+                        data=MergeUpdatePayload(pr=pr_number, status="merged"),
+                    )
+                )
+                return True
+            except RuntimeError as exc:
+                logger.warning(
+                    "Promotion merge failed for PR #%d (attempt %d): %s",
+                    pr_number,
+                    attempt + 1,
+                    exc,
+                )
+                if (
+                    attempt == 0
+                    and auto_rebase
+                    and await self._rebase_and_recheck_ci(pr_number)
+                ):
+                    continue
+                return False
+        return False
 
     async def find_open_pr_for_branch(
         self, branch: str, *, issue_number: int = 0
@@ -811,10 +886,16 @@ class PRManager:
         return True
 
     @port_span("hf.port.pr.merge_pr")
-    async def merge_pr(self, pr_number: int) -> bool:
+    async def merge_pr(self, pr_number: int, *, auto_rebase: bool = False) -> bool:
         """Merge PR immediately via squash merge with branch deletion.
 
         Returns *True* on success.
+
+        When ``auto_rebase=True`` and the merge fails (e.g. head behind
+        target), attempts one rebase-via-GitHub + re-poll-CI + retry-merge
+        cycle before giving up. Real conflicts that GitHub can't auto-rebase
+        return False to the caller's existing failure path (HITL release,
+        find-issue, etc.) — we never auto-resolve conflict markers locally.
         """
         self._assert_repo()
         if self._config.dry_run:
@@ -834,19 +915,34 @@ class PRManager:
                 exc_info=True,
             )
 
-        try:
-            await run_subprocess(
-                "gh",
-                "pr",
-                "merge",
-                str(pr_number),
-                "--repo",
-                self._repo,
-                "--squash",
-                "--delete-branch",
-                cwd=self._config.repo_root,
-                gh_token=self._credentials.gh_token,
-            )
+        for attempt in range(2):
+            try:
+                await run_subprocess(
+                    "gh",
+                    "pr",
+                    "merge",
+                    str(pr_number),
+                    "--repo",
+                    self._repo,
+                    "--squash",
+                    "--delete-branch",
+                    cwd=self._config.repo_root,
+                    gh_token=self._credentials.gh_token,
+                )
+            except RuntimeError as exc:
+                logger.warning(
+                    "Merge failed for PR #%d (attempt %d): %s",
+                    pr_number,
+                    attempt + 1,
+                    exc,
+                )
+                if (
+                    attempt == 0
+                    and auto_rebase
+                    and await self._rebase_and_recheck_ci(pr_number)
+                ):
+                    continue
+                return False
 
             payload = MergeUpdatePayload(pr=pr_number, status="merged")
             if pr_title:
@@ -894,9 +990,7 @@ class PRManager:
                     exc_info=True,
                 )
             return True
-        except RuntimeError as exc:
-            logger.warning("Merge failed for PR #%d: %s", pr_number, exc)
-            return False
+        return False
 
     async def _comment(
         self, target: Literal["issue", "pr"], number: int, body: str

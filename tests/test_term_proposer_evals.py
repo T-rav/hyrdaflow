@@ -33,7 +33,10 @@ from ubiquitous_language import (
     TermKind,
 )
 
-pytestmark = [pytest.mark.skip(reason="Evals — real LLM calls; run locally with -m evals"), pytest.mark.evals]
+pytestmark = [
+    pytest.mark.skip(reason="Evals — real LLM calls; run locally with -m evals"),
+    pytest.mark.evals,
+]
 
 
 @dataclass(frozen=True)
@@ -250,9 +253,7 @@ def existing_terms() -> list[Term]:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "case", HAPPY_CASES, ids=lambda c: f"happy-{c.candidate_name}"
-)
+@pytest.mark.parametrize("case", HAPPY_CASES, ids=lambda c: f"happy-{c.candidate_name}")
 async def test_happy_path_includes(
     llm: TermProposerLLM, existing_terms: list[Term], case: EvalCase
 ) -> None:
@@ -281,9 +282,7 @@ async def test_happy_path_includes(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "case", SAD_CASES, ids=lambda c: f"sad-{c.candidate_name}"
-)
+@pytest.mark.parametrize("case", SAD_CASES, ids=lambda c: f"sad-{c.candidate_name}")
 async def test_sad_path_skips(
     llm: TermProposerLLM, existing_terms: list[Term], case: EvalCase
 ) -> None:
@@ -310,9 +309,7 @@ async def test_sad_path_skips(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "case", EDGE_CASES, ids=lambda c: f"edge-{c.candidate_name}"
-)
+@pytest.mark.parametrize("case", EDGE_CASES, ids=lambda c: f"edge-{c.candidate_name}")
 async def test_edge_cases_match_documented_expectation(
     llm: TermProposerLLM, existing_terms: list[Term], case: EvalCase
 ) -> None:
