@@ -845,3 +845,342 @@ class TestPipelineEscalator:
         state.set_hitl_origin.assert_called_once_with(99, "hydraflow-ready")
         record = harness.append_failure.call_args.args[0]
         assert record.stage == PipelineStage.IMPLEMENT
+
+
+# ---------------------------------------------------------------------------
+# _fill_pending_slots (private helper)
+# ---------------------------------------------------------------------------
+
+
+class TestFillPendingSlots:
+    @pytest.mark.asyncio
+    async def test_empty_supply_leaves_pending_empty(self) -> None:
+        """Empty supply_fn leaves pending unchanged and counter unchanged."""
+        from phase_utils import _fill_pending_slots
+
+        async def noop(i: int, x: int) -> int:
+            return x
+
+        pending: dict = {}
+        counter = _fill_pending_slots(lambda: [], noop, pending, 3, 5)
+        assert counter == 5
+        assert not pending
+
+    @pytest.mark.asyncio
+    async def test_creates_tasks_for_available_items(self) -> None:
+        """Tasks are created for each item returned by supply_fn (supply exhausts)."""
+        from phase_utils import _fill_pending_slots
+
+        async def noop(i: int, x: int) -> int:
+            return x
+
+        items = [10, 20]
+
+        def supply_once() -> list[int]:
+            result, items[:] = list(items), []
+            return result
+
+        pending: dict = {}
+        counter = _fill_pending_slots(supply_once, noop, pending, 5, 0)
+        assert len(pending) == 2
+        assert counter == 2
+        for t in pending:
+            t.cancel()
+
+    @pytest.mark.asyncio
+    async def test_respects_max_concurrent_limit(self) -> None:
+        """Does not create more tasks than max_concurrent allows."""
+        from phase_utils import _fill_pending_slots
+
+        async def noop(i: int, x: int) -> int:
+            return x
+
+        pending: dict = {}
+        counter = _fill_pending_slots(lambda: [1, 2, 3, 4, 5], noop, pending, 2, 0)
+        assert len(pending) == 2
+        assert counter == 2
+        for t in pending:
+            t.cancel()
+
+    @pytest.mark.asyncio
+    async def test_increments_worker_id_counter(self) -> None:
+        """Counter increments by the number of tasks created."""
+        from phase_utils import _fill_pending_slots
+
+        async def noop(i: int, x: int) -> int:
+            return i
+
+        items = [1, 2, 3]
+
+        def supply_once() -> list[int]:
+            result, items[:] = list(items), []
+            return result
+
+        pending: dict = {}
+        counter = _fill_pending_slots(supply_once, noop, pending, 5, 10)
+        assert counter == 13  # started at 10, created 3 tasks
+        for t in pending:
+            t.cancel()
+
+    @pytest.mark.asyncio
+    async def test_does_not_exceed_available_slots_in_partial_pending(self) -> None:
+        """If pending already has tasks, only fills remaining slots."""
+        from phase_utils import _fill_pending_slots
+
+        async def noop(i: int, x: int) -> int:
+            return x
+
+        existing_task = asyncio.create_task(noop(0, 0))
+        pending: dict = {existing_task: 0}
+        counter = _fill_pending_slots(lambda: [10, 20, 30], noop, pending, 2, 1)
+        assert len(pending) == 2  # 1 existing + 1 new
+        assert counter == 2
+        for t in list(pending):
+            t.cancel()
+
+
+# ---------------------------------------------------------------------------
+# _cancel_remaining (private helper)
+# ---------------------------------------------------------------------------
+
+
+class TestCancelRemaining:
+    @pytest.mark.asyncio
+    async def test_cancels_all_pending_tasks(self) -> None:
+        """All tasks in the pending dict are cancelled and awaited."""
+        from phase_utils import _cancel_remaining
+
+        async def slow() -> int:
+            await asyncio.sleep(100)
+            return 1
+
+        tasks: dict[asyncio.Task[int], int] = {
+            asyncio.create_task(slow()): 0,
+            asyncio.create_task(slow()): 1,
+        }
+        await _cancel_remaining(tasks)
+
+        for t in tasks:
+            assert t.done()
+
+    @pytest.mark.asyncio
+    async def test_noop_on_empty_pending(self) -> None:
+        """Empty pending dict should not raise."""
+        from phase_utils import _cancel_remaining
+
+        await _cancel_remaining({})  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_safe_on_already_done_tasks(self) -> None:
+        """Calling on already-done tasks does not raise."""
+        from phase_utils import _cancel_remaining
+
+        async def quick() -> int:
+            return 42
+
+        task = asyncio.create_task(quick())
+        await asyncio.sleep(0)  # let it complete
+        assert task.done()
+
+        await _cancel_remaining({task: 0})  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# _process_done_tasks (private helper)
+# ---------------------------------------------------------------------------
+
+
+class TestProcessDoneTasks:
+    @pytest.mark.asyncio
+    async def test_appends_successful_result(self) -> None:
+        """Result from a completed task is appended to results list."""
+        from phase_utils import _process_done_tasks
+
+        async def ok() -> int:
+            return 42
+
+        task: asyncio.Task[int] = asyncio.create_task(ok())
+        await asyncio.sleep(0)  # let it complete
+
+        pending: dict[asyncio.Task[int], int] = {task: 0}
+        results: list[int] = []
+        await _process_done_tasks({task}, pending, results)
+
+        assert results == [42]
+
+    @pytest.mark.asyncio
+    async def test_removes_done_task_from_pending(self) -> None:
+        """Completed tasks are removed from the pending dict."""
+        from phase_utils import _process_done_tasks
+
+        async def ok() -> int:
+            return 1
+
+        task: asyncio.Task[int] = asyncio.create_task(ok())
+        await asyncio.sleep(0)
+
+        pending: dict[asyncio.Task[int], int] = {task: 0}
+        results: list[int] = []
+        await _process_done_tasks({task}, pending, results)
+
+        assert task not in pending
+
+    @pytest.mark.asyncio
+    async def test_nonfatal_exception_is_logged_not_raised(self) -> None:
+        """Non-fatal exceptions are logged; results list stays empty; no raise."""
+        from phase_utils import _process_done_tasks
+
+        async def bad() -> int:
+            raise ValueError("oops")
+
+        task: asyncio.Task[int] = asyncio.create_task(bad())
+        await asyncio.sleep(0)
+
+        pending: dict[asyncio.Task[int], int] = {task: 0}
+        results: list[int] = []
+
+        with patch("phase_utils.logger") as mock_logger:
+            await _process_done_tasks({task}, pending, results)
+
+        assert results == []
+        mock_logger.warning.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_fatal_auth_error_cancels_pending_and_raises(self) -> None:
+        """AuthenticationError cancels remaining pending tasks and re-raises."""
+        from phase_utils import _process_done_tasks
+        from subprocess_util import AuthenticationError
+
+        async def auth_fail() -> int:
+            raise AuthenticationError("bad token")
+
+        async def slow() -> int:
+            await asyncio.sleep(100)
+            return 1
+
+        failed: asyncio.Task[int] = asyncio.create_task(auth_fail())
+        await asyncio.sleep(0)  # let it fail
+
+        remaining: asyncio.Task[int] = asyncio.create_task(slow())
+        pending: dict[asyncio.Task[int], int] = {failed: 0, remaining: 1}
+        results: list[int] = []
+
+        with pytest.raises(AuthenticationError):
+            await _process_done_tasks({failed}, pending, results)
+
+        assert remaining.done()
+
+    @pytest.mark.asyncio
+    async def test_fatal_credit_error_cancels_pending_and_raises(self) -> None:
+        """CreditExhaustedError cancels remaining pending tasks and re-raises."""
+        from phase_utils import _process_done_tasks
+        from subprocess_util import CreditExhaustedError
+
+        async def credit_fail() -> int:
+            raise CreditExhaustedError("no credits")
+
+        async def slow() -> int:
+            await asyncio.sleep(100)
+            return 1
+
+        failed: asyncio.Task[int] = asyncio.create_task(credit_fail())
+        await asyncio.sleep(0)
+
+        remaining: asyncio.Task[int] = asyncio.create_task(slow())
+        pending: dict[asyncio.Task[int], int] = {failed: 0, remaining: 1}
+        results: list[int] = []
+
+        with pytest.raises(CreditExhaustedError):
+            await _process_done_tasks({failed}, pending, results)
+
+        assert remaining.done()
+
+    @pytest.mark.asyncio
+    async def test_memory_error_cancels_pending_and_raises(self) -> None:
+        """MemoryError cancels remaining pending tasks and re-raises."""
+        from phase_utils import _process_done_tasks
+
+        async def mem_fail() -> int:
+            raise MemoryError("OOM")
+
+        async def slow() -> int:
+            await asyncio.sleep(100)
+            return 1
+
+        failed: asyncio.Task[int] = asyncio.create_task(mem_fail())
+        await asyncio.sleep(0)
+
+        remaining: asyncio.Task[int] = asyncio.create_task(slow())
+        pending: dict[asyncio.Task[int], int] = {failed: 0, remaining: 1}
+        results: list[int] = []
+
+        with pytest.raises(MemoryError):
+            await _process_done_tasks({failed}, pending, results)
+
+        assert remaining.done()
+
+
+# ---------------------------------------------------------------------------
+# _collect_batch_results (private helper)
+# ---------------------------------------------------------------------------
+
+
+class TestCollectBatchResults:
+    @pytest.mark.asyncio
+    async def test_collects_all_results(self) -> None:
+        """All task results are returned."""
+        from phase_utils import _collect_batch_results
+
+        async def worker() -> int:
+            return 42
+
+        tasks = [asyncio.create_task(worker()) for _ in range(3)]
+        stop = asyncio.Event()
+        results = await _collect_batch_results(tasks, stop)
+
+        assert sorted(results) == [42, 42, 42]
+
+    @pytest.mark.asyncio
+    async def test_stops_when_stop_event_fires(self) -> None:
+        """Collection halts and remaining tasks are cancelled when stop fires."""
+        from phase_utils import _collect_batch_results
+
+        stop = asyncio.Event()
+
+        async def fast() -> int:
+            stop.set()
+            return 1
+
+        async def slow() -> int:
+            await asyncio.sleep(100)
+            return 2
+
+        tasks = [asyncio.create_task(fast()), asyncio.create_task(slow())]
+        results = await _collect_batch_results(tasks, stop)
+
+        assert 1 in results
+        assert len(results) < 2
+
+    @pytest.mark.asyncio
+    async def test_propagates_worker_exception(self) -> None:
+        """Exceptions from tasks propagate out of _collect_batch_results."""
+        from phase_utils import _collect_batch_results
+
+        async def fail() -> int:
+            raise ValueError("task failed")
+
+        tasks = [asyncio.create_task(fail())]
+        stop = asyncio.Event()
+
+        with pytest.raises(ValueError, match="task failed"):
+            await _collect_batch_results(tasks, stop)
+
+    @pytest.mark.asyncio
+    async def test_empty_task_list_returns_empty(self) -> None:
+        """Empty task list returns empty results list."""
+        from phase_utils import _collect_batch_results
+
+        stop = asyncio.Event()
+        results = await _collect_batch_results([], stop)
+
+        assert results == []
