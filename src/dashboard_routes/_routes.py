@@ -45,6 +45,7 @@ from dashboard_routes._common import (
     _status_sort_key,
 )
 from events import EventBus, EventType, HydraFlowEvent
+from exception_classify import reraise_on_credit_or_bug
 from github_cache_loop import GitHubDataCache
 from issue_fetcher import IssueFetcher
 from models import (
@@ -448,7 +449,8 @@ class RouteContext:
             return JSONResponse({"error": "Unknown repo"}, status_code=404)
         try:
             result = await task_fn(runtime_config)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             logger.exception("%s task failed", task_name)
             return JSONResponse({"error": f"{task_name} failed"}, status_code=500)
         payload: dict[str, Any] = {"status": "ok", "result": result.as_dict()}
