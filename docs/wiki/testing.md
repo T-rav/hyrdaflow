@@ -339,3 +339,15 @@ Feature toggles need both: (1) config field definition in `src/config.py`, (2) `
 ```json:entry
 {"id":"01KQP10AJW53QXTDM9KK5BS54D","title":"Feature toggle implementation requires config field + ENV override","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:19:35.644031+00:00","updated_at":"2026-05-03T04:19:35.644032+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
+
+
+## Test pyramid — three layers, all required for load-bearing features
+
+Every load-bearing feature ships through unit + MockWorld scenario + sandbox e2e tests before merging to staging. Skipping a layer is a procedural failure, not a judgment call. Unit tests catch code-path bugs but are blind to real-API behavior; MockWorld scenarios catch loop-integration bugs unit tests can't see; sandbox e2e tests catch the docker / wiring / UI layer that MockWorld can't reach. See [`docs/standards/testing/README.md`](../standards/testing/README.md) for the canonical reference: when each layer is required, how to write each (Pattern A full-MockWorld vs Pattern B direct-instantiation), and the anti-patterns (asserting against non-existent state shapes; module-level `import pytest` in sandbox scenarios; "this feature is too small for scenario tests" rationalisation).
+
+**Why:** PR #8482 (rebase-on-conflict) shipped with only unit tests and was caught by the question "did you test it all?". The MockWorld and sandbox layers were added in a follow-up. The standard exists so this doesn't recur.
+
+
+```json:entry
+{"id":"01KQTESTPYRAMID2026B0PHASE3","title":"Test pyramid — three layers, all required for load-bearing features","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-07T05:30:00.000000+00:00","updated_at":"2026-05-07T05:30:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"high","stale":false,"corroborations":1}
+```
