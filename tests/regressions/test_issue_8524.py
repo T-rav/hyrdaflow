@@ -10,8 +10,10 @@ staleness using ``bg.get_interval(worker)``.  With the wrong interval, a
 overdue against a 30 s baseline — triggering a false-positive escalation
 that auto-filed issue #8524.
 
-Fix: add ``stale_issue`` and ``stale_issue_gc`` to the defaults dict in
-``BGWorkerManager.get_interval``.
+Fix (PR #8664): query each loop's own ``_get_default_interval()`` from the
+loop registry, removing the need for a hardcoded defaults dict entry for every
+registered loop. ``stale_issue`` and ``stale_issue_gc`` are registered loops
+and now return their real intervals automatically.
 """
 
 from __future__ import annotations
@@ -19,11 +21,18 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 SRC = Path(__file__).resolve().parent.parent.parent / "src"
 sys.path.insert(0, str(SRC))
+
+
+def _fake_loop(interval: int) -> MagicMock:
+    loop = MagicMock()
+    loop._get_default_interval.return_value = interval
+    return loop
 
 
 @pytest.fixture()
@@ -34,7 +43,11 @@ def manager(tmp_path: Any):
 
     config = HydraFlowConfig()
     state = StateTracker(tmp_path / "state.json")
-    return BGWorkerManager(config, state, bg_loop_registry={})
+    registry = {
+        "stale_issue": _fake_loop(config.stale_issue_interval),
+        "stale_issue_gc": _fake_loop(config.stale_issue_gc_interval),
+    }
+    return BGWorkerManager(config, state, bg_loop_registry=registry)
 
 
 class TestStaleIssueIntervalDefaults:

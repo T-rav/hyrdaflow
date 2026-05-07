@@ -73,8 +73,8 @@ Rows below capture the canonical standard status. Full coverage detail
 | `DiagramLoop` | [0001] | [diagram-loop.md](../../wiki/terms/diagram-loop.md) | Caretaker loop |
 | `EdgeProposerLoop` | [0058, 0060, 0062] | [edge-proposer-loop.md](../../wiki/terms/edge-proposer-loop.md) | Caretaker loop |
 | `EntryEvidenceLoop` | [0062] | [entry-evidence-loop.md](../../wiki/terms/entry-evidence-loop.md) | Caretaker loop |
-| `EpicMonitorLoop` | [0080](../../../docs/adr/0080-epic-monitor-loop.md) | architecture-async-control.md | Caretaker loop |
-| `EpicSweeperLoop` | [0081](../../../docs/adr/0081-epic-sweeper-loop.md) | architecture-async-control.md | Caretaker loop |
+| `EpicMonitorLoop` | [0080](../../adr/0080-epic-monitor-loop.md) | architecture-async-control.md | Caretaker loop |
+| `EpicSweeperLoop` | [0081](../../adr/0081-epic-sweeper-loop.md) | architecture-async-control.md | Caretaker loop |
 | `FakeCoverageAuditorLoop` | [0045, 0056, 0057] | [fake-coverage-auditor-loop.md](../../wiki/terms/fake-coverage-auditor-loop.md) | Trust fleet |
 | `FlakeTrackerLoop` | [0045, 0056, 0057, 0065] | [flake-tracker-loop.md](../../wiki/terms/flake-tracker-loop.md) | Trust fleet |
 | `GitHubCacheLoop` | (none) | [github-cache-loop.md](../../wiki/terms/github-cache-loop.md) | Caretaker loop |

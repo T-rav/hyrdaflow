@@ -120,64 +120,72 @@ class TestInterval:
         assert manager.get_interval("pipeline_poller") == 5
 
     def test_trust_fleet_loops_use_own_interval_not_poll(
-        self, manager: BGWorkerManager
+        self, config: HydraFlowConfig, state: Any
     ) -> None:
-        # Regression: #8670 — trust fleet loops fell through to poll_interval
-        # (30s), causing TrustFleetSanityLoop to fire false-positive staleness
-        # escalations for weekly-cadence loops like fake_coverage_auditor.
-        cfg = manager._config
-        assert (
-            manager.get_interval("fake_coverage_auditor")
-            == cfg.fake_coverage_auditor_interval
-        )
-        assert manager.get_interval("corpus_learning") == cfg.corpus_learning_interval
-        assert manager.get_interval("contract_refresh") == cfg.contract_refresh_interval
-        assert manager.get_interval("staging_bisect") == cfg.staging_bisect_interval
-        assert manager.get_interval("principles_audit") == cfg.principles_audit_interval
-        assert manager.get_interval("flake_tracker") == cfg.flake_tracker_interval
-        assert (
-            manager.get_interval("skill_prompt_eval") == cfg.skill_prompt_eval_interval
-        )
-        assert manager.get_interval("rc_budget") == cfg.rc_budget_interval
-        assert (
-            manager.get_interval("wiki_rot_detector") == cfg.wiki_rot_detector_interval
-        )
-        assert (
-            manager.get_interval("trust_fleet_sanity")
-            == cfg.trust_fleet_sanity_interval
-        )
-        # All of these must be > poll_interval to avoid false staleness flags.
+        # Regression: #8670/#8652 — trust fleet loops must return their own
+        # _get_default_interval(), not poll_interval (30s), so
+        # TrustFleetSanityLoop computes correct staleness thresholds.
+        # After PR #8664 the mechanism is the loop registry; each loop owns
+        # its interval via _get_default_interval() and the manager looks it up.
+        cfg = config
+        trust_fleet_loops = {
+            "fake_coverage_auditor": cfg.fake_coverage_auditor_interval,
+            "corpus_learning": cfg.corpus_learning_interval,
+            "contract_refresh": cfg.contract_refresh_interval,
+            "staging_bisect": cfg.staging_bisect_interval,
+            "principles_audit": cfg.principles_audit_interval,
+            "flake_tracker": cfg.flake_tracker_interval,
+            "skill_prompt_eval": cfg.skill_prompt_eval_interval,
+            "rc_budget": cfg.rc_budget_interval,
+            "wiki_rot_detector": cfg.wiki_rot_detector_interval,
+            "trust_fleet_sanity": cfg.trust_fleet_sanity_interval,
+        }
+        registry = {}
+        for name, interval in trust_fleet_loops.items():
+            fake = MagicMock()
+            fake._get_default_interval.return_value = interval
+            registry[name] = fake
+        mgr = BGWorkerManager(cfg, state, registry)
+        for name, expected in trust_fleet_loops.items():
+            assert mgr.get_interval(name) == expected, (
+                f"{name}: expected {expected}, got {mgr.get_interval(name)}"
+            )
+        # All must exceed poll_interval to avoid false staleness flags.
         poll = cfg.poll_interval
-        for name in (
-            "fake_coverage_auditor",
-            "corpus_learning",
-            "contract_refresh",
-            "principles_audit",
-            "flake_tracker",
-            "skill_prompt_eval",
-            "rc_budget",
-            "wiki_rot_detector",
-            "trust_fleet_sanity",
-        ):
-            assert manager.get_interval(name) > poll, (
+        for name in trust_fleet_loops:
+            assert mgr.get_interval(name) > poll, (
                 f"{name} interval should exceed poll_interval but got "
-                f"{manager.get_interval(name)} vs {poll}"
+                f"{mgr.get_interval(name)} vs {poll}"
             )
 
     def test_adr_touchpoint_auditor_uses_config_interval(
-        self, manager: BGWorkerManager
+        self, config: HydraFlowConfig, state: Any
     ) -> None:
-        # Regression for #8671: missing entry caused poll_interval (30s) to be
-        # returned instead of the 4h config default, firing false staleness alarms.
+        # Regression for #8671/#8652: interval must come from the loop's
+        # _get_default_interval(), not fall through to poll_interval (30s).
+        fake = MagicMock()
+        fake._get_default_interval.return_value = config.adr_touchpoint_auditor_interval
+        mgr = BGWorkerManager(config, state, {"adr_touchpoint_auditor": fake})
         assert (
-            manager.get_interval("adr_touchpoint_auditor")
-            == manager._config.adr_touchpoint_auditor_interval
+            mgr.get_interval("adr_touchpoint_auditor")
+            == config.adr_touchpoint_auditor_interval
         )
 
     def test_persists_to_state(self, manager: BGWorkerManager) -> None:
         manager.set_interval("x", 99)
         saved = manager._state.get_worker_intervals()
         assert saved["x"] == 99
+
+    def test_registered_loop_interval_used_over_poll(
+        self, config: HydraFlowConfig, state: Any
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        fake_loop = MagicMock()
+        fake_loop._get_default_interval.return_value = 1800
+        mgr = BGWorkerManager(config, state, {"myloop": fake_loop})
+        assert mgr.get_interval("myloop") == 1800
+        assert mgr.get_interval("myloop") != config.poll_interval
 
 
 class TestRestoreMethods:
