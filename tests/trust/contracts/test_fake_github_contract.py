@@ -50,6 +50,13 @@ async def _invoke_fake_github(cassette: Cassette) -> FakeOutput:
         await fake.close_issue(issue_number)
         return FakeOutput(exit_code=0, stdout="", stderr="")
 
+    if method == "close_task":
+        n = int(args[0])
+        fake.add_issue(n, "Test issue", "")
+        await fake.close_task(n)
+        assert fake._issues[n].state == "closed"
+        return FakeOutput(exit_code=0, stdout="", stderr=f"✓ Closed issue #{n}\n")
+
     msg = f"FakeGitHub has no contract-tested method {method!r}"
     raise NotImplementedError(msg)
 
