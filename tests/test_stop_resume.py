@@ -132,6 +132,7 @@ def _make_orchestrator(tmp_path: Path) -> HydraFlowOrchestrator:
         svc.reviewer.active_issues = set()
         svc.memory_sync_bg = MagicMock()
         svc.pr_unsticker_loop = MagicMock()
+        svc.merge_state_watcher_loop = MagicMock()
         svc.fetcher = MagicMock()
         svc.summarizer = MagicMock()
 

@@ -6,6 +6,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W19
 
+- `7caf6db` — feat(caretaker): MergeStateWatcher loop — auto-rebase or HITL-escalate conflicting PRs *(2026-05-07)*
 - `775eebe` — feat(adr): AdrTouchpointAuditorLoop replaces deleted touchpoint gate (ADR-0056) *(2026-05-06)*
 - `29f2676` — chore(ci): delete the ADR touchpoint gate (replaced by caretaker loop) *(2026-05-06)*
 - `6d7fe13` — feat(telemetry): OTel Honeycomb instrumentation — Phase A (#8473) (#8473) *(2026-05-06)*
@@ -169,4 +170,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `a6b6ae4` on 2026-05-07 07:40 UTC. Source last changed at `a6b6ae4`. Status: 🟢 fresh._
+_Regenerated from commit `7caf6db` on 2026-05-07 18:49 UTC. Source last changed at `7caf6db`. Status: 🟢 fresh._

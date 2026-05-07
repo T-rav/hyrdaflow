@@ -249,7 +249,7 @@ export const WORKER_PRESETS = {
 /**
  * Workers whose interval can be edited from the UI.
  */
-export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'pr_unsticker', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer', 'epic_sweeper', 'epic_monitor', 'dependabot_merge', 'staging_promotion', 'staging_bisect', 'stale_issue', 'security_patch', 'ci_monitor', 'code_grooming', 'sentry_ingest', 'retrospective', 'principles_audit', 'flake_tracker', 'skill_prompt_eval', 'fake_coverage_auditor', 'adr_touchpoint_auditor', 'rc_budget', 'wiki_rot_detector', 'trust_fleet_sanity', 'contract_refresh', 'corpus_learning', 'auto_agent_preflight', 'diagram_loop', 'pricing_refresh', 'cost_budget_watcher', 'github_cache', 'runs_gc'])
+export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'pr_unsticker', 'merge_state_watcher', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer', 'epic_sweeper', 'epic_monitor', 'dependabot_merge', 'staging_promotion', 'staging_bisect', 'stale_issue', 'security_patch', 'ci_monitor', 'code_grooming', 'sentry_ingest', 'retrospective', 'principles_audit', 'flake_tracker', 'skill_prompt_eval', 'fake_coverage_auditor', 'adr_touchpoint_auditor', 'rc_budget', 'wiki_rot_detector', 'trust_fleet_sanity', 'contract_refresh', 'corpus_learning', 'auto_agent_preflight', 'diagram_loop', 'pricing_refresh', 'cost_budget_watcher', 'github_cache', 'runs_gc'])
 
 /**
  * Default intervals (in seconds) for system workers.
@@ -259,6 +259,7 @@ export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'pr_unsticker',
 export const SYSTEM_WORKER_INTERVALS = {
   pipeline_poller: 5,
   pr_unsticker: 3600,
+  merge_state_watcher: 600,
   memory_sync: 3600,
   report_issue: 30,
   worktree_gc: 1800,
@@ -313,6 +314,7 @@ export const BACKGROUND_WORKERS = [
   { key: 'pipeline_poller', label: 'Pipeline Poller', description: 'Refreshes live pipeline snapshots for queue and status visibility.', color: theme.textMuted, system: true, group: 'operations', tags: ['infra'] },
   { key: 'memory_sync',     label: 'Memory Manager', description: 'Ingests memory and transcript issues into durable learnings.', color: theme.accent, system: true, group: 'intake', tags: ['memory'] },
   { key: 'pr_unsticker',    label: 'PR Unsticker',   description: 'Requeues stalled HITL PRs once requirements are actionable.', color: theme.orange, system: true, group: 'operations', tags: ['recovery'] },
+  { key: 'merge_state_watcher', label: 'Merge State Watcher', description: 'Auto-rebases or HITL-escalates open PRs flagged mergeable=CONFLICTING (RC, dependabot, agent).', color: theme.orange, system: true, group: 'operations', tags: ['recovery'] },
   { key: 'report_issue',   label: 'Report Issue',   description: 'Processes queued bug reports into GitHub issues.', color: theme.red, group: 'intake', tags: ['issues'] },
   { key: 'workspace_gc',   label: 'Workspace GC',   description: 'Garbage-collects stale workspaces and orphaned branches.', color: theme.textMuted, system: true, group: 'repo_health', tags: ['hygiene'] },
   { key: 'adr_reviewer',   label: 'ADR Reviewer',   description: 'Reviews proposed ADRs via a 3-judge council and routes to accept, reject, or escalate.', color: theme.accent, group: 'intake', tags: ['review'] },

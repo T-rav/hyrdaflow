@@ -51,6 +51,16 @@ def _build_dependabot_merge(ports: dict[str, Any], config: Any, deps: Any) -> An
     )
 
 
+def _build_merge_state_watcher(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from merge_state_watcher_loop import MergeStateWatcherLoop  # noqa: PLC0415
+
+    return MergeStateWatcherLoop(
+        config=config,
+        prs=ports["github"],
+        deps=deps,
+    )
+
+
 def _build_pr_unsticker(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     from pr_unsticker_loop import PRUnstickerLoop  # noqa: PLC0415
 
@@ -977,6 +987,7 @@ _BUILDERS: dict[str, Any] = {
     "stale_issue_gc": _build_stale_issue_gc,
     "dependabot_merge": _build_dependabot_merge,
     "pr_unsticker": _build_pr_unsticker,
+    "merge_state_watcher": _build_merge_state_watcher,
     "health_monitor": _build_health_monitor,
     "workspace_gc": _build_workspace_gc,
     # phase 3b
