@@ -1,0 +1,48 @@
+specification {
+    element actor
+    element step
+    relationship calls
+}
+
+model {
+    pytest = actor 'pytest parametrize' {
+        description: 'list_cassettes(cassettes/git) yields config_get.yaml'
+    }
+
+    s_load = step 'load_cassette(path)' {
+        description: 'YAML -> Cassette pydantic model; validates adapter, normalizers'
+    }
+    s_invoke = step '_invoke_fake_git(cassette)' {
+        description: 'matches method == "config_get"'
+    }
+    s_seed = step 'fake.set_corrupted_config(cwd, key="core.bare", value="false")' {
+        description: 'seeds self._configs[cwd]["core.bare"]'
+    }
+    s_call = step 'value = await fake.config_get(cwd, "core.bare")' {
+        description: 'returns "false"'
+    }
+    s_wrap = step 'return FakeOutput(exit_code=0, stdout="false\\n", stderr="")' {
+        description: 'shape mirrors `git config --get` real output'
+    }
+    s_norm = step 'apply_normalizers(stdout, [])' {
+        description: 'no-op — empty normalizers list'
+    }
+    s_assert = step 'assert got == cassette.output' {
+        description: 'exit_code, stdout, stderr equality'
+    }
+
+    pytest -> s_load 'invokes via replay_cassette'
+    s_load -> s_invoke 'cassette'
+    s_invoke -> s_seed 'sets in-memory config'
+    s_seed -> s_call 'reads it back'
+    s_call -> s_wrap 'wraps in FakeOutput'
+    s_wrap -> s_norm 'sides normalized'
+    s_norm -> s_assert 'final equality check'
+}
+
+views {
+    view flow {
+        title 'config_get cassette replay sequence'
+        include *
+    }
+}
