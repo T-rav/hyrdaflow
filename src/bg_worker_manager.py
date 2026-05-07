@@ -137,5 +137,18 @@ class BGWorkerManager:
             # Daily caretaker — never falls through to poll_interval.
             "pricing_refresh": 86400,
             "cost_budget_watcher": 300,  # 5 minutes
+            # Trust fleet loops — each has its own cadence; must be
+            # explicit here so TrustFleetSanityLoop's staleness detector
+            # uses the correct threshold instead of poll_interval (30s).
+            "corpus_learning": self._config.corpus_learning_interval,
+            "contract_refresh": self._config.contract_refresh_interval,
+            "staging_bisect": self._config.staging_bisect_interval,
+            "principles_audit": self._config.principles_audit_interval,
+            "flake_tracker": self._config.flake_tracker_interval,
+            "skill_prompt_eval": self._config.skill_prompt_eval_interval,
+            "fake_coverage_auditor": self._config.fake_coverage_auditor_interval,
+            "rc_budget": self._config.rc_budget_interval,
+            "wiki_rot_detector": self._config.wiki_rot_detector_interval,
+            "trust_fleet_sanity": self._config.trust_fleet_sanity_interval,
         }
         return defaults.get(name, self._config.poll_interval)
