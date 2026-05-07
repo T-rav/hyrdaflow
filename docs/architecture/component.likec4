@@ -1,0 +1,106 @@
+// Component view: makefile_scaffold module after refactor of merge_makefile()
+// Issue #7644 — Code Quality: Break down merge_makefile() (146 lines, 24 branches)
+
+specification {
+  element module {
+    style {
+      shape: rectangle
+    }
+  }
+  element function {
+    style {
+      shape: rectangle
+    }
+  }
+  element private_function {
+    style {
+      shape: rectangle
+      color: gray
+    }
+  }
+  element constant
+  element caller {
+    style {
+      shape: person
+    }
+  }
+}
+
+model {
+  // Public surface — three names imported across the codebase. Do not rename.
+  parse_makefile = function 'parse_makefile' {
+    description: 'text -> dict[name, recipe]; only loop over lines, no I/O'
+  }
+  generate_makefile = function 'generate_makefile' {
+    description: 'language -> full Makefile string'
+  }
+  merge_makefile = function 'merge_makefile' {
+    description: 'After refactor: ~34 lines, orchestrator only'
+  }
+
+  // New private helpers (module-level, prefix _) — extracted from merge_makefile.
+  diff_targets = private_function '_diff_targets' {
+    description: '(existing_targets: dict, all_template: dict) -> (targets_to_add, warnings)'
+  }
+  check_prereq_deps = private_function '_check_prereq_deps' {
+    description: 'Check prerequisite deps for smoke/quality-lite/quality; called from merge_makefile'
+  }
+  append_missing = private_function '_append_missing_targets' {
+    description: 'Two-pass: recipe-bearing first, prerequisite-only last'
+  }
+  update_phony = private_function '_update_phony' {
+    description: 'Rewrite or prepend .PHONY preserving include-defined names'
+  }
+  ensure_default_goal = private_function '_ensure_default_goal' {
+    description: 'Prepend .DEFAULT_GOAL if absent'
+  }
+  normalize_recipe = private_function '_normalize_recipe' {
+    description: 'Promoted from closure; line-by-line strip, NOT whole-string strip'
+  }
+  targets_for_language = private_function '_targets_for_language' {
+    description: 'Existing; unchanged. Returns base templates + coverage-check.'
+  }
+
+  // Constants (module-level recipe templates and quality lines)
+  templates = constant 'recipe templates' {
+    description: '_PYTHON_TARGETS, _JS_TARGETS, ..., _COVERAGE_CHECK_RECIPE, _HELP_RECIPE'
+  }
+  quality_lines = constant 'quality / smoke / default goal lines' {
+    description: '_QUALITY_LITE_LINE, _SMOKE_LINE, _QUALITY_LINE, _DEFAULT_GOAL_LINE'
+  }
+
+  // Callers
+  contract = caller 'makefile_contract.validate_and_repair' {
+    description: 'Lazy import (noqa: PLC0415); only production caller'
+  }
+  tests = caller 'tests/test_makefile_scaffold.py' {
+    description: 'TestParseMakefile, TestGenerateMakefile, TestMergeMakefile'
+  }
+
+  // Public entry points
+  contract -> merge_makefile 'merge_makefile(content, language)'
+  contract -> generate_makefile 'generate_makefile(language)'
+  tests -> parse_makefile
+  tests -> generate_makefile
+  tests -> merge_makefile
+
+  // Internal composition (NEW after refactor)
+  merge_makefile -> targets_for_language 'language -> template_targets; early-return if empty'
+  merge_makefile -> parse_makefile 'existing_content -> existing_targets'
+  merge_makefile -> diff_targets 'compute targets_to_add + warnings'
+  merge_makefile -> check_prereq_deps 'smoke / quality-lite / quality prereq warnings'
+  merge_makefile -> append_missing 'append recipe + prerequisite-only'
+  merge_makefile -> update_phony 'rewrite or prepend .PHONY'
+  merge_makefile -> ensure_default_goal 'prepend .DEFAULT_GOAL if absent'
+
+  diff_targets -> normalize_recipe 'compare recipe equality'
+
+  generate_makefile -> targets_for_language
+}
+
+views {
+  view component_view of merge_makefile {
+    title 'merge_makefile decomposition (Issue #7644)'
+    include *
+  }
+}

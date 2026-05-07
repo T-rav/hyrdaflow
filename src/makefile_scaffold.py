@@ -213,6 +213,69 @@ _HELP_RECIPE = (
 _ALL_TARGET_NAMES = list(REQUIRED_TARGETS) + list(OPTIONAL_TARGETS)
 
 
+def _normalize_recipe(recipe: str) -> str:
+    lines = [line.strip() for line in recipe.strip().splitlines()]
+    return "\n".join(lines)
+
+
+def _diff_targets(
+    existing: dict[str, str],
+    template: dict[str, str | None],
+) -> tuple[list[str], list[str]]:
+    """Return (targets_to_add, warnings) by comparing existing against template.
+
+    Warnings are emitted when an existing target has a recipe that differs from
+    the template. Template entries with ``None`` recipe are prereq-only targets
+    and are never recipe-compared.
+    """
+    warnings: list[str] = []
+    targets_to_add: list[str] = []
+
+    for name, template_recipe in template.items():
+        if name in existing:
+            if template_recipe is not None:
+                existing_recipe = existing[name]
+                expected_recipe = template_recipe.strip("\n").lstrip("\t")
+                if _normalize_recipe(existing_recipe) != _normalize_recipe(
+                    expected_recipe
+                ):
+                    warnings.append(
+                        f"Target '{name}' exists with different recipe: "
+                        f"found '{existing_recipe.strip()}', "
+                        f"expected '{expected_recipe.strip()}'"
+                    )
+        else:
+            targets_to_add.append(name)
+
+    return targets_to_add, warnings
+
+
+def _check_prereq_deps(content: str, existing: dict[str, str]) -> list[str]:
+    """Return warnings for quality/quality-lite/smoke with unexpected prerequisites."""
+    checks = [
+        ("quality-lite", "lint-check typecheck security"),
+        ("quality", "quality-lite test coverage-check"),
+        ("smoke", "test"),
+    ]
+    warnings: list[str] = []
+    for target_name, expected_deps in checks:
+        if target_name not in existing:
+            continue
+        match = re.search(
+            rf"^{re.escape(target_name)}\s*:(?![=:])\s*(.*)",
+            content,
+            re.MULTILINE,
+        )
+        if match:
+            found_deps = match.group(1).strip()
+            if found_deps != expected_deps:
+                warnings.append(
+                    f"Target '{target_name}' exists with different prerequisites: "
+                    f"found '{found_deps}', expected '{expected_deps}'"
+                )
+    return warnings
+
+
 def parse_makefile(content: str) -> dict[str, str]:
     """Extract target-name -> recipe-text mappings from Makefile content.
 
@@ -318,6 +381,62 @@ def generate_makefile(language: str) -> str:
     return "\n".join(lines)
 
 
+def _append_missing_targets(
+    existing_content: str,
+    targets_to_add: list[str],
+    template_targets: dict[str, str],
+) -> str:
+    """Return content with missing targets appended; prerequisite-only targets last."""
+    lines = existing_content.rstrip("\n") + "\n"
+    for name in targets_to_add:
+        if name in ("smoke", "quality-lite", "quality"):
+            continue
+        if name == "help":
+            lines += f"\nhelp:\n{_HELP_RECIPE}"
+            continue
+        lines += f"\n{name}:\n{template_targets[name]}"
+    if "smoke" in targets_to_add:
+        lines += f"\n{_SMOKE_LINE}"
+    if "quality-lite" in targets_to_add:
+        lines += f"\n{_QUALITY_LITE_LINE}"
+    if "quality" in targets_to_add:
+        lines += f"\n{_QUALITY_LINE}"
+    return lines
+
+
+def _update_phony(
+    content: str,
+    existing_content: str,
+    existing_targets: dict[str, str],
+    targets_to_add: list[str],
+) -> str:
+    """Replace or prepend .PHONY to cover all known targets."""
+    existing_phony: set[str] = set()
+    for line in existing_content.split("\n"):
+        if line.startswith(".PHONY"):
+            rest = line.split(":", 1)
+            if len(rest) > 1:
+                existing_phony.update(rest[1].split())
+    all_names = existing_phony | set(existing_targets.keys()) | set(targets_to_add)
+    phony_names = " ".join(sorted(all_names))
+    if ".PHONY" in existing_content:
+        return re.sub(
+            r"^\.PHONY:.*",
+            f".PHONY: {phony_names}",
+            content,
+            count=1,
+            flags=re.MULTILINE,
+        )
+    return f".PHONY: {phony_names}\n\n{content}"
+
+
+def _ensure_default_goal(content: str, existing_content: str) -> str:
+    """Prepend .DEFAULT_GOAL if it is absent from the original content."""
+    if re.search(r"^\.DEFAULT_GOAL\s*:?=", existing_content, re.MULTILINE):
+        return content
+    return f"{_DEFAULT_GOAL_LINE}\n\n{content}"
+
+
 def merge_makefile(existing_content: str, language: str) -> tuple[str, list[str]]:
     """Merge missing targets into an existing Makefile.
 
@@ -328,139 +447,27 @@ def merge_makefile(existing_content: str, language: str) -> tuple[str, list[str]
     if not template_targets:
         return existing_content, []
 
-    # Include prerequisite-only quality targets in the full set to check.
     all_template: dict[str, str | None] = dict(template_targets)
     all_template["help"] = _HELP_RECIPE
     all_template["smoke"] = None
     all_template["quality-lite"] = None
-    all_template["quality"] = None  # prerequisite-only, no recipe body
+    all_template["quality"] = None
 
     existing_targets = parse_makefile(existing_content)
-
-    warnings: list[str] = []
-    targets_to_add: list[str] = []
-
-    def _normalize_recipe(recipe: str) -> str:
-        lines = [line.strip() for line in recipe.strip().splitlines()]
-        return "\n".join(lines)
-
-    for name, template_recipe in all_template.items():
-        if name in existing_targets:
-            # Compare recipes (only for targets with recipe bodies)
-            if template_recipe is not None:
-                existing_recipe = existing_targets[name]
-                expected_recipe = template_recipe.strip("\n").lstrip("\t")
-                if _normalize_recipe(existing_recipe) != _normalize_recipe(
-                    expected_recipe
-                ):
-                    warnings.append(
-                        f"Target '{name}' exists with different recipe: "
-                        f"found '{existing_recipe.strip()}', "
-                        f"expected '{expected_recipe.strip()}'"
-                    )
-        else:
-            targets_to_add.append(name)
-
-    # Warn if existing quality targets have different prerequisites.
-    if "quality-lite" in existing_targets:
-        quality_lite_match = re.search(
-            r"^quality-lite\s*:(?![=:])\s*(.*)",
-            existing_content,
-            re.MULTILINE,
-        )
-        if quality_lite_match:
-            existing_deps = quality_lite_match.group(1).strip()
-            expected_deps = "lint-check typecheck security"
-            if existing_deps != expected_deps:
-                warnings.append(
-                    f"Target 'quality-lite' exists with different prerequisites: "
-                    f"found '{existing_deps}', expected '{expected_deps}'"
-                )
-
-    if "quality" in existing_targets:
-        quality_match = re.search(
-            r"^quality\s*:(?![=:])\s*(.*)",
-            existing_content,
-            re.MULTILINE,
-        )
-        if quality_match:
-            existing_deps = quality_match.group(1).strip()
-            expected_deps = "quality-lite test coverage-check"
-            if existing_deps != expected_deps:
-                warnings.append(
-                    f"Target 'quality' exists with different prerequisites: "
-                    f"found '{existing_deps}', expected '{expected_deps}'"
-                )
-
-    if "smoke" in existing_targets:
-        smoke_match = re.search(
-            r"^smoke\s*:(?![=:])\s*(.*)",
-            existing_content,
-            re.MULTILINE,
-        )
-        if smoke_match:
-            existing_deps = smoke_match.group(1).strip()
-            expected_deps = "test"
-            if existing_deps != expected_deps:
-                warnings.append(
-                    f"Target 'smoke' exists with different prerequisites: "
-                    f"found '{existing_deps}', expected '{expected_deps}'"
-                )
+    targets_to_add, warnings = _diff_targets(existing_targets, all_template)
+    warnings += _check_prereq_deps(existing_content, existing_targets)
 
     if not targets_to_add:
         return existing_content, warnings
 
-    # Build the new content by appending missing targets
-    new_lines = existing_content.rstrip("\n")
-
-    # Add a blank line separator
-    new_lines += "\n"
-
-    for name in targets_to_add:
-        if name in ("smoke", "quality-lite", "quality"):
-            continue  # Add prerequisite-only targets last.
-        if name == "help":
-            new_lines += f"\nhelp:\n{_HELP_RECIPE}"
-            continue
-        new_lines += f"\n{name}:\n{template_targets[name]}"
-
-    if "smoke" in targets_to_add:
-        new_lines += f"\n{_SMOKE_LINE}"
-    if "quality-lite" in targets_to_add:
-        new_lines += f"\n{_QUALITY_LITE_LINE}"
-    if "quality" in targets_to_add:
-        new_lines += f"\n{_QUALITY_LINE}"
-
-    # Ensure .PHONY includes all targets — preserve existing .PHONY entries
-    # that may not have target definitions in this file (e.g., from includes).
-    existing_phony: set[str] = set()
-    for _line in existing_content.split("\n"):
-        if _line.startswith(".PHONY"):
-            _rest = _line.split(":", 1)
-            if len(_rest) > 1:
-                existing_phony.update(_rest[1].split())
-    all_target_names = (
-        existing_phony | set(existing_targets.keys()) | set(targets_to_add)
+    new_content = _append_missing_targets(
+        existing_content, targets_to_add, template_targets
     )
-    phony_names = " ".join(sorted(all_target_names))
+    new_content = _update_phony(
+        new_content, existing_content, existing_targets, targets_to_add
+    )
+    new_content = _ensure_default_goal(new_content, existing_content)
+    if not new_content.endswith("\n"):
+        new_content += "\n"
 
-    if ".PHONY" in existing_content:
-        # Replace existing .PHONY line(s)
-        new_lines = re.sub(
-            r"\.PHONY:.*",
-            f".PHONY: {phony_names}",
-            new_lines,
-            count=1,
-        )
-    else:
-        # Prepend .PHONY
-        new_lines = f".PHONY: {phony_names}\n\n{new_lines}"
-
-    if not re.search(r"^\.DEFAULT_GOAL\s*:?=", existing_content, re.MULTILINE):
-        new_lines = f"{_DEFAULT_GOAL_LINE}\n\n{new_lines}"
-
-    # Ensure trailing newline
-    if not new_lines.endswith("\n"):
-        new_lines += "\n"
-
-    return new_lines, warnings
+    return new_content, warnings
