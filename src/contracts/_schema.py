@@ -84,6 +84,10 @@ _ISO8601_RE = re.compile(
     r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})\b"
 )
 _SHORT_SHA_RE = re.compile(r"\b[0-9a-f]{7,12}\b")
+# Bare 40-hex git object SHAs (full SHA1). Must be applied before sha:short
+# because sha:short's {7,12} boundary would not match a 40-char run, but
+# ordering makes the intent explicit.
+_LONG_SHA_RE = re.compile(r"\b[0-9a-f]{40}\b")
 
 
 def _norm_pr_number(text: str) -> str:
@@ -100,10 +104,15 @@ def _norm_short_sha(text: str) -> str:
     return _SHORT_SHA_RE.sub("<SHORT_SHA>", text)
 
 
+def _norm_long_sha(text: str) -> str:
+    return _LONG_SHA_RE.sub("<LONG_SHA>", text)
+
+
 NORMALIZERS: dict[str, Callable[[str], str]] = {
     "pr_number": _norm_pr_number,
     "timestamps.ISO8601": _norm_iso8601,
     "sha:short": _norm_short_sha,
+    "sha:long": _norm_long_sha,
 }
 
 

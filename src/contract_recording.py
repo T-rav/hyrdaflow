@@ -320,9 +320,28 @@ def record_git(sandbox_dir: Path, tmp_cassette_dir: Path) -> list[Path]:
         stderr=commit.stderr,
         normalizers=["sha:short"],
     )
-    path = tmp_cassette_dir / "commit.yaml"
-    _write_yaml_cassette(path, payload)
-    return [path]
+    commit_path = tmp_cassette_dir / "commit.yaml"
+    _write_yaml_cassette(commit_path, payload)
+
+    rev_parse = _run(["git", "-C", sandbox_str, "rev-parse", "HEAD"])
+    if not _require_success(rev_parse, label="git rev-parse"):
+        return [commit_path]
+    assert rev_parse is not None
+
+    rev_parse_payload = _build_cassette_payload(
+        adapter="git",
+        interaction="rev_parse",
+        fixture_repo="tests/trust/contracts/fixtures/git_sandbox",
+        command="rev_parse",
+        args=["HEAD"],
+        exit_code=rev_parse.returncode,
+        stdout=rev_parse.stdout,
+        stderr=rev_parse.stderr,
+        normalizers=["sha:long"],
+    )
+    rev_parse_path = tmp_cassette_dir / "rev_parse.yaml"
+    _write_yaml_cassette(rev_parse_path, rev_parse_payload)
+    return [commit_path, rev_parse_path]
 
 
 def record_docker(tmp_cassette_dir: Path) -> list[Path]:

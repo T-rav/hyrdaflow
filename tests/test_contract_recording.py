@@ -157,24 +157,28 @@ def test_record_git_runs_init_add_commit_in_sandbox(tmp_path: Path) -> None:
     cassette_dir.mkdir()
 
     calls: list[list[str]] = []
+    sha_40 = "a" * 40
 
     def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
         calls.append(list(argv))
+        if "rev-parse" in argv:
+            return _completed(argv=argv, stdout=f"{sha_40}\n")
         return _completed(argv=argv, stdout="[main abc1234] initial\n")
 
     with patch("contract_recording.subprocess.run", side_effect=fake_run):
         paths = record_git(sandbox_dir=sandbox, tmp_cassette_dir=cassette_dir)
 
-    # We expect at least three git calls: init, add, commit.
+    # We expect at least four git calls: init, add, commit, rev-parse.
     subcommands = [c[c.index("git") + 1 :] for c in calls if "git" in c]
     flat = [tok for seq in subcommands for tok in seq]
     assert "init" in flat
     assert "add" in flat
     assert "commit" in flat
-    # And the final recorded cassette lives under the provided dir.
-    assert len(paths) == 1
-    assert paths[0].parent == cassette_dir
-    assert paths[0].suffix == ".yaml"
+    assert "rev-parse" in flat
+    # Two cassettes are written: commit.yaml and rev_parse.yaml.
+    assert len(paths) == 2
+    assert all(p.parent == cassette_dir for p in paths)
+    assert all(p.suffix == ".yaml" for p in paths)
 
 
 def test_record_git_writes_schema_valid_cassette(tmp_path: Path) -> None:
@@ -183,18 +187,27 @@ def test_record_git_writes_schema_valid_cassette(tmp_path: Path) -> None:
     cassette_dir = tmp_path / "cassettes"
     cassette_dir.mkdir()
 
-    with patch(
-        "contract_recording.subprocess.run",
-        side_effect=lambda argv, **_: _completed(
-            argv=argv, stdout="[main abc1234] initial\n"
-        ),
-    ):
+    sha_40 = "b" * 40
+
+    def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        if "rev-parse" in argv:
+            return _completed(argv=argv, stdout=f"{sha_40}\n")
+        return _completed(argv=argv, stdout="[main abc1234] initial\n")
+
+    with patch("contract_recording.subprocess.run", side_effect=fake_run):
         paths = record_git(sandbox_dir=sandbox, tmp_cassette_dir=cassette_dir)
 
     assert paths
-    cassette = Cassette.model_validate(_load_yaml(paths[0]))
-    assert cassette.adapter == "git"
-    assert cassette.interaction == "commit"
+    by_stem = {p.stem: p for p in paths}
+    commit_cas = Cassette.model_validate(_load_yaml(by_stem["commit"]))
+    assert commit_cas.adapter == "git"
+    assert commit_cas.interaction == "commit"
+    rev_parse_cas = Cassette.model_validate(_load_yaml(by_stem["rev_parse"]))
+    assert rev_parse_cas.adapter == "git"
+    assert rev_parse_cas.interaction == "rev_parse"
+    assert rev_parse_cas.input.command == "rev_parse"
+    assert rev_parse_cas.input.args == ["HEAD"]
+    assert "sha:long" in rev_parse_cas.normalizers
 
 
 def test_record_git_returns_empty_when_sandbox_missing(tmp_path: Path) -> None:
