@@ -1,4 +1,12 @@
-"""Background worker loop — auto-close stale issues with no recent activity."""
+"""Background worker loop — auto-close stale *general* issues with no recent activity.
+
+Scope: open issues that do NOT carry a HydraFlow lifecycle label
+(``planner``, ``ready``, ``review``, ``hitl``). The complement —
+stale HITL escalations — is owned by ``stale_issue_gc_loop``, which
+posts a farewell comment and caps at 10 closes/cycle. The two loops
+have effectively zero business-logic overlap; they share only the
+``BaseBackgroundLoop`` scaffolding.
+"""
 
 from __future__ import annotations
 
