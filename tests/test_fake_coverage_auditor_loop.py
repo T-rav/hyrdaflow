@@ -254,3 +254,34 @@ async def test_kill_switch_short_circuits_do_work(loop_env) -> None:
     assert stats == {"status": "disabled"}
     loop._reconcile_closed_escalations.assert_not_awaited()
     pr.create_issue.assert_not_awaited()
+
+
+def test_fake_to_cassette_dir_keys_match_real_classes() -> None:
+    """Every key in _FAKE_TO_CASSETTE_DIR must be a real Fake* class in the fakes dir.
+
+    Guards against case-mismatch regressions (e.g. 'FakeFs' vs actual 'FakeFS')
+    and stale entries for removed classes.
+    """
+    import ast as _ast
+    from pathlib import Path as _Path
+
+    from fake_coverage_auditor_loop import _FAKE_TO_CASSETTE_DIR
+
+    repo_root = _Path(__file__).parent.parent
+    fake_dir = repo_root / "src" / "mockworld" / "fakes"
+    actual: set[str] = set()
+    for path in fake_dir.glob("*.py"):
+        if path.name.startswith("test_") or path.name == "__init__.py":
+            continue
+        try:
+            tree = _ast.parse(path.read_text())
+        except SyntaxError:
+            continue
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.ClassDef) and node.name.startswith("Fake"):
+                actual.add(node.name)
+
+    stale = set(_FAKE_TO_CASSETTE_DIR) - actual
+    assert not stale, (
+        f"Stale _FAKE_TO_CASSETTE_DIR keys (class no longer exists): {stale}"
+    )
