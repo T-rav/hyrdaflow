@@ -34,6 +34,7 @@ from diagram_loop import DiagramLoop  # noqa: TCH001
 from discover_phase import DiscoverPhase  # noqa: TCH001
 from discover_runner import DiscoverRunner
 from docker_runner import get_docker_runner
+from edge_proposer_loop import EdgeProposerLoop
 from epic import EpicCompletionChecker, EpicManager
 from epic_monitor_loop import EpicMonitorLoop
 from epic_sweeper_loop import EpicSweeperLoop
@@ -199,6 +200,7 @@ class ServiceRegistry:
     pricing_refresh_loop: PricingRefreshLoop
     term_proposer_loop: TermProposerLoop
     term_pruner_loop: TermPrunerLoop
+    edge_proposer_loop: EdgeProposerLoop
 
     # Optional integrations
 
@@ -1077,6 +1079,18 @@ def build_services(
         repo_root=config.repo_root,
     )
 
+    # Edge-Proposer (ADR-0058). Reuses the proposer's PR port adapter for the
+    # same reason as the pruner: structural bot PRs share the same auto-merge
+    # plumbing.
+    from edge_proposer_loop import EdgeProposerLoop  # noqa: PLC0415
+
+    edge_proposer_loop = EdgeProposerLoop(  # noqa: F841
+        config=config,
+        deps=loop_deps,
+        pr_port=term_proposer_pr_port,
+        repo_root=config.repo_root,
+    )
+
     return ServiceRegistry(
         workspaces=workspaces,
         subprocess_runner=subprocess_runner,
@@ -1149,4 +1163,5 @@ def build_services(
         pricing_refresh_loop=pricing_refresh_loop,
         term_proposer_loop=term_proposer_loop,
         term_pruner_loop=term_pruner_loop,
+        edge_proposer_loop=edge_proposer_loop,
     )

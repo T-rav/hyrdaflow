@@ -59,3 +59,23 @@ def test_review_prs_filters_pruner_via_constant_not_literal() -> None:
         "ReviewPhase.review_prs reintroduced a hardcoded pruner label literal — "
         "use TERM_PRUNER_PR_LABEL instead"
     )
+
+
+def test_edge_proposer_constant_is_the_label_string() -> None:
+    """The edge-proposer constant must equal the literal label DependabotMergeLoop watches for."""
+    from edge_proposer_loop import EDGE_PROPOSER_PR_LABEL  # noqa: PLC0415
+
+    assert EDGE_PROPOSER_PR_LABEL == "hydraflow-ul-edges"
+
+
+def test_review_prs_filters_edge_proposer_via_constant_not_literal() -> None:
+    """``ReviewPhase.review_prs`` must also filter edge-proposer PRs via the constant (ADR-0058)."""
+    source = inspect.getsource(ReviewPhase.review_prs)
+    assert "EDGE_PROPOSER_PR_LABEL" in source, (
+        "ReviewPhase.review_prs must filter via the imported edge-proposer constant"
+    )
+    # And the literal must NOT be re-duplicated inside review_prs.
+    assert '"hydraflow-ul-edges"' not in source, (
+        "ReviewPhase.review_prs reintroduced a hardcoded edge-proposer label literal — "
+        "use EDGE_PROPOSER_PR_LABEL instead"
+    )

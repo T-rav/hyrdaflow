@@ -501,17 +501,23 @@ class ReviewPhase:
             if not prs:
                 return []
 
-        # Skip term-proposer / term-pruner PRs (handled by DependabotMergeLoop,
-        # ADR-0054 / ADR-0057). Both loops open auto-merging bot PRs whose
-        # content is purely generated; the agent pipeline must not route them.
+        # Skip term-proposer / term-pruner / edge-proposer PRs (handled by
+        # DependabotMergeLoop, ADR-0054 / ADR-0057 / ADR-0058). All three loops
+        # open auto-merging bot PRs whose content is purely generated; the agent
+        # pipeline must not route them.
+        from edge_proposer_loop import EDGE_PROPOSER_PR_LABEL  # noqa: PLC0415
         from term_proposer_loop import TERM_PROPOSER_PR_LABEL  # noqa: PLC0415
         from term_pruner_loop import TERM_PRUNER_PR_LABEL  # noqa: PLC0415
 
-        _ul_bot_labels = {TERM_PROPOSER_PR_LABEL, TERM_PRUNER_PR_LABEL}
+        _ul_bot_labels = {
+            TERM_PROPOSER_PR_LABEL,
+            TERM_PRUNER_PR_LABEL,
+            EDGE_PROPOSER_PR_LABEL,
+        }
         prs = [pr for pr in prs if not (set(pr.labels or []) & _ul_bot_labels)]
         if not prs:
             logger.debug(
-                "review_phase: all PRs filtered out (term-proposer/pruner candidates)"
+                "review_phase: all PRs filtered out (term-proposer/pruner/edge-proposer candidates)"
             )
             return []
 

@@ -6,6 +6,8 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W19
 
+- `8962798` — docs(adr): add ADR-0058 edge-proposer loop *(2026-05-07)*
+- `76e91e0` — feat(ul): wire TermPrunerLoop into ServiceRegistry + orchestrator *(2026-05-07)*
 - `882171c` — docs(adr): add ADR-0057 term-pruner loop *(2026-05-07)*
 - `d83d968` — Merge pull request #8681 from T-rav/ul-proposer/08881ea4 *(2026-05-07)*
 - `8407378` — feat(ul): auto-grown terms ship as 'accepted' directly *(2026-05-07)*
@@ -184,4 +186,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `e5ae95c` on 2026-05-07 21:56 UTC. Source last changed at `e5ae95c`. Status: 🟢 fresh._
+_Regenerated from commit `08ff62b` on 2026-05-07 23:02 UTC. Source last changed at `08ff62b`. Status: 🟢 fresh._

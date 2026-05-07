@@ -193,6 +193,7 @@ class HydraFlowOrchestrator:
             "cost_budget_watcher": svc.cost_budget_watcher_loop,
             "term_proposer": svc.term_proposer_loop,
             "term_pruner": svc.term_pruner_loop,
+            "edge_proposer": svc.edge_proposer_loop,
         }
         self._bg_workers = BGWorkerManager(config, self._state, bg_loop_registry)
         # Loops that need a reference to BGWorkerManager cannot take one
@@ -1010,6 +1011,7 @@ class HydraFlowOrchestrator:
             ("cost_budget_watcher", self._svc.cost_budget_watcher_loop.run),
             ("term_proposer", self._svc.term_proposer_loop.run),
             ("term_pruner", self._svc.term_pruner_loop.run),
+            ("edge_proposer", self._svc.edge_proposer_loop.run),
         ]
 
         # Hindsight WAL replay loop removed in Phase 3 cutover — the wiki
