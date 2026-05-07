@@ -1,0 +1,121 @@
+// LikeC4 model — IssueStore pipeline-snapshot construction
+// Issue #7653: deduplicate PipelineSnapshotEntry construction across 4 sites.
+//
+// The change is a private-method refactor inside IssueStore. No port, adapter,
+// or cross-module boundary is touched. Diagram captures the call topology so
+// the implementer can see what stays inside the box.
+
+specification {
+  element actor
+  element module
+  element class
+  element method
+  element data
+}
+
+model {
+  caller = actor "External caller" {
+    description "Dashboard / API consumer that polls the pipeline snapshot."
+  }
+
+  issue_store = module "src/issue_store.py" {
+    description "In-memory pipeline state machine + snapshot producer."
+
+    klass = class "IssueStore" {
+      description "Holds queues, active/in-flight maps, HITL/merged sets, and _issue_cache: dict[int, Task]."
+
+      get_snapshot = method "get_pipeline_snapshot()" {
+        description "Public entrypoint. Aggregates queued, active, hitl, merged, in-flight."
+      }
+
+      // The four cache-driven helpers (in scope)
+      snap_active = method "_snapshot_active() — L639" {
+        description "Iterates self._active. status='active'. Currently inlines fetch+build+epic-meta."
+      }
+      snap_hitl = method "_snapshot_hitl() — L657" {
+        description "Iterates self._hitl_numbers. status='hitl'. Currently inlines fetch+build+epic-meta."
+      }
+      snap_merged = method "_snapshot_merged() — L675" {
+        description "Iterates self._merged_numbers. status='merged'. Currently inlines fetch+build+epic-meta."
+      }
+      snap_inflight = method "_snapshot_in_flight() — L693" {
+        description "Iterates self._in_flight. status=PipelineIssueStatus.PROCESSING. Currently inlines fetch+build+epic-meta."
+      }
+
+      // The task-driven sibling (out of scope — kept for context)
+      snap_queued = method "_snapshot_queued() — L606" {
+        description "Iterates queue Tasks directly; does NOT touch _issue_cache. Out of scope for this refactor."
+      }
+
+      epic_meta = method "_epic_metadata(task: Task)" {
+        description "Returns dict with optional epic_number / is_epic_child. Reused by all five snapshot methods."
+      }
+
+      // NEW after this change
+      build_entry = method "_build_cached_entry(issue_number, status) — NEW" {
+        description "Private builder that fetches Task from _issue_cache, constructs PipelineSnapshotEntry with fallback title/URL, and applies _epic_metadata when cached."
+      }
+
+      cache = data "_issue_cache: dict[int, Task]" {
+        description "Read-only inside snapshot helpers. The builder calls .get(issue_number)."
+      }
+    }
+  }
+
+  models_mod = module "src/models.py" {
+    entry_typed = data "PipelineSnapshotEntry (TypedDict)" {
+      description "issue_number, title, url, status; NotRequired[epic_number, is_epic_child]. NOT a dataclass — dataclasses.replace() does not apply."
+    }
+    status_enum = data "PipelineIssueStatus (StrEnum)" {
+      description "PROCESSING value used by _snapshot_in_flight. StrEnum IS-A str — works with status: str field."
+    }
+  }
+
+  // Relationships — current
+  caller -> get_snapshot "polls"
+  get_snapshot -> snap_queued "queued stages"
+  get_snapshot -> snap_active "active stages"
+  get_snapshot -> snap_hitl "HITL list"
+  get_snapshot -> snap_merged "merged list"
+  get_snapshot -> snap_inflight "in-flight stages"
+
+  snap_active -> cache ".get(issue_number)"
+  snap_active -> entry_typed "constructs"
+  snap_active -> epic_meta "calls when cached"
+
+  snap_hitl -> cache ".get(issue_number)"
+  snap_hitl -> entry_typed "constructs"
+  snap_hitl -> epic_meta "calls when cached"
+
+  snap_merged -> cache ".get(issue_number)"
+  snap_merged -> entry_typed "constructs"
+  snap_merged -> epic_meta "calls when cached"
+
+  snap_inflight -> cache ".get(issue_number)"
+  snap_inflight -> entry_typed "constructs"
+  snap_inflight -> epic_meta "calls when cached"
+
+  snap_queued -> entry_typed "constructs (task-driven, untouched)"
+  snap_queued -> epic_meta "calls"
+
+  // Relationships — after refactor
+  snap_active -> build_entry "delegates [after]"
+  snap_hitl -> build_entry "delegates [after]"
+  snap_merged -> build_entry "delegates [after]"
+  snap_inflight -> build_entry "delegates [after]"
+  build_entry -> cache ".get(issue_number)"
+  build_entry -> entry_typed "constructs"
+  build_entry -> epic_meta "calls when cached"
+}
+
+views {
+  view component_overview {
+    title "IssueStore snapshot helpers — before / after"
+    include caller, get_snapshot, snap_queued, snap_active, snap_hitl, snap_merged, snap_inflight, build_entry, epic_meta, entry_typed, status_enum, cache
+  }
+
+  view dynamic_after of get_snapshot {
+    title "get_pipeline_snapshot() flow after extraction"
+    include get_snapshot, snap_active, snap_hitl, snap_merged, snap_inflight, build_entry, epic_meta, cache, entry_typed
+  }
+}
