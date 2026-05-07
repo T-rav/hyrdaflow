@@ -33,7 +33,7 @@ describe('CaretakerPanel', () => {
 
   it('renders caretaker worker rows', () => {
     render(<CaretakerPanel />)
-    expect(screen.getByText('Stale Issue GC')).toBeTruthy()
+    expect(screen.getByText('Stale HITL Issue GC')).toBeTruthy()
     expect(screen.getByText('CI Monitor')).toBeTruthy()
     expect(screen.getByText('Dependabot Merge')).toBeTruthy()
   })
@@ -79,6 +79,6 @@ describe('CaretakerPanel', () => {
     mockUseHydraFlow.mockReturnValue(defaultContext({ backgroundWorkers: [] }))
     render(<CaretakerPanel />)
     // Workers should still render with 'disabled' status
-    expect(screen.getByText('Stale Issue GC')).toBeTruthy()
+    expect(screen.getByText('Stale HITL Issue GC')).toBeTruthy()
   })
 })
