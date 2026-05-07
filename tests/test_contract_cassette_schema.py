@@ -79,6 +79,22 @@ class TestNormalizers:
         assert "<SHORT_SHA>" in result
         assert "abc1234" not in result
 
+    def test_long_sha_replaces_40_char_hex(self) -> None:
+        sha = "a" * 40
+        result = NORMALIZERS["sha:long"](f"{sha}\n")
+        assert "<LONG_SHA>" in result
+        assert sha not in result
+
+    def test_long_sha_does_not_match_short_sha(self) -> None:
+        short = "abc1234"
+        result = NORMALIZERS["sha:long"](short)
+        assert result == short
+
+    def test_long_sha_does_not_match_39_char_hex(self) -> None:
+        almost = "a" * 39
+        result = NORMALIZERS["sha:long"](almost)
+        assert "<LONG_SHA>" not in result
+
     def test_apply_chains_all_names(self) -> None:
         text = "pr #7 at 2026-04-22T14:00:00Z sha deadbeef"
         result = apply_normalizers(
