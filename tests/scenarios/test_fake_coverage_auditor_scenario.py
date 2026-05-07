@@ -81,8 +81,8 @@ class TestFakeCoverageAuditor:
         title, _body, labels = args[0], args[1], args[2]
         assert "close_issue" in title
         assert "FakeGitHub" in title
-        assert "adapter-surface" in labels
-        assert "fake-coverage-gap" in labels
+        assert "hydraflow-adapter-surface" in labels
+        assert "hydraflow-fake-coverage-gap" in labels
         assert "hydraflow-find" in labels
 
     async def test_unused_test_helper_files_helper_gap(self, tmp_path) -> None:
@@ -119,6 +119,6 @@ class TestFakeCoverageAuditor:
         title, _body, labels = args[0], args[1], args[2]
         assert "script_run" in title
         assert "FakeDocker" in title
-        assert "test-helper" in labels
-        assert "fake-coverage-gap" in labels
+        assert "hydraflow-test-helper" in labels
+        assert "hydraflow-fake-coverage-gap" in labels
         assert "hydraflow-find" in labels

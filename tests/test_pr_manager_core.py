@@ -1686,6 +1686,11 @@ async def test_ensure_labels_exist_uses_config_label_names(config, event_bus, tm
         "custom-verify",
         "hydraflow-parked",
         "hydraflow-diagnose",
+        "hydraflow-hitl-escalation",
+        "hydraflow-fake-coverage-gap",
+        "hydraflow-adapter-surface",
+        "hydraflow-test-helper",
+        "hydraflow-fake-coverage-stuck",
     }
 
 

@@ -11,9 +11,11 @@ Spec: `docs/superpowers/specs/2026-04-22-trust-architecture-hardening-design.md`
   ``fail_service``, ``heal_service``, ``set_state``). Covered by a
   scenario test under ``tests/scenarios/`` that calls the helper.
 
-Files `hydraflow-find` + `fake-coverage-gap` + one of
-`adapter-surface` | `test-helper` per uncovered method. Escalates
-after 3 attempts to `hitl-escalation` + `fake-coverage-stuck`.
+Files ``find_label`` + ``fake_coverage_gap_label`` + one of
+``adapter_surface_label`` | ``test_helper_label`` per uncovered method.
+Escalates after 3 attempts to ``hitl_escalation_label`` +
+``fake_coverage_stuck_label``. All five label fields are registered in
+``HYDRAFLOW_LABELS`` so ``make ensure-labels`` provisions them.
 """
 
 from __future__ import annotations
@@ -200,7 +202,11 @@ class FakeCoverageAuditorLoop(BaseBackgroundLoop):
         return await self._pr.create_issue(
             title,
             body,
-            ["hydraflow-find", "fake-coverage-gap", "adapter-surface"],
+            [
+                *self._config.find_label,
+                *self._config.fake_coverage_gap_label,
+                *self._config.adapter_surface_label,
+            ],
         )
 
     async def _file_helper_gap(self, fake: str, method: str) -> int:
@@ -215,7 +221,11 @@ class FakeCoverageAuditorLoop(BaseBackgroundLoop):
         return await self._pr.create_issue(
             title,
             body,
-            ["hydraflow-find", "fake-coverage-gap", "test-helper"],
+            [
+                *self._config.find_label,
+                *self._config.fake_coverage_gap_label,
+                *self._config.test_helper_label,
+            ],
         )
 
     async def _file_escalation(self, key: str, attempts: int) -> int:
@@ -226,11 +236,16 @@ class FakeCoverageAuditorLoop(BaseBackgroundLoop):
             f"_Spec §3.2: closing this issue clears the dedup key._"
         )
         return await self._pr.create_issue(
-            title, body, ["hitl-escalation", "fake-coverage-stuck"]
+            title,
+            body,
+            [
+                *self._config.hitl_escalation_label,
+                *self._config.fake_coverage_stuck_label,
+            ],
         )
 
     async def _reconcile_closed_escalations(self) -> None:
-        """Clear dedup keys for closed ``fake-coverage-stuck`` escalations."""
+        """Clear dedup keys for closed fake-coverage-stuck escalations."""
         cmd = [
             "gh",
             "issue",
@@ -239,17 +254,22 @@ class FakeCoverageAuditorLoop(BaseBackgroundLoop):
             self._config.repo,
             "--state",
             "closed",
-            "--label",
-            "hitl-escalation",
-            "--label",
-            "fake-coverage-stuck",
-            "--author",
-            "@me",
-            "--limit",
-            "100",
-            "--json",
-            "title",
         ]
+        for label in (
+            *self._config.hitl_escalation_label,
+            *self._config.fake_coverage_stuck_label,
+        ):
+            cmd.extend(["--label", label])
+        cmd.extend(
+            [
+                "--author",
+                "@me",
+                "--limit",
+                "100",
+                "--json",
+                "title",
+            ]
+        )
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
