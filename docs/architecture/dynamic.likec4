@@ -1,0 +1,49 @@
+// Dynamic view: control flow through refactored merge_makefile()
+// Sequence reflects load-bearing ordering invariants asserted by tests:
+//   - existing-targets-first (test_preserves_existing_content_order)
+//   - prerequisite-only targets last in fixed order (smoke, quality-lite, quality)
+//   - .PHONY rewrite preserves include-defined names
+//   - trailing newline always
+
+specification {
+  element actor {
+    style { shape: person }
+  }
+  element step {
+    style { shape: rectangle }
+  }
+}
+
+model {
+  caller = actor 'makefile_contract.validate_and_repair'
+  m = step 'merge_makefile(existing_content, language)'
+  resolve = step '_resolve_merge_template(language)'
+  early_unknown = step 'early-return ("", []) if unknown language'
+  parse = step 'parse_makefile(existing_content)'
+  diff = step '_diff_targets(existing, template, content) -> (warnings, to_add)'
+  early_nothing = step 'early-return (existing, warnings) if to_add empty'
+  append = step '_append_missing_targets(content, template, to_add)'
+  phony = step '_ensure_phony(body, content, existing, to_add)'
+  default_goal = step '_ensure_default_goal(body, existing_content)'
+  trailing = step 'ensure trailing newline'
+  done = step 'return (new_content, warnings)'
+
+  caller -> m 'merge_makefile(content, "python")'
+  m -> resolve
+  resolve -> early_unknown 'language not in templates'
+  resolve -> parse 'template resolved'
+  parse -> diff 'existing_targets ready'
+  diff -> early_nothing 'no targets to add'
+  diff -> append 'targets_to_add non-empty'
+  append -> phony 'body has new target lines appended'
+  phony -> default_goal 'body has updated .PHONY'
+  default_goal -> trailing
+  trailing -> done
+}
+
+views {
+  view flow of m {
+    title 'merge_makefile happy path'
+    include *
+  }
+}
