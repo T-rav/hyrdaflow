@@ -1780,7 +1780,12 @@ class PRManager:
 
         fd, tmp_path = tempfile.mkstemp(suffix=".png", prefix="hydraflow-screenshot-")
         try:
-            with os.fdopen(fd, "wb") as f:
+            try:
+                f = os.fdopen(fd, "wb")
+            except OSError:
+                os.close(fd)
+                raise
+            with f:
                 f.write(png_bytes)
 
             gist_args = [
@@ -2686,7 +2691,12 @@ class PRManager:
         """
         fd, tmp_path = tempfile.mkstemp(suffix=".md", prefix="hydraflow-body-")
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
+            try:
+                f = os.fdopen(fd, "w", encoding="utf-8")
+            except OSError:
+                os.close(fd)
+                raise
+            with f:
                 f.write(body)
             return await run_subprocess_with_retry(
                 *cmd,

@@ -626,6 +626,28 @@ class TestUploadScreenshotGist:
         assert result == ""
         mgr._run_gh.assert_not_awaited()
 
+    @pytest.mark.asyncio
+    async def test_closes_fd_when_fdopen_raises(self, config, event_bus):
+        """fd must be closed when os.fdopen raises so the OS fd is not leaked."""
+        import base64
+
+        mgr = make_pr_manager(config, event_bus)
+        fake_fd = 88
+        png_b64 = base64.b64encode(b"\x89PNG fake").decode()
+
+        with (
+            patch(
+                "pr_manager.tempfile.mkstemp",
+                return_value=(fake_fd, "/tmp/fake.png"),
+            ),
+            patch("pr_manager.os.fdopen", side_effect=OSError("cannot open")),
+            patch("pr_manager.os.close") as mock_close,
+        ):
+            result = await mgr.upload_screenshot_gist(png_b64)
+
+        assert result == ""
+        mock_close.assert_called_once_with(fake_fd)
+
 
 # ---------------------------------------------------------------------------
 # _gh_json_query
@@ -1959,6 +1981,24 @@ async def test_run_with_body_file_defaults_cwd_to_repo_root(config, event_bus):
         await mgr._run_with_body_file("gh", "issue", "comment", "1", body="content")
 
     assert str(captured_cwd) == str(config.repo_root)
+
+
+@pytest.mark.asyncio
+async def test_run_with_body_file_closes_fd_when_fdopen_raises(config, event_bus):
+    """fd must be closed when os.fdopen raises so the OS fd is not leaked."""
+
+    mgr = make_pr_manager(config, event_bus)
+    fake_fd = 99
+
+    with (
+        patch("pr_manager.tempfile.mkstemp", return_value=(fake_fd, "/tmp/fake.md")),
+        patch("pr_manager.os.fdopen", side_effect=OSError("cannot open")),
+        patch("pr_manager.os.close") as mock_close,
+        pytest.raises(OSError),
+    ):
+        await mgr._run_with_body_file("gh", "issue", "comment", "1", body="x")
+
+    mock_close.assert_called_once_with(fake_fd)
 
 
 # ---------------------------------------------------------------------------
