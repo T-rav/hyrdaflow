@@ -5,6 +5,8 @@ See ADR-0054 and docs/superpowers/specs/2026-05-06-term-proposer-loop-design.md.
 This file's responsibilities:
 - open_proposer_pr: bot-PR helper (used by the loop, but separable for testing)
 - TermProposerLoop: the BaseBackgroundLoop subclass (added in Task 8)
+
+The first autonomous Term proposed by this loop landed in PR #8681 (Task term).
 """
 
 from __future__ import annotations

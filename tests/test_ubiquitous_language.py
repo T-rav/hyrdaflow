@@ -584,7 +584,7 @@ class TestValidateDraft:
         assert reason is None
         assert term is not None
         assert term.name == "FooLoop"
-        assert term.confidence == "proposed"
+        assert term.confidence == "accepted"
         assert term.proposed_by == "TermProposerLoop"
 
     def test_rejects_unresolved_anchor(self, tmp_path: Path) -> None:
