@@ -2220,29 +2220,6 @@ class PRManager:
                 continue
         return results
 
-    async def update_pr_branch(self, pr_number: int) -> bool:
-        """Trigger ``gh pr update-branch`` for *pr_number*.
-
-        Returns ``True`` when GitHub accepted the update (rebase/merge with
-        ``main`` was scheduled), ``False`` if the API call failed or hit a
-        conflict. Caller is expected to re-check ``get_pr_mergeable`` to
-        confirm the conflict actually cleared.
-        """
-        if self._config.dry_run:
-            logger.info("[dry-run] Would update branch for PR #%d", pr_number)
-            return True
-
-        try:
-            await self._run_gh("gh", "pr", "update-branch", str(pr_number))
-        except RuntimeError:
-            logger.info(
-                "update_pr_branch failed for PR #%d (likely real conflict)",
-                pr_number,
-                exc_info=True,
-            )
-            return False
-        return True
-
     async def get_pr_comments(self, pr_number: int) -> list[dict[str, str]]:
         """Fetch issue-level comments for *pr_number* with author info.
 

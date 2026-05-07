@@ -335,15 +335,6 @@ class PRPort(Protocol):
         """
         ...
 
-    async def update_pr_branch(self, pr_number: int) -> bool:
-        """Trigger ``gh pr update-branch`` on *pr_number*.
-
-        Returns ``True`` when GitHub accepted the update (rebase/merge with
-        ``main`` was scheduled), ``False`` if the API call failed or the
-        operation hit a conflict that needs HITL.
-        """
-        ...
-
     async def post_pr_comment(self, pr_number: int, body: str) -> None:
         """Post a comment on a GitHub pull request."""
         ...
