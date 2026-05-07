@@ -18,19 +18,22 @@ graph LR
     src_runners["src.runners"]
     src_sentry["src.sentry"]
     src_state["src.state"]
+    src_telemetry["src.telemetry"]
     src -- "4" --> src_arch
     src -- "1" --> src_contracts
     src -- "4" --> src_dashboard_routes
     src -- "12" --> src_preflight
     src -- "44" --> src_state
+    src -- "7" --> src_telemetry
     src_arch_extractors -- "7" --> src_arch
     src_arch_generators -- "10" --> src_arch
     src_dashboard_routes -- "1" --> src_preflight
     src_dashboard_routes -- "1" --> src_state
     src_mockworld_fakes -- "25" --> src_mockworld
+    src_mockworld_fakes -- "1" --> src_telemetry
     src_preflight -- "1" --> src_runners
     src_preflight -- "1" --> src_sentry
     src_runners -- "1" --> src_preflight
 ```
 
-_Regenerated from commit `7998ac3` on 2026-05-06 23:07 UTC. Source last changed at `7998ac3`. Status: 🟢 fresh._
+_Regenerated from commit `8b3a1f4` on 2026-05-07 03:23 UTC. Source last changed at `8b3a1f4`. Status: 🟢 fresh._

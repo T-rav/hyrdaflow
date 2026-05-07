@@ -149,6 +149,30 @@ def _reset_gh_semaphore():
 
 
 @pytest.fixture(autouse=True)
+def _reset_otel_tracer_provider():
+    """Reset the OTel global tracer-provider state between tests.
+
+    ``trace.set_tracer_provider`` is guarded by a ``Once`` object that
+    prevents re-assignment after the first call.  Tests that install an
+    ``InMemorySpanExporter`` need a fresh provider each run; this fixture
+    resets both the provider reference and the ``Once._done`` flag so that
+    each test starts from a clean slate.
+
+    This directly mutates private OTel internals — the same coupling
+    trade-off accepted for ``_reset_gh_semaphore``.
+    """
+    from opentelemetry import trace as _trace
+    from src.telemetry.spans import _get_tracer
+
+    yield
+    # Teardown: undo whatever the test installed and clear our tracer cache
+    # so the next test resolves Tracer instances against its fresh provider.
+    _trace._TRACER_PROVIDER = None  # noqa: SLF001
+    _trace._TRACER_PROVIDER_SET_ONCE._done = False  # noqa: SLF001
+    _get_tracer.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def _disable_hitl_summary_autowarm(config) -> None:
     """Keep route tests deterministic unless a test explicitly opts in."""
     config.transcript_summarization_enabled = False

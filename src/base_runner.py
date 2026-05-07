@@ -27,6 +27,7 @@ from runner_utils import (
     stream_claude_process,
     terminate_processes,
 )
+from telemetry.spans import runner_span  # noqa: E402
 from tracing_context import TracingContext
 from wiki_compiler import parse_adr_draft_suggestion
 
@@ -97,6 +98,10 @@ class BaseRunner:
         # ADR runtime index — injected into plan/implement/review prompts.
         # Relative path from the worktree cwd. None-safe at read time.
         self._adr_index: ADRIndex | None = ADRIndex(Path("docs/adr"))
+        # Keeps strong references to fire-and-forget background tasks so the
+        # garbage collector cannot cancel them mid-flight (and so OTel context
+        # propagation is not broken by bare create_task calls).
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def active_count(self) -> int:
@@ -128,9 +133,15 @@ class BaseRunner:
         """Kill all active subprocesses."""
         terminate_processes(self._active_procs)
 
+    @property
+    def phase(self) -> str:
+        """Canonical phase name for OTel span naming; mirrors ``_phase_name``."""
+        return self._phase_name
+
     _AUTH_RETRY_MAX = 3
     _AUTH_RETRY_BASE_DELAY = 5.0  # seconds
 
+    @runner_span()
     async def _execute(
         self,
         cmd: list[str],
@@ -291,7 +302,9 @@ class BaseRunner:
                 "_save_transcript called outside event loop — ADR-draft pipeline skipped"
             )
             return
-        loop.create_task(self._process_transcript_for_adr_draft(transcript))
+        task = loop.create_task(self._process_transcript_for_adr_draft(transcript))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _process_transcript_for_adr_draft(self, transcript: str) -> None:
         """Scan transcript for ADR_DRAFT_SUGGESTION and run the 4-gate pipeline.
