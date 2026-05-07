@@ -1,0 +1,97 @@
+// Issue #7991 — Rate-limit cooldown concurrency model
+//
+// Models the relevant part of `src/subprocess_util.py` and how multiple
+// concurrent async loops interact with the *module-level* rate-limit state.
+//
+// Today (BUG): the read-modify-write of `_rate_limit_current_cooldown` is
+// unsynchronized; two callers may both observe the same value, double it,
+// and store the same result — losing one full step of the 60→120→240→480
+// exponential-backoff curve.
+//
+// Fix: serialize the read-modify-write via `threading.Lock`. We pick
+// `threading.Lock` (not `asyncio.Lock`) because the trigger/reset functions
+// are synchronous and the regression test forces the race with OS threads,
+// not asyncio tasks — and because critical sections are nanosecond-scale
+// with no awaits inside.
+
+specification {
+  element actor
+  element module
+  element function
+  element state
+  element loop
+  tag bug
+  tag fix
+}
+
+model {
+  // Concurrent producers (any coroutine that calls `gh` or `git`)
+  loop_implement      = loop "ImplementLoop"      "Calls gh/git via run_subprocess"
+  loop_review         = loop "ReviewLoop"         "Calls gh/git via run_subprocess"
+  loop_plan           = loop "PlanLoop"           "Calls gh/git via run_subprocess"
+  loop_ci_monitor     = loop "CIMonitorLoop"      "Calls gh/git via run_subprocess"
+  loop_caretaker      = loop "CaretakerLoops"     "Caretaker family — many concurrent gh/git callers"
+
+  subprocess_util = module "subprocess_util" {
+    description "Shared async subprocess helper for gh/git calls"
+
+    run_subprocess = function "run_subprocess()" "Public entry. Acquires gh semaphore, awaits cooldown, runs cmd."
+
+    rate_limit_state = state "Module globals" {
+      description "_rate_limit_until, _rate_limit_current_cooldown, _gh_semaphore"
+    }
+
+    rate_limit_lock = state "_rate_limit_lock (threading.Lock)" {
+      description "NEW (this fix): guards read-modify-write of cooldown state"
+      tag fix
+    }
+
+    trigger = function "_trigger_rate_limit_cooldown()" {
+      description "On 403 rate-limit: extend deadline, double the backoff counter (capped at 480s)"
+      tag bug
+    }
+
+    reset = function "_reset_rate_limit_backoff()" {
+      description "On success: reset cooldown counter to base 60s"
+      tag bug
+    }
+
+    wait = function "_wait_for_rate_limit_cooldown()" {
+      description "Async sleep until _rate_limit_until passes; re-reads inside loop after each wake"
+    }
+  }
+
+  // Wiring
+  loop_implement      -> run_subprocess "calls"
+  loop_review         -> run_subprocess "calls"
+  loop_plan           -> run_subprocess "calls"
+  loop_ci_monitor     -> run_subprocess "calls"
+  loop_caretaker      -> run_subprocess "calls"
+
+  run_subprocess -> wait    "await before semaphore acquire"
+  run_subprocess -> trigger "on 403 + 'rate limit' in stderr"
+  run_subprocess -> reset   "on success (rc==0)"
+
+  trigger -> rate_limit_lock "acquires (FIX)"
+  reset   -> rate_limit_lock "acquires (FIX)"
+  wait    -> rate_limit_lock "acquires briefly to read deadline (FIX)"
+
+  trigger -> rate_limit_state "reads + writes _rate_limit_until and _rate_limit_current_cooldown"
+  reset   -> rate_limit_state "writes _rate_limit_current_cooldown"
+  wait    -> rate_limit_state "reads _rate_limit_until"
+}
+
+views {
+  view context {
+    title "Issue #7991 — Concurrent loops share a single rate-limit cooldown"
+    include *
+    autoLayout TopBottom
+  }
+
+  view fix_focus {
+    title "Where the threading.Lock lands"
+    include subprocess_util.*
+    include subprocess_util
+    autoLayout TopBottom
+  }
+}

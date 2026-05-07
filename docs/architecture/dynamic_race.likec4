@@ -1,0 +1,40 @@
+// Issue #7991 — Dynamic view of the race
+//
+// Two coroutines/threads racing through `_trigger_rate_limit_cooldown` today
+// both observe `_rate_limit_current_cooldown == 60`, both compute `60 * 2 == 120`,
+// both write 120. After two such triggers the counter is at 120 instead of the
+// expected 240. With a `threading.Lock` the two calls serialize and the counter
+// reaches 240.
+
+specification {
+  element participant
+}
+
+model {
+  caller_a = participant "Loop A (e.g. ImplementLoop)"
+  caller_b = participant "Loop B (e.g. ReviewLoop)"
+  trigger  = participant "_trigger_rate_limit_cooldown"
+  state    = participant "_rate_limit_current_cooldown (module global)"
+
+  // BEFORE (bug): interleaved read-modify-write
+  caller_a -> trigger "call (after 403)"
+  caller_b -> trigger "call (after 403)"
+  trigger  -> state   "A reads 60"
+  trigger  -> state   "B reads 60 (still)"
+  trigger  -> state   "A writes min(60*2, 480) = 120"
+  trigger  -> state   "B writes min(60*2, 480) = 120  // doubling lost"
+
+  // AFTER (fix): lock serializes
+  caller_a -> trigger "call (after 403)"
+  trigger  -> state   "A acquires lock, reads 60, writes 120, releases"
+  caller_b -> trigger "call (after 403)"
+  trigger  -> state   "B acquires lock, reads 120, writes 240, releases  // correct"
+}
+
+views {
+  view dynamic_race {
+    title "Race window in _trigger_rate_limit_cooldown"
+    include *
+    autoLayout TopBottom
+  }
+}

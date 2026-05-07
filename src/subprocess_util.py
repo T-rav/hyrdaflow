@@ -8,6 +8,7 @@ import os
 import random
 import re
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -55,6 +56,12 @@ _rate_limit_until: datetime | None = None
 _RATE_LIMIT_COOLDOWN_SECONDS = 60
 _RATE_LIMIT_MAX_COOLDOWN_SECONDS = 480
 _rate_limit_current_cooldown: int = _RATE_LIMIT_COOLDOWN_SECONDS
+# Polling interval for _wait_for_rate_limit_cooldown so it re-reads the
+# deadline each tick rather than sleeping for the full remaining duration.
+_RATE_LIMIT_POLL_INTERVAL: float = 1.0
+# Guards all read-modify-write operations on _rate_limit_current_cooldown
+# and _rate_limit_until so concurrent callers cannot corrupt the backoff.
+_rate_limit_lock: threading.Lock = threading.Lock()
 
 
 def configure_gh_concurrency(limit: int) -> None:
@@ -89,37 +96,47 @@ def _trigger_rate_limit_cooldown() -> None:
     (see :func:`_reset_rate_limit_backoff`).
     """
     global _rate_limit_until, _rate_limit_current_cooldown  # noqa: PLW0603
-    _rate_limit_until = datetime.fromtimestamp(_time_source(), tz=UTC) + timedelta(
-        seconds=_rate_limit_current_cooldown
-    )
-    logger.warning(
-        "GitHub API rate limit hit — pausing ALL gh/git calls for %ds",
-        _rate_limit_current_cooldown,
-    )
-    _rate_limit_current_cooldown = min(
-        _rate_limit_current_cooldown * 2, _RATE_LIMIT_MAX_COOLDOWN_SECONDS
-    )
+    with _rate_limit_lock:
+        _rate_limit_until = datetime.fromtimestamp(_time_source(), tz=UTC) + timedelta(
+            seconds=_rate_limit_current_cooldown
+        )
+        logger.warning(
+            "GitHub API rate limit hit — pausing ALL gh/git calls for %ds",
+            _rate_limit_current_cooldown,
+        )
+        _rate_limit_current_cooldown = min(
+            _rate_limit_current_cooldown * 2, _RATE_LIMIT_MAX_COOLDOWN_SECONDS
+        )
 
 
 def _reset_rate_limit_backoff() -> None:
     """Reset the exponential backoff to the base cooldown after a successful call."""
     global _rate_limit_current_cooldown  # noqa: PLW0603
-    _rate_limit_current_cooldown = _RATE_LIMIT_COOLDOWN_SECONDS
+    with _rate_limit_lock:
+        _rate_limit_current_cooldown = _RATE_LIMIT_COOLDOWN_SECONDS
 
 
 async def _wait_for_rate_limit_cooldown() -> None:
-    """If a global rate-limit cooldown is active, sleep until it expires."""
-    if _rate_limit_until is None:
-        return
-    remaining = (
-        _rate_limit_until - datetime.fromtimestamp(_time_source(), tz=UTC)
-    ).total_seconds()
-    if remaining > 0:
+    """If a global rate-limit cooldown is active, sleep until it expires.
+
+    Polls ``_rate_limit_until`` every ``_RATE_LIMIT_POLL_INTERVAL`` seconds so
+    callers pick up deadlines extended by concurrent ``_trigger_rate_limit_cooldown``
+    calls while sleeping.
+    """
+    while True:
+        deadline = _rate_limit_until
+        if deadline is None:
+            return
+        remaining = (
+            deadline - datetime.fromtimestamp(_time_source(), tz=UTC)
+        ).total_seconds()
+        if remaining <= 0:
+            return
         logger.info(
             "Rate-limit cooldown active — waiting %.0fs before gh/git call",
             remaining,
         )
-        await asyncio.sleep(remaining)
+        await asyncio.sleep(min(remaining, _RATE_LIMIT_POLL_INTERVAL))
 
 
 class AuthenticationError(RuntimeError):
