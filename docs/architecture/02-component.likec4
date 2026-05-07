@@ -1,0 +1,51 @@
+// Issue #8509 — component view: classifier internals inside the auditor.
+// Shows where the fix lands: _is_helper consults a per-fake override map.
+
+specification {
+  element module
+  element function
+  element data
+  element artifact
+}
+
+model {
+  loopFile = module 'src/fake_coverage_auditor_loop.py' {
+    description 'Auditor module — AST scan + classifier + gap-filing'
+  }
+
+  helperPrefixes = data '_HELPER_PREFIXES' {
+    description '("script_",) — name-prefix helper signal'
+  }
+  helperNames = data '_HELPER_NAMES' {
+    description 'frozenset {fail_service, heal_service, set_state}'
+  }
+  helperOverrides = data '_FAKE_HELPER_OVERRIDES (NEW)' {
+    description 'Per-fake helper allowlist — {"FakeGitHub": {"clear_rate_limit", "set_rate_limit_mode"}}'
+  }
+
+  isHelper = function '_is_helper(class_name, name)' {
+    description 'Returns True if name is helper for class. NEW: consults override map.'
+  }
+  catalogFn = function 'catalog_fake_methods(fake_dir)' {
+    description 'Walks AST; calls _is_helper(class_name, child.name); splits surface/helper'
+  }
+
+  fakeGithub = artifact 'FakeGitHub' {
+    description 'src/mockworld/fakes/fake_github.py — host of clear_rate_limit + set_rate_limit_mode'
+  }
+
+  catalogFn -> isHelper 'classify each public method'
+  isHelper -> helperPrefixes 'startswith(p)'
+  isHelper -> helperNames 'name in set'
+  isHelper -> helperOverrides 'name in overrides[class_name]'
+  catalogFn -> fakeGithub 'ast.parse + ClassDef walk'
+  loopFile -> catalogFn 'imports'
+  loopFile -> isHelper 'imports'
+}
+
+views {
+  view component {
+    title 'Auditor classifier (fix lands at _FAKE_HELPER_OVERRIDES)'
+    include *
+  }
+}
