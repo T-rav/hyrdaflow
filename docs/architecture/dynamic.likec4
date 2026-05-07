@@ -20,7 +20,7 @@ model {
   resolve = step '_resolve_merge_template(language)'
   early_unknown = step 'early-return ("", []) if unknown language'
   parse = step 'parse_makefile(existing_content)'
-  diff = step '_diff_targets(existing, template, content) -> (warnings, to_add)'
+  diff = step '_diff_targets(existing, template) -> (to_add, warnings)'
   early_nothing = step 'early-return (existing, warnings) if to_add empty'
   append = step '_append_missing_targets(content, template, to_add)'
   phony = step '_ensure_phony(body, content, existing, to_add)'

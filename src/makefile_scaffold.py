@@ -213,6 +213,69 @@ _HELP_RECIPE = (
 _ALL_TARGET_NAMES = list(REQUIRED_TARGETS) + list(OPTIONAL_TARGETS)
 
 
+def _normalize_recipe(recipe: str) -> str:
+    lines = [line.strip() for line in recipe.strip().splitlines()]
+    return "\n".join(lines)
+
+
+def _diff_targets(
+    existing: dict[str, str],
+    template: dict[str, str | None],
+) -> tuple[list[str], list[str]]:
+    """Return (targets_to_add, warnings) by comparing existing against template.
+
+    Warnings are emitted when an existing target has a recipe that differs from
+    the template. Template entries with ``None`` recipe are prereq-only targets
+    and are never recipe-compared.
+    """
+    warnings: list[str] = []
+    targets_to_add: list[str] = []
+
+    for name, template_recipe in template.items():
+        if name in existing:
+            if template_recipe is not None:
+                existing_recipe = existing[name]
+                expected_recipe = template_recipe.strip("\n").lstrip("\t")
+                if _normalize_recipe(existing_recipe) != _normalize_recipe(
+                    expected_recipe
+                ):
+                    warnings.append(
+                        f"Target '{name}' exists with different recipe: "
+                        f"found '{existing_recipe.strip()}', "
+                        f"expected '{expected_recipe.strip()}'"
+                    )
+        else:
+            targets_to_add.append(name)
+
+    return targets_to_add, warnings
+
+
+def _check_prereq_deps(content: str, existing: dict[str, str]) -> list[str]:
+    """Return warnings for quality/quality-lite/smoke with unexpected prerequisites."""
+    checks = [
+        ("quality-lite", "lint-check typecheck security"),
+        ("quality", "quality-lite test coverage-check"),
+        ("smoke", "test"),
+    ]
+    warnings: list[str] = []
+    for target_name, expected_deps in checks:
+        if target_name not in existing:
+            continue
+        match = re.search(
+            rf"^{re.escape(target_name)}\s*:(?![=:])\s*(.*)",
+            content,
+            re.MULTILINE,
+        )
+        if match:
+            found_deps = match.group(1).strip()
+            if found_deps != expected_deps:
+                warnings.append(
+                    f"Target '{target_name}' exists with different prerequisites: "
+                    f"found '{found_deps}', expected '{expected_deps}'"
+                )
+    return warnings
+
+
 def parse_makefile(content: str) -> dict[str, str]:
     """Extract target-name -> recipe-text mappings from Makefile content.
 
@@ -337,75 +400,8 @@ def merge_makefile(existing_content: str, language: str) -> tuple[str, list[str]
 
     existing_targets = parse_makefile(existing_content)
 
-    warnings: list[str] = []
-    targets_to_add: list[str] = []
-
-    def _normalize_recipe(recipe: str) -> str:
-        lines = [line.strip() for line in recipe.strip().splitlines()]
-        return "\n".join(lines)
-
-    for name, template_recipe in all_template.items():
-        if name in existing_targets:
-            # Compare recipes (only for targets with recipe bodies)
-            if template_recipe is not None:
-                existing_recipe = existing_targets[name]
-                expected_recipe = template_recipe.strip("\n").lstrip("\t")
-                if _normalize_recipe(existing_recipe) != _normalize_recipe(
-                    expected_recipe
-                ):
-                    warnings.append(
-                        f"Target '{name}' exists with different recipe: "
-                        f"found '{existing_recipe.strip()}', "
-                        f"expected '{expected_recipe.strip()}'"
-                    )
-        else:
-            targets_to_add.append(name)
-
-    # Warn if existing quality targets have different prerequisites.
-    if "quality-lite" in existing_targets:
-        quality_lite_match = re.search(
-            r"^quality-lite\s*:(?![=:])\s*(.*)",
-            existing_content,
-            re.MULTILINE,
-        )
-        if quality_lite_match:
-            existing_deps = quality_lite_match.group(1).strip()
-            expected_deps = "lint-check typecheck security"
-            if existing_deps != expected_deps:
-                warnings.append(
-                    f"Target 'quality-lite' exists with different prerequisites: "
-                    f"found '{existing_deps}', expected '{expected_deps}'"
-                )
-
-    if "quality" in existing_targets:
-        quality_match = re.search(
-            r"^quality\s*:(?![=:])\s*(.*)",
-            existing_content,
-            re.MULTILINE,
-        )
-        if quality_match:
-            existing_deps = quality_match.group(1).strip()
-            expected_deps = "quality-lite test coverage-check"
-            if existing_deps != expected_deps:
-                warnings.append(
-                    f"Target 'quality' exists with different prerequisites: "
-                    f"found '{existing_deps}', expected '{expected_deps}'"
-                )
-
-    if "smoke" in existing_targets:
-        smoke_match = re.search(
-            r"^smoke\s*:(?![=:])\s*(.*)",
-            existing_content,
-            re.MULTILINE,
-        )
-        if smoke_match:
-            existing_deps = smoke_match.group(1).strip()
-            expected_deps = "test"
-            if existing_deps != expected_deps:
-                warnings.append(
-                    f"Target 'smoke' exists with different prerequisites: "
-                    f"found '{existing_deps}', expected '{expected_deps}'"
-                )
+    targets_to_add, warnings = _diff_targets(existing_targets, all_template)
+    warnings += _check_prereq_deps(existing_content, existing_targets)
 
     if not targets_to_add:
         return existing_content, warnings
