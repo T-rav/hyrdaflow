@@ -177,7 +177,7 @@ class TestOpenPromotionPassing:
         )
         result = await loop._do_work()
         assert result == {"status": "promoted", "pr": 99}
-        prs.merge_promotion_pr.assert_called_once_with(99)
+        prs.merge_promotion_pr.assert_called_once_with(99, auto_rebase=True)
         prs.create_rc_branch.assert_not_called()
 
     @pytest.mark.asyncio

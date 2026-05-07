@@ -7,6 +7,7 @@ This file is a table of contents. Operational knowledge lives in the wiki at [`d
 ## Quick rules (always apply)
 
 - **Never commit to `main`.** The branch is protected; all changes go through a worktree branch and a pull request. No exceptions, not even for one-line fixes. Look up "Worktree" in [`docs/wiki/gotchas.md`](docs/wiki/gotchas.md).
+- **PRs target `staging`, not `main`** (per [ADR-0042](docs/adr/0042-two-tier-branch-release-promotion.md), active when `HYDRAFLOW_STAGING_ENABLED=true`). `main` only advances via auto-promoted `rc/YYYY-MM-DD-HHMM` PRs cut by `StagingPromotionLoop` every `rc_cadence_hours` (default 4h). Default for new PRs: `gh pr create --base staging`. Only RC promotion PRs use `--base main`. Check the active default: `python -c "from config import HydraFlowConfig; print(HydraFlowConfig().base_branch())"`.
 - **Never use `git commit --no-verify`** or `--no-hooks`. Fix code issues first.
 - **Always run `make quality`** before declaring work complete. Look up "Quality" in [`docs/wiki/patterns.md`](docs/wiki/patterns.md).
 - **Always write unit tests before committing.** See [`docs/wiki/testing.md`](docs/wiki/testing.md).

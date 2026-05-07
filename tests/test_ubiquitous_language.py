@@ -570,6 +570,7 @@ class TestValidateDraft:
             importing_term_anchors=(),
         )
         draft = TermDraft(
+            include=True,
             definition="A test loop drafted by the proposer for validate_draft happy path.",
             kind=TermKind.LOOP,
             bounded_context=BoundedContext.SHARED_KERNEL,
@@ -599,6 +600,7 @@ class TestValidateDraft:
             importing_term_anchors=(),
         )
         draft = TermDraft(
+            include=True,
             definition="A ghost loop draft to verify anchor resolution is required.",
             kind=TermKind.LOOP,
             bounded_context=BoundedContext.SHARED_KERNEL,
@@ -633,6 +635,7 @@ class TestValidateDraft:
             importing_term_anchors=(),
         )
         draft = TermDraft(
+            include=True,
             definition="A duplicate draft to verify name-collision rejection is enforced.",
             kind=TermKind.LOOP,
             bounded_context=BoundedContext.SHARED_KERNEL,
@@ -666,6 +669,7 @@ class TestValidateDraft:
             importing_term_anchors=(),
         )
         draft = TermDraft(
+            include=True,
             definition="A draft whose alias collides with another canonical term name.",
             kind=TermKind.LOOP,
             bounded_context=BoundedContext.SHARED_KERNEL,
@@ -692,6 +696,7 @@ class TestValidateDraft:
             importing_term_anchors=(),
         )
         draft = TermDraft(
+            include=True,
             definition="A draft naming a depends_on anchor that isn't an existing term anchor.",
             kind=TermKind.LOOP,
             bounded_context=BoundedContext.SHARED_KERNEL,
@@ -704,3 +709,103 @@ class TestValidateDraft:
         )
         assert term is None
         assert "depends_on" in reason.lower() or "anchor" in reason.lower()
+
+    def test_skip_path_when_include_is_false(self, tmp_path: Path) -> None:
+        """When the LLM judges the candidate non-load-bearing (include=False),
+        validate_draft drops it with a 'skipped by LLM' reason — no Term."""
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.py").write_text("class FooLoop:\n    pass\n")
+        index = build_symbol_index(src)
+        candidate = Candidate(
+            name="FooLoop",
+            code_anchor="src/foo.py:FooLoop",
+            signals=("S1",),
+            imports_seen=0,
+            importing_term_anchors=(),
+        )
+        draft = TermDraft(
+            include=False,
+            skip_reason="exception type — operational signal",
+            definition="",
+            kind=None,
+            bounded_context=None,
+        )
+        term, reason = validate_draft(
+            candidate, draft, existing_terms=[], symbol_index=index
+        )
+        assert term is None
+        assert "skipped" in reason.lower()
+        assert "exception" in reason.lower()
+
+    def test_skip_path_with_no_skip_reason_still_rejects(self, tmp_path: Path) -> None:
+        """include=False without a skip_reason is still treated as skip; the
+        rejection message documents the absence of a reason."""
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.py").write_text("class FooLoop:\n    pass\n")
+        index = build_symbol_index(src)
+        candidate = Candidate(
+            name="FooLoop",
+            code_anchor="src/foo.py:FooLoop",
+            signals=("S1",),
+            imports_seen=0,
+            importing_term_anchors=(),
+        )
+        draft = TermDraft(include=False, skip_reason=None)
+        term, reason = validate_draft(
+            candidate, draft, existing_terms=[], symbol_index=index
+        )
+        assert term is None
+        assert "skipped" in reason.lower()
+
+    def test_include_true_but_missing_kind_rejects(self, tmp_path: Path) -> None:
+        """include=True requires kind / bounded_context / valid definition;
+        missing any of those is rejected with a clear reason rather than a
+        construction crash later."""
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.py").write_text("class FooLoop:\n    pass\n")
+        index = build_symbol_index(src)
+        candidate = Candidate(
+            name="FooLoop",
+            code_anchor="src/foo.py:FooLoop",
+            signals=("S1",),
+            imports_seen=0,
+            importing_term_anchors=(),
+        )
+        draft = TermDraft(
+            include=True,
+            definition="A long enough definition that satisfies F1 length checks.",
+            kind=None,  # missing!
+            bounded_context=BoundedContext.SHARED_KERNEL,
+        )
+        term, reason = validate_draft(
+            candidate, draft, existing_terms=[], symbol_index=index
+        )
+        assert term is None
+        assert "incomplete" in reason.lower() or "kind" in reason.lower()
+
+    def test_include_true_but_short_definition_rejects(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.py").write_text("class FooLoop:\n    pass\n")
+        index = build_symbol_index(src)
+        candidate = Candidate(
+            name="FooLoop",
+            code_anchor="src/foo.py:FooLoop",
+            signals=("S1",),
+            imports_seen=0,
+            importing_term_anchors=(),
+        )
+        draft = TermDraft(
+            include=True,
+            definition="too short",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+        )
+        term, reason = validate_draft(
+            candidate, draft, existing_terms=[], symbol_index=index
+        )
+        assert term is None
+        assert "incomplete" in reason.lower() or "definition" in reason.lower()

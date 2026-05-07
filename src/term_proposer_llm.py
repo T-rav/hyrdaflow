@@ -53,12 +53,23 @@ class DraftContext:
     existing_terms: list[Term]
 
 
-_PROMPT_TEMPLATE = """You are drafting a ubiquitous-language Term for the HydraFlow codebase.
+_PROMPT_TEMPLATE = """You are evaluating whether a candidate class belongs in HydraFlow's **ubiquitous language** (UL), and — if so — drafting the Term.
 
-Existing terms (use these canonical names exactly when referring to them):
+## Context: what UL is, why it matters
+
+This codebase follows Eric Evans' Domain-Driven Design. The **ubiquitous language** is the shared vocabulary that engineers, domain experts, and the code itself use to talk about the system. UL terms are *names that carry domain meaning* — they appear in design discussions, ADRs, code, glossaries, and conversations as the same word with the same precise meaning.
+
+UL is not "every class in `src/`." Most classes are scaffolding: they implement, support, or carry data for the things that matter. Only a small fraction of classes name **load-bearing domain concepts** that the system's purpose hinges on. Those are UL terms; everything else is not.
+
+When the system already has UL terms, they form an *ontology* — a graph of named domain concepts with relationships. Your job is to decide whether the candidate enriches that ontology with a new node, or whether it's scaffolding around existing nodes.
+
+## Existing ontology (UL terms already in the glossary)
+
+Use these canonical names exactly when referring to them. The candidate may relate to one or more of these:
+
 {existing_term_lines}
 
-Candidate class to draft:
+Candidate class:
 - Name: {name}
 - Anchor: {code_anchor}
 - Signals: {signals}
@@ -73,6 +84,37 @@ Candidate source:
 Caller snippets (top importers, grounding for the depends_on edges):
 {caller_block}
 
+## Step 1 — Inclusion judgment
+
+Decide whether this candidate belongs in the UL. Apply these criteria, in order:
+
+**Linguistic test:** would engineers use this name **as a noun** in design conversations about HydraFlow?
+- "We need a new `<Name>`" / "The `<Name>` does X" → likely UL
+- "We need to handle `<Name>`" / "`<Name>` happens when X fails" → likely scaffolding (the noun is the thing that throws/contains it, not the thing itself)
+
+INCLUDE (`"include": true`) — **load-bearing domain concepts**:
+- Aggregate / Entity / Value Object — modeled state with identity or significant value semantics
+- Domain Event — a named thing that *happens* in the domain (e.g., `IssueOpened`, not the carrier struct)
+- Service / Port / Adapter — an architectural seam engineers explicitly name
+- Loop / Runner — autonomous workers with named identity (`AgentRunner`, `RepoWikiLoop`)
+- Policy / Invariant / Bounded Context — rules that gate behavior or shape the system
+
+SKIP (`"include": false`) — **scaffolding**:
+- **Exception / Error types** — operational signals raised by services. The service is UL; the exception is its failure mode, not a separate domain concept. Skip unless the exception itself names a *business rule* (e.g., `InsufficientFunds` in an accounting system might be UL; `AuthenticationError` is not).
+- **Mixin / abstract composition helpers** — `*Mixin` classes exist to compose behavior into other classes; engineers reach for the composed class, not the mixin.
+- **Generic data carriers** — TypedDicts / dataclasses / Pydantic models that exist *only* to type a parameter or return value, with no behavior, no named identity, no engineering conversation. (A Pydantic model that *is* a Domain Event with named meaning is UL; one that's just "the shape of a function arg" is not.)
+- **Internal utility / helper classes** — wrappers, builders, formatters used inside one module.
+- **Test scaffolding** — fixtures, fakes, mocks.
+- **Framework extension points** without HydraFlow-specific identity (e.g., a generic Protocol that any HTTP client could satisfy).
+
+**Hard test:** if a new engineer asked "what is `<Name>`?", is the most useful answer:
+- "It's a `<noun-phrase-in-domain>`" → INCLUDE
+- "It's how `<other-thing>` represents/handles/carries `<X>`" → SKIP (the *other thing* is the UL term; this candidate is a detail)
+
+**Honest acknowledgment:** when in doubt, prefer SKIP. A glossary cluttered with marginal terms is worse than one missing a few — supersession is cheap when a real concept emerges later.
+
+## Step 2 — When INCLUDE is true, draft the Term
+
 Closed-set vocabularies you MUST use (any other value is invalid):
 - kind ∈ {kind_values}
 - bounded_context ∈ {context_values}
@@ -83,8 +125,26 @@ Bounded-context guidance:
 - ai-dev-team — multi-repo, memory, trust fleet, the broader autonomy layer
 - shared-kernel — cross-cutting infra used by every layer (config, event bus, state, ports, base classes)
 
-Output a strict JSON object matching this schema:
+## Output
+
+Output a strict JSON object. Two valid shapes:
+
+**Shape A — Skip:**
 {{
+  "include": false,
+  "skip_reason": "<short rationale: 'exception type', 'mixin scaffolding', 'thin data carrier', etc.>",
+  "definition": "",
+  "kind": null,
+  "bounded_context": null,
+  "aliases": [],
+  "invariants": [],
+  "depends_on_anchors": []
+}}
+
+**Shape B — Include + draft:**
+{{
+  "include": true,
+  "skip_reason": null,
   "definition": "<one paragraph, ≥30 chars, drawn from docstring + caller usage; do NOT invent>",
   "kind": "<one of {kind_values}>",
   "bounded_context": "<one of {context_values}>",
@@ -93,33 +153,8 @@ Output a strict JSON object matching this schema:
   "depends_on_anchors": ["<one of: {valid_anchors}>", ...]
 }}
 
-depends_on_anchors MUST be a subset of the importing covered-term anchors above.
-If unsure, return an empty list — never invent an anchor.
+depends_on_anchors MUST be a subset of the importing covered-term anchors above. If unsure, return an empty list — never invent an anchor.
 """
-
-
-class _NotWiredLLMClient:
-    """Placeholder LLMClient used until the production subprocess-CLI adapter lands.
-
-    Conforms to the `LLMClient` Protocol but raises `NotImplementedError` from
-    `complete_structured`. This is deliberate dark-factory behavior: the loop
-    is wired into `ServiceRegistry` and the orchestrator's bg_loop_registry,
-    so it appears on the dashboard, but its first tick surfaces the integration
-    gap as a worker failure rather than silently no-op'ing. Per ADR-0054
-    follow-up: replace with a real adapter wrapping `SubprocessRunner` (the
-    same path `wiki_compiler.WikiCompiler._call_model` uses) before enabling
-    the loop in production. See HYDRAFLOW_TERM_PROPOSER_ENABLED kill-switch.
-    """
-
-    async def complete_structured(
-        self, *, prompt: str, schema: dict[str, Any]
-    ) -> dict[str, Any]:
-        del prompt, schema
-        raise NotImplementedError(
-            "term-proposer LLM client adapter pending — see ADR-0054 follow-up. "
-            "Set HYDRAFLOW_TERM_PROPOSER_ENABLED=false to silence this until "
-            "the production adapter lands."
-        )
 
 
 class TermProposerLLM:

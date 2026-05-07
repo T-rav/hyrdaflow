@@ -634,10 +634,16 @@ class FakeGitHub:
     async def find_open_promotion_pr(self) -> Any:
         return None
 
-    async def merge_promotion_pr(self, pr_number: int) -> bool:
+    async def merge_promotion_pr(self, pr_number: int, **_kw: Any) -> bool:
         if pr_number in self._prs:
             self._prs[pr_number].merged = True
         return True
+
+    async def update_pr_branch(self, pr_number: int, *, method: str = "rebase") -> bool:
+        """Fake rebase: always succeeds in tests unless overridden via a script."""
+        _ = (method,)
+        self._maybe_rate_limit()
+        return pr_number in self._prs
 
     async def list_rc_branches(self) -> list[tuple[str, str]]:
         return []

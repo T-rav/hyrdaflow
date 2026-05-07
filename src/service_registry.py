@@ -1029,40 +1029,27 @@ def build_services(
         runner=sandbox_failure_fixer_runner,
     )
 
-    # Term-Proposer (ADR-0054). Wired with placeholder LLM + bot-PR clients
-    # that raise NotImplementedError on first use; this is intentional
-    # dark-factory behavior — the loop appears on the dashboard, and the
-    # gap surfaces as a worker failure on the first tick rather than
-    # silently no-op'ing. Production deployment must (a) ship a real
-    # `LLMClient` adapter wrapping `SubprocessRunner` (the same path
-    # `wiki_compiler.WikiCompiler._call_model` uses) and (b) ship a real
-    # `BotPRPort` adapter that composes `prs.push_branch` +
-    # `prs.create_pr` + `prs.add_pr_labels`. Until both land, set
-    # `HYDRAFLOW_TERM_PROPOSER_ENABLED=false` to silence the failures.
-    from term_proposer_llm import TermProposerLLM, _NotWiredLLMClient  # noqa: PLC0415
-    from term_proposer_loop import BotPRPort, TermProposerLoop  # noqa: PLC0415
+    # Term-Proposer (ADR-0054). Production adapters wire the loop to:
+    # - ClaudeCLIClient: shells out to `claude -p` via SubprocessRunner,
+    #   mirroring `wiki_compiler.WikiCompiler._call_model`.
+    # - OpenAutoPRBotPRPort: writes term files and delegates to
+    #   `auto_pr.open_automated_pr_async` for the worktree → commit →
+    #   push → `gh pr create` flow. `auto_merge=False` — DependabotMergeLoop
+    #   handles auto-merge once the PR carries `hydraflow-ul-proposed`.
+    from term_proposer_llm import TermProposerLLM  # noqa: PLC0415
+    from term_proposer_loop import TermProposerLoop  # noqa: PLC0415
+    from term_proposer_runtime import (  # noqa: PLC0415
+        ClaudeCLIClient,
+        OpenAutoPRBotPRPort,
+    )
 
-    class _NotWiredBotPRPort:
-        """Placeholder BotPRPort — see ADR-0054 follow-up."""
-
-        async def open_bot_pr(
-            self,
-            *,
-            branch: str,
-            title: str,
-            body: str,
-            labels: list[str],
-            files: dict[str, str],
-        ) -> int:
-            del branch, title, body, labels, files
-            raise NotImplementedError(
-                "term-proposer BotPRPort adapter pending — see ADR-0054 "
-                "follow-up. Compose prs.push_branch + prs.create_pr + "
-                "prs.add_pr_labels into an `open_bot_pr(...)` shape."
-            )
-
-    term_proposer_llm = TermProposerLLM(client=_NotWiredLLMClient())
-    term_proposer_pr_port: BotPRPort = _NotWiredBotPRPort()
+    term_proposer_llm = TermProposerLLM(
+        client=ClaudeCLIClient(runner=subprocess_runner)
+    )
+    term_proposer_pr_port = OpenAutoPRBotPRPort(
+        repo_root=config.repo_root,
+        gh_token=credentials.gh_token,
+    )
     term_proposer_loop = TermProposerLoop(  # noqa: F841
         config=config,
         deps=loop_deps,
