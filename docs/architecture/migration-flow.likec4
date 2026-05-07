@@ -1,0 +1,37 @@
+// Dynamic view: how a single callsite migration unfolds, end-to-end.
+// Anchored on staging_bisect_loop._escalate_harness_failure (l.392) — the most
+// representative shape (paired stuck label, 3 callers, parameter passed in).
+
+specification {
+  element actor
+  element step
+}
+
+model {
+  developer = actor 'Engineer'
+  tests = step 'tests/regressions/test_issue_8481.py'
+  config_py = step 'src/config.py'
+  prep_py = step 'src/prep.py'
+  loop_py = step 'src/staging_bisect_loop.py'
+  test_loop_py = step 'tests/test_staging_bisect_loop.py'
+  side_channels = step 'preflight/decision.py + dashboard_routes/_trust_routes.py'
+  ci = step 'make quality (full suite)'
+
+  // The phased flow — each arrow is a single dev action.
+  developer    -> tests         'P0: read failing AST scan, confirm RED'
+  developer    -> config_py     'P1: add bisect_harness_failure_label etc. fields'
+  developer    -> prep_py       'P1: register each new field in HYDRAFLOW_LABELS'
+  developer    -> loop_py       'P2: replace bare literal with *config.X_label splat'
+  developer    -> test_loop_py  'P2: update assertions hardcoding "hitl-escalation"'
+  developer    -> side_channels 'P3: thread config through preflight + trust dashboard'
+  developer    -> tests         'P4: confirm AST scan goes GREEN'
+  developer    -> ci            'P4: full make quality run (cleanup-PR rule)'
+}
+
+views {
+  view migrationFlow {
+    title: 'Per-loop migration flow (TDD + reference shape)'
+    include *
+    autoLayout TopBottom
+  }
+}

@@ -1,0 +1,230 @@
+// LikeC4 model for issue #8481 — bare-label callsite migration
+// Captures the registry → config → callsite → external label tooling chain
+// that the migration unifies. Reference impl: fake_coverage_auditor_loop (#8480).
+
+specification {
+  element system
+  element container
+  element component {
+    style {
+      shape: rectangle
+    }
+  }
+  element registry {
+    style {
+      shape: cylinder
+    }
+  }
+  element external {
+    style {
+      shape: queue
+    }
+  }
+  tag bare-literal       // pre-migration: silently rc=1 on `gh issue create`
+  tag config-driven      // post-migration: splat *config.X_label
+  tag side-channel       // not in AFFECTED_FILES but functionally entangled
+}
+
+model {
+  hydraflow = system 'HydraFlow' {
+    description: 'Multi-agent orchestration over GitHub issues + labels'
+
+    // ============== Source-of-truth registry ==============
+    registry_layer = container 'Label Registry' {
+      description: 'Provisions labels on the repo via `make ensure-labels`'
+
+      hydraflow_labels = registry 'prep.HYDRAFLOW_LABELS' {
+        description: 'Authoritative tuple table: (config_field, color, description)'
+        technology: 'Python tuple at src/prep.py:18-59'
+      }
+
+      ensure_labels_fn = component 'ensure_labels()' {
+        description: 'Iterates HYDRAFLOW_LABELS, calls `gh label create --force` per row'
+      }
+
+      hydraflow_config = component 'HydraFlowConfig' {
+        description: 'Pydantic config — `*_label: list[str] = Field(default=["hydraflow-..."])` fields'
+        technology: 'src/config.py'
+      }
+
+      hydraflow_config -> hydraflow_labels 'field name referenced by'
+      ensure_labels_fn -> hydraflow_labels 'reads'
+      ensure_labels_fn -> hydraflow_config 'resolves field → default name from'
+    }
+
+    // ============== Callsites being migrated ==============
+    caretaker_loops = container 'Caretaker Loops (12 affected files)' {
+      description: 'Background loops that emit hitl-escalation issues at attempt threshold'
+
+      staging_bisect = component 'StagingBisectLoop' {
+        description: '6 callsites — paired stuck labels: revert-conflict, rc-red-bisect-exhausted, retry-lineage-exhausted, rc-red-post-revert-red, rc-red-verify-timeout, bisect-harness-failure'
+        technology: 'src/staging_bisect_loop.py'
+        #bare-literal
+      }
+      contract_refresh = component 'ContractRefreshLoop' {
+        description: 'paired with fake-repair-stuck + dynamic adapter-{name}'
+        technology: 'src/contract_refresh_loop.py'
+        #bare-literal
+      }
+      corpus_learning = component 'CorpusLearningLoop' {
+        description: 'paired with corpus-learning-stuck'
+        technology: 'src/corpus_learning_loop.py'
+        #bare-literal
+      }
+      trust_fleet_sanity = component 'TrustFleetSanityLoop' {
+        description: 'paired with trust-loop-anomaly'
+        technology: 'src/trust_fleet_sanity_loop.py'
+        #bare-literal
+      }
+      rc_budget = component 'RCBudgetLoop' {
+        description: 'paired with rc-duration-stuck'
+        technology: 'src/rc_budget_loop.py'
+        #bare-literal
+      }
+      wiki_rot = component 'WikiRotDetectorLoop' {
+        description: 'module-level _ISSUE_LABELS_ESCALATE tuple — paired with wiki-rot-stuck'
+        technology: 'src/wiki_rot_detector_loop.py:54'
+        #bare-literal
+      }
+      skill_prompt_eval = component 'SkillPromptEvalLoop' {
+        description: 'paired with skill-prompt-stuck'
+        technology: 'src/skill_prompt_eval_loop.py'
+        #bare-literal
+      }
+      flake_tracker = component 'FlakeTrackerLoop' {
+        description: 'paired with flaky-test-stuck'
+        technology: 'src/flake_tracker_loop.py'
+        #bare-literal
+      }
+      principles_audit = component 'PrinciplesAuditLoop' {
+        description: 'paired with principles-stuck + dynamic check-{id} + cultural-check'
+        technology: 'src/principles_audit_loop.py'
+        #bare-literal
+      }
+      auto_agent_preflight = component 'AutoAgentPreflightLoop' {
+        description: 'CONSUMER — queries hitl-escalation to discover open/closed issues, set-difference with sub-labels'
+        technology: 'src/auto_agent_preflight_loop.py:95,112,137'
+        #bare-literal
+      }
+      discover_runner = component 'DiscoverRunner' {
+        description: 'module-level _ESCALATION_LABEL_HITL constant + discover-stuck'
+        technology: 'src/discover_runner.py:36-37'
+        #bare-literal
+      }
+      shape_runner = component 'ShapeRunner' {
+        description: 'module-level _ESCALATION_LABEL_HITL constant + shape-stuck'
+        technology: 'src/shape_runner.py:40-41'
+        #bare-literal
+      }
+
+      // ============== Post-#8480 reference (already migrated) ==============
+      fake_coverage_ref = component 'FakeCoverageAuditorLoop (post-#8480 reference)' {
+        description: 'Splat pattern: [*config.hitl_escalation_label, *config.fake_coverage_stuck_label]'
+        technology: 'src/fake_coverage_auditor_loop.py:236-272'
+        #config-driven
+      }
+      adr_touchpoint_ref = component 'AdrTouchpointAuditorLoop (post-#8485 reference)' {
+        description: 'Splat pattern: [*config.hitl_escalation_label, *config.adr_drift_stuck_label]'
+        technology: 'src/adr_touchpoint_auditor_loop.py:135-176'
+        #config-driven
+      }
+    }
+
+    // ============== Side-channel integration points ==============
+    side_channels = container 'Side Channels (NOT in AFFECTED_FILES, must follow rename)' {
+      description: 'Integration points that consume hitl-escalation outside the AST scan'
+
+      preflight_decision = component 'preflight.decision._LABEL_MAP' {
+        description: 'Removes "hitl-escalation" on resolved status — must consume config[0]'
+        technology: 'src/preflight/decision.py:48'
+        #side-channel
+      }
+      trust_dashboard = component 'Dashboard /trust anomalies endpoint' {
+        description: 'Hardcodes `gh issue list --label hitl-escalation --label trust-loop-anomaly`'
+        technology: 'src/dashboard_routes/_trust_routes.py:75-89'
+        #side-channel
+      }
+      auto_agent_skip = component 'config.auto_agent_skip_sublabels default' {
+        description: 'Recursion guard — default `["principles-stuck", "cultural-check"]` must move with rename'
+        technology: 'src/config.py:2173-2179'
+        #side-channel
+      }
+    }
+
+    // ============== External provisioning ==============
+    github = external 'GitHub Repo Labels' {
+      description: 'Concrete labels on the repo. `gh issue create --label X` rc=1 if X not present.'
+    }
+
+    // ============== Test contract ==============
+    regression_test = component 'tests/regressions/test_issue_8481.py' {
+      description: 'AST-walks AFFECTED_FILES; flags any non-docstring "hitl-escalation" literal — currently RED'
+    }
+
+    // ============== Edges: pre-migration data flow ==============
+    staging_bisect      -> github 'gh issue create --label hitl-escalation (rc=1)'
+    contract_refresh    -> github 'gh issue create --label hitl-escalation (rc=1)'
+    corpus_learning     -> github 'gh issue create --label hitl-escalation (rc=1)'
+    trust_fleet_sanity  -> github 'gh issue create --label hitl-escalation (rc=1)'
+    rc_budget           -> github 'gh issue create --label hitl-escalation (rc=1)'
+    wiki_rot            -> github 'gh issue create --label hitl-escalation (rc=1)'
+    skill_prompt_eval   -> github 'gh issue create --label hitl-escalation (rc=1)'
+    flake_tracker       -> github 'gh issue create --label hitl-escalation (rc=1)'
+    principles_audit    -> github 'gh issue create --label hitl-escalation (rc=1)'
+    discover_runner     -> github 'gh issue create --label hitl-escalation (rc=1)'
+    shape_runner        -> github 'gh issue create --label hitl-escalation (rc=1)'
+    auto_agent_preflight -> github 'gh issue list --label hitl-escalation (returns empty in prod)'
+
+    // ============== Edges: post-migration data flow ==============
+    fake_coverage_ref   -> hydraflow_config 'reads *config.hitl_escalation_label'
+    adr_touchpoint_ref  -> hydraflow_config 'reads *config.hitl_escalation_label'
+    hydraflow_config    -> github 'ensure_labels provisions hydraflow-hitl-escalation'
+
+    // ============== Side-channel coupling ==============
+    auto_agent_preflight -> preflight_decision 'invokes apply_decision'
+    preflight_decision  -> github 'remove_label("hitl-escalation")'
+    trust_dashboard     -> github 'gh issue list --label hitl-escalation'
+
+    // ============== Test contract coverage ==============
+    regression_test     -> staging_bisect       'AST-scans for bare literal'
+    regression_test     -> contract_refresh     'AST-scans for bare literal'
+    regression_test     -> corpus_learning      'AST-scans for bare literal'
+    regression_test     -> trust_fleet_sanity   'AST-scans for bare literal'
+    regression_test     -> rc_budget            'AST-scans for bare literal'
+    regression_test     -> wiki_rot             'AST-scans for bare literal'
+    regression_test     -> skill_prompt_eval    'AST-scans for bare literal'
+    regression_test     -> flake_tracker        'AST-scans for bare literal'
+    regression_test     -> principles_audit     'AST-scans for bare literal'
+    regression_test     -> auto_agent_preflight 'AST-scans for bare literal'
+    regression_test     -> discover_runner      'AST-scans for bare literal'
+    regression_test     -> shape_runner         'AST-scans for bare literal'
+  }
+}
+
+views {
+  view systemContext {
+    title: 'Issue #8481 — Bare-label callsite migration: system context'
+    include *
+    autoLayout TopBottom
+  }
+
+  view caretakerLoops of caretaker_loops {
+    title: 'Caretaker loops to migrate (with reference impls)'
+    include *
+    autoLayout LeftRight
+  }
+
+  view registryFlow of registry_layer {
+    title: 'Registry → config → ensure_labels provisioning chain'
+    include *
+    autoLayout TopBottom
+  }
+
+  view sideChannels of side_channels {
+    title: 'Side-channel integration points (must rename in lockstep)'
+    include *
+    include hydraflow_config
+    include github
+    autoLayout LeftRight
+  }
+}
