@@ -1,5 +1,12 @@
 # Dark-factory engineering
 
+> **Doctrinal page — hand-authored, not LLM-maintained.** Unlike the other
+> files in `docs/wiki/`, this page intentionally has no `json:entry`
+> metadata blocks. It is curated prose distilling load-bearing operating
+> doctrine, not auto-ingested per-issue insights. `RepoWikiLoop` does not
+> rewrite this file; the wiki injector still reads it into runner prompts
+> as architectural context.
+
 The lights-off operating contract: any HydraFlow-managed project meeting the
 spec runs autonomously, with humans paged only for raging fires. This entry
 distills the load-bearing conventions that make that contract real, the

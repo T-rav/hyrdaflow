@@ -23,6 +23,8 @@ jobs:
         run: uv sync --all-extras
       - name: Validate functional_areas.yml
         run: uv run python -c "from arch._functional_areas_schema import load_functional_areas; from pathlib import Path; load_functional_areas(Path('docs/arch/functional_areas.yml')); print('functional_areas.yml: schema OK')"
+      - name: Regenerate ubiquitous language views
+        run: uv run python scripts/lint_ubiquitous_language.py
       - name: Drift check
         run: uv run python -m arch.runner --check --repo-root .
       - name: Architecture tests

@@ -29,15 +29,19 @@ _REPO = Path(__file__).resolve().parent.parent.parent
 # (contract_recording event-loop fix). Wrap-in-``asyncio.to_thread``
 # alone is not enough; an unbounded subprocess will leak the worker
 # thread and exhaust the pool.
-#
-# Note: ``src/contract_recording.py`` is hardened in PR #8454 itself
-# (a sibling PR off the same convergence review). Once that lands,
-# add it here to extend coverage.
 _ASYNC_SUBPROCESS_MODULES = [
     "src/diagram_loop.py",
     "src/repo_wiki.py",
     "src/repo_wiki_loop.py",
     "src/arch/runner.py",
+    # PR #8454 hardened these wrappers; PR #8456 covered the rest of the
+    # async paths; this PR closes the audit by adding the two sites the
+    # original audit missed.
+    "src/contract_recording.py",
+    # ``_run_git`` / ``_run_gh`` wrappers run under ``asyncio.to_thread``
+    # from ``open_automated_pr_async``; without ``timeout=`` a stale
+    # ``git push`` or ``gh`` auth-refresh hang leaks a thread-pool worker.
+    "src/auto_pr.py",
 ]
 
 

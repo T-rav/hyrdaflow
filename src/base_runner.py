@@ -313,9 +313,9 @@ class BaseRunner:
         any required dependency is missing.
         """
         compiler = getattr(self, "_wiki_compiler", None)
-        tribal = getattr(self, "_tribal_wiki_store", None)
+        tribal = self._tribal_wiki_store
         gh = getattr(self, "_gh_client", None)
-        bus = getattr(self, "_bus", None)
+        bus = self._bus
         if compiler is None or tribal is None or gh is None:
             return
 
@@ -417,7 +417,7 @@ class BaseRunner:
             )
         per_repo_section = _weave_temporal_tags(per_repo_section, tags)
 
-        tribal = getattr(self, "_tribal_wiki_store", None)
+        tribal = self._tribal_wiki_store
         tribal_section = ""
         if tribal is not None:
             tribal_section = tribal.query(
@@ -444,7 +444,7 @@ class BaseRunner:
         Implement/review: titles-only (prompt-size conscious; excludes Superseded).
         Other phases: empty.
         """
-        adr_index = getattr(self, "_adr_index", None)
+        adr_index = self._adr_index
         if adr_index is None:
             return ""
 

@@ -538,7 +538,6 @@ def _as_float(value: object) -> float:
 def _get_or_init_dict(
     parent: dict[str, object], key: str, default: dict[str, object]
 ) -> dict[str, object]:
-    """Get a nested dict value or initialize it with *default*."""
     current = parent.get(key)
     if isinstance(current, dict):
         return current

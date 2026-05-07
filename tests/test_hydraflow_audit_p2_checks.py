@@ -227,3 +227,31 @@ def test_ubiquitous_language_warns_on_divergence(tmp_path: Path) -> None:
 
 def test_ubiquitous_language_na_when_docs_missing(tmp_path: Path) -> None:
     assert _run("P2.9", _ctx(tmp_path)).status is Status.NA
+
+
+def test_ubiquitous_language_passes_when_terms_in_split_topic_files(
+    tmp_path: Path,
+) -> None:
+    """Terms scattered across ``architecture-*.md`` topic files still resolve.
+
+    Mirrors the layout introduced by PR #8462 — ``architecture.md`` carries
+    the entry-point reference table for a few terms, the rest live in topic
+    files. The audit must read them all, not just the residual entry file.
+    """
+    _write(
+        tmp_path / "CLAUDE.md",
+        "Key concepts: TaskRunner, IssueTracker, LabelMachine, PhaseGuard.\n",
+    )
+    _write(
+        tmp_path / "docs" / "wiki" / "architecture.md",
+        "Entry-point page; mentions TaskRunner.\n",
+    )
+    _write(
+        tmp_path / "docs" / "wiki" / "architecture-layers.md",
+        "Layer doc covers IssueTracker and LabelMachine in depth.\n",
+    )
+    _write(
+        tmp_path / "docs" / "wiki" / "architecture-state-persistence.md",
+        "PhaseGuard semantics and storage.\n",
+    )
+    assert _run("P2.9", _ctx(tmp_path)).status is Status.PASS

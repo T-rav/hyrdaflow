@@ -97,22 +97,92 @@ Your job is to compile them into a clean, deduplicated set of entries.
 
 {entries_text}
 
-## Instructions
+## Voice and structure (read this first — it overrides every other rule)
 
-1. **Merge duplicates**: If multiple entries cover the same concept, merge them into one
-   consolidated entry. Keep the most informative content from each.
-2. **Cross-reference**: If an entry relates to entries in other topics ({other_topics}),
-   add a brief note like "See also: [topic] — [entry title]".
-3. **Resolve contradictions**: If entries contradict each other, keep the more recent one
-   and note the resolution.
-4. **Remove stale content**: If an entry's insight has been superseded by a newer one, drop it.
-5. **Preserve source attribution**: Keep source_issue and source_type from the original entries.
+Each entry's `content` field MUST be **scannable** documentation, not a wall
+of prose. Agents and humans read the title to decide whether to read the
+entry, then read the entry to apply a rule — both audiences need structure.
+
+**Required shape for every entry — no exceptions, ALL THREE PARTS REQUIRED:**
+
+1. **Rule** (1 sentence): the rule itself, no narrative ramp-up.
+2. **Example** (inline code, file path, or 2-3 bullet points): how the
+   rule looks in use. Skip ONLY when the rule is purely conceptual.
+3. **Why line** (literal markdown `**Why:**` prefix, then 1 sentence):
+   the failure mode or constraint the rule prevents. The literal text
+   `**Why:**` MUST appear at the start of the closing line — agents
+   grep for this marker to extract the rationale. An entry without a
+   `**Why:**` line is malformed.
+
+Example of the required format:
+
+> Use `is None` and `is not None` for optional objects.
+>
+> Example: `if callback is None: return`. Avoid `==` comparison for
+> sentinels; custom `__eq__` can hide subtle bugs.
+>
+> **Why:** Identity checks are O(1) and immune to overridden `__eq__`;
+> equality checks against `None` accidentally match falsy values.
+
+**Hard length budget per entry — enforced, not aspirational:**
+
+- `title`: ≤ 80 characters, specific enough that a reader can decide
+  relevance from the title alone. Avoid generic labels like "Notes",
+  "Findings", "Background", "Concurrency and I/O safety", or any
+  multi-rule umbrella title.
+- `content`: ≤ 150 words. If the source material exceeds this, **emit
+  multiple entries.** A single entry covering "concurrency and I/O
+  safety" with 5 distinct rules MUST become 5 separate entries.
+
+**Anti-patterns to avoid:**
+
+- Long single-paragraph dumps with no structure.
+- Umbrella entries that consolidate unrelated rules under one title
+  (e.g., a "Concurrency and I/O safety" entry covering locks, atomic
+  writes, async patterns, and trace context all at once). Each rule
+  gets its own entry.
+- Retrospective voice ("This entry captures the lesson that…", "We
+  learned in PR #N that…"). Write in rule voice ("Use X. Avoid Y.").
+- Restating the title in the first sentence.
+- Inline JSON or code fences spanning more than 5 lines (link to the
+  source instead).
+
+## Compilation rules (apply only after the structure rules above)
+
+1. **Merge true duplicates ONLY**: Two entries are duplicates if they
+   state the same rule about the same target. Two entries that touch
+   adjacent topics (e.g., "use atomic writes" and "use file locks")
+   are NOT duplicates — keep both as separate entries. When in doubt,
+   keep separate.
+2. **Split umbrella entries**: If an existing entry packs multiple
+   distinct rules under one title, split it into one entry per rule
+   even though the input was a single entry. Splitting is preferred
+   over merging.
+3. **Cross-reference**: If an entry relates to entries in other topics
+   ({other_topics}), add a brief note like "See also: [topic] — [entry
+   title]" inside the content.
+4. **Resolve contradictions**: If entries contradict each other, keep
+   the more recent one and note the resolution.
+5. **Remove stale content**: If an entry's insight has been superseded
+   by a newer one, drop it.
+6. **Preserve source attribution**: Keep source_issue and source_type
+   from the original entries when an output entry maps 1:1 to a single
+   input. For split or genuinely-merged entries, use source_type
+   "compiled" and source_issue null.
+
+## Expected entry-count behavior
+
+- For a topic with N coherent input entries, expect roughly N output
+  entries (give or take a couple from true-duplicate merges).
+- A 50% reduction in entry count almost always means under-splitting.
+  If your output has ≤ half the input count, double-check that you
+  haven't created umbrella entries.
 
 ## Output format
 
 Return a JSON array of compiled entries. Each entry must be a JSON object with these fields:
-- "title": string (short, descriptive)
-- "content": string (the compiled insight, with cross-references)
+- "title": string (≤ 80 chars, descriptive — see length budget above)
+- "content": string (rule + example + Why; ≤ 150 words)
 - "source_type": string (plan, implement, review, hitl, or "compiled")
 - "source_issue": number or null
 - "stale": false
@@ -206,11 +276,43 @@ Extract 1-5 durable knowledge entries from this output. Focus on:
 Skip ephemeral details (specific variable names, one-off debugging steps).
 Each entry should be a standalone insight useful for future work on this repo.
 
+## Voice and structure (load-bearing — do not skip)
+
+Each entry's `content` field MUST be **scannable** documentation, not a wall
+of prose. Agents and humans read the title to decide whether to read the
+entry, then read the entry to apply a rule — both audiences need structure.
+
+Required shape for each entry:
+
+- Open with a one-sentence rule statement (no narrative ramp-up).
+- Follow with a short example (inline code, file path, or 2-3 bullet
+  points) showing the rule in use. If the rule is purely conceptual,
+  skip the example.
+- Close with a `**Why:**` line in one sentence, naming the failure mode
+  or constraint the rule prevents.
+
+Hard length budget per entry:
+
+- `title`: ≤ 80 characters, specific enough that a reader can decide
+  relevance from the title alone (avoid generic labels like "Notes",
+  "Findings", "Background", or "{source_type} from #{issue_number}").
+- `content`: ≤ 150 words. If the source material exceeds this, **emit
+  multiple entries** rather than producing a single long blob.
+
+Anti-patterns to avoid:
+
+- Long single-paragraph dumps with no structure.
+- Retrospective voice ("This entry captures the lesson that…", "We
+  learned in PR #N that…"). Write in rule voice ("Use X. Avoid Y.").
+- Restating the title in the first sentence.
+- Inline JSON or code fences spanning more than 5 lines (link to the
+  source instead).
+
 ## Output format
 
 Return a JSON array of entries. Each entry must be:
-- "title": string (10 words max, descriptive)
-- "content": string (2-5 sentences, self-contained insight)
+- "title": string (≤ 80 chars, descriptive — see length budget above)
+- "content": string (rule + example + Why; ≤ 150 words)
 - "source_type": "{source_type}"
 - "source_issue": {issue_number}
 

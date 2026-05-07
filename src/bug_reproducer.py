@@ -41,10 +41,6 @@ from models import (
 logger = logging.getLogger("hydraflow.bug_reproducer")
 
 
-# ---------------------------------------------------------------------------
-# Marker contract
-# ---------------------------------------------------------------------------
-
 REPRO_START = "REPRO_START"
 REPRO_END = "REPRO_END"
 

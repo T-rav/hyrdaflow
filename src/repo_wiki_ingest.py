@@ -27,6 +27,42 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("hydraflow.repo_wiki_ingest")
 
+_TITLE_MAX_CHARS = 70
+_TITLE_MIN_PROSE_CHARS = 8
+_TITLE_SHORT_HEADING_CHARS = 15
+
+
+def _derive_title(content: str, *, kind: str, issue_number: int) -> str:
+    """Derive a content-anchored title for an ingested wiki entry.
+
+    Karpathy-pattern wikis rely on the title for relevance signal — opaque
+    titles like ``"Review patterns from #6311"`` give the LLM no way to
+    decide whether to read the entry. This helper extracts the first
+    informative phrase from the content (skipping markdown noise like
+    bullet markers, code fences, and short section labels) and falls back
+    to a labelled ``kind`` form when the content has no usable lead.
+
+    Short markdown headings are treated as section labels rather than
+    descriptive titles — ``"## Findings"`` is skipped in favour of the
+    first prose line below it.
+    """
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        is_heading = line.startswith("#")
+        line = line.lstrip("#").lstrip("*-> ").strip().strip("`").strip()
+        if not line:
+            continue
+        if is_heading and len(line) < _TITLE_SHORT_HEADING_CHARS:
+            continue
+        if len(line) < _TITLE_MIN_PROSE_CHARS:
+            continue
+        if len(line) > _TITLE_MAX_CHARS:
+            line = line[: _TITLE_MAX_CHARS - 1].rstrip() + "…"
+        return f"{line} (#{issue_number})"
+    return f"{kind} from #{issue_number}"
+
 
 # ---------------------------------------------------------------------------
 # Result model for ingest_phase_output
@@ -75,7 +111,11 @@ def ingest_from_plan(
             pairs.append(
                 (
                     WikiEntry(
-                        title=f"Architecture notes from #{issue_number}",
+                        title=_derive_title(
+                            content,
+                            kind="Architecture notes",
+                            issue_number=issue_number,
+                        ),
                         content=content[:2000],
                         source_type="plan",
                         source_issue=issue_number,
@@ -90,7 +130,11 @@ def ingest_from_plan(
             pairs.append(
                 (
                     WikiEntry(
-                        title=f"Gotchas identified in #{issue_number}",
+                        title=_derive_title(
+                            content,
+                            kind="Gotchas",
+                            issue_number=issue_number,
+                        ),
                         content=content[:2000],
                         source_type="plan",
                         source_issue=issue_number,
@@ -105,7 +149,11 @@ def ingest_from_plan(
             pairs.append(
                 (
                     WikiEntry(
-                        title=f"Test strategy from #{issue_number}",
+                        title=_derive_title(
+                            content,
+                            kind="Test strategy",
+                            issue_number=issue_number,
+                        ),
                         content=content[:2000],
                         source_type="plan",
                         source_issue=issue_number,
@@ -157,7 +205,11 @@ def ingest_from_review(
         pairs.append(
             (
                 WikiEntry(
-                    title=f"Review patterns from #{issue_number}",
+                    title=_derive_title(
+                        review_feedback,
+                        kind="Review patterns",
+                        issue_number=issue_number,
+                    ),
                     content=review_feedback[:2000],
                     source_type="review",
                     source_issue=issue_number,

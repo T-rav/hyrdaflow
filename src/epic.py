@@ -223,20 +223,16 @@ class EpicCompletionChecker:
                 )
                 return False
 
-            # Check if sub-issue has the fixed label — normal completion
-            if fixed_label and fixed_label in issue.labels:
-                sub_issue_titles.append(issue.title)
-                continue
-
-            # Check if sub-issue is a nested epic that is closed
-            if (
-                epic_labels & set(issue.labels)
+            issue_labels = set(issue.labels)
+            is_fixed = bool(fixed_label) and fixed_label in issue_labels
+            is_closed_nested_epic = (
+                bool(epic_labels & issue_labels)
                 and issue.state == GitHubIssueState.CLOSED
-            ):
+            )
+            if is_fixed or is_closed_nested_epic:
                 sub_issue_titles.append(issue.title)
                 continue
 
-            # Check if sub-issue is closed (wontfix/duplicate/invalid)
             if issue.state == GitHubIssueState.CLOSED:
                 excluded_issues.append(issue_number)
                 logger.info(
@@ -247,12 +243,10 @@ class EpicCompletionChecker:
                 )
                 continue
 
-            # Check if sub-issue is escalated to HITL (still open)
-            if hitl_labels & set(issue.labels):
+            if hitl_labels & issue_labels:
                 hitl_blocked.append(issue_number)
                 continue
 
-            # Sub-issue is still open and unresolved
             return False
 
         # Post HITL warnings if any sub-issues are in HITL
@@ -640,7 +634,6 @@ class EpicManager:
         if strategy == MergeStrategy.INDEPENDENT:
             return
 
-        # Check if all siblings are approved or already merged
         progress = self.get_progress(epic_number)
         if progress is None or not progress.ready_to_merge:
             return
@@ -1085,7 +1078,6 @@ class EpicManager:
         if epic.released:
             return {"error": "epic already released", "status": "failed"}
 
-        # Check if a release job is already running
         if epic_number in self._release_jobs:
             return {
                 "job_id": self._release_jobs[epic_number],

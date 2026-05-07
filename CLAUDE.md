@@ -15,6 +15,7 @@ This file is a table of contents. Operational knowledge lives in the wiki at [`d
 - **Always verify subagent DONE claims** with `git status --porcelain` and `git log -1 --stat`. Subagents sometimes report DONE with edits applied but not committed.
 - **Subprocess-spawning runners MUST call `reraise_on_credit_or_bug(exc)`** in their broad `except` block. Without it, `CreditExhaustedError` is silently eaten and the loop burns attempt budget against an exhausted billing signal. See [`docs/wiki/dark-factory.md`](docs/wiki/dark-factory.md) §2.2.
 - **For substantial features, plan for 2–3 fresh-eyes review iterations** before merge. Convergence = next pass finds nothing material. See [`docs/wiki/dark-factory.md`](docs/wiki/dark-factory.md) §3.
+- **Code-cleanup PRs (defensive-guard removal, dead-code drops) MUST be verified with full `make quality`**, not file-targeted test subsets. PR #8460 over-pruned `getattr(self, "_X", None)` checks where `_X` was set conditionally in subclasses or `__new__`-bypassed test scaffolding; the implementer ran 211 tests in three targeted files (all green) and shipped — but `tests/test_audit_prompts.py` and `tests/test_repo_wiki_loop_pr.py` had 7 failures the subset missed. Hotfix PR #8463 followed. Cleanup work has higher blast radius than its diff suggests.
 
 ## Knowledge Lookup
 
@@ -36,7 +37,13 @@ Look up the relevant entry in [`docs/wiki/`](docs/wiki/index.md):
 
 | Topic file | Looks like |
 |---|---|
-| [`architecture.md`](docs/wiki/architecture.md) | Architecture, layers, ports, async patterns, trust fleet, telemetry, deployment |
+| [`architecture.md`](docs/wiki/architecture.md) | Cross-cutting architecture entries that don't fit a sub-topic (residual after the May-2026 split). Prefer the focused files below first. |
+| [`architecture-layers.md`](docs/wiki/architecture-layers.md) | Four-layer model, facades, coordinator/orchestrator decomposition, module-level state |
+| [`architecture-async-control.md`](docs/wiki/architecture-async-control.md) | Async patterns, background loops, label routing, callbacks, idempotency, error hierarchy |
+| [`architecture-imports-types.md`](docs/wiki/architecture-imports-types.md) | Deferred imports, TYPE_CHECKING, type narrowing, optional dependencies, circular-import rules |
+| [`architecture-state-persistence.md`](docs/wiki/architecture-state-persistence.md) | State persistence, schema evolution, Pydantic patterns, FastAPI route registration |
+| [`architecture-refactoring.md`](docs/wiki/architecture-refactoring.md) | Dead-code removal, extraction, scope discipline, line-number-vs-pattern, multi-PR drift |
+| [`architecture-patterns-practices.md`](docs/wiki/architecture-patterns-practices.md) | Coordinator + parameter threading, transcript parsing, EventBus threading, dispatcher patterns |
 | [`patterns.md`](docs/wiki/patterns.md) | Kill-switch convention, dedup, escalation, quality gates, sentry, UI standards, commands |
 | [`gotchas.md`](docs/wiki/gotchas.md) | Worktree rules, avoided patterns, five-checkpoint loop wiring, recurring footguns |
 | [`testing.md`](docs/wiki/testing.md) | Test conventions, scenarios, cassettes, kill-switch tests, benchmarks |
@@ -52,11 +59,10 @@ regression test in `tests/regressions/`. See [`docs/wiki/testing.md`](docs/wiki/
 
 For substantial features (new loop, new runner, spec → multi-task work), end with **2–3 fresh-eyes review iterations** until convergence per [ADR-0051](docs/adr/0051-iterative-production-readiness-review.md) — convergence = next pass finds nothing material.
 
-## Ubiquitous language (ADR-0044 P2.9)
+## Ubiquitous language (ADR-0053)
 
-Names are load-bearing — don't paraphrase. Look up specific terms in [`docs/wiki/architecture.md`](docs/wiki/architecture.md):
-
-- `HydraFlowConfig`, `StateTracker` / `StateData`, `EventBus`, `SessionLog`, `ReviewResult`
-- `BaseBackgroundLoop`, `RepoWikiStore`
-- `PRPort` / `WorkspacePort` / `IssueStorePort` — hexagonal boundaries
-- `AgentRunner` / `PlannerRunner` / `ReviewRunner`, `WorktreeManager`
+Names are load-bearing — don't paraphrase. The canonical glossary lives at
+[`docs/wiki/terms/`](docs/wiki/terms/) (one file per term) and is rendered to
+[`docs/arch/generated/ubiquitous-language.md`](docs/arch/generated/ubiquitous-language.md)
+on every PR. Drift between term anchors and live code is a CI failure; see
+[ADR-0053](docs/adr/0053-ubiquitous-language-as-living-artifact.md).

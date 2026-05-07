@@ -28,6 +28,7 @@ flowchart LR
         caretaking_StagingPromotionLoop([StagingPromotionLoop])
         caretaking_StaleIssueGCLoop([StaleIssueGCLoop])
         caretaking_StaleIssueLoop([StaleIssueLoop])
+        caretaking_TermProposerLoop([TermProposerLoop])
         caretaking_WikiRotDetectorLoop([WikiRotDetectorLoop])
         caretaking_WorkspaceGCLoop([WorkspaceGCLoop])
     end
@@ -46,6 +47,7 @@ flowchart LR
     end
     subgraph hexagonal_boundaries["Hexagonal Boundaries"]
         hexagonal_boundaries_AgentPort[/AgentPort/]
+        hexagonal_boundaries_BotPRPort[/BotPRPort/]
         hexagonal_boundaries_IssueFetcherPort[/IssueFetcherPort/]
         hexagonal_boundaries_IssueStorePort[/IssueStorePort/]
         hexagonal_boundaries_ObservabilityPort[/ObservabilityPort/]
@@ -101,6 +103,7 @@ Autonomous background loops that maintain the system without human input — wik
 - `StagingPromotionLoop` — `src.staging_promotion_loop`
 - `StaleIssueGCLoop` — `src.stale_issue_gc_loop`
 - `StaleIssueLoop` — `src.stale_issue_loop`
+- `TermProposerLoop` — `src.term_proposer_loop`
 - `WikiRotDetectorLoop` — `src.wiki_rot_detector_loop`
 - `WorkspaceGCLoop` — `src.workspace_gc_loop`
 
@@ -143,6 +146,7 @@ The Port/Adapter seam between domain runtime and the outside world (GitHub, git,
 **Ports**
 
 - `AgentPort` — `src.ports`
+- `BotPRPort` — `src.term_proposer_loop`
 - `IssueFetcherPort` — `src.ports`
 - `IssueStorePort` — `src.ports`
 - `ObservabilityPort` — `src.ports`
@@ -257,4 +261,4 @@ The plan→implement→review pipeline driving each issue from hydraflow-ready t
 **Related ADRs:** `ADR-0001`, `ADR-0004`, `ADR-0011`, `ADR-0012`, `ADR-0029`
 
 
-_Regenerated from commit `be28c1c` on 2026-05-07 02:32 UTC. Source last changed at `be28c1c`. Status: 🟢 fresh._
+_Regenerated from commit `0841bbc` on 2026-05-07 02:51 UTC. Source last changed at `0841bbc`. Status: 🟢 fresh._

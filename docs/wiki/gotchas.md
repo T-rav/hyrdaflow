@@ -1,635 +1,729 @@
 # Gotchas
 
 
-## Code Quality, Imports, Types, and Refactoring
+## Verify imports are present and not circular before type annotations
 
-Verify imports are present and not circular before adding type annotations. Use TYPE_CHECKING guards with `from __future__ import annotations` for forward references. Before removing imports, grep for runtime references (isinstance, assignments) to prevent NameError. Run ruff to auto-fix import ordering.
+Verify imports are present and not circular before adding type annotations. Use TYPE_CHECKING guards with `from __future__ import annotations` for forward references. Before removing imports, grep for runtime references like `isinstance` and assignments.
 
-Import ordering follows isort rules: stdlib (alphabetically, including pathlib), then third-party, then local. Use `is None` and `is not None` for optional objects, especially callables and stores. Type ignore comments can hide real bugs—investigate before suppressing.
+Example: `grep -r "SomeClass" src/` before deleting the import.
 
-Protocol conformance: method signatures must exactly match protocol definitions. When updating port signatures, sync all implementations simultaneously—one task, not staggered. When refactoring classes, enforce acceptance criteria of ≤400 lines and ≤15 public methods. Count carefully: remaining non-delegated methods + delegation stubs can exceed budget even after extraction.
-
-Preserve edge cases like label ordering and removal order semantics. When removing multiple code blocks from same file, delete bottom-to-top (highest line numbers first) to avoid line-number shifting.
-
-See also: Testing — validate type changes with ruff and typecheck; Infrastructure — type-checking applies to parser signatures.
+**Why:** Removing imports without checking runtime usage causes NameError crashes in production.
 
 
 ```json:entry
-{"id":"01KQ11NX7WPWJKP571R69KMCPT","title":"Code Quality, Imports, Types, and Refactoring","content":"Verify imports are present and not circular before adding type annotations. Use TYPE_CHECKING guards with `from __future__ import annotations` for forward references. Before removing imports, grep for runtime references (isinstance, assignments) to prevent NameError. Run ruff to auto-fix import ordering.\n\nImport ordering follows isort rules: stdlib (alphabetically, including pathlib), then third-party, then local. Use `is None` and `is not None` for optional objects, especially callables and stores. Type ignore comments can hide real bugs—investigate before suppressing.\n\nProtocol conformance: method signatures must exactly match protocol definitions. When updating port signatures, sync all implementations simultaneously—one task, not staggered. When refactoring classes, enforce acceptance criteria of ≤400 lines and ≤15 public methods. Count carefully: remaining non-delegated methods + delegation stubs can exceed budget even after extraction.\n\nPreserve edge cases like label ordering and removal order semantics. When removing multiple code blocks from same file, delete bottom-to-top (highest line numbers first) to avoid line-number shifting.\n\nSee also: Testing — validate type changes with ruff and typecheck; Infrastructure — type-checking applies to parser signatures.","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-18T15:40:17.674355+00:00","updated_at":"2026-04-18T15:40:17.674424+00:00","valid_from":"2026-04-18T15:40:17.674355+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRS2","title":"Verify imports are present and not circular before type annotations","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954194+00:00","updated_at":"2026-05-03T04:11:32.954454+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Testing — Mocking, Serialization, and File Verification
+## Import ordering follows isort: stdlib, third-party, local
 
-Always patch functions at their definition site (e.g., `hindsight.retain_safe`), not import site. Deferred imports break module-level mocks. Never attach methods dynamically to mock objects; use unittest.mock.patch() at definition site to validate actual function signatures and catch keyword argument typos.
+Import order must follow: stdlib (alphabetically, including pathlib), then third-party, then local. Run `ruff check --fix` to auto-correct ordering.
 
-Files referenced in issues may not exist (e.g., shared_prompt_prefix.py). Always verify file existence before planning changes using git history and grep.
+Example: `import pathlib` before `import requests` before `from . import module`.
 
-For serialization testing, validate both model_dump_json()→model_validate_json() (serialization fidelity) and save/load cycles (full integration). JSON tests catch serialization bugs; integration tests catch type coercion and persistence issues.
-
-Use explicit assertions on structured markers rather than narrative content to ensure test stability across agent output format changes. ID generation must have test coverage verifying consistency across lookups—ensure plans_dir keys and filename extractions use the same ID logic. Join factory metrics by issue_number, not pr_number.
-
-When removing test imports/files referencing deleted code, run tests to surface incomplete cleanup. Always run `make test` and `make quality-lite` before declaring work complete—test failures naturally surface incomplete cleanup and hidden dependencies.
-
-See also: Code Quality — type-checking applies to validators and imports; ID Generation — ID extraction and generation must be consistent; Infrastructure — parser assertions validate against realistic multi-paragraph output.
+**Why:** Misaligned imports confuse code review and cause silent import-path bugs when modules are reorganized.
 
 
 ```json:entry
-{"id":"01KQ11NX7WPWJKP571R69KMCPV","title":"Testing — Mocking, Serialization, and File Verification","content":"Always patch functions at their definition site (e.g., `hindsight.retain_safe`), not import site. Deferred imports break module-level mocks. Never attach methods dynamically to mock objects; use unittest.mock.patch() at definition site to validate actual function signatures and catch keyword argument typos.\n\nFiles referenced in issues may not exist (e.g., shared_prompt_prefix.py). Always verify file existence before planning changes using git history and grep.\n\nFor serialization testing, validate both model_dump_json()→model_validate_json() (serialization fidelity) and save/load cycles (full integration). JSON tests catch serialization bugs; integration tests catch type coercion and persistence issues.\n\nUse explicit assertions on structured markers rather than narrative content to ensure test stability across agent output format changes. ID generation must have test coverage verifying consistency across lookups—ensure plans_dir keys and filename extractions use the same ID logic. Join factory metrics by issue_number, not pr_number.\n\nWhen removing test imports/files referencing deleted code, run tests to surface incomplete cleanup. Always run `make test` and `make quality-lite` before declaring work complete—test failures naturally surface incomplete cleanup and hidden dependencies.\n\nSee also: Code Quality — type-checking applies to validators and imports; ID Generation — ID extraction and generation must be consistent; Infrastructure — parser assertions validate against realistic multi-paragraph output.","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-18T15:40:17.674453+00:00","updated_at":"2026-04-18T15:40:17.674457+00:00","valid_from":"2026-04-18T15:40:17.674453+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRS3","title":"Import ordering follows isort: stdlib, third-party, local","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954497+00:00","updated_at":"2026-05-03T04:11:32.954499+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Exception Classification, Logging, and Error Handling
+## Use `is None` and `is not None` for optional objects
 
-Distinguish bug exceptions (TypeError, AttributeError, KeyError, ValueError, IndexError) from transient errors (RuntimeError, OSError, CalledProcessError, httpx network exceptions) using log_exception_with_bug_classification() or is_likely_bug(). Use logger.exception() only for genuine bugs; transient operational failures use logger.warning(..., exc_info=True). In finally blocks, use log_exception_with_bug_classification() instead of reraise to preserve finally semantics.
+Always use identity checks for None, True, False, and callable/store types: `if x is None`, `if callback is not None`. Avoid `==` comparison.
 
-For HTTP errors, use reraise_on_credit_or_bug() to selectively re-raise critical exceptions (AuthenticationError, CreditExhaustedError, MemoryError) while logging transient failures. Subprocess exceptions: TimeoutExpired and CalledProcessError are siblings, not parent-child—both must be caught separately. Read-path methods return safe defaults; write-path methods propagate TimeoutExpired to prevent silent data loss.
+Example: `if config is None: return defaults` not `if config == None:`.
 
-Logging strategy follows docs/agents/sentry.md: transient failures log at WARNING; LoggingIntegration(event_level=logging.ERROR) prevents spurious Sentry alerts. Data-integrity violations log at ERROR. Avoid silent `except Exception: pass`; use reraise_on_credit_or_bug(exc) + logger.warning(..., exc_info=True). When migrating from logger.exception() to logger.warning(), explicitly add exc_info=True or tracebacks disappear.
-
-In retry loops, wrap per-item API calls in try/except so one item's failure doesn't abort the cycle. In background loops, classify exceptions: fatal (auth/credit) propagates, bugs (local logic) propagate, transient (per-item runtime) logged as warnings. When a loop encounters 5 consecutive failures of the same type, circuit breaker publishes SYSTEM_ALERT exactly once.
-
-Post-merge orchestration runs sequential operations: merge→verify→retrospect→epic check→state record→event publish→cleanup. Exception handling only catches (RuntimeError, OSError, ValueError); others propagate. Use run_with_fatal_guard pattern from phase_utils for consistent logging.
-
-Async/await: Omitting await on async methods returns unawaited coroutines that silently never execute—Pyright flags these during make typecheck. asyncio.create_task() calls without stored references get garbage-collected, silently dropping exceptions. Store all create_task results and add done callbacks for logging. Implement safe background task pattern: add private `_background_tasks: set[asyncio.Task[None]]`. Register cleanup callback before logging callback. When re-raising fatal errors from async tasks, revert dependent state flags (e.g., _pipeline_enabled = False) BEFORE raising to ensure state consistency.
-
-See also: Telemetry — apply exception classification to distinguish bugs from transient errors; Memory System — apply same classification during memory injection; State Persistence — exception handling during state transitions.
+**Why:** Custom `__eq__` implementations can hide bugs; identity checks are immune and O(1).
 
 
 ```json:entry
-{"id":"01KQ11NX7WPWJKP571R69KMCPW","title":"Exception Classification, Logging, and Error Handling","content":"Distinguish bug exceptions (TypeError, AttributeError, KeyError, ValueError, IndexError) from transient errors (RuntimeError, OSError, CalledProcessError, httpx network exceptions) using log_exception_with_bug_classification() or is_likely_bug(). Use logger.exception() only for genuine bugs; transient operational failures use logger.warning(..., exc_info=True). In finally blocks, use log_exception_with_bug_classification() instead of reraise to preserve finally semantics.\n\nFor HTTP errors, use reraise_on_credit_or_bug() to selectively re-raise critical exceptions (AuthenticationError, CreditExhaustedError, MemoryError) while logging transient failures. Subprocess exceptions: TimeoutExpired and CalledProcessError are siblings, not parent-child—both must be caught separately. Read-path methods return safe defaults; write-path methods propagate TimeoutExpired to prevent silent data loss.\n\nLogging strategy follows docs/agents/sentry.md: transient failures log at WARNING; LoggingIntegration(event_level=logging.ERROR) prevents spurious Sentry alerts. Data-integrity violations log at ERROR. Avoid silent `except Exception: pass`; use reraise_on_credit_or_bug(exc) + logger.warning(..., exc_info=True). When migrating from logger.exception() to logger.warning(), explicitly add exc_info=True or tracebacks disappear.\n\nIn retry loops, wrap per-item API calls in try/except so one item's failure doesn't abort the cycle. In background loops, classify exceptions: fatal (auth/credit) propagates, bugs (local logic) propagate, transient (per-item runtime) logged as warnings. When a loop encounters 5 consecutive failures of the same type, circuit breaker publishes SYSTEM_ALERT exactly once.\n\nPost-merge orchestration runs sequential operations: merge→verify→retrospect→epic check→state record→event publish→cleanup. Exception handling only catches (RuntimeError, OSError, ValueError); others propagate. Use run_with_fatal_guard pattern from phase_utils for consistent logging.\n\nAsync/await: Omitting await on async methods returns unawaited coroutines that silently never execute—Pyright flags these during make typecheck. asyncio.create_task() calls without stored references get garbage-collected, silently dropping exceptions. Store all create_task results and add done callbacks for logging. Implement safe background task pattern: add private `_background_tasks: set[asyncio.Task[None]]`. Register cleanup callback before logging callback. When re-raising fatal errors from async tasks, revert dependent state flags (e.g., _pipeline_enabled = False) BEFORE raising to ensure state consistency.\n\nSee also: Telemetry — apply exception classification to distinguish bugs from transient errors; Memory System — apply same classification during memory injection; State Persistence — exception handling during state transitions.","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-18T15:40:17.674465+00:00","updated_at":"2026-04-18T15:40:17.674467+00:00","valid_from":"2026-04-18T15:40:17.674465+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRS4","title":"Use `is None` and `is not None` for optional objects","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954512+00:00","updated_at":"2026-05-03T04:11:32.954513+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## State Persistence, Configuration, and Resource Cleanup
+## Protocol method signatures must match exactly
 
-Config validators (e.g., labels_must_not_be_empty covering all label fields) serve as source of truth for audit fields. Mismatch between validator field set and audit field enumeration indicates a bug. When fixing label removal bugs, add regression tests explicitly verifying those fields by name. Fixing code doesn't retroactively clean existing issues—post-deployment manual cleanup may be needed.
+When implementing a Protocol, method signatures must exactly match the protocol definition. When updating port signatures, sync all implementations simultaneously in one task.
 
-When adding new list[str] label fields to HydraFlowConfig, always add as optional ConfigFactory.create() parameters with sensible defaults. Omitting causes TypeError. Add test that ConfigFactory.create() accepts all label fields. Validate collection fields accessed by index—downstream code accesses [0] without null-checking. Constructor parameters must require before optional: use `param: Type | None = None` with fallback logic.
+Example: If `Port.query(filter: str) -> list` changes, update all three implementations in one PR.
 
-For state persistence, use append-only reflection files (JSONL) to accumulate data across retries, avoiding schema migrations. Mark entries with structural boundaries (timestamps, phase separators). Implement explicit cleanup methods at logical boundaries to prevent unbounded growth. Wrap all JSONL I/O in try/except OSError; append operations must be idempotent to survive partial writes. Use file_util.atomic_write() instead of Path.write_text() to prevent JSON corruption from crashes mid-write. Hard size caps (e.g., 10MB) provide secondary guards. trim_jsonl operates on raw lines without JSON parsing; corrupt/malformed records survive trimming intentionally.
-
-For schema evolution, new Pydantic model fields with `field: Type = default_value` allow existing state files to load without error. TypedDict(total=False) enables backward-compatible event payloads where all fields are optional. Frozen Pydantic models require object.__setattr__ for mutation—critical in overrides (numeric, bool, literal) to avoid breaking setter logic. Cross-field validation must run after numeric overrides but before bool/literal overrides.
-
-When persisting to multiple banks (repo-specific + universal), use single Write-Ahead Log (WAL) to capture all writes together for atomic failure recovery. Type coercion across serialization boundaries: HindsightClient coerces metadata values to strings during retain while local JSONL keeps int. Wrap type conversions in try/except catching (TypeError, ValueError) with fallback to None.
-
-Idempotency guards protect against duplicate calls and retries, not concurrent execution. Per-issue locking at orchestrator level prevents true concurrency. When removing config fields, removed env-var overrides should be silently ignored. Validate field removal by letting tests fail on missing attributes. When HydraFlow manages itself (repo_root == HydraFlow repo), use hash-based or idempotent installation to skip if identical. Critical in multi-execution-mode systems.
-
-When extracting methods that compute intermediate state needed by failure paths, return tuples `(success, mergeable)` rather than recomputing. State transitions create atomicity windows for exceptions: when exceptions occur after successful state transition (e.g., label swap) but before cleanup, issues can get stuck in intermediate states. Mitigation: wrap transition+operation+cleanup in try/except that reverses transitions on non-fatal exceptions. Track resource creation state to enable safe cleanup—only attempt destroy if setup successfully created the resource. HITL workflows should destroy worktrees only on success, preserving them on failure to enable post-mortem debugging.
-
-See also: Exception Classification — exception handling during state transitions; Testing — validate schema evolution with serialization tests.
+**Why:** Staggered updates create temporary inconsistencies that break protocol guarantees.
 
 
 ```json:entry
-{"id":"01KQ11NX7WPWJKP571R69KMCPX","title":"State Persistence, Configuration, and Resource Cleanup","content":"Config validators (e.g., labels_must_not_be_empty covering all label fields) serve as source of truth for audit fields. Mismatch between validator field set and audit field enumeration indicates a bug. When fixing label removal bugs, add regression tests explicitly verifying those fields by name. Fixing code doesn't retroactively clean existing issues—post-deployment manual cleanup may be needed.\n\nWhen adding new list[str] label fields to HydraFlowConfig, always add as optional ConfigFactory.create() parameters with sensible defaults. Omitting causes TypeError. Add test that ConfigFactory.create() accepts all label fields. Validate collection fields accessed by index—downstream code accesses [0] without null-checking. Constructor parameters must require before optional: use `param: Type | None = None` with fallback logic.\n\nFor state persistence, use append-only reflection files (JSONL) to accumulate data across retries, avoiding schema migrations. Mark entries with structural boundaries (timestamps, phase separators). Implement explicit cleanup methods at logical boundaries to prevent unbounded growth. Wrap all JSONL I/O in try/except OSError; append operations must be idempotent to survive partial writes. Use file_util.atomic_write() instead of Path.write_text() to prevent JSON corruption from crashes mid-write. Hard size caps (e.g., 10MB) provide secondary guards. trim_jsonl operates on raw lines without JSON parsing; corrupt/malformed records survive trimming intentionally.\n\nFor schema evolution, new Pydantic model fields with `field: Type = default_value` allow existing state files to load without error. TypedDict(total=False) enables backward-compatible event payloads where all fields are optional. Frozen Pydantic models require object.__setattr__ for mutation—critical in overrides (numeric, bool, literal) to avoid breaking setter logic. Cross-field validation must run after numeric overrides but before bool/literal overrides.\n\nWhen persisting to multiple banks (repo-specific + universal), use single Write-Ahead Log (WAL) to capture all writes together for atomic failure recovery. Type coercion across serialization boundaries: HindsightClient coerces metadata values to strings during retain while local JSONL keeps int. Wrap type conversions in try/except catching (TypeError, ValueError) with fallback to None.\n\nIdempotency guards protect against duplicate calls and retries, not concurrent execution. Per-issue locking at orchestrator level prevents true concurrency. When removing config fields, removed env-var overrides should be silently ignored. Validate field removal by letting tests fail on missing attributes. When HydraFlow manages itself (repo_root == HydraFlow repo), use hash-based or idempotent installation to skip if identical. Critical in multi-execution-mode systems.\n\nWhen extracting methods that compute intermediate state needed by failure paths, return tuples `(success, mergeable)` rather than recomputing. State transitions create atomicity windows for exceptions: when exceptions occur after successful state transition (e.g., label swap) but before cleanup, issues can get stuck in intermediate states. Mitigation: wrap transition+operation+cleanup in try/except that reverses transitions on non-fatal exceptions. Track resource creation state to enable safe cleanup—only attempt destroy if setup successfully created the resource. HITL workflows should destroy worktrees only on success, preserving them on failure to enable post-mortem debugging.\n\nSee also: Exception Classification — exception handling during state transitions; Testing — validate schema evolution with serialization tests.","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-18T15:40:17.674477+00:00","updated_at":"2026-04-18T15:40:17.674480+00:00","valid_from":"2026-04-18T15:40:17.674477+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRS5","title":"Protocol method signatures must match exactly","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954524+00:00","updated_at":"2026-05-03T04:11:32.954526+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## ID Generation, Representation, and Pipeline Ordering
+## Class refactoring: enforce ≤400 lines, ≤15 public methods
 
-Use consistent ID generation logic everywhere files are keyed (e.g., plans_dir / f'issue-{issue.id}.md') to avoid silent lookup failures. Define prefix lengths as constants (discover=9, shape=6) and centralize extraction to prevent off-by-one slice errors that silently produce NaN. Join factory metrics and reviews by issue_number (not pr_number). Issue number propagation before memory injection enables outcome correlation across phases; reset to 0 after injection.
+Enforce size acceptance criteria during refactoring. Count carefully: non-delegated methods + delegation stubs. If a class hits these limits, extract further.
 
-Avoid implicit heuristics like `if fname not in content` for self-exclusion. Pass explicit parameters (self_fname) to filter functions instead—this makes logic clearer and prevents silent edge cases. Collision detection must explicitly exclude self before reporting to avoid misleading messages.
+Example: 380 lines + 14 public methods is within budget; 420 lines requires extraction.
 
-Representation gaps indicate multiple object models in codebase. Example: ReviewRunner uses Task.id while phase_utils.publish_review_status uses pr.issue_number for same concept. Document which representation a helper uses and scope it appropriately. Mixed usage should be consolidated to single representation or explicitly mapped.
-
-Stage progression logic relying on array indices (currentStage from PIPELINE_STAGES position) is fragile. New stages inserted at incorrect positions silently break progression if only status values are verified in tests. When adding pipeline stages, verify both stage ordering and progression logic—order matters even if status values are correct.
-
-For skip detection, only trigger when stage at index ≥3 (plan or later) has non-pending status. If issue is in triage (triage=active, discover/shape=pending), discover/shape must remain pending, not marked skipped.
-
-Phase progression occurs via predictable label mutations (discover→shape, shape→plan). Clarity scoring gates entry: high-clarity issues (≥7) go directly to planning; vague issues route to discovery first. This deterministic approach makes phase progression observable in issue history, eliminating hidden state and making system auditable.
-
-See also: Testing — ID generation must have test coverage verifying consistency across lookups.
+**Why:** Large classes accumulate hidden dependencies and increase change blast radius.
 
 
 ```json:entry
-{"id":"01KQ11NX7WPWJKP571R69KMCPY","title":"ID Generation, Representation, and Pipeline Ordering","content":"Use consistent ID generation logic everywhere files are keyed (e.g., plans_dir / f'issue-{issue.id}.md') to avoid silent lookup failures. Define prefix lengths as constants (discover=9, shape=6) and centralize extraction to prevent off-by-one slice errors that silently produce NaN. Join factory metrics and reviews by issue_number (not pr_number). Issue number propagation before memory injection enables outcome correlation across phases; reset to 0 after injection.\n\nAvoid implicit heuristics like `if fname not in content` for self-exclusion. Pass explicit parameters (self_fname) to filter functions instead—this makes logic clearer and prevents silent edge cases. Collision detection must explicitly exclude self before reporting to avoid misleading messages.\n\nRepresentation gaps indicate multiple object models in codebase. Example: ReviewRunner uses Task.id while phase_utils.publish_review_status uses pr.issue_number for same concept. Document which representation a helper uses and scope it appropriately. Mixed usage should be consolidated to single representation or explicitly mapped.\n\nStage progression logic relying on array indices (currentStage from PIPELINE_STAGES position) is fragile. New stages inserted at incorrect positions silently break progression if only status values are verified in tests. When adding pipeline stages, verify both stage ordering and progression logic—order matters even if status values are correct.\n\nFor skip detection, only trigger when stage at index ≥3 (plan or later) has non-pending status. If issue is in triage (triage=active, discover/shape=pending), discover/shape must remain pending, not marked skipped.\n\nPhase progression occurs via predictable label mutations (discover→shape, shape→plan). Clarity scoring gates entry: high-clarity issues (≥7) go directly to planning; vague issues route to discovery first. This deterministic approach makes phase progression observable in issue history, eliminating hidden state and making system auditable.\n\nSee also: Testing — ID generation must have test coverage verifying consistency across lookups.","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-18T15:40:17.674486+00:00","updated_at":"2026-04-18T15:40:17.674492+00:00","valid_from":"2026-04-18T15:40:17.674486+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRS6","title":"Class refactoring: enforce ≤400 lines, ≤15 public methods","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954535+00:00","updated_at":"2026-05-03T04:11:32.954536+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Telemetry — Sample Size Validation and Outcome Tracking
+## Preserve edge cases during refactoring (label ordering, removal)
 
-Minimum sample sizes prevent statistical misleading and enable reliable recommendations. For telemetry, use thresholds like 10 for regressions and window_size for rolling averages; for memory quality assessment, return empty results when recall data is insufficient. Always expose sample_size alongside metrics (fp_rate, recall quality) to flag sparse data—1/2=50% is noisy with high over-interpretation risk.
+When extracting or refactoring code, verify edge cases like label ordering and removal order semantics are preserved. Grep for callers to understand dependencies.
 
-Record each retry attempt separately to capture timing and retry patterns, but aggregate using (skill_name, issue_number) with only final attempt's outcome for pass-rate calculations. Naive per-attempt counting inflates failure rates. In retry loops with state accumulators, pass current-attempt to telemetry (not accumulator) to avoid contaminating aggregates with stale failure signals from previous attempts.
+Example: If code removes labels bottom-to-top, verify the extracted method preserves this order.
 
-Outcomes attach to digest snapshots, not individual recalled items. Cap issue_ids per recall hit at 50 entries to bridge outcomes with actual recall events. Blocking skill failures trigger agent retries until they pass, so passed=False records are rare; non-blocking skills are primary false-positive candidates.
-
-See also: Exception Classification — classify failures to distinguish bugs from transient errors.
+**Why:** Edge case behavior often goes undocumented; breaking it silently causes production bugs.
 
 
 ```json:entry
-{"id":"01KQ11NX7WPWJKP571R69KMCPZ","title":"Telemetry — Sample Size Validation and Outcome Tracking","content":"Minimum sample sizes prevent statistical misleading and enable reliable recommendations. For telemetry, use thresholds like 10 for regressions and window_size for rolling averages; for memory quality assessment, return empty results when recall data is insufficient. Always expose sample_size alongside metrics (fp_rate, recall quality) to flag sparse data—1/2=50% is noisy with high over-interpretation risk.\n\nRecord each retry attempt separately to capture timing and retry patterns, but aggregate using (skill_name, issue_number) with only final attempt's outcome for pass-rate calculations. Naive per-attempt counting inflates failure rates. In retry loops with state accumulators, pass current-attempt to telemetry (not accumulator) to avoid contaminating aggregates with stale failure signals from previous attempts.\n\nOutcomes attach to digest snapshots, not individual recalled items. Cap issue_ids per recall hit at 50 entries to bridge outcomes with actual recall events. Blocking skill failures trigger agent retries until they pass, so passed=False records are rare; non-blocking skills are primary false-positive candidates.\n\nSee also: Exception Classification — classify failures to distinguish bugs from transient errors.","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-18T15:40:17.674498+00:00","updated_at":"2026-04-18T15:40:17.674501+00:00","valid_from":"2026-04-18T15:40:17.674498+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRS7","title":"Preserve edge cases during refactoring (label ordering, removal)","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954543+00:00","updated_at":"2026-05-03T04:11:32.954546+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Memory System — Filtering, Budget Allocation, and Query Optimization
+## Delete code blocks from bottom-to-top to avoid line-number shift
 
-Filter evicted memories on both content prefix ('[EVICTED]') AND metadata status ('status: evicted'). Dual filtering ensures tombstones never leak into agent prompts even if one filter has bugs. Apply filters at recall time in _inject_memory() before formatting. Treat budget allocation as cap, not target. Cross-section dedup runs after truncation, so final prompt may be smaller than allocated budget. Dedup savings below budget ceiling are acceptable and expected—not failure case.
+When removing multiple code blocks from the same file, delete highest line numbers first. Deleting top-to-bottom shifts remaining line numbers.
 
-For prompt feedback sections with exemplars, place exemplars before remediation hints to ensure exemplars survive truncation. Phase-specific query customization should prepend context (`f"{prefix}, {context}"`) rather than replace it. Narrowing queries too much degrades recall quality. Additive prefixes guide semantic search while preserving original issue context needed for relevance matching. Relevance score boost uses in-place mutation (mem.relevance_score *= 1.15)—monitor this constraint during dependency upgrades.
+Example: Delete lines 120–130 before lines 50–60 in the same file.
 
-See also: Exception Classification — classify failures in memory injection to distinguish bugs from transient errors.
+**Why:** Line-number shifts cause cascading edits and confusion when applying multiple deletions.
 
 
 ```json:entry
-{"id":"01KQ11NX7WPWJKP571R69KMCQ0","title":"Memory System — Filtering, Budget Allocation, and Query Optimization","content":"Filter evicted memories on both content prefix ('[EVICTED]') AND metadata status ('status: evicted'). Dual filtering ensures tombstones never leak into agent prompts even if one filter has bugs. Apply filters at recall time in _inject_memory() before formatting. Treat budget allocation as cap, not target. Cross-section dedup runs after truncation, so final prompt may be smaller than allocated budget. Dedup savings below budget ceiling are acceptable and expected—not failure case.\n\nFor prompt feedback sections with exemplars, place exemplars before remediation hints to ensure exemplars survive truncation. Phase-specific query customization should prepend context (`f\"{prefix}, {context}\"`) rather than replace it. Narrowing queries too much degrades recall quality. Additive prefixes guide semantic search while preserving original issue context needed for relevance matching. Relevance score boost uses in-place mutation (mem.relevance_score *= 1.15)—monitor this constraint during dependency upgrades.\n\nSee also: Exception Classification — classify failures in memory injection to distinguish bugs from transient errors.","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-18T15:40:17.674506+00:00","updated_at":"2026-04-18T15:40:17.674509+00:00","valid_from":"2026-04-18T15:40:17.674506+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRS8","title":"Delete code blocks from bottom-to-top to avoid line-number shift","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954553+00:00","updated_at":"2026-05-03T04:11:32.954554+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## ADR Enforcement, Commit Hooks, and Skills Management
+## Patch mock functions at definition site, not import site
 
-Enforcement ADRs need explicit tier-to-mechanism mapping (pre-commit hook, linter, test suite, manual review) with distinct statuses for items with tracking issues vs. those requiring new issues. Consequences sections must cross-check tracking status against decision tables—verify item-by-item that all proposed items have clear tracking. Avoid conflating 'tracked' with 'needs issue'.
+Use `unittest.mock.patch('module.function')` at the definition location, not the import location. Patching import sites fails with deferred imports.
 
-Commit message validation should only block commits that *attempt* specific format incorrectly (e.g., Fix instead of Fixes). Allow plain commits without issue refs, WIP prefixes, merge commits, reverts, and auto-generated commits. This avoids blocking agents that make multiple intermediate commits during implementation.
+Example: `patch('hydra.core.get_config')` not `patch('module.get_config')`.
 
-New dynamic skills start with blocking=False to avoid breaking workflows. Skills graduate to blocking=True only after ≥20 runs with ≥95% success rate. This policy ensures new automated checks are proven before failing builds.
-
-Extract workflow concepts (TDD, systematic debugging, review rigor) and hardcode them in PHASE_SKILL_GUIDANCE dict rather than dynamically loading from filesystem. This avoids dependency on superpowers installation path and keeps system self-contained. New phases need dict entries, not filesystem discovery. TOOL_PHASE_MAP registration is ongoing maintenance burden—add lint test warning on unknown commands in .claude/commands/ to catch unregistered tools before shipping.
+**Why:** Definition-site patching validates actual function signatures and catches keyword typos; import-site patching fails silently.
 
 
 ```json:entry
-{"id":"01KQ11NX7WPWJKP571R69KMCQ1","title":"ADR Enforcement, Commit Hooks, and Skills Management","content":"Enforcement ADRs need explicit tier-to-mechanism mapping (pre-commit hook, linter, test suite, manual review) with distinct statuses for items with tracking issues vs. those requiring new issues. Consequences sections must cross-check tracking status against decision tables—verify item-by-item that all proposed items have clear tracking. Avoid conflating 'tracked' with 'needs issue'.\n\nCommit message validation should only block commits that *attempt* specific format incorrectly (e.g., Fix instead of Fixes). Allow plain commits without issue refs, WIP prefixes, merge commits, reverts, and auto-generated commits. This avoids blocking agents that make multiple intermediate commits during implementation.\n\nNew dynamic skills start with blocking=False to avoid breaking workflows. Skills graduate to blocking=True only after ≥20 runs with ≥95% success rate. This policy ensures new automated checks are proven before failing builds.\n\nExtract workflow concepts (TDD, systematic debugging, review rigor) and hardcode them in PHASE_SKILL_GUIDANCE dict rather than dynamically loading from filesystem. This avoids dependency on superpowers installation path and keeps system self-contained. New phases need dict entries, not filesystem discovery. TOOL_PHASE_MAP registration is ongoing maintenance burden—add lint test warning on unknown commands in .claude/commands/ to catch unregistered tools before shipping.","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-18T15:40:17.674515+00:00","updated_at":"2026-04-18T15:40:17.674517+00:00","valid_from":"2026-04-18T15:40:17.674515+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRS9","title":"Patch mock functions at definition site, not import site","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954570+00:00","updated_at":"2026-05-03T04:11:32.954572+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Infrastructure — Events, Dispatch, and Parser Implementation
+## Verify file existence before planning changes
 
-Alpine's minimal tooling excludes Python and standard utilities. Use portable shell commands like `dd if=/dev/zero bs=1M count=32 of=/dev/null` or `head -c` to consume memory in constrained environments, avoiding allocation failures from missing interpreter tools.
+Files referenced in issues may not exist. Always verify using `git log` and `grep` before planning changes.
 
-Event dispatch dicts benefit from separating truly silent events from events that produce no display output but set a result value (e.g., agent_end, turn_end set result but print nothing). Use _SILENT_WITH_RESULT frozenset checked before _SILENT_EVENTS to correctly route these cases. Handlers must have uniform signatures (event: dict) -> str to avoid type checker errors. This pattern complements exception-based signaling in background loops where fatal errors propagate via exception and supervisor routes the outcome.
+Example: `git log --all -- shared_prompt_prefix.py` to confirm file exists in history.
 
-When a general method returns insufficient data for specific use case, create separate specialized method rather than overloading general one. Example: `list_issues_by_label` returns basic issue metadata; `get_issue_updated_at()` handles timestamps separately. This keeps methods focused and avoids coupling unrelated concerns.
-
-Explicitly document top 3-5 failure risks in plan phase before implementation. This identifies potential issues early and guides implementer decisions. Pre-mortems catch mistakes before code review and establish concrete failure modes to guard against during implementation.
-
-Validate parsers against realistic multi-paragraph agent output containing both prose and structured markers—not bare marker strings. Test assertions focus on markers themselves, not prose wording, so transcript updates don't break tests. Maintain explicit assertions on structured markers rather than narrative content. Explicit `## Output Format` sections in markdown skill definitions (with 'do not modify without updating parser' warnings) make the contract visible. Maintain SKILL_MARKERS mapping for consistency and add test cases verifying all 4 backend copies match.
-
-When extracting from Claude CLI transcripts, modified files, or external formats, use best-effort regex with try/except wrapping—never raise on parse failure. Log warnings when extraction finds zero matches on non-empty input to catch format drift early. Fall back to empty lists or default values on JSONDecodeError and other parsing errors. Leverage existing utilities like delta_verifier.parse_file_delta() and task_graph.extract_phases() instead of reimplementing.
-
-CLI command framework passes $ARGUMENTS as everything after command name—verify scope routing with both single-word and multi-word arguments. Markdown splitting on '\n- ' double-prefixes first item ('- - ')—_split_md_items() helper must explicitly fix this edge case.
-
-See also: Code Quality — type-checking applies to parser signatures; Testing — parser assertions validate against realistic multi-paragraph output.
+**Why:** Planning around non-existent files wastes implementation time and causes rework.
 
 
 ```json:entry
-{"id":"01KQ11NX7X22EWJCR8DMZTS2PG","title":"Infrastructure — Events, Dispatch, and Parser Implementation","content":"Alpine's minimal tooling excludes Python and standard utilities. Use portable shell commands like `dd if=/dev/zero bs=1M count=32 of=/dev/null` or `head -c` to consume memory in constrained environments, avoiding allocation failures from missing interpreter tools.\n\nEvent dispatch dicts benefit from separating truly silent events from events that produce no display output but set a result value (e.g., agent_end, turn_end set result but print nothing). Use _SILENT_WITH_RESULT frozenset checked before _SILENT_EVENTS to correctly route these cases. Handlers must have uniform signatures (event: dict) -> str to avoid type checker errors. This pattern complements exception-based signaling in background loops where fatal errors propagate via exception and supervisor routes the outcome.\n\nWhen a general method returns insufficient data for specific use case, create separate specialized method rather than overloading general one. Example: `list_issues_by_label` returns basic issue metadata; `get_issue_updated_at()` handles timestamps separately. This keeps methods focused and avoids coupling unrelated concerns.\n\nExplicitly document top 3-5 failure risks in plan phase before implementation. This identifies potential issues early and guides implementer decisions. Pre-mortems catch mistakes before code review and establish concrete failure modes to guard against during implementation.\n\nValidate parsers against realistic multi-paragraph agent output containing both prose and structured markers—not bare marker strings. Test assertions focus on markers themselves, not prose wording, so transcript updates don't break tests. Maintain explicit assertions on structured markers rather than narrative content. Explicit `## Output Format` sections in markdown skill definitions (with 'do not modify without updating parser' warnings) make the contract visible. Maintain SKILL_MARKERS mapping for consistency and add test cases verifying all 4 backend copies match.\n\nWhen extracting from Claude CLI transcripts, modified files, or external formats, use best-effort regex with try/except wrapping—never raise on parse failure. Log warnings when extraction finds zero matches on non-empty input to catch format drift early. Fall back to empty lists or default values on JSONDecodeError and other parsing errors. Leverage existing utilities like delta_verifier.parse_file_delta() and task_graph.extract_phases() instead of reimplementing.\n\nCLI command framework passes $ARGUMENTS as everything after command name—verify scope routing with both single-word and multi-word arguments. Markdown splitting on '\\n- ' double-prefixes first item ('- - ')—_split_md_items() helper must explicitly fix this edge case.\n\nSee also: Code Quality — type-checking applies to parser signatures; Testing — parser assertions validate against realistic multi-paragraph output.","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-18T15:40:17.674522+00:00","updated_at":"2026-04-18T15:40:17.674525+00:00","valid_from":"2026-04-18T15:40:17.674522+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSA","title":"Verify file existence before planning changes","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954581+00:00","updated_at":"2026-05-03T04:11:32.954582+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## `logger.error(value)` without a format string
+## Serialization tests must validate both directions
 
-Logging calls must pass a format string as the first argument and the variable as the second. Passing a variable directly treats the variable as the format template — if it ever contains `%s`, `%d`, or `{...}`, logging either misformats or raises `TypeError` at runtime.
+For serialization, test both `model_dump_json()→model_validate_json()` (format fidelity) and `save/load` cycles (integration).
 
-**Wrong:**
+Example: Test JSON round-trip AND file I/O round-trip separately.
 
-```python
-for failure in failures:
-    logger.error(failure)  # failure is the format string — unsafe
-```
-
-**Right:**
-
-```python
-for failure in failures:
-    logger.error("%s", failure)
-```
-
-**Why:** Latent logging-injection bug. `logger.error("got error: %s")` with a user-controlled string containing `%d` raises `TypeError: not enough arguments for format string` at runtime, not during testing. The `logger.error("%s", value)` form defers formatting to the logging machinery which handles it safely.
-
-**How to check:** `rg "logger\.(error|warning|info|debug)\(\w+\)" src/` — every match should have a literal string as the first argument.
+**Why:** JSON tests catch serialization bugs; integration tests catch type coercion and persistence issues.
 
 
 ```json:entry
-{"id":"01KQ11NX7HJCH34WSSAFMB0PBJ","title":"`logger.error(value)` without a format string","content":"Logging calls must pass a format string as the first argument and the variable as the second. Passing a variable directly treats the variable as the format template — if it ever contains `%s`, `%d`, or `{...}`, logging either misformats or raises `TypeError` at runtime.\n\n**Wrong:**\n\n```python\nfor failure in failures:\n    logger.error(failure)  # failure is the format string — unsafe\n```\n\n**Right:**\n\n```python\nfor failure in failures:\n    logger.error(\"%s\", failure)\n```\n\n**Why:** Latent logging-injection bug. `logger.error(\"got error: %s\")` with a user-controlled string containing `%d` raises `TypeError: not enough arguments for format string` at runtime, not during testing. The `logger.error(\"%s\", value)` form defers formatting to the logging machinery which handles it safely.\n\n**How to check:** `rg \"logger\\.(error|warning|info|debug)\\(\\w+\\)\" src/` — every match should have a literal string as the first argument.","topic":"gotchas","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.793265+00:00","updated_at":"2026-04-25T00:47:19.793266+00:00","valid_from":"2026-04-25T00:47:19.793265+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSB","title":"Serialization tests must validate both directions","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954589+00:00","updated_at":"2026-05-03T04:11:32.954590+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Per-worker model overrides
+## Use explicit markers in tests instead of prose
 
-Each background worker that dispatches an LLM call has its own `HYDRAFLOW_*_MODEL` env var so it can be tuned independently for cost. Most loops are logic-only (no LLM call) and don't appear here.
+Assert structured markers (IDs, status codes, field values) rather than prose content. For parser tests, include realistic multi-paragraph output containing both markers and prose.
 
-| Loop | Config field | Env var | Default |
-|------|--------------|---------|---------|
-| `report_issue_loop` | `report_issue_model` | `HYDRAFLOW_REPORT_ISSUE_MODEL` | `opus` |
-| `sentry_loop` | `sentry_model` | `HYDRAFLOW_SENTRY_MODEL` | `opus` |
-| `code_grooming_loop` | `code_grooming_model` | `HYDRAFLOW_CODE_GROOMING_MODEL` | `sonnet` |
-| `adr_reviewer_loop` (council) | `adr_review_model` | `HYDRAFLOW_ADR_REVIEW_MODEL` | `sonnet` |
-| tribal-memory judge | `memory_judge_model` | `HYDRAFLOW_MEMORY_JUDGE_MODEL` | `haiku` |
-| memory_sync compaction | `memory_compaction_model` | `HYDRAFLOW_MEMORY_COMPACTION_MODEL` | `haiku` |
-| wiki compaction | `wiki_compilation_model` | `HYDRAFLOW_WIKI_COMPILATION_MODEL` | `haiku` |
-| transcript summarizer | `transcript_summary_model` | `HYDRAFLOW_TRANSCRIPT_SUMMARY_MODEL` | `haiku` |
+Example: `assert 'success=True'` not `'successfully completed'`.
 
-`HYDRAFLOW_BACKGROUND_MODEL` is a cascade: when non-empty it applies to every field above that still equals its own default (`triage_model`, `transcript_summary_model`, `report_issue_model`, `sentry_model`, `code_grooming_model`). Per-worker overrides always win over the cascade.
-
-When adding a new loop that makes LLM calls, add its own `HYDRAFLOW_<NAME>_MODEL` field to `src/config.py` and `_ENV_STR_OVERRIDES` — don't reuse an existing loop's field.
+**Why:** Prose-dependent tests fail when output format changes; structured markers remain stable across format evolution.
 
 
 ```json:entry
-{"id":"01KQ11NX7HJCH34WSSAFMB0PBQ","title":"Per-worker model overrides","content":"Each background worker that dispatches an LLM call has its own `HYDRAFLOW_*_MODEL` env var so it can be tuned independently for cost. Most loops are logic-only (no LLM call) and don't appear here.\n\n| Loop | Config field | Env var | Default |\n|------|--------------|---------|---------|\n| `report_issue_loop` | `report_issue_model` | `HYDRAFLOW_REPORT_ISSUE_MODEL` | `opus` |\n| `sentry_loop` | `sentry_model` | `HYDRAFLOW_SENTRY_MODEL` | `opus` |\n| `code_grooming_loop` | `code_grooming_model` | `HYDRAFLOW_CODE_GROOMING_MODEL` | `sonnet` |\n| `adr_reviewer_loop` (council) | `adr_review_model` | `HYDRAFLOW_ADR_REVIEW_MODEL` | `sonnet` |\n| tribal-memory judge | `memory_judge_model` | `HYDRAFLOW_MEMORY_JUDGE_MODEL` | `haiku` |\n| memory_sync compaction | `memory_compaction_model` | `HYDRAFLOW_MEMORY_COMPACTION_MODEL` | `haiku` |\n| wiki compaction | `wiki_compilation_model` | `HYDRAFLOW_WIKI_COMPILATION_MODEL` | `haiku` |\n| transcript summarizer | `transcript_summary_model` | `HYDRAFLOW_TRANSCRIPT_SUMMARY_MODEL` | `haiku` |\n\n`HYDRAFLOW_BACKGROUND_MODEL` is a cascade: when non-empty it applies to every field above that still equals its own default (`triage_model`, `transcript_summary_model`, `report_issue_model`, `sentry_model`, `code_grooming_model`). Per-worker overrides always win over the cascade.\n\nWhen adding a new loop that makes LLM calls, add its own `HYDRAFLOW_<NAME>_MODEL` field to `src/config.py` and `_ENV_STR_OVERRIDES` — don't reuse an existing loop's field.","topic":"architecture","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.793363+00:00","updated_at":"2026-04-25T00:47:19.793364+00:00","valid_from":"2026-04-25T00:47:19.793363+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSC","title":"Use explicit markers in tests instead of prose","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954598+00:00","updated_at":"2026-05-03T04:11:32.954599+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Hindsight recall — disable / re-enable
+## ID generation must be consistent across all lookups
 
-Phase 3 PR 9 ships with `hindsight_recall_enabled=True` by default. To
-flip off during the 2-week observation window while validating that the
-wiki-based system catches everything Hindsight was catching:
+Use same ID logic everywhere files are keyed. Define prefix lengths as constants (discover=9, shape=6) and centralize extraction.
 
-```bash
-export HYDRAFLOW_HINDSIGHT_RECALL_ENABLED=false
-```
+Example: `plans_dir / f'issue-{issue.id}.md'` everywhere, not mixed `issue-{id}` and `issue_{id}` patterns.
 
-To re-enable (rollback):
-
-```bash
-unset HYDRAFLOW_HINDSIGHT_RECALL_ENABLED
-```
-
-Retains (writes to Hindsight) remain active — only reads are gated. The
-archive keeps accumulating so nothing is lost during the observation
-window.
-
-Metrics to watch on the dashboard (`/api/wiki/metrics`):
-
-- `wiki_entries_ingested` should climb at approximately the rate of
-  plan/implement/review cycles.
-- `wiki_supersedes` should be non-zero within a few days (proves the
-  contradiction detector is active).
-- `tribal_promotions` will be zero until ≥2 active target repos share
-  a principle (may stay zero indefinitely with only one managed repo).
-- `reflections_bridged` should increment once per target-repo issue
-  merge.
-- `adr_drafts_judged` / `adr_drafts_opened` are non-zero only when
-  agents have emitted `ADR_DRAFT_SUGGESTION` blocks.
-
-Also watch `/api/wiki/health` — `store: populated` and (with ≥2 repos)
-`tribal: populated` indicate the stores are being used.
-
-Issue auto-merge rate should be stable within ±10% of the pre-change
-baseline. Error rate should not change.
-
-If divergence or regressions appear, unset the env var and file an
-issue; do not proceed to the Hindsight deletion (Phase 3 PR 10) until
-the gap is understood.
+**Why:** Off-by-one slice errors silently produce NaN and cause lookup failures.
 
 
 ```json:entry
-{"id":"01KQ11NX7HJCH34WSSAFMB0PBZ","title":"Hindsight recall — disable / re-enable","content":"Phase 3 PR 9 ships with `hindsight_recall_enabled=True` by default. To\nflip off during the 2-week observation window while validating that the\nwiki-based system catches everything Hindsight was catching:\n\n```bash\nexport HYDRAFLOW_HINDSIGHT_RECALL_ENABLED=false\n```\n\nTo re-enable (rollback):\n\n```bash\nunset HYDRAFLOW_HINDSIGHT_RECALL_ENABLED\n```\n\nRetains (writes to Hindsight) remain active — only reads are gated. The\narchive keeps accumulating so nothing is lost during the observation\nwindow.\n\nMetrics to watch on the dashboard (`/api/wiki/metrics`):\n\n- `wiki_entries_ingested` should climb at approximately the rate of\n  plan/implement/review cycles.\n- `wiki_supersedes` should be non-zero within a few days (proves the\n  contradiction detector is active).\n- `tribal_promotions` will be zero until ≥2 active target repos share\n  a principle (may stay zero indefinitely with only one managed repo).\n- `reflections_bridged` should increment once per target-repo issue\n  merge.\n- `adr_drafts_judged` / `adr_drafts_opened` are non-zero only when\n  agents have emitted `ADR_DRAFT_SUGGESTION` blocks.\n\nAlso watch `/api/wiki/health` — `store: populated` and (with ≥2 repos)\n`tribal: populated` indicate the stores are being used.\n\nIssue auto-merge rate should be stable within ±10% of the pre-change\nbaseline. Error rate should not change.\n\nIf divergence or regressions appear, unset the env var and file an\nissue; do not proceed to the Hindsight deletion (Phase 3 PR 10) until\nthe gap is understood.","topic":"patterns","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.793474+00:00","updated_at":"2026-04-25T00:47:19.793475+00:00","valid_from":"2026-04-25T00:47:19.793474+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSD","title":"ID generation must be consistent across all lookups","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954604+00:00","updated_at":"2026-05-03T04:11:32.954605+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Code review before merge
+## Run tests and quality checks before declaring work complete
 
-**After creating a PR, always self-review it for gaps, bugs, and test coverage before declaring it done.** Use `/superpowers:requesting-code-review` to run a structured review that checks:
+Always run `make test` and `make quality-lite` before completion. Test failures naturally surface incomplete cleanup and hidden dependencies.
 
-- **Gaps** — Missing edge cases, unhandled error paths, callers not updated for API changes
-- **Bugs** — Logic errors, off-by-one, race conditions, injection risks
-- **Test coverage** — Missing boundary tests, untested code paths, missing negative cases
+Example: Run full suite, not file-targeted subsets.
 
-Do not present a PR as ready until the review passes and any findings are addressed.
+**Why:** Skipping this step lets broken imports and dead-code references ship undetected.
 
 
 ```json:entry
-{"id":"01KQ11NX7HJCH34WSSAFMB0PC3","title":"Code review before merge","content":"**After creating a PR, always self-review it for gaps, bugs, and test coverage before declaring it done.** Use `/superpowers:requesting-code-review` to run a structured review that checks:\n\n- **Gaps** — Missing edge cases, unhandled error paths, callers not updated for API changes\n- **Bugs** — Logic errors, off-by-one, race conditions, injection risks\n- **Test coverage** — Missing boundary tests, untested code paths, missing negative cases\n\nDo not present a PR as ready until the review passes and any findings are addressed.","topic":"patterns","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.793553+00:00","updated_at":"2026-04-25T00:47:19.793554+00:00","valid_from":"2026-04-25T00:47:19.793553+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSE","title":"Run tests and quality checks before declaring work complete","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954610+00:00","updated_at":"2026-05-03T04:11:32.954611+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Reasoning triggers
+## Distinguish bug exceptions from transient operational failures
 
-For analysis-heavy tasks (architecture decisions, debugging, code review), use explicit reasoning prompts to trigger deeper analysis:
+Use `log_exception_with_bug_classification()` or `is_likely_bug()` to separate bugs (TypeError, AttributeError, KeyError, ValueError, IndexError) from transient errors (RuntimeError, OSError, CalledProcessError).
 
-- "Think through the tradeoffs of this approach before implementing"
-- "Consider what could go wrong and what edge cases exist"
-- "Explain your reasoning before making changes"
+Example: Log bugs at ERROR level; transient at WARNING.
 
-Simple mechanical tasks (rename, format, move) don't need these — just do them.
+**Why:** Misclassifying transient errors as bugs floods Sentry with noise and masks real issues.
 
 
 ```json:entry
-{"id":"01KQ11NX7HJCH34WSSAFMB0PC4","title":"Reasoning triggers","content":"For analysis-heavy tasks (architecture decisions, debugging, code review), use explicit reasoning prompts to trigger deeper analysis:\n\n- \"Think through the tradeoffs of this approach before implementing\"\n- \"Consider what could go wrong and what edge cases exist\"\n- \"Explain your reasoning before making changes\"\n\nSimple mechanical tasks (rename, format, move) don't need these — just do them.","topic":"patterns","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.793559+00:00","updated_at":"2026-04-25T00:47:19.793559+00:00","valid_from":"2026-04-25T00:47:19.793559+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSF","title":"Distinguish bug exceptions from transient operational failures","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954616+00:00","updated_at":"2026-05-03T04:11:32.954617+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Sentry Error Tracking
+## Use logger.exception() only for genuine bugs, not transient failures
 
-HydraFlow uses **Sentry** (`sentry_sdk`) for error monitoring. Follow these rules to keep Sentry signal-to-noise high.
+Use `logger.exception()` only when logging unexpected code bugs for Sentry. For expected transient failures, use `logger.warning(..., exc_info=True)`.
+
+Example: Timeout → warning; AttributeError → exception.
+
+**Why:** logger.exception() signals to Sentry that a bug occurred; misusing it on transient errors creates alert fatigue.
 
 
 ```json:entry
-{"id":"01KQ11NX7HJCH34WSSAFMB0PC6","title":"Sentry Error Tracking","content":"HydraFlow uses **Sentry** (`sentry_sdk`) for error monitoring. Follow these rules to keep Sentry signal-to-noise high.","topic":"patterns","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.793626+00:00","updated_at":"2026-04-25T00:47:19.793627+00:00","valid_from":"2026-04-25T00:47:19.793626+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSG","title":"Use logger.exception() only for genuine bugs, not transient failures","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954622+00:00","updated_at":"2026-05-03T04:11:32.954623+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## What goes to Sentry
+## HTTP errors: use reraise_on_credit_or_bug() for critical exceptions
 
-- **Real code bugs only.** `TypeError`, `KeyError`, `AttributeError`, `ValueError`, `IndexError`, `NotImplementedError`.
-- The `before_send` filter in `src/server.py` drops all exceptions that are NOT in the bug-types tuple.
-- `LoggingIntegration` captures `logger.error()` calls — these also go through the `before_send` filter.
+Selectively re-raise critical exceptions (AuthenticationError, CreditExhaustedError, MemoryError) while logging transient failures. Use `reraise_on_credit_or_bug(exc)` to separate fatal from recoverable.
+
+Example: Timeouts logged as WARNING; auth errors propagated immediately.
+
+**Why:** Swallowing auth errors silently breaks subsequent API calls; failing fast on credit exhaustion prevents budget waste.
 
 
 ```json:entry
-{"id":"01KQ11NX7HJCH34WSSAFMB0PC7","title":"What goes to Sentry","content":"- **Real code bugs only.** `TypeError`, `KeyError`, `AttributeError`, `ValueError`, `IndexError`, `NotImplementedError`.\n- The `before_send` filter in `src/server.py` drops all exceptions that are NOT in the bug-types tuple.\n- `LoggingIntegration` captures `logger.error()` calls — these also go through the `before_send` filter.","topic":"patterns","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.793632+00:00","updated_at":"2026-04-25T00:47:19.793633+00:00","valid_from":"2026-04-25T00:47:19.793632+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSH","title":"HTTP errors: use reraise_on_credit_or_bug() for critical exceptions","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954628+00:00","updated_at":"2026-05-03T04:11:32.954629+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## What does NOT go to Sentry
+## Subprocess: catch TimeoutExpired and CalledProcessError separately
 
-- **Transient errors** — network timeouts, auth failures, rate limits, subprocess crashes. These are operational, not bugs.
-- **Handled exceptions** — if you catch an error and handle it, use `logger.warning()`, not `logger.error()` or `logger.exception()`.
-- **Test mock exceptions** — never let test mocks raise through code paths that log at `error` level when `SENTRY_DSN` is set.
+TimeoutExpired and CalledProcessError are siblings, not parent-child—both must be caught separately. Read-path methods return safe defaults; write-path methods propagate TimeoutExpired.
+
+Example: `except (TimeoutExpired, CalledProcessError) as e:` with different handling per type.
+
+**Why:** They share no common parent; catching one misses the other, causing silent data loss.
 
 
 ```json:entry
-{"id":"01KQ11NX7HJCH34WSSAFMB0PC8","title":"What does NOT go to Sentry","content":"- **Transient errors** — network timeouts, auth failures, rate limits, subprocess crashes. These are operational, not bugs.\n- **Handled exceptions** — if you catch an error and handle it, use `logger.warning()`, not `logger.error()` or `logger.exception()`.\n- **Test mock exceptions** — never let test mocks raise through code paths that log at `error` level when `SENTRY_DSN` is set.","topic":"patterns","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.793638+00:00","updated_at":"2026-04-25T00:47:19.793639+00:00","valid_from":"2026-04-25T00:47:19.793638+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSJ","title":"Subprocess: catch TimeoutExpired and CalledProcessError separately","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954635+00:00","updated_at":"2026-05-03T04:11:32.954636+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Rules for new code
+## Wrap per-item API calls in retry loops to isolate failures
 
-1. Use `logger.warning()` for expected or transient failures (network, auth, rate limit).
-2. Use `logger.error()` or `logger.exception()` ONLY for unexpected code bugs you want Sentry to capture.
-3. Never use bare `except: pass` — always log at `warning` level minimum.
-4. When adding a new background loop, catch operational errors and log at `warning`; let real bugs propagate to the base class error handler which logs at `error`.
-5. The `_before_send` callback in `src/server.py` is the gatekeeper — if you add new exception types that indicate real bugs, add them to `_BUG_TYPES`.
-6. The `SentryIngestLoop` in `src/sentry_loop.py` polls Sentry for unresolved issues and files them as GitHub issues — avoid creating noise that feeds back into this loop.
+In retry loops, wrap each item's API call in try/except so one failure doesn't abort the batch. Catch transient errors and log warnings; propagate fatal errors.
+
+Example: Outer loop over items; inner try/except per item.
+
+**Why:** One bad item blocking the entire batch prevents progress; isolation keeps the pipeline flowing.
 
 
 ```json:entry
-{"id":"01KQ11NX7HJCH34WSSAFMB0PC9","title":"Rules for new code","content":"1. Use `logger.warning()` for expected or transient failures (network, auth, rate limit).\n2. Use `logger.error()` or `logger.exception()` ONLY for unexpected code bugs you want Sentry to capture.\n3. Never use bare `except: pass` — always log at `warning` level minimum.\n4. When adding a new background loop, catch operational errors and log at `warning`; let real bugs propagate to the base class error handler which logs at `error`.\n5. The `_before_send` callback in `src/server.py` is the gatekeeper — if you add new exception types that indicate real bugs, add them to `_BUG_TYPES`.\n6. The `SentryIngestLoop` in `src/sentry_loop.py` polls Sentry for unresolved issues and files them as GitHub issues — avoid creating noise that feeds back into this loop.","topic":"patterns","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.793644+00:00","updated_at":"2026-04-25T00:47:19.793646+00:00","valid_from":"2026-04-25T00:47:19.793644+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSK","title":"Wrap per-item API calls in retry loops to isolate failures","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954641+00:00","updated_at":"2026-05-03T04:11:32.954642+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Key files
+## Background loops: classify exceptions (fatal, bug, transient)
 
-- `src/server.py` — Sentry init, `_before_send` filter, `_BUG_TYPES` tuple
-- `src/sentry_loop.py` — Background loop that ingests Sentry issues into GitHub
+In background loops: fatal (auth/credit) propagates, bugs (local logic) propagate, transient (per-item runtime) logged as warnings. After 5 consecutive same-type failures, publish SYSTEM_ALERT exactly once.
+
+Example: Failed 5 GitHub API calls → SYSTEM_ALERT, not 6th.
+
+**Why:** Circuit breaker prevents thundering herd; clear failure classification enables targeted recovery.
 
 
 ```json:entry
-{"id":"01KQ11NX7HJCH34WSSAFMB0PCA","title":"Key files","content":"- `src/server.py` — Sentry init, `_before_send` filter, `_BUG_TYPES` tuple\n- `src/sentry_loop.py` — Background loop that ingests Sentry issues into GitHub","topic":"patterns","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.793651+00:00","updated_at":"2026-04-25T00:47:19.793652+00:00","valid_from":"2026-04-25T00:47:19.793651+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSM","title":"Background loops: classify exceptions (fatal, bug, transient)","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954656+00:00","updated_at":"2026-05-03T04:11:32.954658+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Never skip commit hooks
+## Async/await: omitting await returns unawaited coroutines
 
-**NEVER** use `git commit --no-verify` or `--no-hooks` flags. If a hook fails, investigate and fix the underlying issue — do not bypass it.
+Missing `await` on async methods returns unawaited coroutines that silently never execute. Pyright flags these during `make typecheck`. Store all `asyncio.create_task()` results.
+
+Example: `await query()` not `query()`. Store task refs to prevent GC.
+
+**Why:** Unreferenced tasks get garbage-collected silently, dropping exceptions and work.
 
 
 ```json:entry
-{"id":"01KQ11NX7HJCH34WSSAFMB0PCP","title":"Never skip commit hooks","content":"**NEVER** use `git commit --no-verify` or `--no-hooks` flags. If a hook fails, investigate and fix the underlying issue — do not bypass it.","topic":"gotchas","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.793878+00:00","updated_at":"2026-04-25T00:47:19.793879+00:00","valid_from":"2026-04-25T00:47:19.793878+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSN","title":"Async/await: omitting await returns unawaited coroutines","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954662+00:00","updated_at":"2026-05-03T04:11:32.954663+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Scenario Matrix
+## Config validators serve as source of truth for audit fields
 
-### Happy Paths (`test_happy.py`)
+Config validators (e.g., `labels_must_not_be_empty` covering all label fields) are the authoritative specification. Mismatch between validator field set and audit enumeration indicates a bug.
 
-| # | Scenario | Asserts |
-|---|----------|---------|
-| H1 | Single issue end-to-end | find -> triage -> plan -> implement -> review -> done, PR merged |
-| H2 | Multi-issue concurrent batch (3 issues) | All complete independently, no cross-contamination |
-| H3 | HITL round-trip | Issue escalates to HITL, correction submitted, resumes |
-| H4 | Review approve + merge | APPROVE verdict, CI passes, PR merged, cleanup runs |
-| H5 | Plan produces sub-issues | Planner returns `new_issues`, sub-issues created |
+Example: Add regression tests verifying fields by name, not by count.
 
-### Sad Paths (`test_sad.py`)
-
-| # | Scenario | Asserts |
-|---|----------|---------|
-| S1 | Plan fails then succeeds on retry | First plan `success=False`, retry succeeds |
-| S2 | Implement exhausts attempts | Docker fails N times, issue does not complete |
-| S3 | Review rejects -> route-back | REQUEST_CHANGES, routes back, re-review approves |
-| S4 | GitHub API 5xx during PR creation | `fail_service("github")` mid-implement, recovery on heal |
-| S5 | Hindsight down -> pipeline continues | Memory calls fail, pipeline completes without writes |
-| S6 | CI fails -> auto-fix -> CI passes | `wait_for_ci` returns failure first, then passes |
-
-### Edge Cases (`test_edge.py`)
-
-| # | Scenario | Asserts |
-|---|----------|---------|
-| E1 | Duplicate issues (same title/body) | Both tracked by number, no crash |
-| E2 | Issue relabeled mid-flight | `on_phase` hook fires, pipeline continues |
-| E3 | Stale worktree during active processing | GC skips actively-processing issues |
-| E4 | Epic with child ordering | Parent waits for children, dependency order |
-| E5 | Zero-diff implement (already satisfied) | Agent produces 0 commits, `success=True` |
-
-### Background Loop Scenarios (`test_loops.py`)
-
-| # | Loop | Scenario | Asserts |
-|---|------|----------|---------|
-| L1 | HealthMonitor | Low first_pass_rate triggers config bump | `max_quality_fix_attempts` increased, decision audit written |
-| L2 | WorkspaceGC | Cleans stale worktrees | Closed-issue worktrees destroyed, active preserved |
-| L3 | StaleIssueGC | Closes inactive HITL issues | Old HITL issues auto-closed with comment, fresh untouched |
-| L4 | PRUnsticker | Processes HITL items with open PRs | Unstick attempted on qualifying items |
-| L5 | CIMonitor | CI failure creates issue | GitHub issue created with `hydraflow-ci-failure` label |
-| L6 | CIMonitor | CI recovery closes issue | Failure issue auto-closed on green CI |
-| L7 | DependabotMerge | Auto-merges bot PR on CI pass | PR approved, merged, processed set updated |
-| L8 | DependabotMerge | Skips bot PR on CI failure | PR not merged, skip recorded |
+**Why:** Audit field enumeration easily drifts from validator set; field-by-field tests catch mismatches.
 
 
 ```json:entry
-{"id":"01KQ11NX7JR1QGCQ279PEQ2494","title":"Scenario Matrix","content":"### Happy Paths (`test_happy.py`)\n\n| # | Scenario | Asserts |\n|---|----------|---------|\n| H1 | Single issue end-to-end | find -> triage -> plan -> implement -> review -> done, PR merged |\n| H2 | Multi-issue concurrent batch (3 issues) | All complete independently, no cross-contamination |\n| H3 | HITL round-trip | Issue escalates to HITL, correction submitted, resumes |\n| H4 | Review approve + merge | APPROVE verdict, CI passes, PR merged, cleanup runs |\n| H5 | Plan produces sub-issues | Planner returns `new_issues`, sub-issues created |\n\n### Sad Paths (`test_sad.py`)\n\n| # | Scenario | Asserts |\n|---|----------|---------|\n| S1 | Plan fails then succeeds on retry | First plan `success=False`, retry succeeds |\n| S2 | Implement exhausts attempts | Docker fails N times, issue does not complete |\n| S3 | Review rejects -> route-back | REQUEST_CHANGES, routes back, re-review approves |\n| S4 | GitHub API 5xx during PR creation | `fail_service(\"github\")` mid-implement, recovery on heal |\n| S5 | Hindsight down -> pipeline continues | Memory calls fail, pipeline completes without writes |\n| S6 | CI fails -> auto-fix -> CI passes | `wait_for_ci` returns failure first, then passes |\n\n### Edge Cases (`test_edge.py`)\n\n| # | Scenario | Asserts |\n|---|----------|---------|\n| E1 | Duplicate issues (same title/body) | Both tracked by number, no crash |\n| E2 | Issue relabeled mid-flight | `on_phase` hook fires, pipeline continues |\n| E3 | Stale worktree during active processing | GC skips actively-processing issues |\n| E4 | Epic with child ordering | Parent waits for children, dependency order |\n| E5 | Zero-diff implement (already satisfied) | Agent produces 0 commits, `success=True` |\n\n### Background Loop Scenarios (`test_loops.py`)\n\n| # | Loop | Scenario | Asserts |\n|---|------|----------|---------|\n| L1 | HealthMonitor | Low first_pass_rate triggers config bump | `max_quality_fix_attempts` increased, decision audit written |\n| L2 | WorkspaceGC | Cleans stale worktrees | Closed-issue worktrees destroyed, active preserved |\n| L3 | StaleIssueGC | Closes inactive HITL issues | Old HITL issues auto-closed with comment, fresh untouched |\n| L4 | PRUnsticker | Processes HITL items with open PRs | Unstick attempted on qualifying items |\n| L5 | CIMonitor | CI failure creates issue | GitHub issue created with `hydraflow-ci-failure` label |\n| L6 | CIMonitor | CI recovery closes issue | Failure issue auto-closed on green CI |\n| L7 | DependabotMerge | Auto-merges bot PR on CI pass | PR approved, merged, processed set updated |\n| L8 | DependabotMerge | Skips bot PR on CI failure | PR not merged, skip recorded |","topic":"testing","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.794046+00:00","updated_at":"2026-04-25T00:47:19.794047+00:00","valid_from":"2026-04-25T00:47:19.794046+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSP","title":"Config validators serve as source of truth for audit fields","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954668+00:00","updated_at":"2026-05-03T04:11:32.954670+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Scenario Catalog (Extended)
+## New list[str] label fields must have optional defaults
 
-### Realistic-Agent Scenarios (`test_agent_realistic.py`)
+When adding new list[str] label fields to HydraFlowConfig, always add as optional parameters with sensible defaults. Omitting causes TypeError.
 
-| ID | Test | What it covers |
-|----|------|----------------|
-| A0 | `test_A0_happy_path_realistic_agent` | Base happy path: one issue, real AgentRunner, FakeDocker commits, merges. |
-| A1 | `test_A1_docker_timeout_fails_issue_no_retry` | Docker timeout — production does NOT retry; issue fails with `worker_result.success=False`. |
-| A2 | `test_A2_oom_fails_issue` | OOM (exit_code=137) causes agent failure; zero commits → `_verify_result` fails. |
-| A3 | `test_A3_malformed_stream_recovers_to_failure` | Garbage stream events plus exit_code=1 — StreamParser skips unknowns, result is failure. |
-| A4 | `test_A4_unknown_event_type_ignored_stream_continues` | `auth_retry_required` event silently skipped; trailing `result:success` still merges issue. |
-| A5 | `test_A5_token_budget_exceeded_halts_implement` | Stream-level `budget_exceeded` event plus failure result → issue fails without merge. |
-| A6 | `test_A6_github_rate_limit_at_triage_halts_pipeline` | Rate-limit armed before triage (remaining=0) — first GitHub call raises, pool absorbs, no PR created. |
-| A7 | `test_A7_github_secondary_rate_limit_surfaces` | Secondary (abuse-detection) rate-limit is also absorbed; issue never progresses. |
-| A8 | `test_A8_find_stage_to_done_realistic_agent` | Full pipeline from `hydraflow-find` through triage→plan→implement→review; issue merges. |
-| A9 | `test_A9_hindsight_failure_realistic_agent_still_succeeds` | `fail_service('hindsight')` during realistic-agent run does not halt pipeline; issue merges. |
-| A10 | `test_A10_quality_fix_loop_retries_then_passes` | `make quality` fails on first attempt; quality-fix agent commits fix; second quality run passes; merges. |
-| A11 | `test_A11_review_fix_ci_loop_resolves` | CI fails after PR creation; `fix_ci` loop resolves it; CI passes; merge proceeds. |
-| A12 | `test_A12_multi_commit_implement` | Real agent produces 3 commits; `git rev-list --count` confirms all three on branch. |
-| A13 | `test_A13_zero_diff_fails_without_merge` | Agent claims success but writes no commits; `_verify_result` fails on commit count; no merge. |
-| A14 | `test_A14_three_issues_concurrent_realistic` | Three issues processed concurrently via real AgentRunner; all merge; worktree isolation verified. |
-| A15 | `test_A15_epic_decomposition_creates_children` | High-complexity issue decomposed via EpicManager stub; two child issues created in FakeGitHub. |
-| A16 | `test_A16_credit_exhausted_halts_pipeline` | `CreditExhaustedError` from `_execute` propagates out of `run_pipeline` (re-raise allowlist). |
-| A17 | `test_A17_authentication_error_halts_pipeline` | `AuthenticationError` from `_execute` propagates out of `run_pipeline` (re-raise allowlist). |
-| A18 | `test_A18_rate_limit_heals_mid_pipeline` | Rate-limit armed with remaining=5; `on_phase("implement")` heals before it matters; merges. |
-| A19 | `test_A19_code_scanning_alerts_reach_reviewer` | `add_alerts(branch=...)` seeds alerts; ReviewPhase fetches by branch; reviewer receives them unchanged. |
-| A20 | `test_A20_workspace_create_permission_failure` | `PermissionError` from workspace creation is swallowed; issue does not merge; run_pipeline returns normally. |
-| A20b | `test_A20b_workspace_create_disk_full` | `OSError(ENOSPC)` from FakeWorkspace is swallowed gracefully; issue does not merge. |
-| A20c | `test_A20c_workspace_create_branch_conflict` | `RuntimeError` ("worktree already exists") from FakeWorkspace is swallowed; issue does not merge. |
-| A21 | `test_A21_state_json_corruption_graceful_fallback` | Corrupt state.json before run; `StateTracker.load` falls back to empty `StateData()`; pipeline continues. |
-| A22 | `test_A22_wiki_populated_plan_consults_it` | Pre-populated `RepoWikiStore` wired to `PlanPhase`; wiki accessible; pipeline completes without crash. |
+Example: `labels_review_ready: list[str] = field(default_factory=list)` in ConfigFactory.
 
-**Boot smoke** (`test_realistic_agent_boot_smoke.py`): `test_real_agent_runner_single_event_smoke` — single invocation with tool_use + message + result events; proves the AgentRunner wiring stack boots.
-
-### Bead Workflow Scenarios (`test_bead_workflow.py`)
-
-| ID | Test | What it covers |
-|----|------|----------------|
-| B1 | `test_B1_bead_workflow_end_to_end` | Plan with Task Graph headers creates 2 beads; implement calls `init`; tasks stay open (claim/close are agent-subprocess concerns). |
-| B1b | `test_B1_no_beads_without_task_graph_headers` | Plan text without `### P{N}` headers → `extract_phases` returns []; no beads created; `_initialized` stays False. |
-
-### Background Loop Scenarios (`test_loops.py` + `test_caretaker_loops.py` + `test_caretaker_loops_part2.py`)
-
-#### L1–L8 (`test_loops.py`)
-
-| # | Loop | Scenario | Asserts |
-|---|------|----------|---------|
-| L1 | HealthMonitor | Low first_pass_rate triggers config bump | `max_quality_fix_attempts` increased, decision audit written |
-| L2 | WorkspaceGC | Cleans stale worktrees | Closed-issue worktrees destroyed, active preserved |
-| L3 | StaleIssueGC | Closes inactive HITL issues | Old HITL issues auto-closed with comment, fresh untouched |
-| L4 | PRUnsticker | Processes HITL items with open PRs | Unstick attempted on qualifying items |
-| L5 | CIMonitor | CI failure creates issue | GitHub issue created with `hydraflow-ci-failure` label |
-| L6 | CIMonitor | CI recovery closes issue | Failure issue auto-closed on green CI |
-| L7 | DependabotMerge | Auto-merges bot PR on CI pass | PR approved, merged, processed set updated |
-| L8 | DependabotMerge | Skips bot PR on CI failure | PR not merged, skip recorded |
-
-#### L9–L13 (`test_caretaker_loops.py`)
-
-| ID | Class | What it covers |
-|----|-------|----------------|
-| L9 | `TestL9ADRReviewerLoop` | `ADRReviewerLoop._do_work` delegates to `adr_reviewer.review_proposed_adrs`; stats pass through; None passthrough preserved. |
-| L10 | `TestL10MemorySyncLoop` | `MemorySyncLoop._do_work` calls `sync()` then `publish_sync_event(result)`; returned stats are a fresh copy. |
-| L11 | `TestL11RetrospectiveLoop` | `RetrospectiveLoop` drains queue; empty queue → zero stats; `RETRO_PATTERNS` item → processed=1, acknowledged. |
-| L12 | `TestL12EpicSweeperLoop` | `EpicSweeperLoop` sweeps open epics; no epics → zero counts; epic with all closed sub-issues auto-closed. |
-| L13 | `TestL13SecurityPatchLoop` | `SecurityPatchLoop` files issues from Dependabot alerts; no alerts → filed=0; high-severity fixable → filed=1; dry_run → None. |
-
-#### L14–L23 (`test_caretaker_loops_part2.py`)
-
-| ID | Class | What it covers |
-|----|-------|----------------|
-| L14 | `TestL14CodeGrooming` | `CodeGroomingLoop`: disabled → `{"skipped": "disabled"}`; dry_run → None; enabled with no findings → stats shape with `"filed"` key. |
-| L15 | `TestL15DiagnosticLoop` | `DiagnosticLoop` polls `hydraflow-diagnose` issues; no issues → zero counts; issue without escalation context → escalated=1. |
-| L16 | `TestL16EpicMonitorLoop` | `EpicMonitorLoop` delegates to `EpicManager`; no stale epics → stale_count=0; 3 stale + 5 tracked → stats match. |
-| L17 | `TestL17GitHubCacheLoop` | `GitHubCacheLoop` calls `cache.poll()` and forwards its stats; empty dict result → None (falsy guard). |
-| L18 | `TestL18RepoWikiLoop` | `RepoWikiLoop` lints per-repo wikis; no repos → zero stats; one repo → `active_lint` called, stale_entries reflected. |
-| L19 | `TestL19ReportIssueLoop` | `ReportIssueLoop` processes queued bug reports; dry_run → None; empty queue → None. |
-| L20 | `TestL20RunsGCLoop` | `RunsGCLoop` purges expired/oversized runs; no artifacts → zero purge; 3 expired + 1 oversized → stats match. |
-| L21 | `TestL21SentryLoop` | `SentryLoop` skips gracefully without credentials; empty org or empty token → `skipped=True` with reason. |
-| L22 | `TestL22StagingPromotionLoop` | `StagingPromotionLoop`: disabled → `status=staging_disabled`; cadence not elapsed → `status=cadence_not_elapsed`; elapsed → RC branch cut, promotion PR opened. |
-| L23 | `TestL23StaleIssueLoop` | `StaleIssueLoop` auto-closes stale issues; no issues → zero; fresh issue → scanned but not closed; stale + dry_run → closed=1, no API call; fetch failure → zero stats. |
-
----
+**Why:** Omitting defaults breaks callers; test that ConfigFactory.create() accepts all label fields.
 
 
 ```json:entry
-{"id":"01KQ11NX7JR1QGCQ279PEQ2499","title":"Scenario Catalog (Extended)","content":"### Realistic-Agent Scenarios (`test_agent_realistic.py`)\n\n| ID | Test | What it covers |\n|----|------|----------------|\n| A0 | `test_A0_happy_path_realistic_agent` | Base happy path: one issue, real AgentRunner, FakeDocker commits, merges. |\n| A1 | `test_A1_docker_timeout_fails_issue_no_retry` | Docker timeout — production does NOT retry; issue fails with `worker_result.success=False`. |\n| A2 | `test_A2_oom_fails_issue` | OOM (exit_code=137) causes agent failure; zero commits → `_verify_result` fails. |\n| A3 | `test_A3_malformed_stream_recovers_to_failure` | Garbage stream events plus exit_code=1 — StreamParser skips unknowns, result is failure. |\n| A4 | `test_A4_unknown_event_type_ignored_stream_continues` | `auth_retry_required` event silently skipped; trailing `result:success` still merges issue. |\n| A5 | `test_A5_token_budget_exceeded_halts_implement` | Stream-level `budget_exceeded` event plus failure result → issue fails without merge. |\n| A6 | `test_A6_github_rate_limit_at_triage_halts_pipeline` | Rate-limit armed before triage (remaining=0) — first GitHub call raises, pool absorbs, no PR created. |\n| A7 | `test_A7_github_secondary_rate_limit_surfaces` | Secondary (abuse-detection) rate-limit is also absorbed; issue never progresses. |\n| A8 | `test_A8_find_stage_to_done_realistic_agent` | Full pipeline from `hydraflow-find` through triage→plan→implement→review; issue merges. |\n| A9 | `test_A9_hindsight_failure_realistic_agent_still_succeeds` | `fail_service('hindsight')` during realistic-agent run does not halt pipeline; issue merges. |\n| A10 | `test_A10_quality_fix_loop_retries_then_passes` | `make quality` fails on first attempt; quality-fix agent commits fix; second quality run passes; merges. |\n| A11 | `test_A11_review_fix_ci_loop_resolves` | CI fails after PR creation; `fix_ci` loop resolves it; CI passes; merge proceeds. |\n| A12 | `test_A12_multi_commit_implement` | Real agent produces 3 commits; `git rev-list --count` confirms all three on branch. |\n| A13 | `test_A13_zero_diff_fails_without_merge` | Agent claims success but writes no commits; `_verify_result` fails on commit count; no merge. |\n| A14 | `test_A14_three_issues_concurrent_realistic` | Three issues processed concurrently via real AgentRunner; all merge; worktree isolation verified. |\n| A15 | `test_A15_epic_decomposition_creates_children` | High-complexity issue decomposed via EpicManager stub; two child issues created in FakeGitHub. |\n| A16 | `test_A16_credit_exhausted_halts_pipeline` | `CreditExhaustedError` from `_execute` propagates out of `run_pipeline` (re-raise allowlist). |\n| A17 | `test_A17_authentication_error_halts_pipeline` | `AuthenticationError` from `_execute` propagates out of `run_pipeline` (re-raise allowlist). |\n| A18 | `test_A18_rate_limit_heals_mid_pipeline` | Rate-limit armed with remaining=5; `on_phase(\"implement\")` heals before it matters; merges. |\n| A19 | `test_A19_code_scanning_alerts_reach_reviewer` | `add_alerts(branch=...)` seeds alerts; ReviewPhase fetches by branch; reviewer receives them unchanged. |\n| A20 | `test_A20_workspace_create_permission_failure` | `PermissionError` from workspace creation is swallowed; issue does not merge; run_pipeline returns normally. |\n| A20b | `test_A20b_workspace_create_disk_full` | `OSError(ENOSPC)` from FakeWorkspace is swallowed gracefully; issue does not merge. |\n| A20c | `test_A20c_workspace_create_branch_conflict` | `RuntimeError` (\"worktree already exists\") from FakeWorkspace is swallowed; issue does not merge. |\n| A21 | `test_A21_state_json_corruption_graceful_fallback` | Corrupt state.json before run; `StateTracker.load` falls back to empty `StateData()`; pipeline continues. |\n| A22 | `test_A22_wiki_populated_plan_consults_it` | Pre-populated `RepoWikiStore` wired to `PlanPhase`; wiki accessible; pipeline completes without crash. |\n\n**Boot smoke** (`test_realistic_agent_boot_smoke.py`): `test_real_agent_runner_single_event_smoke` — single invocation with tool_use + message + result events; proves the AgentRunner wiring stack boots.\n\n### Bead Workflow Scenarios (`test_bead_workflow.py`)\n\n| ID | Test | What it covers |\n|----|------|----------------|\n| B1 | `test_B1_bead_workflow_end_to_end` | Plan with Task Graph headers creates 2 beads; implement calls `init`; tasks stay open (claim/close are agent-subprocess concerns). |\n| B1b | `test_B1_no_beads_without_task_graph_headers` | Plan text without `### P{N}` headers → `extract_phases` returns []; no beads created; `_initialized` stays False. |\n\n### Background Loop Scenarios (`test_loops.py` + `test_caretaker_loops.py` + `test_caretaker_loops_part2.py`)\n\n#### L1–L8 (`test_loops.py`)\n\n| # | Loop | Scenario | Asserts |\n|---|------|----------|---------|\n| L1 | HealthMonitor | Low first_pass_rate triggers config bump | `max_quality_fix_attempts` increased, decision audit written |\n| L2 | WorkspaceGC | Cleans stale worktrees | Closed-issue worktrees destroyed, active preserved |\n| L3 | StaleIssueGC | Closes inactive HITL issues | Old HITL issues auto-closed with comment, fresh untouched |\n| L4 | PRUnsticker | Processes HITL items with open PRs | Unstick attempted on qualifying items |\n| L5 | CIMonitor | CI failure creates issue | GitHub issue created with `hydraflow-ci-failure` label |\n| L6 | CIMonitor | CI recovery closes issue | Failure issue auto-closed on green CI |\n| L7 | DependabotMerge | Auto-merges bot PR on CI pass | PR approved, merged, processed set updated |\n| L8 | DependabotMerge | Skips bot PR on CI failure | PR not merged, skip recorded |\n\n#### L9–L13 (`test_caretaker_loops.py`)\n\n| ID | Class | What it covers |\n|----|-------|----------------|\n| L9 | `TestL9ADRReviewerLoop` | `ADRReviewerLoop._do_work` delegates to `adr_reviewer.review_proposed_adrs`; stats pass through; None passthrough preserved. |\n| L10 | `TestL10MemorySyncLoop` | `MemorySyncLoop._do_work` calls `sync()` then `publish_sync_event(result)`; returned stats are a fresh copy. |\n| L11 | `TestL11RetrospectiveLoop` | `RetrospectiveLoop` drains queue; empty queue → zero stats; `RETRO_PATTERNS` item → processed=1, acknowledged. |\n| L12 | `TestL12EpicSweeperLoop` | `EpicSweeperLoop` sweeps open epics; no epics → zero counts; epic with all closed sub-issues auto-closed. |\n| L13 | `TestL13SecurityPatchLoop` | `SecurityPatchLoop` files issues from Dependabot alerts; no alerts → filed=0; high-severity fixable → filed=1; dry_run → None. |\n\n#### L14–L23 (`test_caretaker_loops_part2.py`)\n\n| ID | Class | What it covers |\n|----|-------|----------------|\n| L14 | `TestL14CodeGrooming` | `CodeGroomingLoop`: disabled → `{\"skipped\": \"disabled\"}`; dry_run → None; enabled with no findings → stats shape with `\"filed\"` key. |\n| L15 | `TestL15DiagnosticLoop` | `DiagnosticLoop` polls `hydraflow-diagnose` issues; no issues → zero counts; issue without escalation context → escalated=1. |\n| L16 | `TestL16EpicMonitorLoop` | `EpicMonitorLoop` delegates to `EpicManager`; no stale epics → stale_count=0; 3 stale + 5 tracked → stats match. |\n| L17 | `TestL17GitHubCacheLoop` | `GitHubCacheLoop` calls `cache.poll()` and forwards its stats; empty dict result → None (falsy guard). |\n| L18 | `TestL18RepoWikiLoop` | `RepoWikiLoop` lints per-repo wikis; no repos → zero stats; one repo → `active_lint` called, stale_entries reflected. |\n| L19 | `TestL19ReportIssueLoop` | `ReportIssueLoop` processes queued bug reports; dry_run → None; empty queue → None. |\n| L20 | `TestL20RunsGCLoop` | `RunsGCLoop` purges expired/oversized runs; no artifacts → zero purge; 3 expired + 1 oversized → stats match. |\n| L21 | `TestL21SentryLoop` | `SentryLoop` skips gracefully without credentials; empty org or empty token → `skipped=True` with reason. |\n| L22 | `TestL22StagingPromotionLoop` | `StagingPromotionLoop`: disabled → `status=staging_disabled`; cadence not elapsed → `status=cadence_not_elapsed`; elapsed → RC branch cut, promotion PR opened. |\n| L23 | `TestL23StaleIssueLoop` | `StaleIssueLoop` auto-closes stale issues; no issues → zero; fresh issue → scanned but not closed; stale + dry_run → closed=1, no API call; fetch failure → zero stats. |\n\n---","topic":"testing","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.794072+00:00","updated_at":"2026-04-25T00:47:19.794073+00:00","valid_from":"2026-04-25T00:47:19.794072+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSQ","title":"New list[str] label fields must have optional defaults","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954675+00:00","updated_at":"2026-05-03T04:11:32.954676+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## 5. Health checks and monitoring
+## JSONL: append-only with idempotent writes and atomic ops
 
-FastAPI now exposes `GET /healthz`, which reports the orchestrator status, worker health, and dashboard binding. Example:
+Use append-only JSONL files to accumulate state across retries. Mark entries with timestamps. Wrap all I/O in try/except OSError; use `atomic_write()` instead of `Path.write_text()`.
 
-```bash
-curl -s http://SERVER_IP:5555/healthz | jq
-{
-  "status": "ok",
-  "ready": true,
-  "version": "1.12.0",
-  "session_started_at": "2026-03-07T12:29:56+00:00",
-  "uptime_seconds": 960,
-  "orchestrator_running": true,
-  "active_issue_count": 0,
-  "active_worktrees": 0,
-  "worker_count": 6,
-  "worker_errors": [],
-  "dashboard": {"host": "0.0.0.0", "port": 5555},
-  "checks": {
-    "orchestrator": {
-      "status": "running",
-      "running": true,
-      "session_started_at": "2026-03-07T12:29:56+00:00"
-    },
-    "workers": {"status": "ok", "count": 6, "errors": []},
-    "dashboard": {"status": "ok", "host": "0.0.0.0", "port": 5555, "public": true}
-  },
-  "timestamp": "2026-03-07T12:34:56+00:00"
-}
-```
+Example: Each line is `{"timestamp": "...", "event": ...}` ; always append.
 
-You can run the same check locally with the deploy helper:
-
-```bash
-# Loads HYDRAFLOW_DASHBOARD_HOST/HYDRAFLOW_DASHBOARD_PORT from /etc/hydraflow.env
-deploy/ec2/deploy-hydraflow.sh health
-
-# Fail the command when ready=false (perfect for cron or ALB health checks)
-HEALTHCHECK_REQUIRE_READY=1 deploy/ec2/deploy-hydraflow.sh health
-
-# Override the target URL or curl binary if needed
-deploy/ec2/deploy-hydraflow.sh health https://hydraflow.example.com/healthz
-HEALTHCHECK_URL=https://internal-lb/healthz CURL_BIN=/usr/local/bin/curl deploy/ec2/deploy-hydraflow.sh health
-```
-
-To gate restarts or CI rollouts on readiness, either run the dedicated waiter or set a flag before `deploy`:
-
-```bash
-# Block interactively until /healthz returns ready=true (default timeout: 180s)
-deploy/ec2/deploy-hydraflow.sh wait-ready
-
-# Make the deploy action wait automatically after the systemd restart
-HEALTHCHECK_WAIT_FOR_READY=1 \
-HEALTHCHECK_WAIT_TIMEOUT_SECONDS=300 \
-sudo deploy/ec2/deploy-hydraflow.sh deploy
-```
-
-`HEALTHCHECK_WAIT_TIMEOUT_SECONDS` (default `180`) and `HEALTHCHECK_WAIT_INTERVAL_SECONDS` (default `5`) control how long the waiter polls `/healthz`. The helper fails fast when the endpoint is unreachable, and it only busy-waits when the payload explicitly reports `ready=false`.
-
-`ready` flips to `false` whenever the orchestrator is missing/idle or any worker reports `degraded`, making it trivial for an ALB or uptime monitor to gate traffic without parsing internal details. `checks.dashboard.public` is `true` when `HYDRAFLOW_DASHBOARD_HOST` is not localhost/127.0.0.1, which is a quick sanity check that you actually bound to a public interface.
-
-The endpoint still returns `200 OK` for “starting/idle/degraded” states, so you can point an ALB, Route 53 health check, or uptime monitor at `/healthz` without needing an auth token. Alert when `ready=false` or when `worker_errors` is non-empty.
-
-`session_started_at` mirrors the orchestrator session boot time, while `uptime_seconds` is a wall-clock counter you can alert on if it resets unexpectedly.
+**Why:** Append-only logs enable recovery from crashes; atomic writes prevent corruption.
 
 
 ```json:entry
-{"id":"01KQ11NX7JR1QGCQ279PEQ249G","title":"5. Health checks and monitoring","content":"FastAPI now exposes `GET /healthz`, which reports the orchestrator status, worker health, and dashboard binding. Example:\n\n```bash\ncurl -s http://SERVER_IP:5555/healthz | jq\n{\n  \"status\": \"ok\",\n  \"ready\": true,\n  \"version\": \"1.12.0\",\n  \"session_started_at\": \"2026-03-07T12:29:56+00:00\",\n  \"uptime_seconds\": 960,\n  \"orchestrator_running\": true,\n  \"active_issue_count\": 0,\n  \"active_worktrees\": 0,\n  \"worker_count\": 6,\n  \"worker_errors\": [],\n  \"dashboard\": {\"host\": \"0.0.0.0\", \"port\": 5555},\n  \"checks\": {\n    \"orchestrator\": {\n      \"status\": \"running\",\n      \"running\": true,\n      \"session_started_at\": \"2026-03-07T12:29:56+00:00\"\n    },\n    \"workers\": {\"status\": \"ok\", \"count\": 6, \"errors\": []},\n    \"dashboard\": {\"status\": \"ok\", \"host\": \"0.0.0.0\", \"port\": 5555, \"public\": true}\n  },\n  \"timestamp\": \"2026-03-07T12:34:56+00:00\"\n}\n```\n\nYou can run the same check locally with the deploy helper:\n\n```bash\n# Loads HYDRAFLOW_DASHBOARD_HOST/HYDRAFLOW_DASHBOARD_PORT from /etc/hydraflow.env\ndeploy/ec2/deploy-hydraflow.sh health\n\n# Fail the command when ready=false (perfect for cron or ALB health checks)\nHEALTHCHECK_REQUIRE_READY=1 deploy/ec2/deploy-hydraflow.sh health\n\n# Override the target URL or curl binary if needed\ndeploy/ec2/deploy-hydraflow.sh health https://hydraflow.example.com/healthz\nHEALTHCHECK_URL=https://internal-lb/healthz CURL_BIN=/usr/local/bin/curl deploy/ec2/deploy-hydraflow.sh health\n```\n\nTo gate restarts or CI rollouts on readiness, either run the dedicated waiter or set a flag before `deploy`:\n\n```bash\n# Block interactively until /healthz returns ready=true (default timeout: 180s)\ndeploy/ec2/deploy-hydraflow.sh wait-ready\n\n# Make the deploy action wait automatically after the systemd restart\nHEALTHCHECK_WAIT_FOR_READY=1 \\\nHEALTHCHECK_WAIT_TIMEOUT_SECONDS=300 \\\nsudo deploy/ec2/deploy-hydraflow.sh deploy\n```\n\n`HEALTHCHECK_WAIT_TIMEOUT_SECONDS` (default `180`) and `HEALTHCHECK_WAIT_INTERVAL_SECONDS` (default `5`) control how long the waiter polls `/healthz`. The helper fails fast when the endpoint is unreachable, and it only busy-waits when the payload explicitly reports `ready=false`.\n\n`ready` flips to `false` whenever the orchestrator is missing/idle or any worker reports `degraded`, making it trivial for an ALB or uptime monitor to gate traffic without parsing internal details. `checks.dashboard.public` is `true` when `HYDRAFLOW_DASHBOARD_HOST` is not localhost/127.0.0.1, which is a quick sanity check that you actually bound to a public interface.\n\nThe endpoint still returns `200 OK` for “starting/idle/degraded” states, so you can point an ALB, Route 53 health check, or uptime monitor at `/healthz` without needing an auth token. Alert when `ready=false` or when `worker_errors` is non-empty.\n\n`session_started_at` mirrors the orchestrator session boot time, while `uptime_seconds` is a wall-clock counter you can alert on if it resets unexpectedly.","topic":"architecture","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.794209+00:00","updated_at":"2026-04-25T00:47:19.794210+00:00","valid_from":"2026-04-25T00:47:19.794209+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSR","title":"JSONL: append-only with idempotent writes and atomic ops","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954681+00:00","updated_at":"2026-05-03T04:11:32.954682+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Notes
+## Schema evolution: new Pydantic fields with defaults load old state
 
-- `make audit` exits non-zero today (Error 1) due to a real WARN finding: P5.5 reports `main` branch on `T-rav/hydraflow` lacks branch protection (HTTP 404 from `gh`). This is a legitimate audit signal, not a prerequisite gap. The CI job will need to tolerate WARN exit codes or the underlying protection must be enabled — to be resolved in Task 17a wiring.
-- Wall-clock was captured via `/usr/bin/time -p make audit > /dev/null 2>bench-$i.txt` per plan Task 0 Step 1.
-- Runtime variance across 5 runs is ~0.28s (7%), well within a single CI-budget bucket; no additional warmup runs needed.
+New model fields with `field: Type = default_value` allow existing state files to load without migration. TypedDict(total=False) enables backward-compatible event payloads.
+
+Example: Add `new_field: str = 'default'` to model; old state loads with default.
+
+**Why:** Default values avoid schema migrations across retries, keeping state compatible.
 
 
 ```json:entry
-{"id":"01KQ11NX7JR1QGCQ279PEQ249M","title":"Notes","content":"- `make audit` exits non-zero today (Error 1) due to a real WARN finding: P5.5 reports `main` branch on `T-rav/hydraflow` lacks branch protection (HTTP 404 from `gh`). This is a legitimate audit signal, not a prerequisite gap. The CI job will need to tolerate WARN exit codes or the underlying protection must be enabled — to be resolved in Task 17a wiring.\n- Wall-clock was captured via `/usr/bin/time -p make audit > /dev/null 2>bench-$i.txt` per plan Task 0 Step 1.\n- Runtime variance across 5 runs is ~0.28s (7%), well within a single CI-budget bucket; no additional warmup runs needed.","topic":"testing","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.794278+00:00","updated_at":"2026-04-25T00:47:19.794279+00:00","valid_from":"2026-04-25T00:47:19.794278+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSS","title":"Schema evolution: new Pydantic fields with defaults load old state","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954687+00:00","updated_at":"2026-05-03T04:11:32.954688+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Recommended Alerts
+## Frozen Pydantic models: use object.__setattr__ for mutation
 
-### Error Alerts
-| Alert | Query | Threshold | Action |
-|-------|-------|-----------|--------|
-| Pipeline error spike | `event.type:error` | >5 in 10 min | Slack #hydraflow-alerts |
-| Credit exhaustion | `CreditExhaustedError` | Any occurrence | Immediate Slack + email |
-| New error type | First seen | Any | Slack |
+Critical in overrides (numeric, bool, literal) to avoid breaking setter logic. Use `object.__setattr__(model, 'field', value)` instead of direct assignment. Cross-field validation must run after numeric but before bool/literal.
 
-### Performance Alerts
-| Alert | Metric | Threshold | Action |
-|-------|--------|-----------|--------|
-| Slow agent | `memory.first_pass_rate` | <0.2 for 1 hour | Slack |
-| Score drift | `memory.avg_score` | Drops >15% in 24h | Slack |
-| Learning stall | `memory.stale_items` | >20 for 48h | Slack |
-| Adjustment storm | Auto-adjustment count | >5 in 24h | Slack + HITL |
-| Factory divergence | Per-project first_pass_rate | Diverges >30% from avg | Investigate |
+Example: `object.__setattr__(config, 'retries', 5)`.
 
-### Setup Instructions
-1. Go to Sentry → Alerts → Create Alert
-2. Select "Custom Metric" for performance alerts
-3. Configure threshold and action channels
-4. Set environment filter to match HYDRAFLOW_ENV
+**Why:** Direct assignment on frozen models triggers validator checks before override intent is clear.
 
 
 ```json:entry
-{"id":"01KQ11NX7JR1QGCQ279PEQ249P","title":"Recommended Alerts","content":"### Error Alerts\n| Alert | Query | Threshold | Action |\n|-------|-------|-----------|--------|\n| Pipeline error spike | `event.type:error` | >5 in 10 min | Slack #hydraflow-alerts |\n| Credit exhaustion | `CreditExhaustedError` | Any occurrence | Immediate Slack + email |\n| New error type | First seen | Any | Slack |\n\n### Performance Alerts\n| Alert | Metric | Threshold | Action |\n|-------|--------|-----------|--------|\n| Slow agent | `memory.first_pass_rate` | <0.2 for 1 hour | Slack |\n| Score drift | `memory.avg_score` | Drops >15% in 24h | Slack |\n| Learning stall | `memory.stale_items` | >20 for 48h | Slack |\n| Adjustment storm | Auto-adjustment count | >5 in 24h | Slack + HITL |\n| Factory divergence | Per-project first_pass_rate | Diverges >30% from avg | Investigate |\n\n### Setup Instructions\n1. Go to Sentry → Alerts → Create Alert\n2. Select \"Custom Metric\" for performance alerts\n3. Configure threshold and action channels\n4. Set environment filter to match HYDRAFLOW_ENV","topic":"patterns","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.794333+00:00","updated_at":"2026-04-25T00:47:19.794334+00:00","valid_from":"2026-04-25T00:47:19.794333+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRST","title":"Frozen Pydantic models: use object.__setattr__ for mutation","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954693+00:00","updated_at":"2026-05-03T04:11:32.954694+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Use idempotent installation when HydraFlow manages itself
+
+When HydraFlow manages its own repo (repo_root == HydraFlow repo), use hash-based or idempotent installation to skip if identical.
+
+Example: Check file hash before re-running setup steps.
+
+**Why:** Multi-execution-mode systems can trigger duplicate setup; idempotent ops prevent interference.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSV","title":"Use idempotent installation when HydraFlow manages itself","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954698+00:00","updated_at":"2026-05-03T04:11:32.954699+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Preserve worktrees on HITL failure for post-mortem debugging
+
+Only destroy worktrees on success in HITL workflows. On failure, preserve them to enable post-mortem inspection.
+
+Example: `if success: cleanup_worktree()` not `finally: cleanup_worktree()`.
+
+**Why:** Preserved worktrees enable debugging what went wrong; disk cost is acceptable trade-off.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSW","title":"Preserve worktrees on HITL failure for post-mortem debugging","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954704+00:00","updated_at":"2026-05-03T04:11:32.954705+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Pass explicit self_fname parameter to avoid implicit self-exclusion
+
+Avoid implicit heuristics like `if fname not in content` for self-exclusion. Pass explicit parameters (self_fname) to filter functions instead.
+
+Example: `filter_by_label(files, exclude=current_file)` not implicit checks.
+
+**Why:** Explicit parameters make logic clearer and prevent silent edge cases when names collide.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSX","title":"Pass explicit self_fname parameter to avoid implicit self-exclusion","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954710+00:00","updated_at":"2026-05-03T04:11:32.954710+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Representation consistency: document which model each helper uses
+
+Example: ReviewRunner uses Task.id while phase_utils uses pr.issue_number for same concept. Document which representation a helper uses and scope it appropriately.
+
+Example: Add comment `# Uses Task.id internally, not issue_number` above helper.
+
+**Why:** Mixed usage silently produces mismatches; consolidation or explicit mapping prevents bugs.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSY","title":"Representation consistency: document which model each helper uses","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954715+00:00","updated_at":"2026-05-03T04:11:32.954716+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Stage progression: verify both ordering and progression logic
+
+Stage progression relying on array indices (currentStage from PIPELINE_STAGES position) is fragile. New stages inserted at wrong positions silently break if only status values are verified.
+
+Example: Test progression order AND status transitions separately.
+
+**Why:** Index-based progression can silently break when stages are reordered.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRSZ","title":"Stage progression: verify both ordering and progression logic","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954721+00:00","updated_at":"2026-05-03T04:11:32.954722+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Skip detection triggers only for plan-stage or later
+
+Only mark skipped when stage at index ≥3 (plan or later) has non-pending status. If issue is in triage, those phases must remain pending, not marked skipped.
+
+Example: Discover/shape pending → issue active; plan pending + later skipped → issue skipped.
+
+**Why:** Marking discover/shape skipped falsely signals phase completion when phases haven't run.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRT0","title":"Skip detection triggers only for plan-stage or later","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954726+00:00","updated_at":"2026-05-03T04:11:32.954728+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Phase progression via label mutations is observable
+
+Phase progression occurs via predictable label mutations (discover→shape, shape→plan). Clarity scoring gates entry: high-clarity (≥7) skip discovery; vague issues route to discovery first.
+
+Example: Issue label history shows discover_complete → shape_in_progress → plan_in_progress.
+
+**Why:** Deterministic label-based progression makes progression auditable in issue history.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRT1","title":"Phase progression via label mutations is observable","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954732+00:00","updated_at":"2026-05-03T04:11:32.954733+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Telemetry: always expose sample_size alongside metrics
+
+Report sample_size alongside fp_rate, recall quality, etc. Use thresholds like 10 for regressions. Empty results signal insufficient data, not successful emptiness.
+
+Example: `{"fp_rate": 0.15, "sample_size": 2}` (noisy) vs `{"fp_rate": 0.15, "sample_size": 100}` (reliable).
+
+**Why:** Small samples produce misleading metrics; sample_size flags sparse data.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRT2","title":"Telemetry: always expose sample_size alongside metrics","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954738+00:00","updated_at":"2026-05-03T04:11:32.954739+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Aggregate telemetry by final attempt outcome, not per-attempt
+
+Record each retry attempt separately to capture timing, but aggregate using (skill_name, issue_number) with only the final attempt's outcome for pass-rate calculations.
+
+Example: 3 attempts → log 3 rows, count only last outcome in metrics.
+
+**Why:** Per-attempt counting inflates failure rates with stale signals from early retries.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRT3","title":"Aggregate telemetry by final attempt outcome, not per-attempt","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954744+00:00","updated_at":"2026-05-03T04:11:32.954745+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Memory filtering: check both content prefix AND metadata status
+
+Filter evicted memories on both content prefix ('[EVICTED]') AND metadata status ('status: evicted'). Dual filtering ensures tombstones never leak into prompts.
+
+Example: `if '[EVICTED]' not in text and memory.status != 'evicted'`.
+
+**Why:** Single filter bugs can leak stale knowledge; dual filtering adds safety margin.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRT4","title":"Memory filtering: check both content prefix AND metadata status","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954749+00:00","updated_at":"2026-05-03T04:11:32.954750+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Memory query customization: prepend context, not replace
+
+Use `f"{prefix}, {context}"` to add context rather than replacing the original query. Narrowing queries too much degrades recall.
+
+Example: `"memory refresh, HydraFlow PRs, " + original_query` not just `"HydraFlow PRs"`.
+
+**Why:** Additive prefixes guide semantic search while preserving issue context for relevance.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRT5","title":"Memory query customization: prepend context, not replace","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954755+00:00","updated_at":"2026-05-03T04:11:32.954756+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Enforcement ADRs: explicit tier-to-mechanism mapping
+
+Map each enforcement tier to mechanism (pre-commit hook, linter, test, manual review) with distinct statuses for tracked items vs. those needing issues.
+
+Example: Tier 1 → hook (enforced); Tier 2 → linter (soft); Tier 3 → audit issue (manual).
+
+**Why:** Consequences sections must verify all proposed items have clear tracking mechanisms.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRT6","title":"Enforcement ADRs: explicit tier-to-mechanism mapping","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954761+00:00","updated_at":"2026-05-03T04:11:32.954762+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Commit message validation: allow WIP and auto-generated commits
+
+Only block commits that attempt specific format incorrectly. Allow plain commits without issue refs, WIP prefixes, merge commits, reverts, and auto-generated commits.
+
+Example: `git commit -m "WIP"` is allowed; `git commit -m "Fix issue"` (missing 'Fixes #') is blocked.
+
+**Why:** Blocking all non-standard commits prevents agents from making intermediate commits.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRT7","title":"Commit message validation: allow WIP and auto-generated commits","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954766+00:00","updated_at":"2026-05-03T04:11:32.954767+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## New skills start with blocking=False until proven
+
+New dynamic skills start with blocking=False to avoid breaking workflows. Graduate to blocking=True only after ≥20 runs with ≥95% success rate.
+
+Example: Run new linter in warn-only mode; enable blocking after validation.
+
+**Why:** New automated checks are unproven; disabling failures initially prevents build breakage.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRT8","title":"New skills start with blocking=False until proven","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954772+00:00","updated_at":"2026-05-03T04:11:32.954773+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Hardcode workflow concepts in PHASE_SKILL_GUIDANCE dict
+
+Extract workflow concepts (TDD, systematic debugging, review rigor) and hardcode them in PHASE_SKILL_GUIDANCE rather than dynamically loading from filesystem.
+
+Example: `PHASE_SKILL_GUIDANCE = {'plan': 'use TDD...', 'review': 'systematic-debugging...'}` as Python dict, not external file.
+
+**Why:** Hardcoding avoids dependency on superpowers installation path; keeps system self-contained.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRT9","title":"Hardcode workflow concepts in PHASE_SKILL_GUIDANCE dict","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954778+00:00","updated_at":"2026-05-03T04:11:32.954780+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Alpine Linux: use portable shell commands to consume memory
+
+Alpine's minimal tooling excludes Python. Use portable commands like `dd if=/dev/zero bs=1M count=32 of=/dev/null` or `head -c` to test memory constraints.
+
+Example: `dd` instead of `python -c` for memory stress tests.
+
+**Why:** Alpine lacks interpreters; portable shell-only commands work in restricted environments.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRTA","title":"Alpine Linux: use portable shell commands to consume memory","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954786+00:00","updated_at":"2026-05-03T04:11:32.954787+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Separate silent events from events with result values
+
+Use _SILENT_WITH_RESULT frozenset checked before _SILENT_EVENTS to correctly route events (e.g., agent_end, turn_end set result but print nothing). Event handlers must have uniform signatures `(event: dict) -> str`.
+
+Example: Check `if event_type in _SILENT_WITH_RESULT` before `_SILENT_EVENTS`.
+
+**Why:** Events that return values but don't print need special routing; uniform signatures prevent type errors.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRTB","title":"Separate silent events from events with result values","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954794+00:00","updated_at":"2026-05-03T04:11:32.954795+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Create specialized methods instead of overloading general ones
+
+When a general method returns insufficient data for a specific use case, create separate specialized method.
+
+Example: `list_issues_by_label` returns basic metadata; `get_issue_updated_at()` handles timestamps separately.
+
+**Why:** Specialized methods avoid coupling unrelated concerns and make intent explicit.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRTC","title":"Create specialized methods instead of overloading general ones","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954799+00:00","updated_at":"2026-05-03T04:11:32.954800+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Document top 3–5 failure risks in pre-mortem phase
+
+Explicitly document potential failure modes before implementation. This identifies issues early and guides implementer decisions.
+
+Example: Pre-mortem: "Risk 1: parser fails on multi-line output. Risk 2: ID collision on large batches."
+
+**Why:** Pre-mortems catch mistakes before code review and establish concrete failure modes to guard against.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRTD","title":"Document top 3–5 failure risks in pre-mortem phase","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954805+00:00","updated_at":"2026-05-03T04:11:32.954806+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Best-effort parsing: use try/except, never raise on format failure
+
+When extracting from transcripts or external formats, wrap in try/except—never raise on parse failure. Log warnings when extraction finds zero matches on non-empty input.
+
+Example: `try: result = parse(text) except: return []` not `except: raise`.
+
+**Why:** External formats evolve; graceful fallback prevents crashes; warnings surface unexpected formats.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRTE","title":"Best-effort parsing: use try/except, never raise on format failure","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954810+00:00","updated_at":"2026-05-03T04:11:32.954811+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## logger.error() requires format string as first argument
+
+Logging calls must pass a format string and variable separately: `logger.error("%s", value)` not `logger.error(value)`. Passing variable directly treats it as template.
+
+Example: `logger.error("%s", path)` not `logger.error(path)` (if path contains `%s`).
+
+**Why:** Variables containing `%s` or `{...}` cause logging misformat or TypeError at runtime.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRTF","title":"logger.error() requires format string as first argument","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954816+00:00","updated_at":"2026-05-03T04:11:32.954817+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Per-worker model overrides via HYDRAFLOW_*_MODEL env vars
+
+Each background worker has its own `HYDRAFLOW_<NAME>_MODEL` env var (e.g., HYDRAFLOW_REPORT_ISSUE_MODEL). Defaults: report_issue=opus, code_grooming=sonnet, others=haiku.
+
+Example: `export HYDRAFLOW_REPORT_ISSUE_MODEL=sonnet` to override defaults.
+
+**Why:** Per-worker overrides enable cost/latency tuning without changing code.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRTG","title":"Per-worker model overrides via HYDRAFLOW_*_MODEL env vars","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954821+00:00","updated_at":"2026-05-03T04:11:32.954822+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Hindsight recall toggle during observation window
+
+Export `HYDRAFLOW_HINDSIGHT_RECALL_ENABLED=false` to disable reads while retaining writes. Watch metrics: wiki_entries_ingested, wiki_supersedes, reflections_bridged. Check `/api/wiki/health` for store status.
+
+Example: Disable recall to observe effects of fresh writes without old memory interference.
+
+**Why:** Toggling reads/writes separately enables A/B testing memory impact on production.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRTH","title":"Hindsight recall toggle during observation window","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954827+00:00","updated_at":"2026-05-03T04:11:32.954828+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Self-review PRs before declaring done
+
+After creating a PR, always self-review for gaps (missing edge cases, unhandled errors), bugs (logic errors, races), and test coverage (boundary, negative cases). Use `/superpowers:requesting-code-review` for structured review.
+
+Example: Check diff for TODOs, error handling, test isolation before opening.
+
+**Why:** Self-review catches obvious issues early; fresh-eyes review finds subtle ones.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRTJ","title":"Self-review PRs before declaring done","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954832+00:00","updated_at":"2026-05-03T04:11:32.954833+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Use explicit reasoning prompts for analysis-heavy tasks
+
+For architecture decisions, debugging, code review: use reasoning prompts ('explain tradeoffs', 'consider edge cases'). Simple mechanical tasks (rename, format, move) don't need these.
+
+Example: Code review → reasoning model; ruff fix → mechanical model.
+
+**Why:** Reasoning prompts improve quality for complex analysis; mechanical tasks waste latency.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRTK","title":"Use explicit reasoning prompts for analysis-heavy tasks","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954837+00:00","updated_at":"2026-05-03T04:11:32.954838+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Sentry captures real code bugs only, not transient failures
+
+Sentry `before_send` filter drops all exceptions NOT in bug-types (TypeError, KeyError, AttributeError, ValueError, IndexError, NotImplementedError). Use `logger.warning()` for transient; `logger.error()` only for bugs.
+
+Example: Network timeout → warning; KeyError → error.
+
+**Why:** Sentry filtering prevents noise from transient errors; real bugs get actionable alerts.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRTM","title":"Sentry captures real code bugs only, not transient failures","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954843+00:00","updated_at":"2026-05-03T04:11:32.954844+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Never use git commit --no-verify or --no-hooks
+
+Always let commit hooks run. If a hook fails, investigate and fix the underlying issue—do not bypass it.
+
+Example: Hook fails → fix code → try commit again, not `git commit --no-verify`.
+
+**Why:** Skipping hooks hides pre-commit quality checks and linting errors.
+
+
+```json:entry
+{"id":"01KQP0HK6TCK1CTRYANSJ8NRTN","title":"Never use git commit --no-verify or --no-hooks","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:11:32.954849+00:00","updated_at":"2026-05-03T04:11:32.954849+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```

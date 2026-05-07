@@ -85,28 +85,14 @@ async def main() -> None:
         for issue_number, results in by_issue.items():
             getattr(fake_llm, f"script_{phase}")(issue_number, results)
 
-    # Loops disabled in sandbox because they call out to real CLIs/services
-    # that block the asyncio event loop on an air-gapped (``internal: true``)
-    # network. The classic offender is ``contract_refresh``: its tick calls
-    # synchronous ``subprocess.run(["claude", "-p", "ping", ...])`` (no
-    # timeout) which hangs forever trying to reach ``api.anthropic.com``,
-    # freezing every other task — including the dashboard's uvicorn bind —
-    # until the kernel kills the container. The real fix (wrap in
-    # ``asyncio.to_thread`` and add a hard timeout) lives in production code;
-    # here we just opt out of the caretaker entirely. None of these loops
-    # exercise the issue→PR pipeline that sandbox scenarios validate.
-    _SANDBOX_DISABLED_WORKERS = frozenset(
-        {
-            "contract_refresh",
-        }
-    )
-
-    def _sandbox_is_enabled(worker_name: str, *_a: object, **_kw: object) -> bool:
-        return worker_name not in _SANDBOX_DISABLED_WORKERS
-
+    # Every async-touched ``subprocess.run`` site in production code now
+    # specifies ``timeout=`` (PRs #8454, #8456, #8468 — enforced by
+    # ``tests/regressions/test_async_subprocess_timeouts.py``), so caretaker
+    # loops that try to call out under air-gap fail fast instead of hanging
+    # the dashboard's uvicorn bind. No sandbox-specific carve-out is needed.
     callbacks = WorkerRegistryCallbacks(
         update_status=lambda *_a, **_kw: None,
-        is_enabled=_sandbox_is_enabled,
+        is_enabled=lambda *_a, **_kw: True,
         get_interval=lambda *_a, **_kw: 60,
     )
 

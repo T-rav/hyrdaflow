@@ -47,8 +47,11 @@ cd "$REPO_ROOT"
 # test files. See scripts/strip_test_sludge.py for the full pattern list.
 if [ -n "$STAGED_TESTS" ]; then
     echo "pre-commit: running test-sludge check..."
+    # Collapse newlines to spaces — make treats embedded newlines in
+    # variable values as new target lines and chokes on multi-file input.
     # shellcheck disable=SC2086
-    if ! make test-sludge-check FILES="$STAGED_TESTS"; then
+    STAGED_TESTS_ONE_LINE=$(echo $STAGED_TESTS)
+    if ! make test-sludge-check FILES="$STAGED_TESTS_ONE_LINE"; then
         exit 1
     fi
     echo "pre-commit: test-sludge OK"

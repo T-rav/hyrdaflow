@@ -60,6 +60,8 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | ADR-0050 | `src.auto_agent_preflight_loop`, `src.config`, `src.dashboard_routes._diagnostics_routes`, `src.models`, `src.preflight.agent`, `src.preflight.audit`, `src.preflight.auto_agent_runner`, `src.preflight.context`, `src.preflight.decision`, `src.preflight.runner`, `src.sentry.reverse_lookup`, `src.state._auto_agent` |
 | ADR-0051 | — |
 | ADR-0052 | `src.contract_diff`, `src.contract_recording`, `src.mockworld.sandbox_main` |
+| ADR-0053 | `src.repo_wiki`, `src.repo_wiki_loop` |
+| ADR-0054 | `src.term_proposer_loop`, `src.ubiquitous_language` |
 
 ## Module → ADRs
 
@@ -126,8 +128,8 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.prompt_template` | ADR-0043 |
 | `src.rc_budget_loop` | ADR-0045 |
 | `src.repo_runtime` | ADR-0038 |
-| `src.repo_wiki` | ADR-0032 |
-| `src.repo_wiki_loop` | ADR-0032 |
+| `src.repo_wiki` | ADR-0032, ADR-0053 |
+| `src.repo_wiki_loop` | ADR-0032, ADR-0053 |
 | `src.report_issue_loop` | ADR-0013, ADR-0018, ADR-0045 |
 | `src.review_phase` | ADR-0012, ADR-0014, ADR-0015, ADR-0031 |
 | `src.reviewer` | ADR-0025, ADR-0027 |
@@ -143,11 +145,13 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.state` | ADR-0006, ADR-0013, ADR-0014, ADR-0017, ADR-0024 |
 | `src.state._auto_agent` | ADR-0050 |
 | `src.state._session` | ADR-0021 |
+| `src.term_proposer_loop` | ADR-0054 |
 | `src.triage_phase` | ADR-0014, ADR-0017, ADR-0031, ADR-0039 |
 | `src.trust_fleet_sanity_loop` | ADR-0045, ADR-0046 |
+| `src.ubiquitous_language` | ADR-0054 |
 | `src.visual_validation` | ADR-0015 |
 | `src.wiki_compiler` | ADR-0032 |
 | `src.wiki_rot_detector_loop` | ADR-0045 |
 | `src.worktree` | ADR-0003, ADR-0009, ADR-0010 |
 
-_Regenerated from commit `be28c1c` on 2026-05-07 02:32 UTC. Source last changed at `be28c1c`. Status: 🟢 fresh._
+_Regenerated from commit `0841bbc` on 2026-05-07 02:51 UTC. Source last changed at `0841bbc`. Status: 🟢 fresh._

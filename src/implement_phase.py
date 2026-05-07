@@ -96,7 +96,6 @@ class ImplementPhase:
 
     @property
     def active_issues(self) -> set[int]:
-        """Return the set of currently active implementation issues."""
         return self._active_issues
 
     async def _post_impl_transcript(self, result: WorkerResult, *, status: str) -> None:

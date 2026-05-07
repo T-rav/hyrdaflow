@@ -4,6 +4,10 @@
 
 Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdocs.yml`. Grouped by ISO week.
 
+## 2026-W19
+
+- `df49c02` — fix(telemetry): switch to relative imports + bare consumer imports *(2026-05-06)*
+
 ## 2026-W18
 
 - `be28c1c` — chore: regen arch artifacts + sync uv.lock for OTel deps *(2026-05-02)*
@@ -162,4 +166,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `be28c1c` on 2026-05-07 02:32 UTC. Source last changed at `be28c1c`. Status: 🟢 fresh._
+_Regenerated from commit `0841bbc` on 2026-05-07 02:51 UTC. Source last changed at `0841bbc`. Status: 🟢 fresh._

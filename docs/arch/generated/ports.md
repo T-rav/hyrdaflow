@@ -28,6 +28,13 @@ graph LR
 - Adapters: —
 - Fake: ⚠️ no fake (every Port needs a fake per ADR-0047)
 
+### BotPRPort
+
+- Module: `src.term_proposer_loop`
+- Methods: `open_bot_pr`
+- Adapters: —
+- Fake: ⚠️ no fake (every Port needs a fake per ADR-0047)
+
 ### IssueFetcherPort
 
 - Module: `src.ports`
@@ -84,4 +91,4 @@ graph LR
   - `WorkspaceManager` (`src.workspace`)
 - Fake: `FakeWorkspace` (`mockworld.fakes.fake_workspace`)
 
-_Regenerated from commit `be28c1c` on 2026-05-07 02:32 UTC. Source last changed at `be28c1c`. Status: 🟢 fresh._
+_Regenerated from commit `0841bbc` on 2026-05-07 02:51 UTC. Source last changed at `0841bbc`. Status: 🟢 fresh._

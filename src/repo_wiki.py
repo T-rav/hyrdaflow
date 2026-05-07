@@ -172,6 +172,20 @@ def classify_topic(entry: WikiEntry) -> str:
     return best_topic
 
 
+_SOURCE_FOOTER_RE = re.compile(r"^_Source:[^\n]*_\s*$", re.MULTILINE)
+
+
+def _strip_prose_chrome(body: str) -> str:
+    """Strip the optional ``_Source: ..._`` footer and surrounding blank
+    lines from a parsed entry body, leaving the prose content.
+
+    Used by ``_load_topic_entries`` to reconstruct ``WikiEntry.content``
+    from the prose section above each ``json:entry`` metadata block.
+    """
+    cleaned = _SOURCE_FOOTER_RE.sub("", body)
+    return cleaned.strip()
+
+
 def _sanitize_body_for_frontmatter(content: str) -> str:
     """Prevent a leading ``---`` in body content from being parsed as a
     second YAML document.
@@ -1039,14 +1053,18 @@ class RepoWikiStore:
 
         **WARNING (Phase 2 transition):** Other methods on ``RepoWikiStore``
         (``ingest``, ``query``, ``lint``, ``active_lint``, ``_ensure_repo_dir``,
-        ``_rebuild_index``, ``_load_topic_entries``) still hardcode the
-        legacy topic-level layout (``{topic}.md`` files + ``index.json``).
-        Pointing a live ``RepoWikiStore`` at a new-layout directory will
-        corrupt it: ``_ensure_repo_dir`` seeds topic ``.md`` files on top of
-        the new per-entry subdirectories.  Phase 3 refactors those methods.
-        Until then, the production runtime keeps pointing at the legacy
-        ``.hydraflow/repo_wiki/`` path; the tracked ``repo_wiki/`` is
-        populated by the migration script but not yet read at runtime.
+        ``_rebuild_index``, ``_load_topic_entries``) target the topic-level
+        layout (``{topic}.md`` files + ``index.json``). PR #8465 slimmed the
+        on-disk format — each entry is now a ``## Title`` section with
+        prose followed by a slim ``json:entry`` metadata block — but the
+        layout shape (one ``.md`` per topic, central ``index.json``) is
+        unchanged. Pointing a live ``RepoWikiStore`` at a new-layout
+        per-entry-file directory will still corrupt it: ``_ensure_repo_dir``
+        seeds topic ``.md`` files on top of the new per-entry subdirectories.
+        Phase 3 refactors those methods. Until then, the production runtime
+        keeps pointing at the legacy ``.hydraflow/repo_wiki/`` path; the
+        tracked ``repo_wiki/`` is populated by the migration script but not
+        yet read at runtime.
         """
         if not self._wiki_root.exists():
             return []
@@ -1385,17 +1403,53 @@ class RepoWikiStore:
     def _load_topic_entries(self, topic_path: Path) -> list[WikiEntry]:
         """Parse a topic markdown file back into entries.
 
-        Each entry is stored as a JSON code block under an H3 heading.
+        Schema-slim layout: each entry is rendered as a `## Title`
+        section followed by prose, an optional `_Source: #N (kind)_`
+        footer, and a `json:entry` code block carrying metadata WITHOUT
+        the `content` field. The reader reconstructs ``WikiEntry.content``
+        from the prose section above the metadata block.
+
+        Legacy entries that still embed ``content`` in the JSON continue
+        to load — the prose section overrides if present, otherwise the
+        JSON-embedded copy is used.
+
+        Parsing strategy: split the file at line-start ``## `` boundaries
+        into entry sections, then within each section locate the LAST
+        ``json:entry`` code block as the metadata block. This is robust
+        against (a) prose containing embedded ```` ```json:entry ```` fences
+        (e.g., wiki entries about the wiki schema itself), and (b) free-form
+        ``## Heading`` sections without a metadata block (silently skipped
+        rather than eating the next entry).
         """
         if not topic_path.exists():
             return []
 
         text = topic_path.read_text()
+        # Split at line-start "## " — first chunk is the file preamble.
+        sections = re.split(r"(?:^|\n)## ", text)
         entries: list[WikiEntry] = []
 
-        for match in re.finditer(r"```json:entry\n(.+?)\n```", text, re.DOTALL):
+        for section in sections[1:]:
+            title, _, body = section.partition("\n")
+            title = title.strip()
+            if not title:
+                continue
+            meta_matches = list(
+                re.finditer(r"```json:entry\n(.+?)\n```", body, re.DOTALL),
+            )
+            if not meta_matches:
+                continue  # free-form section without metadata — skip silently
+            meta_match = meta_matches[-1]  # always the LAST block
             try:
-                entries.append(WikiEntry.model_validate_json(match.group(1)))
+                metadata = json.loads(meta_match.group(1))
+                prose = _strip_prose_chrome(body[: meta_match.start()])
+                if prose:
+                    metadata["content"] = prose
+                elif "content" not in metadata:
+                    metadata["content"] = ""
+                if not metadata.get("title"):
+                    metadata["title"] = title
+                entries.append(WikiEntry.model_validate(metadata))
             except Exception:  # noqa: BLE001
                 logger.warning("Skipping malformed entry in %s", topic_path)
 
@@ -1407,7 +1461,12 @@ class RepoWikiStore:
         topic_name: str,
         entries: list[WikiEntry],
     ) -> None:
-        """Write a topic page with entries stored as JSON code blocks."""
+        """Write a topic page with slim per-entry metadata blocks.
+
+        The `content` field is stored only in the prose section (not
+        duplicated inside the json:entry block) — see _load_topic_entries
+        for the read-side contract.
+        """
         lines = [f"# {topic_name.replace('_', ' ').title()}\n"]
 
         if not entries:
@@ -1420,8 +1479,8 @@ class RepoWikiStore:
                     lines.append(
                         f"_Source: #{entry.source_issue} ({entry.source_type})_\n"
                     )
-                # Store structured data for round-tripping
-                lines.append(f"\n```json:entry\n{entry.model_dump_json()}\n```\n")
+                slim = entry.model_dump_json(exclude={"content", "valid_from"})
+                lines.append(f"\n```json:entry\n{slim}\n```\n")
 
         topic_path.write_text("\n".join(lines))
 
@@ -1458,11 +1517,13 @@ class RepoWikiStore:
                 topics[topic_name] = [e.title for e in entries]
                 total += len(entries)
 
+        prior = self._load_index(repo_slug)
         index = WikiIndex(
             repo_slug=repo_slug,
             topics=topics,
             total_entries=total,
             last_updated=datetime.now(UTC).isoformat(),
+            last_lint=prior.last_lint if prior is not None else None,
         )
 
         # Write JSON index

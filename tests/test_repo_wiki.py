@@ -310,6 +310,114 @@ class TestRoundTrip:
         assert entries[0].content == original.content
         assert entries[0].source_issue == 99
 
+    def test_inline_metadata_omits_duplicated_content_field(
+        self, store: RepoWikiStore
+    ) -> None:
+        # Schema-slim: the inline json:entry block must NOT carry the content
+        # field — it is reconstructed from the prose section above the block.
+        # This keeps topic files ~50% smaller and human-readable.
+        entry = WikiEntry(
+            title="Schema check",
+            content="The point of this entry is to verify the metadata block "
+            "stays slim and does not double-store the prose.",
+            source_type="implement",
+            source_issue=7,
+        )
+        store.ingest(REPO, [entry])
+        repo_dir = store._repo_dir(REPO)
+        topic = store._classify_topic(entry)
+        topic_path = repo_dir / f"{topic}.md"
+        text = topic_path.read_text()
+        # Prose appears once (above the json:entry block).
+        assert text.count("The point of this entry is to verify") == 1
+        # Metadata block exists but does not carry the content field.
+        assert "```json:entry" in text
+        assert '"content"' not in text
+
+    def test_round_trip_with_slim_schema_preserves_content(
+        self, store: RepoWikiStore
+    ) -> None:
+        # The reader reconstructs `content` from the prose section even though
+        # it is no longer in the json:entry block.
+        entry = WikiEntry(
+            title="Multi-paragraph entry",
+            content=(
+                "First paragraph explaining the rule.\n\n"
+                "Second paragraph with an example: `foo(bar) -> baz`.\n"
+            ),
+            source_type="plan",
+            source_issue=42,
+        )
+        store.ingest(REPO, [entry])
+        repo_dir = store._repo_dir(REPO)
+        topic = store._classify_topic(entry)
+        loaded = store._load_topic_entries(repo_dir / f"{topic}.md")
+        assert len(loaded) == 1
+        assert "First paragraph explaining the rule." in loaded[0].content
+        assert "`foo(bar) -> baz`" in loaded[0].content
+        assert loaded[0].source_issue == 42
+
+    def test_content_with_embedded_json_entry_fence_round_trips(
+        self, store: RepoWikiStore
+    ) -> None:
+        # Regression: PR #8465's lazy-regex parser stopped at any embedded
+        # ```json:entry fence in the prose, parsing the wrong block as
+        # metadata and silently dropping the entry. Wiki entries that
+        # describe the wiki format itself (or PR review notes about ingest
+        # output) realistically contain such fences.
+        prose = (
+            "When ingesting an entry the writer emits a metadata block.\n\n"
+            "Example:\n\n"
+            "```json:entry\n"
+            '{"id":"sample","title":"X"}\n'
+            "```\n\n"
+            "End of example."
+        )
+        entry = WikiEntry(
+            title="Wiki schema example",
+            content=prose,
+            source_type="plan",
+            source_issue=99,
+        )
+        store.ingest(REPO, [entry])
+        repo_dir = store._repo_dir(REPO)
+        topic = store._classify_topic(entry)
+        loaded = store._load_topic_entries(repo_dir / f"{topic}.md")
+        assert len(loaded) == 1, "entry with embedded fence was silently dropped"
+        assert loaded[0].title == "Wiki schema example"
+        assert "End of example" in loaded[0].content
+
+    def test_section_heading_without_metadata_does_not_eat_next_entry(
+        self, store: RepoWikiStore
+    ) -> None:
+        # Regression: PR #8465's unanchored regex with lazy `.*?` would
+        # span across a `## Heading` lacking a json:entry block and consume
+        # the next real entry's metadata, silently dropping the next entry.
+        # No production write path emits this shape today, but a stray
+        # hand-edit or future free-form preamble should not corrupt parsing.
+        repo_dir = store._repo_dir(REPO)
+        store._ensure_repo_dir(REPO)
+        topic_path = repo_dir / "patterns.md"
+        good_entry = WikiEntry(
+            title="Real entry",
+            content="Body of the real entry.",
+            source_type="plan",
+            source_issue=7,
+        )
+        store.ingest(REPO, [good_entry])
+        # Inject a free-form `## ` section ahead of the real entry.
+        text = topic_path.read_text()
+        topic_path.write_text(
+            text.replace(
+                "# Patterns\n",
+                "# Patterns\n\n## Free-form section\n\nNo metadata here.\n",
+            )
+        )
+        loaded = store._load_topic_entries(topic_path)
+        assert any(e.title == "Real entry" for e in loaded), (
+            "real entry was eaten by the free-form section"
+        )
+
 
 class TestActiveLint:
     def test_marks_entries_stale_for_closed_issues(self, store: RepoWikiStore) -> None:
@@ -383,6 +491,47 @@ class TestActiveLint:
     def test_updates_last_lint_timestamp(self, store: RepoWikiStore) -> None:
         store._ensure_repo_dir(REPO)
         store.active_lint(REPO)
+        index = store._load_index(REPO)
+        assert index is not None
+        assert index.last_lint is not None
+
+    def test_rebuild_index_preserves_last_lint(self, store: RepoWikiStore) -> None:
+        # Regression: _rebuild_index used to construct a fresh WikiIndex with
+        # last_lint=None, wiping the recorded lint timestamp on every rebuild.
+        # The post-rebuild write in active_lint masked this most of the time
+        # but lost the value if the second write failed.
+        store._ensure_repo_dir(REPO)
+        store.active_lint(REPO)
+        original = store._load_index(REPO)
+        assert original is not None
+        assert original.last_lint is not None
+        original_lint_ts = original.last_lint
+
+        store._rebuild_index(REPO)
+
+        rebuilt = store._load_index(REPO)
+        assert rebuilt is not None
+        assert rebuilt.last_lint == original_lint_ts
+
+    def test_active_lint_persists_last_lint_across_modification_path(
+        self, store: RepoWikiStore
+    ) -> None:
+        # When active_lint marks an entry stale (any_modified=True), it calls
+        # _rebuild_index then re-writes last_lint. Verify the final on-disk
+        # index has last_lint populated through the rebuild path.
+        store.ingest(
+            REPO,
+            [
+                WikiEntry(
+                    title="Closed source",
+                    content="Stale via close.",
+                    source_type="plan",
+                    source_issue=99,
+                ),
+            ],
+        )
+        result = store.active_lint(REPO, closed_issues={99})
+        assert result.index_rebuilt is True
         index = store._load_index(REPO)
         assert index is not None
         assert index.last_lint is not None

@@ -104,7 +104,7 @@ def _bug_fixes_land_with_regression_tests(ctx: CheckContext) -> Finding:  # noqa
     regression test." Historical drift predates the principle's adoption.
     Two mechanisms keep the check honest:
 
-    1. A `.hydraflow/audit-baseline` file (commit SHA or ISO date) lets a
+    1. A `.hydraflow-audit-baseline` file (commit SHA or ISO date) lets a
        project declare the point at which the rule took effect; earlier
        fix commits are excluded.
     2. The threshold is 60% compliance on *recent* fixes — a project
@@ -162,7 +162,7 @@ def _bug_fixes_land_with_regression_tests(ctx: CheckContext) -> Finding:  # noqa
         "P10.3",
         Status.WARN,
         f"{len(missing)}/{len(fix_commits)} fix commits {scope} without a regression test ({sample}) — "
-        "set .hydraflow/audit-baseline to a post-adoption commit to exclude historical drift",
+        "set .hydraflow-audit-baseline to a post-adoption commit to exclude historical drift",
     )
 
 

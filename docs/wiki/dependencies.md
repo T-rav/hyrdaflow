@@ -1,122 +1,183 @@
 # Dependencies
 
 
-## Circular Dependencies & Import Management
+## Use TYPE_CHECKING guards to break circular imports
 
-Use TYPE_CHECKING guards and deferred imports (PEP 563) to break circular dependencies at the import level. For runtime circular references between extracted classes, inject callback functions instead of class references (e.g., `get_progress=epic_reporter.get_progress`) to avoid circular imports and make dependency direction explicit in constructor signatures.
+Use `if TYPE_CHECKING:` blocks and PEP 563 (`from __future__ import annotations`) to defer imports that create cycles. Type hints are evaluated at type-check time, not runtime, allowing the import cycle to break.
 
-Manage optional dependencies through three-level degradation, structural typing with Protocols, and explicit API composition via optional parameters. When a helper feeds data into a pipeline (e.g., memory injection), wrap the entire body in `except Exception: # noqa: BLE001` with no re-raise—return a safe default instead. Failures in optional data collection must not interrupt the pipeline itself; this is especially important for optional features like Hindsight recall that degrade gracefully. Use modern generic syntax with `from __future__ import annotations` on Python 3.9+.
-
-When extracting multiple coordinators from a god class, identify those with zero cross-dependencies and extract in parallel phases. Dependencies between extracted classes (e.g., 'ReviewVerdictHandler uses CIFixCoordinator') create phase ordering constraints. Map this as a task graph to prevent parallel work from being blocked.
-
-After extracting duplicated code and removing unused imports, verify extraction completeness through two-stage verification: (1) check function signatures, return type hints, and other locations across the file to confirm imports are truly unused; (2) use targeted grep across the codebase for old names in imports, documentation, comments, dynamic imports, and test fixtures to prevent false positives. Deferred imports become cleanup signals when removing code—look for these as dead code markers.
-
-Apply the single update point pattern: define artifacts once and import everywhere to prevent divergence. For FastAPI, register catch-all `/{path:path}` route last.
-
-See also: Type Signatures as Backward-Compatibility Contracts — for communicating contract changes before implementation changes.
+**Why:** Circular imports at module level cause runtime failure; TYPE_CHECKING breaks the cycle without losing type information.
 
 
 ```json:entry
-{"id":"01KQ11NX7QNTT50G9SENE613W0","title":"Circular Dependencies & Import Management","content":"Use TYPE_CHECKING guards and deferred imports (PEP 563) to break circular dependencies at the import level. For runtime circular references between extracted classes, inject callback functions instead of class references (e.g., `get_progress=epic_reporter.get_progress`) to avoid circular imports and make dependency direction explicit in constructor signatures.\n\nManage optional dependencies through three-level degradation, structural typing with Protocols, and explicit API composition via optional parameters. When a helper feeds data into a pipeline (e.g., memory injection), wrap the entire body in `except Exception: # noqa: BLE001` with no re-raise—return a safe default instead. Failures in optional data collection must not interrupt the pipeline itself; this is especially important for optional features like Hindsight recall that degrade gracefully. Use modern generic syntax with `from __future__ import annotations` on Python 3.9+.\n\nWhen extracting multiple coordinators from a god class, identify those with zero cross-dependencies and extract in parallel phases. Dependencies between extracted classes (e.g., 'ReviewVerdictHandler uses CIFixCoordinator') create phase ordering constraints. Map this as a task graph to prevent parallel work from being blocked.\n\nAfter extracting duplicated code and removing unused imports, verify extraction completeness through two-stage verification: (1) check function signatures, return type hints, and other locations across the file to confirm imports are truly unused; (2) use targeted grep across the codebase for old names in imports, documentation, comments, dynamic imports, and test fixtures to prevent false positives. Deferred imports become cleanup signals when removing code—look for these as dead code markers.\n\nApply the single update point pattern: define artifacts once and import everywhere to prevent divergence. For FastAPI, register catch-all `/{path:path}` route last.\n\nSee also: Type Signatures as Backward-Compatibility Contracts — for communicating contract changes before implementation changes.","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-10T06:57:24.154748+00:00","updated_at":"2026-04-10T06:57:24.154755+00:00","valid_from":"2026-04-10T06:57:24.154748+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQNZEVQVRHE57A588EWZXKKD","title":"Use TYPE_CHECKING guards to break circular imports","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:52:34.811703+00:00","updated_at":"2026-05-03T03:52:34.811721+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Data Schema Evolution & Transitive Dependency Tracking
+## Use callbacks instead of class refs for runtime dependencies
 
-Manage data schemas through changes using: embed schema_version in each JSON line for self-describing records; use Pydantic defaults so old records missing new fields deserialize without migration code. Scan transitive dependencies recursively when invalidating items, updating all ancestors to point to final successors with depth limits to prevent infinite loops. Format complete content before truncating to character limits; use unconditional overwrite for small files; use atomic writes with rotate_backups for natural versioning and recovery. For external APIs not returning memory IDs, use sha256(text)[:16] as synthetic content hashes for temporal tracking.
+When classes have runtime circular references, inject callback functions instead of importing the class directly. Example: `get_progress=epic_reporter.get_progress` passed to constructor instead of importing Reporter class.
+
+**Why:** Defers resolution until initialization, avoiding import-time cycles and making dependency direction explicit in function signatures.
 
 
 ```json:entry
-{"id":"01KQ11NX7QNTT50G9SENE613W1","title":"Data Schema Evolution & Transitive Dependency Tracking","content":"Manage data schemas through changes using: embed schema_version in each JSON line for self-describing records; use Pydantic defaults so old records missing new fields deserialize without migration code. Scan transitive dependencies recursively when invalidating items, updating all ancestors to point to final successors with depth limits to prevent infinite loops. Format complete content before truncating to character limits; use unconditional overwrite for small files; use atomic writes with rotate_backups for natural versioning and recovery. For external APIs not returning memory IDs, use sha256(text)[:16] as synthetic content hashes for temporal tracking.","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-04-10T06:57:24.154763+00:00","updated_at":"2026-04-10T06:57:24.154764+00:00","valid_from":"2026-04-10T06:57:24.154763+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQNZEVQVRHE57A588EWZXKKE","title":"Use callbacks instead of class refs for runtime dependencies","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:52:34.811755+00:00","updated_at":"2026-05-03T03:52:34.811757+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Type Signatures as Backward-Compatibility Contracts
+## Degrade gracefully when optional dependencies fail
 
-Update function signatures to reflect new stricter types (e.g., `phase: PipelineStage | Literal[""]`) before modifying callers. Existing call sites with hardcoded string literals continue working via StrEnum coercion, making the signature change the primary integration point. Type signatures communicate contract changes to callers before implementation changes are made.
+Wrap optional dependency usage in broad exception handlers with safe defaults; never re-raise. Example: `except Exception: return safe_default # noqa: BLE001` for optional Hindsight recall or memory injection.
+
+**Why:** Failures in optional features must not interrupt the pipeline; graceful degradation preserves core functionality when optional systems fail.
+
+
+```json:entry
+{"id":"01KQNZEVQVRHE57A588EWZXKKF","title":"Degrade gracefully when optional dependencies fail","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:52:34.811769+00:00","updated_at":"2026-05-03T03:52:34.811771+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Use Protocol for optional dependency interfaces
+
+Define Protocol interfaces instead of concrete imports for optional dependencies. Callers use duck typing without importing the optional module.
+
+**Why:** Avoids hardcoding imports of optional packages into main code; allows swapping implementations and testing without the optional dependency installed.
+
+
+```json:entry
+{"id":"01KQNZEVQVRHE57A588EWZXKKG","title":"Use Protocol for optional dependency interfaces","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:52:34.811779+00:00","updated_at":"2026-05-03T03:52:34.811781+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Define shared artifacts once, import everywhere
+
+Create artifacts (schemas, constants, routes) in a single module and import them everywhere they're used. Don't duplicate definitions across files.
+
+**Why:** Prevents divergence where the same artifact has multiple versions in different parts of the codebase.
+
+
+```json:entry
+{"id":"01KQNZEVQVRHE57A588EWZXKKH","title":"Define shared artifacts once, import everywhere","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:52:34.811788+00:00","updated_at":"2026-05-03T03:52:34.811790+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Extract parallel-independent classes before dependent ones
+
+When extracting coordinators from a god class, identify classes with zero cross-dependencies and extract them in phase 1; handle phase ordering for classes with dependencies. Map dependencies as a task graph to prevent parallel work from being blocked.
+
+**Why:** Unblocks parallel extraction and makes dependency constraints explicit.
+
+
+```json:entry
+{"id":"01KQNZEVQVRHE57A588EWZXKKJ","title":"Extract parallel-independent classes before dependent ones","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:52:34.811799+00:00","updated_at":"2026-05-03T03:52:34.811801+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Verify extraction completeness in two stages
+
+Stage 1: Check function signatures, return types, and other references in the source file. Stage 2: Grep the codebase for old names in imports, docs, comments, fixtures.
+
+**Why:** Stage 1 catches unused local imports; Stage 2 catches references in tests, dynamic imports, and external modules that single-file grep misses.
+
+
+```json:entry
+{"id":"01KQNZEVQVRHE57A588EWZXKKK","title":"Verify extraction completeness in two stages","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:52:34.811810+00:00","updated_at":"2026-05-03T03:52:34.811813+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Register FastAPI catch-all routes last
+
+Use `/{path:path}` route at the end of route registration. Register more specific routes first.
+
+**Why:** Catch-all routes match anything; registering them first prevents more specific routes from ever being reached.
+
+
+```json:entry
+{"id":"01KQNZEVQVRHE57A588EWZXKKM","title":"Register FastAPI catch-all routes last","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:52:34.811822+00:00","updated_at":"2026-05-03T03:52:34.811824+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Embed schema_version in each JSON line
+
+Include `schema_version` field in every JSON line for self-describing records. Example: `{"schema_version": 1, "field": "value"}`.
+
+**Why:** Allows schema evolution without migration code; old records missing new fields deserialize safely via Pydantic defaults.
+
+
+```json:entry
+{"id":"01KQNZEVQVRHE57A588EWZXKKN","title":"Embed schema_version in each JSON line","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:52:34.811831+00:00","updated_at":"2026-05-03T03:52:34.811832+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Use Pydantic defaults for backward-compatible schemas
+
+Define default values in Pydantic models so records from earlier schema versions (missing new fields) deserialize without migration. Example: `new_field: str = 'default'`.
+
+**Why:** Old JSON lacking new fields can load directly; no separate migration code needed.
+
+
+```json:entry
+{"id":"01KQNZEVQVRHE57A588EWZXKKP","title":"Use Pydantic defaults for backward-compatible schemas","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:52:34.811841+00:00","updated_at":"2026-05-03T03:52:34.811843+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Scan transitive dependencies when invalidating items
+
+When invalidating a data item, recursively update all ancestors to point to final successors. Use depth limits to prevent infinite loops. Example: invalidate child → update parent → update grandparent, stop at depth limit.
+
+**Why:** Prevents broken dependency chains in trees; loop limits protect against cycles.
+
+
+```json:entry
+{"id":"01KQNZEVQVRHE57A588EWZXKKQ","title":"Scan transitive dependencies when invalidating items","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:52:34.811850+00:00","updated_at":"2026-05-03T03:52:34.811852+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Use atomic writes with rotate_backups for versioning
+
+Use unconditional overwrite for small files; use atomic writes with rotation for larger ones to preserve history.
+
+**Why:** Atomic writes prevent corruption on interruption; rotation provides natural versioning and recovery from corruption without separate backup logic.
+
+
+```json:entry
+{"id":"01KQNZEVQVRHE57A588EWZXKKR","title":"Use atomic writes with rotate_backups for versioning","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:52:34.811859+00:00","updated_at":"2026-05-03T03:52:34.811860+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Use sha256(text)[:16] for synthetic API content IDs
+
+When external APIs don't return content IDs, create synthetic ones using `sha256(text)[:16]`. Enables temporal tracking of content across API responses.
+
+**Why:** Consistent hashing allows tracking whether the same content appears in different API calls or has changed.
+
+
+```json:entry
+{"id":"01KQNZEVQVRHE57A588EWZXKKS","title":"Use sha256(text)[:16] for synthetic API content IDs","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:52:34.811867+00:00","updated_at":"2026-05-03T03:52:34.811869+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Type signatures communicate breaking contract changes
+
+Update function signatures to reflect stricter types (e.g., `phase: PipelineStage | Literal[""]`) before modifying callers. Existing calls with string literals continue working via StrEnum coercion; the signature is the integration point.
+
+**Why:** Type signatures make contract changes visible to callers before implementation changes, enabling gradual adoption.
 
 _Source: #6335 (review)_
 
 
 ```json:entry
-{"id":"01KQ11NX7QNTT50G9SENE613W2","title":"Type Signatures as Backward-Compatibility Contracts","content":"Update function signatures to reflect new stricter types (e.g., `phase: PipelineStage | Literal[\"\"]`) before modifying callers. Existing call sites with hardcoded string literals continue working via StrEnum coercion, making the signature change the primary integration point. Type signatures communicate contract changes to callers before implementation changes are made.","topic":null,"source_type":"review","source_issue":6335,"source_repo":null,"created_at":"2026-04-10T06:57:24.154767+00:00","updated_at":"2026-04-10T06:57:24.154768+00:00","valid_from":"2026-04-10T06:57:24.154767+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQNZEVQVRHE57A588EWZXKKT","title":"Type signatures communicate breaking contract changes","topic":null,"source_type":"review","source_issue":6335,"source_repo":null,"created_at":"2026-05-03T03:52:34.811876+00:00","updated_at":"2026-05-03T03:52:34.811877+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
 
 
-## Top-level imports of optional dependencies in test files
+## Never import optional deps at module level in tests
 
-Never write `from hindsight import Bank` at module level in tests. `httpx`, `hindsight`, and similar optional packages are not guaranteed to be installed in every environment.
+Always defer optional package imports to test method level, not file-top. Wrong: `from hindsight import Bank` at top; Right: `from hindsight import Bank` inside test method.
 
-**Wrong:**
-
-```python
-# tests/test_something.py
-from hindsight import Bank  # module-level — fails import if hindsight not installed
-
-class TestSomething:
-    def test_x(self):
-        bank = Bank()
-```
-
-**Right:**
-
-```python
-# tests/test_something.py
-class TestSomething:
-    def test_x(self):
-        from hindsight import Bank  # deferred — only imports when the test runs
-        bank = Bank()
-```
-
-**Why:** Top-level imports run at collection time. If the optional dep is missing, the entire test file fails to collect, hiding every test in it from the report.
+**Why:** Module-level imports run at collection time; missing optional packages fail the entire test file, hiding all tests from the report.
 
 
 ```json:entry
-{"id":"01KQ11NX7HJCH34WSSAFMB0PBC","title":"Top-level imports of optional dependencies in test files","content":"Never write `from hindsight import Bank` at module level in tests. `httpx`, `hindsight`, and similar optional packages are not guaranteed to be installed in every environment.\n\n**Wrong:**\n\n```python\n# tests/test_something.py\nfrom hindsight import Bank  # module-level — fails import if hindsight not installed\n\nclass TestSomething:\n    def test_x(self):\n        bank = Bank()\n```\n\n**Right:**\n\n```python\n# tests/test_something.py\nclass TestSomething:\n    def test_x(self):\n        from hindsight import Bank  # deferred — only imports when the test runs\n        bank = Bank()\n```\n\n**Why:** Top-level imports run at collection time. If the optional dep is missing, the entire test file fails to collect, hiding every test in it from the report.","topic":"gotchas","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.793217+00:00","updated_at":"2026-04-25T00:47:19.793218+00:00","valid_from":"2026-04-25T00:47:19.793217+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
-```
-
-
-## Self-Improving Harness
-
-This branch imports selected assets from `affaan-m/everything-claude-code` and wires them into HydraFlow's existing hook discipline.
-
-
-```json:entry
-{"id":"01KQ11NX7JR1QGCQ279PEQ249Q","title":"Self-Improving Harness","content":"This branch imports selected assets from `affaan-m/everything-claude-code` and wires them into HydraFlow's existing hook discipline.","topic":"architecture","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.794385+00:00","updated_at":"2026-04-25T00:47:19.794386+00:00","valid_from":"2026-04-25T00:47:19.794385+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
-```
-
-
-## Imported Skills
-
-Installed under `.codex/skills/`:
-
-- `continuous-learning-v2`
-- `eval-harness`
-- `verification-loop`
-- `strategic-compact`
-- `skill-stocktake`
-
-
-```json:entry
-{"id":"01KQ11NX7JR1QGCQ279PEQ249R","title":"Imported Skills","content":"Installed under `.codex/skills/`:\n\n- `continuous-learning-v2`\n- `eval-harness`\n- `verification-loop`\n- `strategic-compact`\n- `skill-stocktake`","topic":"architecture","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.794392+00:00","updated_at":"2026-04-25T00:47:19.794393+00:00","valid_from":"2026-04-25T00:47:19.794392+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
-```
-
-
-## Runtime Loop
-
-HydraFlow now runs two additional hooks:
-
-- `PostToolUse` -> `.claude/hooks/hf.observe-session.sh`
-  - Captures minimal tool metadata (tool, file path, bash verb, session ID)
-  - Writes JSONL to `.claude/state/self-improve/observations.jsonl`
-- `Stop` -> `.claude/hooks/hf.session-retro.sh`
-  - Generates per-session retros in `.claude/state/self-improve/session-retros/`
-  - Appends index entries to `.claude/state/self-improve/memory-candidates.md`
-  - Emits actionable suggestions tied to imported skills
-
-Runtime artifacts are ignored via `.gitignore` (`.claude/state/`).
-
-
-```json:entry
-{"id":"01KQ11NX7JR1QGCQ279PEQ249S","title":"Runtime Loop","content":"HydraFlow now runs two additional hooks:\n\n- `PostToolUse` -> `.claude/hooks/hf.observe-session.sh`\n  - Captures minimal tool metadata (tool, file path, bash verb, session ID)\n  - Writes JSONL to `.claude/state/self-improve/observations.jsonl`\n- `Stop` -> `.claude/hooks/hf.session-retro.sh`\n  - Generates per-session retros in `.claude/state/self-improve/session-retros/`\n  - Appends index entries to `.claude/state/self-improve/memory-candidates.md`\n  - Emits actionable suggestions tied to imported skills\n\nRuntime artifacts are ignored via `.gitignore` (`.claude/state/`).","topic":"architecture","source_type":"manual","source_issue":null,"source_repo":null,"created_at":"2026-04-25T00:47:19.794397+00:00","updated_at":"2026-04-25T00:47:19.794398+00:00","valid_from":"2026-04-25T00:47:19.794397+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+{"id":"01KQNZEVQVRHE57A588EWZXKKV","title":"Never import optional deps at module level in tests","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:52:34.811886+00:00","updated_at":"2026-05-03T03:52:34.811887+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```

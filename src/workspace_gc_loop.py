@@ -176,7 +176,6 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
         return safe_to_gc
 
     async def _issue_has_pipeline_label(self, issue_number: int) -> bool:
-        """Return True when the issue currently carries any pipeline label."""
         pipeline_labels = {
             *(lbl.lower() for lbl in self._config.find_label),
             *(lbl.lower() for lbl in self._config.planner_label),

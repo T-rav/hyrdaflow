@@ -327,12 +327,11 @@ class EventBus:
 
     @property
     def current_session_id(self) -> str | None:
-        """Return the active session ID, if any."""
         return self._active_session_id
 
     async def publish(self, event: HydraFlowEvent) -> None:
         """Publish *event* to all subscribers and append to history."""
-        if event.session_id is None and getattr(self, "_active_session_id", None):
+        if event.session_id is None and self._active_session_id:
             event.session_id = self._active_session_id
         if self._active_repo and event.repo is None:
             event.repo = self._active_repo

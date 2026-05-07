@@ -36,6 +36,7 @@ areas:
       - StagingPromotionLoop
       - StaleIssueGCLoop
       - StaleIssueLoop
+      - TermProposerLoop
       - WikiRotDetectorLoop
       - WorkspaceGCLoop
     related_adrs: ['0029', '0049']
@@ -78,6 +79,7 @@ areas:
       under tests/scenarios/fakes/.
     ports:
       - AgentPort
+      - BotPRPort
       - IssueFetcherPort
       - IssueStorePort
       - ObservabilityPort

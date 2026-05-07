@@ -36,7 +36,7 @@ RESET := \033[0m
 DOCKER_IMAGE ?= ghcr.io/t-rav/hydraflow-agent:latest
 DOCKER_BASE_IMAGE ?= ghcr.io/t-rav/hydraflow-agent-base:latest
 
-.PHONY: help run dev dry-run clean clean-assets compact coverage cover smoke test test-fast test-cov lint lint-check lint-fix typecheck security quality quality-lite install install-plugins setup status ui ui-dev ui-clean ensure-labels prep scaffold hot docker-build docker-ensure docker-test deps integration soak screenshot screenshot-update check-node-ui trust trust-adversarial auto-agent-adversarial
+.PHONY: help run dev dry-run clean clean-assets compact coverage cover smoke test test-fast test-cov lint lint-check lint-fix lint-ul typecheck security quality quality-lite install install-plugins setup status ui ui-dev ui-clean ensure-labels prep scaffold hot docker-build docker-ensure docker-test deps integration soak screenshot screenshot-update check-node-ui trust trust-adversarial auto-agent-adversarial
 
 check-node-ui:
 	@cd $(HYDRAFLOW_DIR)src/ui && $(HYDRAFLOW_DIR)scripts/ui-npm.sh --version >/dev/null
@@ -277,6 +277,11 @@ test-sludge-check: deps
 lint-fix: lint
 	@echo "$(GREEN)Auto-repair complete$(RESET)"
 
+lint-ul: deps
+	@echo "$(BLUE)Running ubiquitous-language lint + view regen...$(RESET)"
+	@cd $(HYDRAFLOW_DIR) && $(UV) python scripts/lint_ubiquitous_language.py
+	@echo "$(GREEN)UL lint complete$(RESET)"
+
 typecheck: deps
 	@echo "$(BLUE)Running Pyright type checks...$(RESET)"
 	@cd $(HYDRAFLOW_DIR) && $(UV) pyright
@@ -316,7 +321,7 @@ init:
 		$(ARGS)
 
 
-quality: deps
+quality: deps lint-ul
 	@echo "$(BLUE)Running quality checks in parallel...$(RESET)"
 	@cd $(HYDRAFLOW_DIR) && ( \
 		$(UV) ruff check . && $(UV) ruff format . --check && echo "[lint OK]" & \

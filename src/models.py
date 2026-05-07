@@ -290,7 +290,6 @@ class GitHubIssue(BaseModel):
         return str(value).lower()
 
     def to_task(self) -> Task:
-        """Convert to a source-agnostic :class:`Task`."""
         metadata: dict[str, Any] = {}
         if self.author:
             metadata["author"] = self.author
@@ -310,7 +309,6 @@ class GitHubIssue(BaseModel):
 
     @classmethod
     def from_task(cls, task: Task) -> GitHubIssue:
-        """Reconstruct a :class:`GitHubIssue` from a :class:`Task`."""
         return cls(
             number=task.id,
             title=task.title,
@@ -1653,7 +1651,9 @@ class Release(BaseModel):
 class DependabotMergeSettings(BaseModel):
     """Configuration for the Dependabot merge auto-merge worker."""
 
-    authors: list[str] = Field(default_factory=lambda: ["dependabot[bot]"])
+    authors: list[str] = Field(
+        default_factory=lambda: ["dependabot[bot]", "hydraflow-ul-bot"]
+    )
     failure_strategy: Literal["skip", "hitl", "close"] = "skip"
     review_mode: Literal["ci_only", "llm_review"] = "ci_only"
 
