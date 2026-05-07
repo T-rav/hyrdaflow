@@ -530,7 +530,10 @@ class CorpusLearningLoop(BaseBackgroundLoop):
             await self._prs.create_issue(
                 title,
                 body,
-                ["hitl-escalation", "corpus-learning-stuck"],
+                [
+                    self._config.hitl_escalation_label[0],
+                    self._config.corpus_learning_stuck_label[0],
+                ],
             )
         except Exception:  # noqa: BLE001
             logger.warning(
@@ -744,7 +747,7 @@ class CorpusLearningLoop(BaseBackgroundLoop):
                 "--state",
                 "closed",
                 "--label",
-                "corpus-learning-stuck",
+                self._config.corpus_learning_stuck_label[0],
                 "--json",
                 "title",
                 "--limit",

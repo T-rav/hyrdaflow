@@ -261,7 +261,7 @@ class StagingBisectLoop(BaseBackgroundLoop):
             issue = await self._escalate_harness_failure(
                 red_sha,
                 green_sha,
-                "bisect-harness-failure",
+                self._config.bisect_harness_failure_label[0],
                 "bisect exceeded runtime cap",
             )
             return {
@@ -280,7 +280,7 @@ class StagingBisectLoop(BaseBackgroundLoop):
             issue = await self._escalate_harness_failure(
                 red_sha,
                 green_sha,
-                "bisect-harness-failure",
+                self._config.bisect_harness_failure_label[0],
                 str(exc),
             )
             return {
@@ -353,7 +353,10 @@ class StagingBisectLoop(BaseBackgroundLoop):
                     "subsequent PRs likely depend on the culprit.\n\n"
                     f"```\n{exc}\n```"
                 ),
-                ["hitl-escalation", "revert-conflict"],
+                [
+                    self._config.hitl_escalation_label[0],
+                    self._config.revert_conflict_label[0],
+                ],
             )
             return {"status": "revert_conflict", "escalation_issue": issue}
 
@@ -389,7 +392,9 @@ class StagingBisectLoop(BaseBackgroundLoop):
             f"- Failure class: `{label}`\n\n"
             f"```\n{detail[:3000]}\n```"
         )
-        return await self._prs.create_issue(title, body, ["hitl-escalation", label])
+        return await self._prs.create_issue(
+            title, body, [self._config.hitl_escalation_label[0], label]
+        )
 
     def _parse_failing_tests(self, probe_output: str) -> str:
         """Heuristic extraction of failing test identifiers from probe output."""
@@ -641,7 +646,10 @@ class StagingBisectLoop(BaseBackgroundLoop):
             "### Bisect log\n\n"
             f"```\n{bisect_log[:5000]}\n```"
         )
-        labels = ["hitl-escalation", "rc-red-bisect-exhausted"]
+        labels = [
+            self._config.hitl_escalation_label[0],
+            self._config.rc_red_bisect_exhausted_label[0],
+        ]
         issue = await self._prs.create_issue(title, body, labels)
         logger.error("StagingBisectLoop: guardrail tripped — escalated #%d", issue)
         return {"status": "guardrail_escalated", "escalation_issue": issue}
@@ -879,7 +887,10 @@ class StagingBisectLoop(BaseBackgroundLoop):
             return await self._prs.create_issue(
                 title,
                 body,
-                ["hitl-escalation", "retry-lineage-exhausted"],
+                [
+                    self._config.hitl_escalation_label[0],
+                    self._config.retry_lineage_exhausted_label[0],
+                ],
             )
 
         title = f"Retry: {culprit_pr_title or f'PR #{culprit_pr}'}"
@@ -963,7 +974,10 @@ class StagingBisectLoop(BaseBackgroundLoop):
                     "The revert stays in place per spec §4.3 step 8 — "
                     "a human must disambiguate."
                 ),
-                ["hitl-escalation", "rc-red-post-revert-red"],
+                [
+                    self._config.hitl_escalation_label[0],
+                    self._config.rc_red_post_revert_red_label[0],
+                ],
             )
             self._pending_watchdog = None
             return {
@@ -983,7 +997,10 @@ class StagingBisectLoop(BaseBackgroundLoop):
                     "or 8-hour window after the auto-revert.\n\n"
                     "The RC pipeline may be stalled for unrelated reasons."
                 ),
-                ["hitl-escalation", "rc-red-verify-timeout"],
+                [
+                    self._config.hitl_escalation_label[0],
+                    self._config.rc_red_verify_timeout_label[0],
+                ],
             )
             self._pending_watchdog = None
             return {"status": "watchdog_timeout", "escalation_issue": issue}

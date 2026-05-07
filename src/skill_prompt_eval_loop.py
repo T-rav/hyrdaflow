@@ -150,7 +150,12 @@ class SkillPromptEvalLoop(BaseBackgroundLoop):
             f"_Spec §3.2: closing this issue clears the dedup key._"
         )
         return await self._pr.create_issue(
-            title, body, ["hitl-escalation", "skill-prompt-stuck"]
+            title,
+            body,
+            [
+                self._config.hitl_escalation_label[0],
+                self._config.skill_prompt_stuck_label[0],
+            ],
         )
 
     async def _reconcile_closed_escalations(self) -> None:
@@ -164,9 +169,9 @@ class SkillPromptEvalLoop(BaseBackgroundLoop):
             "--state",
             "closed",
             "--label",
-            "hitl-escalation",
+            self._config.hitl_escalation_label[0],
             "--label",
-            "skill-prompt-stuck",
+            self._config.skill_prompt_stuck_label[0],
             "--author",
             "@me",
             "--limit",

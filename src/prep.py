@@ -29,6 +29,61 @@ HYDRAFLOW_LABELS: tuple[tuple[str, str, str], ...] = (
     ("verify_label", "c2e0c6", "Post-merge verification pending"),
     ("parked_label", "c5c5c5", "Issue parked — awaiting author clarification"),
     ("diagnose_label", "1d76db", "Issue under diagnostic analysis before HITL"),
+    # Escalation labels — shared HITL escalation + per-loop stuck labels
+    (
+        "hitl_escalation_label",
+        "b60205",
+        "HITL escalation issue filed by a caretaker loop",
+    ),
+    ("fake_coverage_stuck_label", "e4e669", "FakeCoverageAuditorLoop stuck escalation"),
+    ("discover_stuck_label", "c5def5", "DiscoverRunner stuck escalation"),
+    ("shape_stuck_label", "c5def5", "ShapeRunner stuck escalation"),
+    ("corpus_learning_stuck_label", "bfd4f2", "CorpusLearningLoop stuck escalation"),
+    ("trust_loop_anomaly_label", "d93f0b", "TrustFleetSanityLoop anomaly escalation"),
+    ("rc_duration_stuck_label", "e4e669", "RcBudgetLoop duration stuck escalation"),
+    ("wiki_rot_stuck_label", "bfd4f2", "WikiRotDetectorLoop stuck escalation"),
+    ("skill_prompt_stuck_label", "bfd4f2", "SkillPromptEvalLoop stuck escalation"),
+    (
+        "flaky_test_stuck_label",
+        "e4e669",
+        "FlakeTrackerLoop flaky test stuck escalation",
+    ),
+    (
+        "principles_stuck_label",
+        "d93f0b",
+        "PrinciplesAuditLoop principles stuck escalation",
+    ),
+    (
+        "fake_repair_stuck_label",
+        "e4e669",
+        "ContractRefreshLoop fake repair stuck escalation",
+    ),
+    (
+        "bisect_harness_failure_label",
+        "b60205",
+        "StagingBisectLoop bisect harness failure",
+    ),
+    ("revert_conflict_label", "b60205", "StagingBisectLoop git revert conflict"),
+    (
+        "rc_red_bisect_exhausted_label",
+        "b60205",
+        "StagingBisectLoop RC-red bisect exhausted",
+    ),
+    (
+        "retry_lineage_exhausted_label",
+        "b60205",
+        "StagingBisectLoop retry lineage exhausted",
+    ),
+    (
+        "rc_red_post_revert_red_label",
+        "b60205",
+        "StagingBisectLoop post-revert still red",
+    ),
+    (
+        "rc_red_verify_timeout_label",
+        "b60205",
+        "StagingBisectLoop RC verification timeout",
+    ),
 )
 
 

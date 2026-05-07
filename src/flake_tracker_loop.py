@@ -210,7 +210,12 @@ class FlakeTrackerLoop(BaseBackgroundLoop):
             f"dedup key and let the loop re-fire on the next drift._"
         )
         return await self._pr.create_issue(
-            title, body, ["hitl-escalation", "flaky-test-stuck"]
+            title,
+            body,
+            [
+                self._config.hitl_escalation_label[0],
+                self._config.flaky_test_stuck_label[0],
+            ],
         )
 
     async def _reconcile_closed_escalations(self) -> None:
@@ -224,9 +229,9 @@ class FlakeTrackerLoop(BaseBackgroundLoop):
             "--state",
             "closed",
             "--label",
-            "hitl-escalation",
+            self._config.hitl_escalation_label[0],
             "--label",
-            "flaky-test-stuck",
+            self._config.flaky_test_stuck_label[0],
             "--author",
             "@me",
             "--limit",

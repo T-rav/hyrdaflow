@@ -226,7 +226,12 @@ class FakeCoverageAuditorLoop(BaseBackgroundLoop):
             f"_Spec §3.2: closing this issue clears the dedup key._"
         )
         return await self._pr.create_issue(
-            title, body, ["hitl-escalation", "fake-coverage-stuck"]
+            title,
+            body,
+            [
+                self._config.hitl_escalation_label[0],
+                self._config.fake_coverage_stuck_label[0],
+            ],
         )
 
     async def _reconcile_closed_escalations(self) -> None:
@@ -240,9 +245,9 @@ class FakeCoverageAuditorLoop(BaseBackgroundLoop):
             "--state",
             "closed",
             "--label",
-            "hitl-escalation",
+            self._config.hitl_escalation_label[0],
             "--label",
-            "fake-coverage-stuck",
+            self._config.fake_coverage_stuck_label[0],
             "--author",
             "@me",
             "--limit",

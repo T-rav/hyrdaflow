@@ -389,7 +389,12 @@ class RCBudgetLoop(BaseBackgroundLoop):
             f"`rc_budget:{kind}` dedup key (spec §3.2)."
         )
         return await self._pr.create_issue(
-            title, body, ["hitl-escalation", "rc-duration-stuck"]
+            title,
+            body,
+            [
+                self._config.hitl_escalation_label[0],
+                self._config.rc_duration_stuck_label[0],
+            ],
         )
 
     async def _reconcile_closed_escalations(self) -> None:
@@ -403,9 +408,9 @@ class RCBudgetLoop(BaseBackgroundLoop):
             "--state",
             "closed",
             "--label",
-            "hitl-escalation",
+            self._config.hitl_escalation_label[0],
             "--label",
-            "rc-duration-stuck",
+            self._config.rc_duration_stuck_label[0],
             "--author",
             "@me",
             "--limit",

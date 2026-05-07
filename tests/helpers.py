@@ -405,6 +405,24 @@ class ConfigFactory:
             "leaves regression tests, doesn't over-engineer."
         ),
         auto_agent_preflight_enabled: bool = True,
+        hitl_escalation_label: list[str] | None = None,
+        fake_coverage_stuck_label: list[str] | None = None,
+        discover_stuck_label: list[str] | None = None,
+        shape_stuck_label: list[str] | None = None,
+        corpus_learning_stuck_label: list[str] | None = None,
+        trust_loop_anomaly_label: list[str] | None = None,
+        rc_duration_stuck_label: list[str] | None = None,
+        wiki_rot_stuck_label: list[str] | None = None,
+        skill_prompt_stuck_label: list[str] | None = None,
+        flaky_test_stuck_label: list[str] | None = None,
+        principles_stuck_label: list[str] | None = None,
+        fake_repair_stuck_label: list[str] | None = None,
+        bisect_harness_failure_label: list[str] | None = None,
+        revert_conflict_label: list[str] | None = None,
+        rc_red_bisect_exhausted_label: list[str] | None = None,
+        retry_lineage_exhausted_label: list[str] | None = None,
+        rc_red_post_revert_red_label: list[str] | None = None,
+        rc_red_verify_timeout_label: list[str] | None = None,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -643,6 +661,96 @@ class ConfigFactory:
                 else ["principles-stuck", "cultural-check"],
                 auto_agent_persona=auto_agent_persona,
                 auto_agent_preflight_enabled=auto_agent_preflight_enabled,
+                **(
+                    {"hitl_escalation_label": hitl_escalation_label}
+                    if hitl_escalation_label is not None
+                    else {}
+                ),
+                **(
+                    {"fake_coverage_stuck_label": fake_coverage_stuck_label}
+                    if fake_coverage_stuck_label is not None
+                    else {}
+                ),
+                **(
+                    {"discover_stuck_label": discover_stuck_label}
+                    if discover_stuck_label is not None
+                    else {}
+                ),
+                **(
+                    {"shape_stuck_label": shape_stuck_label}
+                    if shape_stuck_label is not None
+                    else {}
+                ),
+                **(
+                    {"corpus_learning_stuck_label": corpus_learning_stuck_label}
+                    if corpus_learning_stuck_label is not None
+                    else {}
+                ),
+                **(
+                    {"trust_loop_anomaly_label": trust_loop_anomaly_label}
+                    if trust_loop_anomaly_label is not None
+                    else {}
+                ),
+                **(
+                    {"rc_duration_stuck_label": rc_duration_stuck_label}
+                    if rc_duration_stuck_label is not None
+                    else {}
+                ),
+                **(
+                    {"wiki_rot_stuck_label": wiki_rot_stuck_label}
+                    if wiki_rot_stuck_label is not None
+                    else {}
+                ),
+                **(
+                    {"skill_prompt_stuck_label": skill_prompt_stuck_label}
+                    if skill_prompt_stuck_label is not None
+                    else {}
+                ),
+                **(
+                    {"flaky_test_stuck_label": flaky_test_stuck_label}
+                    if flaky_test_stuck_label is not None
+                    else {}
+                ),
+                **(
+                    {"principles_stuck_label": principles_stuck_label}
+                    if principles_stuck_label is not None
+                    else {}
+                ),
+                **(
+                    {"fake_repair_stuck_label": fake_repair_stuck_label}
+                    if fake_repair_stuck_label is not None
+                    else {}
+                ),
+                **(
+                    {"bisect_harness_failure_label": bisect_harness_failure_label}
+                    if bisect_harness_failure_label is not None
+                    else {}
+                ),
+                **(
+                    {"revert_conflict_label": revert_conflict_label}
+                    if revert_conflict_label is not None
+                    else {}
+                ),
+                **(
+                    {"rc_red_bisect_exhausted_label": rc_red_bisect_exhausted_label}
+                    if rc_red_bisect_exhausted_label is not None
+                    else {}
+                ),
+                **(
+                    {"retry_lineage_exhausted_label": retry_lineage_exhausted_label}
+                    if retry_lineage_exhausted_label is not None
+                    else {}
+                ),
+                **(
+                    {"rc_red_post_revert_red_label": rc_red_post_revert_red_label}
+                    if rc_red_post_revert_red_label is not None
+                    else {}
+                ),
+                **(
+                    {"rc_red_verify_timeout_label": rc_red_verify_timeout_label}
+                    if rc_red_verify_timeout_label is not None
+                    else {}
+                ),
             )
 
 

@@ -340,8 +340,8 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
             f"Closing this issue clears the attempt counter (§3.2 lifecycle)."
         )
         labels = [
-            "hitl-escalation",
-            "principles-stuck",
+            self._config.hitl_escalation_label[0],
+            self._config.principles_stuck_label[0],
             f"check-{check_id}",
         ]
         if severity == "CULTURAL":
@@ -369,7 +369,7 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
                 "--state",
                 "closed",
                 "--label",
-                "principles-stuck",
+                self._config.principles_stuck_label[0],
                 "--json",
                 "title",
                 "--limit",

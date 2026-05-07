@@ -344,7 +344,10 @@ class TrustFleetSanityLoop(BaseBackgroundLoop):
         return await self._pr.create_issue(
             title,
             body,
-            ["hitl-escalation", "trust-loop-anomaly"],
+            [
+                self._config.hitl_escalation_label[0],
+                self._config.trust_loop_anomaly_label[0],
+            ],
         )
 
     async def _reconcile_closed_escalations(self) -> None:
@@ -365,9 +368,9 @@ class TrustFleetSanityLoop(BaseBackgroundLoop):
             "--state",
             "closed",
             "--label",
-            "hitl-escalation",
+            self._config.hitl_escalation_label[0],
             "--label",
-            "trust-loop-anomaly",
+            self._config.trust_loop_anomaly_label[0],
             "--author",
             "@me",
             "--limit",

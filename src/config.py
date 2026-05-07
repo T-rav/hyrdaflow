@@ -736,6 +736,81 @@ class HydraFlowConfig(BaseModel):
         default=["hydraflow-epic-child"],
         description="Labels for child issues linked to epics (OR logic)",
     )
+
+    # Escalation labels — shared hitl-escalation + per-loop stuck labels
+    hitl_escalation_label: list[str] = Field(
+        default=["hydraflow-hitl-escalation"],
+        description="Labels for HITL escalation issues filed by caretaker loops (OR logic)",
+    )
+    fake_coverage_stuck_label: list[str] = Field(
+        default=["hydraflow-fake-coverage-stuck"],
+        description="Stuck label for FakeCoverageAuditorLoop escalations (OR logic)",
+    )
+    discover_stuck_label: list[str] = Field(
+        default=["hydraflow-discover-stuck"],
+        description="Stuck label for DiscoverRunner escalations (OR logic)",
+    )
+    shape_stuck_label: list[str] = Field(
+        default=["hydraflow-shape-stuck"],
+        description="Stuck label for ShapeRunner escalations (OR logic)",
+    )
+    corpus_learning_stuck_label: list[str] = Field(
+        default=["hydraflow-corpus-learning-stuck"],
+        description="Stuck label for CorpusLearningLoop escalations (OR logic)",
+    )
+    trust_loop_anomaly_label: list[str] = Field(
+        default=["hydraflow-trust-loop-anomaly"],
+        description="Stuck label for TrustFleetSanityLoop escalations (OR logic)",
+    )
+    rc_duration_stuck_label: list[str] = Field(
+        default=["hydraflow-rc-duration-stuck"],
+        description="Stuck label for RcBudgetLoop escalations (OR logic)",
+    )
+    wiki_rot_stuck_label: list[str] = Field(
+        default=["hydraflow-wiki-rot-stuck"],
+        description="Stuck label for WikiRotDetectorLoop escalations (OR logic)",
+    )
+    skill_prompt_stuck_label: list[str] = Field(
+        default=["hydraflow-skill-prompt-stuck"],
+        description="Stuck label for SkillPromptEvalLoop escalations (OR logic)",
+    )
+    flaky_test_stuck_label: list[str] = Field(
+        default=["hydraflow-flaky-test-stuck"],
+        description="Stuck label for FlakeTrackerLoop escalations (OR logic)",
+    )
+    principles_stuck_label: list[str] = Field(
+        default=["hydraflow-principles-stuck"],
+        description="Stuck label for PrinciplesAuditLoop escalations (OR logic)",
+    )
+    fake_repair_stuck_label: list[str] = Field(
+        default=["hydraflow-fake-repair-stuck"],
+        description="Stuck label for ContractRefreshLoop HITL escalations (OR logic)",
+    )
+    bisect_harness_failure_label: list[str] = Field(
+        default=["hydraflow-bisect-harness-failure"],
+        description="Stuck label for StagingBisectLoop harness failures (OR logic)",
+    )
+    revert_conflict_label: list[str] = Field(
+        default=["hydraflow-revert-conflict"],
+        description="Stuck label for StagingBisectLoop revert conflicts (OR logic)",
+    )
+    rc_red_bisect_exhausted_label: list[str] = Field(
+        default=["hydraflow-rc-red-bisect-exhausted"],
+        description="Stuck label for StagingBisectLoop bisect-exhausted escalations (OR logic)",
+    )
+    retry_lineage_exhausted_label: list[str] = Field(
+        default=["hydraflow-retry-lineage-exhausted"],
+        description="Stuck label for StagingBisectLoop lineage-exhausted escalations (OR logic)",
+    )
+    rc_red_post_revert_red_label: list[str] = Field(
+        default=["hydraflow-rc-red-post-revert-red"],
+        description="Stuck label for StagingBisectLoop post-revert red escalations (OR logic)",
+    )
+    rc_red_verify_timeout_label: list[str] = Field(
+        default=["hydraflow-rc-red-verify-timeout"],
+        description="Stuck label for StagingBisectLoop verify-timeout escalations (OR logic)",
+    )
+
     epic_group_planning: bool = Field(
         default=True,
         description="Group epic children for cohort planning with gap review",

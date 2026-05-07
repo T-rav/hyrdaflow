@@ -51,7 +51,9 @@ logger = logging.getLogger("hydraflow.wiki_rot_detector_loop")
 _MAX_ATTEMPTS = 3
 _EXCERPT_CHARS = 500
 _ISSUE_LABELS_FIND: tuple[str, ...] = ("hydraflow-find", "wiki-rot")
-_ISSUE_LABELS_ESCALATE: tuple[str, ...] = ("hitl-escalation", "wiki-rot-stuck")
+_ISSUE_LABELS_ESCALATE: tuple[
+    str, ...
+] = ()  # replaced by config-driven labels; kept for import compat
 
 
 class WikiRotDetectorLoop(BaseBackgroundLoop):
@@ -353,7 +355,10 @@ class WikiRotDetectorLoop(BaseBackgroundLoop):
         await self._pr.create_issue(
             title,
             body,
-            list(_ISSUE_LABELS_ESCALATE),
+            [
+                self._config.hitl_escalation_label[0],
+                self._config.wiki_rot_stuck_label[0],
+            ],
         )
 
     async def _reconcile_closed_escalations(self) -> None:
@@ -408,9 +413,9 @@ class WikiRotDetectorLoop(BaseBackgroundLoop):
             "--state",
             "closed",
             "--label",
-            "hitl-escalation",
+            self._config.hitl_escalation_label[0],
             "--label",
-            "wiki-rot-stuck",
+            self._config.wiki_rot_stuck_label[0],
             "--author",
             "@me",
             "--json",
