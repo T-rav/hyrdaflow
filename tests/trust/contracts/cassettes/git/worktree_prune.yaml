@@ -1,0 +1,15 @@
+adapter: git
+interaction: worktree_prune
+recorded_at: "2026-04-22T14:00:00Z"
+recorder_sha: "729304f1"
+fixture_repo: tests/trust/contracts/fixtures/git_sandbox
+input:
+  command: worktree_prune
+  args: []
+  stdin: null
+  env: {}
+output:
+  exit_code: 0
+  stdout: ""
+  stderr: ""
+normalizers: []
