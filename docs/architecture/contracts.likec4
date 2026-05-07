@@ -1,0 +1,103 @@
+specification {
+    element system
+    element container
+    element component
+    element file
+
+    relationship feeds
+    relationship validates
+    relationship reads
+    relationship invokes
+}
+
+model {
+    trust = system 'Trust Architecture (ADR-0047)' {
+        description: 'Cassette record/replay gate for fake adapters.'
+
+        auditor = container 'fake_coverage_auditor_loop' {
+            description: 'Weekly auditor — files an issue when a Fake* method has no cassette.'
+
+            catalog_fake = component 'catalog_fake_methods' {
+                description: 'AST-scans src/mockworld/fakes/*.py for public methods'
+            }
+            catalog_cas = component 'catalog_cassette_methods' {
+                description: 'Loads cassette YAMLs and collects input.command'
+            }
+        }
+
+        replay_gate = container 'Replay Gate' {
+            description: 'pytest gate that drives Fake* with cassette inputs'
+
+            test_fake_git = component 'test_fake_git_contract.py' {
+                description: 'Replays git/*.yaml through FakeGit; asserts equality under normalizers'
+            }
+            invoke_fn = component '_invoke_fake_git' {
+                description: 'if/elif dispatcher: cassette.input.command -> FakeGit method call'
+            }
+            replay_harness = component '_replay.py' {
+                description: 'load + invoke + apply normalizers + assert exit_code/stdout/stderr'
+            }
+            schema = component '_schema.py' {
+                description: 'Cassette pydantic model + NORMALIZERS registry (closed set)'
+            }
+        }
+
+        cassettes = container 'cassettes/git/' {
+            description: 'YAML cassettes — one interaction per file'
+
+            commit_yaml = file 'commit.yaml' {
+                description: 'input.command=commit, normalizers=[sha:short]'
+            }
+            new_yaml = file 'config_get.yaml (NEW)' {
+                description: 'input.command=config_get, normalizers=[]'
+            }
+        }
+
+        fakes = container 'mockworld/fakes/' {
+            description: 'In-memory adapters that satisfy port protocols'
+
+            fake_git = component 'FakeGit' {
+                description: 'config_get(cwd, key) -> Optional[str]; backed by self._configs dict'
+            }
+            seed_helper = component 'set_corrupted_config (helper)' {
+                description: 'Public seeder that populates self._configs[cwd][key]=value'
+            }
+        }
+
+        regression = container 'tests/regressions/' {
+            description: 'One file per closed coverage-gap issue; binds gap to a test'
+
+            new_test = file 'test_issue_8490.py (NEW)' {
+                description: 'Asserts "config_get" in catalog_cassette_methods(cassettes/git)'
+            }
+        }
+    }
+
+    auditor.catalog_fake -> fakes.fake_git 'AST-scans for public methods'
+    auditor.catalog_cas -> cassettes 'reads YAML input.command'
+    replay_gate.test_fake_git -> replay_gate.invoke_fn 'parametrizes per cassette'
+    replay_gate.invoke_fn -> fakes.seed_helper 'seeds config (config_get branch)'
+    replay_gate.invoke_fn -> fakes.fake_git 'awaits config_get'
+    replay_gate.replay_harness -> replay_gate.schema 'load_cassette + apply_normalizers'
+    replay_gate.replay_harness -> cassettes 'reads *.yaml'
+    regression.new_test -> auditor.catalog_cas 'imports + asserts coverage'
+    regression.new_test -> cassettes.new_yaml 'expects file to exist'
+}
+
+views {
+    view containers of trust {
+        title 'Trust contracts — closing FakeGit.config_get coverage gap'
+        include *
+    }
+
+    view replay {
+        title 'Cassette replay flow — config_get'
+        include replay_gate.test_fake_git
+        include replay_gate.invoke_fn
+        include replay_gate.replay_harness
+        include replay_gate.schema
+        include cassettes.new_yaml
+        include fakes.fake_git
+        include fakes.seed_helper
+    }
+}
