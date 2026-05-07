@@ -1,0 +1,63 @@
+// Issue #8496 — dynamic view: rename-path fix flow
+// Shows the order of edits and how each one re-greens a different gate.
+
+specification {
+  element step
+  element gate
+  element actor
+}
+
+model {
+  implementer = actor 'Implementer'
+
+  step1 = step 'Rename in fake_git.py' {
+    description 'set_corrupted_config → script_set_corrupted_config (line 21)'
+  }
+  step2a = step 'Update caller A' {
+    description 'tests/scenarios/fakes/test_fake_git.py:34 — fake.script_set_corrupted_config(tmp_path, key=..., value=...)'
+  }
+  step2b = step 'Update caller B' {
+    description 'tests/scenarios/test_surfaces.py:54 — mock_world.git.script_set_corrupted_config(tmp_path, key=..., value=...)'
+  }
+  step3 = step 'Update wiki snippet' {
+    description 'docs/wiki/testing.md:642 — fake.script_set_corrupted_config(cwd, key=..., value=...)'
+  }
+  step4 = step 'Update regression test' {
+    description '
+      tests/regressions/test_issue_8496.py — accept "script_set_corrupted_config in helpers"
+      as the green path; otherwise the rename trips the "no longer appears" assertion.
+    '
+  }
+  step5 = step 'make quality' {
+    description 'Full suite (per CLAUDE.md cleanup-PR rule); verify nothing else regressed.'
+  }
+
+  gateAuditor = gate 'AuditorAST' {
+    description 'catalog_fake_methods now classifies script_set_corrupted_config as test-helper (not adapter-surface).'
+  }
+  gateGrep = gate 'AuditorGrep' {
+    description '_grep_scenario_for_helper finds script_set_corrupted_config( in tests/scenarios/.'
+  }
+  gateRegression = gate 'RegressionTest' {
+    description 'tests/regressions/test_issue_8496.py turns GREEN once it learns the renamed form.'
+  }
+
+  implementer -> step1
+  step1 -> gateAuditor 'classification flips: surface → helper'
+  step1 -> step2a 'callers must use new name (Python AttributeError otherwise)'
+  step1 -> step2b
+  step2a -> gateGrep 'rg matches script_set_corrupted_config('
+  step2b -> gateGrep
+  step2a -> step3
+  step3 -> step4
+  step4 -> gateRegression
+  step4 -> step5
+  step5 -> gateRegression 'final pytest run confirms green'
+}
+
+views {
+  view rename_flow {
+    title 'Rename-path fix sequence and which gates each step closes'
+    include *
+  }
+}
