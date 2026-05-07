@@ -6,8 +6,15 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W19
 
+- `33b642d` — fix(dashboard): surface RepoRuntime startup failures so the play button stops flickering *(2026-05-07)*
+- `2ffae14` — chore(arch): regenerate arch artifacts after term-proposer-adapters merge *(2026-05-07)*
+- `c45e243` — Merge remote-tracking branch 'origin/feat/term-proposer-adapters' into feat/term-proposer-adapters *(2026-05-07)*
+- `8b62616` — chore: re-regen arch artifacts after rebase onto staging *(2026-05-07)*
+- `c9c5d35` — chore: arch-regen + lint-fix to unblock CI on #8478 *(2026-05-07)*
 - `775eebe` — feat(adr): AdrTouchpointAuditorLoop replaces deleted touchpoint gate (ADR-0056) *(2026-05-06)*
+- `dd9ce56` — feat(pr): rebase-on-conflict for process-driven merges (#8482) (#8482) *(2026-05-06)*
 - `29f2676` — chore(ci): delete the ADR touchpoint gate (replaced by caretaker loop) *(2026-05-06)*
+- `06c3e70` — feat(staging): activate two-tier branch model + repeatable branch-protection standard (#8479) (#8479) *(2026-05-06)*
 - `6d7fe13` — feat(telemetry): OTel Honeycomb instrumentation — Phase A (#8473) (#8473) *(2026-05-06)*
 - `43ffe3d` — feat(ul): TermProposerLoop — auto-grow the ubiquitous-language glossary (ADR-0054 / chunk 2 of 5) (#8477) (#8477) *(2026-05-06)*
 - `9ce2397` — feat(ul): ubiquitous language as a living artifact (ADR-0053 slice 1) (#8474) (#8474) *(2026-05-06)*
@@ -169,4 +176,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `a6b6ae4` on 2026-05-07 07:19 UTC. Source last changed at `a6b6ae4`. Status: 🟢 fresh._
+_Regenerated from commit `33b642d` on 2026-05-07 18:50 UTC. Source last changed at `33b642d`. Status: 🟢 fresh._
