@@ -86,6 +86,7 @@ ADR and that named test files actually exist.
 | [0052](0052-sandbox-tier-scenarios.md) | Sandbox-tier scenario testing | Accepted |
 | [0053](0053-ubiquitous-language-as-living-artifact.md) | Ubiquitous Language as a Living Artifact | Accepted |
 | [0054](0054-term-auto-proposer-loop.md) | Term Auto-Proposer Loop (Dark-Factory Glossary Growth) | Accepted |
+| [0055](0055-otel-honeycomb-instrumentation.md) | OpenTelemetry Instrumentation as the Telemetry Layer | Accepted |
 
 ## Adding a new ADR
 
