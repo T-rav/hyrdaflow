@@ -1,0 +1,129 @@
+// Issue #7838 — TOCTOU race in EpicManager.release_epic() per-epic Lock init
+//
+// Captures the call topology around release_epic and the data-mutation
+// site that the fix targets. The vulnerable region is the lazy-init of
+// self._release_locks[epic_number] before the `async with` lock acquire.
+
+specification {
+  element actor
+  element system
+  element container
+  element component
+  element store
+}
+
+model {
+  user = actor 'Operator / HTTP retry' {
+    description 'POSTs to /api/epics/{N}/release; HTTP retries are the realistic concurrency trigger.'
+  }
+
+  hydraflow = system 'HydraFlow' {
+    api = container 'FastAPI app' {
+      description 'Routes HTTP requests to EpicManager.start_release / release_epic.'
+
+      epicRoute = component 'POST /api/epics/{N}/release' {
+        description 'Calls EpicManager.start_release(N), which spawns a background _execute_release task.'
+      }
+    }
+
+    orchestrator = container 'Orchestrator process' {
+      description 'Singleton EpicManager instance; per-process, not per-loop.'
+
+      epicManager = component 'EpicManager' {
+        description 'src/epic.py — owns _release_locks dict and orchestrates merge sequencing.'
+
+        startRelease = component 'start_release()' {
+          description 'Schedules _execute_release as a background asyncio.Task.'
+        }
+
+        executeRelease = component '_execute_release() [bg task]' {
+          description 'Calls release_epic(N); broad-except wraps must reraise on credit/bug.'
+        }
+
+        releaseEpic = component 'release_epic() [VULNERABLE]' {
+          description 'Lazy-inits _release_locks[N] via check-then-set, then `async with` it.'
+        }
+
+        doReleaseEpic = component '_do_release_epic()' {
+          description 'Lock-protected idempotency guard: returns "already released" if epic.released; merges children sequentially; sets epic.released=True at the end.'
+        }
+
+        eventHandlers = component 'Ordered/Independent ready handlers' {
+          description '_handle_ordered_ready / _handle_independent_ready — synchronous in-loop callers.'
+        }
+      }
+
+      releaseLocks = store '_release_locks: dict[int, asyncio.Lock]' {
+        description 'Per-epic asyncio.Lock cache. The mutation site is the TOCTOU window: `if N not in d: d[N] = asyncio.Lock()` is not atomic relative to itself.'
+      }
+    }
+
+    persistence = container 'Persistence (state store)' {
+      description 'EpicState with `released` flag — the eventual idempotency anchor.'
+    }
+
+    githubAdapter = container 'PRPort (GitHub)' {
+      description 'find_pr_for_issue / merge_pr — invoked per child during sequential merge.'
+    }
+  }
+
+  // Relationships
+  user -> epicRoute 'HTTP POST'
+  user -> epicRoute 'HTTP retry (concurrency trigger)'
+  epicRoute -> startRelease 'invokes'
+  startRelease -> executeRelease 'spawns asyncio.Task'
+  executeRelease -> releaseEpic 'awaits'
+  eventHandlers -> releaseEpic 'awaits (in-loop)'
+
+  releaseEpic -> releaseLocks 'check-then-set [TOCTOU]'
+  releaseEpic -> doReleaseEpic 'awaits under lock'
+
+  doReleaseEpic -> persistence 'reads epic.released; writes epic.released=True'
+  doReleaseEpic -> githubAdapter 'merge_pr per child'
+}
+
+views {
+  view index of hydraflow {
+    title 'Release Epic — call topology'
+    include *
+    autoLayout LeftRight
+  }
+
+  dynamic view race_window {
+    title 'TOCTOU window during concurrent release_epic(N)'
+
+    // Two concurrent callers (HTTP retry + background _execute_release)
+    user -> epicRoute 'request 1'
+    epicRoute -> startRelease 'invocation 1'
+    startRelease -> executeRelease 'task A'
+    executeRelease -> releaseEpic 'A: enter release_epic'
+    releaseEpic -> releaseLocks 'A: `N not in d` -> True'
+
+    user -> epicRoute 'request 2 (retry)'
+    epicRoute -> startRelease 'invocation 2'
+    startRelease -> executeRelease 'task B'
+    executeRelease -> releaseEpic 'B: enter release_epic'
+    releaseEpic -> releaseLocks 'B: `N not in d` -> True (A has not yet stored)'
+
+    releaseEpic -> releaseLocks 'A: d[N] = LockA'
+    releaseEpic -> releaseLocks 'B: d[N] = LockB  (overwrites LockA)'
+
+    releaseEpic -> doReleaseEpic 'A: holds LockA'
+    releaseEpic -> doReleaseEpic 'B: holds LockB (different object) -> races past idempotency guard'
+  }
+
+  dynamic view fixed_setdefault {
+    title 'Post-fix: setdefault makes install atomic within the event loop'
+
+    user -> epicRoute 'request 1'
+    epicRoute -> releaseEpic 'A enters'
+    releaseEpic -> releaseLocks 'A: d.setdefault(N, asyncio.Lock()) -> LockA stored'
+
+    user -> epicRoute 'request 2'
+    epicRoute -> releaseEpic 'B enters'
+    releaseEpic -> releaseLocks 'B: d.setdefault(N, asyncio.Lock()) -> LockA returned (its new lock GC-d)'
+
+    releaseEpic -> doReleaseEpic 'A and B both hold LockA -> serialized'
+    doReleaseEpic -> persistence 'B sees epic.released=True after A finishes -> returns "already released"'
+  }
+}
