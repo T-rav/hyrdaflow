@@ -44,8 +44,17 @@ _MAX_ATTEMPTS = 3
 _HELPER_PREFIXES = ("script_",)
 _HELPER_NAMES = frozenset({"fail_service", "heal_service", "set_state"})
 
+# Per-class overrides: methods that don't match the generic prefix/name rules
+# but are test-only helpers rather than real adapter-surface methods.
+_FAKE_HELPER_OVERRIDES: dict[tuple[str, str], str] = {
+    ("FakeGitHub", "clear_rate_limit"): "test-helper",
+    ("FakeGitHub", "set_rate_limit_mode"): "test-helper",
+}
 
-def _is_helper(name: str) -> bool:
+
+def _is_helper(name: str, class_name: str = "") -> bool:
+    if class_name and (class_name, name) in _FAKE_HELPER_OVERRIDES:
+        return True
     return any(name.startswith(p) for p in _HELPER_PREFIXES) or name in _HELPER_NAMES
 
 
@@ -86,7 +95,7 @@ def catalog_fake_methods(fake_dir: Path) -> dict[str, dict[str, list[str]]]:
                 name = child.name
                 if name.startswith("_"):
                     continue
-                if _is_helper(name):
+                if _is_helper(name, node.name):
                     helpers.append(name)
                 else:
                     surface.append(name)

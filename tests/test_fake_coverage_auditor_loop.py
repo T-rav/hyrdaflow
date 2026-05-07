@@ -15,6 +15,7 @@ from config import HydraFlowConfig
 from events import EventBus
 from fake_coverage_auditor_loop import (
     FakeCoverageAuditorLoop,
+    _is_helper,
     catalog_cassette_methods,
     catalog_fake_methods,
 )
@@ -254,3 +255,36 @@ async def test_kill_switch_short_circuits_do_work(loop_env) -> None:
     assert stats == {"status": "disabled"}
     loop._reconcile_closed_escalations.assert_not_awaited()
     pr.create_issue.assert_not_awaited()
+
+
+def test_is_helper_returns_true_for_class_overrides() -> None:
+    """_FAKE_HELPER_OVERRIDES entries classify as test-helper regardless of prefix/name."""
+    assert _is_helper("clear_rate_limit", "FakeGitHub") is True
+    assert _is_helper("set_rate_limit_mode", "FakeGitHub") is True
+
+
+def test_is_helper_override_does_not_affect_other_classes() -> None:
+    """Override is class-scoped — same method name on another fake is adapter-surface."""
+    assert _is_helper("clear_rate_limit", "FakeDocker") is False
+    assert _is_helper("clear_rate_limit", "") is False
+
+
+def test_catalog_fake_methods_applies_class_overrides(tmp_path: Path) -> None:
+    """Methods in _FAKE_HELPER_OVERRIDES land in test-helper, not adapter-surface."""
+    fake_dir = tmp_path / "fakes"
+    fake_dir.mkdir()
+    (fake_dir / "fake_github.py").write_text(
+        "class FakeGitHub:\n"
+        "    async def create_issue(self, title): ...\n"
+        "    def clear_rate_limit(self): ...\n"
+        "    def set_rate_limit_mode(self, *, remaining=0): ...\n"
+    )
+    cat = catalog_fake_methods(fake_dir)
+    assert "FakeGitHub" in cat
+    surface = set(cat["FakeGitHub"]["adapter-surface"])
+    helpers = set(cat["FakeGitHub"]["test-helper"])
+    assert "clear_rate_limit" not in surface
+    assert "clear_rate_limit" in helpers
+    assert "set_rate_limit_mode" not in surface
+    assert "set_rate_limit_mode" in helpers
+    assert "create_issue" in surface
