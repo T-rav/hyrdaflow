@@ -42,6 +42,10 @@ async def _invoke_fake_git(cassette: Cassette) -> FakeOutput:
             stderr="",
         )
 
+    if method == "push":
+        await fake.push(cwd, remote=str(args[0]), branch=str(args[1]))
+        return FakeOutput(exit_code=0, stdout="", stderr="")
+
     if method == "rev_parse_head":
         # Seed a commit so rev_parse returns something non-zero.
         await fake.commit(cwd, message="seed")

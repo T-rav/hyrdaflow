@@ -1,0 +1,33 @@
+// Dynamic view — replay flow for one push.yaml cassette
+
+specification {
+  element step
+}
+
+model {
+  pytest = step 'pytest collects'
+  listC = step 'list_cassettes(_CASSETTE_DIR)'
+  loadC = step 'load_cassette(push.yaml) → Cassette'
+  invoke = step '_invoke_fake_git(cassette)'
+  branch = step 'if method == "push"'
+  call = step 'await fake.push(cwd, "origin", "main")'
+  fakeOut = step 'return FakeOutput(0, "", "")'
+  norm = step 'apply_normalizers([])'
+  assertEq = step 'assert FakeOutput == cassette.output'
+
+  pytest -> listC 'parametrise'
+  listC -> loadC 'for each path'
+  loadC -> invoke
+  invoke -> branch
+  branch -> call
+  call -> fakeOut
+  fakeOut -> norm
+  norm -> assertEq 'green ⇔ shapes match'
+}
+
+views {
+  view dynamic_8493 {
+    title 'Issue 8493 — push.yaml replay flow'
+    include *
+  }
+}
