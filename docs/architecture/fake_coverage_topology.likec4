@@ -1,0 +1,125 @@
+// Issue #8496 — fake-coverage classification topology
+// Captures the auditor + FakeGit + cassette + scenario coverage graph.
+
+specification {
+  element actor
+  element system
+  element container
+  element component
+  element file
+
+  tag classification
+  tag fix
+  tag rename-target
+}
+
+model {
+  auditor = system 'FakeCoverageAuditorLoop' {
+    description '
+      Weekly auditor (src/fake_coverage_auditor_loop.py).
+      Spec §4.7. AST-scans Fake* classes and matches each method
+      to either a cassette (adapter-surface) or a scenario test
+      (test-helper).
+    '
+
+    catalogFakes = component 'catalog_fake_methods()' {
+      description '
+        AST walk of src/mockworld/fakes/*.py.
+        Public methods → adapter-surface, unless they start with
+        _HELPER_PREFIXES = ("script_",) or are in
+        _HELPER_NAMES = {fail_service, heal_service, set_state}.
+      '
+      #classification
+    }
+
+    catalogCassettes = component 'catalog_cassette_methods()' {
+      description 'Reads YAMLs under tests/trust/contracts/cassettes/<adapter>/, returns set of input.command strings.'
+    }
+
+    grepHelper = component '_grep_scenario_for_helper()' {
+      description 'rg --fixed-strings "<helper>(" tests/scenarios/ — returns True iff any scenario calls the helper.'
+    }
+
+    fileSurfaceGap = component '_file_surface_gap()' {
+      description 'Files an "Un-cassetted adapter method: <Fake>.<method>" issue with adapter_surface_label.'
+    }
+
+    fileHelperGap = component '_file_helper_gap()' {
+      description 'Files an "Un-exercised test helper: <Fake>.<method>" issue with test_helper_label.'
+    }
+  }
+
+  fakeGit = container 'FakeGit' {
+    description 'src/mockworld/fakes/fake_git.py — in-memory git CLI surface.'
+
+    scriptApi = component '# --- script API (tests) ---' {
+      description '
+        Block comment at line 19. Three methods sit here, all WITHOUT
+        the script_ prefix today, so the auditor classifies them as
+        adapter-surface (the bug):
+          - set_corrupted_config  (issue #8496)
+          - reject_next_push      (next sweep will file)
+          - active_worktrees      (next sweep will file)
+      '
+      #classification
+    }
+
+    portMethods = component '# --- port methods ---' {
+      description '
+        worktree_add, worktree_remove, worktree_prune, status, commit,
+        push, rev_parse, config_get, config_unset.
+        These are real adapter ports and SHOULD be cassetted.
+      '
+    }
+  }
+
+  cassettes = container 'cassettes/git/' {
+    description 'tests/trust/contracts/cassettes/git/'
+
+    commitYaml = file 'commit.yaml' {
+      description 'Only cassette today; input.command = "commit".'
+    }
+  }
+
+  scenarios = container 'tests/scenarios/' {
+    fakesTest = file 'fakes/test_fake_git.py' {
+      description 'Calls fake.set_corrupted_config(tmp_path, key=..., value=...) at line 34.'
+    }
+    surfaceTest = file 'test_surfaces.py' {
+      description 'TestSG1GitCoreWorktreeCorruption calls mock_world.git.set_corrupted_config(...) at line 54.'
+    }
+  }
+
+  regressionTest = file 'tests/regressions/test_issue_8496.py' {
+    description '
+      RED gate. Self-retires either way:
+        - GREEN if "set_corrupted_config" in helpers (legacy guard, never triggers post-rename), OR
+        - GREEN if cassette exists with input.command=set_corrupted_config, OR
+        - Asserts "no longer appears on FakeGit at all" — meaning rename must update this test too.
+    '
+    #fix
+  }
+
+  wikiSnippet = file 'docs/wiki/testing.md:640' {
+    description 'Stale illustrative snippet referencing fake.set_corrupted_config(cwd, args[0]) — uses positional args even though method is kwargs-only.'
+  }
+
+  // Relationships
+  auditor.catalogFakes -> fakeGit.scriptApi 'parses → classifies as adapter-surface (bug)'
+  auditor.catalogFakes -> fakeGit.portMethods 'parses → classifies as adapter-surface (correct)'
+  auditor.catalogCassettes -> cassettes.commitYaml 'reads input.command'
+  auditor.fileSurfaceGap -> regressionTest 'filed #8496 → triggered this regression test'
+  auditor.grepHelper -> scenarios.fakesTest 'searches for script_* helpers'
+  auditor.grepHelper -> scenarios.surfaceTest 'searches for script_* helpers'
+
+  scenarios.fakesTest -> fakeGit.scriptApi 'calls set_corrupted_config(...) — kwargs'
+  scenarios.surfaceTest -> fakeGit.scriptApi 'calls set_corrupted_config(...) — kwargs'
+  wikiSnippet -> fakeGit.scriptApi 'documents (stale, positional)'
+}
+
+views {
+  view classification {
+    title 'Auditor classification rules → FakeGit script-API methods'
+    include *
+  }
+}
