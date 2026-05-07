@@ -6,17 +6,27 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W19
 
+- `8b3a1f4` — docs(adr): ADR-0055 — OpenTelemetry as the telemetry layer + patterns wiki entry *(2026-05-06)*
+- `7fa7bbd` — Merge remote-tracking branch 'origin/main' into otel-honeycomb-phase-a-spec *(2026-05-06)*
 - `df49c02` — fix(telemetry): switch to relative imports + bare consumer imports *(2026-05-06)*
+- `43ffe3d` — feat(ul): TermProposerLoop — auto-grow the ubiquitous-language glossary (ADR-0054 / chunk 2 of 5) (#8477) (#8477) *(2026-05-06)*
+- `9ce2397` — feat(ul): ubiquitous language as a living artifact (ADR-0053 slice 1) (#8474) (#8474) *(2026-05-06)*
 
 ## 2026-W18
 
 - `be28c1c` — chore: regen arch artifacts + sync uv.lock for OTel deps *(2026-05-02)*
+- `692dc64` — chore(wiki): backfill all topics with new doc-voice prompt + harden compiler prompt (#8472) (#8472) *(2026-05-02)*
 - `e2c0d7e` — exception_classify: tag active span with exception.slug before re-raise *(2026-05-02)*
 - `df72b8a` — loop: decorate BaseBackgroundLoop._execute_cycle with @loop_span() *(2026-05-02)*
 - `16e3969` — test: FakeHoneycomb fake for scenario tests *(2026-05-02)*
 - `68a42e9` — telemetry: subprocess_bridge.py — trace_collector → span events *(2026-05-02)*
+- `525f135` — chore(audit): unblock principles audit (P2.9 split-aware + P10.3 baseline) (#8469) (#8469) *(2026-05-02)*
 - `e3ca22c` — telemetry: SDK bootstrap (otel.py) *(2026-05-02)*
+- `a1ad80f` — chore(wiki): slim json:entry blocks (drop content+valid_from) + tighten compiler doc-voice prompt (#8465) (#8465) *(2026-05-02)*
 - `05271e1` — telemetry: exception slug catalog (slugs.py) *(2026-05-02)*
+- `f2c7d81` — chore(wiki): split architecture topic + scrub bad-title entries + fix ingest title source (#8462) (#8462) *(2026-05-02)*
+- `1ddef37` — fix(wiki): preserve last_lint across rebuild + add wiki-freshness dead-man-switch (#8459) (#8459) *(2026-05-02)*
+- `63e59cc` — chore(cleanup): drop redundant docstrings + comments + section markers (#8458) (#8458) *(2026-05-02)*
 - `4183700` — fix(contracts): break src→tests import — relocate _schema to src/contracts/ (#8457) (#8457) *(2026-05-02)*
 - `14e066b` — fix(subprocess): timeouts on subprocess.run in async loop paths (#8456) (#8456) *(2026-05-02)*
 - `54f940e` — feat(sandbox): catalog s02-s12 + SandboxFailureFixerLoop + 3-trigger CI (PR C of 3) (#8453) (#8453) *(2026-04-28)*
@@ -166,4 +176,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `0841bbc` on 2026-05-07 02:51 UTC. Source last changed at `0841bbc`. Status: 🟢 fresh._
+_Regenerated from commit `8b3a1f4` on 2026-05-07 03:23 UTC. Source last changed at `8b3a1f4`. Status: 🟢 fresh._
