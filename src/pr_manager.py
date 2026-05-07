@@ -748,6 +748,40 @@ class PRManager:
             )
             return False
 
+    @port_span("hf.port.pr.update_pr_base")
+    async def update_pr_base(self, pr_number: int, *, base: str) -> bool:
+        """Retarget a PR's base branch via `gh pr edit --base`.
+
+        Used by ``BaseBranchAutoRetargeter`` to retarget PRs opened against
+        the wrong base after the two-tier branch model is activated. Idempotent
+        from GitHub's side (re-targeting to the same base is a no-op).
+
+        Returns True on success, False on failure.
+        """
+        self._assert_repo()
+        if self._config.dry_run:
+            logger.info("[dry-run] Would update PR #%d base to %s", pr_number, base)
+            return True
+        try:
+            await run_subprocess(
+                "gh",
+                "pr",
+                "edit",
+                str(pr_number),
+                "--repo",
+                self._repo,
+                "--base",
+                base,
+                cwd=self._config.repo_root,
+                gh_token=self._credentials.gh_token,
+            )
+            return True
+        except RuntimeError as exc:
+            logger.warning(
+                "update_pr_base(#%d, base=%s) failed: %s", pr_number, base, exc
+            )
+            return False
+
     async def _rebase_and_recheck_ci(
         self,
         pr_number: int,
