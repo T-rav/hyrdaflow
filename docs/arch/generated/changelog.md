@@ -6,6 +6,9 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W19
 
+- `1bed223` — chore: register MergeStateWatcherLoop in all loop-hygiene registries *(2026-05-07)*
+- `ac8b047` — feat(caretaker): MergeStateWatcher loop — auto-rebase or HITL-escalate conflicting PRs *(2026-05-07)*
+- `a46fb11` — chore: regen arch artifacts after rebase *(2026-05-07)*
 - `33b642d` — fix(dashboard): surface RepoRuntime startup failures so the play button stops flickering *(2026-05-07)*
 - `2ffae14` — chore(arch): regenerate arch artifacts after term-proposer-adapters merge *(2026-05-07)*
 - `c45e243` — Merge remote-tracking branch 'origin/feat/term-proposer-adapters' into feat/term-proposer-adapters *(2026-05-07)*
@@ -176,4 +179,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `33b642d` on 2026-05-07 18:50 UTC. Source last changed at `33b642d`. Status: 🟢 fresh._
+_Regenerated from commit `b7031b6` on 2026-05-07 19:22 UTC. Source last changed at `b7031b6`. Status: 🟢 fresh._

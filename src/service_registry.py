@@ -51,6 +51,7 @@ from issue_cache import IssueCache
 from issue_fetcher import GitHubTaskFetcher, IssueFetcher
 from issue_store import IssueStore
 from merge_conflict_resolver import MergeConflictResolver
+from merge_state_watcher_loop import MergeStateWatcherLoop
 from models import StatusCallback
 from plan_phase import PlanPhase
 from plan_reviewer import PlanReviewer
@@ -158,6 +159,7 @@ class ServiceRegistry:
 
     # Background loops
     pr_unsticker_loop: PRUnstickerLoop
+    merge_state_watcher_loop: MergeStateWatcherLoop
     report_issue_loop: ReportIssueLoop
     epic_monitor_loop: EpicMonitorLoop
     epic_sweeper_loop: EpicSweeperLoop
@@ -739,6 +741,9 @@ def build_services(
         interval_cb=callbacks.get_interval,
     )
     pr_unsticker_loop = PRUnstickerLoop(config, pr_unsticker, prs, deps=loop_deps)
+    merge_state_watcher_loop = MergeStateWatcherLoop(
+        config=config, prs=prs, deps=loop_deps
+    )
     report_issue_loop = ReportIssueLoop(
         config=config,
         state=state,
@@ -1090,6 +1095,7 @@ def build_services(
         epic_checker=epic_checker,
         epic_manager=epic_manager,
         pr_unsticker_loop=pr_unsticker_loop,
+        merge_state_watcher_loop=merge_state_watcher_loop,
         report_issue_loop=report_issue_loop,
         epic_monitor_loop=epic_monitor_loop,
         epic_sweeper_loop=epic_sweeper_loop,

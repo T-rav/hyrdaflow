@@ -24,6 +24,7 @@ areas:
       - EpicSweeperLoop
       - GitHubCacheLoop
       - HealthMonitorLoop
+      - MergeStateWatcherLoop
       - PRUnstickerLoop
       - PricingRefreshLoop
       - RepoWikiLoop

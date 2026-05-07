@@ -20,6 +20,7 @@ from urllib.parse import quote
 from comment_formatter import CommentFormatter, SelfReviewError
 from config import Credentials, HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+from merge_state_watcher import ConflictingPR
 from models import (
     CICheckPayload,
     CodeScanningAlert,
@@ -2166,6 +2167,58 @@ class PRManager:
         except RuntimeError:
             logger.debug("Could not fetch mergeable status for PR #%d", pr_number)
             return None
+
+    async def list_conflicting_prs(self) -> list[ConflictingPR]:
+        """Return open PRs whose ``mergeable`` field is ``CONFLICTING``."""
+        if self._config.dry_run:
+            return []
+
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "pr",
+                "list",
+                "--state",
+                "open",
+                "--limit",
+                "200",
+                "--json",
+                "number,headRefName,labels,mergeable",
+            )
+        except RuntimeError:
+            logger.debug("list_conflicting_prs: gh pr list failed", exc_info=True)
+            return []
+
+        try:
+            payload = json.loads(raw or "[]")
+        except json.JSONDecodeError:
+            logger.warning(
+                "list_conflicting_prs: malformed JSON from gh", exc_info=True
+            )
+            return []
+
+        results: list[ConflictingPR] = []
+        for entry in payload:
+            try:
+                if entry.get("mergeable") != "CONFLICTING":
+                    continue
+                results.append(
+                    ConflictingPR(
+                        number=int(entry["number"]),
+                        branch=str(entry.get("headRefName") or ""),
+                        labels=[
+                            str(lbl.get("name", ""))
+                            for lbl in (entry.get("labels") or [])
+                            if lbl.get("name")
+                        ],
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                logger.debug(
+                    "list_conflicting_prs: skipping malformed entry", exc_info=True
+                )
+                continue
+        return results
 
     async def get_pr_comments(self, pr_number: int) -> list[dict[str, str]]:
         """Fetch issue-level comments for *pr_number* with author info.

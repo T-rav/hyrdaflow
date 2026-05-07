@@ -467,6 +467,7 @@ def build_scripted_services(
     services.reviewer = ScriptedReviewPhase(script, github)
     services.memory_sync_bg = FakeBackgroundLoop()
     services.pr_unsticker_loop = FakeBackgroundLoop()
+    services.merge_state_watcher_loop = FakeBackgroundLoop()
     services.report_issue_loop = FakeBackgroundLoop()
     services.epic_manager = MagicMock()
     services.epic_monitor_loop = FakeBackgroundLoop()

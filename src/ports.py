@@ -49,6 +49,7 @@ from typing_extensions import Protocol
 if TYPE_CHECKING:
     from review_insights import ProposalMetadata, ReviewRecord  # noqa: TCH004
 
+from merge_state_watcher import ConflictingPR
 from models import (
     CodeScanningAlert,
     GitHubIssue,
@@ -323,6 +324,15 @@ class PRPort(Protocol):
 
     async def get_pr_mergeable(self, pr_number: int) -> bool | None:
         """Return whether *pr_number* is mergeable. ``None`` if unknown."""
+        ...
+
+    async def list_conflicting_prs(self) -> list[ConflictingPR]:
+        """Return open PRs whose ``mergeable`` field is ``CONFLICTING``.
+
+        Used by ``MergeStateWatcherLoop`` to discover PRs that fell behind
+        ``main`` (RC promotions, dependabot, agent PRs) so they can be
+        auto-rebased or escalated to HITL.
+        """
         ...
 
     async def post_pr_comment(self, pr_number: int, body: str) -> None:

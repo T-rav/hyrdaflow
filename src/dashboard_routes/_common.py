@@ -25,6 +25,7 @@ _INTERVAL_BOUNDS: dict[str, tuple[int, int]] = {
     "memory_sync": (10, 14400),
     "metrics": (30, 14400),
     "pr_unsticker": (60, 86400),
+    "merge_state_watcher": (60, 86400),  # 1m min, 1d max (default 10m)
     "pipeline_poller": (5, 14400),
     "adr_reviewer": (28800, 432000),
     "verify_monitor": (60, 86400),
