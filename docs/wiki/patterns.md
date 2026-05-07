@@ -411,6 +411,8 @@ Repo-level settings:
 - `allow_auto_merge=true` — required for `gh pr merge --auto` and for `StagingPromotionLoop` to queue auto-merges on RC PRs
 - `allow_squash_merge=true`, `allow_merge_commit=true`, `allow_rebase_merge=true` — methods are gated per-branch by ruleset, not at repo level
 
+**Merge mechanism — process-driven, not auto-merge.** PRs are merged by the process that opened them (`AgentRunner` for agent PRs into `staging`, `StagingPromotionLoop` for RC PRs into `main`, humans for human PRs). GitHub's `--auto` flag is not the path — auto-merge is fire-and-forget and silently abandons the PR on conflict, retired check, or race. The factory needs the process to stay attached through merge: poll CI, try merge, react to failures (file issue, retry, escalate). `allow_auto_merge=true` is set (so humans can opt into it for low-risk PRs) but unused by the standard flow.
+
 **Apply / audit / re-apply** with `scripts/setup_branch_protection.py` — idempotent, works on any HydraFlow-format repo:
 
 ```bash
