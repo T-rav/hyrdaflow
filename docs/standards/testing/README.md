@@ -1,10 +1,12 @@
 # HydraFlow Standard — Test Pyramid
 
 Every load-bearing feature in HydraFlow ships through three layers of tests
-before it merges into `staging`. Skipping a layer is a procedural failure —
-not a judgment call. This standard exists because skipping layers (which I
-just did with rebase-on-conflict, PR #8482) ships features that pass unit
-tests but break under real conditions.
+before it merges into the integration branch. Skipping a layer is a
+procedural failure — not a judgment call. Unit tests catch code-path bugs
+but are blind to real-API behavior; MockWorld scenarios catch integration
+bugs unit tests can't see; sandbox e2e tests catch the docker / wiring / UI
+layer that MockWorld can't reach. Skipping layers ships features that pass
+in isolation but break under real conditions.
 
 ## The three layers
 
@@ -70,28 +72,24 @@ A feature merges into `staging` when ALL three layers exist for it. Specifically
 - Each scenario file exports `NAME`, `DESCRIPTION`, `seed() -> MockWorldSeed`, `async def assert_outcome(api, page) -> None`
 - Run via `python scripts/sandbox_scenario.py run <NAME>` inside the docker stack (CI path: `Sandbox (PR→staging fast subset)` / `Sandbox (rc/* promotion PR full suite)` / `Sandbox (nightly regression)`)
 - The `assert_outcome` body uses the dashboard API (`api.get("/api/state")`) and Playwright (`page.click(...)`) to verify production-shaped behavior
-- **Scenarios must `import pytest` only inside function bodies** — the runner imports the module top-level in an environment without pytest as a runtime dep (see s10/s11 placeholder pattern, fixed in PR #8482)
+- **Scenarios must `import pytest` only inside function bodies** — the sandbox runner imports each scenario module in an environment that does not have pytest as a runtime dep. A top-level `import pytest` crashes the import.
 
 ## Anti-patterns
 
-- **"My feature is too small to need scenario / sandbox tests."** This is the rationalisation that ships rebase-on-conflict-style bugs. If the feature has any observable runtime path through a loop or the orchestrator, both layers apply. Real-API behavior (e.g. GitHub's update-branch endpoint) is invisible to unit tests.
+- **"My feature is too small to need scenario / sandbox tests."** This is the rationalisation that ships features which pass unit tests but break in real conditions. If the feature has any observable runtime path through a loop or the orchestrator, both higher layers apply. Real-API behavior (e.g. GitHub's update-branch endpoint, OAuth flows, third-party rate limits) is invisible to unit tests.
 
-- **Asserting against state shapes that don't exist.** s10 / s11 (tracked in #8483) demonstrated this — scenarios authored against `state["worker_health"]["...]["tick_count"]` and `state["credits_paused"]` which have never existed in `StateData`. Always grep `src/models.py` for the field name before asserting on it.
+- **Asserting against state shapes that don't exist.** Scenarios authored against fields that aren't in `StateData` will pass at write-time (Python dicts are tolerant) but fail in CI when the missing key raises `KeyError`. Always `grep` the source-of-truth model file for the field name before asserting on it.
 
-- **Importing pytest at module level in sandbox scenarios.** The sandbox runner doesn't have pytest available; module-level `import pytest` crashes the import. Use `pytest.skip` only inside `assert_outcome` — and only after `import pytest` is also done lazily inside that function.
+- **Importing pytest at module level in sandbox scenarios.** The sandbox runner doesn't have pytest available; module-level `import pytest` crashes the import. Use `pytest.skip` only inside `assert_outcome`, with `import pytest` also done lazily inside that function.
 
 - **Scenario tests that just unit-test through a fake.** Pattern B is fine when the loop's reaction surface is what matters — but if the test could equivalently be written as a unit test of one method, it's not really a scenario test.
 
 ## Discoverability
 
-This standard lives at three load-bearing surfaces:
+This standard lives at three load-bearing surfaces in any HydraFlow-format repo:
 
 - This document — the canonical reference
 - [`docs/wiki/testing.md`](../../wiki/testing.md) — operator wiki entry pointing here
 - `CLAUDE.md` Quick Rules — one-line directive that all features ship with the full pyramid
 
-Drift detection: a future audit (extension of `principles_audit_loop`) should check that every PR landing on `staging` adds at least one test in `tests/test_*.py`, one in `tests/scenarios/test_*.py`, and one in `tests/sandbox_scenarios/scenarios/sNN_*.py` — exempting docs-only and pure-refactor PRs.
-
-## Discovered through failure
-
-This standard exists because PR #8482 (rebase-on-conflict) shipped with only unit tests and was caught by the user with the question "did you test it all?" — to which the honest answer was no. The MockWorld + sandbox layers were added in a follow-up. Don't repeat that pattern.
+Drift detection: a future audit (extension of `principles_audit_loop`) should check that every PR landing on the integration branch adds at least one test in `tests/test_*.py`, one in `tests/scenarios/test_*.py`, and one in `tests/sandbox_scenarios/scenarios/sNN_*.py` — exempting docs-only and pure-refactor PRs.
