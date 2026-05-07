@@ -73,7 +73,7 @@ class StagingPromotionLoop(BaseBackgroundLoop):
             stop_event=self._stop_event,
         )
         if passed:
-            merged = await self._prs.merge_promotion_pr(pr_number)
+            merged = await self._prs.merge_promotion_pr(pr_number, auto_rebase=True)
             if merged:
                 logger.info("Promoted RC PR #%d to main", pr_number)
                 if self._state is not None:

@@ -71,7 +71,7 @@ class DependabotMergeLoop(BaseBackgroundLoop):
                 await self._prs.submit_review(
                     pr.pr, ReviewVerdict.APPROVE, "CI passed — auto-merging bot PR."
                 )
-                merge_ok = await self._prs.merge_pr(pr.pr)
+                merge_ok = await self._prs.merge_pr(pr.pr, auto_rebase=True)
                 if merge_ok:
                     merged += 1
                     self._state.add_dependabot_merge_processed(pr.pr)
