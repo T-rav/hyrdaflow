@@ -692,7 +692,7 @@ def _check_docker_available() -> bool:
     try:
         import docker  # noqa: PLC0415
 
-        client = docker.from_env()
+        client = docker.from_env(timeout=10)
         client.ping()
         return True
     except Exception:
@@ -741,15 +741,25 @@ def get_docker_runner(
 
     _creds = credentials or _Credentials()
     log_dir = config.log_dir
-    return DockerRunner(
-        image=config.docker_image,
-        repo_root=config.repo_root,
-        log_dir=log_dir,
-        gh_token=_creds.gh_token,
-        git_user_name=config.git_user_name,
-        git_user_email=config.git_user_email,
-        spawn_delay=config.docker_spawn_delay,
-        network=config.docker_network,
-        extra_mounts=config.docker_extra_mounts,
-        config=config,
-    )
+    try:
+        return DockerRunner(
+            image=config.docker_image,
+            repo_root=config.repo_root,
+            log_dir=log_dir,
+            gh_token=_creds.gh_token,
+            git_user_name=config.git_user_name,
+            git_user_email=config.git_user_email,
+            spawn_delay=config.docker_spawn_delay,
+            network=config.docker_network,
+            extra_mounts=config.docker_extra_mounts,
+            config=config,
+        )
+    except Exception as exc:
+        from exception_classify import reraise_on_credit_or_bug  # noqa: PLC0415
+
+        reraise_on_credit_or_bug(exc)
+        logger.warning(
+            "DockerRunner construction failed; falling back to host runner",
+            exc_info=True,
+        )
+        return get_default_runner()
