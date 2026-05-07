@@ -1290,9 +1290,7 @@ class EpicManager:
         attempting duplicate merges.  A per-epic asyncio.Lock prevents
         concurrent invocations from both passing the ``released`` guard.
         """
-        if epic_number not in self._release_locks:
-            self._release_locks[epic_number] = asyncio.Lock()
-        async with self._release_locks[epic_number]:
+        async with self._release_locks.setdefault(epic_number, asyncio.Lock()):
             return await self._do_release_epic(epic_number)
 
     async def _do_release_epic(self, epic_number: int) -> dict[str, object]:
