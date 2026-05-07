@@ -1,0 +1,160 @@
+// Issue #7839 — TOCTOU on workspace module-level lock dicts
+//
+// Captures the structural and dynamic context around the bug:
+//   src/workspace.py — module-level dicts _FETCH_LOCKS, _WORKTREE_LOCKS
+//                      and the two getter methods that mutate them.
+//
+// The two getters use check-then-set against a plain dict. On a single
+// asyncio event loop, two coroutines can interleave at the `if lock is None`
+// branch and both create a fresh asyncio.Lock(), with one overwriting the
+// other in the dict. Any caller still holding the overwritten Lock no longer
+// contends with new callers — the per-repo serialization guarantee silently
+// breaks.
+
+specification {
+  element actor
+  element module
+  element class
+  element method
+  element data
+
+  tag bug
+  tag fix
+  tag callsite
+}
+
+model {
+  user = actor 'Async caller' {
+    description '
+      Any coroutine on the asyncio loop calling into WorkspaceManager.
+      Examples: sanitize_repo, pre_work_check, create, destroy.
+    '
+  }
+
+  workspace_module = module 'src/workspace.py' {
+    description 'Git workspace lifecycle. Owns the per-repo locks.'
+
+    fetch_locks = data '_FETCH_LOCKS: dict[str, asyncio.Lock]' {
+      description 'Module-level dict, keyed by str(repo_root.resolve()).'
+      #bug
+    }
+    worktree_locks = data '_WORKTREE_LOCKS: dict[str, asyncio.Lock]' {
+      description 'Module-level dict, keyed by f"wt:{repo_slug}".'
+      #bug
+    }
+
+    workspace_manager = class 'WorkspaceManager' {
+      description '
+        Per-repo workspace lifecycle. Multiple instances may target the
+        same repo; the locks must be shared across instances, which is
+        why the dicts live at module scope (see ADR-0072 / wiki entry
+        "Module-Level State via Constructor Injection").
+      '
+
+      repo_fetch_lock = method '_repo_fetch_lock()' {
+        description '
+          Today (lines 74–81): get → if None → assign.
+          Fix: _FETCH_LOCKS.setdefault(key, asyncio.Lock()).
+        '
+        #bug
+      }
+      repo_workspace_lock = method '_repo_workspace_lock()' {
+        description '
+          Today (lines 83–90): same check-then-set pattern.
+          Fix: _WORKTREE_LOCKS.setdefault(key, asyncio.Lock()).
+        '
+        #bug
+      }
+
+      // Selected callsites — these are the consumers that rely on
+      // identity-stable locks for their critical sections.
+      fetch_origin_with_retry = method '_fetch_origin_with_retry()' {
+        #callsite
+      }
+      create_workspace = method 'create()' {
+        #callsite
+      }
+      destroy_workspace = method 'destroy()' {
+        #callsite
+      }
+    }
+  }
+
+  // structural relationships
+  workspace_manager -> fetch_locks 'reads/writes (TOCTOU)' #bug
+  workspace_manager -> worktree_locks 'reads/writes (TOCTOU)' #bug
+
+  workspace_manager.fetch_origin_with_retry -> workspace_manager.repo_fetch_lock
+    'async with self._repo_fetch_lock()'
+  workspace_manager.create_workspace -> workspace_manager.repo_workspace_lock
+    'async with self._repo_workspace_lock()'
+  workspace_manager.destroy_workspace -> workspace_manager.repo_workspace_lock
+    'async with self._repo_workspace_lock()'
+
+  user -> workspace_manager.fetch_origin_with_retry
+  user -> workspace_manager.create_workspace
+  user -> workspace_manager.destroy_workspace
+}
+
+views {
+  view index {
+    title 'Workspace lock TOCTOU — context'
+    include *
+  }
+
+  // Buggy interleave (check-then-set):
+  //   T1 calls get → None
+  //   T2 calls get → None
+  //   T1 creates Lock A, writes A to dict
+  //   T2 creates Lock B, overwrites A in dict
+  //   T1 returns A; T2 returns B; new callers get B → A and B never contend.
+  dynamic view buggy_interleave {
+    title 'Buggy: two coroutines diverge through the TOCTOU window'
+
+    user -> workspace_manager.repo_fetch_lock 'T1: enter' {
+      step 1
+    }
+    workspace_manager.repo_fetch_lock -> fetch_locks 'T1: get(key) → None' {
+      step 2
+    }
+    user -> workspace_manager.repo_fetch_lock 'T2: enter (await yields)' {
+      step 3
+    }
+    workspace_manager.repo_fetch_lock -> fetch_locks 'T2: get(key) → None' {
+      step 4
+    }
+    workspace_manager.repo_fetch_lock -> fetch_locks 'T1: write Lock A' {
+      step 5
+    }
+    workspace_manager.repo_fetch_lock -> fetch_locks 'T2: overwrite with Lock B' {
+      step 6
+    }
+    workspace_manager.repo_fetch_lock -> user 'T1 ← A, T2 ← B (split-brain)' {
+      step 7
+    }
+  }
+
+  // Fixed flow (setdefault):
+  //   T1 setdefault → installs Lock A, returns A
+  //   T2 setdefault → finds A, returns A (the Lock B it constructed
+  //   is never installed and is GC'd; no resources leak.)
+  dynamic view fixed_setdefault {
+    title 'Fixed: setdefault is atomic — both callers see the same Lock'
+
+    user -> workspace_manager.repo_fetch_lock 'T1: enter' {
+      step 1
+    }
+    workspace_manager.repo_fetch_lock -> fetch_locks 'T1: setdefault(key, Lock A)' {
+      step 2
+    }
+    user -> workspace_manager.repo_fetch_lock 'T2: enter (await yields)' {
+      step 3
+    }
+    workspace_manager.repo_fetch_lock -> fetch_locks 'T2: setdefault(key, Lock B) → A' {
+      step 4
+    }
+    workspace_manager.repo_fetch_lock -> user 'T1 ← A, T2 ← A (single survivor)' {
+      step 5
+    }
+  }
+}
