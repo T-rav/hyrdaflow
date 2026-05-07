@@ -1,0 +1,37 @@
+// Dynamic view: control flow of `git push` for a human contributor
+specification {
+  element actor
+  element step
+}
+
+model {
+  contributor = actor "Contributor"
+  git = step "git push"
+  hookEnter = step "pre-push hook fires"
+  killCheck = step "HYDRAFLOW_DISABLE_PRE_PUSH_ARCH_CHECK set?"
+  archRun = step "make arch-check"
+  archFail = step "Print '❌ docs/arch/generated/ is out of sync', exit 1"
+  archPass = step "Print 'pre-push: arch-check OK'"
+  qualityRun = step "make quality-lite"
+  qualityFail = step "exit 1"
+  pushOK = step "push proceeds"
+
+  contributor -> git "executes"
+  git -> hookEnter "spawns hook"
+  hookEnter -> killCheck "evaluates env"
+  killCheck -> archRun "no -> run check"
+  killCheck -> qualityRun "yes -> skip arch-check"
+  archRun -> archFail "stale"
+  archRun -> archPass "in sync"
+  archPass -> qualityRun "continue"
+  qualityRun -> qualityFail "lint/type/security failure"
+  qualityRun -> pushOK "all green"
+}
+
+views {
+  view pushFlow {
+    title "git push -> pre-push -> arch-check -> quality-lite"
+    include *
+    autoLayout TopBottom
+  }
+}
