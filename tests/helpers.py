@@ -416,6 +416,7 @@ class ConfigFactory:
         skill_prompt_stuck_label: list[str] | None = None,
         flaky_test_stuck_label: list[str] | None = None,
         principles_stuck_label: list[str] | None = None,
+        cultural_check_label: list[str] | None = None,
         fake_repair_stuck_label: list[str] | None = None,
         bisect_harness_failure_label: list[str] | None = None,
         revert_conflict_label: list[str] | None = None,
@@ -714,6 +715,11 @@ class ConfigFactory:
                 **(
                     {"principles_stuck_label": principles_stuck_label}
                     if principles_stuck_label is not None
+                    else {}
+                ),
+                **(
+                    {"cultural_check_label": cultural_check_label}
+                    if cultural_check_label is not None
                     else {}
                 ),
                 **(

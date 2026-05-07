@@ -326,3 +326,132 @@ class TestStagingBisectLoopEscalationUsesConfig:
             f"'hitl-escalation' instead of config.hitl_escalation_label "
             f"({custom_hitl!r}). Labels: {labels}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 7. Config — cultural_check_label exists and is hydraflow-prefixed
+# ---------------------------------------------------------------------------
+
+
+class TestCulturalCheckLabelConfig:
+    """HydraFlowConfig must expose `cultural_check_label` with hydraflow- prefix."""
+
+    def test_field_exists_with_hydraflow_prefix(self) -> None:
+        cfg = HydraFlowConfig()
+        assert hasattr(cfg, "cultural_check_label"), (
+            "HydraFlowConfig is missing `cultural_check_label` — "
+            "PrinciplesAuditLoop appends bare 'cultural-check' to escalation "
+            "issues; must route through config so make ensure-labels provisions it."
+        )
+        assert len(cfg.cultural_check_label) >= 1
+        assert cfg.cultural_check_label[0].startswith("hydraflow-"), (
+            f"cultural_check_label default must start with 'hydraflow-', "
+            f"got {cfg.cultural_check_label[0]!r}"
+        )
+
+    def test_field_is_registered_in_hydraflow_labels(self) -> None:
+        assert "cultural_check_label" in _HYDRAFLOW_LABELS_FIELD_NAMES, (
+            "cultural_check_label is not in prep.HYDRAFLOW_LABELS — "
+            "make ensure-labels will never provision it, causing rc=1 on every "
+            "CULTURAL-severity principles escalation."
+        )
+
+
+# ---------------------------------------------------------------------------
+# 8. Config — auto_agent_skip_sublabels default uses hydraflow-prefixed labels
+# ---------------------------------------------------------------------------
+
+
+class TestAutoAgentSkipSublabelsMatchMigratedLabels:
+    """auto_agent_skip_sublabels default must reference hydraflow-prefixed labels.
+
+    After the #8481 migration, principles_stuck_label defaults to
+    'hydraflow-principles-stuck' and cultural_check_label defaults to
+    'hydraflow-cultural-check'. The skip-sublabels deny-list must use those
+    same values, otherwise AutoAgentPreflightLoop silently processes issues
+    it should skip.
+    """
+
+    def test_skip_sublabels_does_not_contain_bare_principles_stuck(self) -> None:
+        cfg = HydraFlowConfig()
+        assert "principles-stuck" not in cfg.auto_agent_skip_sublabels, (
+            "auto_agent_skip_sublabels still contains bare 'principles-stuck'. "
+            "After migration the label is 'hydraflow-principles-stuck'; the "
+            "skip filter would never match, causing auto-agent to process "
+            "principles-escalation issues it should skip."
+        )
+
+    def test_skip_sublabels_does_not_contain_bare_cultural_check(self) -> None:
+        cfg = HydraFlowConfig()
+        assert "cultural-check" not in cfg.auto_agent_skip_sublabels, (
+            "auto_agent_skip_sublabels still contains bare 'cultural-check'. "
+            "After migration the label is 'hydraflow-cultural-check'; the "
+            "skip filter would never match."
+        )
+
+    def test_skip_sublabels_contains_hydraflow_principles_stuck(self) -> None:
+        cfg = HydraFlowConfig()
+        assert cfg.principles_stuck_label[0] in cfg.auto_agent_skip_sublabels, (
+            f"auto_agent_skip_sublabels must include {cfg.principles_stuck_label[0]!r} "
+            f"(the default principles_stuck_label) so principles-stuck escalations "
+            f"are correctly skipped by AutoAgentPreflightLoop."
+        )
+
+    def test_skip_sublabels_contains_hydraflow_cultural_check(self) -> None:
+        cfg = HydraFlowConfig()
+        assert cfg.cultural_check_label[0] in cfg.auto_agent_skip_sublabels, (
+            f"auto_agent_skip_sublabels must include {cfg.cultural_check_label[0]!r} "
+            f"(the default cultural_check_label) so cultural-severity escalations "
+            f"are correctly skipped by AutoAgentPreflightLoop."
+        )
+
+
+# ---------------------------------------------------------------------------
+# 9. Behavioral — PrinciplesAuditLoop._maybe_escalate uses config cultural label
+# ---------------------------------------------------------------------------
+
+
+class TestPrinciplesAuditLoopCulturalEscalationUsesConfig:
+    """_maybe_escalate for CULTURAL severity must use config.cultural_check_label."""
+
+    @pytest.mark.asyncio
+    async def test_cultural_escalation_uses_config_label(self, tmp_path: Path) -> None:
+        from principles_audit_loop import PrinciplesAuditLoop
+        from state import StateTracker
+
+        custom_hitl = "custom-hitl-escalation-principles"
+        custom_stuck = "custom-principles-stuck-test"
+        custom_cultural = "custom-cultural-check-test"
+        deps = make_bg_loop_deps(tmp_path, enabled=True)
+        cfg = ConfigFactory.create(
+            hitl_escalation_label=[custom_hitl],
+            principles_stuck_label=[custom_stuck],
+            cultural_check_label=[custom_cultural],
+        )
+        state = StateTracker(cfg.state_file)
+        pr = MagicMock()
+        pr.create_issue = AsyncMock(return_value=88)
+
+        loop = PrinciplesAuditLoop(
+            config=cfg,
+            state=state,
+            pr_manager=pr,
+            deps=deps.loop_deps,
+        )
+        # CULTURAL threshold (_CULTURAL_ATTEMPTS) is 1 — first increment fires.
+        await loop._maybe_escalate("some-slug", "check-99", "CULTURAL")
+
+        pr.create_issue.assert_awaited_once()
+        _title, _body, labels = pr.create_issue.await_args.args
+        assert custom_cultural in labels, (
+            f"_maybe_escalate (CULTURAL) passed bare 'cultural-check' instead of "
+            f"config.cultural_check_label ({custom_cultural!r}). Labels: {labels}"
+        )
+        assert custom_hitl in labels, (
+            f"_maybe_escalate (CULTURAL) did not include config.hitl_escalation_label "
+            f"({custom_hitl!r}). Labels: {labels}"
+        )
+        assert custom_stuck in labels, (
+            f"_maybe_escalate (CULTURAL) did not include config.principles_stuck_label "
+            f"({custom_stuck!r}). Labels: {labels}"
+        )

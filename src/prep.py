@@ -54,6 +54,11 @@ HYDRAFLOW_LABELS: tuple[tuple[str, str, str], ...] = (
         "PrinciplesAuditLoop principles stuck escalation",
     ),
     (
+        "cultural_check_label",
+        "d93f0b",
+        "PrinciplesAuditLoop CULTURAL-severity escalation marker",
+    ),
+    (
         "fake_repair_stuck_label",
         "e4e669",
         "ContractRefreshLoop fake repair stuck escalation",

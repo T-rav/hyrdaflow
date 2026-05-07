@@ -345,7 +345,7 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
             f"check-{check_id}",
         ]
         if severity == "CULTURAL":
-            labels.append("cultural-check")
+            labels.append(self._config.cultural_check_label[0])
         await self._pr.create_issue(title, body, labels)
         return True
 

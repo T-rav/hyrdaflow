@@ -782,6 +782,10 @@ class HydraFlowConfig(BaseModel):
         default=["hydraflow-principles-stuck"],
         description="Stuck label for PrinciplesAuditLoop escalations (OR logic)",
     )
+    cultural_check_label: list[str] = Field(
+        default=["hydraflow-cultural-check"],
+        description="Label appended to CULTURAL-severity PrinciplesAuditLoop escalations (OR logic)",
+    )
     fake_repair_stuck_label: list[str] = Field(
         default=["hydraflow-fake-repair-stuck"],
         description="Stuck label for ContractRefreshLoop HITL escalations (OR logic)",
@@ -2210,7 +2214,10 @@ class HydraFlowConfig(BaseModel):
         description="Per-issue attempt cap before auto-agent-exhausted (default 3).",
     )
     auto_agent_skip_sublabels: list[str] = Field(
-        default_factory=lambda: ["principles-stuck", "cultural-check"],
+        default_factory=lambda: [
+            "hydraflow-principles-stuck",
+            "hydraflow-cultural-check",
+        ],
         description=(
             "Sub-labels that bypass auto-agent pre-flight entirely. Default = the "
             "principles-audit recursion guard."
