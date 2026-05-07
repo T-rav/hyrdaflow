@@ -439,6 +439,7 @@ class TestRuntimeLifecycleEndpoints:
         mock_runtime.slug = "org-repo"
         mock_runtime.config.repo = "org/repo"
         mock_runtime.running = True
+        mock_runtime.last_error = None
         mock_runtime.orchestrator = mock_orch
 
         mock_registry = MagicMock()

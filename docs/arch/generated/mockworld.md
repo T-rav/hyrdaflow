@@ -66,4 +66,4 @@ graph LR
     tests_scenarios_fakes_test_supporting_fakes_py([tests/scenarios/fakes/test_supporting_fakes.py]) --> FakeWorkspace
 ```
 
-_Regenerated from commit `c45e243` on 2026-05-07 14:51 UTC. Source last changed at `c45e243`. Status: 🟢 fresh._
+_Regenerated from commit `a6b6ae4` on 2026-05-07 07:19 UTC. Source last changed at `a6b6ae4`. Status: 🟢 fresh._
