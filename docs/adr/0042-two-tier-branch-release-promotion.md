@@ -35,6 +35,39 @@ but commit-wise are not).
 Feature is dark-launched behind `HYDRAFLOW_STAGING_ENABLED` (default false).
 When false, every behavior is identical to the pre-feature state.
 
+### Enforcement
+
+The decision is encoded in two GitHub rulesets so the platform itself rejects
+violations rather than relying on convention:
+
+- **`main protect`** (ruleset id `15468404`, targets `~DEFAULT_BRANCH`) —
+  `allowed_merge_methods: ["merge"]` only. Squash into `main` is rejected
+  (squash from a long-lived integration branch produces growing-diff
+  regression). Required status checks include the full standard CI gate
+  plus the MockWorld + e2e RC promotion gate: `Resolve RC PR`,
+  `Browser Scenarios`, `Trust Gate (adversarial corpus, fixture mode)`,
+  `Sandbox (rc/* promotion PR full suite)`.
+- **`staging protect`** (ruleset id `16066429`, targets `refs/heads/staging`)
+  — `allowed_merge_methods: ["squash", "merge"]`. Required status checks
+  include the full standard CI gate plus `Sandbox (PR→staging fast subset)`.
+  RC-only checks are intentionally not required (they don't run on PRs
+  targeting `staging` and would block on SKIPPED).
+
+Both rulesets also block deletion, block force-push, require a PR (no direct
+pushes), and require CodeQL `high_or_higher` severity. Repo-level
+`allow_auto_merge=true` enables `gh pr merge --auto` and the loop's
+auto-merge-on-green path. See [`docs/wiki/patterns.md`](../wiki/patterns.md)
+"Branch protection — rulesets that enforce the two-tier model" for the
+canonical operator reference.
+
+The configurations are version-controlled at
+[`docs/standards/branch_protection/`](../standards/branch_protection/) and
+applied via `scripts/setup_branch_protection.py` — idempotent, repeatable
+across any HydraFlow-format repo (`--apply` writes, `--audit` diffs live
+vs canonical and exits 1 on drift). This makes the standard a piece of
+versioned infrastructure rather than a one-off `gh api` invocation, and
+makes drift detection a CI-friendly operation any caretaker loop can run.
+
 ## Consequences
 
 **Positive**

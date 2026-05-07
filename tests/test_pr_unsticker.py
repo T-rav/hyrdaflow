@@ -537,7 +537,7 @@ class TestAutoMerge:
 
         assert stats["resolved"] == 1
         assert stats["merged"] == 1
-        h.prs.merge_pr.assert_awaited_once_with(100)
+        h.prs.merge_pr.assert_awaited_once_with(100, auto_rebase=True)
 
         # State should be cleaned up
         assert h.state.get_hitl_origin(42) is None

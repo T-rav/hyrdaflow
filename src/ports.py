@@ -100,8 +100,24 @@ class PRPort(Protocol):
         """
         ...
 
-    async def merge_pr(self, pr_number: int) -> bool:
-        """Attempt to merge *pr_number*. Returns True if merged."""
+    async def merge_pr(self, pr_number: int, *, auto_rebase: bool = False) -> bool:
+        """Attempt to merge *pr_number*. Returns True if merged.
+
+        When ``auto_rebase=True`` and the merge fails, the implementation
+        attempts one rebase-via-GitHub + re-poll-CI + retry-merge cycle
+        before returning False (dark-factory pattern: process recovers
+        from conflicts it can, escalates the ones it can't).
+        """
+        ...
+
+    async def update_pr_branch(self, pr_number: int, *, method: str = "rebase") -> bool:
+        """Rebase the PR head onto its target branch via GitHub's API.
+
+        Wraps ``PUT /repos/{owner}/{repo}/pulls/{n}/update-branch``.
+        Returns True on clean rebase, False on conflict or other failure.
+
+        Matches ``pr_manager.PRManager.update_pr_branch`` exactly.
+        """
         ...
 
     async def create_rc_branch(self, rc_branch: str) -> str:
@@ -131,8 +147,13 @@ class PRPort(Protocol):
         """
         ...
 
-    async def merge_promotion_pr(self, pr_number: int) -> bool:
+    async def merge_promotion_pr(
+        self, pr_number: int, *, auto_rebase: bool = False
+    ) -> bool:
         """Merge *pr_number* with merge-commit strategy (not squash).
+
+        When ``auto_rebase=True`` and the merge fails, attempts one
+        rebase-via-GitHub + re-poll-CI + retry-merge cycle before giving up.
 
         Matches ``pr_manager.PRManager.merge_promotion_pr`` exactly.
         """

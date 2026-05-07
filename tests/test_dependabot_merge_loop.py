@@ -144,7 +144,7 @@ class TestDependabotMergeLoopDoWork:
 
         assert result["merged"] == 1
         prs.submit_review.assert_awaited_once()
-        prs.merge_pr.assert_awaited_once_with(10)
+        prs.merge_pr.assert_awaited_once_with(10, auto_rebase=True)
         state.add_dependabot_merge_processed.assert_called_once_with(10)
 
     @pytest.mark.asyncio
@@ -274,7 +274,7 @@ class TestDependabotMergeLoopDoWork:
 
         # Only renovate PR should match
         assert result["merged"] == 1
-        prs.merge_pr.assert_awaited_once_with(1)
+        prs.merge_pr.assert_awaited_once_with(1, auto_rebase=True)
 
 
 class TestDependabotMergeLoopRun:
