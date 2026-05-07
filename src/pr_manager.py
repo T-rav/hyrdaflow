@@ -36,8 +36,8 @@ from models import (
     ReviewVerdict,
 )
 from prep import HYDRAFLOW_LABELS
-from src.telemetry.spans import port_span  # noqa: E402
 from subprocess_util import run_subprocess, run_subprocess_with_retry
+from telemetry.spans import port_span  # noqa: E402
 
 logger = logging.getLogger("hydraflow.pr_manager")
 

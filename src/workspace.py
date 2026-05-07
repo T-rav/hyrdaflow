@@ -18,8 +18,8 @@ import stat
 from pathlib import Path
 
 from config import Credentials, HydraFlowConfig
-from src.telemetry.spans import port_span  # noqa: E402
 from subprocess_util import run_subprocess
+from telemetry.spans import port_span  # noqa: E402
 
 logger = logging.getLogger("hydraflow.workspace")
 

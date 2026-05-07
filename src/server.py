@@ -336,7 +336,7 @@ def main() -> None:
     config = load_runtime_config()
 
     # Initialize OTel (no-op if otel_enabled is False or HONEYCOMB_API_KEY is unset)
-    from src.telemetry.otel import init_otel  # noqa: PLC0415
+    from telemetry.otel import init_otel  # noqa: PLC0415
 
     init_otel(config)
 

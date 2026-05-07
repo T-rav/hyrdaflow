@@ -14,7 +14,7 @@ from typing import Any
 
 from opentelemetry.trace import Span
 
-from src.telemetry.spans import validate_attr
+from .spans import validate_attr
 
 logger = logging.getLogger(__name__)
 

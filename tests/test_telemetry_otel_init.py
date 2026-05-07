@@ -104,7 +104,7 @@ def test_main_calls_init_otel_after_sentry(monkeypatch):
         call_order.append("otel")
 
     monkeypatch.setattr(server, "_init_sentry", _fake_sentry)
-    monkeypatch.setattr("src.telemetry.otel.init_otel", _fake_otel)
+    monkeypatch.setattr("telemetry.otel.init_otel", _fake_otel)
 
     # Stub out everything in main() that does real I/O
     fake_config = MagicMock()

@@ -96,7 +96,7 @@ class TraceCollector:
 
         from opentelemetry import trace as otel_trace  # noqa: PLC0415
 
-        from src.telemetry.subprocess_bridge import (
+        from telemetry.subprocess_bridge import (
             bridge_event_to_span,  # noqa: PLC0415
         )
 

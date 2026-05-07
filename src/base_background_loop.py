@@ -25,8 +25,8 @@ from models import (
     WorkCycleResult,  # noqa: TCH002
 )
 from runner_utils import AuthenticationRetryError
-from src.telemetry.spans import loop_span  # noqa: E402
 from subprocess_util import AuthenticationError, CreditExhaustedError
+from telemetry.spans import loop_span  # noqa: E402
 
 logger = logging.getLogger("hydraflow.base_background_loop")
 

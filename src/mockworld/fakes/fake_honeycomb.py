@@ -115,7 +115,7 @@ class FakeHoneycomb:
             trace._TRACER_PROVIDER_SET_ONCE._done = False  # noqa: SLF001
             self._exporter.clear()
             try:
-                from src.telemetry.spans import _get_tracer
+                from telemetry.spans import _get_tracer
 
                 _get_tracer.cache_clear()
             except Exception:  # noqa: BLE001

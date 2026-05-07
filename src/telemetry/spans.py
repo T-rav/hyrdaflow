@@ -17,7 +17,7 @@ from typing import Any, TypeVar
 from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode, Tracer
 
-from src.telemetry.slugs import slug_for
+from .slugs import slug_for
 
 logger = logging.getLogger(__name__)
 
