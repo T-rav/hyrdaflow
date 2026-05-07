@@ -150,5 +150,6 @@ class BGWorkerManager:
             "rc_budget": self._config.rc_budget_interval,
             "wiki_rot_detector": self._config.wiki_rot_detector_interval,
             "trust_fleet_sanity": self._config.trust_fleet_sanity_interval,
+            "adr_touchpoint_auditor": self._config.adr_touchpoint_auditor_interval,
         }
         return defaults.get(name, self._config.poll_interval)
