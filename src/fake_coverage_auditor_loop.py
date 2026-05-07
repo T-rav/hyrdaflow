@@ -42,7 +42,16 @@ logger = logging.getLogger("hydraflow.fake_coverage_auditor_loop")
 
 _MAX_ATTEMPTS = 3
 _HELPER_PREFIXES = ("script_",)
-_HELPER_NAMES = frozenset({"fail_service", "heal_service", "set_state"})
+_HELPER_NAMES = frozenset(
+    {
+        "fail_service",
+        "heal_service",
+        "set_state",
+        "reject_next_push",
+        "set_corrupted_config",
+        "active_worktrees",
+    }
+)
 
 
 def _is_helper(name: str) -> bool:

@@ -1,0 +1,90 @@
+// Issue #8494 — FakeGit.reject_next_push misclassified as adapter-surface
+//
+// The fake_coverage_auditor_loop walks AST of src/mockworld/fakes/*.py,
+// classifies each public method as adapter-surface (cassette-required) or
+// test-helper (scenario-grep-required). The classifier is name-based:
+// _HELPER_PREFIXES = ("script_",) and _HELPER_NAMES = {fail_service, heal_service, set_state}.
+//
+// FakeGit has a `# --- script API (tests) ---` block holding three helpers
+// that don't carry the script_ prefix and aren't in _HELPER_NAMES:
+//   - reject_next_push   (this issue)
+//   - set_corrupted_config
+//   - active_worktrees
+// All three are misclassified as adapter-surface. The auditor demands cassettes
+// for them, but they have no real-adapter counterpart — they only flip flags
+// inside the in-memory fake. Following the literal "record a cassette" repair
+// would embed a lie in the contract layer.
+
+specification {
+  element system
+  element container
+  element component
+}
+
+model {
+  hydraflow = system 'HydraFlow' {
+    auditor = container 'fake_coverage_auditor_loop' {
+      description: 'Weekly loop (spec §4.7) that audits fake-class method coverage'
+
+      classifier = component '_is_helper(name)' {
+        description: 'Name-only classifier — uses _HELPER_PREFIXES + _HELPER_NAMES'
+      }
+      ast_walker = component 'catalog_fake_methods' {
+        description: 'AST walks fakes/*.py, splits public methods into surface vs helper'
+      }
+      cassette_reader = component 'catalog_cassette_methods' {
+        description: 'Reads input.command from each *.yaml cassette'
+      }
+      grep_helper = component '_grep_scenario_for_helper' {
+        description: 'rg-greps tests/scenarios/ for `<helper>(`'
+      }
+      gap_filer = component '_file_surface_gap / _file_helper_gap' {
+        description: 'Files a hydraflow-find issue per uncovered method'
+      }
+    }
+
+    fakes = container 'src/mockworld/fakes' {
+      fake_git = component 'FakeGit' {
+        description: 'In-memory git CLI surface'
+      }
+      fake_git_script_api = component 'FakeGit script API' {
+        description: 'reject_next_push, set_corrupted_config, active_worktrees — script-only, no real CLI counterpart'
+      }
+      fake_git_port = component 'FakeGit port methods' {
+        description: 'worktree_add, commit, push, status, rev_parse, ... — these DO have real CLI counterparts and need cassettes'
+      }
+    }
+
+    cassettes = container 'tests/trust/contracts/cassettes/git/' {
+      description: 'Recorded git CLI cassettes (input.command names the method)'
+    }
+
+    scenarios = container 'tests/scenarios/' {
+      description: 'Scenario tests; helpers must appear here via grep to be classified covered'
+    }
+
+    auditor.ast_walker -> fakes 'parses *.py'
+    auditor.ast_walker -> auditor.classifier 'classifies each public method'
+    auditor.cassette_reader -> cassettes 'reads input.command'
+    auditor.grep_helper -> scenarios 'rg --fixed-strings'
+    auditor.gap_filer -> hydraflow 'files hydraflow-find issues'
+
+    fake_git -> fake_git_script_api 'has block'
+    fake_git -> fake_git_port 'has block'
+  }
+}
+
+views {
+  view index {
+    title 'Issue #8494 — auditor / FakeGit interaction'
+    include *
+  }
+
+  view audit_flow {
+    title 'Dynamic — audit cycle for FakeGit (current, broken)'
+    include hydraflow.auditor.*, hydraflow.fakes.*, hydraflow.cassettes, hydraflow.scenarios
+
+    // Current behaviour: script-API methods flow into the surface bucket,
+    // hit the cassette miss path, file fake-coverage-gap issues.
+  }
+}

@@ -78,6 +78,34 @@ def test_catalog_fake_methods_splits_surface_vs_helper(tmp_path: Path) -> None:
     assert helpers == {"script_ci", "fail_service"}
 
 
+def test_catalog_fake_methods_fake_git_script_api_helpers_are_test_helpers(
+    tmp_path: Path,
+) -> None:
+    """reject_next_push / set_corrupted_config / active_worktrees must land in test-helper."""
+    fake_dir = tmp_path / "fakes"
+    fake_dir.mkdir()
+    (fake_dir / "fake_git.py").write_text(
+        "class FakeGit:\n"
+        "    def reject_next_push(self): ...\n"
+        "    def set_corrupted_config(self, cwd, *, key, value): ...\n"
+        "    def active_worktrees(self): ...\n"
+        "    async def push(self, cwd, remote, branch): ...\n"
+        "    async def commit(self, cwd, message): ...\n"
+    )
+
+    cat = catalog_fake_methods(fake_dir)
+    assert "FakeGit" in cat
+    surface = set(cat["FakeGit"]["adapter-surface"])
+    helpers = set(cat["FakeGit"]["test-helper"])
+
+    for method in ("reject_next_push", "set_corrupted_config", "active_worktrees"):
+        assert method not in surface, f"{method} must not be adapter-surface"
+        assert method in helpers, f"{method} must be in test-helper"
+
+    assert "push" in surface
+    assert "commit" in surface
+
+
 def test_catalog_cassette_methods_reads_input_command(tmp_path: Path) -> None:
     import yaml
 
