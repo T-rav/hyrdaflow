@@ -44,6 +44,12 @@ async def _invoke_fake_github(cassette: Cassette) -> FakeOutput:
         stdout = f"merged pull request https://github.com/_/_/pull/{pr_number}\n"
         return FakeOutput(exit_code=0, stdout=stdout, stderr="")
 
+    if method == "close_issue":
+        issue_number = int(args[0])
+        fake.add_issue(issue_number, "Test Issue", "body")
+        await fake.close_issue(issue_number)
+        return FakeOutput(exit_code=0, stdout="", stderr="")
+
     msg = f"FakeGitHub has no contract-tested method {method!r}"
     raise NotImplementedError(msg)
 
