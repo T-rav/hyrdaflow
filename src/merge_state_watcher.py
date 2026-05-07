@@ -7,7 +7,8 @@ existing ``PRUnsticker`` + ``MergeConflictResolver`` path takes over.
 
 This closes the gap where RC-promotion PRs (cut by ``StagingPromotionLoop``),
 dependabot PRs, and out-of-date agent PRs sat indefinitely because nothing
-labeled them HITL.
+labeled them HITL. Source-agnostic on purpose — same loop covers RC,
+dependabot, and agent PRs without each originator reimplementing the fix.
 """
 
 from __future__ import annotations
