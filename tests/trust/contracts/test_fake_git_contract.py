@@ -48,6 +48,13 @@ async def _invoke_fake_git(cassette: Cassette) -> FakeOutput:
         sha = await fake.rev_parse(cwd, "HEAD")
         return FakeOutput(exit_code=0, stdout=f"{sha}\n", stderr="")
 
+    if method == "config_unset":
+        # Seed the key so there is something to unset, mirroring real usage
+        # where a corrupted config entry is cleared.
+        fake.set_corrupted_config(cwd, key=str(args[0]), value="stale")
+        await fake.config_unset(cwd, key=str(args[0]))
+        return FakeOutput(exit_code=0, stdout="", stderr="")
+
     msg = f"FakeGit has no contract-tested method {method!r}"
     raise NotImplementedError(msg)
 
