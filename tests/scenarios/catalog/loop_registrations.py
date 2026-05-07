@@ -508,6 +508,61 @@ def _build_fake_coverage_auditor(ports: dict[str, Any], config: Any, deps: Any) 
     return loop
 
 
+def _build_adr_touchpoint_auditor(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build AdrTouchpointAuditorLoop for scenarios (ADR-0056).
+
+    Tests pre-seed:
+    * ``adr_touchpoint_list_merged_prs`` → replaces ``_list_recent_merged_prs``
+      so we don't shell out to ``gh``.
+    * ``adr_touchpoint_reconcile_closed`` → replaces ``_reconcile_closed_escalations``.
+    * ``adr_touchpoint_index`` → an ``ADRIndex`` (or duck-typed substitute).
+
+    State + dedup default to MagicMocks behaving like a clean slate (empty
+    cursor → seed-and-return on first tick). Tests override via
+    ``adr_touchpoint_state`` / ``adr_touchpoint_dedup``.
+    """
+    from adr_touchpoint_auditor_loop import (  # noqa: PLC0415
+        AdrTouchpointAuditorLoop,
+    )
+
+    state = ports.get("adr_touchpoint_state")
+    if state is None:
+        state = MagicMock()
+        state.get_adr_audit_cursor.return_value = ""
+        state.get_adr_audit_attempts.return_value = 0
+        state.inc_adr_audit_attempts.return_value = 1
+        ports["adr_touchpoint_state"] = state
+
+    dedup = ports.get("adr_touchpoint_dedup")
+    if dedup is None:
+        dedup = MagicMock()
+        dedup.get.return_value = set()
+        ports["adr_touchpoint_dedup"] = dedup
+
+    pr_manager = ports.get("pr_manager") or ports["github"]
+    adr_index = ports.get("adr_touchpoint_index") or MagicMock(
+        adrs_touching=lambda paths: {}
+    )
+
+    loop = AdrTouchpointAuditorLoop(
+        config=config,
+        state=state,
+        pr_manager=pr_manager,
+        dedup=dedup,
+        adr_index=adr_index,
+        deps=deps,
+    )
+
+    list_prs = ports.get("adr_touchpoint_list_merged_prs")
+    if list_prs is not None:
+        loop._list_recent_merged_prs = list_prs  # type: ignore[method-assign]
+    reconcile = ports.get("adr_touchpoint_reconcile_closed")
+    if reconcile is not None:
+        loop._reconcile_closed_escalations = reconcile  # type: ignore[method-assign]
+
+    return loop
+
+
 def _build_staging_bisect(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     """Build StagingBisectLoop for scenarios (spec §4.3).
 
@@ -942,6 +997,7 @@ _BUILDERS: dict[str, Any] = {
     "flake_tracker": _build_flake_tracker,
     "skill_prompt_eval": _build_skill_prompt_eval,
     "fake_coverage_auditor": _build_fake_coverage_auditor,
+    "adr_touchpoint_auditor": _build_adr_touchpoint_auditor,
     "rc_budget": _build_rc_budget,
     "wiki_rot_detector": _build_wiki_rot_detector,
     # trust fleet (spec §4.3 staging bisect + §12.1 sanity)

@@ -1796,6 +1796,9 @@ class StateData(BaseModel):
     skill_prompt_attempts: dict[str, int] = Field(default_factory=dict)
     fake_coverage_last_known: dict[str, list[str]] = Field(default_factory=dict)
     fake_coverage_attempts: dict[str, int] = Field(default_factory=dict)
+    # AdrTouchpointAuditorLoop (ADR-0056) — cursor is ISO-8601 of last-scanned merged PR.
+    adr_audit_cursor: str = Field(default="")
+    adr_audit_attempts: dict[str, int] = Field(default_factory=dict)
     escalation_contexts: dict[str, dict[str, object]] = Field(default_factory=dict)
     diagnostic_attempts: dict[str, list[dict[str, object]]] = Field(
         default_factory=dict

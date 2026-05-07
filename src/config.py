@@ -1923,6 +1923,22 @@ class HydraFlowConfig(BaseModel):
         description="Seconds between FakeCoverageAuditorLoop ticks (default 7d)",
     )
 
+    # Trust fleet — AdrTouchpointAuditorLoop (ADR-0056)
+    adr_touchpoint_auditor_interval: int = Field(
+        default=14400,
+        ge=900,
+        le=86400,
+        description="Seconds between AdrTouchpointAuditorLoop ticks (default 4h)",
+    )
+    adr_drift_label: list[str] = Field(
+        default=["hydraflow-adr-drift"],
+        description="Labels for ADR drift findings filed by adr_touchpoint_auditor",
+    )
+    adr_drift_stuck_label: list[str] = Field(
+        default=["hydraflow-adr-drift-stuck"],
+        description="Labels for stuck ADR drift escalations (paired with hitl_escalation_label)",
+    )
+
     # Trust fleet — RCBudgetLoop (spec §4.8)
     rc_budget_interval: int = Field(
         default=14400,

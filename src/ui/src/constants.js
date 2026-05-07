@@ -249,7 +249,7 @@ export const WORKER_PRESETS = {
 /**
  * Workers whose interval can be edited from the UI.
  */
-export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'pr_unsticker', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer', 'epic_sweeper', 'dependabot_merge', 'staging_promotion', 'staging_bisect', 'stale_issue', 'security_patch', 'ci_monitor', 'code_grooming', 'sentry_ingest', 'retrospective', 'principles_audit', 'flake_tracker', 'skill_prompt_eval', 'fake_coverage_auditor', 'rc_budget', 'wiki_rot_detector', 'trust_fleet_sanity', 'contract_refresh', 'corpus_learning', 'auto_agent_preflight', 'diagram_loop', 'pricing_refresh', 'cost_budget_watcher'])
+export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'pr_unsticker', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer', 'epic_sweeper', 'dependabot_merge', 'staging_promotion', 'staging_bisect', 'stale_issue', 'security_patch', 'ci_monitor', 'code_grooming', 'sentry_ingest', 'retrospective', 'principles_audit', 'flake_tracker', 'skill_prompt_eval', 'fake_coverage_auditor', 'adr_touchpoint_auditor', 'rc_budget', 'wiki_rot_detector', 'trust_fleet_sanity', 'contract_refresh', 'corpus_learning', 'auto_agent_preflight', 'diagram_loop', 'pricing_refresh', 'cost_budget_watcher'])
 
 /**
  * Default intervals (in seconds) for system workers.
@@ -276,6 +276,7 @@ export const SYSTEM_WORKER_INTERVALS = {
   flake_tracker: 14400,
   skill_prompt_eval: 604800,
   fake_coverage_auditor: 604800,
+  adr_touchpoint_auditor: 14400,
   rc_budget: 14400,
   wiki_rot_detector: 604800,
   trust_fleet_sanity: 600,
@@ -329,6 +330,7 @@ export const BACKGROUND_WORKERS = [
   { key: 'flake_tracker', label: 'Flake Tracker', description: 'Detects persistently flaky tests across the last 20 RC runs and files fix-or-quarantine issues.', color: theme.yellow, group: 'repo_health', tags: ['quality'] },
   { key: 'skill_prompt_eval', label: 'Skill Prompt Eval', description: 'Runs the full adversarial skill corpus weekly and files drift + weak-case issues.', color: theme.blue, group: 'learning', tags: ['quality'] },
   { key: 'fake_coverage_auditor', label: 'Fake Coverage Auditor', description: 'Flags un-cassetted fake adapter methods and un-exercised test helpers.', color: theme.accent, group: 'learning', tags: ['quality'] },
+  { key: 'adr_touchpoint_auditor', label: 'ADR Touchpoint Auditor', description: 'Scans recently-merged PRs for ADR drift — cited src/ modules changed without the ADR being updated. Replaces the synchronous touchpoint gate. See ADR-0056.', color: theme.purple, group: 'learning', tags: ['knowledge'] },
   { key: 'rc_budget', label: 'RC Budget', description: 'Detects RC CI wall-clock bloat via rolling-median + spike-vs-recent-max signals; files hydraflow-find issues.', color: theme.orange, group: 'repo_health', tags: ['quality'] },
   { key: 'term_proposer', label: 'Term Proposer', description: 'Caretaker that grows the ubiquitous-language glossary by detecting load-bearing classes without terms (S1+S2+S5 signals), drafting them via LLM, and opening auto-merging bot PRs as `confidence: proposed`. See ADR-0054.', color: theme.cyan, group: 'learning', tags: ['knowledge'] },
   { key: 'wiki_rot_detector', label: 'Wiki Rot Detector', description: 'Weekly scan of per-repo wikis for broken code cites (file:symbol, dotted src.paths); files hydraflow-find issues with fuzzy-match suggestions.', color: theme.purple, group: 'learning', tags: ['knowledge'] },

@@ -36,6 +36,7 @@ flowchart LR
         quality_gates_CIMonitorLoop([CIMonitorLoop])
     end
     subgraph trust_fleet["Trust Fleet"]
+        trust_fleet_AdrTouchpointAuditorLoop([AdrTouchpointAuditorLoop])
         trust_fleet_ContractRefreshLoop([ContractRefreshLoop])
         trust_fleet_CorpusLearningLoop([CorpusLearningLoop])
         trust_fleet_FakeCoverageAuditorLoop([FakeCoverageAuditorLoop])
@@ -127,6 +128,7 @@ The trust-architecture hardening fleet (ADR-0045) — RC promotion gate, staging
 
 **Loops**
 
+- `AdrTouchpointAuditorLoop` — `src.adr_touchpoint_auditor_loop`
 - `ContractRefreshLoop` — `src.contract_refresh_loop`
 - `CorpusLearningLoop` — `src.corpus_learning_loop`
 - `FakeCoverageAuditorLoop` — `src.fake_coverage_auditor_loop`
@@ -136,7 +138,7 @@ The trust-architecture hardening fleet (ADR-0045) — RC promotion gate, staging
 - `StagingBisectLoop` — `src.staging_bisect_loop`
 - `TrustFleetSanityLoop` — `src.trust_fleet_sanity_loop`
 
-**Related ADRs:** `ADR-0042`, `ADR-0045`, `ADR-0048`
+**Related ADRs:** `ADR-0042`, `ADR-0045`, `ADR-0048`, `ADR-0056`
 
 
 ## Hexagonal Boundaries
@@ -261,4 +263,4 @@ The plan→implement→review pipeline driving each issue from hydraflow-ready t
 **Related ADRs:** `ADR-0001`, `ADR-0004`, `ADR-0011`, `ADR-0012`, `ADR-0029`
 
 
-_Regenerated from commit `8b3a1f4` on 2026-05-07 03:23 UTC. Source last changed at `8b3a1f4`. Status: 🟢 fresh._
+_Regenerated from commit `5ec1241` on 2026-05-07 05:40 UTC. Source last changed at `5ec1241`. Status: 🟢 fresh._
