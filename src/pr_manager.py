@@ -2086,7 +2086,23 @@ class PRManager:
             checks = await self.get_pr_checks(pr_number)
 
             if not checks:
-                return True, "No CI checks found"
+                # No checks registered yet. For freshly-opened PRs (e.g.
+                # RC promotion PRs cut by StagingPromotionLoop), CI may
+                # not have registered any checks in the rollup until a
+                # few seconds after the PR opens. The legacy behavior
+                # ("treat empty as success") raced with the merge
+                # attempt: wait_for_ci would return True immediately,
+                # the loop would attempt merge, and GitHub would reject
+                # because required checks weren't satisfied. Fix: treat
+                # empty as PENDING — keep polling until checks appear or
+                # timeout. The caller's "timed out" / "ci_pending" path
+                # retries on the next loop tick.
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=poll_interval)
+                    return False, "Stopped"
+                except TimeoutError:
+                    elapsed += poll_interval
+                    continue
 
             verdict = self._evaluate_ci_checks(checks, pr_number)
             if verdict is None:

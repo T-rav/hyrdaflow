@@ -1426,8 +1426,18 @@ async def test_wait_for_ci_fails_on_failure(config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_wait_for_ci_passes_when_no_checks(config, event_bus):
-    """wait_for_ci should return (True, ...) when no CI checks exist."""
+async def test_wait_for_ci_polls_when_no_checks_until_timeout(config, event_bus):
+    """wait_for_ci should treat empty checks as pending and poll until timeout.
+
+    Regression for the StagingPromotionLoop race: a freshly-opened PR
+    (e.g. an rc/* promotion PR) has no checks registered for the first
+    few seconds. The legacy behavior was to return ``(True, "No CI
+    checks found")`` immediately, which caused the loop to attempt
+    merge before required checks were satisfied — GitHub rejected with
+    "merge commit cannot be cleanly created". Fix: keep polling until
+    checks appear or the caller's timeout elapses, then return
+    ``(False, ...)`` so the caller's existing retry-next-tick path
+    fires."""
     import asyncio
 
     mgr = make_pr_manager(config, event_bus)
@@ -1435,12 +1445,16 @@ async def test_wait_for_ci_passes_when_no_checks(config, event_bus):
 
     mgr.get_pr_checks = AsyncMock(return_value=[])
 
+    # Tight timeout + small poll_interval keeps the test fast.
     passed, summary = await mgr.wait_for_ci(
-        101, timeout=60, poll_interval=5, stop_event=stop
+        101, timeout=2, poll_interval=1, stop_event=stop
     )
 
-    assert passed is True
-    assert "No CI checks found" in summary
+    # MUST NOT silently return True for empty checks.
+    assert passed is False
+    # Must have polled at least twice (once at t=0, once at t=poll_interval)
+    # before the loop's elapsed >= timeout exits.
+    assert mgr.get_pr_checks.await_count >= 2
 
 
 @pytest.mark.asyncio
