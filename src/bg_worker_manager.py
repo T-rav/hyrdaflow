@@ -137,5 +137,7 @@ class BGWorkerManager:
             # Daily caretaker — never falls through to poll_interval.
             "pricing_refresh": 86400,
             "cost_budget_watcher": 300,  # 5 minutes
+            "stale_issue": self._config.stale_issue_interval,
+            "stale_issue_gc": self._config.stale_issue_gc_interval,
         }
         return defaults.get(name, self._config.poll_interval)
