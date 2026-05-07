@@ -6,9 +6,9 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from term_pruner_loop import TermPrunerLoop
 
 from config import HydraFlowConfig
+from term_pruner_loop import TermPrunerLoop
 from tests.test_term_proposer_pr_opener import FakePRPort
 from ubiquitous_language import (
     BoundedContext,
