@@ -381,6 +381,62 @@ def generate_makefile(language: str) -> str:
     return "\n".join(lines)
 
 
+def _append_missing_targets(
+    existing_content: str,
+    targets_to_add: list[str],
+    template_targets: dict[str, str],
+) -> str:
+    """Return content with missing targets appended; prerequisite-only targets last."""
+    lines = existing_content.rstrip("\n") + "\n"
+    for name in targets_to_add:
+        if name in ("smoke", "quality-lite", "quality"):
+            continue
+        if name == "help":
+            lines += f"\nhelp:\n{_HELP_RECIPE}"
+            continue
+        lines += f"\n{name}:\n{template_targets[name]}"
+    if "smoke" in targets_to_add:
+        lines += f"\n{_SMOKE_LINE}"
+    if "quality-lite" in targets_to_add:
+        lines += f"\n{_QUALITY_LITE_LINE}"
+    if "quality" in targets_to_add:
+        lines += f"\n{_QUALITY_LINE}"
+    return lines
+
+
+def _update_phony(
+    content: str,
+    existing_content: str,
+    existing_targets: dict[str, str],
+    targets_to_add: list[str],
+) -> str:
+    """Replace or prepend .PHONY to cover all known targets."""
+    existing_phony: set[str] = set()
+    for line in existing_content.split("\n"):
+        if line.startswith(".PHONY"):
+            rest = line.split(":", 1)
+            if len(rest) > 1:
+                existing_phony.update(rest[1].split())
+    all_names = existing_phony | set(existing_targets.keys()) | set(targets_to_add)
+    phony_names = " ".join(sorted(all_names))
+    if ".PHONY" in existing_content:
+        return re.sub(
+            r"^\.PHONY:.*",
+            f".PHONY: {phony_names}",
+            content,
+            count=1,
+            flags=re.MULTILINE,
+        )
+    return f".PHONY: {phony_names}\n\n{content}"
+
+
+def _ensure_default_goal(content: str, existing_content: str) -> str:
+    """Prepend .DEFAULT_GOAL if it is absent from the original content."""
+    if re.search(r"^\.DEFAULT_GOAL\s*:?=", existing_content, re.MULTILINE):
+        return content
+    return f"{_DEFAULT_GOAL_LINE}\n\n{content}"
+
+
 def merge_makefile(existing_content: str, language: str) -> tuple[str, list[str]]:
     """Merge missing targets into an existing Makefile.
 
@@ -391,72 +447,27 @@ def merge_makefile(existing_content: str, language: str) -> tuple[str, list[str]
     if not template_targets:
         return existing_content, []
 
-    # Include prerequisite-only quality targets in the full set to check.
     all_template: dict[str, str | None] = dict(template_targets)
     all_template["help"] = _HELP_RECIPE
     all_template["smoke"] = None
     all_template["quality-lite"] = None
-    all_template["quality"] = None  # prerequisite-only, no recipe body
+    all_template["quality"] = None
 
     existing_targets = parse_makefile(existing_content)
-
     targets_to_add, warnings = _diff_targets(existing_targets, all_template)
     warnings += _check_prereq_deps(existing_content, existing_targets)
 
     if not targets_to_add:
         return existing_content, warnings
 
-    # Build the new content by appending missing targets
-    new_lines = existing_content.rstrip("\n")
-
-    # Add a blank line separator
-    new_lines += "\n"
-
-    for name in targets_to_add:
-        if name in ("smoke", "quality-lite", "quality"):
-            continue  # Add prerequisite-only targets last.
-        if name == "help":
-            new_lines += f"\nhelp:\n{_HELP_RECIPE}"
-            continue
-        new_lines += f"\n{name}:\n{template_targets[name]}"
-
-    if "smoke" in targets_to_add:
-        new_lines += f"\n{_SMOKE_LINE}"
-    if "quality-lite" in targets_to_add:
-        new_lines += f"\n{_QUALITY_LITE_LINE}"
-    if "quality" in targets_to_add:
-        new_lines += f"\n{_QUALITY_LINE}"
-
-    # Ensure .PHONY includes all targets — preserve existing .PHONY entries
-    # that may not have target definitions in this file (e.g., from includes).
-    existing_phony: set[str] = set()
-    for _line in existing_content.split("\n"):
-        if _line.startswith(".PHONY"):
-            _rest = _line.split(":", 1)
-            if len(_rest) > 1:
-                existing_phony.update(_rest[1].split())
-    all_target_names = (
-        existing_phony | set(existing_targets.keys()) | set(targets_to_add)
+    new_content = _append_missing_targets(
+        existing_content, targets_to_add, template_targets
     )
-    phony_names = " ".join(sorted(all_target_names))
+    new_content = _update_phony(
+        new_content, existing_content, existing_targets, targets_to_add
+    )
+    new_content = _ensure_default_goal(new_content, existing_content)
+    if not new_content.endswith("\n"):
+        new_content += "\n"
 
-    if ".PHONY" in existing_content:
-        # Replace existing .PHONY line(s)
-        new_lines = re.sub(
-            r"\.PHONY:.*",
-            f".PHONY: {phony_names}",
-            new_lines,
-            count=1,
-        )
-    else:
-        # Prepend .PHONY
-        new_lines = f".PHONY: {phony_names}\n\n{new_lines}"
-
-    if not re.search(r"^\.DEFAULT_GOAL\s*:?=", existing_content, re.MULTILINE):
-        new_lines = f"{_DEFAULT_GOAL_LINE}\n\n{new_lines}"
-
-    # Ensure trailing newline
-    if not new_lines.endswith("\n"):
-        new_lines += "\n"
-
-    return new_lines, warnings
+    return new_content, warnings

@@ -35,23 +35,20 @@ model {
     description: 'language -> full Makefile string'
   }
   merge_makefile = function 'merge_makefile' {
-    description: 'After refactor: ~20 lines, orchestrator only'
+    description: 'After refactor: ~34 lines, orchestrator only'
   }
 
   // New private helpers (module-level, prefix _) — extracted from merge_makefile.
-  resolve_template = private_function '_resolve_merge_template' {
-    description: 'language -> dict[name, str|None]; adds help/smoke/quality-lite/quality entries'
-  }
   diff_targets = private_function '_diff_targets' {
-    description: '(existing_targets, all_template, existing_content) -> (warnings, targets_to_add)'
+    description: '(existing_targets: dict, all_template: dict) -> (targets_to_add, warnings)'
   }
-  warn_if_prereqs_differ = private_function '_warn_if_prereqs_differ' {
-    description: 'Single helper; called 3x for smoke/quality-lite/quality'
+  check_prereq_deps = private_function '_check_prereq_deps' {
+    description: 'Check prerequisite deps for smoke/quality-lite/quality; called from merge_makefile'
   }
   append_missing = private_function '_append_missing_targets' {
     description: 'Two-pass: recipe-bearing first, prerequisite-only last'
   }
-  ensure_phony = private_function '_ensure_phony' {
+  update_phony = private_function '_update_phony' {
     description: 'Rewrite or prepend .PHONY preserving include-defined names'
   }
   ensure_default_goal = private_function '_ensure_default_goal' {
@@ -88,17 +85,16 @@ model {
   tests -> merge_makefile
 
   // Internal composition (NEW after refactor)
-  merge_makefile -> resolve_template 'language -> all_template'
+  merge_makefile -> targets_for_language 'language -> template_targets; early-return if empty'
   merge_makefile -> parse_makefile 'existing_content -> existing_targets'
-  merge_makefile -> diff_targets 'compute warnings + targets_to_add'
+  merge_makefile -> diff_targets 'compute targets_to_add + warnings'
+  merge_makefile -> check_prereq_deps 'smoke / quality-lite / quality prereq warnings'
   merge_makefile -> append_missing 'append recipe + prerequisite-only'
-  merge_makefile -> ensure_phony 'rewrite or prepend .PHONY'
+  merge_makefile -> update_phony 'rewrite or prepend .PHONY'
   merge_makefile -> ensure_default_goal 'prepend .DEFAULT_GOAL if absent'
 
   diff_targets -> normalize_recipe 'compare recipe equality'
-  diff_targets -> warn_if_prereqs_differ 'smoke / quality-lite / quality'
 
-  resolve_template -> targets_for_language 'base recipes for language'
   generate_makefile -> targets_for_language
 }
 
