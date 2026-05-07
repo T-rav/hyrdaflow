@@ -120,6 +120,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
                         session_id=rt.orchestrator.current_session_id
                         if rt.running
                         else None,
+                        last_error=rt.last_error,
                     ).model_dump()
                 )
         return JSONResponse({"runtimes": infos})
@@ -151,6 +152,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:  # noqa: PLR0915
             repo=rt.config.repo,
             running=rt.running,
             session_id=rt.orchestrator.current_session_id if rt.running else None,
+            last_error=rt.last_error,
         )
         return JSONResponse(info.model_dump())
 
