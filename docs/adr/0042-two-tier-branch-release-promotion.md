@@ -58,7 +58,15 @@ pushes), and require CodeQL `high_or_higher` severity. Repo-level
 `allow_auto_merge=true` enables `gh pr merge --auto` and the loop's
 auto-merge-on-green path. See [`docs/wiki/patterns.md`](../wiki/patterns.md)
 "Branch protection — rulesets that enforce the two-tier model" for the
-canonical operator reference and drift-audit commands.
+canonical operator reference.
+
+The configurations are version-controlled at
+[`docs/standards/branch_protection/`](../standards/branch_protection/) and
+applied via `scripts/setup_branch_protection.py` — idempotent, repeatable
+across any HydraFlow-format repo (`--apply` writes, `--audit` diffs live
+vs canonical and exits 1 on drift). This makes the standard a piece of
+versioned infrastructure rather than a one-off `gh api` invocation, and
+makes drift detection a CI-friendly operation any caretaker loop can run.
 
 ## Consequences
 

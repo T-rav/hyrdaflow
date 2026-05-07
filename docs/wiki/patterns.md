@@ -411,7 +411,16 @@ Repo-level settings:
 - `allow_auto_merge=true` — required for `gh pr merge --auto` and for `StagingPromotionLoop` to queue auto-merges on RC PRs
 - `allow_squash_merge=true`, `allow_merge_commit=true`, `allow_rebase_merge=true` — methods are gated per-branch by ruleset, not at repo level
 
-To audit drift: `gh api /repos/T-rav/hydraflow/rulesets/15468404 | jq .rules` and same for `16066429`. Diff against [`docs/adr/0042-two-tier-branch-release-promotion.md`](../adr/0042-two-tier-branch-release-promotion.md).
+**Apply / audit / re-apply** with `scripts/setup_branch_protection.py` — idempotent, works on any HydraFlow-format repo:
+
+```bash
+python scripts/setup_branch_protection.py --audit             # exit 1 on drift
+python scripts/setup_branch_protection.py                     # dry-run apply
+python scripts/setup_branch_protection.py --apply             # PUT/POST + create staging branch + set allow_auto_merge
+python scripts/setup_branch_protection.py --repo owner/name --apply   # cross-repo
+```
+
+Canonical rulesets are versioned JSON at [`docs/standards/branch_protection/`](../standards/branch_protection/) — diff those, not the live API, to know what *should* be there.
 
 **Why:** Encoding the decision in two rulesets (rather than docs alone) means the GitHub UI itself rejects squash-into-main and direct-push violations — convention that becomes infrastructure. The required-check sets enforce that nothing reaches `main` without the full MockWorld + e2e sandbox suite, and nothing reaches `staging` without the full standard CI gate.
 
