@@ -1,0 +1,82 @@
+// C4 Component — Cassette/dispatcher coupling for FakeGit
+//
+// The cassette and the replay dispatcher are two halves of one
+// contract. Adding a cassette without an `if method == "push"`
+// branch flips the green parametrised test to NotImplementedError.
+// Both must land in the same PR.
+
+specification {
+  element file
+  element class
+  element function
+}
+
+model {
+  fakeGit = class 'FakeGit' {
+    description '
+      src/mockworld/fakes/fake_git.py
+      async def push(cwd, remote, branch) -> None
+      Raises RuntimeError when _reject_next_push is set.
+    '
+  }
+
+  dispatcher = function '_invoke_fake_git' {
+    description '
+      tests/trust/contracts/test_fake_git_contract.py
+      Manual if-chain over cassette.input.command.
+      Synthesises FakeOutput for fakes that return None.
+    '
+  }
+
+  pushCassette = file 'push.yaml (NEW)' {
+    description '
+      tests/trust/contracts/cassettes/git/push.yaml
+      input.command: push
+      args: [origin, main]
+      output: exit_code 0, empty stdout/stderr
+    '
+  }
+
+  commitCassette = file 'commit.yaml (existing)' {
+    description '
+      Reference shape for empty-stdout, sha:short normalised cassette.
+    '
+  }
+
+  schema = class 'Cassette (Pydantic)' {
+    description '
+      src/contracts/_schema.py
+      Adapter ∈ {github,git,docker}.
+      Normalizers ∈ {pr_number, timestamps.ISO8601, sha:short}.
+    '
+  }
+
+  regression = file 'test_issue_8493.py (NEW)' {
+    description '
+      tests/regressions/
+      Asserts FakeGit.push surface ∩ git cassette command set is non-empty.
+    '
+  }
+
+  auditor = function 'catalog_fake_methods + catalog_cassette_methods' {
+    description '
+      src/fake_coverage_auditor_loop.py
+      AST scan + YAML scan; set-difference yields gap.
+    '
+  }
+
+  pushCassette -> schema 'Validates as Cassette'
+  pushCassette -> dispatcher 'Drives via parametrize'
+  dispatcher -> fakeGit 'await fake.push(cwd, remote, branch)'
+  regression -> auditor 'Re-uses catalog functions'
+  regression -> fakeGit 'Asserts surface still names push'
+  regression -> pushCassette 'Asserts cassette names push'
+  commitCassette -> dispatcher 'Existing precedent'
+}
+
+views {
+  view components_8493 {
+    title 'Issue 8493 — File-level coupling'
+    include *
+  }
+}

@@ -1,0 +1,57 @@
+// C4 Context — Issue #8493: Un-cassetted FakeGit.push
+//
+// The fake-coverage contract gate exists to detect drift between the
+// FakeGit adapter (used by scenario tests) and the real GitAdapter
+// (used in production). Spec §4.7 — fake_coverage_auditor_loop.
+
+specification {
+  element actor
+  element system
+  element subsystem
+}
+
+model {
+  auditor = actor 'FakeCoverageAuditorLoop' {
+    description '
+      Weekly AST scan over src/mockworld/fakes/. Set-diffs
+      method names against input.command in cassette YAMLs.
+    '
+  }
+
+  contractGate = actor 'Trust Contract Gate (replay)' {
+    description '
+      Pytest-parametrised over every cassette under
+      tests/trust/contracts/cassettes/<adapter>/. Drives
+      the Fake* class and asserts shape equality under
+      registered normalizers.
+    '
+  }
+
+  hydraflow = system 'HydraFlow' {
+    fakes = subsystem 'mockworld.fakes' {
+      description 'In-memory adapter doubles for scenarios.'
+    }
+    cassettes = subsystem 'tests/trust/contracts/cassettes/' {
+      description 'Recorded real-CLI fixtures. One per public adapter method.'
+    }
+    recorder = subsystem 'contract_recording' {
+      description 'Refresh loop subroutines. Spawn real CLIs to refresh cassettes.'
+    }
+    dispatcher = subsystem 'test_fake_git_contract.py' {
+      description 'Replay dispatcher. Method-name → fake-call adapter.'
+    }
+  }
+
+  auditor -> fakes 'AST-scan public methods'
+  auditor -> cassettes 'Read input.command set'
+  contractGate -> dispatcher 'Drive each cassette'
+  dispatcher -> fakes 'Invoke FakeGit.<method>'
+  recorder -> cassettes 'Refresh weekly'
+}
+
+views {
+  view context_8493 {
+    title 'Issue 8493 — FakeGit.push contract gap'
+    include *
+  }
+}
