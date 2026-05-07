@@ -714,6 +714,26 @@ class HydraFlowConfig(BaseModel):
         default=["hydraflow-diagnose"],
         description="Labels for issues in diagnostic analysis (OR logic)",
     )
+    hitl_escalation_label: list[str] = Field(
+        default=["hydraflow-hitl-escalation"],
+        description="Labels for stuck-loop HITL escalations (e.g. fake-coverage-auditor)",
+    )
+    fake_coverage_gap_label: list[str] = Field(
+        default=["hydraflow-fake-coverage-gap"],
+        description="Labels for fake-coverage-auditor gap issues (adapter or helper)",
+    )
+    adapter_surface_label: list[str] = Field(
+        default=["hydraflow-adapter-surface"],
+        description="Labels for un-cassetted public adapter methods on Fakes",
+    )
+    test_helper_label: list[str] = Field(
+        default=["hydraflow-test-helper"],
+        description="Labels for un-exercised Fake test helpers (script_*, fail_service, ...)",
+    )
+    fake_coverage_stuck_label: list[str] = Field(
+        default=["hydraflow-fake-coverage-stuck"],
+        description="Labels for stuck fake-coverage gaps (paired with hitl_escalation_label)",
+    )
     max_diagnosticians: int = Field(
         default=1,
         description="Max concurrent diagnostic workers",

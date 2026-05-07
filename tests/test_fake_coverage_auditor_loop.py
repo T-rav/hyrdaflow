@@ -125,8 +125,8 @@ async def test_do_work_files_surface_gap(loop_env, monkeypatch, tmp_path) -> Non
     stats = await loop._do_work()
     assert stats["filed"] == 1
     labels = pr.create_issue.await_args.args[2]
-    assert "adapter-surface" in labels
-    assert "fake-coverage-gap" in labels
+    assert "hydraflow-adapter-surface" in labels
+    assert "hydraflow-fake-coverage-gap" in labels
 
 
 async def test_do_work_files_helper_gap(loop_env, monkeypatch, tmp_path) -> None:
@@ -157,7 +157,7 @@ async def test_do_work_files_helper_gap(loop_env, monkeypatch, tmp_path) -> None
     stats = await loop._do_work()
     assert stats["filed"] == 1
     labels = pr.create_issue.await_args.args[2]
-    assert "test-helper" in labels
+    assert "hydraflow-test-helper" in labels
     title = pr.create_issue.await_args.args[0]
     assert "script_run" in title
 
@@ -190,8 +190,8 @@ async def test_escalation_fires_after_three_attempts(
     stats = await loop._do_work()
     assert stats["escalated"] == 1
     labels = pr.create_issue.await_args.args[2]
-    assert "hitl-escalation" in labels
-    assert "fake-coverage-stuck" in labels
+    assert "hydraflow-hitl-escalation" in labels
+    assert "hydraflow-fake-coverage-stuck" in labels
 
 
 async def test_close_reconcile_clears_dedup_on_closed_escalation(
@@ -232,6 +232,39 @@ async def test_close_reconcile_clears_dedup_on_closed_escalation(
     assert "fake_coverage_auditor:FakeGitHub.other:adapter-surface" in remaining
     state.clear_fake_coverage_attempts.assert_called_once_with(
         "FakeGitHub.missing:adapter-surface"
+    )
+
+
+async def test_all_emitted_labels_are_registered_hydraflow_labels(loop_env) -> None:
+    """Every label the auditor passes to ``pr.create_issue`` must be a registered
+    HydraFlow lifecycle label, so ``make ensure-labels`` provisions it on the repo.
+
+    Regression for "could not add label: 'fake-coverage-gap' not found" — bare
+    labels were silently failing every gap-issue creation. See PR for context.
+    """
+    from prep import HYDRAFLOW_LABELS
+
+    cfg, state, pr, dedup = loop_env
+    registered: set[str] = set()
+    for cfg_field, *_ in HYDRAFLOW_LABELS:
+        registered.update(getattr(cfg, cfg_field))
+
+    stop = asyncio.Event()
+    loop = FakeCoverageAuditorLoop(
+        config=cfg, state=state, pr_manager=pr, dedup=dedup, deps=_deps(stop)
+    )
+
+    await loop._file_surface_gap("FakeGitHub", "create_issue")
+    await loop._file_helper_gap("FakeDocker", "script_run")
+    await loop._file_escalation("FakeGitHub.missing:adapter-surface", 3)
+
+    emitted: set[str] = set()
+    for call in pr.create_issue.await_args_list:
+        emitted.update(call.args[2])
+
+    unregistered = emitted - registered
+    assert not unregistered, (
+        f"auditor emits unregistered labels: {sorted(unregistered)}"
     )
 
 

@@ -29,6 +29,23 @@ HYDRAFLOW_LABELS: tuple[tuple[str, str, str], ...] = (
     ("verify_label", "c2e0c6", "Post-merge verification pending"),
     ("parked_label", "c5c5c5", "Issue parked — awaiting author clarification"),
     ("diagnose_label", "1d76db", "Issue under diagnostic analysis before HITL"),
+    ("hitl_escalation_label", "b60205", "Stuck-loop HITL escalation (caretaker loops)"),
+    (
+        "fake_coverage_gap_label",
+        "fbca04",
+        "Fake adapter or helper missing from contract coverage",
+    ),
+    ("adapter_surface_label", "c5def5", "Public method on a Fake adapter"),
+    (
+        "test_helper_label",
+        "d4c5f9",
+        "Helper method on a Fake (script_*, fail_service, ...)",
+    ),
+    (
+        "fake_coverage_stuck_label",
+        "e99695",
+        "Fake coverage gap unresolved after retries",
+    ),
 )
 
 
