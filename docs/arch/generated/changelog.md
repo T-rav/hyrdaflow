@@ -6,6 +6,10 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W19
 
+- `c9c5d35` — chore: arch-regen + lint-fix to unblock CI on #8478 *(2026-05-07)*
+- `dd9ce56` — feat(pr): rebase-on-conflict for process-driven merges (#8482) (#8482) *(2026-05-06)*
+- `06c3e70` — feat(staging): activate two-tier branch model + repeatable branch-protection standard (#8479) (#8479) *(2026-05-06)*
+- `6d7fe13` — feat(telemetry): OTel Honeycomb instrumentation — Phase A (#8473) (#8473) *(2026-05-06)*
 - `43ffe3d` — feat(ul): TermProposerLoop — auto-grow the ubiquitous-language glossary (ADR-0054 / chunk 2 of 5) (#8477) (#8477) *(2026-05-06)*
 - `9ce2397` — feat(ul): ubiquitous language as a living artifact (ADR-0053 slice 1) (#8474) (#8474) *(2026-05-06)*
 
@@ -166,4 +170,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `ad8db26` on 2026-05-07 05:59 UTC. Source last changed at `ad8db26`. Status: 🟢 fresh._
+_Regenerated from commit `c9c5d35` on 2026-05-07 06:01 UTC. Source last changed at `c9c5d35`. Status: 🟢 fresh._
