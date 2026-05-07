@@ -94,6 +94,14 @@ class TraceCollector:
         event_type = str(event.get("type", ""))
         self._detect_backend(event_type)
 
+        from opentelemetry import trace as otel_trace  # noqa: PLC0415
+
+        from telemetry.subprocess_bridge import (
+            bridge_event_to_span,  # noqa: PLC0415
+        )
+
+        bridge_event_to_span(otel_trace.get_current_span(), event)
+
         if event_type == "assistant":
             self._handle_assistant(event)
         elif event_type == "user":

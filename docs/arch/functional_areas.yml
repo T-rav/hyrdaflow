@@ -60,6 +60,7 @@ areas:
       audit, flake tracker, corpus learning, fake coverage auditor,
       RC budget, meta-observability sanity.
     loops:
+      - AdrTouchpointAuditorLoop
       - ContractRefreshLoop
       - CorpusLearningLoop
       - FakeCoverageAuditorLoop
@@ -68,7 +69,7 @@ areas:
       - RCBudgetLoop
       - StagingBisectLoop
       - TrustFleetSanityLoop
-    related_adrs: ['0042', '0045', '0048']
+    related_adrs: ['0042', '0045', '0048', '0056']
 
   hexagonal_boundaries:
     label: Hexagonal Boundaries

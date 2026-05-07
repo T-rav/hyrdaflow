@@ -9,8 +9,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from acceptance_criteria import AcceptanceCriteriaGenerator
+from adr_index import ADRIndex
 from adr_reviewer import ADRCouncilReviewer
 from adr_reviewer_loop import ADRReviewerLoop
+from adr_touchpoint_auditor_loop import AdrTouchpointAuditorLoop
 from agent import AgentRunner
 from auto_agent_preflight_loop import AutoAgentPreflightLoop
 from base_background_loop import LoopDeps
@@ -181,6 +183,7 @@ class ServiceRegistry:
     flake_tracker_loop: FlakeTrackerLoop
     skill_prompt_eval_loop: SkillPromptEvalLoop
     fake_coverage_auditor_loop: FakeCoverageAuditorLoop
+    adr_touchpoint_auditor_loop: AdrTouchpointAuditorLoop
     rc_budget_loop: RCBudgetLoop
     wiki_rot_detector_loop: WikiRotDetectorLoop
     trust_fleet_sanity_loop: TrustFleetSanityLoop
@@ -929,6 +932,19 @@ def build_services(
         deps=loop_deps,
     )
 
+    adr_touchpoint_auditor_dedup = DedupStore(
+        "adr_touchpoint_auditor",
+        config.data_root / "dedup" / "adr_touchpoint_auditor.json",
+    )
+    adr_touchpoint_auditor_loop = AdrTouchpointAuditorLoop(  # noqa: F841
+        config=config,
+        state=state,
+        pr_manager=prs,
+        dedup=adr_touchpoint_auditor_dedup,
+        adr_index=ADRIndex(config.repo_root / "docs" / "adr"),
+        deps=loop_deps,
+    )
+
     rc_budget_dedup = DedupStore(
         "rc_budget",
         config.data_root / "dedup" / "rc_budget.json",
@@ -1101,6 +1117,7 @@ def build_services(
         flake_tracker_loop=flake_tracker_loop,
         skill_prompt_eval_loop=skill_prompt_eval_loop,
         fake_coverage_auditor_loop=fake_coverage_auditor_loop,
+        adr_touchpoint_auditor_loop=adr_touchpoint_auditor_loop,
         rc_budget_loop=rc_budget_loop,
         wiki_rot_detector_loop=wiki_rot_detector_loop,
         trust_fleet_sanity_loop=trust_fleet_sanity_loop,

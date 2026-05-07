@@ -62,22 +62,26 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | ADR-0052 | `src.contract_diff`, `src.contract_recording`, `src.mockworld.sandbox_main` |
 | ADR-0053 | `src.repo_wiki`, `src.repo_wiki_loop` |
 | ADR-0054 | `src.term_proposer_loop`, `src.ubiquitous_language` |
+| ADR-0055 | `src.base_background_loop`, `src.base_runner`, `src.config`, `src.events`, `src.exception_classify`, `src.mockworld.fakes.fake_honeycomb`, `src.pr_manager`, `src.server`, `src.telemetry.__init__`, `src.telemetry.otel`, `src.telemetry.slugs`, `src.telemetry.spans`, `src.telemetry.subprocess_bridge`, `src.trace_collector`, `src.workspace` |
+| ADR-0056 | `src.adr_drift`, `src.adr_touchpoint_auditor_loop`, `src.state._adr_audit` |
 
 ## Module → ADRs
 
 | Module | Cited by |
 |---|---|
+| `src.adr_drift` | ADR-0056 |
 | `src.adr_pre_validator` | ADR-0037 |
 | `src.adr_reviewer` | ADR-0033, ADR-0034, ADR-0037, ADR-0039, ADR-0040 |
+| `src.adr_touchpoint_auditor_loop` | ADR-0056 |
 | `src.agent` | ADR-0024, ADR-0027 |
 | `src.agent_cli` | ADR-0004 |
 | `src.auto_agent_preflight_loop` | ADR-0050 |
-| `src.base_background_loop` | ADR-0049 |
-| `src.base_runner` | ADR-0004, ADR-0032 |
+| `src.base_background_loop` | ADR-0049, ADR-0055 |
+| `src.base_runner` | ADR-0004, ADR-0032, ADR-0055 |
 | `src.bg_worker_manager` | ADR-0049 |
 | `src.caching_issue_store` | ADR-0041 |
 | `src.cli` | ADR-0036 |
-| `src.config` | ADR-0002, ADR-0009, ADR-0010, ADR-0018, ADR-0021, ADR-0022, ADR-0031, ADR-0033, ADR-0034, ADR-0035, ADR-0036, ADR-0045, ADR-0050 |
+| `src.config` | ADR-0002, ADR-0009, ADR-0010, ADR-0018, ADR-0021, ADR-0022, ADR-0031, ADR-0033, ADR-0034, ADR-0035, ADR-0036, ADR-0045, ADR-0050, ADR-0055 |
 | `src.contract_diff` | ADR-0047, ADR-0052 |
 | `src.contract_recording` | ADR-0047, ADR-0052 |
 | `src.contract_refresh_loop` | ADR-0045, ADR-0047 |
@@ -93,7 +97,8 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.epic` | ADR-0011, ADR-0012, ADR-0019 |
 | `src.epic_monitor_loop` | ADR-0012 |
 | `src.escalation_gate` | ADR-0015 |
-| `src.events` | ADR-0006 |
+| `src.events` | ADR-0006, ADR-0055 |
+| `src.exception_classify` | ADR-0055 |
 | `src.fake_coverage_auditor_loop` | ADR-0045 |
 | `src.file_util` | ADR-0021 |
 | `src.flake_tracker_loop` | ADR-0045 |
@@ -107,6 +112,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.issue_fetcher` | ADR-0019 |
 | `src.issue_store` | ADR-0006, ADR-0022, ADR-0041 |
 | `src.metrics_manager` | ADR-0010, ADR-0021 |
+| `src.mockworld.fakes.fake_honeycomb` | ADR-0055 |
 | `src.mockworld.sandbox_main` | ADR-0052 |
 | `src.models` | ADR-0011, ADR-0012, ADR-0013, ADR-0014, ADR-0015, ADR-0016, ADR-0025, ADR-0031, ADR-0037, ADR-0045, ADR-0050 |
 | `src.orchestrator` | ADR-0006, ADR-0009, ADR-0014, ADR-0044, ADR-0045 |
@@ -114,7 +120,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.plan_phase` | ADR-0014, ADR-0031 |
 | `src.ports` | ADR-0003, ADR-0044 |
 | `src.post_merge_handler` | ADR-0012, ADR-0014, ADR-0015, ADR-0016, ADR-0019 |
-| `src.pr_manager` | ADR-0002, ADR-0005, ADR-0011, ADR-0013, ADR-0018, ADR-0045 |
+| `src.pr_manager` | ADR-0002, ADR-0005, ADR-0011, ADR-0013, ADR-0018, ADR-0045, ADR-0055 |
 | `src.precondition_gate` | ADR-0041 |
 | `src.preflight` | ADR-0043 |
 | `src.preflight.agent` | ADR-0050 |
@@ -136,22 +142,30 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.route_back` | ADR-0041 |
 | `src.screenshot_scanner` | ADR-0018 |
 | `src.sentry.reverse_lookup` | ADR-0050 |
-| `src.server` | ADR-0038 |
+| `src.server` | ADR-0038, ADR-0055 |
 | `src.service_registry` | ADR-0045 |
 | `src.shape_phase` | ADR-0031, ADR-0045 |
 | `src.shape_runner` | ADR-0031, ADR-0045 |
 | `src.skill_prompt_eval_loop` | ADR-0045 |
 | `src.staging_bisect_loop` | ADR-0045, ADR-0048 |
 | `src.state` | ADR-0006, ADR-0013, ADR-0014, ADR-0017, ADR-0024 |
+| `src.state._adr_audit` | ADR-0056 |
 | `src.state._auto_agent` | ADR-0050 |
 | `src.state._session` | ADR-0021 |
+| `src.telemetry.__init__` | ADR-0055 |
+| `src.telemetry.otel` | ADR-0055 |
+| `src.telemetry.slugs` | ADR-0055 |
+| `src.telemetry.spans` | ADR-0055 |
+| `src.telemetry.subprocess_bridge` | ADR-0055 |
 | `src.term_proposer_loop` | ADR-0054 |
+| `src.trace_collector` | ADR-0055 |
 | `src.triage_phase` | ADR-0014, ADR-0017, ADR-0031, ADR-0039 |
 | `src.trust_fleet_sanity_loop` | ADR-0045, ADR-0046 |
 | `src.ubiquitous_language` | ADR-0054 |
 | `src.visual_validation` | ADR-0015 |
 | `src.wiki_compiler` | ADR-0032 |
 | `src.wiki_rot_detector_loop` | ADR-0045 |
+| `src.workspace` | ADR-0055 |
 | `src.worktree` | ADR-0003, ADR-0009, ADR-0010 |
 
-_Regenerated from commit `7998ac3` on 2026-05-06 23:07 UTC. Source last changed at `7998ac3`. Status: 🟢 fresh._
+_Regenerated from commit `5ec1241` on 2026-05-07 05:40 UTC. Source last changed at `5ec1241`. Status: 🟢 fresh._

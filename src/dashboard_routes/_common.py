@@ -50,6 +50,7 @@ _INTERVAL_BOUNDS: dict[str, tuple[int, int]] = {
     "flake_tracker": (3600, 2_592_000),  # 1h min, 30d max
     "skill_prompt_eval": (86400, 2_592_000),  # 1d min, 30d max
     "fake_coverage_auditor": (86400, 2_592_000),  # 1d min, 30d max
+    "adr_touchpoint_auditor": (900, 86400),  # 15m min, 1d max (default 4h, ADR-0056)
     "rc_budget": (3600, 604800),  # 1h min, 7d max
     "wiki_rot_detector": (86400, 2_592_000),  # 1d min, 30d max
     "trust_fleet_sanity": (60, 3600),  # 1m min, 1h max
@@ -61,6 +62,7 @@ _INTERVAL_BOUNDS: dict[str, tuple[int, int]] = {
     "pricing_refresh": (86400, 2_592_000),  # 1d min, 30d max (default 1d)
     "cost_budget_watcher": (60, 3600),  # 1m min, 1h max (default 5m)
     "term_proposer": (3600, 86400),  # 1h min, 24h max
+    "github_cache": (10, 3600),  # 10s min, 1h max (single-poller cache)
 }
 
 # Internal pipeline labels that must not be treated as epic names in the history panel.

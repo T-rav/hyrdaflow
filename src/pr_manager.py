@@ -37,6 +37,7 @@ from models import (
 )
 from prep import HYDRAFLOW_LABELS
 from subprocess_util import run_subprocess, run_subprocess_with_retry
+from telemetry.spans import port_span  # noqa: E402
 
 logger = logging.getLogger("hydraflow.pr_manager")
 
@@ -171,6 +172,7 @@ class PRManager:
         result = await ensure_labels(self._config)
         logger.info(result.summary())
 
+    @port_span("hf.port.pr.push_branch")
     async def push_branch(
         self, worktree_path: Path, branch: str, *, force: bool = False
     ) -> bool:
@@ -241,6 +243,7 @@ class PRManager:
             )
             return False
 
+    @port_span("hf.port.pr.create_pr")
     async def create_pr(
         self,
         issue: GitHubIssue,
@@ -807,6 +810,7 @@ class PRManager:
             )
         return True
 
+    @port_span("hf.port.pr.merge_pr")
     async def merge_pr(self, pr_number: int) -> bool:
         """Merge PR immediately via squash merge with branch deletion.
 
@@ -1486,6 +1490,7 @@ class PRManager:
         except (RuntimeError, ValueError):
             return 0
 
+    @port_span("hf.port.pr.create_issue")
     async def create_issue(
         self,
         title: str,

@@ -131,6 +131,9 @@ class TestInitialization:
             "auto_agent_daily_spend",
             # SandboxFailureFixerLoop (sandbox-tier scenario testing track)
             "sandbox_failure_fixer_attempts",
+            # AdrTouchpointAuditorLoop (ADR-0056)
+            "adr_audit_cursor",
+            "adr_audit_attempts",
         }
         assert set(d.keys()) == expected_keys
 

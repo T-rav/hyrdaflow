@@ -205,21 +205,15 @@ Every Accepted ADR has these load-bearing fields:
 - **Consequences:** what changes downstream
 - **Related:** ADR backlinks + module:symbol citations
 
-**The ADR-touchpoint gate.** A PR that modifies any module cited by an
-Accepted ADR must either (a) update the ADR or (b) add a `Skip-ADR:
-<reason>` line to the PR body. The CI workflow `adr-touchpoints.yml`
-enforces this; the script is `scripts/check_adr_touchpoints.py`.
-
-**Skip-ADR is for low-risk uniform changes.** Examples that justify
-Skip-ADR:
-- Applying a uniform pattern (e.g. kill-switch gate) across many cited
-  modules
-- Renaming a method without changing its semantics
-- Test additions
-
-Examples that **do not** justify Skip-ADR:
-- Changing public API on a cited module
-- Deleting a function the ADR relies on
+**ADR drift is monitored asynchronously, not gated at PR time.** A
+caretaker loop (`AdrTouchpointAuditorLoop`, ADR-0029 pattern)
+periodically diffs recently-merged PRs against Accepted-ADR `src/`
+citations and files a `hydraflow-find` issue when a cited module
+changed without the ADR being updated alongside it. The intent is to
+surface drift as work, not block merges — synchronous gates were
+trivially bypassable (`Skip-ADR: anything`) and the friction
+outweighed the oversight value. ADR-0056 documents the gate→loop
+conversion.
 
 ---
 

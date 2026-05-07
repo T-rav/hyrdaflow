@@ -381,3 +381,15 @@ No autonomous mutation of prompts/skills in-repo. Observation data is lightweigh
 ```json:entry
 {"id":"01KQNZNK5DWPQ75W9HBCJX2DJH","title":"Why memory/observation is harnessed, not autonomous","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T03:56:15.405227+00:00","updated_at":"2026-05-03T03:56:15.405229+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
+
+
+## Telemetry layer — OTel for traces, Sentry for exceptions
+
+HydraFlow uses **OpenTelemetry → Honeycomb** for distributed tracing (per-phase / per-loop-tick / per-port-call spans with `hf.*` business attributes for BubbleUp-ready dimensionality) and **Sentry** for automatic uncaught-exception capture and stack-trace fingerprinting. The two are layered, not overlapping. Sentry's `before_send` hook filters transient errors; OTel decorators (`@runner_span()`, `@loop_span()`, `@port_span(name)`) emit spans that wrap business calls without altering control flow — every span operation is wrapped in `_safe_*` helpers that swallow telemetry exceptions while always re-raising business exceptions. `init_otel(config)` is called once from `server.py:main()` after `_init_sentry()`. When `config.otel_enabled=False`, the decorator stack is byte-identical to no decorators (regression-tested). All `hf.*` attributes flow through `add_hf_context()` — single source of truth, enforced by `tests/architecture/test_otel_invariants.py`. See ADR-0055 for the full architectural decision.
+
+**Why:** Two telemetry channels with explicit roles prevent the failure mode where a single channel becomes "everything but really good at nothing." Sentry catches what we forgot to instrument; OTel gives us causal traces we can query and BubbleUp on. Phase B's anomaly-detection loop will read from Honeycomb; the question of whether to retire Sentry is deferred to that point with 30 days of data.
+
+
+```json:entry
+{"id":"01KQOTEL55HC2026B0PHASEA001","title":"Telemetry layer — OTel for traces, Sentry for exceptions","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-06T20:50:00.000000+00:00","updated_at":"2026-05-06T20:50:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"high","stale":false,"corroborations":1}
+```

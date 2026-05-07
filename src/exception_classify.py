@@ -73,7 +73,19 @@ def reraise_on_credit_or_bug(exc: BaseException) -> None:
     """
     from subprocess_util import AuthenticationError, CreditExhaustedError
 
-    if isinstance(exc, AuthenticationError | CreditExhaustedError):
-        raise exc
-    if is_likely_bug(exc):
+    if isinstance(exc, AuthenticationError | CreditExhaustedError) or is_likely_bug(
+        exc
+    ):
+        # Tag active span (best-effort; never block re-raise)
+        try:
+            from opentelemetry import trace  # noqa: PLC0415
+
+            from telemetry.slugs import slug_for  # noqa: PLC0415
+
+            span = trace.get_current_span()
+            if span is not None and span.is_recording():
+                span.set_attribute("error", True)
+                span.set_attribute("exception.slug", slug_for(exc))
+        except Exception:  # noqa: BLE001
+            pass
         raise exc
