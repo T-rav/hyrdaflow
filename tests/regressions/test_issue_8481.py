@@ -427,6 +427,7 @@ class TestPrinciplesAuditLoopCulturalEscalationUsesConfig:
             hitl_escalation_label=[custom_hitl],
             principles_stuck_label=[custom_stuck],
             cultural_check_label=[custom_cultural],
+            state_file=tmp_path / "state.json",
         )
         state = StateTracker(cfg.state_file)
         pr = MagicMock()
