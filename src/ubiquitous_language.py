@@ -43,11 +43,31 @@ class BoundedContext(StrEnum):
 
 
 class TermDraft(BaseModel):
-    """The LLM's structured output for a draft term. Validated against closed sets at parse."""
+    """The LLM's structured output for a draft term.
 
-    definition: str = Field(min_length=30)
-    kind: TermKind
-    bounded_context: BoundedContext
+    The LLM first decides whether the candidate warrants a UL Term at all
+    (`include`). When False, the rest of the fields may be empty/sentinel and
+    `skip_reason` carries the LLM's rationale (e.g., 'exception type', 'mixin
+    scaffolding', 'thin data carrier'). When True, the draft must satisfy the
+    closed-set vocabularies and the F1 validation rules.
+    """
+
+    include: bool = Field(
+        description=(
+            "Should this candidate become a UL Term? False for non-domain "
+            "scaffolding: exceptions, mixins, generic data carriers, internal "
+            "helpers. True for load-bearing concepts engineers refer to by name."
+        ),
+    )
+    skip_reason: str | None = Field(
+        default=None,
+        description="Required when include=False; short rationale for the skip.",
+    )
+    definition: str = Field(
+        default="", description="Required when include=True (≥30 chars)."
+    )
+    kind: TermKind | None = None
+    bounded_context: BoundedContext | None = None
     aliases: list[str] = Field(default_factory=list, max_length=4)
     invariants: list[str] = Field(default_factory=list, max_length=3)
     depends_on_anchors: list[str] = Field(default_factory=list)
@@ -504,7 +524,7 @@ def detect_candidates(
     )
 
 
-def validate_draft(
+def validate_draft(  # noqa: PLR0911 — linear F1 guards, each with its own fail path
     candidate: Candidate,
     draft: TermDraft,
     *,
@@ -514,11 +534,23 @@ def validate_draft(
     """Validate a draft. Returns (Term, None) on success or (None, reason) on rejection.
 
     Rejection reasons (F1):
+    - skipped: draft.include is False (LLM judged candidate not load-bearing)
+    - missing-fields: draft.include is True but kind/bounded_context/definition incomplete
     - anchor: candidate.code_anchor doesn't resolve in symbol_index
     - collision: draft name (case-insensitive) matches an existing term's name
     - alias: any draft alias matches an existing term's canonical name (lowercased)
     - depends_on: any depends_on_anchors entry isn't in {t.code_anchor for t in existing_terms}
     """
+    if not draft.include:
+        return None, f"skipped by LLM: {draft.skip_reason or 'no reason given'}"
+
+    if (
+        draft.kind is None
+        or draft.bounded_context is None
+        or len(draft.definition) < 30
+    ):
+        return None, "include=True but kind/bounded_context/definition incomplete"
+
     if not resolve_anchor(candidate.code_anchor, symbol_index):
         return None, f"unresolved anchor: {candidate.code_anchor}"
 
