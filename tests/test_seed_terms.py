@@ -67,15 +67,11 @@ def test_seed_terms_have_definitions_and_anchors(seed_terms: list[Term]) -> None
 
 
 def test_seed_terms_are_accepted(seed_terms: list[Term]) -> None:
-    """The originally hand-authored seed terms ship as `accepted`.
-
-    Auto-grown terms from `TermProposerLoop` (ADR-0054) carry `proposed_by`
-    and ship as `proposed` until the Confidence-Promoter loop ages them;
-    those are correctly out-of-scope for this assertion.
-    """
+    """All term files ship as `accepted`. Auto-grown terms from
+    `TermProposerLoop` (ADR-0054) ship `accepted` directly — the LLM-inclusion
+    judgment + F1 validation is the gate; no soft-launch lifecycle. Provenance
+    fields (`proposed_by` etc.) still mark origin for audits."""
     for t in seed_terms:
-        if t.proposed_by is not None:
-            continue  # auto-grown term — lifecycle governed by ADR-0054
         assert t.confidence == "accepted", f"{t.name} should ship as accepted"
 
 

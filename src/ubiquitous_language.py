@@ -588,7 +588,14 @@ def validate_draft(  # noqa: PLR0911 — linear F1 guards, each with its own fai
             code_anchor=candidate.code_anchor,
             related=related_rels,
             aliases=draft.aliases,
-            confidence="proposed",
+            # Auto-grown terms ship as `accepted` — the LLM-inclusion judgment
+            # plus F1 validation is the gate (chunks 2 + 2.5). A two-phase
+            # `proposed` → `accepted` lifecycle would add complexity (the
+            # Confidence-Promoter loop) for marginal safety: a bad term that
+            # passes the gate gets superseded the same way regardless of
+            # confidence flag. Provenance fields below preserve origin for
+            # audits.
+            confidence="accepted",
             proposed_by="TermProposerLoop",
             proposed_at=now_iso,
             proposal_signals=list(candidate.signals),

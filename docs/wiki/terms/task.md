@@ -9,7 +9,7 @@ related: []
 evidence: []
 superseded_by: null
 superseded_reason: null
-confidence: "proposed"
+confidence: "accepted"
 created_at: "2026-05-07T15:20:32.920858+00:00"
 updated_at: "2026-05-07T15:20:32.920863+00:00"
 proposed_by: "TermProposerLoop"
