@@ -137,5 +137,6 @@ class BGWorkerManager:
             # Daily caretaker — never falls through to poll_interval.
             "pricing_refresh": 86400,
             "cost_budget_watcher": 300,  # 5 minutes
+            "adr_touchpoint_auditor": self._config.adr_touchpoint_auditor_interval,
         }
         return defaults.get(name, self._config.poll_interval)
