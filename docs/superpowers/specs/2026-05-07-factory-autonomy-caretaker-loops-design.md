@@ -34,6 +34,26 @@ All three loops share:
 - A standard tick interval driven by `staging_promotion_interval` (default 300s) — fast enough to catch PR-CI events, slow enough to not hammer the GitHub API.
 - A `processed_pr_marker` on each PR (`hydraflow-arch-regened`, `hydraflow-retargeted`, `hydraflow-skip-adr-advised`) so the loop doesn't double-process the same PR.
 - A budget cap (`max_actions_per_tick`, default 5) to prevent runaway action on a CI storm.
+- A **`do-not-touch` opt-out**: any PR carrying the `do-not-touch` label is skipped by all factory autonomy loops, even if it matches their trigger. First-class behavior, not a default — present in every loop's filter step. Designer override path: humans can apply this label to halt automated action on a specific PR.
+- A **re-trigger path**: an operator can force re-processing by removing the per-loop `hydraflow-*-processed` label. Loop's next tick re-evaluates the PR. Documented in each loop's ADR.
+
+### Fork PRs (external-contributor case)
+
+Loops that push commits (`ArchRegenAutoFixer`) cannot force-push to a fork's
+branch with the orchestrator's bot token — forks aren't writable from
+outside their owner. The fallback:
+
+1. Detect fork: the PR's `head.repo.full_name != base.repo.full_name`.
+2. For `ArchRegenAutoFixer` on fork PRs: post a comment with the
+   `make arch-regen` instruction + the diff that would have been
+   applied, label `hydraflow-arch-regen-needs-author`, do NOT push.
+3. For `BaseBranchAutoRetargeter` on fork PRs: still works (`gh pr edit
+   --base` is repo-level, not fork-write).
+4. For `SkipADRAdvisor` on fork PRs: body edits via `gh pr edit --body`
+   work on any PR the bot can comment on — same path as same-org PRs.
+
+In short: only `ArchRegenAutoFixer` has the fork limitation; the other
+two cleanly work in both cases.
 
 ## 3. Architecture
 
@@ -72,10 +92,30 @@ The push reuses the existing `PRPort.push_branch` pattern. No new port methods.
 2. List open PRs --base main from non-rc/* heads.
 3. For each PR not already processed-marked:
    a. Call PRPort.update_pr_base(pr_number, "staging").
-   b. Post a comment citing ADR-0042 + linking
-      docs/standards/factory_autonomy/README.md.
+   b. Post the canonical retarget comment (text below).
    c. Label hydraflow-retargeted.
 ```
+
+**Canonical retarget comment text**:
+
+```markdown
+**Auto-retargeted to `staging`**
+
+This repo uses a two-tier branch model (per [ADR-0042](../../adr/0042-two-tier-branch-release-promotion.md)):
+agent and human PRs target `staging`; `main` advances only via auto-promoted
+`rc/YYYY-MM-DD-HHMM` PRs cut by `StagingPromotionLoop`. The factory's
+`BaseBranchAutoRetargeter` did this automatically — no action needed.
+
+Reference: [`docs/standards/factory_autonomy/README.md`](../../standards/factory_autonomy/README.md).
+
+If this is wrong (e.g. you specifically need to target `main` for a release
+operation), apply the `do-not-touch` label and re-target via `gh pr edit
+--base main`.
+
+🤖 Posted by `BaseBranchAutoRetargeter` (ADR-0057).
+```
+
+The comment is fixed text; loop substitutes the PR number / repo references at post time.
 
 New port method needed: `PRPort.update_pr_base(pr_number, base) -> bool`. Wraps `gh pr edit <N> --base <base>`. Mirrors `update_pr_branch` (added by ADR-0042's auto-rebase work).
 
