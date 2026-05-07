@@ -229,6 +229,11 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ),
     ("rc_budget_interval", "HYDRAFLOW_RC_BUDGET_INTERVAL", 14400),
     ("wiki_rot_detector_interval", "HYDRAFLOW_WIKI_ROT_DETECTOR_INTERVAL", 604800),
+    (
+        "adr_touchpoint_auditor_interval",
+        "HYDRAFLOW_ADR_TOUCHPOINT_AUDITOR_INTERVAL",
+        14400,
+    ),
     ("term_proposer_interval", "HYDRAFLOW_TERM_PROPOSER_INTERVAL", 14400),
     ("term_proposer_max_per_tick", "HYDRAFLOW_TERM_PROPOSER_MAX_PER_TICK", 10),
     (
@@ -1934,6 +1939,14 @@ class HydraFlowConfig(BaseModel):
         ge=86400,
         le=2_592_000,
         description="Seconds between WikiRotDetectorLoop ticks (default 7d)",
+    )
+
+    # Caretaker — AdrTouchpointAuditorLoop (ADR-0056)
+    adr_touchpoint_auditor_interval: int = Field(
+        default=14400,
+        ge=900,
+        le=86400,
+        description="Seconds between AdrTouchpointAuditorLoop ticks (default 4h)",
     )
 
     # Trust fleet — TermProposerLoop (ADR-0054)
