@@ -28,18 +28,9 @@
         "do_not_enforce_on_create": false,
         "strict_required_status_checks_policy": false,
         "required_status_checks": [
-          {"context": "Tests"},
-          {"context": "Lint & Format"},
-          {"context": "Type Check"},
-          {"context": "Security Scan"},
-          {"context": "Smoke Tests"},
-          {"context": "Scenario Tests"},
-          {"context": "Regression Tests"},
-          {"context": "Principles Audit"},
           {"context": "ADR gate"},
-          {"context": "quality (.)"},
-          {"context": "quality (src/ui)"},
-          {"context": "Sandbox (PR→staging fast subset)"}
+          {"context": "Detect Changes"},
+          {"context": "discover-projects"}
         ]
       }
     },

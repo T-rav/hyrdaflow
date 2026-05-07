@@ -10,7 +10,7 @@ GitHub itself rather than by convention alone.
 | File | Applies to | What it enforces |
 |---|---|---|
 | `main_ruleset.json` | the default branch (`~DEFAULT_BRANCH`, normally `main`) | Merge-commit only (no squash); 15 required checks including the RC promotion + MockWorld + e2e gate (`Resolve RC PR`, `Browser Scenarios`, `Trust Gate`, `Sandbox (rc/* promotion PR full suite)`); no deletion; no force-push; PR required. |
-| `staging_ruleset.json` | `refs/heads/staging` | Squash or merge allowed; 12 required checks (full standard set + `Sandbox (PR→staging fast subset)`); no deletion; no force-push; PR required. RC-only checks are intentionally absent — they don't run on PRs targeting `staging` and would block on `SKIPPED`. |
+| `staging_ruleset.json` | `refs/heads/staging` | Squash or merge allowed; **3 required checks** (`ADR gate`, `Detect Changes`, `discover-projects` — the always-on baseline). No deletion; no force-push; PR required. **Why only 3?** GitHub's required-status-checks treat path-filtered SKIPPED as "not passed", so any check that's job-conditional on touched paths would block docs-only PRs forever. The heavy CI jobs (`Tests`, `Lint`, `Type Check`, `Smoke Tests`, etc.) still RUN on code PRs — failures are visible in the rollup and reviewers/CI catch them — but they're not ruleset-required. **Future work:** add a single umbrella "Quality Gate" job (`if: always()`, depends on all conditional jobs, aggregates) and require only that — gives strict gating with path-filter compatibility. |
 
 Both rulesets also enforce CodeQL `high_or_higher` and code-quality severity `errors`.
 
