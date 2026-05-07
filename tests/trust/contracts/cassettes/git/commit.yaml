@@ -1,17 +1,17 @@
 adapter: git
 interaction: commit
-recorded_at: "2026-04-22T14:00:00Z"
-recorder_sha: "729304f1"
+recorded_at: '2026-05-07T03:42:18Z'
+recorder_sha: 6d7fe135
 fixture_repo: tests/trust/contracts/fixtures/git_sandbox
 input:
   command: commit
   args:
-    - "initial"
+  - initial
   stdin: null
   env: {}
 output:
   exit_code: 0
-  stdout: "[main abc1234] initial\n"
-  stderr: ""
+  stdout: ''
+  stderr: ''
 normalizers:
-  - sha:short
+- sha:short
