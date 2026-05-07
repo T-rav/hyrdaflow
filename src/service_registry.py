@@ -87,6 +87,7 @@ from staging_promotion_loop import StagingPromotionLoop
 from stale_issue_gc_loop import StaleIssueGCLoop  # noqa: TCH001
 from stale_issue_loop import StaleIssueLoop
 from state import StateTracker
+from term_proposer_loop import TermProposerLoop
 from transcript_summarizer import TranscriptSummarizer
 from triage import TriageRunner
 from triage_phase import TriagePhase
@@ -190,6 +191,7 @@ class ServiceRegistry:
     diagram_loop: DiagramLoop
     cost_budget_watcher_loop: CostBudgetWatcherLoop
     pricing_refresh_loop: PricingRefreshLoop
+    term_proposer_loop: TermProposerLoop
 
     # Optional integrations
 
@@ -1011,6 +1013,49 @@ def build_services(
         runner=sandbox_failure_fixer_runner,
     )
 
+    # Term-Proposer (ADR-0054). Wired with placeholder LLM + bot-PR clients
+    # that raise NotImplementedError on first use; this is intentional
+    # dark-factory behavior — the loop appears on the dashboard, and the
+    # gap surfaces as a worker failure on the first tick rather than
+    # silently no-op'ing. Production deployment must (a) ship a real
+    # `LLMClient` adapter wrapping `SubprocessRunner` (the same path
+    # `wiki_compiler.WikiCompiler._call_model` uses) and (b) ship a real
+    # `BotPRPort` adapter that composes `prs.push_branch` +
+    # `prs.create_pr` + `prs.add_pr_labels`. Until both land, set
+    # `HYDRAFLOW_TERM_PROPOSER_ENABLED=false` to silence the failures.
+    from term_proposer_llm import TermProposerLLM, _NotWiredLLMClient  # noqa: PLC0415
+    from term_proposer_loop import BotPRPort, TermProposerLoop  # noqa: PLC0415
+
+    class _NotWiredBotPRPort:
+        """Placeholder BotPRPort — see ADR-0054 follow-up."""
+
+        async def open_bot_pr(
+            self,
+            *,
+            branch: str,
+            title: str,
+            body: str,
+            labels: list[str],
+            files: dict[str, str],
+        ) -> int:
+            del branch, title, body, labels, files
+            raise NotImplementedError(
+                "term-proposer BotPRPort adapter pending — see ADR-0054 "
+                "follow-up. Compose prs.push_branch + prs.create_pr + "
+                "prs.add_pr_labels into an `open_bot_pr(...)` shape."
+            )
+
+    term_proposer_llm = TermProposerLLM(client=_NotWiredLLMClient())
+    term_proposer_pr_port: BotPRPort = _NotWiredBotPRPort()
+    term_proposer_loop = TermProposerLoop(  # noqa: F841
+        config=config,
+        deps=loop_deps,
+        llm=term_proposer_llm,
+        pr_port=term_proposer_pr_port,
+        repo_root=config.repo_root,
+        dedup_path=config.data_root / "dedup" / "term_proposer.json",
+    )
+
     return ServiceRegistry(
         workspaces=workspaces,
         subprocess_runner=subprocess_runner,
@@ -1079,4 +1124,5 @@ def build_services(
         diagram_loop=diagram_loop,
         cost_budget_watcher_loop=cost_budget_watcher_loop,
         pricing_refresh_loop=pricing_refresh_loop,
+        term_proposer_loop=term_proposer_loop,
     )

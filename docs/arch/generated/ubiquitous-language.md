@@ -2,7 +2,7 @@
 
 # Ubiquitous Language
 
-_9 terms across 2 bounded contexts._
+_10 terms across 2 bounded contexts._
 
 See [ADR-0053](../../adr/0053-ubiquitous-language-as-living-artifact.md) for the governing pattern.
 
@@ -29,6 +29,17 @@ Abstract base class for every concurrent worker loop in the HydraFlow orchestrat
 - Subclasses must implement abstract methods _do_work and _get_default_interval.
 - AuthenticationError, AuthenticationRetryError, and CreditExhaustedError propagate; all other exceptions are logged and the loop retries on the next cycle.
 - Shared dependencies (event_bus, stop_event, status_cb, enabled_cb, sleep_fn, interval_cb) are bundled into a LoopDeps record passed to __init__.
+
+## BotPRPort
+
+**Kind:** `port` · **Context:** `shared-kernel` · **Anchor:** `src/term_proposer_loop.py:BotPRPort` · **Confidence:** `accepted`
+**Aliases:** `bot pr port`
+
+Hexagonal port used by caretaker loops (TermProposerLoop, others) to open auto-merging bot PRs without coupling to the GitHub-specific PR adapter. Production wiring composes push_branch + create_pr + add_pr_labels behind this Protocol.
+
+**Invariants:**
+- Pure Protocol — no implementation; tests use a fake; production uses a thin adapter.
+- open_bot_pr is the only method; one PR per call; success returns the PR number.
 
 ## EventBus
 

@@ -10,7 +10,7 @@ from models import DependabotMergeSettings
 def test_dependabot_merge_settings_defaults():
     settings = DependabotMergeSettings()
     data = settings.model_dump()
-    assert data["authors"] == ["dependabot[bot]"]
+    assert data["authors"] == ["dependabot[bot]", "hydraflow-ul-bot"]
     assert data["failure_strategy"] == "skip"
     assert data["review_mode"] == "ci_only"
 
@@ -32,7 +32,7 @@ def test_dependabot_merge_settings_partial_update():
     update["failure_strategy"] = "hitl"
     new = DependabotMergeSettings(**update)
     assert new.failure_strategy == "hitl"
-    assert new.authors == ["dependabot[bot]"]  # unchanged
+    assert new.authors == ["dependabot[bot]", "hydraflow-ul-bot"]  # unchanged
 
 
 # Caretaker settings endpoint tests covered by test_dependabot_merge_settings_api.py

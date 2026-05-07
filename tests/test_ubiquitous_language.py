@@ -7,14 +7,18 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from term_proposer_llm import TermDraft
 from ubiquitous_language import (
     BoundedContext,
+    Candidate,
     Term,
     TermKind,
     TermRel,
     TermRelKind,
     TermStore,
+    build_import_graph,
     build_symbol_index,
+    detect_candidates,
     dump_term_file,
     lint_anchor_resolution,
     lint_paraphrases,
@@ -23,6 +27,7 @@ from ubiquitous_language import (
     render_context_map,
     render_glossary,
     resolve_anchor,
+    validate_draft,
 )
 
 
@@ -355,3 +360,347 @@ class TestContextMapRender:
         assert "subgraph builder" in out
         # Edge label encodes the rel kind
         assert "consumes" in out
+
+
+class TestTermProvenance:
+    def test_provenance_fields_default_none(self) -> None:
+        term = Term(
+            name="X",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            definition="A test term used in unit tests for provenance defaults.",
+            code_anchor="src/x.py:X",
+        )
+        assert term.proposed_by is None
+        assert term.proposed_at is None
+        assert term.proposal_signals is None
+        assert term.proposal_imports_seen is None
+
+    def test_provenance_round_trip_through_disk(self, tmp_path: Path) -> None:
+        original = Term(
+            name="FooLoop",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            definition="A test loop term used in unit tests for provenance round-trip.",
+            code_anchor="src/foo.py:FooLoop",
+            proposed_by="TermProposerLoop",
+            proposed_at="2026-05-08T12:00:00+00:00",
+            proposal_signals=["S1", "S2"],
+            proposal_imports_seen=3,
+        )
+        path = tmp_path / "foo-loop.md"
+        dump_term_file(path, original)
+        loaded = load_term_file(path)
+        assert loaded.proposed_by == "TermProposerLoop"
+        assert loaded.proposed_at == "2026-05-08T12:00:00+00:00"
+        assert loaded.proposal_signals == ["S1", "S2"]
+        assert loaded.proposal_imports_seen == 3
+
+    def test_hand_authored_term_loads_without_provenance(self, tmp_path: Path) -> None:
+        """Existing seed-term files have no provenance; they must still load."""
+        path = tmp_path / "hand-authored.md"
+        path.write_text(
+            "---\n"
+            'id: "01HX01"\n'
+            'name: "HandAuthored"\n'
+            'kind: "service"\n'
+            'bounded_context: "shared-kernel"\n'
+            'code_anchor: "src/x.py:HandAuthored"\n'
+            "aliases: []\n"
+            "related: []\n"
+            "evidence: []\n"
+            "superseded_by: null\n"
+            "superseded_reason: null\n"
+            'confidence: "accepted"\n'
+            'created_at: "2026-05-04T00:00:00+00:00"\n'
+            'updated_at: "2026-05-04T00:00:00+00:00"\n'
+            "---\n\n## Definition\n\nA hand-authored term loaded as a smoke check.\n"
+        )
+        loaded = load_term_file(path)
+        assert loaded.proposed_by is None
+        assert loaded.proposal_signals is None
+
+
+class TestImportGraph:
+    def test_finds_imports_from_python_files(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.py").write_text(
+            "from bar import Bar\nfrom baz import Baz, Qux\n\nclass Foo:\n    pass\n"
+        )
+        (src / "bar.py").write_text("class Bar:\n    pass\n")
+        (src / "baz.py").write_text("class Baz:\n    pass\nclass Qux:\n    pass\n")
+        graph = build_import_graph(src)
+        assert graph["src/foo.py"] == {"Bar", "Baz", "Qux"}
+        assert graph["src/bar.py"] == set()
+        assert graph["src/baz.py"] == set()
+
+    def test_handles_relative_imports(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        pkg = src / "pkg"
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (pkg / "child.py").write_text(
+            "from .sibling import Sibling\n\nclass Child:\n    pass\n"
+        )
+        (pkg / "sibling.py").write_text("class Sibling:\n    pass\n")
+        graph = build_import_graph(src)
+        assert "Sibling" in graph["src/pkg/child.py"]
+
+    def test_skips_unparseable_files(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "good.py").write_text("from x import Y\n")
+        (src / "broken.py").write_text("def : :\n")  # syntax error
+        graph = build_import_graph(src)
+        assert graph["src/good.py"] == {"Y"}
+        assert "src/broken.py" not in graph
+
+
+class TestCandidateDetection:
+    def test_s1_finds_load_bearing_suffix_classes(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.py").write_text("class FooLoop:\n    pass\nclass Helper:\n    pass\n")
+        (src / "b.py").write_text(
+            "class BarRunner:\n    pass\nclass BazPort:\n    pass\n"
+        )
+        index = build_symbol_index(src)
+        graph = build_import_graph(src)
+        candidates = detect_candidates(index, graph, terms=[])
+        names = {c.name for c in candidates}
+        assert names == {"FooLoop", "BarRunner", "BazPort"}
+
+    def test_s2_finds_imported_by_term_anchors(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "term_class.py").write_text(
+            "from helper import HelperService\n\nclass MyLoop:\n    pass\n"
+        )
+        (src / "helper.py").write_text("class HelperService:\n    pass\n")
+        index = build_symbol_index(src)
+        graph = build_import_graph(src)
+        my_loop_term = Term(
+            name="MyLoop",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            definition="A test term anchoring src/term_class.py for the S2 detection test.",
+            code_anchor="src/term_class.py:MyLoop",
+        )
+        candidates = detect_candidates(index, graph, terms=[my_loop_term])
+        names = {c.name for c in candidates}
+        assert "HelperService" in names
+        assert "MyLoop" not in names
+
+    def test_s5_ranks_by_in_degree(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.py").write_text("from helper import Helper\nclass ALoop:\n    pass\n")
+        (src / "b.py").write_text("from helper import Helper\nclass BLoop:\n    pass\n")
+        (src / "c.py").write_text(
+            "from other_helper import OtherHelper\nclass CLoop:\n    pass\n"
+        )
+        (src / "helper.py").write_text("class Helper:\n    pass\n")
+        (src / "other_helper.py").write_text("class OtherHelper:\n    pass\n")
+        index = build_symbol_index(src)
+        graph = build_import_graph(src)
+        terms = [
+            Term(
+                name=n,
+                kind=TermKind.LOOP,
+                bounded_context=BoundedContext.SHARED_KERNEL,
+                definition="x" * 30,
+                code_anchor=anchor,
+            )
+            for n, anchor in [
+                ("ALoop", "src/a.py:ALoop"),
+                ("BLoop", "src/b.py:BLoop"),
+                ("CLoop", "src/c.py:CLoop"),
+            ]
+        ]
+        candidates = detect_candidates(index, graph, terms=terms)
+        helper = next(c for c in candidates if c.name == "Helper")
+        other = next(c for c in candidates if c.name == "OtherHelper")
+        assert helper.imports_seen == 2
+        assert other.imports_seen == 1
+        names_in_order = [c.name for c in candidates]
+        assert names_in_order.index("Helper") < names_in_order.index("OtherHelper")
+
+    def test_excludes_already_covered_classes(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.py").write_text("class FooLoop:\n    pass\n")
+        index = build_symbol_index(src)
+        graph = build_import_graph(src)
+        covered_term = Term(
+            name="FooLoop",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            definition="An already-covered loop used to verify detection excludes it.",
+            code_anchor="src/a.py:FooLoop",
+        )
+        candidates = detect_candidates(index, graph, terms=[covered_term])
+        assert candidates == []
+
+    def test_candidate_carries_signals_and_anchor(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.py").write_text("class FooLoop:\n    pass\n")
+        index = build_symbol_index(src)
+        graph = build_import_graph(src)
+        candidates = detect_candidates(index, graph, terms=[])
+        assert len(candidates) == 1
+        c = candidates[0]
+        assert c.name == "FooLoop"
+        assert c.code_anchor == "src/a.py:FooLoop"
+        assert "S1" in c.signals
+
+
+class TestValidateDraft:
+    def test_valid_draft_produces_term(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.py").write_text("class FooLoop:\n    pass\n")
+        index = build_symbol_index(src)
+        candidate = Candidate(
+            name="FooLoop",
+            code_anchor="src/foo.py:FooLoop",
+            signals=("S1",),
+            imports_seen=0,
+            importing_term_anchors=(),
+        )
+        draft = TermDraft(
+            definition="A test loop drafted by the proposer for validate_draft happy path.",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            aliases=["foo loop"],
+            invariants=[],
+            depends_on_anchors=[],
+        )
+        term, reason = validate_draft(
+            candidate, draft, existing_terms=[], symbol_index=index
+        )
+        assert reason is None
+        assert term is not None
+        assert term.name == "FooLoop"
+        assert term.confidence == "proposed"
+        assert term.proposed_by == "TermProposerLoop"
+
+    def test_rejects_unresolved_anchor(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        # Note: foo.py NOT created
+        index = build_symbol_index(src)
+        candidate = Candidate(
+            name="GhostLoop",
+            code_anchor="src/foo.py:GhostLoop",
+            signals=("S1",),
+            imports_seen=0,
+            importing_term_anchors=(),
+        )
+        draft = TermDraft(
+            definition="A ghost loop draft to verify anchor resolution is required.",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            aliases=[],
+            invariants=[],
+            depends_on_anchors=[],
+        )
+        term, reason = validate_draft(
+            candidate, draft, existing_terms=[], symbol_index=index
+        )
+        assert term is None
+        assert reason is not None
+        assert "anchor" in reason.lower()
+
+    def test_rejects_name_collision_with_existing_term(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.py").write_text("class FooLoop:\n    pass\n")
+        index = build_symbol_index(src)
+        existing = Term(
+            name="FooLoop",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            definition="An already-existing FooLoop term to verify collision detection works.",
+            code_anchor="src/foo.py:FooLoop",
+        )
+        candidate = Candidate(
+            name="FooLoop",
+            code_anchor="src/foo.py:FooLoop",
+            signals=("S1",),
+            imports_seen=0,
+            importing_term_anchors=(),
+        )
+        draft = TermDraft(
+            definition="A duplicate draft to verify name-collision rejection is enforced.",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            aliases=[],
+            invariants=[],
+            depends_on_anchors=[],
+        )
+        term, reason = validate_draft(
+            candidate, draft, existing_terms=[existing], symbol_index=index
+        )
+        assert term is None
+        assert "collision" in reason.lower() or "exists" in reason.lower()
+
+    def test_rejects_alias_collision_with_other_canonical(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.py").write_text("class FooLoop:\n    pass\n")
+        index = build_symbol_index(src)
+        existing = Term(
+            name="BarLoop",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            definition="An existing BarLoop term to verify alias-collision rejection works.",
+            code_anchor="src/bar.py:BarLoop",
+        )
+        candidate = Candidate(
+            name="FooLoop",
+            code_anchor="src/foo.py:FooLoop",
+            signals=("S1",),
+            imports_seen=0,
+            importing_term_anchors=(),
+        )
+        draft = TermDraft(
+            definition="A draft whose alias collides with another canonical term name.",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            aliases=["barloop"],
+            invariants=[],
+            depends_on_anchors=[],
+        )
+        term, reason = validate_draft(
+            candidate, draft, existing_terms=[existing], symbol_index=index
+        )
+        assert term is None
+        assert "alias" in reason.lower()
+
+    def test_rejects_unresolvable_depends_on(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.py").write_text("class FooLoop:\n    pass\n")
+        index = build_symbol_index(src)
+        candidate = Candidate(
+            name="FooLoop",
+            code_anchor="src/foo.py:FooLoop",
+            signals=("S1",),
+            imports_seen=0,
+            importing_term_anchors=(),
+        )
+        draft = TermDraft(
+            definition="A draft naming a depends_on anchor that isn't an existing term anchor.",
+            kind=TermKind.LOOP,
+            bounded_context=BoundedContext.SHARED_KERNEL,
+            aliases=[],
+            invariants=[],
+            depends_on_anchors=["src/missing.py:Missing"],
+        )
+        term, reason = validate_draft(
+            candidate, draft, existing_terms=[], symbol_index=index
+        )
+        assert term is None
+        assert "depends_on" in reason.lower() or "anchor" in reason.lower()

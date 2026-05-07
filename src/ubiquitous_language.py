@@ -10,12 +10,13 @@ from __future__ import annotations
 import ast
 import json
 import re
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from ulid import ULID
 
 
@@ -39,6 +40,23 @@ class BoundedContext(StrEnum):
     BUILDER = "builder"
     AI_DEV_TEAM = "ai-dev-team"
     SHARED_KERNEL = "shared-kernel"
+
+
+class TermDraft(BaseModel):
+    """The LLM's structured output for a draft term. Validated against closed sets at parse."""
+
+    definition: str = Field(min_length=30)
+    kind: TermKind
+    bounded_context: BoundedContext
+    aliases: list[str] = Field(default_factory=list, max_length=4)
+    invariants: list[str] = Field(default_factory=list, max_length=3)
+    depends_on_anchors: list[str] = Field(default_factory=list)
+
+    @field_validator("aliases")
+    @classmethod
+    def _aliases_lowercase_no_dup(cls, v: list[str]) -> list[str]:
+        lowered = [a.lower().strip() for a in v if a.strip()]
+        return list(dict.fromkeys(lowered))
 
 
 class TermRelKind(StrEnum):
@@ -80,6 +98,23 @@ class Term(BaseModel):
     superseded_by: str | None = None
     superseded_reason: str | None = None
     confidence: Literal["proposed", "accepted", "deprecated"] = "proposed"
+    proposed_by: str | None = Field(
+        default=None,
+        description="Name of the loop that proposed this term (e.g., 'TermProposerLoop'); None for hand-authored",
+    )
+    proposed_at: str | None = Field(
+        default=None,
+        description="ISO8601 timestamp when proposed; None for hand-authored",
+    )
+    proposal_signals: list[str] | None = Field(
+        default=None,
+        description="Detection signals that flagged this candidate (e.g., ['S1', 'S2'])",
+    )
+    proposal_imports_seen: int | None = Field(
+        default=None,
+        ge=0,
+        description="Count of covered-anchor modules importing this candidate at proposal time",
+    )
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
@@ -108,6 +143,14 @@ def dump_term_file(path: Path, term: Term) -> None:
         "created_at": term.created_at,
         "updated_at": term.updated_at,
     }
+    if term.proposed_by is not None:
+        fm["proposed_by"] = term.proposed_by
+    if term.proposed_at is not None:
+        fm["proposed_at"] = term.proposed_at
+    if term.proposal_signals is not None:
+        fm["proposal_signals"] = term.proposal_signals
+    if term.proposal_imports_seen is not None:
+        fm["proposal_imports_seen"] = term.proposal_imports_seen
     lines = [_FRONTMATTER_DELIM]
     for key, value in fm.items():
         lines.append(f"{key}: {json.dumps(value)}")
@@ -224,6 +267,33 @@ def build_symbol_index(src_root: Path) -> dict[str, list[str]]:
                 rel = path.relative_to(src_root.parent)
                 index.setdefault(node.name, []).append(f"{rel}:{node.name}")
     return index
+
+
+def build_import_graph(src_root: Path) -> dict[str, set[str]]:
+    """Walk *.py under src_root, return {path:relative-from-src-parent: {ImportedName, ...}}.
+
+    Captures `from X import Name` (alias resolved to original name) and `import X.Y as Z`
+    (records the leaf name `Y`). Used by candidate-detection (S2) and edge-inference (E2).
+    Skips files that fail to parse — same policy as build_symbol_index.
+    """
+    graph: dict[str, set[str]] = {}
+    for path in sorted(src_root.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        rel = str(path.relative_to(src_root.parent))
+        names: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    names.add(alias.name)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    leaf = alias.asname or alias.name.rsplit(".", 1)[-1]
+                    names.add(leaf)
+        graph[rel] = names
+    return graph
 
 
 def resolve_anchor(anchor: str, index: dict[str, list[str]]) -> bool:
@@ -360,3 +430,137 @@ def render_context_map(terms: list[Term]) -> str:
     lines.append("```")
     lines.append("")
     return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class Candidate:
+    """A class flagged as a possible new term, ready for LLM drafting."""
+
+    name: str
+    code_anchor: str  # "src/path.py:ClassName"
+    signals: tuple[str, ...]  # subset of ("S1", "S2")
+    imports_seen: int  # in-degree from covered-anchor modules
+    importing_term_anchors: tuple[str, ...] = field(default_factory=tuple)
+    """Anchors of covered terms whose modules import this candidate.
+    Used by the proposer's LLM call to ground depends_on edges (E2)."""
+
+
+def detect_candidates(
+    index: dict[str, list[str]],
+    import_graph: dict[str, set[str]],
+    terms: list[Term],
+) -> list[Candidate]:
+    """Return ranked list of Candidates from the live codebase.
+
+    Combines S1 (load-bearing suffix) and S2 (imported by a covered-term anchor's module),
+    excludes already-covered anchors, ranks by S5 (in-degree from covered modules then by
+    name for stability).
+    """
+    covered_anchors = {t.code_anchor for t in terms}
+    covered_modules: set[str] = set()
+    for anchor in covered_anchors:
+        if ":" in anchor:
+            module, _, _ = anchor.partition(":")
+            covered_modules.add(module)
+
+    in_degree: dict[str, int] = {}
+    importers_of: dict[str, list[str]] = {}
+    for module, names in import_graph.items():
+        if module not in covered_modules:
+            continue
+        for name in names:
+            in_degree[name] = in_degree.get(name, 0) + 1
+            importers_of.setdefault(name, []).append(module)
+
+    candidates_by_name: dict[str, Candidate] = {}
+    for name, locations in index.items():
+        for location in locations:
+            if location in covered_anchors:
+                continue
+            signals: list[str] = []
+            if name.endswith(_LOAD_BEARING_SUFFIXES):
+                signals.append("S1")
+            if name in in_degree:
+                signals.append("S2")
+            if not signals:
+                continue
+            importing_anchors: list[str] = []
+            for importer in importers_of.get(name, []):
+                for term in terms:
+                    if term.code_anchor.startswith(f"{importer}:"):
+                        importing_anchors.append(term.code_anchor)
+            if name not in candidates_by_name:
+                candidates_by_name[name] = Candidate(
+                    name=name,
+                    code_anchor=location,
+                    signals=tuple(signals),
+                    imports_seen=in_degree.get(name, 0),
+                    importing_term_anchors=tuple(sorted(set(importing_anchors))),
+                )
+
+    return sorted(
+        candidates_by_name.values(),
+        key=lambda c: (-c.imports_seen, c.name),
+    )
+
+
+def validate_draft(
+    candidate: Candidate,
+    draft: TermDraft,
+    *,
+    existing_terms: list[Term],
+    symbol_index: dict[str, list[str]],
+) -> tuple[Term | None, str | None]:
+    """Validate a draft. Returns (Term, None) on success or (None, reason) on rejection.
+
+    Rejection reasons (F1):
+    - anchor: candidate.code_anchor doesn't resolve in symbol_index
+    - collision: draft name (case-insensitive) matches an existing term's name
+    - alias: any draft alias matches an existing term's canonical name (lowercased)
+    - depends_on: any depends_on_anchors entry isn't in {t.code_anchor for t in existing_terms}
+    """
+    if not resolve_anchor(candidate.code_anchor, symbol_index):
+        return None, f"unresolved anchor: {candidate.code_anchor}"
+
+    existing_names = {t.name.lower() for t in existing_terms}
+    if candidate.name.lower() in existing_names:
+        return None, f"name collision: {candidate.name!r} already exists"
+
+    canonical_lowered = {t.name.lower() for t in existing_terms}
+    for alias in draft.aliases:
+        if alias.lower() in canonical_lowered:
+            return (
+                None,
+                f"alias collision: {alias!r} matches an existing term's canonical name",
+            )
+
+    valid_anchors = {t.code_anchor for t in existing_terms}
+    for dep in draft.depends_on_anchors:
+        if dep not in valid_anchors:
+            return None, f"depends_on anchor {dep!r} does not match any existing term"
+
+    anchor_to_id = {t.code_anchor: t.id for t in existing_terms}
+    related_rels = [
+        TermRel(kind=TermRelKind.DEPENDS_ON, target=anchor_to_id[dep])
+        for dep in draft.depends_on_anchors
+    ]
+
+    now_iso = datetime.now(UTC).isoformat()
+    return (
+        Term(
+            name=candidate.name,
+            kind=draft.kind,
+            bounded_context=draft.bounded_context,
+            definition=draft.definition,
+            invariants=draft.invariants,
+            code_anchor=candidate.code_anchor,
+            related=related_rels,
+            aliases=draft.aliases,
+            confidence="proposed",
+            proposed_by="TermProposerLoop",
+            proposed_at=now_iso,
+            proposal_signals=list(candidate.signals),
+            proposal_imports_seen=candidate.imports_seen,
+        ),
+        None,
+    )

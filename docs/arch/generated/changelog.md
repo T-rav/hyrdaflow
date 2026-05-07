@@ -6,13 +6,10 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W19
 
-- `b68c5ca` — fix(ul): address convergence-review feedback *(2026-05-05)*
-- `f379cff` — docs(ul): replace CLAUDE.md UL list with pointer to rendered glossary *(2026-05-05)*
-- `51c13d6` — feat(ul): render Mermaid context map *(2026-05-04)*
-- `30bd118` — feat(ul): render glossary view *(2026-05-04)*
-- `56a6a9d` — feat(ul): seed 9 hand-authored terms from CLAUDE.md UL list *(2026-05-04)*
-- `3de3f49` — feat(ul): TermStore — directory load/write/list *(2026-05-04)*
-- `f93f8e3` — docs(adr): add ADR-0053 ubiquitous language as living artifact *(2026-05-04)*
+- `7998ac3` — fix(ul): address convergence-review feedback (C1/C2/I1/I2/M4) *(2026-05-06)*
+- `875bb89` — feat(ul): wire TermProposerLoop into ServiceRegistry + orchestrator *(2026-05-06)*
+- `c6494ee` — docs(adr): add ADR-0054 term auto-proposer loop *(2026-05-06)*
+- `9ce2397` — feat(ul): ubiquitous language as a living artifact (ADR-0053 slice 1) (#8474) (#8474) *(2026-05-06)*
 
 ## 2026-W18
 
@@ -171,4 +168,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `b68c5ca` on 2026-05-06 20:07 UTC. Source last changed at `b68c5ca`. Status: 🟢 fresh._
+_Regenerated from commit `7998ac3` on 2026-05-06 23:07 UTC. Source last changed at `7998ac3`. Status: 🟢 fresh._

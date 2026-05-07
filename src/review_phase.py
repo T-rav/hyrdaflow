@@ -501,6 +501,16 @@ class ReviewPhase:
             if not prs:
                 return []
 
+        # Skip term-proposer PRs (handled by DependabotMergeLoop, ADR-0054)
+        from term_proposer_loop import TERM_PROPOSER_PR_LABEL  # noqa: PLC0415
+
+        prs = [pr for pr in prs if TERM_PROPOSER_PR_LABEL not in (pr.labels or [])]
+        if not prs:
+            logger.debug(
+                "review_phase: all PRs filtered out (term-proposer candidates)"
+            )
+            return []
+
         issue_map = {i.id: i for i in issues}
         semaphore = asyncio.Semaphore(self._config.max_reviewers)
 
