@@ -57,6 +57,7 @@ class FakePR:
     mergeable: bool = True
     additions: int = 0
     deletions: int = 0
+    base: str = "main"
     reviews: list[tuple[str, str]] = field(default_factory=list)
     checks: list[tuple[str, str]] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)
@@ -644,6 +645,14 @@ class FakeGitHub:
         _ = (method,)
         self._maybe_rate_limit()
         return pr_number in self._prs
+
+    async def update_pr_base(self, pr_number: int, *, base: str) -> bool:
+        """Fake retarget: records the new base on the in-memory PR."""
+        self._maybe_rate_limit()
+        if pr_number in self._prs:
+            self._prs[pr_number].base = base
+            return True
+        return False
 
     async def list_rc_branches(self) -> list[tuple[str, str]]:
         return []

@@ -120,6 +120,15 @@ class PRPort(Protocol):
         """
         ...
 
+    async def update_pr_base(self, pr_number: int, *, base: str) -> bool:
+        """Retarget a PR's base branch.
+
+        Wraps ``gh pr edit --base``. Returns True on success.
+
+        Matches ``pr_manager.PRManager.update_pr_base`` exactly.
+        """
+        ...
+
     async def create_rc_branch(self, rc_branch: str) -> str:
         """Create *rc_branch* at staging HEAD. Returns the SHA.
 
