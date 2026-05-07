@@ -98,30 +98,6 @@ If unsure, return an empty list — never invent an anchor.
 """
 
 
-class _NotWiredLLMClient:
-    """Placeholder LLMClient used until the production subprocess-CLI adapter lands.
-
-    Conforms to the `LLMClient` Protocol but raises `NotImplementedError` from
-    `complete_structured`. This is deliberate dark-factory behavior: the loop
-    is wired into `ServiceRegistry` and the orchestrator's bg_loop_registry,
-    so it appears on the dashboard, but its first tick surfaces the integration
-    gap as a worker failure rather than silently no-op'ing. Per ADR-0054
-    follow-up: replace with a real adapter wrapping `SubprocessRunner` (the
-    same path `wiki_compiler.WikiCompiler._call_model` uses) before enabling
-    the loop in production. See HYDRAFLOW_TERM_PROPOSER_ENABLED kill-switch.
-    """
-
-    async def complete_structured(
-        self, *, prompt: str, schema: dict[str, Any]
-    ) -> dict[str, Any]:
-        del prompt, schema
-        raise NotImplementedError(
-            "term-proposer LLM client adapter pending — see ADR-0054 follow-up. "
-            "Set HYDRAFLOW_TERM_PROPOSER_ENABLED=false to silence this until "
-            "the production adapter lands."
-        )
-
-
 class TermProposerLLM:
     """Drafts a Term from a Candidate via structured LLM call."""
 
