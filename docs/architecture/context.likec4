@@ -1,0 +1,49 @@
+// Context: where the pre-push arch-check hook fits in the developer-tools surface
+specification {
+  element actor
+  element system
+  element component
+}
+
+model {
+  contributor = actor "Human Contributor" {
+    description "Pushes feature branches; subject to local hooks."
+  }
+
+  bot = actor "HydraFlow Bot" {
+    description "PR-creating loops. Pushes via --no-verify; bypasses hooks by design."
+  }
+
+  hf = system "HydraFlow Repo" {
+    githooks = component "Local Git Hooks" {
+      description ".githooks/pre-commit + .githooks/pre-push (active when core.hooksPath=.githooks)."
+    }
+    archRunner = component "arch.runner (--check / --emit)" {
+      description "Regenerates docs/arch/generated/ from source; --check strips footers and diffs."
+    }
+    diagramLoop = component "DiagramLoop (L24)" {
+      description "Caretaker; auto-regens every 4h and opens chore(arch): regenerate PR."
+    }
+    archRegenWorkflow = component "arch-regen.yml CI" {
+      description "GitHub Action: runs arch.runner --check on every PR. Source of truth."
+    }
+    p5Audit = component "Audit P5.8" {
+      description "Asserts .githooks/pre-push exists and references quality-lite."
+    }
+  }
+
+  contributor -> githooks "git push triggers pre-push"
+  githooks -> archRunner "make arch-check (planned addition)"
+  bot -> archRegenWorkflow "git push --no-verify -> CI runs check"
+  diagramLoop -> archRunner "--emit on 4h cadence"
+  archRegenWorkflow -> contributor "Fails PR if drift; contributor must amend"
+  p5Audit -> githooks "validates hook content"
+}
+
+views {
+  view contextView of hf {
+    title "Pre-push arch-check: developer-tools context"
+    include *
+    autoLayout TopBottom
+  }
+}

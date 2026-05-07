@@ -6,5 +6,23 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
+# Arch-regen check — fail-fast when generated docs are stale.
+# No path-filter: push always runs the gate (any commit may touch arch sources).
+# Kill-switch: HYDRAFLOW_DISABLE_PRE_PUSH_ARCH_CHECK=1 skips this block.
+if [ "${HYDRAFLOW_DISABLE_PRE_PUSH_ARCH_CHECK:-0}" != "1" ]; then
+    echo "pre-push: running make arch-check..."
+    if ! make arch-check >/tmp/hydraflow-pre-push-arch-check.out 2>&1; then
+        echo "❌ docs/arch/generated/ is out of sync with source." >&2
+        echo "" >&2
+        echo "Run:" >&2
+        echo "  make arch-regen && git add docs/arch/ && git commit --amend --no-edit" >&2
+        echo "" >&2
+        echo "First 20 lines of arch-check output:" >&2
+        head -20 /tmp/hydraflow-pre-push-arch-check.out >&2
+        exit 1
+    fi
+    echo "pre-push: arch-check OK"
+fi
+
 echo "pre-push: running make quality-lite..."
 make quality-lite
