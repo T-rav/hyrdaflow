@@ -20,6 +20,7 @@ from urllib.parse import quote
 from comment_formatter import CommentFormatter, SelfReviewError
 from config import Credentials, HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+from merge_state_watcher import ConflictingPR
 from models import (
     CICheckPayload,
     CodeScanningAlert,
@@ -2166,6 +2167,81 @@ class PRManager:
         except RuntimeError:
             logger.debug("Could not fetch mergeable status for PR #%d", pr_number)
             return None
+
+    async def list_conflicting_prs(self) -> list[ConflictingPR]:
+        """Return open PRs whose ``mergeable`` field is ``CONFLICTING``."""
+        if self._config.dry_run:
+            return []
+
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "pr",
+                "list",
+                "--state",
+                "open",
+                "--limit",
+                "200",
+                "--json",
+                "number,headRefName,labels,mergeable",
+            )
+        except RuntimeError:
+            logger.debug("list_conflicting_prs: gh pr list failed", exc_info=True)
+            return []
+
+        try:
+            payload = json.loads(raw or "[]")
+        except json.JSONDecodeError:
+            logger.warning(
+                "list_conflicting_prs: malformed JSON from gh", exc_info=True
+            )
+            return []
+
+        results: list[ConflictingPR] = []
+        for entry in payload:
+            try:
+                if entry.get("mergeable") != "CONFLICTING":
+                    continue
+                results.append(
+                    ConflictingPR(
+                        number=int(entry["number"]),
+                        branch=str(entry.get("headRefName") or ""),
+                        labels=[
+                            str(lbl.get("name", ""))
+                            for lbl in (entry.get("labels") or [])
+                            if lbl.get("name")
+                        ],
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                logger.debug(
+                    "list_conflicting_prs: skipping malformed entry", exc_info=True
+                )
+                continue
+        return results
+
+    async def update_pr_branch(self, pr_number: int) -> bool:
+        """Trigger ``gh pr update-branch`` for *pr_number*.
+
+        Returns ``True`` when GitHub accepted the update (rebase/merge with
+        ``main`` was scheduled), ``False`` if the API call failed or hit a
+        conflict. Caller is expected to re-check ``get_pr_mergeable`` to
+        confirm the conflict actually cleared.
+        """
+        if self._config.dry_run:
+            logger.info("[dry-run] Would update branch for PR #%d", pr_number)
+            return True
+
+        try:
+            await self._run_gh("gh", "pr", "update-branch", str(pr_number))
+        except RuntimeError:
+            logger.info(
+                "update_pr_branch failed for PR #%d (likely real conflict)",
+                pr_number,
+                exc_info=True,
+            )
+            return False
+        return True
 
     async def get_pr_comments(self, pr_number: int) -> list[dict[str, str]]:
         """Fetch issue-level comments for *pr_number* with author info.

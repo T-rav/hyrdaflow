@@ -156,6 +156,7 @@ class HydraFlowOrchestrator:
         # Extracted component managers
         bg_loop_registry: dict[str, BaseBackgroundLoop] = {
             "pr_unsticker": svc.pr_unsticker_loop,
+            "merge_state_watcher": svc.merge_state_watcher_loop,
             "report_issue": svc.report_issue_loop,
             "epic_monitor": svc.epic_monitor_loop,
             "epic_sweeper": svc.epic_sweeper_loop,
@@ -969,6 +970,7 @@ class HydraFlowOrchestrator:
             ("review", self._review_loop),
             ("hitl", self._hitl_loop),
             ("pr_unsticker", self._svc.pr_unsticker_loop.run),
+            ("merge_state_watcher", self._svc.merge_state_watcher_loop.run),
             ("report_issue", self._svc.report_issue_loop.run),
             ("epic_monitor", self._svc.epic_monitor_loop.run),
             ("epic_sweeper", self._svc.epic_sweeper_loop.run),
