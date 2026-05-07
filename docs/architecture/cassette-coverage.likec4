@@ -1,0 +1,66 @@
+// LikeC4 model for issue #8498 — un-cassetted FakeGit.worktree_add
+// Trust Architecture Hardening §4.2 (cassette schema) + §4.7 (auditor)
+// ADR-0047: Fake-adapter contract testing via cassette record/replay
+
+specification {
+  element system
+  element container
+  element component
+  element file
+}
+
+model {
+  hydraflow = system 'HydraFlow' {
+    description 'Multi-agent orchestration system'
+
+    trust = container 'Trust Architecture' {
+      description 'Cassette-backed fake/real adapter equivalence proofs'
+
+      auditor = component 'fake_coverage_auditor_loop' {
+        description 'Diffs Fake* adapter-surface methods against recorded cassettes; files hydraflow-find issues per gap'
+        technology 'Python async loop'
+      }
+
+      fakes = component 'mockworld.fakes' {
+        description 'In-memory adapter surfaces (FakeGit, FakeGitHub, FakeDocker)'
+        technology 'Python'
+      }
+
+      replay = component 'tests/trust/contracts' {
+        description 'Cassette replay harness (test_fake_*_contract.py + _replay.py + _schema.py)'
+        technology 'pytest + Pydantic'
+      }
+
+      cassettes = component 'cassettes/git/*.yaml' {
+        description 'YAML recordings keyed by adapter+command; only commit.yaml today'
+        technology 'YAML'
+      }
+
+      regression = component 'tests/regressions/test_issue_8498.py' {
+        description 'Regression pin: asserts worktree_add is in both surface and cassetted set'
+        technology 'pytest'
+      }
+
+      auditor -> fakes 'catalog_fake_methods()'
+      auditor -> cassettes 'catalog_cassette_methods() — reads input.command'
+      replay -> cassettes 'list_cassettes() + Cassette.parse_obj()'
+      replay -> fakes '_invoke_fake_git() dispatches by command name'
+      regression -> fakes 'asserts worktree_add ∈ adapter-surface'
+      regression -> cassettes 'asserts worktree_add ∈ cassetted commands'
+    }
+  }
+}
+
+views {
+  view contract_loop of trust {
+    title 'Cassette coverage feedback loop for FakeGit.worktree_add'
+    include *
+
+    style fakes, cassettes, regression {
+      color green
+    }
+    style auditor {
+      color amber
+    }
+  }
+}
