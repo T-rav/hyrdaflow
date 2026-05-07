@@ -38,6 +38,7 @@ areas:
       - StaleIssueGCLoop
       - StaleIssueLoop
       - TermProposerLoop
+      - TermPrunerLoop
       - WikiRotDetectorLoop
       - WorkspaceGCLoop
     related_adrs: ['0029', '0049']

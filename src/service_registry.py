@@ -91,6 +91,7 @@ from stale_issue_gc_loop import StaleIssueGCLoop  # noqa: TCH001
 from stale_issue_loop import StaleIssueLoop
 from state import StateTracker
 from term_proposer_loop import TermProposerLoop
+from term_pruner_loop import TermPrunerLoop
 from transcript_summarizer import TranscriptSummarizer
 from triage import TriageRunner
 from triage_phase import TriagePhase
@@ -197,6 +198,7 @@ class ServiceRegistry:
     cost_budget_watcher_loop: CostBudgetWatcherLoop
     pricing_refresh_loop: PricingRefreshLoop
     term_proposer_loop: TermProposerLoop
+    term_pruner_loop: TermPrunerLoop
 
     # Optional integrations
 
@@ -1064,6 +1066,17 @@ def build_services(
         dedup_path=config.data_root / "dedup" / "term_proposer.json",
     )
 
+    # Term-Pruner (ADR-0057). Reuses the proposer's PR port adapter — both loops
+    # open auto-merging bot PRs via OpenAutoPRBotPRPort (stateless, shareable).
+    from term_pruner_loop import TermPrunerLoop  # noqa: PLC0415
+
+    term_pruner_loop = TermPrunerLoop(  # noqa: F841
+        config=config,
+        deps=loop_deps,
+        pr_port=term_proposer_pr_port,
+        repo_root=config.repo_root,
+    )
+
     return ServiceRegistry(
         workspaces=workspaces,
         subprocess_runner=subprocess_runner,
@@ -1135,4 +1148,5 @@ def build_services(
         cost_budget_watcher_loop=cost_budget_watcher_loop,
         pricing_refresh_loop=pricing_refresh_loop,
         term_proposer_loop=term_proposer_loop,
+        term_pruner_loop=term_pruner_loop,
     )

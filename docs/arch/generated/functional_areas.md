@@ -30,6 +30,7 @@ flowchart LR
         caretaking_StaleIssueGCLoop([StaleIssueGCLoop])
         caretaking_StaleIssueLoop([StaleIssueLoop])
         caretaking_TermProposerLoop([TermProposerLoop])
+        caretaking_TermPrunerLoop([TermPrunerLoop])
         caretaking_WikiRotDetectorLoop([WikiRotDetectorLoop])
         caretaking_WorkspaceGCLoop([WorkspaceGCLoop])
     end
@@ -107,6 +108,7 @@ Autonomous background loops that maintain the system without human input — wik
 - `StaleIssueGCLoop` — `src.stale_issue_gc_loop`
 - `StaleIssueLoop` — `src.stale_issue_loop`
 - `TermProposerLoop` — `src.term_proposer_loop`
+- `TermPrunerLoop` — `src.term_pruner_loop`
 - `WikiRotDetectorLoop` — `src.wiki_rot_detector_loop`
 - `WorkspaceGCLoop` — `src.workspace_gc_loop`
 
@@ -265,4 +267,4 @@ The plan→implement→review pipeline driving each issue from hydraflow-ready t
 **Related ADRs:** `ADR-0001`, `ADR-0004`, `ADR-0011`, `ADR-0012`, `ADR-0029`
 
 
-_Regenerated from commit `b7031b6` on 2026-05-07 19:22 UTC. Source last changed at `b7031b6`. Status: 🟢 fresh._
+_Regenerated from commit `e5ae95c` on 2026-05-07 21:56 UTC. Source last changed at `e5ae95c`. Status: 🟢 fresh._

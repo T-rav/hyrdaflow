@@ -64,6 +64,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | ADR-0054 | `src.term_proposer_loop`, `src.ubiquitous_language` |
 | ADR-0055 | `src.base_background_loop`, `src.base_runner`, `src.config`, `src.events`, `src.exception_classify`, `src.mockworld.fakes.fake_honeycomb`, `src.pr_manager`, `src.server`, `src.telemetry.__init__`, `src.telemetry.otel`, `src.telemetry.slugs`, `src.telemetry.spans`, `src.telemetry.subprocess_bridge`, `src.trace_collector`, `src.workspace` |
 | ADR-0056 | `src.adr_drift`, `src.adr_touchpoint_auditor_loop`, `src.state._adr_audit` |
+| ADR-0057 | `src.term_pruner_loop`, `src.ubiquitous_language` |
 
 ## Module → ADRs
 
@@ -158,14 +159,15 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.telemetry.spans` | ADR-0055 |
 | `src.telemetry.subprocess_bridge` | ADR-0055 |
 | `src.term_proposer_loop` | ADR-0054 |
+| `src.term_pruner_loop` | ADR-0057 |
 | `src.trace_collector` | ADR-0055 |
 | `src.triage_phase` | ADR-0014, ADR-0017, ADR-0031, ADR-0039 |
 | `src.trust_fleet_sanity_loop` | ADR-0045, ADR-0046 |
-| `src.ubiquitous_language` | ADR-0054 |
+| `src.ubiquitous_language` | ADR-0054, ADR-0057 |
 | `src.visual_validation` | ADR-0015 |
 | `src.wiki_compiler` | ADR-0032 |
 | `src.wiki_rot_detector_loop` | ADR-0045 |
 | `src.workspace` | ADR-0055 |
 | `src.worktree` | ADR-0003, ADR-0009, ADR-0010 |
 
-_Regenerated from commit `b7031b6` on 2026-05-07 19:22 UTC. Source last changed at `b7031b6`. Status: 🟢 fresh._
+_Regenerated from commit `e5ae95c` on 2026-05-07 21:56 UTC. Source last changed at `e5ae95c`. Status: 🟢 fresh._
