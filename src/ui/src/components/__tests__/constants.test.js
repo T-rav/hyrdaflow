@@ -250,8 +250,8 @@ describe('WORKER_PRESETS', () => {
 })
 
 describe('WORKER_GROUPS', () => {
-  it('has 5 groups', () => {
-    expect(WORKER_GROUPS).toHaveLength(5)
+  it('has 8 groups', () => {
+    expect(WORKER_GROUPS).toHaveLength(8)
   })
 
   it('every group has key, label, color, and tags', () => {
