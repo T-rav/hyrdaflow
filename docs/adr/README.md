@@ -87,6 +87,7 @@ ADR and that named test files actually exist.
 | [0053](0053-ubiquitous-language-as-living-artifact.md) | Ubiquitous Language as a Living Artifact | Accepted |
 | [0054](0054-term-auto-proposer-loop.md) | Term Auto-Proposer Loop (Dark-Factory Glossary Growth) | Accepted |
 | [0055](0055-otel-honeycomb-instrumentation.md) | OpenTelemetry Instrumentation as the Telemetry Layer | Accepted |
+| [0057](0057-term-pruner-loop.md) | Term-Pruner Loop (Dark-Factory Glossary Hygiene) | Accepted |
 
 ## Adding a new ADR
 
