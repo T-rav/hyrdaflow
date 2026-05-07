@@ -63,13 +63,16 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | ADR-0053 | `src.repo_wiki`, `src.repo_wiki_loop` |
 | ADR-0054 | `src.term_proposer_loop`, `src.ubiquitous_language` |
 | ADR-0055 | `src.base_background_loop`, `src.base_runner`, `src.config`, `src.events`, `src.exception_classify`, `src.mockworld.fakes.fake_honeycomb`, `src.pr_manager`, `src.server`, `src.telemetry.__init__`, `src.telemetry.otel`, `src.telemetry.slugs`, `src.telemetry.spans`, `src.telemetry.subprocess_bridge`, `src.trace_collector`, `src.workspace` |
+| ADR-0056 | `src.adr_drift`, `src.adr_touchpoint_auditor_loop`, `src.state._adr_audit` |
 
 ## Module → ADRs
 
 | Module | Cited by |
 |---|---|
+| `src.adr_drift` | ADR-0056 |
 | `src.adr_pre_validator` | ADR-0037 |
 | `src.adr_reviewer` | ADR-0033, ADR-0034, ADR-0037, ADR-0039, ADR-0040 |
+| `src.adr_touchpoint_auditor_loop` | ADR-0056 |
 | `src.agent` | ADR-0024, ADR-0027 |
 | `src.agent_cli` | ADR-0004 |
 | `src.auto_agent_preflight_loop` | ADR-0050 |
@@ -146,6 +149,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.skill_prompt_eval_loop` | ADR-0045 |
 | `src.staging_bisect_loop` | ADR-0045, ADR-0048 |
 | `src.state` | ADR-0006, ADR-0013, ADR-0014, ADR-0017, ADR-0024 |
+| `src.state._adr_audit` | ADR-0056 |
 | `src.state._auto_agent` | ADR-0050 |
 | `src.state._session` | ADR-0021 |
 | `src.telemetry.__init__` | ADR-0055 |
@@ -164,4 +168,4 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.workspace` | ADR-0055 |
 | `src.worktree` | ADR-0003, ADR-0009, ADR-0010 |
 
-_Regenerated from commit `c9c5d35` on 2026-05-07 06:01 UTC. Source last changed at `c9c5d35`. Status: 🟢 fresh._
+_Regenerated from commit `c45e243` on 2026-05-07 14:51 UTC. Source last changed at `c45e243`. Status: 🟢 fresh._
