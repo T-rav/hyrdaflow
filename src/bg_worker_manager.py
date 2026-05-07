@@ -123,19 +123,17 @@ class BGWorkerManager:
     def get_interval(self, name: str) -> int:
         """Return the effective interval for a background worker.
 
-        Returns the dynamic override if set, otherwise the config default.
+        Priority: dynamic override → loop's own _get_default_interval() →
+        non-loop fallback table → poll_interval.
         """
         if name in self._bg_worker_intervals:
             return self._bg_worker_intervals[name]
-        defaults: dict[str, int] = {
+        loop = self._bg_loop_registry.get(name)
+        if loop is not None:
+            return loop._get_default_interval()
+        # Fallback for non-loop workers that are not BaseBackgroundLoop subclasses.
+        non_loop_defaults: dict[str, int] = {
             "memory_sync": self._config.memory_sync_interval,
             "pipeline_poller": 5,
-            "pr_unsticker": self._config.pr_unstick_interval,
-            "report_issue": self._config.report_issue_interval,
-            "epic_monitor": self._config.epic_monitor_interval,
-            "workspace_gc": self._config.workspace_gc_interval,
-            # Daily caretaker — never falls through to poll_interval.
-            "pricing_refresh": 86400,
-            "cost_budget_watcher": 300,  # 5 minutes
         }
-        return defaults.get(name, self._config.poll_interval)
+        return non_loop_defaults.get(name, self._config.poll_interval)

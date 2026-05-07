@@ -124,6 +124,17 @@ class TestInterval:
         saved = manager._state.get_worker_intervals()
         assert saved["x"] == 99
 
+    def test_registered_loop_interval_used_over_poll(
+        self, config: HydraFlowConfig, state: Any
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        fake_loop = MagicMock()
+        fake_loop._get_default_interval.return_value = 1800
+        mgr = BGWorkerManager(config, state, {"myloop": fake_loop})
+        assert mgr.get_interval("myloop") == 1800
+        assert mgr.get_interval("myloop") != config.poll_interval
+
 
 class TestRestoreMethods:
     def test_restore_intervals(self, manager: BGWorkerManager) -> None:
