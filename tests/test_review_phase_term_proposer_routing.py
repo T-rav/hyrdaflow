@@ -22,11 +22,17 @@ import inspect
 
 from review_phase import ReviewPhase
 from term_proposer_loop import TERM_PROPOSER_PR_LABEL
+from term_pruner_loop import TERM_PRUNER_PR_LABEL
 
 
 def test_constant_is_the_label_string() -> None:
     """The constant must equal the literal label DependabotMergeLoop watches for."""
     assert TERM_PROPOSER_PR_LABEL == "hydraflow-ul-proposed"
+
+
+def test_pruner_constant_is_the_label_string() -> None:
+    """The pruner constant must equal the literal label DependabotMergeLoop watches for."""
+    assert TERM_PRUNER_PR_LABEL == "hydraflow-ul-deprecated"
 
 
 def test_review_prs_filters_via_constant_not_literal() -> None:
@@ -39,4 +45,17 @@ def test_review_prs_filters_via_constant_not_literal() -> None:
     assert '"hydraflow-ul-proposed"' not in source, (
         "ReviewPhase.review_prs reintroduced a hardcoded label literal — "
         "use TERM_PROPOSER_PR_LABEL instead"
+    )
+
+
+def test_review_prs_filters_pruner_via_constant_not_literal() -> None:
+    """``ReviewPhase.review_prs`` must also filter pruner PRs via the constant (ADR-0057)."""
+    source = inspect.getsource(ReviewPhase.review_prs)
+    assert "TERM_PRUNER_PR_LABEL" in source, (
+        "ReviewPhase.review_prs must filter via the imported pruner constant"
+    )
+    # And the literal must NOT be re-duplicated inside review_prs.
+    assert '"hydraflow-ul-deprecated"' not in source, (
+        "ReviewPhase.review_prs reintroduced a hardcoded pruner label literal — "
+        "use TERM_PRUNER_PR_LABEL instead"
     )
