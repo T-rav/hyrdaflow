@@ -252,25 +252,31 @@ class TrustFleetSanityLoop(BaseBackgroundLoop):
             if breached:
                 per_worker_breaches.append(("tick_error_ratio", details))
 
-            hb = heartbeats.get(worker) or {}
-            last_run_iso = hb.get("last_run") if isinstance(hb, dict) else None
-            bg = self._bg_workers
-            interval_s = (
-                int(bg.get_interval(worker))
-                if bg is not None and hasattr(bg, "get_interval")
-                else 86400
-            )
-            is_enabled = bool(enabled_map.get(worker, True))
-            breached, details = detect_staleness(
-                worker,
-                last_run_iso=last_run_iso,
-                interval_s=interval_s,
-                multiplier=cfg.loop_anomaly_staleness_multiplier,
-                is_enabled=is_enabled,
-                now=now,
-            )
-            if breached:
-                per_worker_breaches.append(("staleness", details))
+            # Staleness only applies to registered trust-loop workers.
+            # Non-trust loops (e.g. report_issue) have long-running LLM
+            # work cycles that legitimately exceed 2 × their polling
+            # interval, causing false-positive staleness alerts. Staleness
+            # for non-trust loops is out of scope for this detector.
+            if worker in TRUST_LOOP_WORKERS:
+                hb = heartbeats.get(worker) or {}
+                last_run_iso = hb.get("last_run") if isinstance(hb, dict) else None
+                bg = self._bg_workers
+                interval_s = (
+                    int(bg.get_interval(worker))
+                    if bg is not None and hasattr(bg, "get_interval")
+                    else 86400
+                )
+                is_enabled = bool(enabled_map.get(worker, True))
+                breached, details = detect_staleness(
+                    worker,
+                    last_run_iso=last_run_iso,
+                    interval_s=interval_s,
+                    multiplier=cfg.loop_anomaly_staleness_multiplier,
+                    is_enabled=is_enabled,
+                    now=now,
+                )
+                if breached:
+                    per_worker_breaches.append(("staleness", details))
 
             breached, details = detect_cost_spike(
                 worker,
