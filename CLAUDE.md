@@ -11,6 +11,7 @@ This file is a table of contents. Operational knowledge lives in the wiki at [`d
 - **Never use `git commit --no-verify`** or `--no-hooks`. Fix code issues first.
 - **Always run `make quality`** before declaring work complete. Look up "Quality" in [`docs/wiki/patterns.md`](docs/wiki/patterns.md).
 - **Always write unit tests before committing.** See [`docs/wiki/testing.md`](docs/wiki/testing.md).
+- **Load-bearing features ship the full test pyramid: unit + MockWorld scenario + sandbox e2e.** Skipping a layer is a procedural failure, not a judgment call — see [`docs/standards/testing/README.md`](docs/standards/testing/README.md). Unit tests are blind to real-API behavior; MockWorld scenarios catch loop integration; sandbox e2e catches docker/UI/wiring. Don't ship a feature where any layer is "too small to need it."
 - **Always read [`docs/wiki/gotchas.md`](docs/wiki/gotchas.md)** before editing Pydantic models, test imports, or mocks — recurring mistakes live there.
 - **Look at the [System Map](https://t-rav.github.io/hydraflow/system-map/) before exploring code blind.** The Functional Area Map shows what every loop and Port belongs to; click through to ADRs from there.
 - **Always verify subagent DONE claims** with `git status --porcelain` and `git log -1 --stat`. Subagents sometimes report DONE with edits applied but not committed.
