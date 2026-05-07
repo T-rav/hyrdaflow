@@ -1,0 +1,16 @@
+adapter: git
+interaction: config_get
+recorded_at: "2026-05-07T00:00:00Z"
+recorder_sha: "c6814593"
+fixture_repo: tests/trust/contracts/fixtures/git_sandbox
+input:
+  command: config_get
+  args:
+    - "core.bare"
+  stdin: null
+  env: {}
+output:
+  exit_code: 0
+  stdout: "false\n"
+  stderr: ""
+normalizers: []
