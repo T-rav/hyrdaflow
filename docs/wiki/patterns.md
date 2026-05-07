@@ -393,3 +393,29 @@ HydraFlow uses **OpenTelemetry → Honeycomb** for distributed tracing (per-phas
 ```json:entry
 {"id":"01KQOTEL55HC2026B0PHASEA001","title":"Telemetry layer — OTel for traces, Sentry for exceptions","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-06T20:50:00.000000+00:00","updated_at":"2026-05-06T20:50:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"high","stale":false,"corroborations":1}
 ```
+
+
+## Branch protection — rulesets that enforce the two-tier model (ADR-0042)
+
+`main` and `staging` are protected by GitHub **rulesets** (the modern replacement for classic branch protection rules), not by classic branch-protection settings. Always read these via `gh api /repos/T-rav/hydraflow/rulesets/<id>`, never via the classic `/branches/<name>/protection` endpoint (it returns 404 even when the branch is protected).
+
+| Ruleset | ID | Target | Allowed merge methods | Required status checks |
+|---|---|---|---|---|
+| `main protect` | `15468404` | `~DEFAULT_BRANCH` (`main`) | `["merge"]` only — squash is rejected (ADR-0042 §Decision: squash from a long-lived integration branch produces a growing-diff regression). RC promotion uses `gh pr merge --merge`. | Full standard CI set + RC promotion gate: `Tests`, `Lint & Format`, `Type Check`, `Security Scan`, `Smoke Tests`, `Scenario Tests`, `Regression Tests`, `Principles Audit`, `ADR gate`, `quality (.)`, `quality (src/ui)`, **`Resolve RC PR`**, **`Browser Scenarios`**, **`Trust Gate (adversarial corpus, fixture mode)`**, **`Sandbox (rc/* promotion PR full suite)`**. The bold four are the MockWorld + e2e gate that only applies to `rc/* → main` PRs. |
+| `staging protect` | `16066429` | `refs/heads/staging` | `["squash", "merge"]` — agent PRs squash by default; merges accepted for cross-branch fixups. | Full standard CI set + `Sandbox (PR→staging fast subset)`. The 11 standard checks above plus the staging-specific sandbox subset. No RC-only checks (those are conditional and would block on SKIPPED). |
+
+Both rulesets also enforce: no deletion, no force-push, PR required (no direct pushes), code-quality severity=`errors`, code-scanning CodeQL high-or-higher.
+
+Repo-level settings:
+- `default_branch=main` (release reference; integration is `staging`)
+- `allow_auto_merge=true` — required for `gh pr merge --auto` and for `StagingPromotionLoop` to queue auto-merges on RC PRs
+- `allow_squash_merge=true`, `allow_merge_commit=true`, `allow_rebase_merge=true` — methods are gated per-branch by ruleset, not at repo level
+
+To audit drift: `gh api /repos/T-rav/hydraflow/rulesets/15468404 | jq .rules` and same for `16066429`. Diff against [`docs/adr/0042-two-tier-branch-release-promotion.md`](../adr/0042-two-tier-branch-release-promotion.md).
+
+**Why:** Encoding the decision in two rulesets (rather than docs alone) means the GitHub UI itself rejects squash-into-main and direct-push violations — convention that becomes infrastructure. The required-check sets enforce that nothing reaches `main` without the full MockWorld + e2e sandbox suite, and nothing reaches `staging` without the full standard CI gate.
+
+
+```json:entry
+{"id":"01KQRULESET2026B0PHASE2002","title":"Branch protection — rulesets that enforce the two-tier model (ADR-0042)","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-07T03:55:00.000000+00:00","updated_at":"2026-05-07T03:55:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"high","stale":false,"corroborations":1}
+```
