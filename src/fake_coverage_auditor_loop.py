@@ -130,10 +130,9 @@ _FAKE_TO_CASSETTE_DIR: dict[str, str] = {
     "FakeGit": "git",
     "FakeBeads": "beads",
     "FakeSentry": "sentry",
-    "FakeHindsight": "hindsight",
-    "FakeHttp": "http",
+    "FakeHTTP": "http",
     "FakeSubprocessRunner": "subprocess",
-    "FakeFs": "fs",
+    "FakeFS": "fs",
     "FakeLLM": "llm",
 }
 
