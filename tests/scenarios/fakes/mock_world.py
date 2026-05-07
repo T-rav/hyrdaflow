@@ -626,11 +626,16 @@ class MockWorld:
     ) -> dict[str, dict[str, Any] | None]:
         """Instantiate and run real BaseBackgroundLoop subclasses via LoopCatalog.
 
-        Invokes ``loop._do_work()`` directly, ``cycles`` times per loop. This
-        skips ``loop.run()`` so the sleep/stop_event lifecycle machinery is
-        not exercised — scenarios that need graceful-shutdown semantics should
-        drive ``loop.run()`` directly rather than use this helper. FakeGitHub
-        is wired as the PRPort so loops interact with seeded world state.
+        Invokes ``loop._do_work()`` directly, ``cycles`` times per loop, so
+        each call returns the ``WorkCycleResult`` stats. This skips
+        ``loop.run()`` (no sleep/stop_event lifecycle) AND skips
+        ``loop._execute_cycle()`` (no ``@loop_span()`` decoration, no status
+        callback, no event-bus publish). Scenarios that need any of those
+        — particularly OTel ``hf.loop.{name}`` span emission — must call
+        ``loop._execute_cycle()`` directly (see
+        ``tests/scenarios/test_telemetry_e2e.py`` for the pattern).
+        FakeGitHub is wired as the PRPort so loops interact with seeded
+        world state.
 
         Returns a dict mapping loop name → last ``_do_work()`` stats.
         """
