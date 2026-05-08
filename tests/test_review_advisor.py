@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
+from mockworld.fakes import FakeLLM
 from review_advisor import (
     CRITICAL_PATHS,
     SURFACE_ADVISOR_CONFIGS,
@@ -282,3 +283,46 @@ class TestSurfaceConfigs:
     def test_build_unknown_surface_raises(self):
         with pytest.raises(KeyError):
             build_surface_config("not_a_surface")
+
+
+class TestFakeLLMAdvisorExtension:
+    def test_script_advisor_separates_from_executor(self):
+        llm = FakeLLM()
+        llm.script_review(123, ["EXECUTOR_VERDICT"])
+        llm.script_advisor(123, "post_verify", ["APPROVE"])
+        assert llm.advisor_call_count_for("post_verify") == 0
+
+    def test_advisor_call_count_increments_on_pop(self):
+        llm = FakeLLM()
+        llm.script_advisor(123, "post_verify", ["APPROVE"])
+        result = llm.pop_advisor_result(123, "post_verify")
+        assert result == "APPROVE"
+        assert llm.advisor_call_count_for("post_verify") == 1
+
+    def test_advisor_call_count_per_role(self):
+        llm = FakeLLM()
+        llm.script_advisor(123, "pre_flight", ["PLAN"])
+        llm.script_advisor(123, "post_verify", ["APPROVE"])
+        llm.pop_advisor_result(123, "pre_flight")
+        llm.pop_advisor_result(123, "post_verify")
+        assert llm.advisor_call_count_for("pre_flight") == 1
+        assert llm.advisor_call_count_for("post_verify") == 1
+
+    def test_pop_with_no_script_returns_none(self):
+        llm = FakeLLM()
+        result = llm.pop_advisor_result(456, "post_verify")
+        assert result is None
+
+    def test_advisor_independent_of_executor_calls(self):
+        llm = FakeLLM()
+        llm.script_review(123, ["v1", "v2"])
+        llm.script_advisor(123, "post_verify", ["a1", "a2"])
+        # Pop one of each; advisor count tracks only advisor pops
+        llm.pop_advisor_result(123, "post_verify")
+        # Note: we don't have a public pop for executor at the same level —
+        # this test just confirms scripting is independent
+        assert llm.advisor_call_count_for("post_verify") == 1
+        # Second advisor pop still has a result
+        result = llm.pop_advisor_result(123, "post_verify")
+        assert result == "a2"
+        assert llm.advisor_call_count_for("post_verify") == 2
