@@ -39,6 +39,7 @@ PLAYWRIGHT_BROWSERS_PATH when starting the driver.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -48,10 +49,33 @@ from tests.scenarios.fakes.mock_world import MockWorld
 
 pytestmark = pytest.mark.scenario_browser
 
-# Captured at import time, before HOME is overridden.
-_REAL_PLAYWRIGHT_BROWSERS_PATH: str = str(
-    Path.home() / "Library" / "Caches" / "ms-playwright"
-)
+
+def _platform_playwright_browsers_path() -> Path:
+    """Return Playwright's platform-default browsers cache path.
+
+    macOS: ``~/Library/Caches/ms-playwright``
+    Linux: ``~/.cache/ms-playwright``
+    Windows: ``%LOCALAPPDATA%\\ms-playwright``
+
+    A pre-set ``PLAYWRIGHT_BROWSERS_PATH`` env var wins over the default,
+    matching Playwright's own discovery rules.
+    """
+    explicit = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if explicit:
+        return Path(explicit)
+    home = Path.home()
+    if sys.platform == "darwin":
+        return home / "Library" / "Caches" / "ms-playwright"
+    if sys.platform == "win32":
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        if local_appdata:
+            return Path(local_appdata) / "ms-playwright"
+        return home / "AppData" / "Local" / "ms-playwright"
+    return home / ".cache" / "ms-playwright"
+
+
+# Captured at import time, before HOME is overridden by the root conftest.
+_REAL_PLAYWRIGHT_BROWSERS_PATH: str = str(_platform_playwright_browsers_path())
 
 
 @pytest.fixture
