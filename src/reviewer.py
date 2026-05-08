@@ -830,15 +830,31 @@ Then a brief summary on the next line starting with "SUMMARY: ".
         # so the executor's review prioritizes the listed focus_areas and
         # rubric items. Empty string when no plan was produced (kill-switched,
         # composite trigger said "no", or advisor degraded to None).
-        from review_advisor import format_pre_flight_for_prompt  # noqa: PLC0415
+        from review_advisor import (  # noqa: PLC0415
+            build_surface_config,
+            format_mid_flight_for_prompt,
+            format_pre_flight_for_prompt,
+        )
 
         pre_flight_section = format_pre_flight_for_prompt(pre_flight_plan)
+
+        # Mid-flight consult section (advisor-pattern T21). When the surface
+        # has mid-flight enabled (kill-switch chain open), document the
+        # consult_advisor Task tool so the executor knows to call it on
+        # judgment calls. Constructed inline from the hardcoded "pr_review"
+        # surface — T20+T21 are pr_review-only. Threading surface_config
+        # through review() is a Phase 4 follow-up if other surfaces opt in.
+        # Returns None when mid-flight is disabled; coerce to "" so the
+        # f-string concatenation below stays branch-free.
+        mid_flight_section = (
+            format_mid_flight_for_prompt(build_surface_config("pr_review")) or ""
+        )
 
         prompt = f"""You are reviewing PR #{pr.number} which implements issue #{issue.id}.
 
 ## Issue: {issue.title}
 
-{issue_body}{plan_section}{memory_section}{log_section}{scanning_section}{bead_section}{spec_section}{pre_flight_section}
+{issue_body}{plan_section}{memory_section}{log_section}{scanning_section}{bead_section}{spec_section}{pre_flight_section}{mid_flight_section}
 
 ## Precheck Context
 

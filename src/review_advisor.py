@@ -845,3 +845,59 @@ class MidFlightAdvisor:
             '"confidence":float}'
         )
         return "\n".join(sections)
+
+
+def _max_midflight_consults() -> int:
+    """Per-review cap on consult_advisor invocations.
+
+    Read at call time (not import time) so monkeypatch in tests works.
+    Falls back to the default (5) on any parse failure.
+    """
+    raw = os.environ.get("HYDRAFLOW_REVIEW_MIDFLIGHT_MAX_CONSULTS", "5")
+    try:
+        return int(raw)
+    except ValueError:
+        return 5
+
+
+def format_mid_flight_for_prompt(
+    surface_config: SurfaceAdvisorConfig,
+) -> str | None:
+    """Build the executor-prompt section that documents the consult_advisor
+    Task tool. Returns None when mid-flight is disabled for the surface.
+
+    The executor uses this to know when and how to call the Task tool with
+    ``subagent_type="hydraflow-review-advisor"`` mid-review. This is purely
+    instruction text — the actual Task dispatch happens inside the executor's
+    session. Returning None keeps callers' prompt-builder branch-free: they
+    inject ``section or ""``.
+    """
+    advisor = MidFlightAdvisor(surface_config=surface_config)
+    # Probe — pass placeholder args; we only care whether the gate is open.
+    if advisor.build_task_invocation(question="probe", context_summary="probe") is None:
+        return None
+    cap = _max_midflight_consults()
+    return (
+        "\n## Mid-flight advisor (Opus consult tool)\n\n"
+        f"{MidFlightAdvisor.TOOL_DESCRIPTION}\n\n"
+        "Invoke via:\n"
+        "  Task(\n"
+        '    subagent_type="hydraflow-review-advisor",\n'
+        '    model="opus",\n'
+        "    prompt=<see template below>\n"
+        "  )\n\n"
+        "Prompt template:\n"
+        "  ## Mid-flight consult\n"
+        "  Issue: <number>          # required so MockWorld can route\n"
+        "  ### Question\n"
+        "  <your judgment question>\n"
+        "  ### Context (summary from executor)\n"
+        "  <what you've already established>\n"
+        "  [### Options under consideration\n"
+        "   - option A\n"
+        "   - option B]                # optional\n\n"
+        "  Respond with JSON: "
+        '{"reasoning":str,"recommendation":str,"confidence":float}\n\n'
+        f"Cap: at most {cap} consult calls per review. "
+        "Past the cap, the tool will return advisor-unavailable; decide on your own."
+    )

@@ -345,16 +345,24 @@ class ReviewPhase:
                     # ``Produce a ReviewPlan as JSON ...`` (see
                     # PreFlightAdvisor._build_prompt); the post-verify prompt
                     # ends with ``Respond with JSON matching the
-                    # PostVerifyResult schema``. Both markers are unique to
-                    # their role, so substring presence is sufficient. Closing
-                    # the Protocol with a `role` parameter is the more correct
-                    # alternative, but T18 keeps the smaller diff — see the
-                    # T18 commit message and "If you get stuck" notes.
-                    role = (
-                        "pre_flight"
-                        if "Produce a ReviewPlan as JSON" in prompt
-                        else "post_verify"
-                    )
+                    # PostVerifyResult schema``. The mid-flight consult prompt
+                    # opens with the ``## Mid-flight consult`` header (see
+                    # MidFlightAdvisor._render_prompt). All three markers are
+                    # unique to their role, so substring presence is
+                    # sufficient. This adapter only sees runtime advisor
+                    # consult prompts (the executor's outgoing Task call) —
+                    # it never receives the executor's own incoming review
+                    # prompt, which is where ``format_mid_flight_for_prompt``
+                    # injects the same header as instruction text. So the
+                    # documentation-vs-runtime collision is academic. Closing
+                    # the Protocol with an explicit ``role`` parameter would
+                    # make this contract crisper; T21 keeps the smaller diff.
+                    if "## Mid-flight consult" in prompt:
+                        role = "mid_flight"
+                    elif "Produce a ReviewPlan as JSON" in prompt:
+                        role = "pre_flight"
+                    else:
+                        role = "post_verify"
                     result = fake_llm.pop_advisor_result(issue_number, role)
                     if isinstance(result, str):
                         return result
