@@ -6,6 +6,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W19
 
+- `093a642` — fix: revert Task 4 (redundant with existing test_event_reducer_coverage) *(2026-05-07)*
 - `262b697` — feat(memory-backlog): wire MemoryBacklogLoop into 5 checkpoints + caretaking area *(2026-05-07)*
 - `230b86a` — feat(memory-backlog): MemoryBacklogLoop class + integration tests *(2026-05-07)*
 - `caa8736` — feat(memory-backlog): ADR-0057 + config + state mixin *(2026-05-07)*
@@ -175,4 +176,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `262b697` on 2026-05-08 03:11 UTC. Source last changed at `262b697`. Status: 🟢 fresh._
+_Regenerated from commit `093a642` on 2026-05-08 03:18 UTC. Source last changed at `093a642`. Status: 🟢 fresh._
