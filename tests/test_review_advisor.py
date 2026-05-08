@@ -2,12 +2,22 @@ import pytest
 from pydantic import ValidationError
 
 from review_advisor import (
+    CRITICAL_PATHS,
+    SURFACE_ADVISOR_CONFIGS,
+    AlwaysTrigger,
+    CompositeTrigger,
+    DiffStats,
     Disagreement,
     FocusArea,
     PostVerifyInput,
     PostVerifyResult,
+    PRContext,
     PreFlightInput,
     ReviewPlan,
+    build_surface_config,
+    is_advisor_enabled,
+    resolve_model,
+    should_pre_flight,
 )
 
 
@@ -70,12 +80,6 @@ class TestInputSchemas:
         assert inp.pre_flight_plan is None
 
 
-from review_advisor import (
-    is_advisor_enabled,
-    resolve_model,
-)
-
-
 class TestModelResolution:
     def test_per_surface_overrides_global(self, monkeypatch):
         monkeypatch.setenv("HYDRAFLOW_PR_REVIEW_EXECUTOR_MODEL", "haiku")
@@ -130,15 +134,6 @@ class TestKillSwitches:
         ):
             monkeypatch.delenv(v, raising=False)
         assert is_advisor_enabled("pr_review", "post_verify") is True
-
-
-from review_advisor import (
-    CRITICAL_PATHS,
-    CompositeTrigger,
-    DiffStats,
-    PRContext,
-    should_pre_flight,
-)
 
 
 class TestRoleEnvSegmentConsistency:
@@ -210,3 +205,80 @@ class TestShouldPreFlight:
         assert trigger.should_run(diff, pr) is True
         diff, pr = self._trivial(["docs/x.md"], lines=5)
         assert trigger.should_run(diff, pr) is False
+
+
+class TestSurfaceConfigs:
+    def test_all_five_surfaces_present(self):
+        expected = {
+            "pr_review",
+            "pre_merge_spec_check",
+            "adr_review",
+            "visual_gate",
+            "wiki_ingest",
+        }
+        assert set(SURFACE_ADVISOR_CONFIGS) == expected
+
+    def test_pr_review_full_pattern(self):
+        c = SURFACE_ADVISOR_CONFIGS["pr_review"]
+        assert c.pre_flight_enabled is True
+        assert c.mid_flight_enabled is True
+        assert c.post_verify_enabled is True
+        assert c.post_verify_authority == "veto"
+        assert c.max_veto_retries == 2
+        assert isinstance(c.pre_flight_trigger, CompositeTrigger)
+
+    def test_pre_merge_spec_check_no_preflight(self):
+        c = SURFACE_ADVISOR_CONFIGS["pre_merge_spec_check"]
+        assert c.pre_flight_enabled is False
+        assert c.pre_flight_trigger is None
+        assert c.mid_flight_enabled is True
+        assert c.post_verify_enabled is True
+        assert c.post_verify_authority == "veto"
+
+    def test_adr_review_no_midflight_always_preflight(self):
+        c = SURFACE_ADVISOR_CONFIGS["adr_review"]
+        assert c.pre_flight_enabled is True
+        assert isinstance(c.pre_flight_trigger, AlwaysTrigger)
+        assert c.mid_flight_enabled is False
+        assert c.post_verify_enabled is True
+        assert c.post_verify_authority == "veto"
+
+    def test_visual_gate_post_verify_only(self):
+        c = SURFACE_ADVISOR_CONFIGS["visual_gate"]
+        assert c.pre_flight_enabled is False
+        assert c.mid_flight_enabled is False
+        assert c.post_verify_enabled is True
+        assert c.post_verify_authority == "veto"
+        assert c.max_veto_retries == 1
+
+    def test_wiki_ingest_advisory_only(self):
+        c = SURFACE_ADVISOR_CONFIGS["wiki_ingest"]
+        assert c.pre_flight_enabled is False
+        assert c.mid_flight_enabled is False
+        assert c.post_verify_enabled is True
+        assert c.post_verify_authority == "advisory"
+        assert c.max_veto_retries == 0
+
+    def test_build_resolves_models_from_env(self, monkeypatch):
+        monkeypatch.setenv("HYDRAFLOW_PR_REVIEW_EXECUTOR_MODEL", "haiku")
+        c = build_surface_config("pr_review")
+        assert c.executor_model == "haiku"
+
+    def test_build_uses_global_when_per_surface_unset(self, monkeypatch):
+        monkeypatch.delenv("HYDRAFLOW_PR_REVIEW_EXECUTOR_MODEL", raising=False)
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_EXECUTOR_MODEL", "sonnet-special")
+        c = build_surface_config("pr_review")
+        assert c.executor_model == "sonnet-special"
+
+    def test_build_uses_default_when_unset(self, monkeypatch):
+        monkeypatch.delenv("HYDRAFLOW_PR_REVIEW_EXECUTOR_MODEL", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_REVIEW_EXECUTOR_MODEL", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_PR_REVIEW_ADVISOR_MODEL", raising=False)
+        monkeypatch.delenv("HYDRAFLOW_REVIEW_ADVISOR_MODEL", raising=False)
+        c = build_surface_config("pr_review")
+        assert c.executor_model == "sonnet"
+        assert c.advisor_model == "opus"
+
+    def test_build_unknown_surface_raises(self):
+        with pytest.raises(KeyError):
+            build_surface_config("not_a_surface")

@@ -181,3 +181,87 @@ def should_pre_flight(diff_stats: DiffStats, pr: PRContext) -> bool:
 class CompositeTrigger(PreFlightTrigger):
     def should_run(self, diff_stats: DiffStats, pr: PRContext) -> bool:  # type: ignore[override]
         return should_pre_flight(diff_stats, pr)
+
+
+_SURFACE_DEFAULTS: dict[str, dict[str, object]] = {
+    "pr_review": {
+        "pre_flight_enabled": True,
+        "pre_flight_trigger": CompositeTrigger(),
+        "mid_flight_enabled": True,
+        "post_verify_enabled": True,
+        "post_verify_authority": "veto",
+        "max_veto_retries": 2,
+    },
+    "pre_merge_spec_check": {
+        "pre_flight_enabled": False,
+        "pre_flight_trigger": None,
+        "mid_flight_enabled": True,
+        "post_verify_enabled": True,
+        "post_verify_authority": "veto",
+        "max_veto_retries": 2,
+    },
+    "adr_review": {
+        "pre_flight_enabled": True,
+        "pre_flight_trigger": AlwaysTrigger(),
+        "mid_flight_enabled": False,
+        "post_verify_enabled": True,
+        "post_verify_authority": "veto",
+        "max_veto_retries": 2,
+    },
+    "visual_gate": {
+        "pre_flight_enabled": False,
+        "pre_flight_trigger": None,
+        "mid_flight_enabled": False,
+        "post_verify_enabled": True,
+        "post_verify_authority": "veto",
+        "max_veto_retries": 1,
+    },
+    "wiki_ingest": {
+        "pre_flight_enabled": False,
+        "pre_flight_trigger": None,
+        "mid_flight_enabled": False,
+        "post_verify_enabled": True,
+        "post_verify_authority": "advisory",
+        "max_veto_retries": 0,
+    },
+}
+
+
+def build_surface_config(surface: str) -> SurfaceAdvisorConfig:
+    """Build the config for a surface, resolving models against env each call.
+
+    Called once per review to capture env state at start.
+    """
+    base = _SURFACE_DEFAULTS[surface]
+    pre_flight_enabled = base["pre_flight_enabled"]
+    pre_flight_trigger = base["pre_flight_trigger"]
+    mid_flight_enabled = base["mid_flight_enabled"]
+    post_verify_enabled = base["post_verify_enabled"]
+    post_verify_authority = base["post_verify_authority"]
+    max_veto_retries = base["max_veto_retries"]
+    assert isinstance(pre_flight_enabled, bool)
+    assert pre_flight_trigger is None or isinstance(
+        pre_flight_trigger, PreFlightTrigger
+    )
+    assert isinstance(mid_flight_enabled, bool)
+    assert isinstance(post_verify_enabled, bool)
+    assert post_verify_authority in ("advisory", "veto")
+    assert isinstance(max_veto_retries, int)
+    return SurfaceAdvisorConfig(
+        surface=surface,
+        pre_flight_enabled=pre_flight_enabled,
+        pre_flight_trigger=pre_flight_trigger,
+        mid_flight_enabled=mid_flight_enabled,
+        post_verify_enabled=post_verify_enabled,
+        post_verify_authority=post_verify_authority,
+        executor_model=resolve_model(surface, "executor", default="sonnet"),
+        advisor_model=resolve_model(surface, "advisor", default="opus"),
+        max_veto_retries=max_veto_retries,
+    )
+
+
+# Snapshot — production code paths should call build_surface_config(surface)
+# so env overrides are picked up at runtime. Tests / static inspection use this.
+SURFACE_ADVISOR_CONFIGS: dict[str, SurfaceAdvisorConfig] = {
+    surface: build_surface_config(surface) for surface in _SURFACE_DEFAULTS
+}
