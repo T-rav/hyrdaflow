@@ -6,6 +6,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W19
 
+- `230b86a` — feat(memory-backlog): MemoryBacklogLoop class + integration tests *(2026-05-07)*
 - `caa8736` — feat(memory-backlog): ADR-0057 + config + state mixin *(2026-05-07)*
 - `fdeeaf8` — feat(memory-backlog): in-repo mirror of feedback memories *(2026-05-07)*
 - `c681459` — feat(pr): caretaker-loops spec + plan + update_pr_base port method (#8489) (#8489) *(2026-05-07)*
@@ -173,4 +174,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `caa8736` on 2026-05-08 02:50 UTC. Source last changed at `caa8736`. Status: 🟢 fresh._
+_Regenerated from commit `230b86a` on 2026-05-08 02:57 UTC. Source last changed at `230b86a`. Status: 🟢 fresh._

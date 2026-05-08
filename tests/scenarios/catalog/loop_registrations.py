@@ -508,6 +508,44 @@ def _build_fake_coverage_auditor(ports: dict[str, Any], config: Any, deps: Any) 
     return loop
 
 
+def _build_memory_backlog(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build MemoryBacklogLoop for scenarios (ADR-0057).
+
+    Files hydraflow-find issues for pending entries in
+    ``docs/wiki/memory-feedback/``. ``state`` and ``dedup`` default to
+    MagicMocks; tests may override by seeding ``memory_backlog_state`` /
+    ``memory_backlog_dedup`` explicitly. ``pr_manager`` falls back to
+    ``ports['github']`` to mirror sibling caretaker builders.
+    """
+    from dedup_store import DedupStore  # noqa: PLC0415
+    from memory_backlog_loop import MemoryBacklogLoop  # noqa: PLC0415
+
+    state = ports.get("memory_backlog_state")
+    if state is None:
+        state = MagicMock()
+        state.get_memory_backlog_attempts.return_value = 0
+        state.inc_memory_backlog_attempts.return_value = 1
+        ports["memory_backlog_state"] = state
+
+    dedup = ports.get("memory_backlog_dedup")
+    if dedup is None:
+        dedup = DedupStore(
+            "memory_backlog",
+            config.data_root / "dedup" / "memory_backlog.json",
+        )
+        ports["memory_backlog_dedup"] = dedup
+
+    pr_manager = ports.get("pr_manager") or ports["github"]
+
+    return MemoryBacklogLoop(
+        config=config,
+        state=state,
+        pr_manager=pr_manager,
+        dedup=dedup,
+        deps=deps,
+    )
+
+
 def _build_staging_bisect(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     """Build StagingBisectLoop for scenarios (spec §4.3).
 
@@ -942,6 +980,7 @@ _BUILDERS: dict[str, Any] = {
     "flake_tracker": _build_flake_tracker,
     "skill_prompt_eval": _build_skill_prompt_eval,
     "fake_coverage_auditor": _build_fake_coverage_auditor,
+    "memory_backlog": _build_memory_backlog,
     "rc_budget": _build_rc_budget,
     "wiki_rot_detector": _build_wiki_rot_detector,
     # trust fleet (spec §4.3 staging bisect + §12.1 sanity)

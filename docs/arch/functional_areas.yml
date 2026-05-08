@@ -24,6 +24,7 @@ areas:
       - EpicSweeperLoop
       - GitHubCacheLoop
       - HealthMonitorLoop
+      - MemoryBacklogLoop
       - PRUnstickerLoop
       - PricingRefreshLoop
       - RepoWikiLoop
@@ -39,7 +40,7 @@ areas:
       - TermProposerLoop
       - WikiRotDetectorLoop
       - WorkspaceGCLoop
-    related_adrs: ['0029', '0049']
+    related_adrs: ['0029', '0049', '0057']
 
   quality_gates:
     label: Quality Gates

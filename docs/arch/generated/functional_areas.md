@@ -16,6 +16,7 @@ flowchart LR
         caretaking_EpicSweeperLoop([EpicSweeperLoop])
         caretaking_GitHubCacheLoop([GitHubCacheLoop])
         caretaking_HealthMonitorLoop([HealthMonitorLoop])
+        caretaking_MemoryBacklogLoop([MemoryBacklogLoop])
         caretaking_PRUnstickerLoop([PRUnstickerLoop])
         caretaking_PricingRefreshLoop([PricingRefreshLoop])
         caretaking_RepoWikiLoop([RepoWikiLoop])
@@ -91,6 +92,7 @@ Autonomous background loops that maintain the system without human input — wik
 - `EpicSweeperLoop` — `src.epic_sweeper_loop`
 - `GitHubCacheLoop` — `src.github_cache_loop`
 - `HealthMonitorLoop` — `src.health_monitor_loop`
+- `MemoryBacklogLoop` — `src.memory_backlog_loop`
 - `PRUnstickerLoop` — `src.pr_unsticker_loop`
 - `PricingRefreshLoop` — `src.pricing_refresh_loop`
 - `RepoWikiLoop` — `src.repo_wiki_loop`
@@ -107,7 +109,7 @@ Autonomous background loops that maintain the system without human input — wik
 - `WikiRotDetectorLoop` — `src.wiki_rot_detector_loop`
 - `WorkspaceGCLoop` — `src.workspace_gc_loop`
 
-**Related ADRs:** `ADR-0029`, `ADR-0049`
+**Related ADRs:** `ADR-0029`, `ADR-0049`, `ADR-0057`
 
 
 ## Quality Gates
@@ -261,4 +263,4 @@ The plan→implement→review pipeline driving each issue from hydraflow-ready t
 **Related ADRs:** `ADR-0001`, `ADR-0004`, `ADR-0011`, `ADR-0012`, `ADR-0029`
 
 
-_Regenerated from commit `caa8736` on 2026-05-08 02:50 UTC. Source last changed at `caa8736`. Status: 🟢 fresh._
+_Regenerated from commit `230b86a` on 2026-05-08 02:57 UTC. Source last changed at `230b86a`. Status: 🟢 fresh._

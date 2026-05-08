@@ -48,6 +48,7 @@ from implement_phase import ImplementPhase
 from issue_cache import IssueCache
 from issue_fetcher import GitHubTaskFetcher, IssueFetcher
 from issue_store import IssueStore
+from memory_backlog_loop import MemoryBacklogLoop
 from merge_conflict_resolver import MergeConflictResolver
 from models import StatusCallback
 from plan_phase import PlanPhase
@@ -181,6 +182,7 @@ class ServiceRegistry:
     flake_tracker_loop: FlakeTrackerLoop
     skill_prompt_eval_loop: SkillPromptEvalLoop
     fake_coverage_auditor_loop: FakeCoverageAuditorLoop
+    memory_backlog_loop: MemoryBacklogLoop
     rc_budget_loop: RCBudgetLoop
     wiki_rot_detector_loop: WikiRotDetectorLoop
     trust_fleet_sanity_loop: TrustFleetSanityLoop
@@ -929,6 +931,18 @@ def build_services(
         deps=loop_deps,
     )
 
+    memory_backlog_dedup = DedupStore(
+        "memory_backlog",
+        config.data_root / "dedup" / "memory_backlog.json",
+    )
+    memory_backlog_loop = MemoryBacklogLoop(  # noqa: F841
+        config=config,
+        state=state,
+        pr_manager=prs,
+        dedup=memory_backlog_dedup,
+        deps=loop_deps,
+    )
+
     rc_budget_dedup = DedupStore(
         "rc_budget",
         config.data_root / "dedup" / "rc_budget.json",
@@ -1114,6 +1128,7 @@ def build_services(
         flake_tracker_loop=flake_tracker_loop,
         skill_prompt_eval_loop=skill_prompt_eval_loop,
         fake_coverage_auditor_loop=fake_coverage_auditor_loop,
+        memory_backlog_loop=memory_backlog_loop,
         rc_budget_loop=rc_budget_loop,
         wiki_rot_detector_loop=wiki_rot_detector_loop,
         trust_fleet_sanity_loop=trust_fleet_sanity_loop,
