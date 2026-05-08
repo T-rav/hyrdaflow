@@ -1079,6 +1079,136 @@ class TestAdvisorTelemetry:
             == 0
         )
 
+    def test_disagreement_validated_when_preflight_predicted(self, metric_recorder):
+        """Pre-flight escalation_signals predicting a post-verify disagreement
+        increments _disagreement_validated_total{role=pre_flight}."""
+        plan = ReviewPlan(
+            risk_summary="r",
+            focus_areas=[],
+            rubric=[],
+            escalation_signals=["race condition in worker loop"],
+        )
+        runner = _StubAdvisorRunner(
+            '{"verdict":"VETO","reasoning":"missed race",'
+            '"disagreements":[{'
+            '"executor_claim":"safe","advisor_assessment":"there is a race condition in worker loop",'
+            '"severity":"blocking"}],'
+            '"suggested_fix_direction":"add a lock"}'
+        )
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="d",
+            executor_verdict_summary="approved",
+            pre_flight_plan=plan,
+        )
+        asyncio.run(advisor.run(inp))
+        validated = metric_recorder.counter_value(
+            "review_advisor_disagreement_validated_total",
+            surface="pr_review",
+            role="pre_flight",
+        )
+        assert validated == 1
+
+    def test_disagreement_not_validated_when_no_plan(self, metric_recorder):
+        """Without a pre-flight plan, disagreements aren't validated."""
+        runner = _StubAdvisorRunner(
+            '{"verdict":"VETO","reasoning":"missed something",'
+            '"disagreements":[{'
+            '"executor_claim":"x","advisor_assessment":"missed thing",'
+            '"severity":"blocking"}]}'
+        )
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="d",
+            executor_verdict_summary="x",
+            pre_flight_plan=None,
+        )
+        asyncio.run(advisor.run(inp))
+        validated = metric_recorder.counter_value(
+            "review_advisor_disagreement_validated_total",
+            surface="pr_review",
+            role="pre_flight",
+        )
+        assert validated == 0
+
+    def test_disagreement_not_validated_when_no_signal_match(self, metric_recorder):
+        """Disagreement without a matching pre-flight signal doesn't count."""
+        plan = ReviewPlan(
+            risk_summary="r",
+            focus_areas=[],
+            rubric=[],
+            escalation_signals=["check error handling in api layer"],
+        )
+        runner = _StubAdvisorRunner(
+            '{"verdict":"VETO","reasoning":"unrelated issue",'
+            '"disagreements":[{'
+            '"executor_claim":"x","advisor_assessment":"completely unrelated thing",'
+            '"severity":"concern"}]}'
+        )
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="d",
+            executor_verdict_summary="x",
+            pre_flight_plan=plan,
+        )
+        asyncio.run(advisor.run(inp))
+        validated = metric_recorder.counter_value(
+            "review_advisor_disagreement_validated_total",
+            surface="pr_review",
+            role="pre_flight",
+        )
+        assert validated == 0
+
+    def test_multiple_validated_disagreements_increment_counter(self, metric_recorder):
+        """Each matched disagreement increments by 1."""
+        plan = ReviewPlan(
+            risk_summary="r",
+            focus_areas=[],
+            rubric=[],
+            escalation_signals=[
+                "check missing test coverage for edge case X",
+                "verify the lock ordering",
+            ],
+        )
+        runner = _StubAdvisorRunner(
+            '{"verdict":"VETO","reasoning":"two issues",'
+            '"disagreements":['
+            '{"executor_claim":"a","advisor_assessment":"missing test coverage for edge case X",'
+            '"severity":"blocking"},'
+            '{"executor_claim":"b","advisor_assessment":"verify the lock ordering",'
+            '"severity":"concern"}'
+            "]}"
+        )
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="d",
+            executor_verdict_summary="x",
+            pre_flight_plan=plan,
+        )
+        asyncio.run(advisor.run(inp))
+        validated = metric_recorder.counter_value(
+            "review_advisor_disagreement_validated_total",
+            surface="pr_review",
+            role="pre_flight",
+        )
+        assert validated == 2
+
 
 class TestProductionPathJSONExtraction:
     """Regression tests for C1 — agent transcripts are not bare JSON.

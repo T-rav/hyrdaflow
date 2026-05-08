@@ -84,6 +84,14 @@ _disagreement_total = _meter.create_counter(
         "(spec §6.1)."
     ),
 )
+_disagreement_validated_total = _meter.create_counter(
+    "review_advisor_disagreement_validated_total",
+    description=(
+        "Disagreements where post-verify confirmed the advisor was right "
+        "and the executor was wrong (originally warned in pre-flight "
+        "or mid-flight)"
+    ),
+)
 
 
 class FocusArea(BaseModel):
@@ -138,6 +146,29 @@ class PostVerifyInput(BaseModel):
     # Production callers can leave this unset; the field only changes prompt
     # text when populated.
     issue_number: int | None = None
+
+
+def _validate_disagreements_against_plan(
+    disagreements: list[Disagreement],
+    plan: ReviewPlan | None,
+) -> int:
+    """Return how many post-verify disagreements were predicted by the
+    pre-flight plan's escalation_signals.
+
+    A match is a case-insensitive substring overlap between the
+    disagreement's advisor_assessment and any escalation signal — fuzzy
+    on purpose since the advisor's wording may vary across calls.
+    Returns 0 if there is no plan or no disagreements.
+    """
+    if plan is None or not plan.escalation_signals:
+        return 0
+    matched = 0
+    signals_lc = [s.lower() for s in plan.escalation_signals]
+    for d in disagreements:
+        assessment_lc = d.advisor_assessment.lower()
+        if any((sig in assessment_lc) or (assessment_lc in sig) for sig in signals_lc):
+            matched += 1
+    return matched
 
 
 def _env_truthy(value: str | None) -> bool | None:
@@ -493,6 +524,21 @@ class PostVerifyAdvisor:
                 )
             except Exception:  # noqa: BLE001 — telemetry never breaks business logic
                 logger.debug("advisor disagreement-counter emit failed", exc_info=True)
+        # T22: emit disagreement_validated_total when pre-flight predicted the issue
+        matched = _validate_disagreements_against_plan(
+            result.disagreements, inp.pre_flight_plan
+        )
+        if matched > 0:
+            try:
+                _disagreement_validated_total.add(
+                    matched,
+                    {"surface": self._cfg.surface, "role": "pre_flight"},
+                )
+            except Exception:  # noqa: BLE001 — telemetry never breaks business logic
+                logger.debug(
+                    "advisor disagreement-validated-counter emit failed",
+                    exc_info=True,
+                )
         self._emit_log(prompt=prompt, payload=payload, start=start, error=None)
         self._emit_metrics(
             start=start, outcome="success", verdict=result.verdict.lower()
