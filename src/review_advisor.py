@@ -291,7 +291,12 @@ CRITICAL_PATHS = CRITICAL_PATHS_EXACT
 # changes to its own implementation silently. When a diff touches these paths,
 # resolve_post_verify_authority forces "veto" regardless of the surface's
 # configured authority — even on advisory surfaces (e.g., wiki_ingest).
-_SELF_MODIFYING_PATHS: frozenset[str] = frozenset(
+#
+# Public contract (T30.5 I3): the wiki ingest descriptor synthesizer in
+# ``review_phase`` imports this set to keep a single source of truth for
+# advisor's own implementation paths. Different matchers (unified-diff
+# headers vs. content-substring) consume the same paths.
+SELF_MODIFYING_PATHS: frozenset[str] = frozenset(
     {
         "src/review_advisor.py",
         "src/review_phase.py",
@@ -301,7 +306,7 @@ _SELF_MODIFYING_PATHS: frozenset[str] = frozenset(
 
 def _diff_touches_self_modifying_paths(diff: str) -> bool:
     """Detect whether a diff modifies advisor's own implementation files."""
-    for path in _SELF_MODIFYING_PATHS:
+    for path in SELF_MODIFYING_PATHS:
         if (
             f"diff --git a/{path}" in diff
             or f"diff --git b/{path}" in diff

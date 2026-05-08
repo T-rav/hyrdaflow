@@ -3532,6 +3532,69 @@ class TestVisualGateAdvisor:
         with pytest.raises(CreditExhaustedError):
             await phase.check_visual_gate(pr, issue, result, worker_id=0)
 
+    @pytest.mark.asyncio
+    async def test_visual_gate_advisor_uses_issue_id_not_pr_number(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """T30.5 (I1) regression: visual gate advisor must look up by ``issue.id``,
+        not ``pr.number``.
+
+        Production-side, the PR number and the originating issue id are
+        distinct; the advisor's prompt threads ``issue_number`` so MockWorld
+        runners can route via ``FakeLLM.pop_advisor_result(issue_number, role)``.
+        Before the fix, ``_run_visual_gate_advisor`` passed ``pr.number`` —
+        coincidentally equal to ``issue.id`` in factory defaults, masking the
+        bug. This test pins the asymmetry.
+        """
+        from tests.helpers import ConfigFactory
+
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_VISUAL_GATE_ADVISOR_ENABLED", "true")
+
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            visual_gate_bypass=False,
+            repo_root=config.repo_root,
+            workspace_base=config.workspace_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._bus.publish = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._invoke_visual_pipeline = AsyncMock(  # type: ignore[method-assign]
+            return_value=("pass", {}, "all clear")
+        )
+
+        # Capture the PostVerifyInput passed to PostVerifyAdvisor.run.
+        from review_advisor import PostVerifyInput, PostVerifyResult
+
+        captured: list[PostVerifyInput] = []
+
+        async def fake_advisor_run(
+            self: object, inp: PostVerifyInput
+        ) -> PostVerifyResult:
+            captured.append(inp)
+            return PostVerifyResult(verdict="APPROVE", reasoning="ok", disagreements=[])
+
+        monkeypatch.setattr(
+            "review_advisor.PostVerifyAdvisor.run",
+            fake_advisor_run,
+        )
+
+        # PR number (901) and issue id (42) are deliberately different.
+        pr = PRInfoFactory.create(number=901)
+        issue = TaskFactory.create(id=42)
+        result = ReviewResultFactory.create()
+
+        ok = await phase.check_visual_gate(pr, issue, result, worker_id=0)
+
+        assert ok is True
+        assert len(captured) == 1, "advisor must be invoked exactly once"
+        assert captured[0].issue_number == 42, (
+            f"Expected issue.id (42), got {captured[0].issue_number} — "
+            "I1 regression: visual gate using pr.number instead of issue.id"
+        )
+
 
 class TestWikiIngestAdvisor:
     """T28 — PostVerifyAdvisor wired into ``_wiki_ingest_review`` for the

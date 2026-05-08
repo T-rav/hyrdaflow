@@ -603,16 +603,6 @@ class ReviewPhase:
             return True
         return False
 
-    # Paths whose mention in a wiki-ingest candidate must escalate the
-    # advisor to veto authority via T29's self-mod guard. Mirrors
-    # ``review_advisor._SELF_MODIFYING_PATHS`` — duplicated here because
-    # detection here is *content-substring* (the candidate text discusses
-    # these files), not unified-diff-header detection.
-    _WIKI_INGEST_SELF_MOD_PATHS: tuple[str, ...] = (
-        "src/review_advisor.py",
-        "src/review_phase.py",
-    )
-
     def _build_wiki_ingest_diff_descriptor(
         self,
         *,
@@ -637,7 +627,14 @@ class ReviewPhase:
         block in the descriptor — that gives the existing self-mod
         detector a unified surface to match against without forking its
         path-matching logic.
+
+        Path list source-of-truth (T30.5 I3): we import
+        ``review_advisor.SELF_MODIFYING_PATHS`` rather than duplicating
+        the list locally. Different matchers (unified-diff headers vs.
+        content-substring) consume the same paths.
         """
+        from review_advisor import SELF_MODIFYING_PATHS  # noqa: PLC0415
+
         # Mirror the synthesize_ingest cap so the descriptor reflects
         # exactly the content that would feed the wiki compiler.
         bounded_transcript = (transcript or "")[: self._WIKI_INGEST_MAX_CHARS]
@@ -649,7 +646,7 @@ class ReviewPhase:
         # Synthesize unified-diff headers for any self-mod path the
         # candidate content discusses, so resolve_post_verify_authority's
         # detector can fire and upgrade authority to "veto".
-        for path in self._WIKI_INGEST_SELF_MOD_PATHS:
+        for path in SELF_MODIFYING_PATHS:
             if path in combined:
                 lines.append(f"diff --git a/{path} b/{path}")
         lines.extend(
@@ -1742,6 +1739,7 @@ class ReviewPhase:
                 code_scanning_alerts=code_scanning_alerts,
                 advisor_transcript=transcript,
                 suggested_fix_direction=pv_result.suggested_fix_direction,
+                surface=surface,
             )
 
             # If the executor could not produce an APPROVE verdict, abort the
@@ -2515,12 +2513,19 @@ class ReviewPhase:
         diff: str,
         worker_id: int,
         code_scanning_alerts: list[CodeScanningAlert] | None = None,
+        surface: str = "pr_review",
     ) -> tuple[ReviewResult, str]:
         """Re-review a PR after the reviewer self-fixed findings.
 
         Returns ``(updated_result, updated_diff)``.  If the re-review
         approves, the upgraded result and refreshed diff are returned.
         On failure or continued rejection the original result is preserved.
+
+        ``surface`` selects which advisor surface config drives the
+        executor's mid-flight prompt assembly on the re-review. Defaults to
+        ``"pr_review"`` for back-compat (T30.5 I2: thread surface through
+        retry-path re-reviews so future multi-surface retry loops route to
+        the correct surface config rather than silently defaulting).
         """
         logger.info(
             "PR #%d: reviewer self-fixed with %s verdict — re-reviewing updated code",
@@ -2541,6 +2546,7 @@ class ReviewPhase:
                 worker_id=worker_id,
                 code_scanning_alerts=code_scanning_alerts,
                 pre_flight_plan=self._advisor_pre_flight_plan.get(pr.number),
+                surface=surface,
             )
             if re_result.fixes_made:
                 await self._prs.push_branch(wt_path, pr.branch)
@@ -2575,6 +2581,7 @@ class ReviewPhase:
         code_scanning_alerts: list[CodeScanningAlert] | None = None,
         advisor_transcript: str | None = None,
         suggested_fix_direction: str | None = None,
+        surface: str = "pr_review",
     ) -> tuple[ReviewResult, str] | None:
         """Run one fix-then-re-review cycle.
 
@@ -2584,6 +2591,10 @@ class ReviewPhase:
         ``advisor_transcript`` and ``suggested_fix_direction`` are
         propagated into the fix-agent prompt when the call originates from
         the post-verify advisor's VETO retry loop.
+
+        ``surface`` selects which advisor surface config drives the
+        re-review's mid-flight prompt assembly. Defaults to ``"pr_review"``
+        for back-compat (T30.5 I2).
         """
         await self._publish_review_status(pr, worker_id, "fixing_review")
 
@@ -2621,6 +2632,7 @@ class ReviewPhase:
             worker_id=worker_id,
             code_scanning_alerts=code_scanning_alerts,
             pre_flight_plan=self._advisor_pre_flight_plan.get(pr.number),
+            surface=surface,
         )
 
         if re_result.fixes_made:
@@ -2639,6 +2651,7 @@ class ReviewPhase:
         code_scanning_alerts: list[CodeScanningAlert] | None = None,
         advisor_transcript: str | None = None,
         suggested_fix_direction: str | None = None,
+        surface: str = "pr_review",
     ) -> tuple[ReviewResult, str]:
         """Spin up a sub-agent to fix review findings, then re-review.
 
@@ -2650,6 +2663,10 @@ class ReviewPhase:
         ``advisor_transcript`` and ``suggested_fix_direction`` thread the
         full advisor disagreement record into the executor's prompt so the
         next attempt can directly address the disagreement.
+
+        ``surface`` selects which advisor surface config drives the
+        re-review's mid-flight prompt assembly. Defaults to ``"pr_review"``
+        for back-compat (T30.5 I2).
         """
         max_fix_attempts = 2
 
@@ -2672,6 +2689,7 @@ class ReviewPhase:
                     code_scanning_alerts=code_scanning_alerts,
                     advisor_transcript=advisor_transcript,
                     suggested_fix_direction=suggested_fix_direction,
+                    surface=surface,
                 ),
                 on_failure=lambda _: None,
                 context=f"PR #{pr.number}: review fix attempt {attempt} failed — falling back to rejection",
@@ -2969,7 +2987,7 @@ class ReviewPhase:
                     executor_verdict_summary=executor_verdict_summary,
                     executor_fix_diff=None,
                     pre_flight_plan=None,
-                    issue_number=pr.number,
+                    issue_number=issue.id,
                 )
             )
         except Exception as exc:
