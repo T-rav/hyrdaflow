@@ -3343,3 +3343,191 @@ class TestPreMergeSpecCheckAdvisor:
 
         with pytest.raises(CreditExhaustedError):
             await phase._run_pre_merge_spec_check(task, "diff text", pr_number=99)
+
+
+# ---------------------------------------------------------------------------
+# Visual gate advisor (T27)
+# ---------------------------------------------------------------------------
+
+
+class TestVisualGateAdvisor:
+    """T27 — PostVerifyAdvisor wired into ``check_visual_gate`` for the
+    ``visual_gate`` surface (post-only; pre_flight=False, mid_flight=False;
+    ``max_veto_retries=1``).
+
+    The visual gate is a binary post-verify gate: when the visual pipeline
+    returns ``"pass"``, the advisor gets a chance to second-opinion the
+    verdict. VETO blocks the merge and routes through the existing visual
+    gate failure/HITL escalation path; APPROVE / kill-switch off / soft
+    advisor failure falls through to the sign-off path unchanged.
+    """
+
+    @pytest.mark.asyncio
+    async def test_advisor_approve_passes_visual_gate(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Visual pipeline PASS + advisor APPROVE → gate passes (existing behavior)."""
+        from tests.helpers import ConfigFactory
+
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_VISUAL_GATE_ADVISOR_ENABLED", "true")
+
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            visual_gate_bypass=False,
+            repo_root=config.repo_root,
+            workspace_base=config.workspace_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._bus.publish = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._invoke_visual_pipeline = AsyncMock(  # type: ignore[method-assign]
+            return_value=("pass", {"baseline": "https://example.com/b"}, "all clear")
+        )
+        approve_payload = (
+            '{"verdict":"APPROVE","reasoning":"visual evidence is sound",'
+            '"disagreements":[]}'
+        )
+        runner_run = AsyncMock(return_value=approve_payload)
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        pr = PRInfoFactory.create(number=901)
+        issue = TaskFactory.create(id=901)
+        result = ReviewResultFactory.create()
+
+        ok = await phase.check_visual_gate(pr, issue, result, worker_id=0)
+
+        assert ok is True
+        assert result.visual_passed is True
+        runner_run.assert_awaited_once()
+        kwargs = runner_run.await_args.kwargs
+        assert kwargs.get("role") == "post_verify"
+        # Sign-off comment posted (PASS path), not a BLOCKED comment.
+        comment_call = phase._prs.post_pr_comment.call_args.args[1]
+        assert "PASSED" in comment_call
+
+    @pytest.mark.asyncio
+    async def test_advisor_veto_blocks_visual_gate(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Visual pipeline PASS + advisor VETO → gate blocks; HITL escalation."""
+        from tests.helpers import ConfigFactory
+
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_VISUAL_GATE_ADVISOR_ENABLED", "true")
+
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            visual_gate_bypass=False,
+            repo_root=config.repo_root,
+            workspace_base=config.workspace_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._bus.publish = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._escalate_to_hitl = AsyncMock()
+        phase._invoke_visual_pipeline = AsyncMock(  # type: ignore[method-assign]
+            return_value=("pass", {}, "pixel diff under threshold")
+        )
+        veto_payload = (
+            '{"verdict":"VETO",'
+            '"reasoning":"baseline shows misaligned modal — regression",'
+            '"disagreements":[{"executor_claim":"pass",'
+            '"advisor_assessment":"modal misalignment",'
+            '"severity":"blocking"}]}'
+        )
+        runner_run = AsyncMock(return_value=veto_payload)
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        pr = PRInfoFactory.create(number=902)
+        issue = TaskFactory.create(id=902)
+        result = ReviewResultFactory.create()
+
+        ok = await phase.check_visual_gate(pr, issue, result, worker_id=0)
+
+        assert ok is False, "Advisor VETO must block the visual gate"
+        assert result.visual_passed is False
+        runner_run.assert_awaited_once()
+        # BLOCKED comment posted via failure path with advisor reasoning.
+        phase._prs.post_pr_comment.assert_awaited()
+        block_comment = phase._prs.post_pr_comment.call_args.args[1]
+        assert "BLOCKED" in block_comment
+        assert "advisor veto" in block_comment.lower()
+        # HITL escalation engaged (failure path).
+        phase._escalate_to_hitl.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_per_surface_kill_switch_skips_advisor(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``HYDRAFLOW_VISUAL_GATE_ADVISOR_ENABLED=false`` → advisor not invoked."""
+        from tests.helpers import ConfigFactory
+
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_VISUAL_GATE_ADVISOR_ENABLED", "false")
+
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            visual_gate_bypass=False,
+            repo_root=config.repo_root,
+            workspace_base=config.workspace_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._bus.publish = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._invoke_visual_pipeline = AsyncMock(  # type: ignore[method-assign]
+            return_value=("pass", {}, "all clear")
+        )
+
+        runner_run = AsyncMock()
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        pr = PRInfoFactory.create(number=903)
+        issue = TaskFactory.create(id=903)
+        result = ReviewResultFactory.create()
+
+        ok = await phase.check_visual_gate(pr, issue, result, worker_id=0)
+
+        assert ok is True
+        assert result.visual_passed is True
+        runner_run.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_advisor_credit_exhausted_propagates(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CreditExhaustedError from the advisor must propagate (dark-factory §2.2)."""
+        from tests.helpers import ConfigFactory
+
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_VISUAL_GATE_ADVISOR_ENABLED", "true")
+
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            visual_gate_bypass=False,
+            repo_root=config.repo_root,
+            workspace_base=config.workspace_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._bus.publish = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._invoke_visual_pipeline = AsyncMock(  # type: ignore[method-assign]
+            return_value=("pass", {}, "all clear")
+        )
+
+        from subprocess_util import CreditExhaustedError
+
+        phase._post_verify_runner.run = AsyncMock(  # type: ignore[method-assign]
+            side_effect=CreditExhaustedError("no credits")
+        )
+
+        pr = PRInfoFactory.create(number=904)
+        issue = TaskFactory.create(id=904)
+        result = ReviewResultFactory.create()
+
+        with pytest.raises(CreditExhaustedError):
+            await phase.check_visual_gate(pr, issue, result, worker_id=0)

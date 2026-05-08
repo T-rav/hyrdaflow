@@ -2628,6 +2628,14 @@ class ReviewPhase:
 
         Returns True if merge may proceed, False to block.
         When the gate is bypassed an audit event is emitted.
+
+        T27: PostVerifyAdvisor (surface=``visual_gate``) wraps the visual
+        pipeline's PASS verdict. The visual_gate surface is post-verify
+        only (no pre-flight, no mid-flight, ``max_veto_retries=1``) so this
+        is a one-shot binary gate — VETO blocks the merge and routes
+        through the existing failure/escalation path with the advisor's
+        reasoning attached. APPROVE / disabled / degraded all fall through
+        to the existing PASS sign-off behaviour.
         """
         start = time.monotonic()
 
@@ -2669,11 +2677,170 @@ class ReviewPhase:
         )
 
         if verdict == "pass":
+            # T27: post-verify advisor second-opinions the visual pipeline's
+            # PASS verdict. VETO blocks the merge and routes through the
+            # existing failure path; APPROVE / kill-switch off / degraded
+            # falls through to the sign-off path unchanged.
+            advisor_block_reason = await self._run_visual_gate_advisor(
+                pr=pr,
+                issue=issue,
+                executor_verdict_summary=verdict,
+                pipeline_reason=reason,
+                artifacts=artifacts,
+            )
+            if advisor_block_reason is not None:
+                await self._handle_visual_gate_failure(
+                    pr,
+                    issue,
+                    result,
+                    verdict="advisor_veto",
+                    reason=advisor_block_reason,
+                )
+                return False
             await self._handle_visual_gate_pass(pr, result, verdict, runtime, artifacts)
             return True
 
         await self._handle_visual_gate_failure(pr, issue, result, verdict, reason)
         return False
+
+    async def _run_visual_gate_advisor(
+        self,
+        *,
+        pr: PRInfo,
+        issue: Task,
+        executor_verdict_summary: str,
+        pipeline_reason: str,
+        artifacts: dict[str, str],
+    ) -> str | None:
+        """Run :class:`PostVerifyAdvisor` for the ``visual_gate`` surface (T27).
+
+        Returns the advisor's VETO reasoning string (caller must block the
+        merge) when the advisor VETOes; ``None`` when the advisor APPROVEs,
+        the surface/role kill-switches are off, or the advisor degrades on
+        a non-fatal error (proceed with the visual pipeline's PASS verdict).
+
+        The "diff" passed to the advisor is a textual descriptor of the
+        visual diff (verdict, pipeline reason, artifact links/count) — not
+        a unified text diff. Visual gate has ``mid_flight_enabled=False``
+        and ``pre_flight_enabled=False``, so this is a one-shot binary gate
+        with a tighter retry budget (``max_veto_retries=1`` per spec) — no
+        plan threading, no fix-and-iterate loop. ``reraise_on_credit_or_bug``
+        discipline is preserved per docs/wiki/dark-factory.md §2.2.
+
+        T29 self-modification guard: visual_gate has no diff to inspect for
+        self-modifying paths, so the descriptor is passed for completeness
+        but will not normally trigger the guard. The descriptor is non-empty
+        — the advisor needs *something* to evaluate.
+        """
+        from review_advisor import (  # noqa: PLC0415
+            PostVerifyAdvisor,
+            PostVerifyInput,
+            build_surface_config,
+            is_advisor_enabled,
+            resolve_post_verify_authority,
+        )
+
+        surface = "visual_gate"
+        surface_cfg = build_surface_config(surface)
+        if not surface_cfg.post_verify_enabled or not is_advisor_enabled(
+            surface, "post_verify"
+        ):
+            return None
+
+        diff_descriptor = self._build_visual_diff_descriptor(
+            pr=pr,
+            issue=issue,
+            executor_verdict_summary=executor_verdict_summary,
+            pipeline_reason=pipeline_reason,
+            artifacts=artifacts,
+        )
+
+        # T29 self-modification guard — a visual diff descriptor will not
+        # normally touch advisor's own files, but resolve here for parity.
+        authority = resolve_post_verify_authority(
+            surface_config=surface_cfg,
+            diff=diff_descriptor,
+        )
+
+        log_path = (
+            self._config.repo_root
+            / "review_logs"
+            / str(pr.number)
+            / "advisor_session.jsonl"
+        )
+        advisor = PostVerifyAdvisor(
+            runner=self._post_verify_runner,
+            surface_config=surface_cfg,
+            log_path=log_path,
+            pr_number=pr.number,
+            authority_override=authority,
+        )
+        try:
+            pv_result = await advisor.run(
+                PostVerifyInput(
+                    surface=surface,
+                    diff=diff_descriptor,
+                    spec=issue.body or None,
+                    executor_verdict_summary=executor_verdict_summary,
+                    executor_fix_diff=None,
+                    pre_flight_plan=None,
+                    issue_number=pr.number,
+                )
+            )
+        except Exception as exc:
+            from exception_classify import (  # noqa: PLC0415
+                reraise_on_credit_or_bug,
+            )
+
+            reraise_on_credit_or_bug(exc)
+            logger.warning(
+                "visual_gate post-verify advisor degraded for PR #%d — "
+                "proceeding with visual pipeline verdict",
+                pr.number,
+                exc_info=True,
+            )
+            return None
+
+        if pv_result.verdict != "VETO":
+            return None
+
+        logger.warning(
+            "PR #%d visual_gate VETO from advisor — blocking merge",
+            pr.number,
+        )
+        veto_reason = pv_result.reasoning or "advisor vetoed without reasoning"
+        return f"advisor veto: {veto_reason}"
+
+    def _build_visual_diff_descriptor(
+        self,
+        *,
+        pr: PRInfo,
+        issue: Task,
+        executor_verdict_summary: str,
+        pipeline_reason: str,
+        artifacts: dict[str, str],
+    ) -> str:
+        """Render a textual descriptor of the visual gate's evidence.
+
+        The visual gate has no unified text diff — the advisor's input
+        is a synthesized summary of the visual pipeline's verdict, the
+        pipeline's reason string, and links/keys for any artifacts the
+        pipeline produced (baseline, diff image, report URL). Always
+        non-empty so the advisor has *something* to evaluate.
+        """
+        lines = [
+            f"PR #{pr.number} — visual gate evidence",
+            f"Issue: {issue.id}",
+            f"Pipeline verdict: {executor_verdict_summary}",
+            f"Pipeline reason: {pipeline_reason or '(none)'}",
+        ]
+        if artifacts:
+            lines.append(f"Artifact count: {len(artifacts)}")
+            for name, link in sorted(artifacts.items()):
+                lines.append(f"- {name}: {link}")
+        else:
+            lines.append("Artifacts: (none)")
+        return "\n".join(lines)
 
     async def _emit_visual_gate_telemetry(
         self,
