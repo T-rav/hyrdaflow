@@ -1369,6 +1369,7 @@ class ReviewPhase:
             PostVerifyInput,
             build_surface_config,
             is_advisor_enabled,
+            resolve_post_verify_authority,
         )
 
         surface_cfg = build_surface_config(surface)
@@ -1395,11 +1396,21 @@ class ReviewPhase:
             / "advisor_session.jsonl"
         )
         while True:
+            # T29 self-modification guard (spec §5.8): when the diff modifies
+            # advisor's own implementation files, force veto authority — even
+            # on advisory surfaces (e.g., wiki_ingest). Resolved per-iteration
+            # so a fix that introduces or removes a self-modifying path is
+            # picked up on the next pass.
+            authority = resolve_post_verify_authority(
+                surface_config=surface_cfg,
+                diff=diff,
+            )
             advisor = PostVerifyAdvisor(
                 runner=self._post_verify_runner,
                 surface_config=surface_cfg,
                 log_path=log_path,
                 pr_number=pr.number,
+                authority_override=authority,
             )
             try:
                 pv_result = await advisor.run(

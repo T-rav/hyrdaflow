@@ -1809,3 +1809,98 @@ class TestSurfaceThreading:
         inp = PreFlightInput(surface="adr_review", diff="d")
         asyncio.run(advisor.run(inp))
         assert "adr_review" in runner.calls[0]["prompt"]
+
+
+class TestSelfModificationGuard:
+    """T29: when a diff touches the advisor's own implementation files,
+    post-verify authority is FORCED to 'veto' regardless of surface config.
+
+    Rationale (spec §5.8): the advisor must not approve changes to itself
+    silently. wiki_ingest's advisory mode would otherwise let an advisor
+    erroneously approve a code change to its own logic.
+    """
+
+    def test_diff_touching_review_advisor_forces_veto(self):
+        """src/review_advisor.py in the diff → veto (even on advisory surface)."""
+        from review_advisor import resolve_post_verify_authority
+
+        diff = (
+            "diff --git a/src/review_advisor.py b/src/review_advisor.py\n"
+            "@@ -1,3 +1,4 @@\n+# new line\n"
+        )
+        # wiki_ingest surface defaults to "advisory"
+        authority = resolve_post_verify_authority(
+            surface_config=SURFACE_ADVISOR_CONFIGS["wiki_ingest"],
+            diff=diff,
+        )
+        assert authority == "veto"
+
+    def test_diff_touching_review_phase_forces_veto(self):
+        from review_advisor import resolve_post_verify_authority
+
+        diff = (
+            "diff --git a/src/review_phase.py b/src/review_phase.py\n"
+            "@@ -1,3 +1,4 @@\n+# new line\n"
+        )
+        authority = resolve_post_verify_authority(
+            surface_config=SURFACE_ADVISOR_CONFIGS["wiki_ingest"],
+            diff=diff,
+        )
+        assert authority == "veto"
+
+    def test_unrelated_diff_keeps_configured_authority(self):
+        from review_advisor import resolve_post_verify_authority
+
+        diff = "diff --git a/src/foo.py b/src/foo.py\n@@ -1,3 +1,4 @@\n+# new line\n"
+        # Wiki ingest stays advisory
+        authority = resolve_post_verify_authority(
+            surface_config=SURFACE_ADVISOR_CONFIGS["wiki_ingest"],
+            diff=diff,
+        )
+        assert authority == "advisory"
+        # PR review stays veto (already its default)
+        authority_pr = resolve_post_verify_authority(
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+            diff=diff,
+        )
+        assert authority_pr == "veto"
+
+    def test_post_verify_advisor_honors_authority_override(self):
+        """When PostVerifyAdvisor is constructed with authority_override=
+        'veto' on an advisory-surface config, VETO is NOT downgraded.
+        """
+        runner = _StubAdvisorRunner(
+            '{"verdict":"VETO","reasoning":"x","disagreements":[]}'
+        )
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["wiki_ingest"],  # advisory by config
+            authority_override="veto",  # T29 override
+        )
+        result = asyncio.run(
+            advisor.run(
+                PostVerifyInput(
+                    surface="wiki_ingest", diff="d", executor_verdict_summary="x"
+                )
+            )
+        )
+        assert result.verdict == "VETO"  # NOT downgraded
+
+    def test_post_verify_advisor_no_override_uses_config_authority(self):
+        """Without authority_override, advisory config still downgrades VETO."""
+        runner = _StubAdvisorRunner(
+            '{"verdict":"VETO","reasoning":"x","disagreements":[]}'
+        )
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["wiki_ingest"],  # advisory
+            # no authority_override — config wins
+        )
+        result = asyncio.run(
+            advisor.run(
+                PostVerifyInput(
+                    surface="wiki_ingest", diff="d", executor_verdict_summary="x"
+                )
+            )
+        )
+        assert result.verdict == "APPROVE"  # downgraded

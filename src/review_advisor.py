@@ -287,6 +287,48 @@ def _matches_critical(path: str) -> bool:
 CRITICAL_PATHS = CRITICAL_PATHS_EXACT
 
 
+# T29 — self-modification guard (spec §5.8). The advisor must never approve
+# changes to its own implementation silently. When a diff touches these paths,
+# resolve_post_verify_authority forces "veto" regardless of the surface's
+# configured authority — even on advisory surfaces (e.g., wiki_ingest).
+_SELF_MODIFYING_PATHS: frozenset[str] = frozenset(
+    {
+        "src/review_advisor.py",
+        "src/review_phase.py",
+    }
+)
+
+
+def _diff_touches_self_modifying_paths(diff: str) -> bool:
+    """Detect whether a diff modifies advisor's own implementation files."""
+    for path in _SELF_MODIFYING_PATHS:
+        if (
+            f"diff --git a/{path}" in diff
+            or f"diff --git b/{path}" in diff
+            or f"+++ b/{path}" in diff
+            or f"--- a/{path}" in diff
+        ):
+            return True
+    return False
+
+
+def resolve_post_verify_authority(
+    *,
+    surface_config: SurfaceAdvisorConfig,
+    diff: str,
+) -> Literal["advisory", "veto"]:
+    """Resolve post-verify authority, applying spec §5.8 self-modification guard.
+
+    When the diff modifies advisor's own implementation files (review_advisor.py
+    or review_phase.py), force veto authority — the advisor must not approve
+    changes to itself with anything less than its strongest mode, even on
+    surfaces (wiki_ingest) that default to advisory.
+    """
+    if _diff_touches_self_modifying_paths(diff):
+        return "veto"
+    return surface_config.post_verify_authority
+
+
 def should_pre_flight(diff_stats: DiffStats, pr: PRContext) -> bool:
     """Composite predicate for whether to run pre-flight on a PR review."""
     if _env_truthy(os.environ.get("HYDRAFLOW_REVIEW_PREFLIGHT_FORCE_ON")):
@@ -468,6 +510,7 @@ class PostVerifyAdvisor:
         *,
         log_path: Path | None = None,
         pr_number: int | None = None,
+        authority_override: Literal["advisory", "veto"] | None = None,
     ) -> None:
         self._runner = runner
         self._cfg = surface_config
@@ -476,6 +519,12 @@ class PostVerifyAdvisor:
         # the PR number per spec §"Logging". Production callers wire this
         # from review_phase.py; tests may leave it unset.
         self._pr_number = pr_number
+        # T29 self-modification guard: when the caller has computed an
+        # authority override (e.g. via resolve_post_verify_authority because
+        # the diff touches advisor's own files), use that instead of the
+        # surface config's configured authority. None means "fall through
+        # to surface_config.post_verify_authority".
+        self._authority_override = authority_override
 
     async def run(self, inp: PostVerifyInput) -> PostVerifyResult:
         prompt = self._build_prompt(inp)
@@ -527,7 +576,11 @@ class PostVerifyAdvisor:
             return result
 
         # Advisory authority: downgrade VETO to APPROVE; preserve diagnostic info.
-        if self._cfg.post_verify_authority == "advisory" and result.verdict == "VETO":
+        # T29: an explicit authority_override (computed by callers when the
+        # diff modifies advisor's own files) takes precedence over the
+        # surface config's configured authority.
+        authority = self._authority_override or self._cfg.post_verify_authority
+        if authority == "advisory" and result.verdict == "VETO":
             result = PostVerifyResult(
                 verdict="APPROVE",
                 reasoning=result.reasoning,
