@@ -764,3 +764,28 @@ also resets the worktree, discarding partial commits).
   "added": "2026-05-07"
 }
 ```
+
+### swap_pipeline_labels: same label to both is wrong for ready/review boundary
+
+**Pattern:** `swap_pipeline_labels(issue_number, label, pr_number=pr)` applies
+the SAME label to issue and PR. For most transitions this is correct (e.g.
+review→fixed, both go fixed). But across the ready/review boundary it
+dragged PRs back to `hydraflow-ready` when an issue was released from HITL
+back to its pre-HITL origin (`pr_unsticker.py:312-322` before fix).
+
+**Rule:** When issue and PR live at *different* pipeline stages (e.g. issue
+at ready waiting for impl, PR at review awaiting human), call
+`swap_pipeline_labels` twice — once for each, with the right target.
+
+```json:entry
+{
+  "id": "swap-pipeline-labels-ready-review-boundary",
+  "topic": "label_state_machine",
+  "tags": ["state-machine", "ADR-0002", "pr-unsticker", "label-drift"],
+  "rule": "Across the ready/review boundary, swap issue and PR with separate calls.",
+  "anti_pattern": "swap_pipeline_labels(issue, ready_label, pr_number=pr) when PR has commits",
+  "code_refs": ["src/pr_unsticker.py:_resolve_or_release_back_to_hitl"],
+  "fixed_in_pr": "#8715",
+  "added": "2026-05-07"
+}
+```
