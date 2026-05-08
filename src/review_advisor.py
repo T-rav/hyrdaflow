@@ -11,7 +11,10 @@ import fnmatch
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
@@ -296,12 +299,16 @@ class PostVerifyAdvisor:
         self,
         runner: _AdvisorSubagentRunner,
         surface_config: SurfaceAdvisorConfig,
+        *,
+        log_path: Path | None = None,
     ) -> None:
         self._runner = runner
         self._cfg = surface_config
+        self._log_path = log_path
 
     async def run(self, inp: PostVerifyInput) -> PostVerifyResult:
         prompt = self._build_prompt(inp)
+        start = time.monotonic()
         try:
             payload = await self._runner.run(
                 model=self._cfg.advisor_model,
@@ -317,24 +324,66 @@ class PostVerifyAdvisor:
             )
 
             if isinstance(exc, AuthenticationError | CreditExhaustedError):
+                self._emit_log(
+                    prompt=prompt, payload=None, start=start, error="runner-error"
+                )
                 raise
-            return self._handle_failure(reason=f"runner-error: {exc!r}")
+            result = self._handle_failure(reason=f"runner-error: {exc!r}")
+            self._emit_log(
+                prompt=prompt, payload=None, start=start, error="runner-error"
+            )
+            return result
 
         try:
             data = json.loads(payload)
             result = PostVerifyResult.model_validate(data)
         except Exception as exc:
-            return self._handle_failure(reason=f"parse-error: {exc!r}")
+            result = self._handle_failure(reason=f"parse-error: {exc!r}")
+            self._emit_log(
+                prompt=prompt, payload=payload, start=start, error="parse-error"
+            )
+            return result
 
         # Advisory authority: downgrade VETO to APPROVE; preserve diagnostic info.
         if self._cfg.post_verify_authority == "advisory" and result.verdict == "VETO":
-            return PostVerifyResult(
+            result = PostVerifyResult(
                 verdict="APPROVE",
                 reasoning=result.reasoning,
                 disagreements=result.disagreements,
                 suggested_fix_direction=result.suggested_fix_direction,
             )
+        self._emit_log(prompt=prompt, payload=payload, start=start, error=None)
         return result
+
+    def _emit_log(
+        self,
+        *,
+        prompt: str,
+        payload: str | None,
+        start: float,
+        error: str | None,
+    ) -> None:
+        """Best-effort per-PR jsonl session log. Never raises."""
+        if self._log_path is None:
+            return
+        duration_ms = int((time.monotonic() - start) * 1000)
+        entry = {
+            "ts": datetime.now(UTC).isoformat(),
+            "surface": self._cfg.surface,
+            "role": "post_verify",
+            "model": self._cfg.advisor_model,
+            "duration_ms": duration_ms,
+            "input_summary_chars": len(prompt),
+            "output_summary_chars": len(payload or ""),
+            "error": error,
+        }
+        try:
+            self._log_path.parent.mkdir(parents=True, exist_ok=True)
+            with self._log_path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry) + "\n")
+        except Exception:
+            # best-effort logging; never block the pipeline
+            logger.debug("advisor session log write failed", exc_info=True)
 
     def _handle_failure(self, *, reason: str) -> PostVerifyResult:
         fail_as_veto = _env_truthy(

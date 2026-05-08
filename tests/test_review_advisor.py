@@ -558,3 +558,90 @@ class TestPostVerifyAdvisorFailureModes:
         )
         with pytest.raises(AuthenticationError):
             asyncio.run(advisor.run(inp))
+
+
+class TestAdvisorSessionLogging:
+    def test_success_writes_jsonl_entry(self, tmp_path):
+        import json as _json
+
+        runner = _StubAdvisorRunner(
+            '{"verdict":"APPROVE","reasoning":"ok","disagreements":[]}'
+        )
+        log_path = tmp_path / "advisor_session.jsonl"
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+            log_path=log_path,
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="d",
+            executor_verdict_summary="x",
+        )
+        asyncio.run(advisor.run(inp))
+        lines = log_path.read_text(encoding="utf-8").strip().splitlines()
+        assert len(lines) == 1
+        entry = _json.loads(lines[0])
+        assert entry["role"] == "post_verify"
+        assert entry["surface"] == "pr_review"
+        assert entry["error"] is None
+        assert entry["duration_ms"] >= 0
+        assert "ts" in entry
+
+    def test_runner_error_writes_entry_with_error(self, tmp_path, monkeypatch):
+        import json as _json
+
+        monkeypatch.delenv("HYDRAFLOW_REVIEW_POSTVERIFY_FAIL_AS_VETO", raising=False)
+        runner = _StubAdvisorRunner(RuntimeError("boom"))
+        log_path = tmp_path / "advisor_session.jsonl"
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+            log_path=log_path,
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="d",
+            executor_verdict_summary="x",
+        )
+        asyncio.run(advisor.run(inp))
+        entry = _json.loads(
+            log_path.read_text(encoding="utf-8").strip().splitlines()[0]
+        )
+        assert entry["error"] == "runner-error"
+
+    def test_multiple_calls_append(self, tmp_path):
+        runner = _StubAdvisorRunner(
+            '{"verdict":"APPROVE","reasoning":"ok","disagreements":[]}'
+        )
+        log_path = tmp_path / "advisor_session.jsonl"
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+            log_path=log_path,
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="d",
+            executor_verdict_summary="x",
+        )
+        asyncio.run(advisor.run(inp))
+        asyncio.run(advisor.run(inp))
+        assert len(log_path.read_text(encoding="utf-8").strip().splitlines()) == 2
+
+    def test_no_log_path_is_noop(self):
+        runner = _StubAdvisorRunner(
+            '{"verdict":"APPROVE","reasoning":"ok","disagreements":[]}'
+        )
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+            log_path=None,
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="d",
+            executor_verdict_summary="x",
+        )
+        result = asyncio.run(advisor.run(inp))
+        assert result.verdict == "APPROVE"

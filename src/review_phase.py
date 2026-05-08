@@ -1146,10 +1146,17 @@ class ReviewPhase:
         attempt_number = self._advisor_attempt.setdefault(pr.number, 0)
         self._advisor_results.setdefault(pr.number, [])
 
+        log_path = (
+            self._config.repo_root
+            / "review_logs"
+            / str(pr.number)
+            / "advisor_session.jsonl"
+        )
         while True:
             advisor = PostVerifyAdvisor(
                 runner=self._post_verify_runner,
                 surface_config=surface_cfg,
+                log_path=log_path,
             )
             try:
                 pv_result = await advisor.run(
