@@ -264,7 +264,7 @@ class _FakeAdvisorRunner:
 
     def script(self, issue_number: int, role: str, results: list[Any]) -> None:
         key = (issue_number, role)
-        self._scripts.setdefault(key, []).extend(results)
+        self._scripts[key] = list(results)
 
     def pop(self, issue_number: int, role: str) -> Any:
         key = (issue_number, role)

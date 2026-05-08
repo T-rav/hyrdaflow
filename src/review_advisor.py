@@ -170,11 +170,7 @@ def should_pre_flight(diff_stats: DiffStats, pr: PRContext) -> bool:
         return True
     if any(_matches_critical(p) for p in diff_stats.changed_paths):
         return True
-    nontrivial_src = [
-        p
-        for p in diff_stats.changed_paths
-        if p.startswith("src/") and not p.startswith("src/tests")
-    ]
+    nontrivial_src = [p for p in diff_stats.changed_paths if p.startswith("src/")]
     return bool(nontrivial_src and diff_stats.lines_changed > 20)
 
 

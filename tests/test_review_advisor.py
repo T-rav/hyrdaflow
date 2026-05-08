@@ -157,7 +157,7 @@ class TestShouldPreFlight:
 
     def test_test_only_returns_false(self, monkeypatch):
         monkeypatch.delenv("HYDRAFLOW_REVIEW_PREFLIGHT_FORCE_ON", raising=False)
-        diff, pr = self._trivial(["src/tests/test_foo.py"], lines=200)
+        diff, pr = self._trivial(["tests/test_foo.py"], lines=200)
         assert should_pre_flight(diff, pr) is False
 
     def test_small_src_change_returns_false(self, monkeypatch):
@@ -183,6 +183,11 @@ class TestShouldPreFlight:
     def test_critical_path_glob_loop(self, monkeypatch):
         monkeypatch.delenv("HYDRAFLOW_REVIEW_PREFLIGHT_FORCE_ON", raising=False)
         diff, pr = self._trivial(["src/edge_proposer_loop.py"], lines=2)
+        assert should_pre_flight(diff, pr) is True
+
+    def test_critical_path_glob_state(self, monkeypatch):
+        monkeypatch.delenv("HYDRAFLOW_REVIEW_PREFLIGHT_FORCE_ON", raising=False)
+        diff, pr = self._trivial(["src/state/checkpoint.py"], lines=2)
         assert should_pre_flight(diff, pr) is True
 
     def test_prior_fix_attempt_always_true(self, monkeypatch):
@@ -326,3 +331,11 @@ class TestFakeLLMAdvisorExtension:
         result = llm.pop_advisor_result(123, "post_verify")
         assert result == "a2"
         assert llm.advisor_call_count_for("post_verify") == 2
+
+    def test_script_advisor_replaces_existing_queue(self):
+        """script_advisor REPLACES (not appends) — matches _ScriptedRunner semantics."""
+        llm = FakeLLM()
+        llm.script_advisor(123, "post_verify", ["a1", "a2"])
+        llm.script_advisor(123, "post_verify", ["b1"])  # second call wins
+        assert llm.pop_advisor_result(123, "post_verify") == "b1"
+        assert llm.pop_advisor_result(123, "post_verify") is None
