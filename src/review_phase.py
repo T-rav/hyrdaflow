@@ -231,6 +231,78 @@ class ReviewPhase:
 
             self._visual_validator = VisualValidator(config)
 
+        # Per-PR advisor retry counter — T9 only reads it (always 0). T10 will
+        # increment it on VETO and use it to bound the retry loop.
+        self._advisor_attempt: dict[int, int] = {}
+        self._post_verify_runner = self._build_post_verify_runner()
+
+    def _build_post_verify_runner(self) -> Any:
+        """Build the runner adapter the PostVerifyAdvisor dispatches into.
+
+        Production path: routes through ``self._reviewers._execute`` (the
+        existing review-runner harness — same plumbing used by
+        ``_run_pre_merge_spec_check``).
+
+        MockWorld path: ``self._reviewers`` is the FakeReviewRunner whose
+        ``.parent`` is the FakeLLM. We extract the issue number from the
+        prompt (emitted by ``PostVerifyAdvisor._build_prompt`` when
+        ``PostVerifyInput.issue_number`` is set) and pop the scripted advisor
+        result keyed by ``(issue_number, "post_verify")``.
+
+        Dispatch is duck-typed on ``hasattr(self._reviewers, "_execute")``:
+        production ``ReviewRunner`` provides it via ``BaseRunner``; the
+        MockWorld fake does not. T9 keeps this routing simple — T10 will
+        revisit if/when bounded retry needs richer wiring.
+        """
+        parent = self
+
+        class _PostVerifyRunner:
+            async def run(self, *, model: str, subagent_type: str, prompt: str) -> str:
+                # noqa is intentional — `subagent_type` is part of the
+                # _AdvisorSubagentRunner protocol; production path does not
+                # forward it (TranscriptEventData has no slot for it), but
+                # MockWorld path keys advisor scripts by role only.
+                _ = subagent_type
+                reviewers = parent._reviewers
+
+                # MockWorld dispatch: scenarios attach a FakeLLM via a
+                # sentinel attribute (_mockworld_fake_llm) to route advisor
+                # calls past the production ReviewRunner._execute (which
+                # would hit a real Claude subprocess). Production reviewers
+                # never carry this sentinel.
+                fake_llm = getattr(reviewers, "_mockworld_fake_llm", None)
+                if fake_llm is not None and getattr(
+                    fake_llm, "_is_fake_adapter", False
+                ):
+                    import re  # noqa: PLC0415
+
+                    if not hasattr(fake_llm, "pop_advisor_result"):
+                        return ""
+                    match = re.search(r"^Issue:\s*(\d+)\s*$", prompt, re.MULTILINE)
+                    issue_number = int(match.group(1)) if match else 0
+                    result = fake_llm.pop_advisor_result(issue_number, "post_verify")
+                    if isinstance(result, str):
+                        return result
+                    return result or ""
+
+                # Production path: thread through the same review-runner
+                # harness used by _run_pre_merge_spec_check.
+                from agent_cli import build_agent_command  # noqa: PLC0415
+
+                cmd = build_agent_command(
+                    tool=parent._config.review_tool,
+                    model=model,
+                    disallowed_tools="Write,Edit,NotebookEdit",
+                )
+                return await reviewers._execute(
+                    cmd,
+                    prompt,
+                    parent._config.repo_root,
+                    {"source": "advisor"},
+                )
+
+        return _PostVerifyRunner()
+
     _WIKI_INGEST_MAX_CHARS = 40_000
 
     async def _wiki_ingest_review(
@@ -987,6 +1059,18 @@ class ReviewPhase:
                     }
                 )
 
+        # PostVerifyAdvisor — second-opinion gate on APPROVE verdicts.
+        # T9 simplification: a single VETO escalates to HITL and aborts the
+        # merge. T10 will replace this with a bounded retry loop driven by
+        # surface_cfg.max_veto_retries.
+        if result.verdict == ReviewVerdict.APPROVE and pr.number > 0:
+            result = await self._run_post_verify_advisor(
+                pr=pr,
+                task=task,
+                result=result,
+                diff=diff,
+            )
+
         skip_worktree_cleanup = False
         if result.verdict == ReviewVerdict.APPROVE and pr.number > 0:
             await self._handle_approved_merge(
@@ -1010,6 +1094,93 @@ class ReviewPhase:
             )
 
         await self._cleanup_worktree(pr, result, skip_worktree_cleanup)
+        return result
+
+    async def _run_post_verify_advisor(
+        self,
+        *,
+        pr: PRInfo,
+        task: Task,
+        result: ReviewResult,
+        diff: str,
+    ) -> ReviewResult:
+        """Invoke PostVerifyAdvisor for a pr_review APPROVE; return updated result.
+
+        On VETO, escalates to HITL and returns a result with the verdict
+        flipped to REQUEST_CHANGES so the caller skips the merge branch.
+        On APPROVE (or when the surface/role kill-switches are off), returns
+        the original result unchanged.
+
+        Function-local imports keep the dependency on ``review_advisor``
+        contained to where it's used and avoid the auto-lint hook stripping
+        an "unused" top-level import.
+        """
+        from review_advisor import (  # noqa: PLC0415
+            PostVerifyAdvisor,
+            PostVerifyInput,
+            build_surface_config,
+            is_advisor_enabled,
+        )
+
+        surface_cfg = build_surface_config("pr_review")
+        if not surface_cfg.post_verify_enabled or not is_advisor_enabled(
+            "pr_review", "post_verify"
+        ):
+            return result
+
+        advisor = PostVerifyAdvisor(
+            runner=self._post_verify_runner,
+            surface_config=surface_cfg,
+        )
+        try:
+            pv_result = await advisor.run(
+                PostVerifyInput(
+                    surface="pr_review",
+                    diff=diff,
+                    spec=task.body or None,
+                    executor_verdict_summary=(result.summary or result.verdict.value),
+                    executor_fix_diff=None,
+                    pre_flight_plan=None,
+                    attempt_number=self._advisor_attempt.get(pr.number, 0),
+                    issue_number=task.id,
+                )
+            )
+        except Exception:
+            # Auth / credit errors are re-raised inside PostVerifyAdvisor.run.
+            # Anything bubbling out here is a true degraded path — log and
+            # fall through to the executor's verdict (fail-open for T9; T10
+            # will revisit per HYDRAFLOW_REVIEW_POSTVERIFY_FAIL_AS_VETO).
+            logger.warning(
+                "post_verify advisor errored for PR #%d — proceeding with executor verdict",
+                pr.number,
+                exc_info=True,
+            )
+            return result
+
+        if pv_result.verdict == "VETO":
+            await self._escalate_to_hitl(
+                HitlEscalation(
+                    issue_number=task.id,
+                    pr_number=pr.number,
+                    cause="PostVerifyAdvisor vetoed merge",
+                    origin_label=self._config.review_label[0],
+                    comment=(
+                        "## Advisor Veto\n\n"
+                        f"{pv_result.reasoning}\n\n"
+                        "Escalating to human review."
+                    ),
+                    event_cause="advisor_post_verify_veto",
+                    task=task,
+                )
+            )
+            return result.model_copy(
+                update={
+                    "verdict": ReviewVerdict.REQUEST_CHANGES,
+                    "summary": (result.summary or "")
+                    + "\n\nPostVerifyAdvisor vetoed merge: "
+                    + pv_result.reasoning,
+                }
+            )
         return result
 
     @staticmethod

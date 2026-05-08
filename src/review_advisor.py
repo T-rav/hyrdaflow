@@ -61,6 +61,11 @@ class PostVerifyInput(BaseModel):
     executor_fix_diff: str | None = None
     pre_flight_plan: ReviewPlan | None = None
     attempt_number: int = 0
+    # Optional — threaded into the prompt so MockWorld runners can route
+    # advisor calls back to FakeLLM.pop_advisor_result(issue_number, role).
+    # Production callers can leave this unset; the field only changes prompt
+    # text when populated.
+    issue_number: int | None = None
 
 
 def _env_truthy(value: str | None) -> bool | None:
@@ -352,12 +357,21 @@ class PostVerifyAdvisor:
         sections = [
             f"Surface: {inp.surface}",
             f"Attempt #: {inp.attempt_number}",
-            "",
-            "## Diff",
-            inp.diff[:8000],
-            "",
-            f"## Executor verdict summary\n{inp.executor_verdict_summary}",
         ]
+        if inp.issue_number is not None:
+            # Emitted so MockWorld's runner can extract the issue number from
+            # the prompt and look up the scripted advisor response. Production
+            # callers may leave issue_number unset.
+            sections.append(f"Issue: {inp.issue_number}")
+        sections.extend(
+            [
+                "",
+                "## Diff",
+                inp.diff[:8000],
+                "",
+                f"## Executor verdict summary\n{inp.executor_verdict_summary}",
+            ]
+        )
         if inp.executor_fix_diff:
             sections.append(f"\n## Executor fix\n{inp.executor_fix_diff[:4000]}")
         if inp.pre_flight_plan is not None:
