@@ -1,3 +1,6 @@
+import asyncio
+from typing import Any
+
 import pytest
 from pydantic import ValidationError
 
@@ -10,6 +13,7 @@ from review_advisor import (
     DiffStats,
     Disagreement,
     FocusArea,
+    PostVerifyAdvisor,
     PostVerifyInput,
     PostVerifyResult,
     PRContext,
@@ -339,3 +343,120 @@ class TestFakeLLMAdvisorExtension:
         llm.script_advisor(123, "post_verify", ["b1"])  # second call wins
         assert llm.pop_advisor_result(123, "post_verify") == "b1"
         assert llm.pop_advisor_result(123, "post_verify") is None
+
+
+class _StubAdvisorRunner:
+    """Minimal stand-in for the subagent runner; returns canned JSON."""
+
+    def __init__(self, payload: str | Exception) -> None:
+        self._payload = payload
+        self.calls: list[dict[str, Any]] = []
+
+    async def run(self, *, model: str, subagent_type: str, prompt: str) -> str:
+        self.calls.append(
+            {"model": model, "subagent_type": subagent_type, "prompt": prompt}
+        )
+        if isinstance(self._payload, Exception):
+            raise self._payload
+        return self._payload
+
+
+class TestPostVerifyAdvisorHappyPath:
+    def test_returns_approve_on_well_formed_json(self):
+        runner = _StubAdvisorRunner(
+            '{"verdict":"APPROVE","reasoning":"ok","disagreements":[]}'
+        )
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="...",
+            executor_verdict_summary="approved",
+        )
+        result = asyncio.run(advisor.run(inp))
+        assert result.verdict == "APPROVE"
+
+    def test_returns_veto_on_well_formed_json(self):
+        runner = _StubAdvisorRunner(
+            '{"verdict":"VETO","reasoning":"missed regression",'
+            '"disagreements":[],"suggested_fix_direction":"add test"}'
+        )
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="...",
+            executor_verdict_summary="approved",
+        )
+        result = asyncio.run(advisor.run(inp))
+        assert result.verdict == "VETO"
+        assert result.suggested_fix_direction == "add test"
+
+    def test_advisory_authority_downgrades_veto_to_approve(self):
+        runner = _StubAdvisorRunner(
+            '{"verdict":"VETO","reasoning":"x","disagreements":[]}'
+        )
+        # wiki_ingest is advisory, not veto
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["wiki_ingest"],
+        )
+        inp = PostVerifyInput(
+            surface="wiki_ingest",
+            diff="...",
+            executor_verdict_summary="x",
+        )
+        result = asyncio.run(advisor.run(inp))
+        # advisory mode: veto downgraded to APPROVE; reasoning + disagreements preserved
+        assert result.verdict == "APPROVE"
+        assert result.reasoning == "x"
+
+    def test_runner_called_with_correct_model_and_subagent_type(self):
+        runner = _StubAdvisorRunner(
+            '{"verdict":"APPROVE","reasoning":"ok","disagreements":[]}'
+        )
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="d",
+            executor_verdict_summary="x",
+        )
+        asyncio.run(advisor.run(inp))
+        assert len(runner.calls) == 1
+        call = runner.calls[0]
+        assert call["model"] == "opus"  # default advisor_model
+        assert call["subagent_type"] == "hydraflow-review-advisor"
+        assert "pr_review" in call["prompt"]
+        assert "## Diff" in call["prompt"]
+
+    def test_pre_flight_plan_threaded_into_prompt(self):
+        runner = _StubAdvisorRunner(
+            '{"verdict":"APPROVE","reasoning":"ok","disagreements":[]}'
+        )
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        plan = ReviewPlan(
+            risk_summary="r",
+            focus_areas=[FocusArea(description="d", files=["a.py"], rationale="r")],
+            rubric=["check 1"],
+            escalation_signals=["see X"],
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="d",
+            executor_verdict_summary="x",
+            pre_flight_plan=plan,
+        )
+        asyncio.run(advisor.run(inp))
+        call = runner.calls[0]
+        assert "Pre-flight plan" in call["prompt"]
+        assert "check 1" in call["prompt"]

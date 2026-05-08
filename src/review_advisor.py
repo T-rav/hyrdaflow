@@ -8,11 +8,15 @@ Anthropic SDK calls in this module.
 from __future__ import annotations
 
 import fnmatch
+import json
+import logging
 import os
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 class FocusArea(BaseModel):
@@ -261,3 +265,110 @@ def build_surface_config(surface: str) -> SurfaceAdvisorConfig:
 SURFACE_ADVISOR_CONFIGS: dict[str, SurfaceAdvisorConfig] = {
     surface: build_surface_config(surface) for surface in _SURFACE_DEFAULTS
 }
+
+
+class _AdvisorSubagentRunner(Protocol):
+    """Minimal protocol the runner adapter must satisfy.
+
+    Production wiring is provided by ReviewPhase via agent_cli (T9).
+    """
+
+    async def run(
+        self, *, model: str, subagent_type: str, prompt: str
+    ) -> str: ...  # pragma: no cover - protocol
+
+
+class PostVerifyAdvisor:
+    """Always-on second-opinion gate. Runs as a separate Claude Code subagent.
+
+    Authority is determined by the SurfaceAdvisorConfig:
+    - "veto" — verdict is final (caller honors APPROVE/VETO)
+    - "advisory" — VETO is downgraded to APPROVE before return; reasoning
+      and disagreements are preserved for telemetry / logging
+    """
+
+    def __init__(
+        self,
+        runner: _AdvisorSubagentRunner,
+        surface_config: SurfaceAdvisorConfig,
+    ) -> None:
+        self._runner = runner
+        self._cfg = surface_config
+
+    async def run(self, inp: PostVerifyInput) -> PostVerifyResult:
+        prompt = self._build_prompt(inp)
+        try:
+            payload = await self._runner.run(
+                model=self._cfg.advisor_model,
+                subagent_type="hydraflow-review-advisor",
+                prompt=prompt,
+            )
+        except Exception as exc:
+            # Authentication and credit errors must propagate — they signal
+            # infrastructure state the orchestrator's higher layers handle.
+            from subprocess_util import (  # noqa: PLC0415
+                AuthenticationError,
+                CreditExhaustedError,
+            )
+
+            if isinstance(exc, AuthenticationError | CreditExhaustedError):
+                raise
+            return self._handle_failure(reason=f"runner-error: {exc!r}")
+
+        try:
+            data = json.loads(payload)
+            result = PostVerifyResult.model_validate(data)
+        except Exception as exc:
+            return self._handle_failure(reason=f"parse-error: {exc!r}")
+
+        # Advisory authority: downgrade VETO to APPROVE; preserve diagnostic info.
+        if self._cfg.post_verify_authority == "advisory" and result.verdict == "VETO":
+            return PostVerifyResult(
+                verdict="APPROVE",
+                reasoning=result.reasoning,
+                disagreements=result.disagreements,
+                suggested_fix_direction=result.suggested_fix_direction,
+            )
+        return result
+
+    def _handle_failure(self, *, reason: str) -> PostVerifyResult:
+        fail_as_veto = _env_truthy(
+            os.environ.get("HYDRAFLOW_REVIEW_POSTVERIFY_FAIL_AS_VETO")
+        )
+        verdict: Literal["APPROVE", "VETO"] = "VETO" if fail_as_veto else "APPROVE"
+        logger.warning(
+            "post_verify advisor degraded surface=%s reason=%s -> %s",
+            self._cfg.surface,
+            reason,
+            verdict,
+        )
+        return PostVerifyResult(
+            verdict=verdict,
+            reasoning=f"advisor-degraded: {reason}",
+            disagreements=[],
+        )
+
+    def _build_prompt(self, inp: PostVerifyInput) -> str:
+        sections = [
+            f"Surface: {inp.surface}",
+            f"Attempt #: {inp.attempt_number}",
+            "",
+            "## Diff",
+            inp.diff[:8000],
+            "",
+            f"## Executor verdict summary\n{inp.executor_verdict_summary}",
+        ]
+        if inp.executor_fix_diff:
+            sections.append(f"\n## Executor fix\n{inp.executor_fix_diff[:4000]}")
+        if inp.pre_flight_plan is not None:
+            sections.append(
+                f"\n## Pre-flight plan\n{inp.pre_flight_plan.model_dump_json(indent=2)}"
+            )
+        sections.append(
+            "\nRespond with JSON matching the PostVerifyResult schema:\n"
+            '{"verdict":"APPROVE"|"VETO","reasoning":str,'
+            '"disagreements":[{"executor_claim":str,"advisor_assessment":str,'
+            '"severity":"blocking"|"concern"}],'
+            '"suggested_fix_direction":str|null}'
+        )
+        return "\n".join(sections)
