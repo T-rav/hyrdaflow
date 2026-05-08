@@ -485,6 +485,7 @@ class TestL22StagingPromotionLoop:
         prs.find_open_promotion_pr = AsyncMock(return_value=None)
         prs.create_rc_branch = AsyncMock(return_value="sha-abc")
         prs.create_promotion_pr = AsyncMock(return_value=42)
+        prs.push_synthetic_commit = AsyncMock(return_value="synthetic-sha")
         prs.wait_for_ci = AsyncMock(return_value=(True, "all green"))
 
         return StagingPromotionLoop(config=config, prs=prs, deps=deps), prs, config
