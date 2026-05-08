@@ -576,3 +576,142 @@ class PostVerifyAdvisor:
             '"suggested_fix_direction":str|null}'
         )
         return "\n".join(sections)
+
+
+class PreFlightAdvisor:
+    """Conditional pre-review planner. Produces a ReviewPlan to scope the
+    executor's review or returns None on degraded paths.
+
+    Unlike PostVerifyAdvisor, pre-flight is always advisory — degraded paths
+    return None ("no plan available; executor proceeds without one") rather
+    than synthesizing an APPROVE/VETO verdict. There is no FAIL_AS_VETO
+    counterpart for pre-flight.
+    """
+
+    def __init__(
+        self,
+        runner: _AdvisorSubagentRunner,
+        surface_config: SurfaceAdvisorConfig,
+        *,
+        log_path: Path | None = None,
+        pr_number: int | None = None,
+    ) -> None:
+        self._runner = runner
+        self._cfg = surface_config
+        self._log_path = log_path
+        self._pr_number = pr_number
+
+    async def run(self, inp: PreFlightInput) -> ReviewPlan | None:
+        prompt = self._build_prompt(inp)
+        start = time.monotonic()
+        payload: str | None = None
+        try:
+            payload = await self._runner.run(
+                model=self._cfg.advisor_model,
+                subagent_type="hydraflow-review-advisor",
+                prompt=prompt,
+            )
+        except Exception as exc:
+            from exception_classify import (  # noqa: PLC0415
+                reraise_on_credit_or_bug,
+            )
+
+            reraise_on_credit_or_bug(exc)
+            self._emit_metrics(outcome="error")
+            self._emit_log(
+                prompt=prompt, payload=None, start=start, error="runner-error"
+            )
+            logger.warning(
+                "pre_flight advisor degraded surface=%s reason=runner-error: %r",
+                self._cfg.surface,
+                exc,
+            )
+            return None
+
+        try:
+            data = json.loads(_extract_json_block(payload))
+            plan = ReviewPlan.model_validate(data)
+        except Exception as exc:
+            self._emit_metrics(outcome="parse_error")
+            self._emit_log(
+                prompt=prompt, payload=payload, start=start, error="parse-error"
+            )
+            logger.warning(
+                "pre_flight advisor degraded surface=%s reason=parse-error: %r",
+                self._cfg.surface,
+                exc,
+            )
+            return None
+
+        self._emit_metrics(outcome="success")
+        self._emit_log(prompt=prompt, payload=payload, start=start, error=None)
+        return plan
+
+    def _emit_metrics(self, *, outcome: str) -> None:
+        try:
+            _calls_total.add(
+                1,
+                {
+                    "surface": self._cfg.surface,
+                    "role": "pre_flight",
+                    "outcome": outcome,
+                },
+            )
+        except Exception:  # noqa: BLE001 — telemetry never breaks business logic
+            logger.debug("pre_flight advisor metrics emit failed", exc_info=True)
+
+    def _emit_log(
+        self,
+        *,
+        prompt: str,
+        payload: str | None,
+        start: float,
+        error: str | None,
+    ) -> None:
+        if self._log_path is None:
+            return
+        duration_ms = int((time.monotonic() - start) * 1000)
+        entry = {
+            "ts": datetime.now(UTC).isoformat(),
+            "pr_number": self._pr_number,
+            "surface": self._cfg.surface,
+            "role": "pre_flight",
+            "model": self._cfg.advisor_model,
+            "duration_ms": duration_ms,
+            "input_summary_chars": len(prompt),
+            "output_summary_chars": len(payload or ""),
+            "tokens_in": None,
+            "tokens_out": None,
+            "error": error,
+        }
+        try:
+            self._log_path.parent.mkdir(parents=True, exist_ok=True)
+            with self._log_path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry) + "\n")
+        except Exception:
+            logger.debug("pre_flight advisor session log write failed", exc_info=True)
+
+    def _build_prompt(self, inp: PreFlightInput) -> str:
+        sections = [
+            f"Surface: {inp.surface}",
+            f"Prior fix attempts: {inp.prior_attempts}",
+            "",
+            "## Diff",
+            inp.diff[:8000],
+        ]
+        if inp.spec is not None:
+            sections.append(f"\n## Spec / issue body\n{inp.spec[:4000]}")
+        if inp.related_paths:
+            sections.append(
+                "\n## Related paths\n" + "\n".join(f"- {p}" for p in inp.related_paths)
+            )
+        sections.append(
+            "\nProduce a ReviewPlan as JSON matching this schema:\n"
+            '{"risk_summary":str,'
+            '"focus_areas":[{"description":str,"files":[str],"rationale":str}],'
+            '"rubric":[str],'
+            '"escalation_signals":[str]}'
+            "\nFocus on: what could go wrong with this diff, what the reviewer "
+            "should look for, and any signals that suggest mid-flight consult."
+        )
+        return "\n".join(sections)

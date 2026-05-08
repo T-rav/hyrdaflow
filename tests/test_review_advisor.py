@@ -18,6 +18,7 @@ from review_advisor import (
     PostVerifyInput,
     PostVerifyResult,
     PRContext,
+    PreFlightAdvisor,
     PreFlightInput,
     ReviewPlan,
     build_surface_config,
@@ -1228,3 +1229,98 @@ class TestPostVerifyAdvisorPRNumberWiring:
         assert entry["pr_number"] is None
         assert entry["tokens_in"] is None
         assert entry["tokens_out"] is None
+
+
+class TestPreFlightAdvisor:
+    def test_returns_review_plan_on_well_formed_json(self):
+        runner = _StubAdvisorRunner(
+            '{"risk_summary":"r","focus_areas":[{"description":"d",'
+            '"files":["a.py"],"rationale":"r"}],"rubric":["check 1"],'
+            '"escalation_signals":["see X"]}'
+        )
+        advisor = PreFlightAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PreFlightInput(surface="pr_review", diff="d")
+        plan = asyncio.run(advisor.run(inp))
+        assert plan is not None
+        assert plan.risk_summary == "r"
+        assert len(plan.focus_areas) == 1
+        assert plan.rubric == ["check 1"]
+
+    def test_runner_called_with_correct_model_and_subagent_type(self):
+        runner = _StubAdvisorRunner(
+            '{"risk_summary":"r","focus_areas":[],"rubric":[],"escalation_signals":[]}'
+        )
+        advisor = PreFlightAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PreFlightInput(surface="pr_review", diff="d", spec="some spec text")
+        asyncio.run(advisor.run(inp))
+        assert len(runner.calls) == 1
+        call = runner.calls[0]
+        assert call["model"] == "opus"
+        assert call["subagent_type"] == "hydraflow-review-advisor"
+        assert "pr_review" in call["prompt"]
+        assert "## Diff" in call["prompt"]
+
+    def test_spec_threaded_into_prompt(self):
+        runner = _StubAdvisorRunner(
+            '{"risk_summary":"r","focus_areas":[],"rubric":[],"escalation_signals":[]}'
+        )
+        advisor = PreFlightAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PreFlightInput(surface="pr_review", diff="d", spec="ISSUE BODY HERE")
+        asyncio.run(advisor.run(inp))
+        assert "ISSUE BODY HERE" in runner.calls[0]["prompt"]
+
+    def test_runner_error_returns_none(self):
+        runner = _StubAdvisorRunner(RuntimeError("boom"))
+        advisor = PreFlightAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PreFlightInput(surface="pr_review", diff="d")
+        plan = asyncio.run(advisor.run(inp))
+        assert plan is None  # advisory failure: no plan, executor proceeds without one
+
+    def test_malformed_json_returns_none(self):
+        runner = _StubAdvisorRunner("not json at all")
+        advisor = PreFlightAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        plan = asyncio.run(advisor.run(PreFlightInput(surface="pr_review", diff="d")))
+        assert plan is None
+
+    def test_extracts_json_from_transcript_with_prose(self):
+        # Production transcripts include prose around the JSON block
+        runner = _StubAdvisorRunner(
+            "I analyzed the diff. Here is the plan:\n\n"
+            "```json\n"
+            '{"risk_summary":"r","focus_areas":[],"rubric":[],"escalation_signals":[]}\n'
+            "```\n\n"
+            "Done."
+        )
+        advisor = PreFlightAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        plan = asyncio.run(advisor.run(PreFlightInput(surface="pr_review", diff="d")))
+        assert plan is not None
+        assert plan.risk_summary == "r"
+
+    def test_credit_exhausted_propagates(self):
+        from subprocess_util import CreditExhaustedError
+
+        runner = _StubAdvisorRunner(CreditExhaustedError("out"))
+        advisor = PreFlightAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        with pytest.raises(CreditExhaustedError):
+            asyncio.run(advisor.run(PreFlightInput(surface="pr_review", diff="d")))
