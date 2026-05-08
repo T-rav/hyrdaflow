@@ -2694,4 +2694,105 @@ class TestRetryPrTitleConsistency:
 
         assert pr is not None
         assert pr.number == 0
+
+
+# ---------------------------------------------------------------------------
+# Regression: blocking-skill failure must NOT create a PR or push branch.
+# See docs/superpowers/plans/2026-05-07-implement-phase-state-machine-drift-remediation.md
+# ---------------------------------------------------------------------------
+
+
+class TestBlockingSkillFailureDoesNotCreatePR:
+    """Fresh attempts that fail a blocking skill must not push/PR.
+
+    Before this fix, ``_handle_implementation_result`` would push the
+    branch and ``_handle_successful_push._resolve_pr`` would open a PR
+    regardless of ``result.success``. The swap to ``hydraflow-review``
+    was gated on success, leaving a PR on GitHub with no corresponding
+    label transition — a state-machine half-state.
+    """
+
+    @pytest.mark.asyncio
+    async def test_fresh_attempt_with_skill_failure_skips_push_and_pr(
+        self, config: HydraFlowConfig
+    ) -> None:
+        issue = TaskFactory.create(id=7653)
+        wt_path = config.workspace_path_for_issue(7653)
+        result = WorkerResultFactory.create(
+            issue_number=7653,
+            success=False,
+            error="discover-completeness failed: missing-section:intent",
+            commits=2,
+            workspace_path=str(wt_path),
+        )
+
+        phase, _, mock_prs = make_implement_phase(
+            config, [issue], create_pr_return=PRInfoFactory.create()
+        )
+
+        final = await phase._handle_implementation_result(issue, result, is_retry=False)
+
+        mock_prs.push_branch.assert_not_awaited()
+        mock_prs.create_pr.assert_not_awaited()
+        mock_prs.transition.assert_not_awaited()
+        assert final.success is False
+        assert final.error and "discover-completeness" in final.error
+
+    @pytest.mark.asyncio
+    async def test_retry_with_skill_failure_pushes_but_does_not_create_pr(
+        self, config: HydraFlowConfig
+    ) -> None:
+        issue = TaskFactory.create(id=7653)
+        wt_path = config.workspace_path_for_issue(7653)
+        result = WorkerResultFactory.create(
+            issue_number=7653,
+            success=False,
+            error="diff-sanity failed: Missing implementation",
+            commits=1,
+            workspace_path=str(wt_path),
+        )
+
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_prs_method("push_branch", AsyncMock(return_value=True))
+            .with_prs_method(
+                "find_open_pr_for_branch",
+                AsyncMock(return_value=PRInfoFactory.create()),
+            )
+            .build()
+        )
+
+        await phase._handle_implementation_result(issue, result, is_retry=True)
+
+        mock_prs.push_branch.assert_awaited_once()
+        mock_prs.create_pr.assert_not_awaited()
+        mock_prs.transition.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_fresh_attempt_with_success_still_pushes_and_creates_pr(
+        self, config: HydraFlowConfig
+    ) -> None:
+        issue = TaskFactory.create(id=7653)
+        wt_path = config.workspace_path_for_issue(7653)
+        result = WorkerResultFactory.create(
+            issue_number=7653,
+            success=True,
+            commits=3,
+            workspace_path=str(wt_path),
+        )
+
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_prs_method("push_branch", AsyncMock(return_value=True))
+            .with_create_pr_return(PRInfoFactory.create())
+            .build()
+        )
+
+        await phase._handle_implementation_result(issue, result, is_retry=False)
+
+        mock_prs.push_branch.assert_awaited_once()
+        mock_prs.create_pr.assert_awaited_once()
+        mock_prs.transition.assert_awaited_once()
         mock_prs.update_pr_title.assert_not_awaited()
