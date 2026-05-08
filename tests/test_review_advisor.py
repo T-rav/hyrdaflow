@@ -460,3 +460,101 @@ class TestPostVerifyAdvisorHappyPath:
         call = runner.calls[0]
         assert "Pre-flight plan" in call["prompt"]
         assert "check 1" in call["prompt"]
+
+
+class TestPostVerifyAdvisorFailureModes:
+    def test_runner_error_default_treats_as_approve(self, monkeypatch):
+        monkeypatch.delenv("HYDRAFLOW_REVIEW_POSTVERIFY_FAIL_AS_VETO", raising=False)
+        runner = _StubAdvisorRunner(RuntimeError("boom"))
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="...",
+            executor_verdict_summary="x",
+        )
+        result = asyncio.run(advisor.run(inp))
+        assert result.verdict == "APPROVE"
+        assert "advisor-degraded" in result.reasoning
+        assert "runner-error" in result.reasoning
+
+    def test_runner_error_with_fail_as_veto_blocks(self, monkeypatch):
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_POSTVERIFY_FAIL_AS_VETO", "true")
+        runner = _StubAdvisorRunner(RuntimeError("boom"))
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="...",
+            executor_verdict_summary="x",
+        )
+        result = asyncio.run(advisor.run(inp))
+        assert result.verdict == "VETO"
+        assert "advisor-degraded" in result.reasoning
+
+    def test_malformed_json_routes_to_failure_mode_default(self, monkeypatch):
+        monkeypatch.delenv("HYDRAFLOW_REVIEW_POSTVERIFY_FAIL_AS_VETO", raising=False)
+        runner = _StubAdvisorRunner("not json at all")
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="...",
+            executor_verdict_summary="x",
+        )
+        result = asyncio.run(advisor.run(inp))
+        assert result.verdict == "APPROVE"
+        assert "parse-error" in result.reasoning
+
+    def test_malformed_json_with_fail_as_veto_blocks(self, monkeypatch):
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_POSTVERIFY_FAIL_AS_VETO", "true")
+        runner = _StubAdvisorRunner("not json at all")
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="...",
+            executor_verdict_summary="x",
+        )
+        result = asyncio.run(advisor.run(inp))
+        assert result.verdict == "VETO"
+
+    def test_credit_exhausted_propagates(self):
+        from subprocess_util import CreditExhaustedError
+
+        runner = _StubAdvisorRunner(CreditExhaustedError("out of credit"))
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="...",
+            executor_verdict_summary="x",
+        )
+        with pytest.raises(CreditExhaustedError):
+            asyncio.run(advisor.run(inp))
+
+    def test_authentication_error_propagates(self):
+        from subprocess_util import AuthenticationError
+
+        runner = _StubAdvisorRunner(AuthenticationError("bad token"))
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="...",
+            executor_verdict_summary="x",
+        )
+        with pytest.raises(AuthenticationError):
+            asyncio.run(advisor.run(inp))
