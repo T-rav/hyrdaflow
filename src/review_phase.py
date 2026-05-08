@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from ports import IssueStorePort, PRPort, ReviewInsightStorePort, WorkspacePort
     from precondition_gate import PreconditionGate
     from retrospective_queue import RetrospectiveQueue
+    from review_advisor import ReviewPlan  # noqa: TCH004 — used in __init__ + sig
     from visual_validator import VisualValidator
     from wiki_compiler import (  # noqa: TCH004 — used in __init__ signature
         CorroborationDecision,
@@ -279,6 +280,11 @@ class ReviewPhase:
         # transcript hand-back to the executor (on VETO) is rendered from
         # this list. T12 will replace this with persistent advisor_session.jsonl.
         self._advisor_results: dict[int, list[Any]] = {}
+        # Per-PR pre-flight ReviewPlan, captured by ``_run_pre_flight_advisor``
+        # before the executor runs and threaded into both the executor's
+        # review prompt and the post-verify advisor's input. Reset on every
+        # ``_review_one_inner`` entry so plans don't leak across reviews.
+        self._advisor_pre_flight_plan: dict[int, ReviewPlan] = {}
         self._post_verify_runner = self._build_post_verify_runner()
 
     def _build_post_verify_runner(self) -> Any:
@@ -335,7 +341,21 @@ class ReviewPhase:
                         return ""
                     match = re.search(r"^Issue:\s*(\d+)\s*$", prompt, re.MULTILINE)
                     issue_number = int(match.group(1)) if match else 0
-                    result = fake_llm.pop_advisor_result(issue_number, "post_verify")
+                    # Role detection: the pre-flight prompt's tail is
+                    # ``Produce a ReviewPlan as JSON ...`` (see
+                    # PreFlightAdvisor._build_prompt); the post-verify prompt
+                    # ends with ``Respond with JSON matching the
+                    # PostVerifyResult schema``. Both markers are unique to
+                    # their role, so substring presence is sufficient. Closing
+                    # the Protocol with a `role` parameter is the more correct
+                    # alternative, but T18 keeps the smaller diff — see the
+                    # T18 commit message and "If you get stuck" notes.
+                    role = (
+                        "pre_flight"
+                        if "Produce a ReviewPlan as JSON" in prompt
+                        else "post_verify"
+                    )
+                    result = fake_llm.pop_advisor_result(issue_number, role)
                     if isinstance(result, str):
                         return result
                     return result or ""
@@ -921,6 +941,14 @@ class ReviewPhase:
         try:
             await self._publish_review_status(pr, idx, "start")
 
+            # Reset per-PR pre-flight plan on every review entry. Like
+            # ``_advisor_attempt`` (cleared inside ``_run_post_verify_advisor``),
+            # the plan is scoped to a single review cycle and must not leak
+            # across reviews of the same PR — reusing a stale plan from the
+            # prior cycle would feed an out-of-date rubric to both the
+            # executor's prompt and the post-verify advisor.
+            self._advisor_pre_flight_plan.pop(pr.number, None)
+
             guards = await self._run_initial_guards(idx, pr, issue_map)
             if isinstance(guards, ReviewResult):
                 return guards
@@ -929,6 +957,8 @@ class ReviewPhase:
             if isinstance(pre_review, ReviewResult):
                 return pre_review
 
+            await self._run_pre_flight_advisor(pr, guards.task, pre_review.diff)
+
             result = await self._run_and_post_review(
                 pr,
                 guards.task,
@@ -936,6 +966,7 @@ class ReviewPhase:
                 pre_review.diff,
                 idx,
                 code_scanning_alerts=pre_review.code_scanning_alerts,
+                pre_flight_plan=self._advisor_pre_flight_plan.get(pr.number),
             )
 
             return await self._run_post_review_actions(
@@ -1154,6 +1185,108 @@ class ReviewPhase:
         await self._cleanup_worktree(pr, result, skip_worktree_cleanup)
         return result
 
+    async def _run_pre_flight_advisor(
+        self,
+        pr: PRInfo,
+        task: Task,
+        diff: str,
+    ) -> None:
+        """Run :class:`PreFlightAdvisor` when the composite trigger fires.
+
+        Stashes the resulting :class:`ReviewPlan` under
+        ``self._advisor_pre_flight_plan[pr.number]`` so downstream call sites
+        (the executor's review prompt + the post-verify advisor's input) can
+        consume it without a second invocation. Best-effort writes a JSON
+        scratchpad to ``review_logs/<pr>/preflight.json`` for operator
+        debugging — failures there must not break the pipeline.
+
+        No-ops when:
+          * The pr_review surface or pre_flight role is kill-switched off.
+          * The composite trigger returns False (trivial/docs-only diffs
+            without prior fix attempts and no critical-path touches).
+          * The advisor returns ``None`` (degraded path — runner or parse
+            error). The executor proceeds without a plan; the contract is
+            "advisor is advisory" per the spec.
+
+        Function-local imports keep the dependency on ``review_advisor``
+        contained to where it's used and avoid the auto-lint hook stripping
+        an "unused" top-level import.
+        """
+        from review_advisor import (  # noqa: PLC0415
+            PreFlightAdvisor,
+            PreFlightInput,
+            build_surface_config,
+            diff_stats_from_text,
+            is_advisor_enabled,
+        )
+
+        surface_cfg = build_surface_config("pr_review")
+        if (
+            not surface_cfg.pre_flight_enabled
+            or surface_cfg.pre_flight_trigger is None
+            or not is_advisor_enabled("pr_review", "pre_flight")
+        ):
+            return
+
+        diff_stats = diff_stats_from_text(diff)
+        from review_advisor import PRContext  # noqa: PLC0415
+
+        pr_ctx = PRContext(prior_fix_attempts=self._advisor_attempt.get(pr.number, 0))
+        if not surface_cfg.pre_flight_trigger.should_run(diff_stats, pr_ctx):
+            return
+
+        log_path = (
+            self._config.repo_root
+            / "review_logs"
+            / str(pr.number)
+            / "advisor_session.jsonl"
+        )
+        advisor = PreFlightAdvisor(
+            runner=self._post_verify_runner,
+            surface_config=surface_cfg,
+            log_path=log_path,
+            pr_number=pr.number,
+        )
+        try:
+            plan = await advisor.run(
+                PreFlightInput(
+                    surface="pr_review",
+                    diff=diff,
+                    spec=task.body or None,
+                    related_paths=diff_stats.changed_paths,
+                    prior_attempts=self._advisor_attempt.get(pr.number, 0),
+                    issue_number=task.id,
+                )
+            )
+        except Exception as exc:
+            # Auth / credit errors are re-raised inside PreFlightAdvisor.run,
+            # but per docs/wiki/dark-factory.md §2.2 the wrapper's broad
+            # except must also reraise credit-exhausted / likely-bug errors
+            # so the orchestrator sees infrastructure failures.
+            from exception_classify import (  # noqa: PLC0415
+                reraise_on_credit_or_bug,
+            )
+
+            reraise_on_credit_or_bug(exc)
+            logger.warning(
+                "pre_flight advisor errored for PR #%d — proceeding without plan",
+                pr.number,
+                exc_info=True,
+            )
+            return
+
+        if plan is None:
+            return
+        self._advisor_pre_flight_plan[pr.number] = plan
+        scratchpad = (
+            self._config.repo_root / "review_logs" / str(pr.number) / "preflight.json"
+        )
+        try:
+            scratchpad.parent.mkdir(parents=True, exist_ok=True)
+            scratchpad.write_text(plan.model_dump_json(indent=2), encoding="utf-8")
+        except Exception:
+            logger.debug("preflight scratchpad write failed", exc_info=True)
+
     async def _run_post_verify_advisor(
         self,
         *,
@@ -1228,7 +1361,7 @@ class ReviewPhase:
                             result.summary or result.verdict.value
                         ),
                         executor_fix_diff=None,
-                        pre_flight_plan=None,
+                        pre_flight_plan=self._advisor_pre_flight_plan.get(pr.number),
                         attempt_number=attempt_number,
                         issue_number=task.id,
                     )
@@ -1672,8 +1805,14 @@ class ReviewPhase:
         diff: str,
         worker_id: int,
         code_scanning_alerts: list[CodeScanningAlert] | None = None,
+        pre_flight_plan: ReviewPlan | None = None,
     ) -> ReviewResult:
-        """Run the reviewer, push fixes, post summary, submit formal review."""
+        """Run the reviewer, push fixes, post summary, submit formal review.
+
+        ``pre_flight_plan`` is the optional :class:`ReviewPlan` produced by
+        ``PreFlightAdvisor``. When set, it is rendered into the executor's
+        review prompt as a focus rubric.
+        """
         # Build bead context for per-bead review when beads are enabled
         bead_tasks = self._build_bead_review_context(issue)
 
@@ -1685,6 +1824,7 @@ class ReviewPhase:
             worker_id=worker_id,
             code_scanning_alerts=code_scanning_alerts,
             bead_tasks=bead_tasks,
+            pre_flight_plan=pre_flight_plan,
         )
 
         if result.fixes_made:

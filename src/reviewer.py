@@ -6,7 +6,10 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
+
+if TYPE_CHECKING:
+    from review_advisor import ReviewPlan
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
@@ -151,10 +154,16 @@ class ReviewRunner(BaseRunner):
         worker_id: int = 0,
         code_scanning_alerts: list[CodeScanningAlert] | None = None,
         bead_tasks: list[dict[str, object]] | None = None,
+        pre_flight_plan: ReviewPlan | None = None,
     ) -> ReviewResult:
         """Run the review agent for *pr*.
 
         Returns a :class:`ReviewResult` with the verdict and summary.
+
+        ``pre_flight_plan`` is the optional :class:`ReviewPlan` produced by
+        ``PreFlightAdvisor`` upstream in :class:`ReviewPhase`. When set, it
+        is rendered into the prompt as a focus rubric the executor should
+        prioritize during review.
         """
         start = time.monotonic()
         result = ReviewResult(
@@ -195,6 +204,7 @@ class ReviewRunner(BaseRunner):
                 precheck_context=precheck_context,
                 code_scanning_alerts=code_scanning_alerts,
                 bead_tasks=bead_tasks,
+                pre_flight_plan=pre_flight_plan,
             )
             before_sha = await self._get_head_sha(worktree_path)
             transcript = await self._execute(
@@ -714,6 +724,7 @@ Then a brief summary on the next line starting with "SUMMARY: ".
         precheck_context: str = "",
         code_scanning_alerts: list[CodeScanningAlert] | None = None,
         bead_tasks: list[dict[str, object]] | None = None,
+        pre_flight_plan: ReviewPlan | None = None,
     ) -> tuple[str, dict[str, object]]:
         """Build the review prompt and pruning stats."""
         ci_enabled = self._config.max_ci_fix_attempts > 0
@@ -814,11 +825,20 @@ Then a brief summary on the next line starting with "SUMMARY: ".
 
             spec_section = build_reviewer_spec_section(issue)
 
+        # Pre-flight plan section (advisor-pattern T18). When the upstream
+        # PreFlightAdvisor produced a ReviewPlan, render it as a focus rubric
+        # so the executor's review prioritizes the listed focus_areas and
+        # rubric items. Empty string when no plan was produced (kill-switched,
+        # composite trigger said "no", or advisor degraded to None).
+        from review_advisor import format_pre_flight_for_prompt  # noqa: PLC0415
+
+        pre_flight_section = format_pre_flight_for_prompt(pre_flight_plan)
+
         prompt = f"""You are reviewing PR #{pr.number} which implements issue #{issue.id}.
 
 ## Issue: {issue.title}
 
-{issue_body}{plan_section}{memory_section}{log_section}{scanning_section}{bead_section}{spec_section}
+{issue_body}{plan_section}{memory_section}{log_section}{scanning_section}{bead_section}{spec_section}{pre_flight_section}
 
 ## Precheck Context
 

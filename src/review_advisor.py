@@ -105,6 +105,11 @@ class PreFlightInput(BaseModel):
     spec: str | None = None
     related_paths: list[str] = Field(default_factory=list)
     prior_attempts: int = 0
+    # Optional — threaded into the prompt so MockWorld runners can route
+    # advisor calls back to FakeLLM.pop_advisor_result(issue_number, role).
+    # Production callers can leave this unset; the field only changes prompt
+    # text when populated.
+    issue_number: int | None = None
 
 
 class Disagreement(BaseModel):
@@ -248,6 +253,49 @@ def should_pre_flight(diff_stats: DiffStats, pr: PRContext) -> bool:
         return True
     nontrivial_src = [p for p in diff_stats.changed_paths if p.startswith("src/")]
     return bool(nontrivial_src and diff_stats.lines_changed > 20)
+
+
+def diff_stats_from_text(diff: str) -> DiffStats:
+    """Compute a coarse :class:`DiffStats` from a raw unified-diff string.
+
+    Used by ``ReviewPhase`` to feed the composite ``should_pre_flight`` predicate
+    when no structured stats source is available. Counts ``+``/``-`` body lines
+    and extracts post-image paths from ``+++ b/...`` headers. Tolerant of empty
+    or malformed input — returns an empty :class:`DiffStats` rather than
+    raising.
+    """
+    paths: list[str] = []
+    lines_changed = 0
+    for line in diff.splitlines():
+        if line.startswith("+++ b/"):
+            paths.append(line[len("+++ b/") :].strip())
+        elif (
+            line.startswith("+")
+            and not line.startswith("+++")
+            or line.startswith("-")
+            and not line.startswith("---")
+        ):
+            lines_changed += 1
+    return DiffStats(changed_paths=paths, lines_changed=lines_changed)
+
+
+def format_pre_flight_for_prompt(plan: ReviewPlan | None) -> str:
+    """Render a :class:`ReviewPlan` as a markdown section for the executor prompt.
+
+    Returns an empty string when ``plan`` is ``None`` so callers can append
+    unconditionally without branching. Production callers wire this into the
+    reviewer's prompt so the executor's review uses the advisor's rubric.
+    """
+    if plan is None:
+        return ""
+    return (
+        "\n\n## Pre-flight review plan (from advisor)\n\n"
+        f"{plan.model_dump_json(indent=2)}\n\n"
+        "Use this as your review rubric — focus on the listed focus_areas and "
+        "rubric items. If you observe any of the escalation_signals, treat "
+        "them as blocking unless you can show with evidence that they don't "
+        "apply."
+    )
 
 
 class CompositeTrigger(PreFlightTrigger):
@@ -695,10 +743,19 @@ class PreFlightAdvisor:
         sections = [
             f"Surface: {inp.surface}",
             f"Prior fix attempts: {inp.prior_attempts}",
-            "",
-            "## Diff",
-            inp.diff[:8000],
         ]
+        if inp.issue_number is not None:
+            # Emitted so MockWorld's runner can extract the issue number from
+            # the prompt and look up the scripted advisor response. Production
+            # callers may leave issue_number unset.
+            sections.append(f"Issue: {inp.issue_number}")
+        sections.extend(
+            [
+                "",
+                "## Diff",
+                inp.diff[:8000],
+            ]
+        )
         if inp.spec is not None:
             sections.append(f"\n## Spec / issue body\n{inp.spec[:4000]}")
         if inp.related_paths:
