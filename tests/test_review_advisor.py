@@ -355,9 +355,21 @@ class _StubAdvisorRunner:
         self._payload = payload
         self.calls: list[dict[str, Any]] = []
 
-    async def run(self, *, model: str, subagent_type: str, prompt: str) -> str:
+    async def run(
+        self,
+        *,
+        model: str,
+        subagent_type: str,
+        prompt: str,
+        role: str,
+    ) -> str:
         self.calls.append(
-            {"model": model, "subagent_type": subagent_type, "prompt": prompt}
+            {
+                "model": model,
+                "subagent_type": subagent_type,
+                "prompt": prompt,
+                "role": role,
+            }
         )
         if isinstance(self._payload, Exception):
             raise self._payload
@@ -1172,13 +1184,18 @@ class TestAdvisorTelemetry:
         assert validated == 0
 
     def test_multiple_validated_disagreements_increment_counter(self, metric_recorder):
-        """Each matched disagreement increments by 1."""
+        """Each matched disagreement increments by 1.
+
+        Forward-only matching (T24.5 closed I5): signals must appear inside
+        assessments, so the signals here are short enough to be substrings
+        of the assessments below — but still >= ``_MIN_SIGNAL_MATCH_LEN``.
+        """
         plan = ReviewPlan(
             risk_summary="r",
             focus_areas=[],
             rubric=[],
             escalation_signals=[
-                "check missing test coverage for edge case X",
+                "missing test coverage for edge case X",
                 "verify the lock ordering",
             ],
         )
@@ -1547,3 +1564,206 @@ class TestMidFlightAdvisor:
         # Discipline guard — the description must steer the executor away from
         # using the tool for verifiable things
         assert "verify" in MidFlightAdvisor.TOOL_DESCRIPTION.lower()
+
+
+class _RoleCapturingRunner:
+    """Minimal runner that records the ``role`` it was called with."""
+
+    def __init__(self, payload: str) -> None:
+        self._payload = payload
+        self.last_role: str | None = None
+
+    async def run(
+        self,
+        *,
+        model: str,
+        subagent_type: str,
+        prompt: str,
+        role: str,
+    ) -> str:
+        self.last_role = role
+        return self._payload
+
+
+class TestRunnerRoleContract:
+    """T24.5 (I1): pin the prompt-to-runner role contract end-to-end.
+
+    These tests construct each advisor's actual prompt via its own
+    ``_build_prompt`` / ``_render_prompt`` method and pass it through the
+    runner Protocol with the explicit ``role=`` parameter. If a future
+    refactor breaks role wiring, these tests fail loudly instead of
+    silently misrouting in production.
+    """
+
+    def test_pre_flight_runner_call_uses_pre_flight_role(self):
+        runner = _RoleCapturingRunner(
+            '{"risk_summary":"r","focus_areas":[],"rubric":[],"escalation_signals":[]}'
+        )
+        advisor = PreFlightAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        asyncio.run(advisor.run(PreFlightInput(surface="pr_review", diff="d")))
+        assert runner.last_role == "pre_flight"
+
+    def test_post_verify_runner_call_uses_post_verify_role(self):
+        runner = _RoleCapturingRunner(
+            '{"verdict":"APPROVE","reasoning":"ok","disagreements":[]}'
+        )
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        asyncio.run(
+            advisor.run(
+                PostVerifyInput(
+                    surface="pr_review",
+                    diff="d",
+                    executor_verdict_summary="x",
+                )
+            )
+        )
+        assert runner.last_role == "post_verify"
+
+    def test_pre_flight_prompt_with_midflight_substring_in_spec_routes_correctly(
+        self,
+    ):
+        """I2 regression: spec/issue body containing '## Mid-flight consult'
+        substring must NOT cause the runner to misroute to mid-flight.
+
+        Before T24.5, ``_PostVerifyRunner`` used substring-based detection
+        that false-positived on this case (a meta-PR about the advisor
+        pattern whose body documents the mid-flight consult format).
+        """
+        runner = _RoleCapturingRunner(
+            '{"risk_summary":"r","focus_areas":[],"rubric":[],"escalation_signals":[]}'
+        )
+        advisor = PreFlightAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        asyncio.run(
+            advisor.run(
+                PreFlightInput(
+                    surface="pr_review",
+                    diff="d",
+                    # Spec contains the Mid-flight marker — pre-T24.5 this
+                    # misrouted because the runner substring-matched
+                    # ``## Mid-flight consult`` anywhere in the prompt.
+                    spec=(
+                        "The advisor uses a ## Mid-flight consult template "
+                        "for judgment-call escalations."
+                    ),
+                )
+            )
+        )
+        assert runner.last_role == "pre_flight"
+
+
+class TestMidFlightSentinelRouting:
+    """T24.5 (I2): mid-flight prompts carry a sentinel marker so the runner
+    can route them even when called via the executor's Task tool (which
+    doesn't pass ``role=`` explicitly).
+    """
+
+    def test_midflight_prompt_starts_with_sentinel(self):
+        adv = MidFlightAdvisor(surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"])
+        invocation = adv.build_task_invocation(question="?", context_summary="x")
+        assert invocation is not None
+        assert invocation["prompt"].startswith(MidFlightAdvisor.SENTINEL)
+
+    def test_sentinel_is_html_comment_so_renders_invisibly(self):
+        # The sentinel must be a valid HTML comment so any markdown viewer
+        # (PR descriptions, github comments) elides it. This guards the
+        # convention the runner adapter relies on.
+        assert MidFlightAdvisor.SENTINEL.startswith("<!--")
+        assert MidFlightAdvisor.SENTINEL.endswith("-->")
+
+    def test_format_mid_flight_for_prompt_documents_sentinel(self):
+        from review_advisor import format_mid_flight_for_prompt
+
+        section = format_mid_flight_for_prompt(SURFACE_ADVISOR_CONFIGS["pr_review"])
+        assert section is not None
+        # Executor-facing instruction text must include the sentinel so the
+        # in-session Task call wraps it into the prompt.
+        assert MidFlightAdvisor.SENTINEL in section
+
+
+class TestDisagreementValidationShortSignals:
+    """T24.5 (I5): tighten ``_validate_disagreements_against_plan`` to skip
+    short generic signals (forward-only substring match).
+    """
+
+    def test_short_generic_signals_do_not_false_positive(self, metric_recorder):
+        plan = ReviewPlan(
+            risk_summary="r",
+            focus_areas=[],
+            rubric=[],
+            # 9 chars — under the _MIN_SIGNAL_MATCH_LEN floor
+            escalation_signals=["test gaps"],
+        )
+        runner = _StubAdvisorRunner(
+            '{"verdict":"VETO","reasoning":"unrelated",'
+            '"disagreements":[{"executor_claim":"x",'
+            '"advisor_assessment":"general test gaps everywhere",'
+            '"severity":"concern"}]}'
+        )
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="d",
+            executor_verdict_summary="x",
+            pre_flight_plan=plan,
+        )
+        asyncio.run(advisor.run(inp))
+        validated = metric_recorder.counter_value(
+            "review_advisor_disagreement_validated_total",
+            surface="pr_review",
+            role="pre_flight",
+        )
+        assert validated == 0
+
+    def test_short_signal_does_not_match_short_assessment_via_reverse(
+        self, metric_recorder
+    ):
+        """The pre-T24.5 bidirectional match did ``assessment_lc in sig`` —
+        which matched a short assessment word against a long signal even
+        when topics differed. Forward-only match must drop this.
+        """
+        plan = ReviewPlan(
+            risk_summary="r",
+            focus_areas=[],
+            rubric=[],
+            # Long signal (>=10 chars), but the assessment "race" is only 4
+            # chars — under bidirectional, "race" appearing in a long signal
+            # ABOUT race conditions could match an unrelated short
+            # assessment. Forward-only requires the SIGNAL be inside the
+            # ASSESSMENT, which is what we want.
+            escalation_signals=["watch for race conditions in worker loop"],
+        )
+        runner = _StubAdvisorRunner(
+            '{"verdict":"VETO","reasoning":"x",'
+            '"disagreements":[{"executor_claim":"x",'
+            '"advisor_assessment":"race",'
+            '"severity":"concern"}]}'
+        )
+        advisor = PostVerifyAdvisor(
+            runner=runner,
+            surface_config=SURFACE_ADVISOR_CONFIGS["pr_review"],
+        )
+        inp = PostVerifyInput(
+            surface="pr_review",
+            diff="d",
+            executor_verdict_summary="x",
+            pre_flight_plan=plan,
+        )
+        asyncio.run(advisor.run(inp))
+        validated = metric_recorder.counter_value(
+            "review_advisor_disagreement_validated_total",
+            surface="pr_review",
+            role="pre_flight",
+        )
+        assert validated == 0

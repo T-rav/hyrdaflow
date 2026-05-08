@@ -10,7 +10,7 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from issue_cache import IssueCache
@@ -91,6 +91,13 @@ from task_source import TaskTransitioner
 from transcript_summarizer import TranscriptSummarizer
 
 logger = logging.getLogger("hydraflow.review_phase")
+
+# ``_AdvisorRole`` pins the runner-protocol role contract — used by
+# ``_PostVerifyRunner.run`` (T24.5 closed I1+I2: explicit role beats
+# substring detection on the prompt). Module-scope so the inner
+# ``_PostVerifyRunner`` class body can reference it via closure when
+# ``_build_post_verify_runner`` is invoked.
+_AdvisorRole = Literal["pre_flight", "mid_flight", "post_verify"]
 
 # OTel metric instruments for the post-verify advisor's veto-retry loop.
 # Module-level so the proxy meter delegates to the registered MeterProvider
@@ -308,7 +315,14 @@ class ReviewPhase:
         parent = self
 
         class _PostVerifyRunner:
-            async def run(self, *, model: str, subagent_type: str, prompt: str) -> str:
+            async def run(
+                self,
+                *,
+                model: str,
+                subagent_type: str,
+                prompt: str,
+                role: _AdvisorRole,
+            ) -> str:
                 # noqa is intentional — `subagent_type` is part of the
                 # _AdvisorSubagentRunner protocol; production path does not
                 # forward it (TranscriptEventData has no slot for it), but
@@ -341,29 +355,27 @@ class ReviewPhase:
                         return ""
                     match = re.search(r"^Issue:\s*(\d+)\s*$", prompt, re.MULTILINE)
                     issue_number = int(match.group(1)) if match else 0
-                    # Role detection: the pre-flight prompt's tail is
-                    # ``Produce a ReviewPlan as JSON ...`` (see
-                    # PreFlightAdvisor._build_prompt); the post-verify prompt
-                    # ends with ``Respond with JSON matching the
-                    # PostVerifyResult schema``. The mid-flight consult prompt
-                    # opens with the ``## Mid-flight consult`` header (see
-                    # MidFlightAdvisor._render_prompt). All three markers are
-                    # unique to their role, so substring presence is
-                    # sufficient. This adapter only sees runtime advisor
-                    # consult prompts (the executor's outgoing Task call) —
-                    # it never receives the executor's own incoming review
-                    # prompt, which is where ``format_mid_flight_for_prompt``
-                    # injects the same header as instruction text. So the
-                    # documentation-vs-runtime collision is academic. Closing
-                    # the Protocol with an explicit ``role`` parameter would
-                    # make this contract crisper; T21 keeps the smaller diff.
-                    if "## Mid-flight consult" in prompt:
-                        role = "mid_flight"
-                    elif "Produce a ReviewPlan as JSON" in prompt:
-                        role = "pre_flight"
+                    # Role resolution: prefer the explicit ``role`` parameter
+                    # passed by the advisor (T24.5 closed I1+I2). Mid-flight
+                    # calls dispatch from inside the executor's session via
+                    # the Task tool, which doesn't thread through this
+                    # protocol — those prompts carry the
+                    # ``MidFlightAdvisor.SENTINEL`` HTML-comment marker as
+                    # their first line, so we detect that explicitly. This
+                    # is a forward-only marker that won't naturally appear
+                    # in PR bodies, specs, or user content (unlike the
+                    # pre-T24.5 ``## Mid-flight consult`` header substring
+                    # which false-positived on advisor-pattern PRs whose
+                    # bodies documented the format).
+                    from review_advisor import (  # noqa: PLC0415
+                        MidFlightAdvisor,
+                    )
+
+                    if MidFlightAdvisor.SENTINEL in prompt:
+                        resolved_role: _AdvisorRole = "mid_flight"
                     else:
-                        role = "post_verify"
-                    result = fake_llm.pop_advisor_result(issue_number, role)
+                        resolved_role = role
+                    result = fake_llm.pop_advisor_result(issue_number, resolved_role)
                     if isinstance(result, str):
                         return result
                     return result or ""
@@ -1896,6 +1908,8 @@ class ReviewPhase:
         async def _re_review() -> tuple[ReviewResult, str]:
             await self._publish_review_status(pr, worker_id, "re_reviewing")
             updated_diff = await self._prs.get_pr_diff(pr.number)
+            # Thread the pre-flight plan into retries so the executor keeps
+            # the same focus rubric across the loop (T24.5 closed I3).
             re_result = await self._reviewers.review(
                 pr,
                 issue,
@@ -1903,6 +1917,7 @@ class ReviewPhase:
                 updated_diff,
                 worker_id=worker_id,
                 code_scanning_alerts=code_scanning_alerts,
+                pre_flight_plan=self._advisor_pre_flight_plan.get(pr.number),
             )
             if re_result.fixes_made:
                 await self._prs.push_branch(wt_path, pr.branch)
@@ -1973,6 +1988,8 @@ class ReviewPhase:
         # Re-review
         await self._publish_review_status(pr, worker_id, "re_reviewing")
         updated_diff = await self._prs.get_pr_diff(pr.number)
+        # Thread the pre-flight plan into retries so the executor keeps
+        # the same focus rubric across the loop (T24.5 closed I3).
         re_result = await self._reviewers.review(
             pr,
             task,
@@ -1980,6 +1997,7 @@ class ReviewPhase:
             updated_diff,
             worker_id=worker_id,
             code_scanning_alerts=code_scanning_alerts,
+            pre_flight_plan=self._advisor_pre_flight_plan.get(pr.number),
         )
 
         if re_result.fixes_made:
@@ -2764,6 +2782,8 @@ class ReviewPhase:
         )
         await self._publish_review_status(pr, worker_id, "re_reviewing")
 
+        # Thread the pre-flight plan into retries so the executor keeps
+        # the same focus rubric across the loop (T24.5 closed I3).
         re_result = await self._reviewers.review(
             pr,
             issue,
@@ -2771,6 +2791,7 @@ class ReviewPhase:
             diff,
             worker_id=worker_id,
             code_scanning_alerts=code_scanning_alerts,
+            pre_flight_plan=self._advisor_pre_flight_plan.get(pr.number),
         )
 
         # If re-review still under threshold without justification, accept

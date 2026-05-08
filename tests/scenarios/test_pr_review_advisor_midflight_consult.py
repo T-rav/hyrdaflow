@@ -88,10 +88,21 @@ class TestPRReviewMidFlightConsult:
         # to pin the role-detection contract the executor's in-session
         # Task call relies on. The harness's review_phase carries the
         # adapter that production also uses.
+        #
+        # The mid-flight prompt MUST start with ``MidFlightAdvisor.SENTINEL``
+        # — that's the only signal the runner adapter sees for in-session
+        # Task calls (which can't pass ``role=`` through the Task tool). The
+        # ``role=`` parameter below is set to ``"post_verify"`` to mimic the
+        # ``role`` default the runner would receive from a non-mid-flight
+        # caller; the sentinel takes precedence when present (T24.5 closed
+        # I1+I2).
+        from review_advisor import MidFlightAdvisor
+
         review_phase = world._harness.review_phase
         runner = review_phase._post_verify_runner
 
         midflight_prompt = (
+            f"{MidFlightAdvisor.SENTINEL}\n"
             "## Mid-flight consult\n"
             "Issue: 40\n"
             "### Question\nis the test wrong or the fix wrong?\n"
@@ -104,6 +115,7 @@ class TestPRReviewMidFlightConsult:
             model="opus",
             subagent_type="hydraflow-review-advisor",
             prompt=midflight_prompt,
+            role="post_verify",
         )
         parsed = json.loads(payload)
         assert parsed["recommendation"] == "revert the fix"

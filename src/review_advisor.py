@@ -148,6 +148,12 @@ class PostVerifyInput(BaseModel):
     issue_number: int | None = None
 
 
+# Signals shorter than this are too generic to validate against — short
+# words like "test gaps" false-positive against any disagreement that
+# contains those words coincidentally (T24.5 closed I5).
+_MIN_SIGNAL_MATCH_LEN = 10
+
+
 def _validate_disagreements_against_plan(
     disagreements: list[Disagreement],
     plan: ReviewPlan | None,
@@ -155,18 +161,25 @@ def _validate_disagreements_against_plan(
     """Return how many post-verify disagreements were predicted by the
     pre-flight plan's escalation_signals.
 
-    A match is a case-insensitive substring overlap between the
-    disagreement's advisor_assessment and any escalation signal — fuzzy
-    on purpose since the advisor's wording may vary across calls.
-    Returns 0 if there is no plan or no disagreements.
+    Forward-only substring match: signal must appear within the assessment.
+    Signals shorter than ``_MIN_SIGNAL_MATCH_LEN`` chars are skipped — short
+    generic signals (e.g. "test gaps") would false-positive against any
+    assessment containing those words. The bidirectional pre-T24.5 match
+    also caused symmetric false-positives where ``assessment_lc in sig``
+    matched long signals against unrelated short assessments. Returns 0 if
+    there is no plan or no qualifying signals.
     """
     if plan is None or not plan.escalation_signals:
         return 0
+    qualifying_signals = [
+        s.lower() for s in plan.escalation_signals if len(s) >= _MIN_SIGNAL_MATCH_LEN
+    ]
+    if not qualifying_signals:
+        return 0
     matched = 0
-    signals_lc = [s.lower() for s in plan.escalation_signals]
     for d in disagreements:
         assessment_lc = d.advisor_assessment.lower()
-        if any((sig in assessment_lc) or (assessment_lc in sig) for sig in signals_lc):
+        if any(sig in assessment_lc for sig in qualifying_signals):
             matched += 1
     return matched
 
@@ -422,10 +435,20 @@ class _AdvisorSubagentRunner(Protocol):
     """Minimal protocol the runner adapter must satisfy.
 
     Production wiring is provided by ReviewPhase via agent_cli (T9).
+
+    The ``role`` parameter is required so MockWorld can route advisor calls
+    to the correct scripted queue. Substring-based role detection on the
+    prompt is a footgun — PR bodies discussing the advisor pattern itself
+    contain marker substrings (T24.5 closed I1+I2).
     """
 
     async def run(
-        self, *, model: str, subagent_type: str, prompt: str
+        self,
+        *,
+        model: str,
+        subagent_type: str,
+        prompt: str,
+        role: Literal["pre_flight", "mid_flight", "post_verify"],
     ) -> str: ...  # pragma: no cover - protocol
 
 
@@ -462,6 +485,7 @@ class PostVerifyAdvisor:
                 model=self._cfg.advisor_model,
                 subagent_type="hydraflow-review-advisor",
                 prompt=prompt,
+                role="post_verify",
             )
         except Exception as exc:
             # Authentication, credit, and likely-bug errors must propagate
@@ -704,6 +728,7 @@ class PreFlightAdvisor:
                 model=self._cfg.advisor_model,
                 subagent_type="hydraflow-review-advisor",
                 prompt=prompt,
+                role="pre_flight",
             )
         except Exception as exc:
             from exception_classify import (  # noqa: PLC0415
@@ -874,9 +899,22 @@ class MidFlightAdvisor:
             "prompt": prompt,
         }
 
+    # Sentinel marker prepended to every mid-flight consult prompt.
+    # Mid-flight calls are dispatched from inside the executor's session via
+    # the Task tool, which does NOT thread through ``_AdvisorSubagentRunner``
+    # and therefore cannot pass an explicit ``role=`` parameter. The runner
+    # adapter (``_PostVerifyRunner.run`` in src/review_phase.py) detects
+    # this sentinel as the only signal that a prompt is a mid-flight
+    # consult. Format: HTML comment so it never renders in any markdown
+    # view, versioned so future format changes can be detected, and
+    # specific enough that PR bodies discussing the advisor pattern won't
+    # naturally contain it (T24.5 closed I1+I2).
+    SENTINEL = "<!-- HYDRAFLOW_MIDFLIGHT_CONSULT_PROMPT_v1 -->"
+
     @staticmethod
     def _render_prompt(question: str, context: str, options: list[str]) -> str:
         sections = [
+            MidFlightAdvisor.SENTINEL,
             "## Mid-flight consult",
             f"### Question\n{question}",
             f"\n### Context (summary from executor)\n{context}",
@@ -932,7 +970,10 @@ def format_mid_flight_for_prompt(
         '    model="opus",\n'
         "    prompt=<see template below>\n"
         "  )\n\n"
-        "Prompt template:\n"
+        "Prompt template (the FIRST line MUST be the sentinel exactly as shown\n"
+        "— it is how the runner adapter detects this is a mid-flight consult\n"
+        "and routes it to the correct advisor queue):\n"
+        f"  {MidFlightAdvisor.SENTINEL}\n"
         "  ## Mid-flight consult\n"
         "  Issue: <number>          # required so MockWorld can route\n"
         "  ### Question\n"

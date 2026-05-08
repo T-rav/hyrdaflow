@@ -2829,6 +2829,7 @@ class TestPostVerifyRunnerDispatch:
             model="opus",
             subagent_type="hydraflow-review-advisor",
             prompt="Issue: 1\n\n## Diff\nfoo",
+            role="post_verify",
         )
 
         # Production path was taken — _execute awaited exactly once with the
@@ -2871,6 +2872,7 @@ class TestPostVerifyRunnerDispatch:
             model="opus",
             subagent_type="hydraflow-review-advisor",
             prompt="Issue: 7\n\n## Diff\nfoo",
+            role="post_verify",
         )
 
         assert out.startswith('{"verdict":"APPROVE"')
