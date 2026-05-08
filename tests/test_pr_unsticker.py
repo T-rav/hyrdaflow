@@ -635,10 +635,11 @@ class TestAutoMergeDisabled:
         assert stats["resolved"] == 1
         assert stats["merged"] == 0
 
-        # Should swap back to origin label
-        h.prs.swap_pipeline_labels.assert_any_call(
-            42, "hydraflow-review", pr_number=100
-        )
+        # Issue swaps to its origin (hydraflow-review here).
+        h.prs.swap_pipeline_labels.assert_any_call(42, "hydraflow-review")
+        # PR (with commits) goes to hydraflow-review via a separate call.
+        # See TestReleaseToOriginPRTarget for why issue and PR are split.
+        h.prs.swap_pipeline_labels.assert_any_call(100, "hydraflow-review")
         # merge_pr should NOT have been called
         h.prs.merge_pr.assert_not_called()
 
