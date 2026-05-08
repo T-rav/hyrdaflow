@@ -760,7 +760,7 @@ also resets the worktree, discarding partial commits).
     "src/implement_phase.py:_handle_successful_push",
     "src/implement_phase.py:_resolve_pr"
   ],
-  "fixed_in_pr": "TBD",
+  "fixed_in_pr": "#8713",
   "added": "2026-05-07"
 }
 ```
