@@ -93,4 +93,4 @@ graph LR
   - `WorkspaceManager` (`src.workspace`)
 - Fake: `FakeWorkspace` (`mockworld.fakes.fake_workspace`)
 
-_Regenerated from commit `169ff25` on 2026-05-09 04:51 UTC. Source last changed at `169ff25`. Status: 🟢 fresh._
+_Regenerated from commit `61214f1` on 2026-05-09 05:07 UTC. Source last changed at `61214f1`. Status: 🟢 fresh._

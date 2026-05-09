@@ -2,7 +2,7 @@
 
 # Ubiquitous Language
 
-_10 terms across 2 bounded contexts._
+_11 terms across 2 bounded contexts._
 
 See [ADR-0053](../../adr/0053-ubiquitous-language-as-living-artifact.md) for the governing pattern.
 
@@ -110,6 +110,18 @@ JSON-file backed state service for crash recovery. Composes ~30 domain mixins (i
 - Every mutating method persists state to disk before returning.
 - Issue/PR/epic numbers are stored as string keys; helpers convert to int on read.
 - On corrupt primary file, load() falls back to the most recent .bak before defaulting to an empty StateData.
+
+## Task
+
+**Kind:** `entity` · **Context:** `builder` · **Anchor:** `src/models.py:Task` · **Confidence:** `accepted`
+**Aliases:** `work item`, `ticket`
+
+A source-agnostic work item abstraction representing tasks from any source (GitHub issues, Linear tickets, etc.) that flow through HydraFlow's pipeline. Tasks carry metadata, support typed relationships via TaskLink, and serve as the unified representation for all work regardless of origin. Relationship extraction follows first-match precedence across compiled regex patterns.
+
+**Invariants:**
+- TaskLink relationships extracted via regex patterns with first-match precedence per target_id
+- URLs validated as empty or http(s):// via AfterValidator
+- Timestamps validated as empty or ISO 8601 format
 
 ## WorkspacePort
 

@@ -6,6 +6,7 @@
 graph LR
   subgraph builder
     AgentRunner["AgentRunner<br/><i>runner</i>"]
+    Task["Task<br/><i>entity</i>"]
   end
   subgraph shared-kernel
     BaseBackgroundLoop["BaseBackgroundLoop<br/><i>loop</i>"]
