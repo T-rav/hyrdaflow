@@ -58,9 +58,21 @@ wontfix                       (re-files next tick after cooldown)
 
 ## Adding a new entry
 
-When Claude saves a new `feedback_*.md` to its session memory, it ALSO
-commits a redacted mirror here in the next commit. The redaction is
-manual (Claude's responsibility); a future iteration may automate it
-via a slash command or hook.
+**Auto-synced.** When Claude writes a `feedback_*.md` file to its
+session-memory directory via the Write tool, the project-level
+`PostToolUse` hook (`.claude/hooks/hf.mirror-feedback-memory.sh`) runs
+`scripts/mirror_feedback_memory.py` against the new file. This produces
+a redacted mirror at `docs/wiki/memory-feedback/<slug>.md` automatically.
+
+The mirror lands as an unstaged file in the working tree; Claude stages
+and commits it on the next commit. The hook is failure-tolerant — if the
+mirror script fails, the originating Write still succeeds and a warning
+is logged. See bead `hydraflow-edn7` for the gap-fix history.
+
+If you ever need to (re)mirror manually:
+
+```bash
+uv run python scripts/mirror_feedback_memory.py ~/.claude/projects/<encoded>/memory/feedback_<slug>.md
+```
 
 See ADR-0057 for the design rationale.
