@@ -84,6 +84,7 @@ class MemoryBacklogLoop(BaseBackgroundLoop):
         filed = 0
         skipped = 0
         escalated = 0
+        filed_issue_numbers: list[int] = []
         dedup = self._dedup.get()
         for entry in pending_entries(mirror):
             key = dedup_key_for(entry.slug)
@@ -99,11 +100,15 @@ class MemoryBacklogLoop(BaseBackgroundLoop):
                     issue_num = await self._file_backlog_issue(entry)
                     update_status(entry.path, status="issue-open", issue=issue_num)
                     filed += 1
+                    filed_issue_numbers.append(issue_num)
             except Exception:  # noqa: BLE001
                 logger.exception("filing memory-backlog issue for %s", entry.slug)
                 continue
             dedup.add(key)
             self._dedup.set_all(dedup)
+
+        if filed_issue_numbers:
+            await self._commit_mirror_updates(filed_issue_numbers)
 
         return {
             "status": "ok",
@@ -111,6 +116,72 @@ class MemoryBacklogLoop(BaseBackgroundLoop):
             "skipped": skipped,
             "escalated": escalated,
         }
+
+    async def _commit_mirror_updates(self, issue_numbers: list[int]) -> None:
+        """Commit `pending → issue-open` frontmatter updates to git history.
+
+        Per ADR-0057: the loop commits status transitions so the audit trail
+        lives in git history, not just on-disk frontmatter. Without this,
+        edits to `docs/wiki/memory-feedback/*.md` accumulate as uncommitted
+        modifications in the orchestrator's working tree, conflicting with
+        co-existing loops that operate on git state.
+
+        Failures are logged but do not propagate — the on-disk frontmatter
+        is the primary re-filing guard, so a missed commit doesn't cause
+        duplicate filings on restart. Surfaces as drift in `git status`.
+        """
+        repo_root = str(self._config.repo_root)
+        mirror_relpath = "/".join(_MIRROR_SUBPATH)
+        if len(issue_numbers) == 1:
+            title = f"chore(memory-backlog): file issue #{issue_numbers[0]}"
+        else:
+            joined = ", ".join(f"#{n}" for n in issue_numbers)
+            title = f"chore(memory-backlog): file issues {joined}"
+
+        add_proc = await asyncio.create_subprocess_exec(
+            "git",
+            "-C",
+            repo_root,
+            "add",
+            mirror_relpath,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, add_err = await add_proc.communicate()
+        if add_proc.returncode != 0:
+            logger.warning(
+                "memory_backlog: git add failed (rc=%s): %s",
+                add_proc.returncode,
+                add_err.decode(errors="replace").strip(),
+            )
+            return
+
+        identity_args = []
+        if self._config.git_user_email:
+            identity_args += ["-c", f"user.email={self._config.git_user_email}"]
+        if self._config.git_user_name:
+            identity_args += ["-c", f"user.name={self._config.git_user_name}"]
+
+        commit_proc = await asyncio.create_subprocess_exec(
+            "git",
+            "-C",
+            repo_root,
+            *identity_args,
+            "commit",
+            "-m",
+            title,
+            "--",
+            mirror_relpath,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, commit_err = await commit_proc.communicate()
+        if commit_proc.returncode != 0:
+            logger.warning(
+                "memory_backlog: git commit failed (rc=%s): %s",
+                commit_proc.returncode,
+                commit_err.decode(errors="replace").strip(),
+            )
 
     async def _file_backlog_issue(self, entry: MirrorEntry) -> int:
         rel = entry.path.relative_to(self._config.repo_root)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -113,6 +114,7 @@ async def test_pending_entry_files_one_issue_and_updates_frontmatter(
     pr.create_issue.return_value = 4242
     loop = _make_loop(env)
     loop._reconcile_closed_escalations = AsyncMock(return_value=None)
+    loop._commit_mirror_updates = AsyncMock(return_value=None)
 
     result = await loop._do_work()
 
@@ -204,3 +206,80 @@ def test_default_interval_matches_config(env) -> None:
     loop = _make_loop(env)
     assert loop._get_default_interval() == cfg.memory_backlog_interval_seconds
     assert loop._get_default_interval() == 86_400  # 24h
+
+
+@pytest.mark.asyncio
+async def test_filing_commits_frontmatter_to_git(env) -> None:
+    """The pending → issue-open frontmatter update lands as a git commit.
+
+    Per ADR-0057, status transitions live in git history — not just on
+    disk. Without the commit, frontmatter edits accumulate as unstaged
+    modifications in the orchestrator's working tree.
+    """
+    cfg, _, pr, _, mirror_dir = env
+    # Initialize a real git repo in tmp_path so the loop's git commands work.
+    subprocess.run(["git", "init", "-q"], cwd=cfg.repo_root, check=True)
+    # Stage + commit the mirror dir so subsequent updates are diffable.
+    _write_mirror_entry(mirror_dir, "feedback-zeta")
+    subprocess.run(["git", "add", "-A"], cwd=cfg.repo_root, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=cfg.repo_root, check=True)
+    base_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=cfg.repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    pr.create_issue.return_value = 4321
+    loop = _make_loop(env)
+    loop._reconcile_closed_escalations = AsyncMock(return_value=None)
+
+    await loop._do_work()
+
+    head_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=cfg.repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert head_sha != base_sha, "loop did not create a commit"
+
+    title = subprocess.run(
+        ["git", "log", "-1", "--format=%s"],
+        cwd=cfg.repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert "memory-backlog" in title
+    assert "#4321" in title
+
+    # Working tree should be clean — the frontmatter update is committed.
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=cfg.repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert status == "", f"unexpected dirty working tree: {status}"
+
+
+@pytest.mark.asyncio
+async def test_no_commit_when_nothing_filed(env) -> None:
+    """Tick that filed zero issues should NOT make a git commit."""
+    _, _, pr, dedup, mirror_dir = env
+    _write_mirror_entry(mirror_dir, "feedback-already-open")
+    dedup.get.return_value = {"memory_backlog:feedback-already-open"}  # already filed
+
+    loop = _make_loop(env)
+    loop._reconcile_closed_escalations = AsyncMock(return_value=None)
+    loop._commit_mirror_updates = AsyncMock(return_value=None)
+
+    result = await loop._do_work()
+
+    assert result["filed"] == 0
+    pr.create_issue.assert_not_called()
+    loop._commit_mirror_updates.assert_not_called()
