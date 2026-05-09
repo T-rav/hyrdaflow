@@ -69,4 +69,14 @@ describe('DomainView', () => {
     expect(screen.getByText(/loading/i)).toBeInTheDocument()
     resolveFetch({ ok: true, json: () => Promise.resolve(SAMPLE_GRAPH) })
   })
+
+  it('renders without crashing when graph payload is malformed (empty object)', async () => {
+    global.fetch = vi.fn(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({}) }),
+    )
+    render(<DomainView selectedNodeId={null} onSelectNode={() => {}} />)
+    await waitFor(() => {
+      expect(screen.getByTestId('atlas-domain-view')).toBeInTheDocument()
+    })
+  })
 })

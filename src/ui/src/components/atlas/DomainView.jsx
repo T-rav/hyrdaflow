@@ -25,11 +25,14 @@ const NODE_GAP_X = 16
 const NODE_GAP_Y = 12
 
 function layoutGrouped(payload) {
+  const safeContexts = Array.isArray(payload?.contexts) ? payload.contexts : []
+  const safeNodes = Array.isArray(payload?.nodes) ? payload.nodes : []
+  const safeEdges = Array.isArray(payload?.edges) ? payload.edges : []
   const byContext = new Map()
-  for (const ctx of payload.contexts) {
+  for (const ctx of safeContexts) {
     byContext.set(ctx.id, { ...ctx, terms: [] })
   }
-  for (const node of payload.nodes) {
+  for (const node of safeNodes) {
     if (!byContext.has(node.parent)) {
       byContext.set(node.parent, { id: node.parent, label: node.parent, terms: [] })
     }
@@ -89,7 +92,7 @@ function layoutGrouped(payload) {
     yCursor += groupH + 24
   }
 
-  const edges = payload.edges.map((e, i) => ({
+  const edges = safeEdges.map((e, i) => ({
     id: `e${i}`,
     source: e.source,
     target: e.target,

@@ -240,14 +240,21 @@ describe('Main tab bar', () => {
 
   it('coerces ?tab=wiki query param to atlas on mount', async () => {
     const oldHref = window.location.href
+    const oldFetch = global.fetch
+    global.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ nodes: [], edges: [], contexts: [] }),
+      }),
+    )
     window.history.replaceState({}, '', '/?tab=wiki')
     const { default: App } = await import('../../App')
     render(<App />)
-    // Atlas sub-tab buttons should be visible because we landed on the atlas tab
     expect(
       screen.getByRole('button', { name: /^domain$/i }),
     ).toBeInTheDocument()
     window.history.replaceState({}, '', oldHref)
+    global.fetch = oldFetch
   })
 
   it('does not render Transcript in the main tab bar', async () => {
