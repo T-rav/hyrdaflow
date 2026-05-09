@@ -635,11 +635,72 @@ class TestAutoMergeDisabled:
         assert stats["resolved"] == 1
         assert stats["merged"] == 0
 
-        # Should swap back to origin label
-        h.prs.swap_pipeline_labels.assert_any_call(
-            42, "hydraflow-review", pr_number=100
-        )
+        # Issue swaps to its origin (hydraflow-review here).
+        h.prs.swap_pipeline_labels.assert_any_call(42, "hydraflow-review")
+        # PR (with commits) goes to hydraflow-review via a separate call.
+        # See TestReleaseToOriginPRTarget for why issue and PR are split.
+        h.prs.swap_pipeline_labels.assert_any_call(100, "hydraflow-review")
         # merge_pr should NOT have been called
+        h.prs.merge_pr.assert_not_called()
+
+
+class TestReleaseToOriginPRTarget:
+    """Regression: when releasing from HITL with a PR open, the PR target
+    must be hydraflow-review (PR-stage label), not the issue's origin
+    (which is typically hydraflow-ready).
+
+    Real-world drift this caught: PR #8669 (issue #7991) and PR #8653
+    (issue #7644) — both ended up at hydraflow-ready because
+    swap_pipeline_labels was called with the issue's origin and a
+    pr_number, applying the SAME label to both.
+    """
+
+    @pytest.mark.asyncio
+    async def test_pr_lands_at_review_when_origin_is_ready(
+        self, tmp_path: Path
+    ) -> None:
+        issue = IssueFactory.create(
+            title="Test issue", body="body", labels=["hydraflow-hitl"]
+        )
+        h = _make_unsticker(tmp_path, unstick_auto_merge=False)
+
+        h.state.set_hitl_cause(42, "Merge conflict")
+        # Issue's pre-HITL stage was hydraflow-ready (typical for issues
+        # that went HITL pre-implementation). The PR has commits already.
+        h.state.set_hitl_origin(42, "hydraflow-ready")
+
+        h.fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        h.wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
+        h.prs.push_branch = AsyncMock(return_value=True)
+
+        h.resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
+
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
+        wt_dir.mkdir(parents=True)
+
+        stats = await h.unsticker.unstick([_make_hitl_item(42, pr=100)])
+
+        assert stats["resolved"] == 1
+        assert stats["merged"] == 0
+
+        # Issue goes back to its pre-HITL origin (hydraflow-ready).
+        h.prs.swap_pipeline_labels.assert_any_call(42, "hydraflow-ready")
+        # PR (with commits) belongs at hydraflow-review, NOT origin.
+        h.prs.swap_pipeline_labels.assert_any_call(100, "hydraflow-review")
+
+        # The buggy single-call shape MUST NOT happen — PR getting the
+        # issue's origin via the pr_number kwarg is the drift.
+        for call in h.prs.swap_pipeline_labels.call_args_list:
+            args, kwargs = call
+            # No call should pair the ready label with a pr_number kwarg.
+            if kwargs.get("pr_number") == 100 and len(args) >= 2:
+                assert args[1] != "hydraflow-ready", (
+                    "PR #100 must not be labeled hydraflow-ready via the "
+                    "swap_pipeline_labels(issue, ready, pr_number=pr) shape"
+                )
+
         h.prs.merge_pr.assert_not_called()
 
 
