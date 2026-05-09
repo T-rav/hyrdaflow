@@ -67,6 +67,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | ADR-0057 | `src.term_pruner_loop`, `src.ubiquitous_language` |
 | ADR-0058 | `src.edge_proposer_loop`, `src.ubiquitous_language` |
 | ADR-0059 | `src.dashboard_routes._atlas_routes`, `src.ubiquitous_language` |
+| ADR-0060 | `src.dashboard_routes._atlas_routes` |
 
 ## Module → ADRs
 
@@ -91,7 +92,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.corpus_learning_loop` | ADR-0045 |
 | `src.dashboard` | ADR-0007, ADR-0008, ADR-0038 |
 | `src.dashboard_routes` | ADR-0007, ADR-0008, ADR-0013, ADR-0019, ADR-0038 |
-| `src.dashboard_routes._atlas_routes` | ADR-0059 |
+| `src.dashboard_routes._atlas_routes` | ADR-0059, ADR-0060 |
 | `src.dashboard_routes._cost_rollups` | ADR-0045 |
 | `src.dashboard_routes._diagnostics_routes` | ADR-0050 |
 | `src.dashboard_routes._routes` | ADR-0030 |
@@ -174,4 +175,4 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.workspace` | ADR-0055 |
 | `src.worktree` | ADR-0003, ADR-0009, ADR-0010 |
 
-_Regenerated from commit `61214f1` on 2026-05-09 05:07 UTC. Source last changed at `61214f1`. Status: 🟢 fresh._
+_Regenerated from commit `900a753` on 2026-05-09 17:21 UTC. Source last changed at `900a753`. Status: 🟢 fresh._

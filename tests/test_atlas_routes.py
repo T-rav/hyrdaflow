@@ -163,6 +163,142 @@ class TestAtlasGraph:
         result = endpoint()
         assert result == {"nodes": [], "edges": [], "contexts": []}
 
+    def test_includes_adrs_with_relates_to_edges_by_default(
+        self, tmp_path: Path, config_with_terms: HydraFlowConfig
+    ) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir.mkdir(parents=True)
+        (adr_dir / "0042-event-bus.md").write_text(
+            "# ADR-0042: EventBus design\n\n"
+            "## Status\n\nAccepted\n\n"
+            "## Date\n\n2026-01-15\n\n"
+            "## Related\n\n- `EventBus` — the bus itself\n- something else\n"
+        )
+
+        router = _make_router(tmp_path, config_with_terms)
+        endpoint = find_endpoint(router, "/api/atlas/graph", method="GET")
+        result = endpoint()
+
+        adr_nodes = [n for n in result["nodes"] if n.get("type") == "adr"]
+        assert len(adr_nodes) == 1
+        assert adr_nodes[0]["id"] == "adr-42"
+        assert adr_nodes[0]["parent"] == "adrs"
+        assert "adrs" in {c["id"] for c in result["contexts"]}
+
+        relates_edges = [e for e in result["edges"] if e["kind"] == "relates_to"]
+        assert any(
+            e["source"] == "adr-42" and e["target"] == "01TARGET00000000000000"
+            for e in relates_edges
+        )
+
+    def test_excludes_adrs_when_include_adrs_false(
+        self, tmp_path: Path, config_with_terms: HydraFlowConfig
+    ) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir.mkdir(parents=True)
+        (adr_dir / "0042-x.md").write_text(
+            "# ADR-0042: X\n\n## Status\n\nAccepted\n\n## Related\n\n- `EventBus`\n"
+        )
+
+        router = _make_router(tmp_path, config_with_terms)
+        endpoint = find_endpoint(router, "/api/atlas/graph", method="GET")
+        result = endpoint(include_adrs=False)
+
+        assert all(n.get("type") != "adr" for n in result["nodes"])
+        assert all(e.get("kind") != "relates_to" for e in result["edges"])
+        assert "adrs" not in {c["id"] for c in result["contexts"]}
+
+
+class TestAtlasTermDetailProvenance:
+    """GET /api/atlas/terms/{id} — provenance fields from TermProposerLoop (T5)."""
+
+    def test_provenance_fields_null_for_hand_authored_term(
+        self, tmp_path: Path, config_with_terms: HydraFlowConfig
+    ) -> None:
+        router = _make_router(tmp_path, config_with_terms)
+        endpoint = find_endpoint(router, "/api/atlas/terms/{term_id}", method="GET")
+        result = endpoint(term_id="01SOURCE00000000000000")
+        assert result["proposed_by"] is None
+        assert result["proposed_at"] is None
+        assert result["proposal_signals"] is None
+        assert result["proposal_imports_seen"] is None
+
+    def test_provenance_fields_populated_for_proposer_term(
+        self, tmp_path: Path
+    ) -> None:
+        terms_root = tmp_path / "docs" / "wiki" / "terms"
+        store = TermStore(terms_root)
+        store.write(
+            Term(
+                id="01PROPOSED000000000000",
+                name="ProposedThing",
+                kind=TermKind.SERVICE,
+                bounded_context=BoundedContext.SHARED_KERNEL,
+                definition="A proposed term.",
+                code_anchor="src/foo.py:Bar",
+                confidence="proposed",
+                proposed_by="TermProposerLoop",
+                proposed_at="2026-05-09T08:00:00+00:00",
+                proposal_signals=["S1", "S2"],
+                proposal_imports_seen=12,
+            )
+        )
+
+        config = HydraFlowConfig(repo_root=tmp_path)
+        router = _make_router(tmp_path, config)
+        endpoint = find_endpoint(router, "/api/atlas/terms/{term_id}", method="GET")
+        result = endpoint(term_id="01PROPOSED000000000000")
+
+        assert result["proposed_by"] == "TermProposerLoop"
+        assert result["proposed_at"] == "2026-05-09T08:00:00+00:00"
+        assert result["proposal_signals"] == ["S1", "S2"]
+        assert result["proposal_imports_seen"] == 12
+
+
+class TestAtlasTermLoopsStatus:
+    """GET /api/atlas/term-loops/status — last-tick snapshot (T6)."""
+
+    def test_returns_entries_for_all_three_loops_when_never_run(
+        self, tmp_path: Path, config_with_terms: HydraFlowConfig
+    ) -> None:
+        router = _make_router(tmp_path, config_with_terms)
+        endpoint = find_endpoint(router, "/api/atlas/term-loops/status", method="GET")
+        assert endpoint is not None
+
+        result = endpoint()
+
+        assert set(result.keys()) == {"term_proposer", "term_pruner", "edge_proposer"}
+        for entry in result.values():
+            assert entry["last_run"] is None
+            assert entry["last_pr_url"] is None
+            assert entry["last_action_count"] is None
+            assert entry["status"] == "unknown"
+
+    def test_reflects_persisted_heartbeat(
+        self, tmp_path: Path, config_with_terms: HydraFlowConfig
+    ) -> None:
+        state = StateTracker(tmp_path / "state.json")
+        state._persist_worker_state(  # noqa: SLF001 — exercising the persistence path
+            "term_proposer",
+            "ok",
+            "2026-05-09T08:30:00+00:00",
+            {"open_pr_url": "https://github.com/x/y/pull/1", "count": 3},
+        )
+        state.save()
+
+        bus = EventBus()
+        from tests.helpers import make_dashboard_router as _mdr
+
+        router, _ = _mdr(config_with_terms, bus, state, tmp_path)
+        endpoint = find_endpoint(router, "/api/atlas/term-loops/status", method="GET")
+        result = endpoint()
+
+        proposer = result["term_proposer"]
+        assert proposer["status"] == "ok"
+        assert proposer["last_run"] == "2026-05-09T08:30:00+00:00"
+        assert proposer["last_pr_url"] == "https://github.com/x/y/pull/1"
+        assert proposer["last_action_count"] == 3
+
 
 class TestAtlasAdrsList:
     """GET /api/atlas/adrs — minimal summary records from docs/adr/*.md."""

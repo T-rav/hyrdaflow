@@ -70,7 +70,35 @@ def _term_detail(term, by_id: dict[str, Any]) -> dict[str, Any]:
         "evidence": list(term.evidence),
         "superseded_by": term.superseded_by,
         "superseded_reason": term.superseded_reason,
+        # Provenance fields from TermProposerLoop (ADR-0054). All None for
+        # hand-authored terms; populated when the loop drafted the term.
+        "proposed_by": term.proposed_by,
+        "proposed_at": term.proposed_at,
+        "proposal_signals": (
+            list(term.proposal_signals) if term.proposal_signals is not None else None
+        ),
+        "proposal_imports_seen": term.proposal_imports_seen,
     }
+
+
+def _adr_related_terms(body: str) -> list[str]:
+    """Extract raw lines from the ADR's '## Related' section.
+
+    Returns the line text (without the leading bullet) for each '- ' bullet.
+    Lookup against term names/aliases happens at graph-assembly time.
+    """
+    out: list[str] = []
+    related_match = re.search(r"^##\s+Related\s*$", body, re.MULTILINE)
+    if not related_match:
+        return out
+    rest = body[related_match.end() :].lstrip("\n")
+    for line in rest.splitlines():
+        if line.startswith("## "):
+            break
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            out.append(stripped[2:].strip())
+    return out
 
 
 def _parse_adr_field(body: str, heading: str) -> str:
@@ -128,7 +156,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
         return _term_detail(by_id[term_id], by_id)
 
     @router.get("/api/atlas/graph")
-    def get_atlas_graph() -> dict[str, Any]:
+    def get_atlas_graph(include_adrs: bool = True) -> dict[str, Any]:
         store = TermStore(_terms_root(ctx))
         terms = store.list()
         contexts_seen: dict[str, dict[str, str]] = {}
@@ -141,6 +169,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
             nodes.append(
                 {
                     "id": term.id,
+                    "type": "term",
                     "name": term.name,
                     "kind": term.kind.value,
                     "confidence": term.confidence,
@@ -156,6 +185,62 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
                         "kind": rel.kind.value,
                     }
                 )
+
+        if include_adrs:
+            adr_root = _adr_root(ctx)
+            if adr_root.is_dir():
+                # Pre-build a lookup of {lowercased name|alias: term.id}.
+                term_lookup: dict[str, str] = {}
+                for term in terms:
+                    term_lookup[term.name.lower()] = term.id
+                    for alias in term.aliases:
+                        term_lookup.setdefault(alias.lower(), term.id)
+
+                adr_context_added = False
+                for path in sorted(adr_root.glob("*.md")):
+                    summary = _adr_summary_from_path(path)
+                    if summary is None:
+                        continue
+                    if not adr_context_added:
+                        contexts_seen.setdefault(
+                            "adrs", {"id": "adrs", "label": "adrs"}
+                        )
+                        adr_context_added = True
+                    adr_id = f"adr-{summary['number']}"
+                    nodes.append(
+                        {
+                            "id": adr_id,
+                            "type": "adr",
+                            "name": f"ADR-{summary['number']:04d}",
+                            "title": summary["title"],
+                            "status": summary["status"],
+                            "parent": "adrs",
+                        }
+                    )
+                    try:
+                        text = path.read_text(encoding="utf-8")
+                    except OSError:
+                        continue
+                    related_lines = _adr_related_terms(text)
+                    seen_targets: set[str] = set()
+                    for line in related_lines:
+                        line_lower = line.lower()
+                        for needle, term_id in term_lookup.items():
+                            # Word-boundary match — substring matching gave
+                            # spurious edges (e.g., the term "Task" matched
+                            # incidental prose like "this ADR task").
+                            if term_id in seen_targets:
+                                continue
+                            pattern = rf"\b{re.escape(needle)}\b"
+                            if re.search(pattern, line_lower):
+                                edges.append(
+                                    {
+                                        "source": adr_id,
+                                        "target": term_id,
+                                        "kind": "relates_to",
+                                    }
+                                )
+                                seen_targets.add(term_id)
 
         return {
             "nodes": nodes,
@@ -189,20 +274,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
                 if title_match
                 else path.stem.split("-", 1)[-1].replace("-", " ")
             )
-            related_lines: list[str] = []
-            related_match = re.search(
-                r"^##\s+Related\s*$",
-                text,
-                re.MULTILINE,
-            )
-            if related_match:
-                rest = text[related_match.end() :].lstrip("\n")
-                for line in rest.splitlines():
-                    if line.startswith("## "):
-                        break
-                    stripped = line.strip()
-                    if stripped.startswith("- "):
-                        related_lines.append(stripped[2:].strip())
+            related_lines = _adr_related_terms(text)
             return {
                 "number": number,
                 "title": title,
@@ -212,3 +284,30 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
                 "related": related_lines,
             }
         raise HTTPException(status_code=404, detail="adr not found")
+
+    @router.get("/api/atlas/term-loops/status")
+    def get_term_loops_status() -> dict[str, Any]:
+        """Last-tick snapshot for the term-graph maintenance loops (P2-T6).
+
+        Reads from StateTracker.get_worker_heartbeats() — same source the
+        SystemPanel background-worker tiles consume. Returns one entry per
+        relevant loop. When the orchestrator has never run, every entry is
+        present with last_run=None so the UI can render "never run" without
+        special-casing absence.
+        """
+        loops = ("term_proposer", "term_pruner", "edge_proposer")
+        try:
+            heartbeats = ctx.state.get_worker_heartbeats()
+        except Exception:  # noqa: BLE001 — diagnostics endpoint, never fail
+            heartbeats = {}
+        out: dict[str, Any] = {}
+        for name in loops:
+            hb = heartbeats.get(name) or {}
+            details = hb.get("details") or {}
+            out[name] = {
+                "status": hb.get("status") or "unknown",
+                "last_run": hb.get("last_run"),
+                "last_pr_url": (details.get("open_pr_url") or details.get("pr_url")),
+                "last_action_count": details.get("count"),
+            }
+        return out

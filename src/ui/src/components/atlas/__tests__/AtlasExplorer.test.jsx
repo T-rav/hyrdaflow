@@ -13,13 +13,23 @@ beforeEach(() => {
 })
 
 describe('AtlasExplorer', () => {
-  it('renders three sub-tab buttons', () => {
+  it('renders four sub-tab buttons', () => {
     render(<AtlasExplorer />)
     expect(screen.getByRole('button', { name: /^domain$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^graph$/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^articles$/i })).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /^maintenance$/i }),
     ).toBeInTheDocument()
+  })
+
+  it('switches to Graph view when its tab is clicked', async () => {
+    render(<AtlasExplorer />)
+    fireEvent.click(screen.getByRole('button', { name: /^graph$/i }))
+    await waitFor(() =>
+      expect(screen.getByTestId('atlas-graph-view')).toBeInTheDocument(),
+    )
+    expect(screen.queryByTestId('atlas-domain-view')).not.toBeInTheDocument()
   })
 
   it('shows the Domain view by default', () => {

@@ -12,8 +12,6 @@ function applyFilters(payload, filters) {
   const safeNodes = Array.isArray(payload.nodes) ? payload.nodes : []
   const keep = (n) => {
     if (n.type === 'adr') {
-      // ADRs survive the term-only filters (kind / confidence) since they
-      // don't carry those fields. Context filter still applies via 'adrs'.
       if (filters.context && n.parent !== filters.context) return false
       return true
     }
@@ -32,7 +30,7 @@ function applyFilters(payload, filters) {
   }
 }
 
-export function DomainView({ selectedNodeId, onSelectNode, filters }) {
+export function GraphView({ selectedNodeId, onSelectNode, filters }) {
   const [graph, setGraph] = useState(null)
   const [error, setError] = useState(null)
 
@@ -59,12 +57,12 @@ export function DomainView({ selectedNodeId, onSelectNode, filters }) {
   }, [])
 
   const filtered = applyFilters(graph, filters)
-  const { nodes, edges } = useGraphLayout(filtered, 'domain', selectedNodeId)
+  const { nodes, edges } = useGraphLayout(filtered, 'force', selectedNodeId)
 
   if (error) {
     return (
       <div
-        data-testid="atlas-domain-view"
+        data-testid="atlas-graph-view"
         style={{ padding: 24, color: theme.textMuted, fontSize: 13 }}
       >
         Unable to load graph data.
@@ -75,7 +73,7 @@ export function DomainView({ selectedNodeId, onSelectNode, filters }) {
   if (!graph) {
     return (
       <div
-        data-testid="atlas-domain-view"
+        data-testid="atlas-graph-view"
         style={{ padding: 24, color: theme.textMuted, fontSize: 13 }}
       >
         Loading…
@@ -85,15 +83,13 @@ export function DomainView({ selectedNodeId, onSelectNode, filters }) {
 
   return (
     <div
-      data-testid="atlas-domain-view"
+      data-testid="atlas-graph-view"
       style={{ height: '100%', width: '100%' }}
     >
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodeClick={(_, n) => {
-          if (n.type !== 'group') onSelectNode(n.id)
-        }}
+        onNodeClick={(_, n) => onSelectNode(n.id)}
         fitView
       >
         <Background />
@@ -104,4 +100,4 @@ export function DomainView({ selectedNodeId, onSelectNode, filters }) {
   )
 }
 
-export default DomainView
+export default GraphView

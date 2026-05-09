@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@xyflow/react": "^12.10.2",
+    "d3-force": "^3.0.0",
     "echarts": "^5.5.1",
     "echarts-for-react": "^3.0.2",
     "html2canvas": "^1.4.1",

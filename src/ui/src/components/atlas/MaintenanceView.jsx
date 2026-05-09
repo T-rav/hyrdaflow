@@ -4,6 +4,7 @@ import { theme } from '../../theme'
 export function MaintenanceView() {
   const [status, setStatus] = useState(null)
   const [health, setHealth] = useState(null)
+  const [termLoops, setTermLoops] = useState(null)
 
   const refresh = useCallback(() => {
     fetch('/api/wiki/maintenance/status')
@@ -14,6 +15,10 @@ export function MaintenanceView() {
       .then((r) => (r.ok ? r.json() : null))
       .then(setHealth)
       .catch(() => setHealth(null))
+    fetch('/api/atlas/term-loops/status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setTermLoops)
+      .catch(() => setTermLoops(null))
   }, [])
 
   useEffect(() => {
@@ -133,6 +138,63 @@ export function MaintenanceView() {
             <span style={{ color: theme.textMuted }}>Tribal store: </span>
             {health?.tribal ?? '—'}
           </div>
+        </div>
+      </div>
+
+      <div style={{ ...styles.card, gridColumn: 'span 2' }}>
+        <div style={styles.label}>Term loops</div>
+        <div
+          style={{
+            marginTop: 6,
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr 1fr',
+            gap: 12,
+          }}
+        >
+          {['term_proposer', 'term_pruner', 'edge_proposer'].map((name) => {
+            const loop = termLoops?.[name]
+            const loopStatus = loop?.status ?? 'unknown'
+            const lastRun = loop?.last_run
+            const loopPrUrl = loop?.last_pr_url
+            const count = loop?.last_action_count
+            return (
+              <div
+                key={name}
+                style={{
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: 3,
+                  padding: 8,
+                }}
+              >
+                <div style={{ color: theme.textBright }}>{name}</div>
+                <div style={{ color: theme.textMuted, fontSize: 10 }}>
+                  status: {loopStatus}
+                </div>
+                <div style={{ color: theme.textMuted, fontSize: 10 }}>
+                  last run: {lastRun ? lastRun.split('T')[0] : '—'}
+                </div>
+                {loopPrUrl && (
+                  <a
+                    href={loopPrUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ color: theme.accent, fontSize: 10 }}
+                  >
+                    last PR
+                  </a>
+                )}
+                {typeof count === 'number' && (
+                  <div style={{ color: theme.textMuted, fontSize: 10 }}>
+                    actions: {count}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        <div style={{ color: theme.textMuted, fontSize: 10, marginTop: 6 }}>
+          From <code>/api/atlas/term-loops/status</code>. Read-only;
+          loops are governed by the System tab toggles.
         </div>
       </div>
 
