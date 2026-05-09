@@ -32,20 +32,49 @@ function applyFilters(payload, filters) {
   }
 }
 
+function mergeDiscovered(graph, discovered) {
+  if (!graph || !Array.isArray(discovered) || discovered.length === 0) {
+    return graph
+  }
+  const extraNodes = discovered.map((entry) => ({
+    id: `entry-${entry.owner}-${entry.repo}-${entry.id}`,
+    type: 'entry',
+    name: entry.filename,
+    topic: entry.topic,
+    parent: 'discovered',
+    owner: entry.owner,
+    repo: entry.repo,
+    entry_id: entry.id,
+  }))
+  return {
+    ...graph,
+    nodes: [...(graph.nodes || []), ...extraNodes],
+    edges: graph.edges || [],
+    contexts: [
+      ...(graph.contexts || []),
+      { id: 'discovered', label: 'discovered' },
+    ],
+  }
+}
+
 export function DomainView({ selectedNodeId, onSelectNode, filters }) {
   const [graph, setGraph] = useState(null)
+  const [discovered, setDiscovered] = useState([])
   const [error, setError] = useState(null)
 
   useEffect(() => {
     let cancelled = false
-    fetch('/api/atlas/graph')
-      .then((r) => {
+    Promise.all([
+      fetch('/api/atlas/graph?include_entries=true').then((r) => {
         if (!r.ok) throw new Error(`status ${r.status}`)
         return r.json()
-      })
-      .then((data) => {
+      }),
+      fetch('/api/atlas/discovered').then((r) => (r.ok ? r.json() : [])),
+    ])
+      .then(([graphData, discoveredData]) => {
         if (cancelled) return
-        setGraph(data)
+        setGraph(graphData)
+        setDiscovered(Array.isArray(discoveredData) ? discoveredData : [])
         setError(null)
       })
       .catch((err) => {
@@ -58,7 +87,8 @@ export function DomainView({ selectedNodeId, onSelectNode, filters }) {
     }
   }, [])
 
-  const filtered = applyFilters(graph, filters)
+  const merged = mergeDiscovered(graph, discovered)
+  const filtered = applyFilters(merged, filters)
   const { nodes, edges } = useGraphLayout(filtered, 'domain', selectedNodeId)
 
   if (error) {

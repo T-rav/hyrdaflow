@@ -50,6 +50,25 @@ function nodeStyle(node, selected) {
       padding: 6,
     }
   }
+  if (node.type === 'entry') {
+    // Entry nodes are leaves — smaller, lower-contrast. Discovered (orphan)
+    // entries get dashed borders so the bot-generated evidence reads as
+    // secondary signal next to the curated term/ADR vocabulary.
+    const dashed = node.parent === 'discovered'
+    return {
+      width: 100,
+      height: 24,
+      background: dashed ? 'transparent' : theme.surfaceInset,
+      border: `1px ${dashed ? 'dashed' : 'solid'} ${
+        selected ? theme.accent : '#555'
+      }`,
+      borderRadius: 2,
+      color: dashed ? theme.textMuted : theme.text,
+      fontSize: 10,
+      padding: 4,
+      opacity: dashed ? 0.7 : 1,
+    }
+  }
   return {
     width: NODE_W,
     height: NODE_H,
@@ -73,8 +92,14 @@ function buildEdges(rawEdges) {
     label: e.kind,
     labelStyle: { fontSize: 10, fill: theme.textMuted },
     style: {
-      stroke: e.kind === 'relates_to' ? '#666' : theme.border,
-      strokeDasharray: e.kind === 'relates_to' ? '4,2' : undefined,
+      stroke:
+        e.kind === 'relates_to' || e.kind === 'evidence_for'
+          ? '#666'
+          : theme.border,
+      strokeDasharray:
+        e.kind === 'relates_to' || e.kind === 'evidence_for'
+          ? '4,2'
+          : undefined,
     },
   }))
 }

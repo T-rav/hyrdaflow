@@ -161,12 +161,14 @@ export function TermDetailPanel({ selectedNodeId }) {
       <div style={styles.label}>Evidence ({term.evidence.length})</div>
       {term.evidence.length === 0 ? (
         <div style={{ color: theme.textMuted, fontStyle: 'italic' }}>
-          No wiki entries linked yet (Phase 3).
+          No wiki entries linked. The migration script
+          (<code>scripts/migrate_entries_to_term_evidence.py</code>)
+          populates this list.
         </div>
       ) : (
         term.evidence.map((id) => (
           <div key={id} style={styles.edgeRow}>
-            {id}
+            <code style={{ color: theme.textBright }}>entry-{id}</code>
           </div>
         ))
       )}

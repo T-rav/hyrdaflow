@@ -6,13 +6,27 @@ import { WikiTopBar } from '../wiki/WikiTopBar'
 
 export function ArticlesView() {
   const [typeFilter, setTypeFilter] = useState('all') // all | adrs | wiki
+  const [linkFilter, setLinkFilter] = useState('all') // all | linked | discovered
   const [adrs, setAdrs] = useState([])
   const [repos, setRepos] = useState([])
   const [selectedRepo, setSelectedRepo] = useState(null)
   const [wikiFilters, setWikiFilters] = useState({ topic: '', status: '', q: '' })
   const [entries, setEntries] = useState([])
+  const [discoveredIds, setDiscoveredIds] = useState(new Set())
   const [selected, setSelected] = useState(null)
   const [bodyDetail, setBodyDetail] = useState(null)
+
+  // Discovered entry IDs (orphans w/ no term evidence). One fetch on mount —
+  // stable enough at the cadence the term-proposer + migration script run at.
+  useEffect(() => {
+    fetch('/api/atlas/discovered')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => {
+        const list = Array.isArray(d) ? d : []
+        setDiscoveredIds(new Set(list.map((e) => e.id)))
+      })
+      .catch(() => setDiscoveredIds(new Set()))
+  }, [])
 
   // ADRs (always loaded — small set)
   useEffect(() => {
@@ -92,18 +106,25 @@ export function ArticlesView() {
         })
     }
     if (typeFilter === 'all' || typeFilter === 'wiki') {
-      for (const e of entries)
+      for (const e of entries) {
+        const isDiscovered = discoveredIds.has(e.id)
+        // Link filter only applies to wiki entries — ADRs are out of scope.
+        if (linkFilter === 'linked' && isDiscovered) continue
+        if (linkFilter === 'discovered' && !isDiscovered) continue
         rows.push({
           key: `wiki-${e.id}-${e.topic}`,
           type: 'wiki',
           id: e.id,
           repo: { owner: e.owner, repo: e.repo },
           title: e.filename,
-          meta: `${e.topic} · ${e.status} · #${e.source_issue ?? '?'}`,
+          meta: `${e.topic} · ${e.status} · #${e.source_issue ?? '?'}${
+            isDiscovered ? ' · discovered' : ''
+          }`,
         })
+      }
     }
     return rows
-  }, [typeFilter, adrs, entries])
+  }, [typeFilter, linkFilter, adrs, entries, discoveredIds])
 
   const showWikiBar = typeFilter === 'all' || typeFilter === 'wiki'
 
@@ -190,13 +211,26 @@ export function ArticlesView() {
           <option value="wiki">Wiki entries</option>
         </select>
         {showWikiBar && (
-          <WikiTopBar
-            repos={repos}
-            selectedRepo={selectedRepo}
-            onRepoChange={setSelectedRepo}
-            filters={wikiFilters}
-            onFiltersChange={setWikiFilters}
-          />
+          <>
+            <span style={styles.label}>Linked</span>
+            <select
+              aria-label="Linked to term"
+              style={styles.select}
+              value={linkFilter}
+              onChange={(e) => setLinkFilter(e.target.value)}
+            >
+              <option value="all">All</option>
+              <option value="linked">Linked to a term</option>
+              <option value="discovered">Discovered (orphan)</option>
+            </select>
+            <WikiTopBar
+              repos={repos}
+              selectedRepo={selectedRepo}
+              onRepoChange={setSelectedRepo}
+              filters={wikiFilters}
+              onFiltersChange={setWikiFilters}
+            />
+          </>
         )}
       </div>
       <div style={styles.panes}>

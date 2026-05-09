@@ -114,4 +114,34 @@ describe('ArticlesView', () => {
       expect(heading.tagName).toBe('H1')
     })
   })
+
+  it('renders the Linked-to-term filter dropdown when wiki entries are in scope', async () => {
+    render(<ArticlesView />)
+    await waitFor(() =>
+      expect(screen.getByLabelText(/linked to term/i)).toBeInTheDocument(),
+    )
+    const select = screen.getByLabelText(/linked to term/i)
+    expect(select.tagName).toBe('SELECT')
+    // All three options must be available.
+    expect(
+      screen.getByRole('option', { name: /linked to a term/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('option', { name: /discovered \(orphan\)/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('hides the Linked filter when type is set to ADRs only', async () => {
+    render(<ArticlesView />)
+    await waitFor(() =>
+      expect(screen.getByLabelText(/linked to term/i)).toBeInTheDocument(),
+    )
+    fireEvent.change(screen.getByLabelText(/^type$/i), {
+      target: { value: 'adrs' },
+    })
+    // The whole wiki bar (including the link filter) is gated on ADRs/wiki/all.
+    expect(
+      screen.queryByLabelText(/linked to term/i),
+    ).not.toBeInTheDocument()
+  })
 })
