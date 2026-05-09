@@ -124,6 +124,25 @@ export function TermDetailPanel({ selectedNodeId }) {
           </div>
         </>
       )}
+      {term.proposed_by && (
+        <>
+          <hr style={styles.rule} />
+          <div style={styles.label}>Provenance</div>
+          <div>
+            Proposed by{' '}
+            <code style={{ color: theme.accent }}>{term.proposed_by}</code>
+            {term.proposed_at && <> on {term.proposed_at.split('T')[0]}</>}
+          </div>
+          {term.proposal_signals && term.proposal_signals.length > 0 && (
+            <div style={{ color: theme.textMuted, marginTop: 2 }}>
+              signals: {term.proposal_signals.join(', ')}
+              {typeof term.proposal_imports_seen === 'number' && (
+                <> · imports seen: {term.proposal_imports_seen}</>
+              )}
+            </div>
+          )}
+        </>
+      )}
       <hr style={styles.rule} />
       <div style={styles.label}>Edges ({term.edges.length})</div>
       {term.edges.length === 0 ? (

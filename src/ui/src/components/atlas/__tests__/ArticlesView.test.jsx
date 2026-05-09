@@ -74,6 +74,9 @@ describe('ArticlesView', () => {
   it('shows ADR and WIKI type chips on rows', async () => {
     render(<ArticlesView />)
     await waitFor(() => screen.getByText(/atlas knowledge graph/i))
+    await waitFor(() =>
+      screen.getByText('0001-issue-10-first-pattern.md'),
+    )
     expect(screen.getAllByText('ADR').length).toBeGreaterThan(0)
     expect(screen.getAllByText('WIKI').length).toBeGreaterThan(0)
   })
