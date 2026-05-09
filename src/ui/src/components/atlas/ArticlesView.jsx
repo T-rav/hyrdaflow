@@ -19,13 +19,20 @@ export function ArticlesView() {
   // Discovered entry IDs (orphans w/ no term evidence). One fetch on mount —
   // stable enough at the cadence the term-proposer + migration script run at.
   useEffect(() => {
+    let cancelled = false
     fetch('/api/atlas/discovered')
       .then((r) => (r.ok ? r.json() : []))
       .then((d) => {
+        if (cancelled) return
         const list = Array.isArray(d) ? d : []
         setDiscoveredIds(new Set(list.map((e) => e.id)))
       })
-      .catch(() => setDiscoveredIds(new Set()))
+      .catch(() => {
+        if (!cancelled) setDiscoveredIds(new Set())
+      })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   // ADRs (always loaded — small set)

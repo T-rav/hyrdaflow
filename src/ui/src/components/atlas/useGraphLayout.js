@@ -202,16 +202,18 @@ function layoutForce(payload, selectedId) {
   const flowNodes = simNodes.map((n) => {
     const ctxColor = CONTEXT_COLORS[n.parent] || theme.border
     const baseStyle = nodeStyle(n, n.id === selectedId)
+    // Entry nodes keep the dashed/discovered styling computed by nodeStyle —
+    // overriding their border here would erase the Discovered-bucket signal
+    // (orphans become visually indistinguishable from linked entries).
+    const border =
+      n.type === 'entry'
+        ? baseStyle.border
+        : `1px ${n.confidence === 'proposed' ? 'dashed' : 'solid'} ${ctxColor}`
     return {
       id: n.id,
       position: { x: n.x ?? 0, y: n.y ?? 0 },
       data: { label: n.name, kind: n.kind, type: n.type },
-      style: {
-        ...baseStyle,
-        // In force mode, color the node border by context (not kind) so the
-        // free layout still telegraphs which subgraph each node lives in.
-        border: `1px ${n.confidence === 'proposed' ? 'dashed' : 'solid'} ${ctxColor}`,
-      },
+      style: { ...baseStyle, border },
     }
   })
 
