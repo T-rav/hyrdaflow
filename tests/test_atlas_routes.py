@@ -300,6 +300,121 @@ class TestAtlasTermLoopsStatus:
         assert proposer["last_action_count"] == 3
 
 
+def _seed_wiki_entries(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """Create two wiki entries on disk under the configured repo_wiki_path.
+
+    Returns (orphan_entry_path, linked_entry_path, repo_dir).
+    """
+    config = HydraFlowConfig(repo_root=tmp_path)
+    wiki_root = tmp_path / config.repo_wiki_path
+    repo_dir = wiki_root / "acme" / "widget"
+    (repo_dir / "patterns").mkdir(parents=True)
+    (repo_dir / "gotchas").mkdir(parents=True)
+    (repo_dir / "index.md").write_text("# wiki\n")
+
+    linked = repo_dir / "patterns" / "0001-issue-10-linked.md"
+    linked.write_text(
+        "---\nstatus: active\nsource_issue: 10\n---\n\n# linked\n\nbody.\n"
+    )
+    orphan = repo_dir / "gotchas" / "0002-issue-11-orphan.md"
+    orphan.write_text(
+        "---\nstatus: active\nsource_issue: 11\n---\n\n# orphan\n\nbody.\n"
+    )
+    return orphan, linked, repo_dir
+
+
+class TestAtlasGraphIncludeEntries:
+    """GET /api/atlas/graph?include_entries=true (P3-T3)."""
+
+    def test_does_not_include_entries_by_default(
+        self, tmp_path: Path, config_with_terms: HydraFlowConfig
+    ) -> None:
+        _seed_wiki_entries(tmp_path)
+        router = _make_router(tmp_path, config_with_terms)
+        endpoint = find_endpoint(router, "/api/atlas/graph", method="GET")
+        result = endpoint()
+        assert all(n.get("type") != "entry" for n in result["nodes"])
+
+    def test_includes_only_entries_referenced_by_term_evidence(
+        self, tmp_path: Path
+    ) -> None:
+        _seed_wiki_entries(tmp_path)
+        terms_root = tmp_path / "docs" / "wiki" / "terms"
+        store = TermStore(terms_root)
+        store.write(
+            Term(
+                id="01TARGET00000000000000",
+                name="EventBus",
+                kind=TermKind.SERVICE,
+                bounded_context=BoundedContext.SHARED_KERNEL,
+                definition="bus.",
+                code_anchor="src/events.py:EventBus",
+                confidence="accepted",
+                evidence=["0001"],
+            )
+        )
+
+        config = HydraFlowConfig(repo_root=tmp_path)
+        router = _make_router(tmp_path, config)
+        endpoint = find_endpoint(router, "/api/atlas/graph", method="GET")
+        result = endpoint(include_entries=True)
+
+        entry_nodes = [n for n in result["nodes"] if n.get("type") == "entry"]
+        assert len(entry_nodes) == 1
+        e = entry_nodes[0]
+        assert e["entry_id"] == "0001"
+        assert e["topic"] == "patterns"
+        assert e["parent"] == "shared-kernel"
+
+        evidence_edges = [
+            edge for edge in result["edges"] if edge["kind"] == "evidence_for"
+        ]
+        assert len(evidence_edges) == 1
+        assert evidence_edges[0]["source"] == e["id"]
+        assert evidence_edges[0]["target"] == "01TARGET00000000000000"
+
+
+class TestAtlasDiscovered:
+    """GET /api/atlas/discovered — orphan wiki entries (P3-T4)."""
+
+    def test_returns_only_unlinked_entries(self, tmp_path: Path) -> None:
+        _seed_wiki_entries(tmp_path)
+        terms_root = tmp_path / "docs" / "wiki" / "terms"
+        store = TermStore(terms_root)
+        store.write(
+            Term(
+                id="01TARGET00000000000000",
+                name="EventBus",
+                kind=TermKind.SERVICE,
+                bounded_context=BoundedContext.SHARED_KERNEL,
+                definition="bus.",
+                code_anchor="src/events.py:EventBus",
+                confidence="accepted",
+                evidence=["0001"],
+            )
+        )
+
+        config = HydraFlowConfig(repo_root=tmp_path)
+        router = _make_router(tmp_path, config)
+        endpoint = find_endpoint(router, "/api/atlas/discovered", method="GET")
+        assert endpoint is not None
+
+        result = endpoint()
+
+        ids = {e["id"] for e in result}
+        assert ids == {"0002"}
+        orphan = result[0]
+        assert orphan["topic"] == "gotchas"
+        assert orphan["owner"] == "acme"
+        assert orphan["repo"] == "widget"
+
+    def test_returns_empty_when_wiki_root_missing(self, tmp_path: Path) -> None:
+        config = HydraFlowConfig(repo_root=tmp_path)
+        router = _make_router(tmp_path, config)
+        endpoint = find_endpoint(router, "/api/atlas/discovered", method="GET")
+        assert endpoint() == []
+
+
 class TestAtlasAdrsList:
     """GET /api/atlas/adrs — minimal summary records from docs/adr/*.md."""
 

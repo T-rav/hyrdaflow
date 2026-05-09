@@ -25,6 +25,16 @@ logger = logging.getLogger("hydraflow.dashboard.atlas")
 
 _ADR_FILENAME_RE = re.compile(r"^(\d{4,5})-(.+)\.md$")
 _ADR_TITLE_RE = re.compile(r"^#\s+ADR-\d{4,5}:\s+(.+?)\s*$", re.MULTILINE)
+# Same shape as _ENTRY_FILENAME_RE in _wiki_routes.py — kept duplicated to
+# avoid coupling _atlas_routes to wiki internals.
+_ENTRY_FILENAME_RE = re.compile(r"^(\d+)-issue-(\S+?)-(.+)\.md$")
+_WIKI_TOPICS: tuple[str, ...] = (
+    "architecture",
+    "patterns",
+    "gotchas",
+    "testing",
+    "dependencies",
+)
 
 
 def _terms_root(ctx: RouteContext) -> Path:
@@ -33,6 +43,44 @@ def _terms_root(ctx: RouteContext) -> Path:
 
 def _adr_root(ctx: RouteContext) -> Path:
     return (ctx.config.repo_root / "docs" / "adr").resolve()
+
+
+def _wiki_root(ctx: RouteContext) -> Path:
+    return (ctx.config.repo_root / ctx.config.repo_wiki_path).resolve()
+
+
+def _iter_wiki_entries(ctx: RouteContext):
+    """Yield {id, owner, repo, topic, filename, status} for every wiki entry.
+
+    Walks the tracked ``repo_wiki/`` layout. Used by the entry-graph and
+    discovered-bucket endpoints. Yields no results when the directory is
+    absent or empty.
+    """
+    root = _wiki_root(ctx)
+    if not root.is_dir():
+        return
+    for owner_dir in sorted(root.iterdir()):
+        if not owner_dir.is_dir():
+            continue
+        for repo_dir in sorted(owner_dir.iterdir()):
+            if not repo_dir.is_dir():
+                continue
+            for topic in _WIKI_TOPICS:
+                topic_dir = repo_dir / topic
+                if not topic_dir.is_dir():
+                    continue
+                for path in sorted(topic_dir.glob("*.md")):
+                    m = _ENTRY_FILENAME_RE.match(path.name)
+                    if m is None:
+                        continue
+                    yield {
+                        "id": m.group(1),
+                        "issue": m.group(2),
+                        "topic": topic,
+                        "owner": owner_dir.name,
+                        "repo": repo_dir.name,
+                        "filename": path.name,
+                    }
 
 
 def _term_summary(term) -> dict[str, Any]:
@@ -156,7 +204,9 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
         return _term_detail(by_id[term_id], by_id)
 
     @router.get("/api/atlas/graph")
-    def get_atlas_graph(include_adrs: bool = True) -> dict[str, Any]:
+    def get_atlas_graph(
+        include_adrs: bool = True, include_entries: bool = False
+    ) -> dict[str, Any]:
         store = TermStore(_terms_root(ctx))
         terms = store.list()
         contexts_seen: dict[str, dict[str, str]] = {}
@@ -242,11 +292,74 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
                                 )
                                 seen_targets.add(term_id)
 
+        if include_entries:
+            # Build a {entry_id: term_id} reverse index from the evidence
+            # lists. Entries that don't appear get routed to the Discovered
+            # bucket; entries with multiple terms attach to the first one
+            # we see (collisions are rare and a single attachment is enough
+            # for graph navigation).
+            entry_to_term: dict[str, str] = {}
+            term_by_id = {t.id: t for t in terms}
+            for term in terms:
+                for entry_id in term.evidence:
+                    entry_to_term.setdefault(entry_id, term.id)
+
+            for entry in _iter_wiki_entries(ctx):
+                eid = entry["id"]
+                term_id = entry_to_term.get(eid)
+                if term_id is None:
+                    # Orphan entries surface via /api/atlas/discovered, not
+                    # the main graph payload — keeps the canvas focused on
+                    # the term-anchored network.
+                    continue
+                anchor = term_by_id.get(term_id)
+                parent = anchor.bounded_context.value if anchor is not None else None
+                node_id = f"entry-{entry['owner']}-{entry['repo']}-{eid}"
+                nodes.append(
+                    {
+                        "id": node_id,
+                        "type": "entry",
+                        "name": entry["filename"],
+                        "topic": entry["topic"],
+                        "parent": parent,
+                        "owner": entry["owner"],
+                        "repo": entry["repo"],
+                        "entry_id": eid,
+                    }
+                )
+                edges.append(
+                    {
+                        "source": node_id,
+                        "target": term_id,
+                        "kind": "evidence_for",
+                    }
+                )
+
         return {
             "nodes": nodes,
             "edges": edges,
             "contexts": list(contexts_seen.values()),
         }
+
+    @router.get("/api/atlas/discovered")
+    def list_atlas_discovered() -> list[dict[str, Any]]:
+        """Wiki entries with no term-evidence backlink (the Discovered bucket).
+
+        The frontend renders these inside a virtual 'discovered' subgraph
+        with dashed-grey styling so operators can see what knowledge the
+        term proposer hasn't classified yet (ADR-0061).
+        """
+        store = TermStore(_terms_root(ctx))
+        linked: set[str] = set()
+        for term in store.list():
+            for entry_id in term.evidence:
+                linked.add(entry_id)
+        out: list[dict[str, Any]] = []
+        for entry in _iter_wiki_entries(ctx):
+            if entry["id"] in linked:
+                continue
+            out.append(entry)
+        return out
 
     @router.get("/api/atlas/adrs")
     def list_atlas_adrs() -> list[dict[str, Any]]:
