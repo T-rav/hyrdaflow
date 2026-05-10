@@ -1,0 +1,39 @@
+// File-level delta for issue #8499.
+// Two existing files, one new file. No source code (src/) modified.
+
+specification {
+  element file
+  relationship adds
+  relationship modifies
+  relationship newFile
+}
+
+model {
+  cassetteYaml = file 'tests/trust/contracts/cassettes/git/worktree_prune.yaml' {
+    description 'NEW — input.command: worktree_prune; output empty; normalizers: []'
+  }
+
+  contractTest = file 'tests/trust/contracts/test_fake_git_contract.py' {
+    description 'MODIFY — extend _invoke_fake_git with worktree_prune branch'
+  }
+
+  regressionTest = file 'tests/regressions/test_issue_8499.py' {
+    description 'PRE-EXISTING — already-failing regression that begins to pass'
+  }
+
+  fakeGitSrc = file 'src/mockworld/fakes/fake_git.py' {
+    description 'UNCHANGED — worktree_prune already exists at lines 42-44'
+  }
+
+  cassetteYaml -> contractTest 'requires dispatcher branch'
+  cassetteYaml -> regressionTest 'satisfies catalog_cassette_methods'
+  contractTest -> fakeGitSrc 'invokes worktree_prune'
+}
+
+views {
+  view fileDelta {
+    title 'Issue 8499 file delta'
+    include *
+    autoLayout LeftRight
+  }
+}
