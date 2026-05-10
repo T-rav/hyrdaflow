@@ -3,6 +3,7 @@ import { ReactFlow, Background, Controls, MiniMap } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { theme } from '../../theme'
 import { useGraphLayout } from './useGraphLayout'
+import { computeFocusSet } from './atlasFocus'
 
 function applyFilters(payload, filters) {
   if (!payload) return payload
@@ -55,7 +56,12 @@ function mergeDiscovered(graph, discovered) {
   }
 }
 
-export function GraphView({ selectedNodeId, onSelectNode, filters }) {
+export function GraphView({
+  selectedNodeId,
+  onSelectNode,
+  filters,
+  focusMode,
+}) {
   const [graph, setGraph] = useState(null)
   const [discovered, setDiscovered] = useState([])
   const [error, setError] = useState(null)
@@ -87,7 +93,16 @@ export function GraphView({ selectedNodeId, onSelectNode, filters }) {
 
   const merged = mergeDiscovered(graph, discovered)
   const filtered = applyFilters(merged, filters)
-  const { nodes, edges } = useGraphLayout(filtered, 'force', selectedNodeId)
+  const focusSet =
+    focusMode && selectedNodeId
+      ? computeFocusSet(filtered, selectedNodeId)
+      : null
+  const { nodes, edges } = useGraphLayout(
+    filtered,
+    'force',
+    selectedNodeId,
+    focusSet,
+  )
 
   if (error) {
     return (

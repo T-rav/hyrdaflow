@@ -6,6 +6,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W19
 
+- `fe84239` — chore(arch): regen artifacts post-quality (P3) *(2026-05-09)*
 - `9a5df5a` — feat(atlas): entries-as-evidence + Discovered bucket endpoints (T3-T4) *(2026-05-09)*
 - `68c9342` — docs(adr): ADR-0061 atlas entries-as-evidence + Discovered bucket *(2026-05-09)*
 - `da05260` — chore(arch): regen artifacts post-quality (P2) *(2026-05-09)*
@@ -198,4 +199,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `364f7a8` on 2026-05-09 20:31 UTC. Source last changed at `364f7a8`. Status: 🟢 fresh._
+_Regenerated from commit `bcee847` on 2026-05-10 02:29 UTC. Source last changed at `bcee847`. Status: 🟢 fresh._

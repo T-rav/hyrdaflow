@@ -1,10 +1,43 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { theme } from '../../theme'
 import { DomainView } from './DomainView'
 import { GraphView } from './GraphView'
 import { DetailPanel } from './DetailPanel'
 import { ArticlesView } from './ArticlesView'
 import { MaintenanceView } from './MaintenanceView'
+import {
+  loadSavedViews,
+  saveView,
+  deleteSavedView,
+} from './atlasSavedViews'
+
+const VALID_SUBTABS = new Set(['domain', 'graph', 'articles', 'maintenance'])
+
+function readDeepLink() {
+  if (typeof window === 'undefined') return { sub: 'domain', node: null }
+  const params = new URLSearchParams(window.location.search)
+  const sub = params.get('atlas_sub')
+  const node = params.get('atlas_node')
+  return {
+    sub: VALID_SUBTABS.has(sub) ? sub : 'domain',
+    node: node || null,
+  }
+}
+
+function writeDeepLink(sub, node) {
+  if (typeof window === 'undefined') return
+  const params = new URLSearchParams(window.location.search)
+  // Only meddle with our own keys; leave the outer ?tab= alone.
+  if (sub && sub !== 'domain') params.set('atlas_sub', sub)
+  else params.delete('atlas_sub')
+  if (node) params.set('atlas_node', node)
+  else params.delete('atlas_node')
+  const qs = params.toString()
+  const next = `${window.location.pathname}${qs ? `?${qs}` : ''}${
+    window.location.hash
+  }`
+  window.history.replaceState({}, '', next)
+}
 
 const SUBTABS = [
   { id: 'domain', label: 'Domain' },
@@ -30,7 +63,16 @@ const KINDS = [
 const CONTEXTS = ['builder', 'caretaker', 'ai-dev-team', 'shared-kernel', 'adrs']
 const CONFIDENCES = ['accepted', 'proposed', 'deprecated']
 
-function GraphFilterBar({ filters, onChange }) {
+function GraphFilterBar({
+  filters,
+  onChange,
+  focusMode,
+  onToggleFocus,
+  savedViews,
+  onSaveView,
+  onApplyView,
+  onDeleteView,
+}) {
   const styles = {
     bar: {
       display: 'flex',
@@ -101,18 +143,111 @@ function GraphFilterBar({ filters, onChange }) {
           </option>
         ))}
       </select>
+      <button
+        type="button"
+        aria-label="Toggle focus mode"
+        aria-pressed={focusMode}
+        style={{
+          ...styles.select,
+          cursor: 'pointer',
+          background: focusMode ? theme.accent : theme.surfaceInset,
+          color: focusMode ? theme.bg : theme.text,
+        }}
+        onClick={onToggleFocus}
+      >
+        Focus mode
+      </button>
+      <span style={styles.label}>View</span>
+      <select
+        aria-label="Saved view"
+        style={styles.select}
+        value=""
+        onChange={(e) => {
+          const v = e.target.value
+          if (!v) return
+          if (v === '__save__') onSaveView()
+          else if (v.startsWith('__delete__:'))
+            onDeleteView(v.slice('__delete__:'.length))
+          else onApplyView(v)
+        }}
+      >
+        <option value="">Apply view…</option>
+        {Object.keys(savedViews).map((name) => (
+          <option key={name} value={name}>
+            {name}
+          </option>
+        ))}
+        <option disabled>──────────</option>
+        <option value="__save__">Save current as…</option>
+        {Object.keys(savedViews).map((name) => (
+          <option key={`del-${name}`} value={`__delete__:${name}`}>
+            Delete: {name}
+          </option>
+        ))}
+      </select>
     </div>
   )
 }
 
 export function AtlasExplorer() {
-  const [activeSubtab, setActiveSubtab] = useState('domain')
-  const [selectedNodeId, setSelectedNodeId] = useState(null)
+  const initial = readDeepLink()
+  const [activeSubtab, setActiveSubtab] = useState(initial.sub)
+  const [selectedNodeId, setSelectedNodeId] = useState(initial.node)
   const [filters, setFilters] = useState({
     kind: '',
     context: '',
     confidence: '',
   })
+  const [focusMode, setFocusMode] = useState(false)
+  const [savedViews, setSavedViews] = useState(() => loadSavedViews())
+
+  // Sync deep-link state to URL whenever the sub-tab or selection changes.
+  useEffect(() => {
+    writeDeepLink(activeSubtab, selectedNodeId)
+  }, [activeSubtab, selectedNodeId])
+
+  // Esc clears selection. '/' focuses the search input on Articles when
+  // active. Both work without modifier keys; ignore when typing in inputs.
+  useEffect(() => {
+    const onKey = (e) => {
+      const t = e.target
+      const typing =
+        t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')
+      if (e.key === 'Escape' && selectedNodeId) {
+        setSelectedNodeId(null)
+        // Don't preventDefault while typing — let the browser's native
+        // "clear input" Esc behavior still fire so users keep both gestures.
+        if (!typing) e.preventDefault()
+        return
+      }
+      if (e.key === '/' && !typing && activeSubtab === 'articles') {
+        const search = document.querySelector(
+          '[data-testid="atlas-articles-view"] input[type="search"]',
+        )
+        if (search) {
+          search.focus()
+          e.preventDefault()
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [activeSubtab, selectedNodeId])
+
+  const handleSaveView = () => {
+    const name = window.prompt('Save view as:')
+    if (!name) return
+    const updated = saveView(name, filters)
+    setSavedViews(updated)
+  }
+  const handleApplyView = (name) => {
+    const view = savedViews[name]
+    if (view) setFilters(view)
+  }
+  const handleDeleteView = (name) => {
+    const updated = deleteSavedView(name)
+    setSavedViews(updated)
+  }
 
   const styles = {
     root: {
@@ -174,7 +309,16 @@ export function AtlasExplorer() {
       </div>
       <div style={styles.content}>
         {isGraphMode && (
-          <GraphFilterBar filters={filters} onChange={setFilters} />
+          <GraphFilterBar
+            filters={filters}
+            onChange={setFilters}
+            focusMode={focusMode}
+            onToggleFocus={() => setFocusMode((v) => !v)}
+            savedViews={savedViews}
+            onSaveView={handleSaveView}
+            onApplyView={handleApplyView}
+            onDeleteView={handleDeleteView}
+          />
         )}
         {activeSubtab === 'domain' && (
           <div style={styles.graphRow}>
@@ -183,6 +327,7 @@ export function AtlasExplorer() {
                 selectedNodeId={selectedNodeId}
                 onSelectNode={setSelectedNodeId}
                 filters={filters}
+                focusMode={focusMode}
               />
             </div>
             <div style={styles.detailPane}>
@@ -197,6 +342,7 @@ export function AtlasExplorer() {
                 selectedNodeId={selectedNodeId}
                 onSelectNode={setSelectedNodeId}
                 filters={filters}
+                focusMode={focusMode}
               />
             </div>
             <div style={styles.detailPane}>

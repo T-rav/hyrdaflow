@@ -104,7 +104,19 @@ function buildEdges(rawEdges) {
   }))
 }
 
-function layoutDomain(payload, selectedId) {
+function applyFocusDim(flowNode, focusSet) {
+  if (!focusSet) return flowNode
+  if (focusSet.has(flowNode.id)) return flowNode
+  // Dim non-neighbours but keep them visible. Group containers are
+  // unchanged so the bounded-context boxes still anchor the layout.
+  if (flowNode.type === 'group') return flowNode
+  return {
+    ...flowNode,
+    style: { ...(flowNode.style || {}), opacity: 0.18 },
+  }
+}
+
+function layoutDomain(payload, selectedId, focusSet) {
   const safeContexts = Array.isArray(payload?.contexts) ? payload.contexts : []
   const safeNodes = Array.isArray(payload?.nodes) ? payload.nodes : []
   const safeEdges = Array.isArray(payload?.edges) ? payload.edges : []
@@ -171,10 +183,13 @@ function layoutDomain(payload, selectedId) {
     yCursor += groupH + 24
   }
 
-  return { nodes: [...parents, ...children], edges: buildEdges(safeEdges) }
+  const allNodes = [...parents, ...children].map((n) =>
+    applyFocusDim(n, focusSet),
+  )
+  return { nodes: allNodes, edges: buildEdges(safeEdges) }
 }
 
-function layoutForce(payload, selectedId) {
+function layoutForce(payload, selectedId, focusSet) {
   const safeNodes = Array.isArray(payload?.nodes) ? payload.nodes : []
   const safeEdges = Array.isArray(payload?.edges) ? payload.edges : []
   if (safeNodes.length === 0) return { nodes: [], edges: [] }
@@ -217,13 +232,14 @@ function layoutForce(payload, selectedId) {
     }
   })
 
-  return { nodes: flowNodes, edges: buildEdges(safeEdges) }
+  const dimmed = flowNodes.map((n) => applyFocusDim(n, focusSet))
+  return { nodes: dimmed, edges: buildEdges(safeEdges) }
 }
 
-export function useGraphLayout(payload, mode, selectedId) {
+export function useGraphLayout(payload, mode, selectedId, focusSet) {
   return useMemo(() => {
     if (!payload) return { nodes: [], edges: [] }
-    if (mode === 'force') return layoutForce(payload, selectedId)
-    return layoutDomain(payload, selectedId)
-  }, [payload, mode, selectedId])
+    if (mode === 'force') return layoutForce(payload, selectedId, focusSet)
+    return layoutDomain(payload, selectedId, focusSet)
+  }, [payload, mode, selectedId, focusSet])
 }

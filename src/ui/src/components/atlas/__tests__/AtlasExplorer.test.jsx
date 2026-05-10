@@ -10,6 +10,11 @@ beforeEach(() => {
       json: () => Promise.resolve({ nodes: [], edges: [], contexts: [] }),
     }),
   )
+  // P4 added deep-link URL state that survives between tests in jsdom.
+  // Reset to a clean URL so each test starts with the default tab.
+  window.history.replaceState({}, '', '/')
+  // Saved-views localStorage state likewise survives — clear it.
+  window.localStorage.removeItem('atlas-saved-views')
 })
 
 describe('AtlasExplorer', () => {
@@ -30,6 +35,30 @@ describe('AtlasExplorer', () => {
       expect(screen.getByTestId('atlas-graph-view')).toBeInTheDocument(),
     )
     expect(screen.queryByTestId('atlas-domain-view')).not.toBeInTheDocument()
+  })
+
+  it('honours ?atlas_sub deep link on initial mount', async () => {
+    window.history.replaceState({}, '', '/?atlas_sub=articles')
+    render(<AtlasExplorer />)
+    await waitFor(() =>
+      expect(screen.getByTestId('atlas-articles-view')).toBeInTheDocument(),
+    )
+  })
+
+  it('writes ?atlas_sub when the user changes sub-tab', async () => {
+    render(<AtlasExplorer />)
+    fireEvent.click(screen.getByRole('button', { name: /^graph$/i }))
+    await waitFor(() =>
+      expect(screen.getByTestId('atlas-graph-view')).toBeInTheDocument(),
+    )
+    expect(window.location.search).toContain('atlas_sub=graph')
+  })
+
+  it('renders the Focus mode toggle in the filter bar', () => {
+    render(<AtlasExplorer />)
+    expect(
+      screen.getByRole('button', { name: /toggle focus mode/i }),
+    ).toBeInTheDocument()
   })
 
   it('shows the Domain view by default', () => {
