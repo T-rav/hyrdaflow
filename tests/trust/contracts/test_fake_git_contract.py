@@ -42,6 +42,10 @@ async def _invoke_fake_git(cassette: Cassette) -> FakeOutput:
             stderr="",
         )
 
+    if method == "push":
+        await fake.push(cwd, remote=str(args[0]), branch=str(args[1]))
+        return FakeOutput(exit_code=0, stdout="", stderr="")
+
     if method == "rev_parse":
         # Seed a commit so rev_parse returns something non-zero.
         await fake.commit(cwd, message="seed")
@@ -50,6 +54,13 @@ async def _invoke_fake_git(cassette: Cassette) -> FakeOutput:
 
     if method == "worktree_prune":
         await fake.worktree_prune()
+        return FakeOutput(exit_code=0, stdout="", stderr="")
+
+    if method == "config_unset":
+        # Seed the key so there is something to unset, mirroring real usage
+        # where a corrupted config entry is cleared.
+        fake.set_corrupted_config(cwd, key=str(args[0]), value="stale")
+        await fake.config_unset(cwd, key=str(args[0]))
         return FakeOutput(exit_code=0, stdout="", stderr="")
 
     msg = f"FakeGit has no contract-tested method {method!r}"

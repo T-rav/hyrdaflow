@@ -1,0 +1,17 @@
+adapter: git
+interaction: push
+recorded_at: "2026-04-22T14:00:00Z"
+recorder_sha: "729304f1"
+fixture_repo: tests/trust/contracts/fixtures/git_sandbox
+input:
+  command: push
+  args:
+    - "origin"
+    - "agent/issue-1234"
+  stdin: null
+  env: {}
+output:
+  exit_code: 0
+  stdout: ""
+  stderr: ""
+normalizers: []

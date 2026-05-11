@@ -1,0 +1,142 @@
+// Fake coverage gap repair — issue #8492
+// Adds cassette + dispatch branch + regression test to close the
+// FakeGit.config_unset adapter-surface coverage gap (spec §4.7).
+
+specification {
+  element actor
+  element system
+  element container
+  element component
+  element data
+}
+
+model {
+  // ── Actors ────────────────────────────────────────────────────────────
+  auditor = actor 'fake_coverage_auditor_loop' {
+    description 'Caretaker loop (ADR-0029) that diffs Fake* public methods
+                 against cassette input.command sets and files an issue
+                 when a method is uncovered.'
+  }
+
+  refresher = actor 'ContractRefreshLoop' {
+    description 'Re-records cassettes against real adapters when the
+                 freshness window elapses (spec §4.2).'
+  }
+
+  // ── System under change ───────────────────────────────────────────────
+  trustFleet = system 'Trust Architecture' {
+    description 'Lights-off trust fleet (ADR-0045): contract-tests + audits
+                 that detect fake/real divergence before it lands in main.'
+
+    // Fake side
+    fakeGit = container 'FakeGit' {
+      description 'In-memory git port impl. Method `config_unset(cwd, key)`
+                   is the surface under audit (src/mockworld/fakes/fake_git.py:74).'
+      technology 'Python'
+
+      methodConfigUnset = component 'config_unset' {
+        description 'self._configs.get(cwd, {}).pop(key, None) — silent no-op
+                     on missing key. Real git config --unset exits 5 on miss;
+                     cassette records the success path only.'
+      }
+
+      scriptApi = component 'set_corrupted_config' {
+        description 'Test helper that pre-seeds the per-cwd config map so a
+                     subsequent config_unset has something to remove.'
+      }
+    }
+
+    // Cassette store
+    cassetteDir = data 'cassettes/git/' {
+      description 'tests/trust/contracts/cassettes/git/ — one YAML per
+                   adapter method exercised. Schema validated by
+                   src/contracts/_schema.py::Cassette.'
+
+      commitYaml = component 'commit.yaml' {
+        description 'Existing template. adapter:git, normalizers:[sha:short].'
+      }
+
+      configUnsetYaml = component 'config_unset.yaml (NEW)' {
+        description 'New cassette. adapter:git, interaction:config_unset,
+                     args:[core.worktree], output:{exit_code:0, stdout:"", stderr:""},
+                     normalizers:[].'
+      }
+    }
+
+    // Test harness
+    contractTest = container 'test_fake_git_contract.py' {
+      description 'Parametrized over list_cassettes(). Each cassette is fed
+                   to FakeGit via _invoke_fake_git, output compared
+                   field-by-field after normalizers.'
+      technology 'pytest-asyncio'
+
+      invokeFakeGit = component '_invoke_fake_git dispatch' {
+        description 'Manual if/elif over cassette.input.command. NEEDS new
+                     branch for "config_unset" — otherwise NotImplementedError.'
+      }
+
+      replayHarness = component 'replay_cassette' {
+        description 'Generic compare. Asserts FakeOutput == cassette.output
+                     (after normalizers). Empty stdout/stderr survive []
+                     normalizers unchanged.'
+      }
+    }
+
+    // Regression test
+    regression = container 'tests/regressions/test_issue_8492.py (NEW)' {
+      description 'RED until the cassette lands. Asserts both that
+                   config_unset is still a FakeGit adapter-surface method
+                   AND that catalog_cassette_methods sees it.'
+
+      auditCheck = component 'test_fake_git_config_unset_has_cassette' {
+        description 'Mirrors test_issue_8499.py exactly — only the method
+                     name differs.'
+      }
+    }
+  }
+
+  // ── Relationships ─────────────────────────────────────────────────────
+  auditor -> methodConfigUnset 'inspects via catalog_fake_methods (AST scan)'
+  auditor -> cassetteDir 'inspects via catalog_cassette_methods (YAML scan)'
+  auditor -> regression 'closes issue #8492 → reconciles dedup key'
+
+  contractTest -> cassetteDir 'parametrize on list_cassettes()'
+  contractTest -> fakeGit 'invokes _invoke_fake_git per cassette'
+  invokeFakeGit -> scriptApi 'seeds state before unset (args[0] = key)'
+  invokeFakeGit -> methodConfigUnset 'await config_unset(cwd, args[0])'
+  invokeFakeGit -> replayHarness 'returns FakeOutput(0, "", "")'
+
+  regression -> cassetteDir 'asserts config_unset present'
+  regression -> fakeGit 'asserts surface method still public'
+
+  refresher -> cassetteDir 'periodically re-records vs real `git`'
+  refresher -> configUnsetYaml 'on cycle: write fresh recorded_at + recorder_sha'
+}
+
+views {
+  // C4-Container: where the new file lives in the trust subsystem
+  view container_view of trustFleet {
+    title 'Issue #8492 — config_unset coverage gap (container view)'
+    include *
+  }
+
+  // Dynamic: replay flow once cassette + branch land
+  dynamic view replayFlow {
+    title 'Replay flow: config_unset cassette → assertion'
+    contractTest -> cassetteDir 'load_cassette(config_unset.yaml)'
+    contractTest -> invokeFakeGit 'dispatch on input.command'
+    invokeFakeGit -> scriptApi 'set_corrupted_config(cwd, key=args[0], value="/workspace")'
+    invokeFakeGit -> methodConfigUnset 'await config_unset(cwd, args[0])'
+    invokeFakeGit -> replayHarness 'FakeOutput(0, "", "")'
+    replayHarness -> cassetteDir 'apply_normalizers([]) — no-op'
+    replayHarness -> contractTest 'assert exit_code, stdout, stderr'
+  }
+
+  // Dynamic: auditor close-out
+  dynamic view auditorReconciliation {
+    title 'Auditor reconciles once cassette lands and issue closes'
+    auditor -> cassetteDir 'catalog_cassette_methods → {commit, config_unset, …}'
+    auditor -> methodConfigUnset 'still adapter-surface — already covered now'
+    auditor -> regression 'GH issue #8492 closed → drop dedup key'
+  }
+}
