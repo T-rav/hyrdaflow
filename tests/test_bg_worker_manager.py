@@ -164,6 +164,16 @@ class TestInterval:
                 f"{manager.get_interval(name)} vs {poll}"
             )
 
+    def test_adr_touchpoint_auditor_uses_config_interval(
+        self, manager: BGWorkerManager
+    ) -> None:
+        # Regression for #8671: missing entry caused poll_interval (30s) to be
+        # returned instead of the 4h config default, firing false staleness alarms.
+        assert (
+            manager.get_interval("adr_touchpoint_auditor")
+            == manager._config.adr_touchpoint_auditor_interval
+        )
+
     def test_persists_to_state(self, manager: BGWorkerManager) -> None:
         manager.set_interval("x", 99)
         saved = manager._state.get_worker_intervals()

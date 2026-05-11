@@ -67,7 +67,7 @@ _INTERVAL_BOUNDS: dict[str, tuple[int, int]] = {
     "term_proposer": (3600, 86400),  # 1h min, 24h max
     "term_pruner": (3600, 604800),  # 1h min, 7d max (default 24h)
     "edge_proposer": (3600, 604800),  # 1h min, 7d max (default 24h)
-    "github_cache": (10, 3600),  # 10s min, 1h max (single-poller cache)
+    "github_cache": (10, 3600),  # 15m min, 1d max (default 4h)
 }
 
 # Internal pipeline labels that must not be treated as epic names in the history panel.
