@@ -69,6 +69,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | ADR-0059 | `src.dashboard_routes._atlas_routes`, `src.ubiquitous_language` |
 | ADR-0060 | `src.dashboard_routes._atlas_routes` |
 | ADR-0061 | `src.repo_wiki` |
+| ADR-0062 | `src.entry_evidence_loop`, `src.term_proposer_llm` |
 
 ## Module → ADRs
 
@@ -101,6 +102,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.discover_runner` | ADR-0031, ADR-0045 |
 | `src.docker_runner` | ADR-0010, ADR-0043 |
 | `src.edge_proposer_loop` | ADR-0058 |
+| `src.entry_evidence_loop` | ADR-0062 |
 | `src.epic` | ADR-0011, ADR-0012, ADR-0019 |
 | `src.epic_monitor_loop` | ADR-0012 |
 | `src.escalation_gate` | ADR-0015 |
@@ -164,6 +166,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.telemetry.slugs` | ADR-0055 |
 | `src.telemetry.spans` | ADR-0055 |
 | `src.telemetry.subprocess_bridge` | ADR-0055 |
+| `src.term_proposer_llm` | ADR-0062 |
 | `src.term_proposer_loop` | ADR-0054 |
 | `src.term_pruner_loop` | ADR-0057 |
 | `src.trace_collector` | ADR-0055 |
@@ -176,4 +179,4 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.workspace` | ADR-0055 |
 | `src.worktree` | ADR-0003, ADR-0009, ADR-0010 |
 
-_Regenerated from commit `bcee847` on 2026-05-10 02:29 UTC. Source last changed at `bcee847`. Status: 🟢 fresh._
+_Regenerated from commit `9d837fb` on 2026-05-11 02:38 UTC. Source last changed at `9d837fb`. Status: 🟢 fresh._
