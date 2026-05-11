@@ -35,6 +35,7 @@ from discover_phase import DiscoverPhase  # noqa: TCH001
 from discover_runner import DiscoverRunner
 from docker_runner import get_docker_runner
 from edge_proposer_loop import EdgeProposerLoop
+from entry_evidence_loop import EntryEvidenceLoop
 from epic import EpicCompletionChecker, EpicManager
 from epic_monitor_loop import EpicMonitorLoop
 from epic_sweeper_loop import EpicSweeperLoop
@@ -201,6 +202,7 @@ class ServiceRegistry:
     term_proposer_loop: TermProposerLoop
     term_pruner_loop: TermPrunerLoop
     edge_proposer_loop: EdgeProposerLoop
+    entry_evidence_loop: EntryEvidenceLoop
 
     # Optional integrations
 
@@ -1052,9 +1054,8 @@ def build_services(
         OpenAutoPRBotPRPort,
     )
 
-    term_proposer_llm = TermProposerLLM(
-        client=ClaudeCLIClient(runner=subprocess_runner)
-    )
+    term_proposer_claude_client = ClaudeCLIClient(runner=subprocess_runner)
+    term_proposer_llm = TermProposerLLM(client=term_proposer_claude_client)
     term_proposer_pr_port = OpenAutoPRBotPRPort(
         repo_root=config.repo_root,
         gh_token=credentials.gh_token,
@@ -1087,6 +1088,19 @@ def build_services(
     edge_proposer_loop = EdgeProposerLoop(  # noqa: F841
         config=config,
         deps=loop_deps,
+        pr_port=term_proposer_pr_port,
+        repo_root=config.repo_root,
+    )
+
+    # Entry-Evidence (ADR-0062). Reuses the proposer's LLM client and PR port —
+    # both LLM-driven term-graph maintenance jobs share the same auto-merge
+    # plumbing and rate-limited Claude CLI subprocess.
+    from entry_evidence_loop import EntryEvidenceLoop  # noqa: PLC0415
+
+    entry_evidence_loop = EntryEvidenceLoop(  # noqa: F841
+        config=config,
+        deps=loop_deps,
+        llm=term_proposer_claude_client,
         pr_port=term_proposer_pr_port,
         repo_root=config.repo_root,
     )
@@ -1164,4 +1178,5 @@ def build_services(
         term_proposer_loop=term_proposer_loop,
         term_pruner_loop=term_pruner_loop,
         edge_proposer_loop=edge_proposer_loop,
+        entry_evidence_loop=entry_evidence_loop,
     )

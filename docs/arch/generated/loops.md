@@ -18,6 +18,7 @@ All `BaseBackgroundLoop` subclasses discovered in `src/`. Generated from AST (no
 | **DiagnosticLoop** | `src.diagnostic_loop` | — | — | DIAGNOSTIC_UPDATE | — |
 | **DiagramLoop** | `src.diagram_loop` | — | — | — | ADR-0029, ADR-0049 |
 | **EdgeProposerLoop** | `src.edge_proposer_loop` | — | — | — | — |
+| **EntryEvidenceLoop** | `src.entry_evidence_loop` | — | — | — | ADR-0062 |
 | **EpicMonitorLoop** | `src.epic_monitor_loop` | — | — | — | — |
 | **EpicSweeperLoop** | `src.epic_sweeper_loop` | — | — | — | — |
 | **FakeCoverageAuditorLoop** | `src.fake_coverage_auditor_loop` | — | — | — | — |
@@ -47,4 +48,4 @@ All `BaseBackgroundLoop` subclasses discovered in `src/`. Generated from AST (no
 | **WikiRotDetectorLoop** | `src.wiki_rot_detector_loop` | — | — | — | — |
 | **WorkspaceGCLoop** | `src.workspace_gc_loop` | — | — | — | — |
 
-_Regenerated from commit `bcee847` on 2026-05-10 02:29 UTC. Source last changed at `bcee847`. Status: 🟢 fresh._
+_Regenerated from commit `9d837fb` on 2026-05-11 02:38 UTC. Source last changed at `9d837fb`. Status: 🟢 fresh._
