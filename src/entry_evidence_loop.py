@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
+from dedup_store import DedupStore
 from repo_wiki import RepoWikiStore
 from term_proposer_llm import LLMClient
 from term_proposer_loop import BotPRPort, _render_term_file_str
@@ -75,11 +76,18 @@ class EntryEvidenceLoop(BaseBackgroundLoop):
         llm: LLMClient,
         pr_port: BotPRPort,
         repo_root: Path,
+        dedup_path: Path,
     ) -> None:
         super().__init__(worker_name=_WORKER_NAME, config=config, deps=deps)
         self._llm = llm
         self._pr_port = pr_port
         self._repo_root = repo_root
+        # Negative-evidence cache: entry ids the LLM has already returned
+        # zero matches for. Without this, a wiki with N truly domain-neutral
+        # entries (gotchas, testing notes, etc.) would re-burn N LLM calls
+        # per tick forever, since those entries never enter any term's
+        # `evidence` list.
+        self._dedup = DedupStore(set_name=_WORKER_NAME, file_path=dedup_path)
 
     def _get_default_interval(self) -> int:
         return self._config.entry_evidence_interval
@@ -106,6 +114,8 @@ class EntryEvidenceLoop(BaseBackgroundLoop):
         already_linked: set[str] = set()
         for term in terms:
             already_linked.update(term.evidence or [])
+        # Negative cache: entries the LLM already said match nothing.
+        zero_matched = self._dedup.get()
 
         wiki_store = RepoWikiStore(wiki_root)
         topic_files: list[Path] = []
@@ -130,6 +140,10 @@ class EntryEvidenceLoop(BaseBackgroundLoop):
                 if entry.id in already_linked:
                     # Resumable: skip entries some term already references.
                     continue
+                if entry.id in zero_matched:
+                    # Negative cache hit — the LLM already told us this entry
+                    # matches no term. Don't burn budget re-asking.
+                    continue
                 entries_checked += 1
                 budget -= 1
                 refs = await self._match_entry(
@@ -138,8 +152,12 @@ class EntryEvidenceLoop(BaseBackgroundLoop):
                     terms=terms,
                     valid_term_ids=valid_term_ids,
                 )
-                for term_id in refs:
-                    new_links.setdefault(term_id, set()).add(entry.id)
+                if refs:
+                    for term_id in refs:
+                        new_links.setdefault(term_id, set()).add(entry.id)
+                else:
+                    # Persist the zero match so future ticks skip the entry.
+                    self._dedup.add(entry.id)
 
         if not new_links:
             return {

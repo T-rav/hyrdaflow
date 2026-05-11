@@ -1103,6 +1103,7 @@ def build_services(
         llm=term_proposer_claude_client,
         pr_port=term_proposer_pr_port,
         repo_root=config.repo_root,
+        dedup_path=config.data_root / "dedup" / "entry_evidence.json",
     )
 
     return ServiceRegistry(

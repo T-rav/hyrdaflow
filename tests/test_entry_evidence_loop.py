@@ -137,6 +137,7 @@ class TestEntryEvidenceLoop:
             llm=llm_match_only_eventbus,
             pr_port=pr_port_capturing,
             repo_root=tmp_path,
+            dedup_path=tmp_path / "dedup.json",
         )
         result = await loop._do_work()  # noqa: SLF001 — exercising the loop body
         assert result == {"status": "disabled"}
@@ -158,6 +159,7 @@ class TestEntryEvidenceLoop:
             llm=llm_match_only_eventbus,
             pr_port=pr_port_capturing,
             repo_root=tmp_path,
+            dedup_path=tmp_path / "dedup.json",
         )
         result = await loop._do_work()  # noqa: SLF001
         assert result["status"] == "ok"
@@ -180,6 +182,7 @@ class TestEntryEvidenceLoop:
             llm=llm_match_only_eventbus,
             pr_port=pr_port_capturing,
             repo_root=tmp_path,
+            dedup_path=tmp_path / "dedup.json",
         )
 
         result = await loop._do_work()  # noqa: SLF001
@@ -229,6 +232,7 @@ class TestEntryEvidenceLoop:
             llm=llm_match_only_eventbus,
             pr_port=pr_port_capturing,
             repo_root=tmp_path,
+            dedup_path=tmp_path / "dedup.json",
         )
 
         result = await loop._do_work()  # noqa: SLF001
@@ -268,6 +272,7 @@ class TestEntryEvidenceLoop:
             llm=llm,
             pr_port=pr_port_capturing,
             repo_root=tmp_path,
+            dedup_path=tmp_path / "dedup.json",
         )
 
         result = await loop._do_work()  # noqa: SLF001
@@ -276,3 +281,35 @@ class TestEntryEvidenceLoop:
         assert llm.complete_structured.await_count == 2
         assert result["checked"] == 2
         assert result["opened_pr"] is False
+
+    @pytest.mark.asyncio
+    async def test_zero_match_entries_are_cached_to_dedup_store(
+        self,
+        tmp_path: Path,
+        pr_port_capturing,
+    ) -> None:
+        """Negative-evidence cache prevents re-burning LLM budget on
+        entries that match no terms — review feedback from PR #8733."""
+        _seed_terms(tmp_path)
+        _seed_wiki(tmp_path)  # ev-001 matches EventBus, ev-002 is an orphan
+        llm = AsyncMock()
+        llm.complete_structured = AsyncMock(return_value={"term_ids": []})
+
+        config = HydraFlowConfig(repo_root=tmp_path)
+        loop = EntryEvidenceLoop(
+            config=config,
+            deps=_make_deps(tmp_path),
+            llm=llm,
+            pr_port=pr_port_capturing,
+            repo_root=tmp_path,
+            dedup_path=tmp_path / "dedup.json",
+        )
+
+        # Tick 1 — both entries hit the LLM and return [].
+        await loop._do_work()  # noqa: SLF001
+        assert llm.complete_structured.await_count == 2
+
+        # Tick 2 — both entries should be cached as zero-match. No LLM calls.
+        llm.complete_structured.reset_mock()
+        await loop._do_work()  # noqa: SLF001
+        assert llm.complete_structured.await_count == 0

@@ -111,6 +111,7 @@ class TestEntryEvidenceLoop:
             llm=llm,
             pr_port=pr_port,
             repo_root=tmp_path,
+            dedup_path=tmp_path / "dedup.json",
         )
 
         # First tick — should open a PR linking ev-101 to EventBus.
@@ -142,9 +143,10 @@ class TestEntryEvidenceLoop:
 
         result2 = await loop._do_work()  # noqa: SLF001
 
-        # Idempotent: ev-101 is already linked, so the loop should
-        # consult the LLM only for ev-102 (the orphan) and open no PR.
+        # Idempotent: ev-101 is already linked AND ev-102 was cached as a
+        # zero-match by the first tick's DedupStore write — so the loop
+        # consults the LLM zero times and opens no PR.
         assert result2["opened_pr"] is False
         assert result2["matched_entries"] == 0
         pr_port.open_bot_pr.assert_not_awaited()
-        assert llm.complete_structured.await_count == 1
+        assert llm.complete_structured.await_count == 0
