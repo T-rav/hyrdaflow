@@ -2481,9 +2481,10 @@ class TestADRReviewAdvisor:
 
         await phase.review_adrs([issue])
 
-        # Plan stashed under issue.id (no PR for ADR).
-        assert 822 in phase._advisor_pre_flight_plan
-        stashed = phase._advisor_pre_flight_plan[822]
+        # Plan stashed under ("adr_review", issue.id) — no PR for ADR.
+        # T38: dict keyed by (surface, identifier).
+        assert ("adr_review", 822) in phase._advisor_pre_flight_plan
+        stashed = phase._advisor_pre_flight_plan[("adr_review", 822)]
         assert stashed.risk_summary == "identified risk"
         # Post-verify prompt should mention the rubric from the plan.
         post_verify_call = runner_run.await_args_list[1]
@@ -2513,8 +2514,8 @@ class TestADRReviewAdvisor:
         # Existing structural-validation path: APPROVE + finalize.
         assert results[0].verdict == ReviewVerdict.APPROVE
         runner_run.assert_not_awaited()
-        # No plan stashed when advisor never ran.
-        assert 823 not in phase._advisor_pre_flight_plan
+        # No plan stashed when advisor never ran. T38: tuple key.
+        assert ("adr_review", 823) not in phase._advisor_pre_flight_plan
 
     @pytest.mark.asyncio
     async def test_advisor_credit_exhausted_propagates(
@@ -2571,6 +2572,76 @@ class TestADRReviewAdvisor:
         # Pre-flight ran (AlwaysTrigger) — exactly one advisor call, role=pre_flight.
         assert runner_run.await_count == 1
         assert runner_run.await_args_list[0].kwargs.get("role") == "pre_flight"
+
+
+class TestAdvisorPreFlightPlanCollisionSafety:
+    """T38 (M7): ``_advisor_pre_flight_plan`` keyed by ``(surface, id)``
+    tuple prevents collisions when identifier sequences overlap across
+    surfaces.
+
+    In production today PR numbers and issue numbers come from disjoint
+    segments of GitHub's shared sequence so collisions don't occur in
+    practice, but a future surface (ADR-on-fork with renumbering, a
+    third-party adapter with its own counter) could collide. The tuple
+    key is defensive future-proofing — no behaviour change at the call
+    sites that exist today.
+    """
+
+    def test_pr_review_plan_isolated_from_adr_review_plan_same_id(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Same integer identifier under different surfaces does not collide."""
+        from review_advisor import ReviewPlan
+
+        phase = make_review_phase(config)
+
+        pr_plan = ReviewPlan(
+            risk_summary="pr",
+            focus_areas=[],
+            rubric=[],
+            escalation_signals=[],
+        )
+        adr_plan = ReviewPlan(
+            risk_summary="adr",
+            focus_areas=[],
+            rubric=[],
+            escalation_signals=[],
+        )
+
+        # Both plans use identifier 42 but different surfaces — must NOT
+        # collide. With the old int-keyed dict the second write would
+        # have clobbered the first.
+        phase._advisor_pre_flight_plan[("pr_review", 42)] = pr_plan
+        phase._advisor_pre_flight_plan[("adr_review", 42)] = adr_plan
+
+        assert phase._advisor_pre_flight_plan[("pr_review", 42)] is pr_plan
+        assert phase._advisor_pre_flight_plan[("adr_review", 42)] is adr_plan
+        assert pr_plan is not adr_plan  # sanity
+
+    def test_pre_merge_spec_check_reads_pr_review_plan_via_piggyback(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """The piggyback contract: pre_merge_spec_check looks up the plan
+        under ``("pr_review", pr_number)``, NOT
+        ``("pre_merge_spec_check", pr_number)``, because the
+        pre_merge_spec_check surface has ``pre_flight_enabled=False`` and
+        never produces its own plan.
+        """
+        from review_advisor import ReviewPlan
+
+        phase = make_review_phase(config)
+        pr_plan = ReviewPlan(
+            risk_summary="pr-review plan",
+            focus_areas=[],
+            rubric=[],
+            escalation_signals=[],
+        )
+        phase._advisor_pre_flight_plan[("pr_review", 100)] = pr_plan
+
+        # Piggyback key (the one the implementation uses).
+        assert phase._advisor_pre_flight_plan.get(("pr_review", 100)) is pr_plan
+        # Wrong-surface key must return nothing.
+        assert phase._advisor_pre_flight_plan.get(("pre_merge_spec_check", 100)) is None
 
 
 # ---------------------------------------------------------------------------

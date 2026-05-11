@@ -343,11 +343,21 @@ class ReviewPhase:
         # transcript hand-back to the executor (on VETO) is rendered from
         # this list. T12 will replace this with persistent advisor_session.jsonl.
         self._advisor_results: dict[int, list[Any]] = {}
-        # Per-PR pre-flight ReviewPlan, captured by ``_run_pre_flight_advisor``
-        # before the executor runs and threaded into both the executor's
-        # review prompt and the post-verify advisor's input. Reset on every
-        # ``_review_one_inner`` entry so plans don't leak across reviews.
-        self._advisor_pre_flight_plan: dict[int, ReviewPlan] = {}
+        # Per-surface pre-flight ReviewPlan, captured by
+        # ``_run_pre_flight_advisor`` before the executor runs and threaded
+        # into both the executor's review prompt and the post-verify
+        # advisor's input. Reset on every ``_review_one_inner`` entry so
+        # plans don't leak across reviews.
+        #
+        # Keyed by ``(surface, identifier)`` (T38) so per-surface plans
+        # don't collide when identifier sequences overlap — e.g., ADR-on-fork
+        # renumbering, third-party adapters with their own counters, or any
+        # future surface that doesn't share GitHub's global PR/issue sequence.
+        # In production today PR numbers and issue numbers come from disjoint
+        # segments of one sequence so the int-keyed dict was safe in practice,
+        # but the tuple key removes the "could be either id" ambiguity at
+        # read sites.
+        self._advisor_pre_flight_plan: dict[tuple[str, int], ReviewPlan] = {}
         self._post_verify_runner = self._build_post_verify_runner()
 
     def _build_post_verify_runner(self) -> Any:
@@ -1017,10 +1027,11 @@ class ReviewPhase:
 
         # T26 pre-flight (AlwaysTrigger). The ADR body is the "diff" for the
         # advisor — there is no PR or unified diff. Plan is keyed by
-        # ``issue.id`` (no PR number) and consumed by the post-verify call
-        # below for plan-aware second-opinion.
+        # ``("adr_review", issue.id)`` (T38; no PR number, surface-scoped)
+        # and consumed by the post-verify call below for plan-aware
+        # second-opinion.
         adr_content = issue.body or ""
-        self._advisor_pre_flight_plan.pop(issue.id, None)
+        self._advisor_pre_flight_plan.pop(("adr_review", issue.id), None)
         await self._run_pre_flight_advisor_for_adr(issue=issue, diff=adr_content)
 
         reasons = adr_validation_reasons(issue.body)
@@ -1203,7 +1214,7 @@ class ReviewPhase:
             # across reviews of the same PR — reusing a stale plan from the
             # prior cycle would feed an out-of-date rubric to both the
             # executor's prompt and the post-verify advisor.
-            self._advisor_pre_flight_plan.pop(pr.number, None)
+            self._advisor_pre_flight_plan.pop((surface, pr.number), None)
 
             guards = await self._run_initial_guards(idx, pr, issue_map)
             if isinstance(guards, ReviewResult):
@@ -1224,7 +1235,7 @@ class ReviewPhase:
                 pre_review.diff,
                 idx,
                 code_scanning_alerts=pre_review.code_scanning_alerts,
-                pre_flight_plan=self._advisor_pre_flight_plan.get(pr.number),
+                pre_flight_plan=self._advisor_pre_flight_plan.get((surface, pr.number)),
                 surface=surface,
             )
 
@@ -1464,11 +1475,12 @@ class ReviewPhase:
         """Run :class:`PreFlightAdvisor` when the composite trigger fires.
 
         Stashes the resulting :class:`ReviewPlan` under
-        ``self._advisor_pre_flight_plan[pr.number]`` so downstream call sites
-        (the executor's review prompt + the post-verify advisor's input) can
-        consume it without a second invocation. Best-effort writes a JSON
-        scratchpad to ``review_logs/<pr>/preflight.json`` for operator
-        debugging — failures there must not break the pipeline.
+        ``self._advisor_pre_flight_plan[(surface, pr.number)]`` (T38) so
+        downstream call sites (the executor's review prompt + the
+        post-verify advisor's input) can consume it without a second
+        invocation. Best-effort writes a JSON scratchpad to
+        ``review_logs/<pr>/preflight.json`` for operator debugging —
+        failures there must not break the pipeline.
 
         No-ops when:
           * The selected ``surface`` or pre_flight role is kill-switched off.
@@ -1551,7 +1563,7 @@ class ReviewPhase:
 
         if plan is None:
             return
-        self._advisor_pre_flight_plan[pr.number] = plan
+        self._advisor_pre_flight_plan[(surface, pr.number)] = plan
         scratchpad = (
             self._config.repo_root / "review_logs" / str(pr.number) / "preflight.json"
         )
@@ -1738,7 +1750,7 @@ class ReviewPhase:
                 diff=diff,
                 spec=task.body or None,
                 executor_verdict_summary=(result.summary or result.verdict.value),
-                pre_flight_plan=self._advisor_pre_flight_plan.get(pr.number),
+                pre_flight_plan=self._advisor_pre_flight_plan.get((surface, pr.number)),
                 attempt_number=attempt_number,
                 issue_number=task.id,
                 log_pr_number=pr.number,
@@ -1877,7 +1889,10 @@ class ReviewPhase:
         ``self._advisor_pre_flight_plan`` so the post-verify advisor for the
         ``pre_merge_spec_check`` surface can piggyback on ``pr_review``'s
         plan. Defaults to ``None`` for back-compat with regression tests that
-        invoke the function directly.
+        invoke the function directly. T38 (M7) keys the dict by
+        ``(surface, identifier)``; the piggyback lookup explicitly uses
+        ``("pr_review", pr_number)`` because ``pre_merge_spec_check`` itself
+        never produces a plan (``pre_flight_enabled=False``).
         """
         from spec_match import (  # noqa: PLC0415
             build_self_review_prompt,
@@ -1999,9 +2014,11 @@ class ReviewPhase:
         """
         # Piggyback on pr_review's pre-flight plan when present (per spec
         # tiering matrix). pre_merge_spec_check has pre_flight_enabled=False
-        # so it never produces its own plan.
+        # so it never produces its own plan — the lookup key is therefore
+        # ("pr_review", pr_number), NOT ("pre_merge_spec_check", pr_number).
+        # (T38: dict keyed by (surface, identifier).)
         pre_flight_plan = (
-            self._advisor_pre_flight_plan.get(pr_number)
+            self._advisor_pre_flight_plan.get(("pr_review", pr_number))
             if pr_number is not None
             else None
         )
@@ -2040,10 +2057,11 @@ class ReviewPhase:
 
         ADR review has no PR; this thin wrapper mirrors
         ``_run_pre_flight_advisor`` but keys ``self._advisor_pre_flight_plan``
-        and the log path by ``issue.id`` instead of ``pr.number``. Same
-        advisor logic, same kill-switch behaviour, same scratchpad
-        convention. The trigger is :class:`AlwaysTrigger` per spec, so the
-        advisor runs whenever the surface kill-switch allows.
+        by ``("adr_review", issue.id)`` (T38) and the log path by
+        ``issue.id`` instead of ``pr.number``. Same advisor logic, same
+        kill-switch behaviour, same scratchpad convention. The trigger is
+        :class:`AlwaysTrigger` per spec, so the advisor runs whenever the
+        surface kill-switch allows.
 
         Function-local imports keep the dependency on ``review_advisor``
         contained to where it's used and avoid the auto-lint hook stripping
@@ -2112,7 +2130,7 @@ class ReviewPhase:
 
         if plan is None:
             return
-        self._advisor_pre_flight_plan[issue.id] = plan
+        self._advisor_pre_flight_plan[("adr_review", issue.id)] = plan
         scratchpad = (
             self._config.repo_root / "review_logs" / str(issue.id) / "preflight.json"
         )
@@ -2153,7 +2171,7 @@ class ReviewPhase:
             diff=diff,
             spec=issue.body or None,
             executor_verdict_summary=executor_verdict_summary,
-            pre_flight_plan=self._advisor_pre_flight_plan.get(issue.id),
+            pre_flight_plan=self._advisor_pre_flight_plan.get(("adr_review", issue.id)),
             issue_number=issue.id,
         )
         if pv_result is None or pv_result.verdict != "VETO":
@@ -2535,7 +2553,7 @@ class ReviewPhase:
                 updated_diff,
                 worker_id=worker_id,
                 code_scanning_alerts=code_scanning_alerts,
-                pre_flight_plan=self._advisor_pre_flight_plan.get(pr.number),
+                pre_flight_plan=self._advisor_pre_flight_plan.get((surface, pr.number)),
                 surface=surface,
             )
             if re_result.fixes_made:
@@ -2621,7 +2639,7 @@ class ReviewPhase:
             updated_diff,
             worker_id=worker_id,
             code_scanning_alerts=code_scanning_alerts,
-            pre_flight_plan=self._advisor_pre_flight_plan.get(pr.number),
+            pre_flight_plan=self._advisor_pre_flight_plan.get((surface, pr.number)),
             surface=surface,
         )
 
@@ -3530,6 +3548,9 @@ class ReviewPhase:
 
         # Thread the pre-flight plan into retries so the executor keeps
         # the same focus rubric across the loop (T24.5 closed I3).
+        # Adversarial-threshold re-review is pr_review-track only (it gates
+        # PR approval), so we hard-code the surface here. T38 (M7) key:
+        # ``(surface, identifier)``.
         re_result = await self._reviewers.review(
             pr,
             issue,
@@ -3537,7 +3558,7 @@ class ReviewPhase:
             diff,
             worker_id=worker_id,
             code_scanning_alerts=code_scanning_alerts,
-            pre_flight_plan=self._advisor_pre_flight_plan.get(pr.number),
+            pre_flight_plan=self._advisor_pre_flight_plan.get(("pr_review", pr.number)),
         )
 
         # If re-review still under threshold without justification, accept
