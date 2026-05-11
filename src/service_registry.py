@@ -9,8 +9,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from acceptance_criteria import AcceptanceCriteriaGenerator
+from adr_index import ADRIndex
 from adr_reviewer import ADRCouncilReviewer
 from adr_reviewer_loop import ADRReviewerLoop
+from adr_touchpoint_auditor_loop import AdrTouchpointAuditorLoop
 from agent import AgentRunner
 from auto_agent_preflight_loop import AutoAgentPreflightLoop
 from base_background_loop import LoopDeps
@@ -32,6 +34,7 @@ from diagram_loop import DiagramLoop  # noqa: TCH001
 from discover_phase import DiscoverPhase  # noqa: TCH001
 from discover_runner import DiscoverRunner
 from docker_runner import get_docker_runner
+from edge_proposer_loop import EdgeProposerLoop
 from epic import EpicCompletionChecker, EpicManager
 from epic_monitor_loop import EpicMonitorLoop
 from epic_sweeper_loop import EpicSweeperLoop
@@ -51,6 +54,7 @@ from issue_store import IssueStore
 from label_drift_watcher_loop import LabelDriftWatcherLoop
 from memory_backlog_loop import MemoryBacklogLoop
 from merge_conflict_resolver import MergeConflictResolver
+from merge_state_watcher_loop import MergeStateWatcherLoop
 from models import StatusCallback
 from plan_phase import PlanPhase
 from plan_reviewer import PlanReviewer
@@ -90,6 +94,7 @@ from stale_issue_gc_loop import StaleIssueGCLoop  # noqa: TCH001
 from stale_issue_loop import StaleIssueLoop
 from state import StateTracker
 from term_proposer_loop import TermProposerLoop
+from term_pruner_loop import TermPrunerLoop
 from transcript_summarizer import TranscriptSummarizer
 from triage import TriageRunner
 from triage_phase import TriagePhase
@@ -158,6 +163,7 @@ class ServiceRegistry:
 
     # Background loops
     pr_unsticker_loop: PRUnstickerLoop
+    merge_state_watcher_loop: MergeStateWatcherLoop
     report_issue_loop: ReportIssueLoop
     epic_monitor_loop: EpicMonitorLoop
     epic_sweeper_loop: EpicSweeperLoop
@@ -183,6 +189,7 @@ class ServiceRegistry:
     flake_tracker_loop: FlakeTrackerLoop
     skill_prompt_eval_loop: SkillPromptEvalLoop
     fake_coverage_auditor_loop: FakeCoverageAuditorLoop
+    adr_touchpoint_auditor_loop: AdrTouchpointAuditorLoop
     memory_backlog_loop: MemoryBacklogLoop
     rc_budget_loop: RCBudgetLoop
     wiki_rot_detector_loop: WikiRotDetectorLoop
@@ -196,6 +203,8 @@ class ServiceRegistry:
     cost_budget_watcher_loop: CostBudgetWatcherLoop
     pricing_refresh_loop: PricingRefreshLoop
     term_proposer_loop: TermProposerLoop
+    term_pruner_loop: TermPrunerLoop
+    edge_proposer_loop: EdgeProposerLoop
 
     # Optional integrations
 
@@ -740,6 +749,9 @@ def build_services(
         interval_cb=callbacks.get_interval,
     )
     pr_unsticker_loop = PRUnstickerLoop(config, pr_unsticker, prs, deps=loop_deps)
+    merge_state_watcher_loop = MergeStateWatcherLoop(
+        config=config, prs=prs, deps=loop_deps
+    )
     report_issue_loop = ReportIssueLoop(
         config=config,
         state=state,
@@ -933,6 +945,19 @@ def build_services(
         deps=loop_deps,
     )
 
+    adr_touchpoint_auditor_dedup = DedupStore(
+        "adr_touchpoint_auditor",
+        config.data_root / "dedup" / "adr_touchpoint_auditor.json",
+    )
+    adr_touchpoint_auditor_loop = AdrTouchpointAuditorLoop(  # noqa: F841
+        config=config,
+        state=state,
+        pr_manager=prs,
+        dedup=adr_touchpoint_auditor_dedup,
+        adr_index=ADRIndex(config.repo_root / "docs" / "adr"),
+        deps=loop_deps,
+    )
+
     memory_backlog_dedup = DedupStore(
         "memory_backlog",
         config.data_root / "dedup" / "memory_backlog.json",
@@ -1029,37 +1054,19 @@ def build_services(
         runner=sandbox_failure_fixer_runner,
     )
 
-    # Term-Proposer (ADR-0054). Wired with placeholder LLM + bot-PR clients
-    # that raise NotImplementedError on first use; this is intentional
-    # dark-factory behavior — the loop appears on the dashboard, and the
-    # gap surfaces as a worker failure on the first tick rather than
-    # silently no-op'ing. Production deployment must (a) ship a real
-    # `LLMClient` adapter wrapping `SubprocessRunner` (the same path
-    # `wiki_compiler.WikiCompiler._call_model` uses) and (b) ship a real
-    # `BotPRPort` adapter that composes `prs.push_branch` +
-    # `prs.create_pr` + `prs.add_pr_labels`. Until both land, set
-    # `HYDRAFLOW_TERM_PROPOSER_ENABLED=false` to silence the failures.
-    from term_proposer_llm import TermProposerLLM, _NotWiredLLMClient  # noqa: PLC0415
-    from term_proposer_loop import BotPRPort, TermProposerLoop  # noqa: PLC0415
-
-    class _NotWiredBotPRPort:
-        """Placeholder BotPRPort — see ADR-0054 follow-up."""
-
-        async def open_bot_pr(
-            self,
-            *,
-            branch: str,
-            title: str,
-            body: str,
-            labels: list[str],
-            files: dict[str, str],
-        ) -> int:
-            del branch, title, body, labels, files
-            raise NotImplementedError(
-                "term-proposer BotPRPort adapter pending — see ADR-0054 "
-                "follow-up. Compose prs.push_branch + prs.create_pr + "
-                "prs.add_pr_labels into an `open_bot_pr(...)` shape."
-            )
+    # Term-Proposer (ADR-0054). Production adapters wire the loop to:
+    # - ClaudeCLIClient: shells out to `claude -p` via SubprocessRunner,
+    #   mirroring `wiki_compiler.WikiCompiler._call_model`.
+    # - OpenAutoPRBotPRPort: writes term files and delegates to
+    #   `auto_pr.open_automated_pr_async` for the worktree → commit →
+    #   push → `gh pr create` flow. `auto_merge=False` — DependabotMergeLoop
+    #   handles auto-merge once the PR carries `hydraflow-ul-proposed`.
+    from term_proposer_llm import TermProposerLLM  # noqa: PLC0415
+    from term_proposer_loop import TermProposerLoop  # noqa: PLC0415
+    from term_proposer_runtime import (  # noqa: PLC0415
+        ClaudeCLIClient,
+        OpenAutoPRBotPRPort,
+    )
 
     label_drift_watcher_loop = LabelDriftWatcherLoop(  # noqa: F841
         config=config,
@@ -1067,8 +1074,13 @@ def build_services(
         deps=loop_deps,
     )
 
-    term_proposer_llm = TermProposerLLM(client=_NotWiredLLMClient())
-    term_proposer_pr_port: BotPRPort = _NotWiredBotPRPort()
+    term_proposer_llm = TermProposerLLM(
+        client=ClaudeCLIClient(runner=subprocess_runner)
+    )
+    term_proposer_pr_port = OpenAutoPRBotPRPort(
+        repo_root=config.repo_root,
+        gh_token=credentials.gh_token,
+    )
     term_proposer_loop = TermProposerLoop(  # noqa: F841
         config=config,
         deps=loop_deps,
@@ -1076,6 +1088,29 @@ def build_services(
         pr_port=term_proposer_pr_port,
         repo_root=config.repo_root,
         dedup_path=config.data_root / "dedup" / "term_proposer.json",
+    )
+
+    # Term-Pruner (ADR-0057). Reuses the proposer's PR port adapter — both loops
+    # open auto-merging bot PRs via OpenAutoPRBotPRPort (stateless, shareable).
+    from term_pruner_loop import TermPrunerLoop  # noqa: PLC0415
+
+    term_pruner_loop = TermPrunerLoop(  # noqa: F841
+        config=config,
+        deps=loop_deps,
+        pr_port=term_proposer_pr_port,
+        repo_root=config.repo_root,
+    )
+
+    # Edge-Proposer (ADR-0058). Reuses the proposer's PR port adapter for the
+    # same reason as the pruner: structural bot PRs share the same auto-merge
+    # plumbing.
+    from edge_proposer_loop import EdgeProposerLoop  # noqa: PLC0415
+
+    edge_proposer_loop = EdgeProposerLoop(  # noqa: F841
+        config=config,
+        deps=loop_deps,
+        pr_port=term_proposer_pr_port,
+        repo_root=config.repo_root,
     )
 
     return ServiceRegistry(
@@ -1109,6 +1144,7 @@ def build_services(
         epic_checker=epic_checker,
         epic_manager=epic_manager,
         pr_unsticker_loop=pr_unsticker_loop,
+        merge_state_watcher_loop=merge_state_watcher_loop,
         report_issue_loop=report_issue_loop,
         epic_monitor_loop=epic_monitor_loop,
         epic_sweeper_loop=epic_sweeper_loop,
@@ -1136,6 +1172,7 @@ def build_services(
         flake_tracker_loop=flake_tracker_loop,
         skill_prompt_eval_loop=skill_prompt_eval_loop,
         fake_coverage_auditor_loop=fake_coverage_auditor_loop,
+        adr_touchpoint_auditor_loop=adr_touchpoint_auditor_loop,
         memory_backlog_loop=memory_backlog_loop,
         rc_budget_loop=rc_budget_loop,
         wiki_rot_detector_loop=wiki_rot_detector_loop,
@@ -1149,4 +1186,6 @@ def build_services(
         cost_budget_watcher_loop=cost_budget_watcher_loop,
         pricing_refresh_loop=pricing_refresh_loop,
         term_proposer_loop=term_proposer_loop,
+        term_pruner_loop=term_pruner_loop,
+        edge_proposer_loop=edge_proposer_loop,
     )

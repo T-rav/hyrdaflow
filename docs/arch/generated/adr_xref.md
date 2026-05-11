@@ -63,15 +63,21 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | ADR-0053 | `src.repo_wiki`, `src.repo_wiki_loop` |
 | ADR-0054 | `src.term_proposer_loop`, `src.ubiquitous_language` |
 | ADR-0055 | `src.base_background_loop`, `src.base_runner`, `src.config`, `src.events`, `src.exception_classify`, `src.mockworld.fakes.fake_honeycomb`, `src.pr_manager`, `src.server`, `src.telemetry.__init__`, `src.telemetry.otel`, `src.telemetry.slugs`, `src.telemetry.spans`, `src.telemetry.subprocess_bridge`, `src.trace_collector`, `src.workspace` |
+| ADR-0056 | `src.adr_drift`, `src.adr_touchpoint_auditor_loop`, `src.state._adr_audit` |
 | ADR-0056 | `src.label_drift_watcher_loop`, `src.models`, `src.pr_manager` |
 | ADR-0057 | `src.memory_backlog_loop`, `src.memory_backlog_mirror` |
+| ADR-0057 | `src.term_pruner_loop`, `src.ubiquitous_language` |
+| ADR-0058 | `src.edge_proposer_loop`, `src.ubiquitous_language` |
+| ADR-0059 | `src.mockworld.fakes.fake_llm`, `src.review_advisor`, `src.review_phase`, `src.reviewer` |
 
 ## Module → ADRs
 
 | Module | Cited by |
 |---|---|
+| `src.adr_drift` | ADR-0056 |
 | `src.adr_pre_validator` | ADR-0037 |
 | `src.adr_reviewer` | ADR-0033, ADR-0034, ADR-0037, ADR-0039, ADR-0040 |
+| `src.adr_touchpoint_auditor_loop` | ADR-0056 |
 | `src.agent` | ADR-0024, ADR-0027 |
 | `src.agent_cli` | ADR-0004 |
 | `src.auto_agent_preflight_loop` | ADR-0050 |
@@ -93,6 +99,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.discover_phase` | ADR-0031, ADR-0045 |
 | `src.discover_runner` | ADR-0031, ADR-0045 |
 | `src.docker_runner` | ADR-0010, ADR-0043 |
+| `src.edge_proposer_loop` | ADR-0058 |
 | `src.epic` | ADR-0011, ADR-0012, ADR-0019 |
 | `src.epic_monitor_loop` | ADR-0012 |
 | `src.escalation_gate` | ADR-0015 |
@@ -115,6 +122,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.memory_backlog_mirror` | ADR-0057 |
 | `src.metrics_manager` | ADR-0010, ADR-0021 |
 | `src.mockworld.fakes.fake_honeycomb` | ADR-0055 |
+| `src.mockworld.fakes.fake_llm` | ADR-0059 |
 | `src.mockworld.sandbox_main` | ADR-0052 |
 | `src.models` | ADR-0011, ADR-0012, ADR-0013, ADR-0014, ADR-0015, ADR-0016, ADR-0025, ADR-0031, ADR-0037, ADR-0045, ADR-0050, ADR-0056 |
 | `src.orchestrator` | ADR-0006, ADR-0009, ADR-0014, ADR-0044, ADR-0045 |
@@ -139,8 +147,9 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.repo_wiki` | ADR-0032, ADR-0053 |
 | `src.repo_wiki_loop` | ADR-0032, ADR-0053 |
 | `src.report_issue_loop` | ADR-0013, ADR-0018, ADR-0045 |
-| `src.review_phase` | ADR-0012, ADR-0014, ADR-0015, ADR-0031 |
-| `src.reviewer` | ADR-0025, ADR-0027 |
+| `src.review_advisor` | ADR-0059 |
+| `src.review_phase` | ADR-0012, ADR-0014, ADR-0015, ADR-0031, ADR-0059 |
+| `src.reviewer` | ADR-0025, ADR-0027, ADR-0059 |
 | `src.route_back` | ADR-0041 |
 | `src.screenshot_scanner` | ADR-0018 |
 | `src.sentry.reverse_lookup` | ADR-0050 |
@@ -151,6 +160,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.skill_prompt_eval_loop` | ADR-0045 |
 | `src.staging_bisect_loop` | ADR-0045, ADR-0048 |
 | `src.state` | ADR-0006, ADR-0013, ADR-0014, ADR-0017, ADR-0024 |
+| `src.state._adr_audit` | ADR-0056 |
 | `src.state._auto_agent` | ADR-0050 |
 | `src.state._session` | ADR-0021 |
 | `src.telemetry.__init__` | ADR-0055 |
@@ -159,14 +169,15 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.telemetry.spans` | ADR-0055 |
 | `src.telemetry.subprocess_bridge` | ADR-0055 |
 | `src.term_proposer_loop` | ADR-0054 |
+| `src.term_pruner_loop` | ADR-0057 |
 | `src.trace_collector` | ADR-0055 |
 | `src.triage_phase` | ADR-0014, ADR-0017, ADR-0031, ADR-0039 |
 | `src.trust_fleet_sanity_loop` | ADR-0045, ADR-0046 |
-| `src.ubiquitous_language` | ADR-0054 |
+| `src.ubiquitous_language` | ADR-0054, ADR-0057, ADR-0058 |
 | `src.visual_validation` | ADR-0015 |
 | `src.wiki_compiler` | ADR-0032 |
 | `src.wiki_rot_detector_loop` | ADR-0045 |
 | `src.workspace` | ADR-0055 |
 | `src.worktree` | ADR-0003, ADR-0009, ADR-0010 |
 
-_Regenerated from commit `188a51e` on 2026-05-09 05:19 UTC. Source last changed at `188a51e`. Status: 🟢 fresh._
+_Regenerated from commit `109888f` on 2026-05-10 22:21 UTC. Source last changed at `109888f`. Status: 🟢 fresh._

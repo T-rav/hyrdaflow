@@ -35,6 +35,19 @@ class MockWorldSeed:
     # invocation.
     scripts: dict[str, dict[int, list[Any]]] = field(default_factory=dict)
 
+    # Per-(issue, role) scripted advisor responses. Outer key is issue
+    # number; inner key is the advisor role (``"pre_flight"`` /
+    # ``"mid_flight"`` / ``"post_verify"``); value is a list of payloads
+    # (typically JSON strings shaped like ``PostVerifyResult`` /
+    # ``ReviewPlan``) that get popped per advisor invocation.
+    #
+    # Lives in its own field instead of ``scripts`` because the FakeLLM
+    # advisor runner is keyed by a compound (issue, role) — the 2-arg
+    # ``script_<phase>(issue, results)`` shape used by the loader for
+    # ``scripts`` can't carry the role axis. Default empty for
+    # back-compat with every existing seed payload.
+    advisor_scripts: dict[int, dict[str, list[Any]]] = field(default_factory=dict)
+
     # How many ticks each enabled loop fires before assertions run.
     cycles_to_run: int = 4
 
@@ -57,5 +70,11 @@ class MockWorldSeed:
             data["scripts"] = {
                 phase: {int(k): v for k, v in by_issue.items()}
                 for phase, by_issue in data["scripts"].items()
+            }
+        # Same coercion for advisor_scripts (issue is the OUTER key here).
+        if "advisor_scripts" in data:
+            data["advisor_scripts"] = {
+                int(issue): by_role
+                for issue, by_role in data["advisor_scripts"].items()
             }
         return cls(**data)

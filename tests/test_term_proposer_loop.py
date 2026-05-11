@@ -87,6 +87,7 @@ class TestTermProposerLoopFlow:
         loop, llm_client, port = _build_loop(
             synthetic_repo,
             fake_llm_response={
+                "include": True,
                 "definition": "BarRunner is the test runner used to verify the per-tick flow integrates correctly.",
                 "kind": "runner",
                 "bounded_context": "builder",
@@ -108,19 +109,20 @@ class TestTermProposerLoopFlow:
 
     @pytest.mark.asyncio
     async def test_invalid_draft_from_llm_dropped(self, synthetic_repo: Path) -> None:
-        """LLM returns malformed payload → Pydantic validation in ``TermDraft``
-        raises → counted under ``dropped_drafts`` via the LLM-failure branch.
+        """LLM returns a payload with an out-of-vocabulary ``kind`` → Pydantic
+        validation in ``TermDraft`` raises → counted under ``dropped_drafts``
+        via the LLM-failure branch.
 
-        This exercises the LLM-failure path, NOT the F1 ``validate_draft`` path
-        (definition shorter than ``min_length=30`` is rejected before
-        ``validate_draft`` ever runs). For real F1 coverage see
+        This exercises the LLM-failure path (Pydantic enum coercion fails),
+        NOT the F1 ``validate_draft`` path. For real F1 coverage see
         ``test_validation_rejects_unresolvable_depends_on``.
         """
         loop, _, port = _build_loop(
             synthetic_repo,
             fake_llm_response={
-                "definition": "Short",  # < 30 chars → TermDraft validation raises
-                "kind": "runner",
+                "include": True,
+                "definition": "A valid-length definition that is at least thirty chars long.",
+                "kind": "not_a_real_kind",  # → TermDraft StrEnum validation raises
                 "bounded_context": "builder",
                 "aliases": [],
                 "invariants": [],
@@ -132,6 +134,34 @@ class TestTermProposerLoopFlow:
         assert result["drafted"] == 0  # LLM call failed before counting
         assert result["validated"] == 0
         assert result["dropped_drafts"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_llm_skip_judgment_drops_candidate_with_no_pr(
+        self, synthetic_repo: Path
+    ) -> None:
+        """LLM returns include=False (judges candidate not load-bearing) →
+        candidate is dropped, no PR opened, no issue filed beyond the worker
+        stats counter. This is the new include/skip path added to address the
+        AuthenticationError-style false-positive UL inclusions."""
+        loop, _, port = _build_loop(
+            synthetic_repo,
+            fake_llm_response={
+                "include": False,
+                "skip_reason": "exception type — operational signal, not a domain concept",
+                "definition": "",
+                "kind": None,
+                "bounded_context": None,
+                "aliases": [],
+                "invariants": [],
+                "depends_on_anchors": [],
+            },
+        )
+        result = await loop._do_work()
+        assert port.calls == []
+        assert result["drafted"] == 1, "LLM call succeeded; counted"
+        assert result["validated"] == 0
+        assert result["dropped_drafts"] == 1
+        assert result["opened_pr"] is False
 
     @pytest.mark.asyncio
     async def test_validation_rejects_unresolvable_depends_on(
@@ -146,6 +176,7 @@ class TestTermProposerLoopFlow:
         loop, _, port = _build_loop(
             synthetic_repo,
             fake_llm_response={
+                "include": True,
                 "definition": (
                     "BarRunner is a structurally valid draft used to verify "
                     "that unresolvable depends_on anchors trigger F1 rejection."
@@ -174,6 +205,7 @@ class TestTermProposerLoopFlow:
         loop, _, port = _build_loop(
             empty,
             fake_llm_response={
+                "include": True,
                 "definition": "x" * 30,
                 "kind": "service",
                 "bounded_context": "shared-kernel",

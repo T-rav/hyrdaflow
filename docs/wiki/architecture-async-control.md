@@ -307,3 +307,27 @@ Dynamic skills (with user-supplied content) require operator review before deplo
 ```json:entry
 {"id":"01KQP0XFBGMB32VFGNPV8GZ26V","title":"Operator review gates dynamic skills due to prompt injection risk","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:18:02.224970+00:00","updated_at":"2026-05-03T04:18:02.224972+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
+
+
+## Advisor pattern layers Opus reviewer over Sonnet executor on review surfaces
+
+Each review surface (`pr_review`, `pre_merge_spec_check`, `adr_review`, `visual_gate`, `wiki_ingest`) can have up to three advisor roles wrapping the executor: a pre-flight planner (Opus subagent producing a `ReviewPlan`), a mid-flight consultant (executor's `Task`-tool call when stuck on a judgment call), and a post-verify gate (Opus subagent that can VETO the executor's verdict). Per-surface tiering in `src/review_advisor.py:_SURFACE_DEFAULTS` decides which roles fire per surface, so cheap surfaces stay cheap while load-bearing ones get the full advisory stack.
+
+**Why:** Replaces the missing human merge gate (ADR-0042) with a layered second-pair-of-eyes that catches false negatives the executor misses. See ADR-0059.
+
+
+```json:entry
+{"id":"01KQP0XFBGMB32VFGNPV8GZ26W","title":"Advisor pattern layers Opus reviewer over Sonnet executor on review surfaces","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-08T00:00:00.000000+00:00","updated_at":"2026-05-08T00:00:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```
+
+
+## Advisor uses Claude Code subagent dispatch — never the Anthropic SDK directly
+
+All LLM invocations from HydraFlow runtime (advisor included) go through Claude Code's subagent dispatch — either subprocess agents (`runner` / `agent.py` patterns) or in-session `Task` tool with `model=` override. A direct `from anthropic import` in HydraFlow source is an architectural violation.
+
+**Why:** Inherits Claude Code's auth, billing, transcripts, and observability boundary; avoids splitting the runtime's LLM lane.
+
+
+```json:entry
+{"id":"01KQP0XFBGMB32VFGNPV8GZ26X","title":"Advisor uses Claude Code subagent dispatch — never the Anthropic SDK directly","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-08T00:00:00.000000+00:00","updated_at":"2026-05-08T00:00:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
+```

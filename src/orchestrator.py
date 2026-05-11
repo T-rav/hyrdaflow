@@ -156,6 +156,7 @@ class HydraFlowOrchestrator:
         # Extracted component managers
         bg_loop_registry: dict[str, BaseBackgroundLoop] = {
             "pr_unsticker": svc.pr_unsticker_loop,
+            "merge_state_watcher": svc.merge_state_watcher_loop,
             "report_issue": svc.report_issue_loop,
             "epic_monitor": svc.epic_monitor_loop,
             "epic_sweeper": svc.epic_sweeper_loop,
@@ -179,6 +180,7 @@ class HydraFlowOrchestrator:
             "flake_tracker": svc.flake_tracker_loop,
             "skill_prompt_eval": svc.skill_prompt_eval_loop,
             "fake_coverage_auditor": svc.fake_coverage_auditor_loop,
+            "adr_touchpoint_auditor": svc.adr_touchpoint_auditor_loop,
             "memory_backlog": svc.memory_backlog_loop,
             "rc_budget": svc.rc_budget_loop,
             "wiki_rot_detector": svc.wiki_rot_detector_loop,
@@ -192,6 +194,8 @@ class HydraFlowOrchestrator:
             "pricing_refresh": svc.pricing_refresh_loop,
             "cost_budget_watcher": svc.cost_budget_watcher_loop,
             "term_proposer": svc.term_proposer_loop,
+            "term_pruner": svc.term_pruner_loop,
+            "edge_proposer": svc.edge_proposer_loop,
         }
         self._bg_workers = BGWorkerManager(config, self._state, bg_loop_registry)
         # Loops that need a reference to BGWorkerManager cannot take one
@@ -970,6 +974,7 @@ class HydraFlowOrchestrator:
             ("review", self._review_loop),
             ("hitl", self._hitl_loop),
             ("pr_unsticker", self._svc.pr_unsticker_loop.run),
+            ("merge_state_watcher", self._svc.merge_state_watcher_loop.run),
             ("report_issue", self._svc.report_issue_loop.run),
             ("epic_monitor", self._svc.epic_monitor_loop.run),
             ("epic_sweeper", self._svc.epic_sweeper_loop.run),
@@ -995,6 +1000,7 @@ class HydraFlowOrchestrator:
             ("flake_tracker", self._svc.flake_tracker_loop.run),
             ("skill_prompt_eval", self._svc.skill_prompt_eval_loop.run),
             ("fake_coverage_auditor", self._svc.fake_coverage_auditor_loop.run),
+            ("adr_touchpoint_auditor", self._svc.adr_touchpoint_auditor_loop.run),
             ("memory_backlog", self._svc.memory_backlog_loop.run),
             ("rc_budget", self._svc.rc_budget_loop.run),
             ("wiki_rot_detector", self._svc.wiki_rot_detector_loop.run),
@@ -1008,6 +1014,8 @@ class HydraFlowOrchestrator:
             ("pricing_refresh", self._svc.pricing_refresh_loop.run),
             ("cost_budget_watcher", self._svc.cost_budget_watcher_loop.run),
             ("term_proposer", self._svc.term_proposer_loop.run),
+            ("term_pruner", self._svc.term_pruner_loop.run),
+            ("edge_proposer", self._svc.edge_proposer_loop.run),
         ]
 
         # Hindsight WAL replay loop removed in Phase 3 cutover — the wiki

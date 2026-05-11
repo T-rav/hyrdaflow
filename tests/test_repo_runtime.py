@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -32,6 +33,7 @@ class TestRepoRuntimeInfo:
         assert info.running is False
         assert info.session_id is None
         assert info.uptime_seconds == 0.0
+        assert info.last_error is None
 
     def test_with_values(self):
         info = RepoRuntimeInfo(
@@ -40,9 +42,11 @@ class TestRepoRuntimeInfo:
             running=True,
             session_id="sess-1",
             uptime_seconds=123.4,
+            last_error="boom",
         )
         assert info.running is True
         assert info.session_id == "sess-1"
+        assert info.last_error == "boom"
 
 
 class TestRepoRuntime:
@@ -129,6 +133,59 @@ class TestRepoRuntime:
         # Let the event loop tick so the task runs
         await asyncio.sleep(0)
         mock_orch.run.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_last_error_captures_orchestrator_run_exception(self, tmp_path):
+        """When orchestrator.run() raises during setup, last_error captures it.
+
+        Regression: previously the task exception was silently swallowed, so
+        the dashboard would briefly show "running" then revert to "stopped"
+        with no error surfaced — see UI play-button flicker bug.
+        """
+        config = ConfigFactory.create(repo_root=tmp_path)
+        mock_orch = MagicMock()
+        mock_orch.run = AsyncMock(side_effect=RuntimeError("sanitize_repo failed"))
+        mock_orch.running = False
+        with (
+            patch("repo_runtime.EventLog"),
+            patch("repo_runtime.EventBus"),
+            patch("repo_runtime.build_state_tracker"),
+            patch("repo_runtime.HydraFlowOrchestrator", return_value=mock_orch),
+        ):
+            runtime = RepoRuntime(config)
+
+        assert runtime.last_error is None
+        await runtime.start()
+        assert runtime._task is not None
+        # Wait for the task to finish so the done_callback fires.
+        with contextlib.suppress(RuntimeError):
+            await runtime._task
+
+        assert runtime.last_error is not None
+        assert "sanitize_repo failed" in runtime.last_error
+
+    @pytest.mark.asyncio
+    async def test_start_clears_previous_last_error(self, tmp_path):
+        """Retrying start() after a failure clears the previous error."""
+        config = ConfigFactory.create(repo_root=tmp_path)
+        mock_orch = MagicMock()
+        mock_orch.run = AsyncMock(side_effect=RuntimeError("boom"))
+        mock_orch.running = False
+        with (
+            patch("repo_runtime.EventLog"),
+            patch("repo_runtime.EventBus"),
+            patch("repo_runtime.build_state_tracker"),
+            patch("repo_runtime.HydraFlowOrchestrator", return_value=mock_orch),
+        ):
+            runtime = RepoRuntime(config)
+        await runtime.start()
+        with contextlib.suppress(RuntimeError):
+            await runtime._task
+        assert runtime.last_error is not None
+
+        mock_orch.run = AsyncMock()  # success on retry
+        await runtime.start()
+        assert runtime.last_error is None
 
     @pytest.mark.asyncio
     async def test_stop_stops_orchestrator(self, tmp_path):

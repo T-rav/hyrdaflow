@@ -249,6 +249,58 @@ class _FakeReviewRunner(_ScriptedRunner):
             fixes_made=True,
         )
 
+    async def fix_review_findings(
+        self,
+        pr: Any,
+        issue: Any,
+        _worktree_path: Path,
+        _review_summary: str,
+        **_kwargs: Any,
+    ) -> Any:
+        """Default fake: report fixes_made=True so the retry loop re-reviews.
+
+        Production ``ReviewRunner.fix_review_findings`` would spawn a real
+        subprocess. The retry path triggered by the post-verify advisor's
+        VETO branch lands here in MockWorld scenarios — the executor is
+        treated as having committed a fix, so the next ``review()`` pop
+        decides the outcome.
+        """
+        issue_number = getattr(issue, "id", getattr(issue, "number", 0))
+        pr_number = getattr(pr, "number", 0)
+        return ReviewResultFactory.create(
+            pr_number=pr_number,
+            issue_number=issue_number,
+            verdict=ReviewVerdict.APPROVE,
+            fixes_made=True,
+        )
+
+
+class _FakeAdvisorRunner:
+    """Per-(issue, role) scripted advisor responses for MockWorld scenarios.
+
+    Distinct from _ScriptedRunner because advisor calls are addressed by a
+    compound key (issue_number, role) rather than just issue_number, and they
+    should not collide with the per-issue scripts used by other phases.
+    """
+
+    def __init__(self) -> None:
+        self._scripts: dict[tuple[int, str], list[Any]] = {}
+        self._role_call_counts: dict[str, int] = {}
+
+    def script(self, issue_number: int, role: str, results: list[Any]) -> None:
+        key = (issue_number, role)
+        self._scripts[key] = list(results)
+
+    def pop(self, issue_number: int, role: str) -> Any:
+        key = (issue_number, role)
+        queue = self._scripts.get(key, [])
+        result = queue.pop(0) if queue else None
+        self._role_call_counts[role] = self._role_call_counts.get(role, 0) + 1
+        return result
+
+    def call_count_for(self, role: str) -> int:
+        return self._role_call_counts.get(role, 0)
+
 
 class FakeLLM:
     """Composable scripted LLM runners for all pipeline phases."""
@@ -262,6 +314,7 @@ class FakeLLM:
         self.planners = _FakePlannerRunner(self)
         self.agents = _FakeAgentRunner()
         self.reviewers = _FakeReviewRunner(self)
+        self._advisor = _FakeAdvisorRunner()
 
     def script_triage(self, issue_number: int, results: list[Any]) -> None:
         self.triage_runner.add_script(
@@ -282,6 +335,27 @@ class FakeLLM:
         self.reviewers.add_script(
             issue_number, [self._coerce_review(issue_number, r) for r in results]
         )
+
+    def script_advisor(self, issue_number: int, role: str, results: list[Any]) -> None:
+        """Script advisor responses for (issue_number, role).
+
+        Distinct from script_review/script_plan: advisor calls are addressed
+        by a (issue, role) compound key so a single issue can have separate
+        queues for ``pre_flight``, ``post_verify``, etc.
+        """
+        self._advisor.script(issue_number, role, results)
+
+    def pop_advisor_result(self, issue_number: int, role: str) -> Any:
+        """Pop the next advisor result for (issue_number, role).
+
+        Returns None when no script is queued. Each call increments the
+        per-role call counter regardless of whether a result was scripted.
+        """
+        return self._advisor.pop(issue_number, role)
+
+    def advisor_call_count_for(self, role: str) -> int:
+        """Number of advisor pops observed for ``role`` across all issues."""
+        return self._advisor.call_count_for(role)
 
     # ------------------------------------------------------------------
     # Dict → typed-result coercion

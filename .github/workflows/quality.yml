@@ -95,45 +95,56 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     needs: [changes, discover-projects]
-    if: needs.changes.outputs.code == 'true'
+    # Always run so the matrix-named checks (`quality (.)`, `quality (src/ui)`)
+    # register a SUCCESS status on docs-only PRs — branch protection requires
+    # those names; a never-expanded matrix is counted as 'expected'/not-passed.
+    # Heavy steps still gate on `needs.changes.outputs.code == 'true'` below.
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.discover-projects.outputs.matrix) }}
     steps:
+      - name: Skip-if-no-code-changes
+        if: needs.changes.outputs.code != 'true'
+        shell: bash
+        run: |
+          echo 'No code changes — emitting SUCCESS to satisfy branch protection.'
+          echo 'Heavy quality steps gated below; no-op for docs-only PRs.'
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.code == 'true'
       - name: Set up Python
-        if: ${{ hashFiles(format('{0}/pyproject.toml', matrix.project_dir), format('{0}/requirements.txt', matrix.project_dir), format('{0}/setup.py', matrix.project_dir)) != '' }}
+        if: ${{ needs.changes.outputs.code == 'true' && (hashFiles(format('{0}/pyproject.toml', matrix.project_dir), format('{0}/requirements.txt', matrix.project_dir), format('{0}/setup.py', matrix.project_dir)) != '') }}
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: Set up uv
-        if: ${{ hashFiles(format('{0}/Makefile', matrix.project_dir), format('{0}/makefile', matrix.project_dir), format('{0}/GNUmakefile', matrix.project_dir)) != '' }}
+        if: ${{ needs.changes.outputs.code == 'true' && (hashFiles(format('{0}/Makefile', matrix.project_dir), format('{0}/makefile', matrix.project_dir), format('{0}/GNUmakefile', matrix.project_dir)) != '') }}
         uses: astral-sh/setup-uv@v5
       - name: Set up Node
-        if: ${{ hashFiles(format('{0}/package.json', matrix.project_dir)) != '' }}
+        if: ${{ needs.changes.outputs.code == 'true' && (hashFiles(format('{0}/package.json', matrix.project_dir)) != '') }}
         uses: actions/setup-node@v4
         with:
           node-version: '20'
       - name: Set up Java
-        if: ${{ hashFiles(format('{0}/pom.xml', matrix.project_dir), format('{0}/build.gradle', matrix.project_dir), format('{0}/build.gradle.kts', matrix.project_dir)) != '' }}
+        if: ${{ needs.changes.outputs.code == 'true' && (hashFiles(format('{0}/pom.xml', matrix.project_dir), format('{0}/build.gradle', matrix.project_dir), format('{0}/build.gradle.kts', matrix.project_dir)) != '') }}
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
       - name: Set up Ruby
-        if: ${{ hashFiles(format('{0}/Gemfile', matrix.project_dir)) != '' }}
+        if: ${{ needs.changes.outputs.code == 'true' && (hashFiles(format('{0}/Gemfile', matrix.project_dir)) != '') }}
         uses: ruby/setup-ruby@v1
       - name: Set up .NET
-        if: ${{ hashFiles(format('{0}/*.sln', matrix.project_dir), format('{0}/*.csproj', matrix.project_dir)) != '' }}
+        if: ${{ needs.changes.outputs.code == 'true' && (hashFiles(format('{0}/*.sln', matrix.project_dir), format('{0}/*.csproj', matrix.project_dir)) != '') }}
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
       - name: Set up Go
-        if: ${{ hashFiles(format('{0}/go.mod', matrix.project_dir)) != '' }}
+        if: ${{ needs.changes.outputs.code == 'true' && (hashFiles(format('{0}/go.mod', matrix.project_dir)) != '') }}
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
       - name: Quality Lite
+        if: needs.changes.outputs.code == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -144,6 +155,7 @@ jobs:
           fi
           echo "No Makefile in ${{ matrix.project_dir }}; skipping make quality-lite."
       - name: Quality Full
+        if: needs.changes.outputs.code == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -154,6 +166,7 @@ jobs:
           fi
           echo "No Makefile in ${{ matrix.project_dir }}; skipping make quality."
       - name: Smoke
+        if: needs.changes.outputs.code == 'true'
         shell: bash
         run: |
           set -euo pipefail

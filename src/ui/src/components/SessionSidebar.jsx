@@ -158,6 +158,7 @@ export function SessionSidebar() {
           const isRepoSelected = selectedRepoSlug === entry.filterSlug
           const rt = entry.runtime
           const isRunning = rt?.running ?? entry.info?.running ?? false
+          const lastError = rt?.last_error || null
           const orchRunning = orchestratorStatus === 'running'
           const disabled = !orchRunning && !isRunning
           const slug = entry.repoSlug || entry.displayName
@@ -211,6 +212,15 @@ export function SessionSidebar() {
                   stageStatus={stageStatus}
                 />
               </div>
+              {lastError && !isRunning && (
+                <div
+                  style={styles.repoLastError}
+                  title={lastError}
+                  data-testid="repo-last-error"
+                >
+                  ⚠ {lastError}
+                </div>
+              )}
             </div>
           )
         })}
@@ -260,6 +270,15 @@ const styles = {
     fontSize: 10,
     color: theme.textMuted,
     paddingLeft: 14,
+  },
+  repoLastError: {
+    fontSize: 10,
+    color: theme.red,
+    paddingLeft: 14,
+    paddingTop: 2,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   repoText: {
     display: 'flex',

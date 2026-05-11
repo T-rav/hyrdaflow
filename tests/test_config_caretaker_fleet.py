@@ -141,3 +141,59 @@ def test_term_proposer_enabled_env_override(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("HYDRAFLOW_TERM_PROPOSER_ENABLED", "false")
     cfg = HydraFlowConfig()
     assert cfg.term_proposer_enabled is False
+
+
+def test_term_pruner_config_defaults() -> None:
+    config = HydraFlowConfig()
+    assert config.term_pruner_enabled is True
+    assert config.term_pruner_interval == 86400
+
+
+def test_term_pruner_interval_lower_bound_rejected() -> None:
+    with pytest.raises(ValueError):
+        HydraFlowConfig(term_pruner_interval=3599)
+
+
+def test_term_pruner_interval_upper_bound_rejected() -> None:
+    with pytest.raises(ValueError):
+        HydraFlowConfig(term_pruner_interval=604801)
+
+
+def test_term_pruner_interval_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HYDRAFLOW_TERM_PRUNER_INTERVAL", "7200")
+    cfg = HydraFlowConfig()
+    assert cfg.term_pruner_interval == 7200
+
+
+def test_term_pruner_enabled_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HYDRAFLOW_TERM_PRUNER_ENABLED", "false")
+    cfg = HydraFlowConfig()
+    assert cfg.term_pruner_enabled is False
+
+
+def test_edge_proposer_config_defaults() -> None:
+    config = HydraFlowConfig()
+    assert config.edge_proposer_enabled is True
+    assert config.edge_proposer_interval == 86400
+
+
+def test_edge_proposer_interval_lower_bound_rejected() -> None:
+    with pytest.raises(ValueError):
+        HydraFlowConfig(edge_proposer_interval=3599)
+
+
+def test_edge_proposer_interval_upper_bound_rejected() -> None:
+    with pytest.raises(ValueError):
+        HydraFlowConfig(edge_proposer_interval=604801)
+
+
+def test_edge_proposer_interval_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HYDRAFLOW_EDGE_PROPOSER_INTERVAL", "7200")
+    cfg = HydraFlowConfig()
+    assert cfg.edge_proposer_interval == 7200
+
+
+def test_edge_proposer_enabled_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HYDRAFLOW_EDGE_PROPOSER_ENABLED", "false")
+    cfg = HydraFlowConfig()
+    assert cfg.edge_proposer_enabled is False

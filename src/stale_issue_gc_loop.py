@@ -1,4 +1,13 @@
-"""Background worker loop — auto-close stale HITL issues with no activity."""
+"""Background worker loop — auto-close stale HITL escalation issues.
+
+Scope: open issues carrying ``self._config.hitl_label`` (i.e. unresolved
+human-in-the-loop escalations). Posts a farewell comment, then closes;
+caps at 10 closes/cycle to avoid GitHub rate-limiting. The complement —
+stale *general* issues with no HF lifecycle label — is owned by
+``stale_issue_loop``, which has its own per-tag thresholds and state
+tracking. The two loops share only the ``BaseBackgroundLoop`` framework;
+zero business-logic overlap.
+"""
 
 from __future__ import annotations
 

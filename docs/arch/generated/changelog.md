@@ -6,17 +6,30 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W19
 
-- `b7abdcc` — feat(caretaker): wire LabelDriftWatcherLoop into hygiene registries *(2026-05-08)*
-- `907c272` — feat(caretaker): LabelDriftWatcherLoop — detect+reconcile drift *(2026-05-08)*
-- `5b34e92` — feat(pr-manager): find_label_drift — detects cross-entity drift *(2026-05-08)*
-- `3a2a939` — docs(adr): ADR-0056 LabelDriftWatcherLoop — proposed *(2026-05-08)*
-- `df80b0c` — fix(pr-unsticker): split issue vs PR label targets on HITL release (#8715) (#8715) *(2026-05-08)*
-- `69d9f4a` — feat: tier-2 enforcement batch (mock spec, ci git, memory backlog loop) (#8714) (#8714) *(2026-05-08)*
-- `6704c08` — fix(implement): don't publish PRs for failed fresh attempts (#8713) (#8713) *(2026-05-08)*
-- `1966bfd` — fix(staging-promotion): trigger CI on rc/* PRs via synthetic commit *(2026-05-07)*
-- `c681459` — feat(pr): caretaker-loops spec + plan + update_pr_base port method (#8489) (#8489) *(2026-05-07)*
+- `ab7d575` — chore(arch): regenerate curated arch docs for ADR-0059 cross-references (T30.7) *(2026-05-08)*
+- `2953fc7` — docs(wiki): advisor-pattern entries (architecture-async-control + dark-factory) (T32, advisor-h4y) *(2026-05-08)*
+- `7a8b37a` — docs(adr): advisor-pattern self-repairing review (T31, advisor-5o4) *(2026-05-08)*
+- `fb1cdb4` — Merge pull request #8491 from T-rav/rc/2026-05-07-0648 *(2026-05-07)*
+- `5bc84da` — feat(ul): wire EdgeProposerLoop into ServiceRegistry + orchestrator *(2026-05-07)*
+- `8962798` — docs(adr): add ADR-0058 edge-proposer loop *(2026-05-07)*
+- `76e91e0` — feat(ul): wire TermPrunerLoop into ServiceRegistry + orchestrator *(2026-05-07)*
+- `882171c` — docs(adr): add ADR-0057 term-pruner loop *(2026-05-07)*
+- `d83d968` — Merge pull request #8681 from T-rav/ul-proposer/08881ea4 *(2026-05-07)*
+- `8407378` — feat(ul): auto-grown terms ship as 'accepted' directly *(2026-05-07)*
+- `8a5d2ad` — chore: dedupe update_pr_branch — reuse PR #8482's existing impl *(2026-05-07)*
+- `1bed223` — chore: register MergeStateWatcherLoop in all loop-hygiene registries *(2026-05-07)*
+- `ac8b047` — feat(caretaker): MergeStateWatcher loop — auto-rebase or HITL-escalate conflicting PRs *(2026-05-07)*
+- `a46fb11` — chore: regen arch artifacts after rebase *(2026-05-07)*
+- `33b642d` — fix(dashboard): surface RepoRuntime startup failures so the play button stops flickering *(2026-05-07)*
+- `ba2f7b8` — feat(ul): term-proposer batch — 1 drafts *(2026-05-07)*
+- `2ffae14` — chore(arch): regenerate arch artifacts after term-proposer-adapters merge *(2026-05-07)*
+- `c45e243` — Merge remote-tracking branch 'origin/feat/term-proposer-adapters' into feat/term-proposer-adapters *(2026-05-07)*
 - `cdb1a31` — feat(testing): document HydraFlow test pyramid + add missing layers for #8482 (#8486) (#8486) *(2026-05-07)*
+- `8b62616` — chore: re-regen arch artifacts after rebase onto staging *(2026-05-07)*
+- `c9c5d35` — chore: arch-regen + lint-fix to unblock CI on #8478 *(2026-05-07)*
+- `775eebe` — feat(adr): AdrTouchpointAuditorLoop replaces deleted touchpoint gate (ADR-0056) *(2026-05-06)*
 - `dd9ce56` — feat(pr): rebase-on-conflict for process-driven merges (#8482) (#8482) *(2026-05-06)*
+- `29f2676` — chore(ci): delete the ADR touchpoint gate (replaced by caretaker loop) *(2026-05-06)*
 - `06c3e70` — feat(staging): activate two-tier branch model + repeatable branch-protection standard (#8479) (#8479) *(2026-05-06)*
 - `6d7fe13` — feat(telemetry): OTel Honeycomb instrumentation — Phase A (#8473) (#8473) *(2026-05-06)*
 - `43ffe3d` — feat(ul): TermProposerLoop — auto-grow the ubiquitous-language glossary (ADR-0054 / chunk 2 of 5) (#8477) (#8477) *(2026-05-06)*
@@ -179,4 +192,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `188a51e` on 2026-05-09 05:19 UTC. Source last changed at `188a51e`. Status: 🟢 fresh._
+_Regenerated from commit `109888f` on 2026-05-10 22:21 UTC. Source last changed at `109888f`. Status: 🟢 fresh._

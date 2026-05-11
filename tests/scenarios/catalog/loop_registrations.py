@@ -51,6 +51,16 @@ def _build_dependabot_merge(ports: dict[str, Any], config: Any, deps: Any) -> An
     )
 
 
+def _build_merge_state_watcher(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from merge_state_watcher_loop import MergeStateWatcherLoop  # noqa: PLC0415
+
+    return MergeStateWatcherLoop(
+        config=config,
+        prs=ports["github"],
+        deps=deps,
+    )
+
+
 def _build_pr_unsticker(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     from pr_unsticker_loop import PRUnstickerLoop  # noqa: PLC0415
 
@@ -508,6 +518,61 @@ def _build_fake_coverage_auditor(ports: dict[str, Any], config: Any, deps: Any) 
     return loop
 
 
+def _build_adr_touchpoint_auditor(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build AdrTouchpointAuditorLoop for scenarios (ADR-0056).
+
+    Tests pre-seed:
+    * ``adr_touchpoint_list_merged_prs`` → replaces ``_list_recent_merged_prs``
+      so we don't shell out to ``gh``.
+    * ``adr_touchpoint_reconcile_closed`` → replaces ``_reconcile_closed_escalations``.
+    * ``adr_touchpoint_index`` → an ``ADRIndex`` (or duck-typed substitute).
+
+    State + dedup default to MagicMocks behaving like a clean slate (empty
+    cursor → seed-and-return on first tick). Tests override via
+    ``adr_touchpoint_state`` / ``adr_touchpoint_dedup``.
+    """
+    from adr_touchpoint_auditor_loop import (  # noqa: PLC0415
+        AdrTouchpointAuditorLoop,
+    )
+
+    state = ports.get("adr_touchpoint_state")
+    if state is None:
+        state = MagicMock()
+        state.get_adr_audit_cursor.return_value = ""
+        state.get_adr_audit_attempts.return_value = 0
+        state.inc_adr_audit_attempts.return_value = 1
+        ports["adr_touchpoint_state"] = state
+
+    dedup = ports.get("adr_touchpoint_dedup")
+    if dedup is None:
+        dedup = MagicMock()
+        dedup.get.return_value = set()
+        ports["adr_touchpoint_dedup"] = dedup
+
+    pr_manager = ports.get("pr_manager") or ports["github"]
+    adr_index = ports.get("adr_touchpoint_index") or MagicMock(
+        adrs_touching=lambda paths: {}
+    )
+
+    loop = AdrTouchpointAuditorLoop(
+        config=config,
+        state=state,
+        pr_manager=pr_manager,
+        dedup=dedup,
+        adr_index=adr_index,
+        deps=deps,
+    )
+
+    list_prs = ports.get("adr_touchpoint_list_merged_prs")
+    if list_prs is not None:
+        loop._list_recent_merged_prs = list_prs  # type: ignore[method-assign]
+    reconcile = ports.get("adr_touchpoint_reconcile_closed")
+    if reconcile is not None:
+        loop._reconcile_closed_escalations = reconcile  # type: ignore[method-assign]
+
+    return loop
+
+
 def _build_memory_backlog(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     """Build MemoryBacklogLoop for scenarios (ADR-0057).
 
@@ -960,6 +1025,7 @@ _BUILDERS: dict[str, Any] = {
     "stale_issue_gc": _build_stale_issue_gc,
     "dependabot_merge": _build_dependabot_merge,
     "pr_unsticker": _build_pr_unsticker,
+    "merge_state_watcher": _build_merge_state_watcher,
     "health_monitor": _build_health_monitor,
     "workspace_gc": _build_workspace_gc,
     # phase 3b
@@ -980,6 +1046,7 @@ _BUILDERS: dict[str, Any] = {
     "flake_tracker": _build_flake_tracker,
     "skill_prompt_eval": _build_skill_prompt_eval,
     "fake_coverage_auditor": _build_fake_coverage_auditor,
+    "adr_touchpoint_auditor": _build_adr_touchpoint_auditor,
     "memory_backlog": _build_memory_backlog,
     "rc_budget": _build_rc_budget,
     "wiki_rot_detector": _build_wiki_rot_detector,

@@ -61,6 +61,7 @@ class TestTermProposerLLM:
     ) -> None:
         fake = FakeLLMClient(
             response={
+                "include": True,
                 "definition": "Helper service that supports AgentRunner with shared utilities for plan execution.",
                 "kind": "service",
                 "bounded_context": "builder",
@@ -88,7 +89,9 @@ class TestTermProposerLLM:
     async def test_rejects_garbage_response(
         self, candidate: Candidate, existing_terms: list[Term]
     ) -> None:
-        fake = FakeLLMClient(response={"definition": "x", "kind": "not_a_real_kind"})
+        fake = FakeLLMClient(
+            response={"include": True, "definition": "x", "kind": "not_a_real_kind"}
+        )
         llm = TermProposerLLM(client=fake)
         ctx = DraftContext(
             candidate=candidate,
@@ -105,6 +108,7 @@ class TestTermProposerLLM:
     ) -> None:
         fake = FakeLLMClient(
             response={
+                "include": True,
                 "definition": "A test definition that is at least thirty characters long for validation.",
                 "kind": "service",
                 "bounded_context": "builder",

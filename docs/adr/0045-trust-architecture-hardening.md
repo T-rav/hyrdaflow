@@ -72,7 +72,6 @@ The plan files under `docs/superpowers/plans/2026-04-22-*.md` are the authoritat
 
 - A future ADR-0046 may be needed if Phase 2 of §4.1 (CorpusLearningLoop auto-filing PRs) ever needs a per-tick cap on PR volume.
 - A future ADR may be needed when the sandbox repo for §4.2 live recording (contracts Task 0) graduates from manual prereq to automated.
-- An ADR for the `Skip-ADR:` PR-body marker convention is in scope for any follow-on that adopts it as a policy.
 
 ## Enforced by
 

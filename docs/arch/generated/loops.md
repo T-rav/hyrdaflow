@@ -7,6 +7,7 @@ All `BaseBackgroundLoop` subclasses discovered in `src/`. Generated from AST (no
 | Loop | Module | Tick (s) | Kill Switch | Events | ADRs |
 |---|---|---|---|---|---|
 | **ADRReviewerLoop** | `src.adr_reviewer_loop` | — | — | — | — |
+| **AdrTouchpointAuditorLoop** | `src.adr_touchpoint_auditor_loop` | — | — | — | ADR-0056 |
 | **AutoAgentPreflightLoop** | `src.auto_agent_preflight_loop` | — | — | — | — |
 | **CIMonitorLoop** | `src.ci_monitor_loop` | — | — | — | — |
 | **CodeGroomingLoop** | `src.code_grooming_loop` | — | — | — | — |
@@ -16,6 +17,7 @@ All `BaseBackgroundLoop` subclasses discovered in `src/`. Generated from AST (no
 | **DependabotMergeLoop** | `src.dependabot_merge_loop` | — | — | — | — |
 | **DiagnosticLoop** | `src.diagnostic_loop` | — | — | DIAGNOSTIC_UPDATE | — |
 | **DiagramLoop** | `src.diagram_loop` | — | — | — | ADR-0029, ADR-0049 |
+| **EdgeProposerLoop** | `src.edge_proposer_loop` | — | — | — | — |
 | **EpicMonitorLoop** | `src.epic_monitor_loop` | — | — | — | — |
 | **EpicSweeperLoop** | `src.epic_sweeper_loop` | — | — | — | — |
 | **FakeCoverageAuditorLoop** | `src.fake_coverage_auditor_loop` | — | — | — | — |
@@ -24,6 +26,7 @@ All `BaseBackgroundLoop` subclasses discovered in `src/`. Generated from AST (no
 | **HealthMonitorLoop** | `src.health_monitor_loop` | — | — | — | — |
 | **LabelDriftWatcherLoop** | `src.label_drift_watcher_loop` | — | — | — | — |
 | **MemoryBacklogLoop** | `src.memory_backlog_loop` | — | — | — | — |
+| **MergeStateWatcherLoop** | `src.merge_state_watcher_loop` | — | — | — | — |
 | **PRUnstickerLoop** | `src.pr_unsticker_loop` | — | — | — | — |
 | **PricingRefreshLoop** | `src.pricing_refresh_loop` | — | — | — | — |
 | **PrinciplesAuditLoop** | `src.principles_audit_loop` | — | — | — | ADR-0044 |
@@ -41,8 +44,9 @@ All `BaseBackgroundLoop` subclasses discovered in `src/`. Generated from AST (no
 | **StaleIssueGCLoop** | `src.stale_issue_gc_loop` | — | — | — | — |
 | **StaleIssueLoop** | `src.stale_issue_loop` | — | — | — | — |
 | **TermProposerLoop** | `src.term_proposer_loop` | — | — | — | ADR-0054 |
+| **TermPrunerLoop** | `src.term_pruner_loop` | — | — | — | — |
 | **TrustFleetSanityLoop** | `src.trust_fleet_sanity_loop` | — | — | BACKGROUND_WORKER_STATUS | — |
 | **WikiRotDetectorLoop** | `src.wiki_rot_detector_loop` | — | — | — | — |
 | **WorkspaceGCLoop** | `src.workspace_gc_loop` | — | — | — | — |
 
-_Regenerated from commit `188a51e` on 2026-05-09 05:19 UTC. Source last changed at `188a51e`. Status: 🟢 fresh._
+_Regenerated from commit `109888f` on 2026-05-10 22:21 UTC. Source last changed at `109888f`. Status: 🟢 fresh._

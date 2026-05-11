@@ -1730,6 +1730,7 @@ def mock_fetcher_noop(orch: Any) -> None:
         "github_cache_loop",
         "health_monitor_loop",
         "pr_unsticker_loop",
+        "merge_state_watcher_loop",
         "repo_wiki_loop",
         "report_issue_loop",
         "retrospective_loop",

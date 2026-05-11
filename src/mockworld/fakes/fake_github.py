@@ -656,6 +656,24 @@ class FakeGitHub:
         self._maybe_rate_limit()
         return True
 
+    async def list_conflicting_prs(self) -> list[Any]:
+        """Return PRs flagged as conflicting in the fake state."""
+        from merge_state_watcher import ConflictingPR  # noqa: PLC0415
+
+        self._maybe_rate_limit()
+        results: list[Any] = []
+        for pr in self._prs.values():
+            if getattr(pr, "mergeable", True):
+                continue
+            results.append(
+                ConflictingPR(
+                    number=pr.number,
+                    branch=getattr(pr, "head_ref", "") or "",
+                    labels=list(getattr(pr, "labels", []) or []),
+                )
+            )
+        return results
+
     async def pull_main(self, **_kw: Any) -> None:
         self._maybe_rate_limit()
 
@@ -707,10 +725,14 @@ class FakeGitHub:
         return True
 
     async def update_pr_branch(self, pr_number: int, *, method: str = "rebase") -> bool:
-        """Fake rebase: always succeeds in tests unless overridden via a script."""
+        """Fake rebase: clears mergeable flag, always succeeds when PR exists."""
         _ = (method,)
         self._maybe_rate_limit()
-        return pr_number in self._prs
+        pr = self._prs.get(pr_number)
+        if pr is None:
+            return False
+        pr.mergeable = True
+        return True
 
     async def update_pr_base(self, pr_number: int, *, base: str) -> bool:
         """Fake retarget: records the new base on the in-memory PR."""

@@ -39,6 +39,7 @@ class RepoRuntime:
             state=self._state,
         )
         self._task: asyncio.Task[None] | None = None
+        self._last_error: str | None = None
 
     @classmethod
     async def create(cls, config: HydraFlowConfig) -> RepoRuntime:
@@ -82,6 +83,19 @@ class RepoRuntime:
     def running(self) -> bool:
         return self._orchestrator.running
 
+    @property
+    def last_error(self) -> str | None:
+        """Last exception raised by the orchestrator task, or ``None``.
+
+        Set when the orchestrator background task ends with an exception
+        (e.g. ``sanitize_repo`` fails on a freshly-added repo). Cleared on
+        the next successful ``start()``. Surfaces to the dashboard via
+        :class:`~models.RepoRuntimeInfo` so the UI can show *why* a Play
+        click did not stick — without this the failure was silent and the
+        button appeared to flicker on→off with no explanation.
+        """
+        return self._last_error
+
     # --- Lifecycle ---
 
     async def start(self) -> None:
@@ -89,9 +103,22 @@ class RepoRuntime:
         if self._task and not self._task.done():
             logger.warning("Runtime %r already running", self._slug)
             return
+        self._last_error = None
         logger.info("Starting runtime for %r", self._slug)
         self._task = asyncio.create_task(
             self._orchestrator.run(), name=f"runtime-{self._slug}"
+        )
+        self._task.add_done_callback(self._on_task_done)
+
+    def _on_task_done(self, task: asyncio.Task[None]) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is None:
+            return
+        self._last_error = f"{type(exc).__name__}: {exc}"
+        logger.error(
+            "Runtime %r exited with exception: %s", self._slug, self._last_error
         )
 
     async def run(self) -> None:

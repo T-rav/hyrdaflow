@@ -39,7 +39,7 @@ Every `EventType` published or subscribed in `src/`. Events with no subscribers 
 | **SESSION_START** ⚠️ | `src.orchestrator:HydraFlowOrchestrator._start_session` | — |
 | **SHAPE_UPDATE** ⚠️ | `src.shape_phase:ShapePhase._process_finalization`<br>`src.shape_phase:ShapePhase._run_council_vote`<br>`src.shape_phase:ShapePhase._shape_with_runner` | — |
 | **SYSTEM_ALERT** ⚠️ | `src.cost_budget_alerts:check_daily_budget`<br>`src.cost_budget_alerts:check_issue_cost`<br>`src.epic:EpicManager.check_stale_epics`<br>`src.orchestrator:HydraFlowOrchestrator._deferred_pipeline_start`<br>`src.orchestrator:HydraFlowOrchestrator._handle_auth_error`<br>`src.orchestrator:HydraFlowOrchestrator._pause_for_credits`<br>`src.orchestrator:HydraFlowOrchestrator._polling_loop`<br>`src.orchestrator:HydraFlowOrchestrator._resume_loops_after_credit_pause`<br>`src.post_merge_handler:PostMergeHandler._safe_hook`<br>`src.post_merge_handler:PostMergeHandler.handle_approved` | — |
-| **SYSTEM_REROUTE** ⚠️ | `src.review_phase:ReviewPhase._review_single_adr`<br>`src.triage_phase:TriagePhase._triage_single_traced` | — |
+| **SYSTEM_REROUTE** ⚠️ | `src.review_phase:ReviewPhase._review_single_adr`<br>`src.review_phase:ReviewPhase._run_post_verify_advisor_for_adr`<br>`src.triage_phase:TriagePhase._triage_single_traced` | — |
 | **TRANSCRIPT_LINE** ⚠️ | `src.runner_utils:_stream_and_collect`<br>`src.triage:TriageRunner._emit_transcript` | — |
 | **TRANSCRIPT_SUMMARY** ⚠️ | `src.transcript_summarizer:TranscriptSummarizer._summarize_and_comment_inner` | — |
 | **TRIAGE_UPDATE** ⚠️ | `src.triage:TriageRunner._emit_status` | — |
@@ -47,4 +47,4 @@ Every `EventType` published or subscribed in `src/`. Events with no subscribers 
 | **VISUAL_GATE** ⚠️ | `src.post_merge_handler:PostMergeHandler._run_visual_gate`<br>`src.review_phase:ReviewPhase._emit_visual_gate_telemetry`<br>`src.review_phase:ReviewPhase.check_visual_gate` | — |
 | **WORKER_UPDATE** ⚠️ | `src.agent:AgentRunner._emit_status` | — |
 
-_Regenerated from commit `188a51e` on 2026-05-09 05:19 UTC. Source last changed at `188a51e`. Status: 🟢 fresh._
+_Regenerated from commit `109888f` on 2026-05-10 22:21 UTC. Source last changed at `109888f`. Status: 🟢 fresh._

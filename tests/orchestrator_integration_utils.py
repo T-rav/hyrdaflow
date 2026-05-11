@@ -467,6 +467,7 @@ def build_scripted_services(
     services.reviewer = ScriptedReviewPhase(script, github)
     services.memory_sync_bg = FakeBackgroundLoop()
     services.pr_unsticker_loop = FakeBackgroundLoop()
+    services.merge_state_watcher_loop = FakeBackgroundLoop()
     services.report_issue_loop = FakeBackgroundLoop()
     services.epic_manager = MagicMock()
     services.epic_monitor_loop = FakeBackgroundLoop()
@@ -492,6 +493,7 @@ def build_scripted_services(
     services.flake_tracker_loop = FakeBackgroundLoop()
     services.skill_prompt_eval_loop = FakeBackgroundLoop()
     services.fake_coverage_auditor_loop = FakeBackgroundLoop()
+    services.adr_touchpoint_auditor_loop = FakeBackgroundLoop()
     services.memory_backlog_loop = FakeBackgroundLoop()
     services.rc_budget_loop = FakeBackgroundLoop()
     services.wiki_rot_detector_loop = FakeBackgroundLoop()
@@ -505,6 +507,8 @@ def build_scripted_services(
     services.pricing_refresh_loop = FakeBackgroundLoop()
     services.cost_budget_watcher_loop = FakeBackgroundLoop()
     services.term_proposer_loop = FakeBackgroundLoop()
+    services.term_pruner_loop = FakeBackgroundLoop()
+    services.edge_proposer_loop = FakeBackgroundLoop()
     services.repo_wiki_store = SimpleNamespace(
         is_ingested=MagicMock(return_value=False),
         mark_ingested=MagicMock(),

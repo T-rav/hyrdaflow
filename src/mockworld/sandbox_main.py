@@ -85,6 +85,14 @@ async def main() -> None:
         for issue_number, results in by_issue.items():
             getattr(fake_llm, f"script_{phase}")(issue_number, results)
 
+    # Advisor scripts use a 3-arg shape: (issue_number, role, results) — the
+    # 2-arg ``script_<phase>`` loop above can't carry the role axis, so they
+    # live in their own seed field. Empty for non-advisor scenarios, which
+    # keeps every existing seed payload unchanged.
+    for issue_number, by_role in seed.advisor_scripts.items():
+        for role, results in by_role.items():
+            fake_llm.script_advisor(issue_number, role, results)
+
     # Every async-touched ``subprocess.run`` site in production code now
     # specifies ``timeout=`` (PRs #8454, #8456, #8468 — enforced by
     # ``tests/regressions/test_async_subprocess_timeouts.py``), so caretaker
@@ -108,6 +116,21 @@ async def main() -> None:
         fetcher=fetcher,
         runners=fake_llm,
     )
+
+    # Attach the advisor-routing sentinel — mirrors
+    # tests/scenarios/fakes/mock_world.py::_wire_targets so
+    # ReviewPhase._build_post_verify_runner's ``_PostVerifyRunner.run``
+    # adapter routes advisor consults into FakeLLM (via
+    # ``pop_advisor_result``) instead of falling through to
+    # ``ReviewRunner._execute``, which would spawn a real Claude
+    # subprocess and fail under the sandbox's air-gapped network.
+    #
+    # The sentinel must land on the SAME object the production runner
+    # adapter probes (``parent._reviewers.__dict__``). With
+    # ``runners=fake_llm`` above, ``svc.reviewers`` IS the
+    # ``_FakeReviewRunner`` — a plain Python instance whose ``__dict__``
+    # carries the assignment cleanly.
+    svc.reviewers._mockworld_fake_llm = fake_llm  # type: ignore[attr-defined]
 
     orch = HydraFlowOrchestrator(
         config,

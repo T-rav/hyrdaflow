@@ -25,6 +25,7 @@ _INTERVAL_BOUNDS: dict[str, tuple[int, int]] = {
     "memory_sync": (10, 14400),
     "metrics": (30, 14400),
     "pr_unsticker": (60, 86400),
+    "merge_state_watcher": (60, 86400),  # 1m min, 1d max (default 10m)
     "pipeline_poller": (5, 14400),
     "adr_reviewer": (28800, 432000),
     "verify_monitor": (60, 86400),
@@ -50,6 +51,7 @@ _INTERVAL_BOUNDS: dict[str, tuple[int, int]] = {
     "flake_tracker": (3600, 2_592_000),  # 1h min, 30d max
     "skill_prompt_eval": (86400, 2_592_000),  # 1d min, 30d max
     "fake_coverage_auditor": (86400, 2_592_000),  # 1d min, 30d max
+    "adr_touchpoint_auditor": (900, 86400),  # 15m min, 1d max (default 4h, ADR-0056)
     "memory_backlog": (3_600, 604_800),  # 1h min, 7d max
     "rc_budget": (3600, 604800),  # 1h min, 7d max
     "wiki_rot_detector": (86400, 2_592_000),  # 1d min, 30d max
@@ -63,7 +65,9 @@ _INTERVAL_BOUNDS: dict[str, tuple[int, int]] = {
     "pricing_refresh": (86400, 2_592_000),  # 1d min, 30d max (default 1d)
     "cost_budget_watcher": (60, 3600),  # 1m min, 1h max (default 5m)
     "term_proposer": (3600, 86400),  # 1h min, 24h max
-    "adr_touchpoint_auditor": (900, 86400),  # 15m min, 1d max (default 4h)
+    "term_pruner": (3600, 604800),  # 1h min, 7d max (default 24h)
+    "edge_proposer": (3600, 604800),  # 1h min, 7d max (default 24h)
+    "github_cache": (10, 3600),  # 15m min, 1d max (default 4h)
 }
 
 # Internal pipeline labels that must not be treated as epic names in the history panel.

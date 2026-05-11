@@ -2349,6 +2349,230 @@ class TestADRReviewPath:
         phase._store.mark_merged.assert_not_called()
 
 
+class TestADRReviewAdvisor:
+    """T26 — PreFlightAdvisor (AlwaysTrigger) + PostVerifyAdvisor wired into
+    ``_review_single_adr`` with surface=``adr_review``.
+
+    ADR review has no fix loop (mid_flight=False), so post-verify is a
+    one-shot binary gate: VETO requeues to plan with the advisor's
+    reasoning; APPROVE falls through to the existing finalize/approve path.
+    """
+
+    _VALID_ADR_BODY = (
+        "## Context\nCurrent rendering logic is split across hooks and cards.\n\n"
+        "## Decision\nAdopt a single-stage snapshot model with normalized events "
+        "to ensure deterministic rendering and simpler queue-state reconciliation.\n\n"
+        "## Consequences\nRequires state migration but removes drift and duplicate "
+        "count paths."
+    )
+
+    @pytest.mark.asyncio
+    async def test_advisor_approve_lets_valid_adr_finalize(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pre-flight + post-verify APPROVE -> ADR finalizes (existing behavior)."""
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_ADR_REVIEW_ADVISOR_ENABLED", "true")
+
+        phase = make_review_phase(config)
+        issue = TaskFactory.create(
+            id=820,
+            title="[ADR] Stream rendering architecture",
+            body=self._VALID_ADR_BODY,
+        )
+
+        # Pre-flight returns a plan; post-verify returns APPROVE.
+        plan_payload = (
+            '{"risk_summary":"low risk",'
+            '"focus_areas":[],"rubric":[],"escalation_signals":[]}'
+        )
+        approve_payload = (
+            '{"verdict":"APPROVE","reasoning":"ADR is sound","disagreements":[]}'
+        )
+        runner_run = AsyncMock(side_effect=[plan_payload, approve_payload])
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        results = await phase.review_adrs([issue])
+
+        assert len(results) == 1
+        assert results[0].verdict == ReviewVerdict.APPROVE
+        # Existing finalize path: labels swapped + close + mark_merged.
+        phase._prs.swap_pipeline_labels.assert_awaited_once_with(
+            820, config.fixed_label[0]
+        )
+        phase._prs.close_task.assert_awaited_once_with(820)
+        # Two advisor calls: pre-flight + post-verify.
+        assert runner_run.await_count == 2
+        roles = [c.kwargs.get("role") for c in runner_run.await_args_list]
+        assert roles == ["pre_flight", "post_verify"]
+
+    @pytest.mark.asyncio
+    async def test_advisor_veto_blocks_finalize_and_requeues_to_plan(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Post-verify VETO requeues a structurally-valid ADR to plan."""
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_ADR_REVIEW_ADVISOR_ENABLED", "true")
+
+        phase = make_review_phase(config)
+        issue = TaskFactory.create(
+            id=821,
+            title="[ADR] Stream rendering architecture",
+            body=self._VALID_ADR_BODY,
+        )
+
+        plan_payload = (
+            '{"risk_summary":"moderate","focus_areas":[],'
+            '"rubric":[],"escalation_signals":["missing trade-offs"]}'
+        )
+        veto_payload = (
+            '{"verdict":"VETO",'
+            '"reasoning":"Decision section omits the trade-off analysis '
+            'demanded by the rubric",'
+            '"disagreements":[{"executor_claim":"structural validation passed",'
+            '"advisor_assessment":"trade-off discussion missing",'
+            '"severity":"blocking"}],'
+            '"suggested_fix_direction":"Document why the snapshot model was '
+            'preferred over the streaming alternative"}'
+        )
+        runner_run = AsyncMock(side_effect=[plan_payload, veto_payload])
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        results = await phase.review_adrs([issue])
+
+        assert len(results) == 1
+        assert results[0].verdict == ReviewVerdict.REQUEST_CHANGES
+        assert "advisor veto" in (results[0].summary or "").lower()
+
+        # ADR must NOT have finalized: no label swap, no close.
+        phase._prs.swap_pipeline_labels.assert_not_awaited()
+        phase._prs.close_task.assert_not_awaited()
+        # Requeue to plan path: transition + enqueue + comment.
+        phase._prs.transition.assert_awaited_once_with(821, "plan")
+        phase._store.enqueue_transition.assert_called_once()
+        phase._store.mark_merged.assert_not_called()
+        # The post_verify runner saw role="post_verify".
+        roles = [c.kwargs.get("role") for c in runner_run.await_args_list]
+        assert "post_verify" in roles
+
+    @pytest.mark.asyncio
+    async def test_pre_flight_plan_threaded_into_post_verify(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pre-flight plan must be stashed under issue.id and reach post-verify."""
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_ADR_REVIEW_ADVISOR_ENABLED", "true")
+
+        phase = make_review_phase(config)
+        issue = TaskFactory.create(
+            id=822,
+            title="[ADR] Stream rendering architecture",
+            body=self._VALID_ADR_BODY,
+        )
+
+        plan_payload = (
+            '{"risk_summary":"identified risk",'
+            '"focus_areas":[],"rubric":["check trade-offs"],'
+            '"escalation_signals":[]}'
+        )
+        approve_payload = '{"verdict":"APPROVE","reasoning":"OK","disagreements":[]}'
+        runner_run = AsyncMock(side_effect=[plan_payload, approve_payload])
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        await phase.review_adrs([issue])
+
+        # Plan stashed under issue.id (no PR for ADR).
+        assert 822 in phase._advisor_pre_flight_plan
+        stashed = phase._advisor_pre_flight_plan[822]
+        assert stashed.risk_summary == "identified risk"
+        # Post-verify prompt should mention the rubric from the plan.
+        post_verify_call = runner_run.await_args_list[1]
+        prompt = post_verify_call.kwargs.get("prompt", "")
+        assert "check trade-offs" in prompt
+
+    @pytest.mark.asyncio
+    async def test_per_surface_kill_switch_skips_advisor(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When ``HYDRAFLOW_ADR_REVIEW_ADVISOR_ENABLED=false``, advisor is not invoked."""
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_ADR_REVIEW_ADVISOR_ENABLED", "false")
+
+        phase = make_review_phase(config)
+        issue = TaskFactory.create(
+            id=823,
+            title="[ADR] Stream rendering architecture",
+            body=self._VALID_ADR_BODY,
+        )
+
+        runner_run = AsyncMock()
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        results = await phase.review_adrs([issue])
+
+        # Existing structural-validation path: APPROVE + finalize.
+        assert results[0].verdict == ReviewVerdict.APPROVE
+        runner_run.assert_not_awaited()
+        # No plan stashed when advisor never ran.
+        assert 823 not in phase._advisor_pre_flight_plan
+
+    @pytest.mark.asyncio
+    async def test_advisor_credit_exhausted_propagates(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CreditExhaustedError from post-verify advisor must propagate (dark-factory §2.2)."""
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_ADR_REVIEW_ADVISOR_ENABLED", "true")
+
+        phase = make_review_phase(config)
+        issue = TaskFactory.create(
+            id=824,
+            title="[ADR] Stream rendering architecture",
+            body=self._VALID_ADR_BODY,
+        )
+
+        from subprocess_util import CreditExhaustedError
+
+        plan_payload = '{"risk_summary":"low","focus_areas":[],"rubric":[],"escalation_signals":[]}'
+        runner_run = AsyncMock(
+            side_effect=[plan_payload, CreditExhaustedError("no credits")]
+        )
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        with pytest.raises(CreditExhaustedError):
+            await phase.review_adrs([issue])
+
+    @pytest.mark.asyncio
+    async def test_invalid_adr_skips_post_verify(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Structural validation failure short-circuits BEFORE post-verify.
+
+        Pre-flight still runs (AlwaysTrigger), but the validator's reasons
+        path returns directly so the post-verify advisor is never invoked.
+        """
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_ADR_REVIEW_ADVISOR_ENABLED", "true")
+
+        phase = make_review_phase(config)
+        issue = TaskFactory.create(
+            id=825,
+            title="[ADR] Bad draft",
+            body="## Context\nShort.\n\n## Decision\nTiny.\n\n## Consequences\nTiny.",
+        )
+
+        plan_payload = '{"risk_summary":"low","focus_areas":[],"rubric":[],"escalation_signals":[]}'
+        runner_run = AsyncMock(return_value=plan_payload)
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        results = await phase.review_adrs([issue])
+
+        assert results[0].verdict == ReviewVerdict.REQUEST_CHANGES
+        # Pre-flight ran (AlwaysTrigger) — exactly one advisor call, role=pre_flight.
+        assert runner_run.await_count == 1
+        assert runner_run.await_args_list[0].kwargs.get("role") == "pre_flight"
+
+
 # ---------------------------------------------------------------------------
 # _run_initial_guards
 # ---------------------------------------------------------------------------
@@ -2792,3 +3016,818 @@ class TestNarrowedExceptionHandling:
 
         with pytest.raises(KeyError, match="missing key"):
             await phase._prs.fetch_ci_failure_logs(42)
+
+
+# ---------------------------------------------------------------------------
+# Post-verify advisor runner dispatch (T16 regression — I4)
+# ---------------------------------------------------------------------------
+
+
+class TestPostVerifyRunnerDispatch:
+    """Regression test for T16 (commit 4f49e0f6) — AsyncMock auto-vivification
+    must NOT route the runner adapter into the MockWorld branch.
+
+    Without the ``__dict__``-based probe, ``getattr(asyncmock,
+    "_mockworld_fake_llm")`` returns a child mock that satisfies
+    ``is not None``, causing the runner to route through the FakeLLM
+    dispatch path against AsyncMock test scaffolding that has no
+    ``_is_fake_adapter`` marker. The result is a coroutine returned as the
+    runner's payload.
+
+    See ``src/review_phase.py:_build_post_verify_runner`` for the load-bearing
+    ``__dict__`` check this test pins.
+    """
+
+    @pytest.mark.asyncio
+    async def test_asyncmock_reviewer_does_not_route_to_mockworld_branch(
+        self, config: HydraFlowConfig
+    ) -> None:
+        phase = make_review_phase(config)
+        # AsyncMock-based reviewer: _execute is an awaitable child mock; we
+        # set a deterministic return value so the dispatcher's production
+        # path returns a string rather than an auto-mock coroutine.
+        phase._reviewers._execute = AsyncMock(return_value="production-payload")
+
+        runner = phase._post_verify_runner
+        out = await runner.run(
+            model="opus",
+            subagent_type="hydraflow-review-advisor",
+            prompt="Issue: 1\n\n## Diff\nfoo",
+            role="post_verify",
+        )
+
+        # Production path was taken — _execute awaited exactly once with the
+        # advisor source tag — and the runner returned the production payload
+        # rather than a coroutine-as-payload from the FakeLLM branch.
+        assert out == "production-payload"
+        phase._reviewers._execute.assert_awaited_once()
+        _, kwargs = phase._reviewers._execute.call_args
+        # The fourth positional arg is the source tag dict.
+        args = phase._reviewers._execute.call_args.args
+        assert args[-1] == {"source": "advisor"}
+
+    @pytest.mark.asyncio
+    async def test_mockworld_sentinel_routes_to_fake_llm_branch(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Positive path — when a real MockWorld FakeLLM is attached as an
+        instance attribute (with ``_is_fake_adapter=True``), dispatch routes
+        to the MockWorld branch and skips the production ``_execute`` path.
+        """
+        phase = make_review_phase(config)
+
+        class _FakeLLM:
+            _is_fake_adapter = True
+
+            def __init__(self) -> None:
+                self.calls: list[tuple[int, str]] = []
+
+            def pop_advisor_result(self, issue_number: int, role: str) -> str:
+                self.calls.append((issue_number, role))
+                return '{"verdict":"APPROVE","reasoning":"ok","disagreements":[]}'
+
+        fake = _FakeLLM()
+        # Set on instance __dict__ — same shape MockWorld scenarios use.
+        phase._reviewers._mockworld_fake_llm = fake
+        phase._reviewers._execute = AsyncMock()
+
+        runner = phase._post_verify_runner
+        out = await runner.run(
+            model="opus",
+            subagent_type="hydraflow-review-advisor",
+            prompt="Issue: 7\n\n## Diff\nfoo",
+            role="post_verify",
+        )
+
+        assert out.startswith('{"verdict":"APPROVE"')
+        assert fake.calls == [(7, "post_verify")]
+        # MockWorld branch must NOT call the production _execute path.
+        phase._reviewers._execute.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Pre-merge spec check post-verify advisor (T25)
+# ---------------------------------------------------------------------------
+
+
+class TestPreMergeSpecCheckAdvisor:
+    """T25 — PostVerifyAdvisor wired into ``_run_pre_merge_spec_check``.
+
+    The pre_merge_spec_check surface is a binary gate: post-verify VETO
+    blocks the merge regardless of the executor's MATCH verdict; APPROVE
+    falls through to the executor's existing decision.
+    """
+
+    @pytest.mark.asyncio
+    async def test_advisor_veto_blocks_merge_on_executor_match(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Executor returns MATCH but advisor VETOes — merge must be blocked."""
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_PRE_MERGE_SPEC_CHECK_ADVISOR_ENABLED", "true")
+
+        phase = make_review_phase(config, default_mocks=True)
+        task = TaskFactory.create(id=42, body="The widget should frobnicate")
+
+        # Stub the spec-match executor to return MATCH.
+        monkeypatch.setattr(
+            "spec_match.build_self_review_prompt",
+            lambda _t, _d: "prompt",
+        )
+        monkeypatch.setattr(
+            "spec_match.extract_spec_match",
+            lambda _t: {"verdict": "MATCH", "content": ""},
+        )
+        monkeypatch.setattr(
+            "agent_cli.build_agent_command",
+            lambda **_kw: ["echo", "ok"],
+        )
+        phase._reviewers._execute = AsyncMock(return_value="transcript")
+
+        # Stub the post-verify runner to return a VETO payload.
+        veto_payload = (
+            '{"verdict":"VETO","reasoning":"missing acceptance criterion 2",'
+            '"disagreements":[{"executor_claim":"spec match",'
+            '"advisor_assessment":"AC2 not addressed",'
+            '"severity":"blocking"}]}'
+        )
+        runner_run = AsyncMock(return_value=veto_payload)
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        result = await phase._run_pre_merge_spec_check(task, "diff text", pr_number=99)
+
+        assert result is False, "Advisor VETO must block the merge"
+        runner_run.assert_awaited_once()
+        # Surface threading: the runner is called with role="post_verify".
+        kwargs = runner_run.await_args.kwargs
+        assert kwargs.get("role") == "post_verify"
+
+    @pytest.mark.asyncio
+    async def test_advisor_approve_respects_executor_match(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Executor MATCH + advisor APPROVE -> proceed with merge."""
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_PRE_MERGE_SPEC_CHECK_ADVISOR_ENABLED", "true")
+
+        phase = make_review_phase(config, default_mocks=True)
+        task = TaskFactory.create(id=42, body="spec body")
+
+        monkeypatch.setattr(
+            "spec_match.build_self_review_prompt",
+            lambda _t, _d: "prompt",
+        )
+        monkeypatch.setattr(
+            "spec_match.extract_spec_match",
+            lambda _t: {"verdict": "MATCH", "content": ""},
+        )
+        monkeypatch.setattr(
+            "agent_cli.build_agent_command",
+            lambda **_kw: ["echo", "ok"],
+        )
+        phase._reviewers._execute = AsyncMock(return_value="transcript")
+
+        approve_payload = (
+            '{"verdict":"APPROVE","reasoning":"looks good","disagreements":[]}'
+        )
+        phase._post_verify_runner.run = AsyncMock(  # type: ignore[method-assign]
+            return_value=approve_payload
+        )
+
+        result = await phase._run_pre_merge_spec_check(task, "diff text", pr_number=99)
+
+        assert result is True, "Executor MATCH + advisor APPROVE -> proceed"
+
+    @pytest.mark.asyncio
+    async def test_advisor_approve_does_not_override_executor_mismatch(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fail-closed preserved: advisor APPROVE cannot rescue an executor MISMATCH."""
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_PRE_MERGE_SPEC_CHECK_ADVISOR_ENABLED", "true")
+
+        phase = make_review_phase(config, default_mocks=True)
+        task = TaskFactory.create(id=42, body="spec body")
+
+        monkeypatch.setattr(
+            "spec_match.build_self_review_prompt",
+            lambda _t, _d: "prompt",
+        )
+        monkeypatch.setattr(
+            "spec_match.extract_spec_match",
+            lambda _t: {"verdict": "MISMATCH", "content": "gap details"},
+        )
+        monkeypatch.setattr(
+            "agent_cli.build_agent_command",
+            lambda **_kw: ["echo", "ok"],
+        )
+        phase._reviewers._execute = AsyncMock(return_value="transcript")
+
+        # Advisor returns APPROVE — should not override the executor's MISMATCH.
+        approve_payload = (
+            '{"verdict":"APPROVE","reasoning":"looks fine","disagreements":[]}'
+        )
+        phase._post_verify_runner.run = AsyncMock(  # type: ignore[method-assign]
+            return_value=approve_payload
+        )
+
+        result = await phase._run_pre_merge_spec_check(task, "diff text", pr_number=99)
+
+        assert result is False, (
+            "Advisor APPROVE must not override executor MISMATCH (fail-closed)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_per_surface_kill_switch_skips_advisor(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When the per-surface kill switch is off, advisor is not invoked."""
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_PRE_MERGE_SPEC_CHECK_ADVISOR_ENABLED", "false")
+
+        phase = make_review_phase(config, default_mocks=True)
+        task = TaskFactory.create(id=42, body="spec body")
+
+        monkeypatch.setattr(
+            "spec_match.build_self_review_prompt",
+            lambda _t, _d: "prompt",
+        )
+        monkeypatch.setattr(
+            "spec_match.extract_spec_match",
+            lambda _t: {"verdict": "MATCH", "content": ""},
+        )
+        monkeypatch.setattr(
+            "agent_cli.build_agent_command",
+            lambda **_kw: ["echo", "ok"],
+        )
+        phase._reviewers._execute = AsyncMock(return_value="transcript")
+
+        runner_run = AsyncMock()
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        result = await phase._run_pre_merge_spec_check(task, "diff text", pr_number=99)
+
+        assert result is True
+        runner_run.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_advisor_runtime_error_degrades_to_executor_verdict(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Soft advisor failure (e.g. RuntimeError) falls through to executor's verdict.
+
+        The executor's existing fail-closed semantics on MISMATCH still
+        apply; a non-fatal advisor error doesn't itself block a MATCH.
+        """
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_PRE_MERGE_SPEC_CHECK_ADVISOR_ENABLED", "true")
+
+        phase = make_review_phase(config, default_mocks=True)
+        task = TaskFactory.create(id=42, body="spec body")
+
+        monkeypatch.setattr(
+            "spec_match.build_self_review_prompt",
+            lambda _t, _d: "prompt",
+        )
+        monkeypatch.setattr(
+            "spec_match.extract_spec_match",
+            lambda _t: {"verdict": "MATCH", "content": ""},
+        )
+        monkeypatch.setattr(
+            "agent_cli.build_agent_command",
+            lambda **_kw: ["echo", "ok"],
+        )
+        phase._reviewers._execute = AsyncMock(return_value="transcript")
+
+        # Advisor errors with a transient runtime issue.
+        phase._post_verify_runner.run = AsyncMock(  # type: ignore[method-assign]
+            side_effect=RuntimeError("advisor temporarily unavailable")
+        )
+
+        result = await phase._run_pre_merge_spec_check(task, "diff text", pr_number=99)
+
+        # Executor's MATCH stands when the advisor degrades; fail-closed
+        # behaviour on MISMATCH is preserved by the executor's own branch.
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_advisor_credit_exhausted_propagates(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CreditExhaustedError from the advisor must propagate (dark-factory §2.2)."""
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_PRE_MERGE_SPEC_CHECK_ADVISOR_ENABLED", "true")
+
+        phase = make_review_phase(config, default_mocks=True)
+        task = TaskFactory.create(id=42, body="spec body")
+
+        monkeypatch.setattr(
+            "spec_match.build_self_review_prompt",
+            lambda _t, _d: "prompt",
+        )
+        monkeypatch.setattr(
+            "spec_match.extract_spec_match",
+            lambda _t: {"verdict": "MATCH", "content": ""},
+        )
+        monkeypatch.setattr(
+            "agent_cli.build_agent_command",
+            lambda **_kw: ["echo", "ok"],
+        )
+        phase._reviewers._execute = AsyncMock(return_value="transcript")
+
+        from subprocess_util import CreditExhaustedError
+
+        phase._post_verify_runner.run = AsyncMock(  # type: ignore[method-assign]
+            side_effect=CreditExhaustedError("no credits")
+        )
+
+        with pytest.raises(CreditExhaustedError):
+            await phase._run_pre_merge_spec_check(task, "diff text", pr_number=99)
+
+
+# ---------------------------------------------------------------------------
+# Visual gate advisor (T27)
+# ---------------------------------------------------------------------------
+
+
+class TestVisualGateAdvisor:
+    """T27 — PostVerifyAdvisor wired into ``check_visual_gate`` for the
+    ``visual_gate`` surface (post-only; pre_flight=False, mid_flight=False;
+    ``max_veto_retries=1``).
+
+    The visual gate is a binary post-verify gate: when the visual pipeline
+    returns ``"pass"``, the advisor gets a chance to second-opinion the
+    verdict. VETO blocks the merge and routes through the existing visual
+    gate failure/HITL escalation path; APPROVE / kill-switch off / soft
+    advisor failure falls through to the sign-off path unchanged.
+    """
+
+    @pytest.mark.asyncio
+    async def test_advisor_approve_passes_visual_gate(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Visual pipeline PASS + advisor APPROVE → gate passes (existing behavior)."""
+        from tests.helpers import ConfigFactory
+
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_VISUAL_GATE_ADVISOR_ENABLED", "true")
+
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            visual_gate_bypass=False,
+            repo_root=config.repo_root,
+            workspace_base=config.workspace_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._bus.publish = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._invoke_visual_pipeline = AsyncMock(  # type: ignore[method-assign]
+            return_value=("pass", {"baseline": "https://example.com/b"}, "all clear")
+        )
+        approve_payload = (
+            '{"verdict":"APPROVE","reasoning":"visual evidence is sound",'
+            '"disagreements":[]}'
+        )
+        runner_run = AsyncMock(return_value=approve_payload)
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        pr = PRInfoFactory.create(number=901)
+        issue = TaskFactory.create(id=901)
+        result = ReviewResultFactory.create()
+
+        ok = await phase.check_visual_gate(pr, issue, result, worker_id=0)
+
+        assert ok is True
+        assert result.visual_passed is True
+        runner_run.assert_awaited_once()
+        kwargs = runner_run.await_args.kwargs
+        assert kwargs.get("role") == "post_verify"
+        # Sign-off comment posted (PASS path), not a BLOCKED comment.
+        comment_call = phase._prs.post_pr_comment.call_args.args[1]
+        assert "PASSED" in comment_call
+
+    @pytest.mark.asyncio
+    async def test_advisor_veto_blocks_visual_gate(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Visual pipeline PASS + advisor VETO → gate blocks; HITL escalation."""
+        from tests.helpers import ConfigFactory
+
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_VISUAL_GATE_ADVISOR_ENABLED", "true")
+
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            visual_gate_bypass=False,
+            repo_root=config.repo_root,
+            workspace_base=config.workspace_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._bus.publish = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._escalate_to_hitl = AsyncMock()
+        phase._invoke_visual_pipeline = AsyncMock(  # type: ignore[method-assign]
+            return_value=("pass", {}, "pixel diff under threshold")
+        )
+        veto_payload = (
+            '{"verdict":"VETO",'
+            '"reasoning":"baseline shows misaligned modal — regression",'
+            '"disagreements":[{"executor_claim":"pass",'
+            '"advisor_assessment":"modal misalignment",'
+            '"severity":"blocking"}]}'
+        )
+        runner_run = AsyncMock(return_value=veto_payload)
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        pr = PRInfoFactory.create(number=902)
+        issue = TaskFactory.create(id=902)
+        result = ReviewResultFactory.create()
+
+        ok = await phase.check_visual_gate(pr, issue, result, worker_id=0)
+
+        assert ok is False, "Advisor VETO must block the visual gate"
+        assert result.visual_passed is False
+        runner_run.assert_awaited_once()
+        # BLOCKED comment posted via failure path with advisor reasoning.
+        phase._prs.post_pr_comment.assert_awaited()
+        block_comment = phase._prs.post_pr_comment.call_args.args[1]
+        assert "BLOCKED" in block_comment
+        assert "advisor veto" in block_comment.lower()
+        # HITL escalation engaged (failure path).
+        phase._escalate_to_hitl.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_per_surface_kill_switch_skips_advisor(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``HYDRAFLOW_VISUAL_GATE_ADVISOR_ENABLED=false`` → advisor not invoked."""
+        from tests.helpers import ConfigFactory
+
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_VISUAL_GATE_ADVISOR_ENABLED", "false")
+
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            visual_gate_bypass=False,
+            repo_root=config.repo_root,
+            workspace_base=config.workspace_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._bus.publish = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._invoke_visual_pipeline = AsyncMock(  # type: ignore[method-assign]
+            return_value=("pass", {}, "all clear")
+        )
+
+        runner_run = AsyncMock()
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        pr = PRInfoFactory.create(number=903)
+        issue = TaskFactory.create(id=903)
+        result = ReviewResultFactory.create()
+
+        ok = await phase.check_visual_gate(pr, issue, result, worker_id=0)
+
+        assert ok is True
+        assert result.visual_passed is True
+        runner_run.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_advisor_credit_exhausted_propagates(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CreditExhaustedError from the advisor must propagate (dark-factory §2.2)."""
+        from tests.helpers import ConfigFactory
+
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_VISUAL_GATE_ADVISOR_ENABLED", "true")
+
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            visual_gate_bypass=False,
+            repo_root=config.repo_root,
+            workspace_base=config.workspace_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._bus.publish = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._invoke_visual_pipeline = AsyncMock(  # type: ignore[method-assign]
+            return_value=("pass", {}, "all clear")
+        )
+
+        from subprocess_util import CreditExhaustedError
+
+        phase._post_verify_runner.run = AsyncMock(  # type: ignore[method-assign]
+            side_effect=CreditExhaustedError("no credits")
+        )
+
+        pr = PRInfoFactory.create(number=904)
+        issue = TaskFactory.create(id=904)
+        result = ReviewResultFactory.create()
+
+        with pytest.raises(CreditExhaustedError):
+            await phase.check_visual_gate(pr, issue, result, worker_id=0)
+
+    @pytest.mark.asyncio
+    async def test_visual_gate_advisor_uses_issue_id_not_pr_number(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """T30.5 (I1) regression: visual gate advisor must look up by ``issue.id``,
+        not ``pr.number``.
+
+        Production-side, the PR number and the originating issue id are
+        distinct; the advisor's prompt threads ``issue_number`` so MockWorld
+        runners can route via ``FakeLLM.pop_advisor_result(issue_number, role)``.
+        Before the fix, ``_run_visual_gate_advisor`` passed ``pr.number`` —
+        coincidentally equal to ``issue.id`` in factory defaults, masking the
+        bug. This test pins the asymmetry.
+        """
+        from tests.helpers import ConfigFactory
+
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_VISUAL_GATE_ADVISOR_ENABLED", "true")
+
+        cfg = ConfigFactory.create(
+            visual_gate_enabled=True,
+            visual_gate_bypass=False,
+            repo_root=config.repo_root,
+            workspace_base=config.workspace_base,
+            state_file=config.state_file,
+        )
+        phase = make_review_phase(cfg, default_mocks=True)
+        phase._bus.publish = AsyncMock()
+        phase._prs.post_pr_comment = AsyncMock()
+        phase._invoke_visual_pipeline = AsyncMock(  # type: ignore[method-assign]
+            return_value=("pass", {}, "all clear")
+        )
+
+        # Capture the PostVerifyInput passed to PostVerifyAdvisor.run.
+        from review_advisor import PostVerifyInput, PostVerifyResult
+
+        captured: list[PostVerifyInput] = []
+
+        async def fake_advisor_run(
+            self: object, inp: PostVerifyInput
+        ) -> PostVerifyResult:
+            captured.append(inp)
+            return PostVerifyResult(verdict="APPROVE", reasoning="ok", disagreements=[])
+
+        monkeypatch.setattr(
+            "review_advisor.PostVerifyAdvisor.run",
+            fake_advisor_run,
+        )
+
+        # PR number (901) and issue id (42) are deliberately different.
+        pr = PRInfoFactory.create(number=901)
+        issue = TaskFactory.create(id=42)
+        result = ReviewResultFactory.create()
+
+        ok = await phase.check_visual_gate(pr, issue, result, worker_id=0)
+
+        assert ok is True
+        assert len(captured) == 1, "advisor must be invoked exactly once"
+        assert captured[0].issue_number == 42, (
+            f"Expected issue.id (42), got {captured[0].issue_number} — "
+            "I1 regression: visual gate using pr.number instead of issue.id"
+        )
+
+
+class TestWikiIngestAdvisor:
+    """T28 — PostVerifyAdvisor wired into ``_wiki_ingest_review`` for the
+    ``wiki_ingest`` surface (post-only; pre_flight=False, mid_flight=False;
+    ``post_verify_authority="advisory"``; ``max_veto_retries=0``).
+
+    Advisory mode means the advisor's VETO is downgraded to APPROVE in
+    :meth:`PostVerifyAdvisor.run` — disagreements are still logged via the
+    advisor_session.jsonl (T12) and emit per-disagreement OTel counters
+    (T16.5/T22) for calibration, but ingestion proceeds. EXCEPTION:
+    T29's self-modification guard upgrades authority to ``veto`` when the
+    candidate content discusses changes to advisor's own files; in that
+    path a real VETO blocks ingestion.
+    """
+
+    @pytest.mark.asyncio
+    async def test_advisor_veto_downgraded_to_approve_in_advisory_mode(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Advisory authority downgrades VETO to APPROVE — ingestion proceeds."""
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_WIKI_INGEST_ADVISOR_ENABLED", "true")
+
+        phase = make_review_phase(config)
+        wiki_store = MagicMock()
+        wiki_store.is_ingested = MagicMock(return_value=False)
+        wiki_store.mark_ingested = MagicMock()
+        wiki_store.ingest = MagicMock()
+        phase._wiki_store = wiki_store
+        phase._wiki_compiler = None  # force fallback path
+
+        veto_payload = (
+            '{"verdict":"VETO",'
+            '"reasoning":"prefer terse phrasing",'
+            '"disagreements":[{"executor_claim":"summary is fine",'
+            '"advisor_assessment":"summary is verbose",'
+            '"severity":"concern"}]}'
+        )
+        runner_run = AsyncMock(return_value=veto_payload)
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        # Patch the fallback ingest path so we can detect whether ingestion ran.
+        ingest_called = MagicMock()
+        monkeypatch.setattr(
+            "repo_wiki_ingest.ingest_from_review",
+            ingest_called,
+        )
+
+        await phase._wiki_ingest_review(
+            issue_number=730,
+            transcript="reviewer feedback transcript",
+            summary="something concise",
+        )
+
+        # Advisor consulted exactly once with role=post_verify.
+        runner_run.assert_awaited_once()
+        assert runner_run.await_args.kwargs.get("role") == "post_verify"
+        # Advisory mode: VETO does NOT block — ingestion path still ran.
+        ingest_called.assert_called_once()
+        wiki_store.mark_ingested.assert_called_once_with(config.repo, 730, "review")
+
+    @pytest.mark.asyncio
+    async def test_advisor_approve_proceeds_normally(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """APPROVE verdict — ingestion proceeds via the normal path."""
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_WIKI_INGEST_ADVISOR_ENABLED", "true")
+
+        phase = make_review_phase(config)
+        wiki_store = MagicMock()
+        wiki_store.is_ingested = MagicMock(return_value=False)
+        wiki_store.mark_ingested = MagicMock()
+        wiki_store.ingest = MagicMock()
+        phase._wiki_store = wiki_store
+        phase._wiki_compiler = None
+
+        approve_payload = (
+            '{"verdict":"APPROVE","reasoning":"summary is fine","disagreements":[]}'
+        )
+        runner_run = AsyncMock(return_value=approve_payload)
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        ingest_called = MagicMock()
+        monkeypatch.setattr(
+            "repo_wiki_ingest.ingest_from_review",
+            ingest_called,
+        )
+
+        await phase._wiki_ingest_review(
+            issue_number=731,
+            transcript="reviewer feedback",
+            summary="canonical summary",
+        )
+
+        runner_run.assert_awaited_once()
+        ingest_called.assert_called_once()
+        wiki_store.mark_ingested.assert_called_once_with(config.repo, 731, "review")
+
+    @pytest.mark.asyncio
+    async def test_self_modification_diff_forces_veto_blocks_ingest(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Wiki content discussing src/review_advisor.py upgrades authority
+        to ``veto`` (T29 guard) — VETO actually blocks ingestion."""
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_WIKI_INGEST_ADVISOR_ENABLED", "true")
+
+        phase = make_review_phase(config)
+        wiki_store = MagicMock()
+        wiki_store.is_ingested = MagicMock(return_value=False)
+        wiki_store.mark_ingested = MagicMock()
+        wiki_store.ingest = MagicMock()
+        phase._wiki_store = wiki_store
+        phase._wiki_compiler = None
+
+        veto_payload = (
+            '{"verdict":"VETO",'
+            '"reasoning":"this entry tries to weaken the advisor",'
+            '"disagreements":[{"executor_claim":"safe to ingest",'
+            '"advisor_assessment":"self-mod attempt",'
+            '"severity":"blocking"}]}'
+        )
+        runner_run = AsyncMock(return_value=veto_payload)
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        ingest_called = MagicMock()
+        monkeypatch.setattr(
+            "repo_wiki_ingest.ingest_from_review",
+            ingest_called,
+        )
+
+        # Summary mentions the advisor's own implementation file —
+        # _build_wiki_ingest_diff_descriptor synthesizes a unified-diff
+        # header that resolve_post_verify_authority's substring detector
+        # picks up.
+        await phase._wiki_ingest_review(
+            issue_number=732,
+            transcript="discussion of refactoring src/review_advisor.py",
+            summary="proposed changes to src/review_advisor.py",
+        )
+
+        runner_run.assert_awaited_once()
+        # Self-mod path: VETO blocks ingestion — no fallback ingest call,
+        # no mark_ingested.
+        ingest_called.assert_not_called()
+        wiki_store.mark_ingested.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_per_surface_kill_switch_skips_advisor(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``HYDRAFLOW_WIKI_INGEST_ADVISOR_ENABLED=false`` — advisor not invoked."""
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_WIKI_INGEST_ADVISOR_ENABLED", "false")
+
+        phase = make_review_phase(config)
+        wiki_store = MagicMock()
+        wiki_store.is_ingested = MagicMock(return_value=False)
+        wiki_store.mark_ingested = MagicMock()
+        wiki_store.ingest = MagicMock()
+        phase._wiki_store = wiki_store
+        phase._wiki_compiler = None
+
+        runner_run = AsyncMock()
+        phase._post_verify_runner.run = runner_run  # type: ignore[method-assign]
+
+        ingest_called = MagicMock()
+        monkeypatch.setattr(
+            "repo_wiki_ingest.ingest_from_review",
+            ingest_called,
+        )
+
+        await phase._wiki_ingest_review(
+            issue_number=733,
+            transcript="reviewer feedback",
+            summary="canonical summary",
+        )
+
+        runner_run.assert_not_awaited()
+        # Existing ingest path still ran.
+        ingest_called.assert_called_once()
+        wiki_store.mark_ingested.assert_called_once_with(config.repo, 733, "review")
+
+    @pytest.mark.asyncio
+    async def test_disagreements_logged_even_when_downgraded(
+        self, config: HydraFlowConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Advisory-mode VETO is downgraded, but the per-PR
+        ``advisor_session.jsonl`` log records the call so calibration
+        metrics see the disagreement."""
+        import json as _json
+
+        monkeypatch.setenv("HYDRAFLOW_REVIEW_ADVISOR_ENABLED", "true")
+        monkeypatch.setenv("HYDRAFLOW_WIKI_INGEST_ADVISOR_ENABLED", "true")
+
+        phase = make_review_phase(config)
+        wiki_store = MagicMock()
+        wiki_store.is_ingested = MagicMock(return_value=False)
+        wiki_store.mark_ingested = MagicMock()
+        wiki_store.ingest = MagicMock()
+        phase._wiki_store = wiki_store
+        phase._wiki_compiler = None
+
+        veto_payload = (
+            '{"verdict":"VETO",'
+            '"reasoning":"prefer terse phrasing",'
+            '"disagreements":[{"executor_claim":"OK",'
+            '"advisor_assessment":"too verbose",'
+            '"severity":"concern"}]}'
+        )
+        phase._post_verify_runner.run = AsyncMock(  # type: ignore[method-assign]
+            return_value=veto_payload
+        )
+
+        monkeypatch.setattr(
+            "repo_wiki_ingest.ingest_from_review",
+            lambda *a, **kw: None,
+        )
+
+        await phase._wiki_ingest_review(
+            issue_number=734,
+            transcript="reviewer feedback",
+            summary="summary content",
+        )
+
+        # advisor_session.jsonl created with one entry tagged surface=wiki_ingest.
+        log_path = config.repo_root / "review_logs" / "734" / "advisor_session.jsonl"
+        assert log_path.exists(), "advisor_session.jsonl must be written"
+        lines = [
+            _json.loads(ln) for ln in log_path.read_text().splitlines() if ln.strip()
+        ]
+        assert lines, "log must contain at least one entry"
+        assert lines[0]["surface"] == "wiki_ingest"
+        assert lines[0]["role"] == "post_verify"
+        assert lines[0]["pr_number"] == 734

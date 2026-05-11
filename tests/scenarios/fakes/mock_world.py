@@ -290,6 +290,11 @@ class MockWorld:
         target.agents.run = self._llm.agents.run
         target.reviewers.review = self._llm.reviewers.review
         target.reviewers.fix_ci = self._llm.reviewers.fix_ci
+        target.reviewers.fix_review_findings = self._llm.reviewers.fix_review_findings
+        # Sentinel for ReviewPhase._build_post_verify_runner to route advisor
+        # calls into FakeLLM instead of the production ReviewRunner._execute
+        # (which would hit a real Claude subprocess).
+        target.reviewers._mockworld_fake_llm = self._llm
 
         # PRs
         prs = target.prs

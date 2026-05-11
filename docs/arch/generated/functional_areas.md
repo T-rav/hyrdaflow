@@ -12,12 +12,14 @@ flowchart LR
         caretaking_CostBudgetWatcherLoop([CostBudgetWatcherLoop])
         caretaking_DependabotMergeLoop([DependabotMergeLoop])
         caretaking_DiagnosticLoop([DiagnosticLoop])
+        caretaking_EdgeProposerLoop([EdgeProposerLoop])
         caretaking_EpicMonitorLoop([EpicMonitorLoop])
         caretaking_EpicSweeperLoop([EpicSweeperLoop])
         caretaking_GitHubCacheLoop([GitHubCacheLoop])
         caretaking_HealthMonitorLoop([HealthMonitorLoop])
         caretaking_LabelDriftWatcherLoop([LabelDriftWatcherLoop])
         caretaking_MemoryBacklogLoop([MemoryBacklogLoop])
+        caretaking_MergeStateWatcherLoop([MergeStateWatcherLoop])
         caretaking_PRUnstickerLoop([PRUnstickerLoop])
         caretaking_PricingRefreshLoop([PricingRefreshLoop])
         caretaking_RepoWikiLoop([RepoWikiLoop])
@@ -31,6 +33,7 @@ flowchart LR
         caretaking_StaleIssueGCLoop([StaleIssueGCLoop])
         caretaking_StaleIssueLoop([StaleIssueLoop])
         caretaking_TermProposerLoop([TermProposerLoop])
+        caretaking_TermPrunerLoop([TermPrunerLoop])
         caretaking_WikiRotDetectorLoop([WikiRotDetectorLoop])
         caretaking_WorkspaceGCLoop([WorkspaceGCLoop])
     end
@@ -38,6 +41,7 @@ flowchart LR
         quality_gates_CIMonitorLoop([CIMonitorLoop])
     end
     subgraph trust_fleet["Trust Fleet"]
+        trust_fleet_AdrTouchpointAuditorLoop([AdrTouchpointAuditorLoop])
         trust_fleet_ContractRefreshLoop([ContractRefreshLoop])
         trust_fleet_CorpusLearningLoop([CorpusLearningLoop])
         trust_fleet_FakeCoverageAuditorLoop([FakeCoverageAuditorLoop])
@@ -89,12 +93,14 @@ Autonomous background loops that maintain the system without human input — wik
 - `CostBudgetWatcherLoop` — `src.cost_budget_watcher_loop`
 - `DependabotMergeLoop` — `src.dependabot_merge_loop`
 - `DiagnosticLoop` — `src.diagnostic_loop`
+- `EdgeProposerLoop` — `src.edge_proposer_loop`
 - `EpicMonitorLoop` — `src.epic_monitor_loop`
 - `EpicSweeperLoop` — `src.epic_sweeper_loop`
 - `GitHubCacheLoop` — `src.github_cache_loop`
 - `HealthMonitorLoop` — `src.health_monitor_loop`
 - `LabelDriftWatcherLoop` — `src.label_drift_watcher_loop`
 - `MemoryBacklogLoop` — `src.memory_backlog_loop`
+- `MergeStateWatcherLoop` — `src.merge_state_watcher_loop`
 - `PRUnstickerLoop` — `src.pr_unsticker_loop`
 - `PricingRefreshLoop` — `src.pricing_refresh_loop`
 - `RepoWikiLoop` — `src.repo_wiki_loop`
@@ -108,6 +114,7 @@ Autonomous background loops that maintain the system without human input — wik
 - `StaleIssueGCLoop` — `src.stale_issue_gc_loop`
 - `StaleIssueLoop` — `src.stale_issue_loop`
 - `TermProposerLoop` — `src.term_proposer_loop`
+- `TermPrunerLoop` — `src.term_pruner_loop`
 - `WikiRotDetectorLoop` — `src.wiki_rot_detector_loop`
 - `WorkspaceGCLoop` — `src.workspace_gc_loop`
 
@@ -131,6 +138,7 @@ The trust-architecture hardening fleet (ADR-0045) — RC promotion gate, staging
 
 **Loops**
 
+- `AdrTouchpointAuditorLoop` — `src.adr_touchpoint_auditor_loop`
 - `ContractRefreshLoop` — `src.contract_refresh_loop`
 - `CorpusLearningLoop` — `src.corpus_learning_loop`
 - `FakeCoverageAuditorLoop` — `src.fake_coverage_auditor_loop`
@@ -140,7 +148,7 @@ The trust-architecture hardening fleet (ADR-0045) — RC promotion gate, staging
 - `StagingBisectLoop` — `src.staging_bisect_loop`
 - `TrustFleetSanityLoop` — `src.trust_fleet_sanity_loop`
 
-**Related ADRs:** `ADR-0042`, `ADR-0045`, `ADR-0048`
+**Related ADRs:** `ADR-0042`, `ADR-0045`, `ADR-0048`, `ADR-0056`
 
 
 ## Hexagonal Boundaries
@@ -265,4 +273,4 @@ The plan→implement→review pipeline driving each issue from hydraflow-ready t
 **Related ADRs:** `ADR-0001`, `ADR-0004`, `ADR-0011`, `ADR-0012`, `ADR-0029`
 
 
-_Regenerated from commit `188a51e` on 2026-05-09 05:19 UTC. Source last changed at `188a51e`. Status: 🟢 fresh._
+_Regenerated from commit `109888f` on 2026-05-10 22:21 UTC. Source last changed at `109888f`. Status: 🟢 fresh._
