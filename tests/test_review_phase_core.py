@@ -3727,14 +3727,23 @@ class TestWikiIngestAdvisor:
             ingest_called,
         )
 
-        # Summary mentions the advisor's own implementation file —
-        # _build_wiki_ingest_diff_descriptor synthesizes a unified-diff
-        # header that resolve_post_verify_authority's substring detector
-        # picks up.
+        # T37: detection is context-sensitive — the transcript must describe
+        # an actual modification (fenced diff block, real diff header, or
+        # editorial verb immediately before the path) for the synthesizer to
+        # emit the pseudo unified-diff header that
+        # resolve_post_verify_authority's substring detector picks up.
+        # A bare substring mention is no longer sufficient.
         await phase._wiki_ingest_review(
             issue_number=732,
-            transcript="discussion of refactoring src/review_advisor.py",
-            summary="proposed changes to src/review_advisor.py",
+            transcript=(
+                "Proposed change:\n"
+                "```diff\n"
+                "--- a/src/review_advisor.py\n"
+                "+++ b/src/review_advisor.py\n"
+                "+# weakening advisor guard\n"
+                "```\n"
+            ),
+            summary="modified src/review_advisor.py to soften advisor",
         )
 
         runner_run.assert_awaited_once()
@@ -3831,3 +3840,84 @@ class TestWikiIngestAdvisor:
         assert lines[0]["surface"] == "wiki_ingest"
         assert lines[0]["role"] == "post_verify"
         assert lines[0]["pr_number"] == 734
+
+    # ------------------------------------------------------------------
+    # T37 — context-sensitive self-modification detection.
+    #
+    # Previously _build_wiki_ingest_diff_descriptor substring-matched
+    # advisor source paths anywhere in the candidate content, which
+    # forced veto authority on benign mentions (e.g., a review summary
+    # noting a type-hint gap in src/review_advisor.py). The tightened
+    # detection only synthesizes the pseudo unified-diff header when the
+    # path appears in a real modification context.
+    # ------------------------------------------------------------------
+
+    def test_benign_path_mention_does_not_trigger_self_mod(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """T37 regression: a wiki entry that mentions an advisor source
+        path in editorial prose (no diff context) must NOT synthesize the
+        pseudo diff header — that would force veto authority and block
+        ingestion of a purely descriptive entry."""
+        phase = make_review_phase(config)
+        transcript = (
+            "Today's review found a type-hint gap in src/review_advisor.py. "
+            "The author should add a return annotation. No code changes needed."
+        )
+        descriptor = phase._build_wiki_ingest_diff_descriptor(
+            issue_number=900,
+            transcript=transcript,
+            summary="Review report",
+        )
+        # The benign mention must NOT produce a diff --git header.
+        assert "diff --git" not in descriptor
+
+    def test_fenced_diff_block_triggers_self_mod(self, config: HydraFlowConfig) -> None:
+        """T37: real diff content in a fenced diff block SHOULD synthesize
+        the pseudo unified-diff header so T29's self-mod guard fires."""
+        phase = make_review_phase(config)
+        transcript = (
+            "Proposed change:\n"
+            "```diff\n"
+            "--- a/src/review_advisor.py\n"
+            "+++ b/src/review_advisor.py\n"
+            "+# new line\n"
+            "```\n"
+        )
+        descriptor = phase._build_wiki_ingest_diff_descriptor(
+            issue_number=901,
+            transcript=transcript,
+            summary="Patch proposal",
+        )
+        assert "diff --git a/src/review_advisor.py" in descriptor
+
+    def test_editorial_modify_phrase_triggers_self_mod(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """T37: 'modified <path>' editorial context SHOULD synthesize the
+        pseudo unified-diff header."""
+        phase = make_review_phase(config)
+        transcript = "The PR modified src/review_phase.py to add a new helper."
+        descriptor = phase._build_wiki_ingest_diff_descriptor(
+            issue_number=902,
+            transcript=transcript,
+            summary="Change summary",
+        )
+        assert "diff --git a/src/review_phase.py" in descriptor
+
+    def test_real_diff_header_in_transcript_triggers_self_mod(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """T37: already-formed ``diff --git`` headers in the transcript
+        SHOULD trigger synthesis (pass-through detection)."""
+        phase = make_review_phase(config)
+        transcript = (
+            "diff --git a/src/review_advisor.py b/src/review_advisor.py\n"
+            "@@ -1,2 +1,3 @@\n"
+        )
+        descriptor = phase._build_wiki_ingest_diff_descriptor(
+            issue_number=903,
+            transcript=transcript,
+            summary="Diff",
+        )
+        assert "diff --git a/src/review_advisor.py" in descriptor

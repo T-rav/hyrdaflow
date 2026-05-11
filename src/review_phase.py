@@ -141,6 +141,59 @@ def _emit_advisor_loop_metric(counter: Any, attrs: dict[str, Any]) -> None:
         logger.debug("advisor loop metric emit failed", exc_info=True)
 
 
+# T37 — tighten wiki-ingest self-modification detection.
+#
+# The old detector substring-matched ``src/review_advisor.py`` / ``src/review_phase.py``
+# anywhere in the candidate ingest content; a purely descriptive review summary
+# that named those paths in passing (e.g., "review found a type-hint gap in
+# src/review_advisor.py") would synthesize the pseudo diff header and force
+# veto authority on what was a benign wiki entry. Fail-closed but noisy.
+#
+# These patterns gate synthesis on modification *context*, not bare mentions:
+#   1. Already-formed unified-diff headers (real diff content embedded).
+#   2. Path inside a fenced ```diff / ```patch block.
+#   3. Editorial verbs ("modified", "changed", "edited", "updated", "patched")
+#      immediately preceding the path.
+# Anything else — prose mention, type-hint reference, file-path-in-error-log —
+# is treated as a non-modification mention and does NOT synthesize the header.
+# T29's self-mod guard still fires when a real modification context is seen.
+_SELF_MOD_SYNTHESIS_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # Already-formed diff headers (real diff content embedded in transcript).
+    re.compile(r"diff --git a/(src/(?:review_advisor|review_phase)\.py)"),
+    re.compile(r"\+\+\+ b/(src/(?:review_advisor|review_phase)\.py)"),
+    re.compile(r"--- a/(src/(?:review_advisor|review_phase)\.py)"),
+    # Fenced patch / diff block containing the path.
+    re.compile(
+        r"```(?:diff|patch)\b[^`]*?(src/(?:review_advisor|review_phase)\.py)",
+        re.DOTALL,
+    ),
+    # Editorial verbs immediately before the path:
+    # "modified src/...", "edited src/...", "updated src/...", "patched src/..."
+    re.compile(
+        r"\b(?:modif(?:y|ied|ies|ying)|chang(?:e|ed|es|ing)|"
+        r"edit(?:ed|s|ing)?|update(?:d|s|ing)?|"
+        r"patch(?:ed|es|ing)?|refactor(?:ed|s|ing)?)\s+"
+        r"[`'\"]*(src/(?:review_advisor|review_phase)\.py)",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _detect_self_modification_context(transcript: str) -> list[str]:
+    """Return the sorted set of advisor source paths that appear in a
+    *modification context* within ``transcript`` (not a benign mention).
+
+    Empty list means no pseudo diff header should be synthesized — the
+    candidate content does not look like it's describing real changes to
+    advisor's own implementation files.
+    """
+    detected: set[str] = set()
+    for pattern in _SELF_MOD_SYNTHESIS_PATTERNS:
+        for match in pattern.finditer(transcript):
+            detected.add(match.group(1))
+    return sorted(detected)
+
+
 def _run_fallback_ingest_review(
     *,
     tracked_store: RepoWikiStore,
@@ -582,9 +635,16 @@ class ReviewPhase:
         path-matching logic.
 
         Path list source-of-truth (T30.5 I3): we import
-        ``review_advisor.SELF_MODIFYING_PATHS`` rather than duplicating
-        the list locally. Different matchers (unified-diff headers vs.
-        content-substring) consume the same paths.
+        ``review_advisor.SELF_MODIFYING_PATHS`` to keep the recognized-path
+        set aligned with the advisor module; different matchers (unified-
+        diff headers vs. content context) consume the same paths.
+
+        T37: detection is context-sensitive. A bare substring mention of an
+        advisor source path (e.g., "review found a type-hint gap in
+        src/review_advisor.py") no longer synthesizes the pseudo header —
+        only modification context (already-formed diff headers, fenced
+        diff/patch blocks, or editorial verbs like "modified <path>") does.
+        See ``_detect_self_modification_context``.
         """
         from review_advisor import SELF_MODIFYING_PATHS  # noqa: PLC0415
 
@@ -596,11 +656,14 @@ class ReviewPhase:
             f"Wiki ingest candidate — issue #{issue_number}",
             f"Repo: {self._config.repo or '(unset)'}",
         ]
-        # Synthesize unified-diff headers for any self-mod path the
-        # candidate content discusses, so resolve_post_verify_authority's
-        # detector can fire and upgrade authority to "veto".
-        for path in SELF_MODIFYING_PATHS:
-            if path in combined:
+        # Synthesize unified-diff headers only for self-mod paths that
+        # appear in a *modification context* — bare substring mentions
+        # (benign prose) do NOT trigger synthesis. Intersect with
+        # SELF_MODIFYING_PATHS so the regex remains the gate but the
+        # canonical path list still governs which paths are eligible.
+        detected = _detect_self_modification_context(combined)
+        for path in detected:
+            if path in SELF_MODIFYING_PATHS:
                 lines.append(f"diff --git a/{path} b/{path}")
         lines.extend(
             [
