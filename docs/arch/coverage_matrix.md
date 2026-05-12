@@ -100,7 +100,15 @@
 
 | Port | ADR | Wiki | Generated | Standard | Fake | Cassette | Contract |
 |---|---|---|---|---|---|---|---|
-<!-- rows populated in Task 10 -->
+| `AgentPort` | ❌ | ✅ `architecture-layers.md` | ✅ ports.md | ❌ | ❌ | ❌ | ❌ |
+| `BotPRPort` | ❌ | ✅ `bot-pr-port.md` | ✅ ports.md | ❌ | ❌ | ❌ | ❌ |
+| `IssueFetcherPort` | ❌ | ❌ | ✅ ports.md | ❌ | ❌ | ❌ | ❌ |
+| `IssueStorePort` | ✅ 0041 | ✅ `architecture-layers.md` | ✅ ports.md | ❌ | ❌ | ❌ | ❌ |
+| `ObservabilityPort` | ⚠️  | ❌ | ✅ ports.md | ❌ | ❌ | ❌ | ❌ |
+| `PRPort` | ✅ 0052 | ✅ `architecture-layers.md` | ✅ ports.md | ✅ `README.md` | ❌ | ❌ | ❌ |
+| `ReviewInsightStorePort` | ❌ | ❌ | ✅ ports.md | ❌ | ❌ | ❌ | ❌ |
+| `RouteBackCounterPort` | ❌ | ❌ | ✅ ports.md | ❌ | ❌ | ❌ | ❌ |
+| `WorkspacePort` | ✅ 0003, 0050 | ✅ `workspace-port.md` | ✅ ports.md | ❌ | ❌ | ❌ | ❌ |
 
 ## Section 3: Factory phases (8 × 6)
 
