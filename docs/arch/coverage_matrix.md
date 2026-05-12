@@ -98,17 +98,19 @@
 
 ## Section 2: Ports (9 × 7)
 
+Cassette and Contract columns are N/A for all ports because ADR-0047 defines contracts per domain adapter (github / git / docker / llm), not per Port. A port may transitively benefit from cassette/contract coverage via its adapter.
+
 | Port | ADR | Wiki | Generated | Standard | Fake | Cassette | Contract |
 |---|---|---|---|---|---|---|---|
-| `AgentPort` | ❌ | ✅ `architecture-layers.md` | ✅ ports.md | ❌ | ❌ | ❌ | ❌ |
-| `BotPRPort` | ❌ | ✅ `bot-pr-port.md` | ✅ ports.md | ❌ | ❌ | ❌ | ❌ |
-| `IssueFetcherPort` | ❌ | ❌ | ✅ ports.md | ❌ | ❌ | ❌ | ❌ |
-| `IssueStorePort` | ✅ 0041 | ✅ `architecture-layers.md` | ✅ ports.md | ❌ | ❌ | ❌ | ❌ |
-| `ObservabilityPort` | ⚠️  | ❌ | ✅ ports.md | ❌ | ❌ | ❌ | ❌ |
-| `PRPort` | ✅ 0052 | ✅ `architecture-layers.md` | ✅ ports.md | ✅ `README.md` | ❌ | ❌ | ❌ |
-| `ReviewInsightStorePort` | ❌ | ❌ | ✅ ports.md | ❌ | ❌ | ❌ | ❌ |
-| `RouteBackCounterPort` | ❌ | ❌ | ✅ ports.md | ❌ | ❌ | ❌ | ❌ |
-| `WorkspacePort` | ✅ 0003, 0050 | ✅ `workspace-port.md` | ✅ ports.md | ❌ | ❌ | ❌ | ❌ |
+| `AgentPort` | ❌ | ✅ `architecture-layers.md` | ✅ ports.md | ❌ | ❌ | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
+| `BotPRPort` | ❌ | ✅ `bot-pr-port.md` | ✅ ports.md | ❌ | ❌ | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
+| `IssueFetcherPort` | ❌ | ❌ | ✅ ports.md | ❌ | ✅ `FakeIssueFetcher` | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
+| `IssueStorePort` | ✅ 0041 | ✅ `architecture-layers.md` | ✅ ports.md | ❌ | ✅ `FakeIssueStore` | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
+| `ObservabilityPort` | ⚠️  | ❌ | ✅ ports.md | ❌ | ❌ | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
+| `PRPort` | ✅ 0052 | ✅ `architecture-layers.md` | ✅ ports.md | ✅ `README.md` | ✅ `FakePR` | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
+| `ReviewInsightStorePort` | ❌ | ❌ | ✅ ports.md | ❌ | ❌ | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
+| `RouteBackCounterPort` | ❌ | ❌ | ✅ ports.md | ❌ | ❌ | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
+| `WorkspacePort` | ✅ 0003, 0050 | ✅ `workspace-port.md` | ✅ ports.md | ❌ | ✅ `FakeWorkspace` | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
 
 ## Section 3: Factory phases (8 × 6)
 
