@@ -63,47 +63,47 @@ None — every loop has substantive (non-roll-call) coverage when an ADR mention
 
 | Loop | ADR | Wiki | Generated | Standard | Unit | Scenario | Sandbox |
 |---|---|---|---|---|---|---|---|
-| `ADRReviewerLoop` | ❌ | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_adr_reviewer_loop.py` | ✅ in catalog | ❌ |
-| `AdrTouchpointAuditorLoop` | ✅ [0056](../adr/0056-adr-touchpoint-gate-to-caretaker-loop.md) | ❌ | ❌ | ❌ | ✅ `test_adr_touchpoint_auditor_loop.py` | ✅ in catalog | ❌ |
-| `AutoAgentPreflightLoop` | ✅ [0050](../adr/0050-auto-agent-hitl-preflight.md) | ✅ `dark-factory.md` | ❌ | ❌ | ✅ `test_auto_agent_preflight_loop.py` | ✅ in catalog | ❌ |
-| `CIMonitorLoop` | ✅ [0029](../adr/0029-caretaker-loop-pattern.md) | ❌ | ❌ | ❌ | ✅ `test_ci_monitor_loop.py` | ⚠️ in catalog | ❌ |
-| `CodeGroomingLoop` | ✅ [0029](../adr/0029-caretaker-loop-pattern.md) | ✅ `architecture-async-control.md` | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_code_grooming_loop.py` | ✅ in catalog | ❌ |
-| `ContractRefreshLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md), [0047](../adr/0047-fake-adapter-contract-testing-cassettes.md) | ❌ | ❌ | ❌ | ✅ `test_contract_refresh_loop.py` | ✅ in catalog | ❌ |
-| `CorpusLearningLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md) | ❌ | ❌ | ❌ | ✅ `test_corpus_learning_loop.py` | ✅ in catalog | ❌ |
-| `CostBudgetWatcherLoop` | ✅ [0054](../adr/0054-term-auto-proposer-loop.md) | ✅ `architecture.md` | ❌ | ✅ (caretaking/caretaker loop) | ❌ | ⚠️ in catalog | ❌ |
-| `DependabotMergeLoop` | ✅ [0054](../adr/0054-term-auto-proposer-loop.md), [0057](../adr/0057-term-pruner-loop.md), [0058](../adr/0058-edge-proposer-loop.md) | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_dependabot_merge_loop.py` | ⚠️ in catalog | ✅ `s09_dependabot_auto_merge.py` |
-| `DiagnosticLoop` | ✅ [0050](../adr/0050-auto-agent-hitl-preflight.md) | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_diagnostic_loop.py` | ✅ in catalog | ❌ |
-| `DiagramLoop` | ✅ [0001](../adr/0001-five-concurrent-async-loops.md) | ❌ | ❌ | ❌ | ✅ `test_diagram_loop.py` | ✅ in catalog | ❌ |
-| `EdgeProposerLoop` | ✅ [0058](../adr/0058-edge-proposer-loop.md), [0060](../adr/0060-atlas-graph-view-and-provenance.md), [0062](../adr/0062-entry-evidence-loop.md) | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_edge_proposer_loop.py` | ❌ | ❌ |
-| `EntryEvidenceLoop` | ✅ [0062](../adr/0062-entry-evidence-loop.md) | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_entry_evidence_loop.py` | ⚠️  | ❌ |
-| `EpicMonitorLoop` | ❌ | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_epic_monitor_loop.py` | ✅ in catalog | ❌ |
-| `EpicSweeperLoop` | ❌ | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_epic_sweeper_loop.py` | ⚠️ in catalog | ❌ |
-| `FakeCoverageAuditorLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md), [0056](../adr/0056-adr-touchpoint-gate-to-caretaker-loop.md) | ❌ | ❌ | ❌ | ✅ `test_fake_coverage_auditor_loop.py` | ✅ in catalog | ❌ |
-| `FlakeTrackerLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md), [0056](../adr/0056-adr-touchpoint-gate-to-caretaker-loop.md) | ❌ | ❌ | ❌ | ✅ `test_flake_tracker_loop.py` | ✅ in catalog | ❌ |
-| `GitHubCacheLoop` | ❌ | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ❌ | ✅ in catalog | ❌ |
-| `HealthMonitorLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md), [0046](../adr/0046-meta-observability-bounded-recursion.md) | ✅ `testing.md` | ❌ | ✅ (caretaking/caretaker loop) | ❌ | ⚠️ in catalog | ❌ |
-| `MergeStateWatcherLoop` | ❌ | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ❌ | ⚠️ in catalog | ❌ |
-| `PRUnstickerLoop` | ❌ | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_pr_unsticker_loop.py` | ⚠️ in catalog | ✅ `s08_pr_unsticker_revives_stuck_pr.py` |
-| `PricingRefreshLoop` | ❌ | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_pricing_refresh_loop_scenario.py` | ✅ in catalog | ❌ |
-| `PrinciplesAuditLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md), [0056](../adr/0056-adr-touchpoint-gate-to-caretaker-loop.md) | ✅ `dark-factory.md` | ❌ | ❌ | ✅ `test_principles_audit_loop.py` | ✅ in catalog | ❌ |
-| `RCBudgetLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md) | ❌ | ❌ | ❌ | ✅ `test_rc_budget_loop.py` | ✅ in catalog | ❌ |
-| `RepoWikiLoop` | ✅ [0032](../adr/0032-per-repo-wiki-knowledge-base.md), [0053](../adr/0053-ubiquitous-language-as-living-artifact.md), [0061](../adr/0061-atlas-entries-as-evidence.md) | ✅ `dark-factory.md` | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_repo_wiki_loop.py` | ✅ in catalog | ❌ |
-| `ReportIssueLoop` | ✅ [0013](../adr/0013-screenshot-capture-pipeline.md), [0018](../adr/0018-screenshot-capture-pipeline.md), [0028](../adr/0028-event-driven-report-pipeline.md) | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_report_issue_loop.py` | ✅ in catalog | ❌ |
-| `RetrospectiveLoop` | ❌ | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_retrospective_loop.py` | ⚠️ in catalog | ❌ |
-| `RunsGCLoop` | ❌ | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_runs_gc_loop.py` | ✅ in catalog | ❌ |
-| `SandboxFailureFixerLoop` | ✅ [0052](../adr/0052-sandbox-tier-scenarios.md) | ✅ `dark-factory.md` | ❌ | ❌ | ✅ `test_sandbox_failure_fixer_loop.py` | ⚠️ in catalog | ❌ |
-| `SecurityPatchLoop` | ✅ [0029](../adr/0029-caretaker-loop-pattern.md) | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_security_patch_loop.py` | ✅ in catalog | ❌ |
-| `SentryLoop` | ✅ [0055](../adr/0055-otel-honeycomb-instrumentation.md) | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_sentry_loop.py` | ✅ in catalog | ❌ |
-| `SkillPromptEvalLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md) | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_skill_prompt_eval_loop.py` | ✅ in catalog | ❌ |
-| `StagingBisectLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md), [0048](../adr/0048-auto-revert-on-rc-red.md), [0049](../adr/0049-trust-loop-kill-switch-convention.md) | ✅ `architecture.md` | ❌ | ❌ | ✅ `test_staging_bisect_loop.py` | ✅ in catalog | ❌ |
-| `StagingPromotionLoop` | ✅ [0042](../adr/0042-two-tier-branch-release-promotion.md) | ✅ `patterns.md` | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_staging_promotion_loop.py` | ⚠️  | ✅ `s13_rc_rebase_recovery.py` |
-| `StaleIssueGCLoop` | ✅ [0029](../adr/0029-caretaker-loop-pattern.md) | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_stale_issue_gc_loop.py` | ✅ in catalog | ❌ |
-| `StaleIssueLoop` | ❌ | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_stale_issue_loop.py` | ✅ in catalog | ❌ |
-| `TermProposerLoop` | ✅ [0054](../adr/0054-term-auto-proposer-loop.md), [0057](../adr/0057-term-pruner-loop.md), [0060](../adr/0060-atlas-graph-view-and-provenance.md) | ✅ `bot-pr-port.md`, `task.md` | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_term_proposer_loop.py` | ❌ | ❌ |
-| `TermPrunerLoop` | ✅ [0057](../adr/0057-term-pruner-loop.md), [0060](../adr/0060-atlas-graph-view-and-provenance.md), [0062](../adr/0062-entry-evidence-loop.md) | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_term_pruner_loop.py` | ❌ | ❌ |
-| `TrustFleetSanityLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md), [0046](../adr/0046-meta-observability-bounded-recursion.md), [0049](../adr/0049-trust-loop-kill-switch-convention.md) | ✅ `testing.md` | ❌ | ❌ | ✅ `test_trust_fleet_sanity_loop.py` | ✅ in catalog | ❌ |
-| `WikiRotDetectorLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md), [0056](../adr/0056-adr-touchpoint-gate-to-caretaker-loop.md) | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_wiki_rot_detector_loop.py` | ✅ in catalog | ❌ |
-| `WorkspaceGCLoop` | ❌ | ❌ | ❌ | ✅ (caretaking/caretaker loop) | ✅ `test_workspace_gc_loop.py` | ⚠️ in catalog | ✅ `s07_workspace_gc_reaps_dead_worktree.py` |
+| `ADRReviewerLoop` | ❌ [bd:advisor-pg6] | ❌ [bd:advisor-4mj] | ❌ [bd:advisor-7yr] | ✅ (caretaking/caretaker loop) | ✅ `test_adr_reviewer_loop.py` | ✅ in catalog | ❌ [bd:advisor-dqz] |
+| `AdrTouchpointAuditorLoop` | ✅ [0056](../adr/0056-adr-touchpoint-gate-to-caretaker-loop.md) | ❌ [bd:advisor-4bd] | ❌ [bd:advisor-xll] | ❌ [bd:advisor-rd8] | ✅ `test_adr_touchpoint_auditor_loop.py` | ✅ in catalog | ❌ [bd:advisor-vch] |
+| `AutoAgentPreflightLoop` | ✅ [0050](../adr/0050-auto-agent-hitl-preflight.md) | ✅ `dark-factory.md` | ❌ [bd:advisor-563] | ❌ [bd:advisor-drv] | ✅ `test_auto_agent_preflight_loop.py` | ✅ in catalog | ❌ [bd:advisor-pn6] |
+| `CIMonitorLoop` | ✅ [0029](../adr/0029-caretaker-loop-pattern.md) | ❌ [bd:advisor-yr9] | ❌ [bd:advisor-9hj] | ❌ [bd:advisor-uu5] | ✅ `test_ci_monitor_loop.py` | ⚠️ in catalog [bd:advisor-g95] | ❌ [bd:advisor-3e1] |
+| `CodeGroomingLoop` | ✅ [0029](../adr/0029-caretaker-loop-pattern.md) | ✅ `architecture-async-control.md` | ❌ [bd:advisor-6v9] | ✅ (caretaking/caretaker loop) | ✅ `test_code_grooming_loop.py` | ✅ in catalog | ❌ [bd:advisor-tmv] |
+| `ContractRefreshLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md), [0047](../adr/0047-fake-adapter-contract-testing-cassettes.md) | ❌ [bd:advisor-uxt] | ❌ [bd:advisor-6t8] | ❌ [bd:advisor-vad] | ✅ `test_contract_refresh_loop.py` | ✅ in catalog | ❌ [bd:advisor-nwl] |
+| `CorpusLearningLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md) | ❌ [bd:advisor-t28] | ❌ [bd:advisor-9ph] | ❌ [bd:advisor-7jv] | ✅ `test_corpus_learning_loop.py` | ✅ in catalog | ❌ [bd:advisor-2ad] |
+| `CostBudgetWatcherLoop` | ✅ [0054](../adr/0054-term-auto-proposer-loop.md) | ✅ `architecture.md` | ❌ [bd:advisor-2ke] | ✅ (caretaking/caretaker loop) | ❌ [bd:advisor-a03] | ⚠️ in catalog [bd:advisor-ga3] | ❌ [bd:advisor-hn9] |
+| `DependabotMergeLoop` | ✅ [0054](../adr/0054-term-auto-proposer-loop.md), [0057](../adr/0057-term-pruner-loop.md), [0058](../adr/0058-edge-proposer-loop.md) | ❌ [bd:advisor-m1e] | ❌ [bd:advisor-n96] | ✅ (caretaking/caretaker loop) | ✅ `test_dependabot_merge_loop.py` | ⚠️ in catalog [bd:advisor-lq2] | ✅ `s09_dependabot_auto_merge.py` |
+| `DiagnosticLoop` | ✅ [0050](../adr/0050-auto-agent-hitl-preflight.md) | ❌ [bd:advisor-inl] | ❌ [bd:advisor-4k2] | ✅ (caretaking/caretaker loop) | ✅ `test_diagnostic_loop.py` | ✅ in catalog | ❌ [bd:advisor-tjt] |
+| `DiagramLoop` | ✅ [0001](../adr/0001-five-concurrent-async-loops.md) | ❌ [bd:advisor-0nr] | ❌ [bd:advisor-db5] | ❌ [bd:advisor-6ln] | ✅ `test_diagram_loop.py` | ✅ in catalog | ❌ [bd:advisor-ytt] |
+| `EdgeProposerLoop` | ✅ [0058](../adr/0058-edge-proposer-loop.md), [0060](../adr/0060-atlas-graph-view-and-provenance.md), [0062](../adr/0062-entry-evidence-loop.md) | ❌ [bd:advisor-u3m] | ❌ [bd:advisor-9i3] | ✅ (caretaking/caretaker loop) | ✅ `test_edge_proposer_loop.py` | ❌ [bd:advisor-2kq] | ❌ [bd:advisor-vwh] |
+| `EntryEvidenceLoop` | ✅ [0062](../adr/0062-entry-evidence-loop.md) | ❌ [bd:advisor-byh] | ❌ [bd:advisor-6ru] | ✅ (caretaking/caretaker loop) | ✅ `test_entry_evidence_loop.py` | ⚠️ [bd:advisor-4dj] | ❌ [bd:advisor-7m5] |
+| `EpicMonitorLoop` | ❌ [bd:advisor-o9d] | ❌ [bd:advisor-c88] | ❌ [bd:advisor-goo] | ✅ (caretaking/caretaker loop) | ✅ `test_epic_monitor_loop.py` | ✅ in catalog | ❌ [bd:advisor-lgd] |
+| `EpicSweeperLoop` | ❌ [bd:advisor-0zt] | ❌ [bd:advisor-j43] | ❌ [bd:advisor-8sg] | ✅ (caretaking/caretaker loop) | ✅ `test_epic_sweeper_loop.py` | ⚠️ in catalog [bd:advisor-4m0] | ❌ [bd:advisor-538] |
+| `FakeCoverageAuditorLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md), [0056](../adr/0056-adr-touchpoint-gate-to-caretaker-loop.md) | ❌ [bd:advisor-t3h] | ❌ [bd:advisor-aqt] | ❌ [bd:advisor-15g] | ✅ `test_fake_coverage_auditor_loop.py` | ✅ in catalog | ❌ [bd:advisor-ln3] |
+| `FlakeTrackerLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md), [0056](../adr/0056-adr-touchpoint-gate-to-caretaker-loop.md) | ❌ [bd:advisor-ifr] | ❌ [bd:advisor-c6x] | ❌ [bd:advisor-7pg] | ✅ `test_flake_tracker_loop.py` | ✅ in catalog | ❌ [bd:advisor-r8i] |
+| `GitHubCacheLoop` | ❌ [bd:advisor-k31] | ❌ [bd:advisor-2k3] | ❌ [bd:advisor-0k3] | ✅ (caretaking/caretaker loop) | ❌ [bd:advisor-87o] | ✅ in catalog | ❌ [bd:advisor-3y4] |
+| `HealthMonitorLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md), [0046](../adr/0046-meta-observability-bounded-recursion.md) | ✅ `testing.md` | ❌ [bd:advisor-dg3] | ✅ (caretaking/caretaker loop) | ❌ [bd:advisor-2pc] | ⚠️ in catalog [bd:advisor-ddg] | ❌ [bd:advisor-38v] |
+| `MergeStateWatcherLoop` | ❌ [bd:advisor-f5i] | ❌ [bd:advisor-c82] | ❌ [bd:advisor-6wp] | ✅ (caretaking/caretaker loop) | ❌ [bd:advisor-2mf] | ⚠️ in catalog [bd:advisor-308] | ❌ [bd:advisor-rxi] |
+| `PRUnstickerLoop` | ❌ [bd:advisor-kqr] | ❌ [bd:advisor-9ne] | ❌ [bd:advisor-4ic] | ✅ (caretaking/caretaker loop) | ✅ `test_pr_unsticker_loop.py` | ⚠️ in catalog [bd:advisor-mfs] | ✅ `s08_pr_unsticker_revives_stuck_pr.py` |
+| `PricingRefreshLoop` | ❌ [bd:advisor-vcn] | ❌ [bd:advisor-duo] | ❌ [bd:advisor-2xo] | ✅ (caretaking/caretaker loop) | ✅ `test_pricing_refresh_loop_scenario.py` | ✅ in catalog | ❌ [bd:advisor-nv4] |
+| `PrinciplesAuditLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md), [0056](../adr/0056-adr-touchpoint-gate-to-caretaker-loop.md) | ✅ `dark-factory.md` | ❌ [bd:advisor-od5] | ❌ [bd:advisor-4kb] | ✅ `test_principles_audit_loop.py` | ✅ in catalog | ❌ [bd:advisor-1rm] |
+| `RCBudgetLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md) | ❌ [bd:advisor-aph] | ❌ [bd:advisor-5zb] | ❌ [bd:advisor-5j0] | ✅ `test_rc_budget_loop.py` | ✅ in catalog | ❌ [bd:advisor-x0v] |
+| `RepoWikiLoop` | ✅ [0032](../adr/0032-per-repo-wiki-knowledge-base.md), [0053](../adr/0053-ubiquitous-language-as-living-artifact.md), [0061](../adr/0061-atlas-entries-as-evidence.md) | ✅ `dark-factory.md` | ❌ [bd:advisor-smb] | ✅ (caretaking/caretaker loop) | ✅ `test_repo_wiki_loop.py` | ✅ in catalog | ❌ [bd:advisor-qzq] |
+| `ReportIssueLoop` | ✅ [0013](../adr/0013-screenshot-capture-pipeline.md), [0018](../adr/0018-screenshot-capture-pipeline.md), [0028](../adr/0028-event-driven-report-pipeline.md) | ❌ [bd:advisor-uo8] | ❌ [bd:advisor-7oe] | ✅ (caretaking/caretaker loop) | ✅ `test_report_issue_loop.py` | ✅ in catalog | ❌ [bd:advisor-ttm] |
+| `RetrospectiveLoop` | ❌ [bd:advisor-bub] | ❌ [bd:advisor-2lq] | ❌ [bd:advisor-y5f] | ✅ (caretaking/caretaker loop) | ✅ `test_retrospective_loop.py` | ⚠️ in catalog [bd:advisor-dca] | ❌ [bd:advisor-t2y] |
+| `RunsGCLoop` | ❌ [bd:advisor-09l] | ❌ [bd:advisor-k6i] | ❌ [bd:advisor-fnq] | ✅ (caretaking/caretaker loop) | ✅ `test_runs_gc_loop.py` | ✅ in catalog | ❌ [bd:advisor-7w0] |
+| `SandboxFailureFixerLoop` | ✅ [0052](../adr/0052-sandbox-tier-scenarios.md) | ✅ `dark-factory.md` | ❌ [bd:advisor-hcy] | ❌ [bd:advisor-e7a] | ✅ `test_sandbox_failure_fixer_loop.py` | ⚠️ in catalog [bd:advisor-rqj] | ❌ [bd:advisor-z49] |
+| `SecurityPatchLoop` | ✅ [0029](../adr/0029-caretaker-loop-pattern.md) | ❌ [bd:advisor-adw] | ❌ [bd:advisor-55q] | ✅ (caretaking/caretaker loop) | ✅ `test_security_patch_loop.py` | ✅ in catalog | ❌ [bd:advisor-ym6] |
+| `SentryLoop` | ✅ [0055](../adr/0055-otel-honeycomb-instrumentation.md) | ❌ [bd:advisor-efb] | ❌ [bd:advisor-a5l] | ✅ (caretaking/caretaker loop) | ✅ `test_sentry_loop.py` | ✅ in catalog | ❌ [bd:advisor-ko9] |
+| `SkillPromptEvalLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md) | ❌ [bd:advisor-1ena] | ❌ [bd:advisor-w4cw] | ✅ (caretaking/caretaker loop) | ✅ `test_skill_prompt_eval_loop.py` | ✅ in catalog | ❌ [bd:advisor-si37] |
+| `StagingBisectLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md), [0048](../adr/0048-auto-revert-on-rc-red.md), [0049](../adr/0049-trust-loop-kill-switch-convention.md) | ✅ `architecture.md` | ❌ [bd:advisor-bgvi] | ❌ [bd:advisor-4p5b] | ✅ `test_staging_bisect_loop.py` | ✅ in catalog | ❌ [bd:advisor-bsn2] |
+| `StagingPromotionLoop` | ✅ [0042](../adr/0042-two-tier-branch-release-promotion.md) | ✅ `patterns.md` | ❌ [bd:advisor-m0u9] | ✅ (caretaking/caretaker loop) | ✅ `test_staging_promotion_loop.py` | ⚠️ [bd:advisor-tmo3] | ✅ `s13_rc_rebase_recovery.py` |
+| `StaleIssueGCLoop` | ✅ [0029](../adr/0029-caretaker-loop-pattern.md) | ❌ [bd:advisor-gvs9] | ❌ [bd:advisor-ybhd] | ✅ (caretaking/caretaker loop) | ✅ `test_stale_issue_gc_loop.py` | ✅ in catalog | ❌ [bd:advisor-au05] |
+| `StaleIssueLoop` | ❌ [bd:advisor-n6cw] | ❌ [bd:advisor-medh] | ❌ [bd:advisor-02ib] | ✅ (caretaking/caretaker loop) | ✅ `test_stale_issue_loop.py` | ✅ in catalog | ❌ [bd:advisor-ry6s] |
+| `TermProposerLoop` | ✅ [0054](../adr/0054-term-auto-proposer-loop.md), [0057](../adr/0057-term-pruner-loop.md), [0060](../adr/0060-atlas-graph-view-and-provenance.md) | ✅ `bot-pr-port.md`, `task.md` | ❌ [bd:advisor-pdxv] | ✅ (caretaking/caretaker loop) | ✅ `test_term_proposer_loop.py` | ❌ [bd:advisor-y6vf] | ❌ [bd:advisor-7qvd] |
+| `TermPrunerLoop` | ✅ [0057](../adr/0057-term-pruner-loop.md), [0060](../adr/0060-atlas-graph-view-and-provenance.md), [0062](../adr/0062-entry-evidence-loop.md) | ❌ [bd:advisor-rm7j] | ❌ [bd:advisor-7oh9] | ✅ (caretaking/caretaker loop) | ✅ `test_term_pruner_loop.py` | ❌ [bd:advisor-y4e7] | ❌ [bd:advisor-eg1i] |
+| `TrustFleetSanityLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md), [0046](../adr/0046-meta-observability-bounded-recursion.md), [0049](../adr/0049-trust-loop-kill-switch-convention.md) | ✅ `testing.md` | ❌ [bd:advisor-6s98] | ❌ [bd:advisor-fapf] | ✅ `test_trust_fleet_sanity_loop.py` | ✅ in catalog | ❌ [bd:advisor-5w20] |
+| `WikiRotDetectorLoop` | ✅ [0045](../adr/0045-trust-architecture-hardening.md), [0056](../adr/0056-adr-touchpoint-gate-to-caretaker-loop.md) | ❌ [bd:advisor-ujxu] | ❌ [bd:advisor-bzce] | ✅ (caretaking/caretaker loop) | ✅ `test_wiki_rot_detector_loop.py` | ✅ in catalog | ❌ [bd:advisor-5lgn] |
+| `WorkspaceGCLoop` | ❌ [bd:advisor-i00b] | ❌ [bd:advisor-w1cn] | ❌ [bd:advisor-91jz] | ✅ (caretaking/caretaker loop) | ✅ `test_workspace_gc_loop.py` | ⚠️ in catalog [bd:advisor-f1wy] | ✅ `s07_workspace_gc_reaps_dead_worktree.py` |
 
 ## Section 2: Ports (9 × 7)
 
@@ -111,15 +111,15 @@ Cassette and Contract columns are N/A for all ports because ADR-0047 defines con
 
 | Port | ADR | Wiki | Generated | Standard | Fake | Cassette | Contract |
 |---|---|---|---|---|---|---|---|
-| `AgentPort` | ❌ | ✅ `architecture-layers.md` | ✅ ports.md | ❌ | ❌ | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
-| `BotPRPort` | ❌ | ✅ `bot-pr-port.md` | ✅ ports.md | ❌ | ❌ | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
-| `IssueFetcherPort` | ❌ | ❌ | ✅ ports.md | ❌ | ✅ `FakeIssueFetcher` | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
-| `IssueStorePort` | ✅ 0041 | ✅ `architecture-layers.md` | ✅ ports.md | ❌ | ✅ `FakeIssueStore` | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
-| `ObservabilityPort` | ⚠️  | ❌ | ✅ ports.md | ❌ | ❌ | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
+| `AgentPort` | ❌ [bd:advisor-79o5] | ✅ `architecture-layers.md` | ✅ ports.md | ❌ [bd:advisor-ylkx] | ❌ [bd:advisor-ayw5] | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
+| `BotPRPort` | ❌ [bd:advisor-grww] | ✅ `bot-pr-port.md` | ✅ ports.md | ❌ [bd:advisor-ysso] | ❌ [bd:advisor-25fr] | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
+| `IssueFetcherPort` | ❌ [bd:advisor-8q9k] | ❌ [bd:advisor-0bhv] | ✅ ports.md | ❌ [bd:advisor-hngi] | ✅ `FakeIssueFetcher` | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
+| `IssueStorePort` | ✅ 0041 | ✅ `architecture-layers.md` | ✅ ports.md | ❌ [bd:advisor-oi2w] | ✅ `FakeIssueStore` | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
+| `ObservabilityPort` | ⚠️ [bd:advisor-yjwy] | ❌ [bd:advisor-wp13] | ✅ ports.md | ❌ [bd:advisor-ocuo] | ❌ [bd:advisor-ddje] | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
 | `PRPort` | ✅ 0052 | ✅ `architecture-layers.md` | ✅ ports.md | ✅ `README.md` | ✅ `FakePR` | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
-| `ReviewInsightStorePort` | ❌ | ❌ | ✅ ports.md | ❌ | ❌ | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
-| `RouteBackCounterPort` | ❌ | ❌ | ✅ ports.md | ❌ | ❌ | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
-| `WorkspacePort` | ✅ 0003, 0050 | ✅ `workspace-port.md` | ✅ ports.md | ❌ | ✅ `FakeWorkspace` | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
+| `ReviewInsightStorePort` | ❌ [bd:advisor-kapn] | ❌ [bd:advisor-hqck] | ✅ ports.md | ❌ [bd:advisor-3suf] | ❌ [bd:advisor-luab] | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
+| `RouteBackCounterPort` | ❌ [bd:advisor-kaur] | ❌ [bd:advisor-zdw4] | ✅ ports.md | ❌ [bd:advisor-t2c5] | ❌ [bd:advisor-o0av] | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
+| `WorkspacePort` | ✅ 0003, 0050 | ✅ `workspace-port.md` | ✅ ports.md | ❌ [bd:advisor-4e5e] | ✅ `FakeWorkspace` | N/A (per-adapter, see ADR-0047) | N/A (per-adapter, see ADR-0047) |
 
 ## Section 3: Factory phases (8 × 6)
 
