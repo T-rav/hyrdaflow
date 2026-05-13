@@ -5,13 +5,13 @@ kind: "port"
 bounded_context: "shared-kernel"
 code_anchor: "src/term_proposer_loop.py:BotPRPort"
 aliases: ["bot pr port"]
-related: []
+related: [{"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K2"}, {"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K5"}]
 evidence: []
 superseded_by: null
 superseded_reason: null
 confidence: "accepted"
 created_at: "2026-05-06T22:59:51.300957+00:00"
-updated_at: "2026-05-06T22:59:51.301155+00:00"
+updated_at: "2026-05-13T00:48:03.232325+00:00"
 ---
 
 ## Definition

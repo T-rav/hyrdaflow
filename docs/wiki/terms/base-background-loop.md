@@ -5,13 +5,13 @@ kind: "loop"
 bounded_context: "shared-kernel"
 code_anchor: "src/base_background_loop.py:BaseBackgroundLoop"
 aliases: ["base background loop", "loop base class"]
-related: [{"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K3"}]
+related: [{"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K3"}, {"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K2"}]
 evidence: []
 superseded_by: null
 superseded_reason: null
 confidence: "accepted"
 created_at: "2026-05-05T03:35:36.668776+00:00"
-updated_at: "2026-05-05T03:35:36.668777+00:00"
+updated_at: "2026-05-13T00:48:03.232325+00:00"
 ---
 
 ## Definition

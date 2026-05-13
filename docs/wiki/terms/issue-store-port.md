@@ -5,13 +5,13 @@ kind: "port"
 bounded_context: "shared-kernel"
 code_anchor: "src/ports.py:IssueStorePort"
 aliases: ["issue store port", "issue queue port", "work queue port"]
-related: []
+related: [{"kind": "depends_on", "target": "01KR1GDECRP5Z9X3HNGX3XFS8B"}]
 evidence: []
 superseded_by: null
 superseded_reason: null
 confidence: "accepted"
 created_at: "2026-05-05T03:35:36.668794+00:00"
-updated_at: "2026-05-05T03:35:36.668795+00:00"
+updated_at: "2026-05-13T00:48:03.232325+00:00"
 ---
 
 ## Definition
