@@ -153,8 +153,31 @@ def _build_cassette_payload(
 
 
 def _write_yaml_cassette(path: Path, payload: dict[str, Any]) -> None:
-    """Serialize *payload* to *path* as YAML (mirrors ``_schema.dump_cassette``)."""
+    """Serialize *payload* to *path* as YAML (mirrors ``_schema.dump_cassette``).
+
+    Refuses to overwrite an existing cassette whose ``output.stdout`` was
+    non-empty with a new payload whose ``output.stdout`` is empty — that
+    almost always means the recorder ran in a degenerate context
+    (suppressed output, broken pipe, locale weirdness) and the existing
+    cassette is the better contract. Logs a WARN so the skip is visible
+    in operator logs instead of going silent.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    new_stdout = (payload.get("output") or {}).get("stdout") or ""
+    if not new_stdout and path.exists():
+        try:
+            existing = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            existing = {}
+        existing_stdout = (existing.get("output") or {}).get("stdout") or ""
+        if existing_stdout:
+            logger.warning(
+                "contract_recording: refusing to overwrite %s — new stdout is "
+                "empty but existing cassette has non-empty stdout (likely "
+                "degenerate recording context)",
+                path,
+            )
+            return
     with path.open("w", encoding="utf-8") as fh:
         yaml.safe_dump(payload, fh, sort_keys=False, default_flow_style=False)
 
@@ -270,7 +293,10 @@ def record_git(sandbox_dir: Path, tmp_cassette_dir: Path) -> list[Path]:
 
     sandbox_str = str(sandbox_dir)
 
-    init = _run(["git", "-C", sandbox_str, "init", "-q"])
+    # ``-b main`` forces the initial branch regardless of the host's
+    # ``init.defaultBranch`` (some systems still ship ``master``) so the
+    # recording matches the ``[main <sha>] initial`` line the fake emits.
+    init = _run(["git", "-C", sandbox_str, "init", "-q", "-b", "main"])
     if not _require_success(init, label="git init"):
         return []
 
@@ -278,6 +304,9 @@ def record_git(sandbox_dir: Path, tmp_cassette_dir: Path) -> list[Path]:
     if not _require_success(add, label="git add"):
         return []
 
+    # NOTE: no ``-q`` — the cassette must capture the ``[main <sha>] initial``
+    # confirmation line that ``FakeGit.commit`` emulates. ``-q`` suppresses
+    # that line and produced empty-stdout cassettes that broke replay.
     commit = _run(
         [
             "git",
@@ -288,7 +317,6 @@ def record_git(sandbox_dir: Path, tmp_cassette_dir: Path) -> list[Path]:
             "-c",
             "user.name=contract-refresh",
             "commit",
-            "-q",
             "-m",
             "initial",
         ]
