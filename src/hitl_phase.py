@@ -120,8 +120,24 @@ class HITLPhase:
             for issue_number, correction in pending.items()
         ]
 
-        for task in asyncio.as_completed(tasks):
-            await task
+        for coro in asyncio.as_completed(tasks):
+            try:
+                await coro
+            except CreditExhaustedError:
+                # Billing exhaustion: cancel remaining tasks and re-raise so
+                # the outer loop stops ticking against an exhausted signal.
+                for t in tasks:
+                    t.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
+            except (AuthenticationError, MemoryError) as exc:
+                logger.error(
+                    "HITL batch: correction lost due to %s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
+                # Remaining tasks continue — the failing correction was
+                # already popped from _hitl_corrections; log is the audit trail.
             if self._stop_event.is_set():
                 for t in tasks:
                     t.cancel()
