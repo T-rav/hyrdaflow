@@ -14,6 +14,11 @@ from config import HydraFlowConfig
 
 logger = logging.getLogger("hydraflow.preflight")
 
+# `gh auth status` can take 5-10s on first invocation when the OS keychain
+# unlocks the token. Bounded so a stuck process can't block startup forever
+# (#6576). Module-level so tests can patch a smaller value.
+_GH_AUTH_TIMEOUT_S = 15.0
+
 
 class CheckStatus(Enum):
     PASS = "pass"
@@ -80,17 +85,16 @@ async def _check_gh_auth() -> CheckResult:
             stderr=asyncio.subprocess.DEVNULL,
         )
         try:
-            # `gh auth status` can take 5-10s on first invocation when the OS
-            # keychain has to unlock the token. A real hang is rare; treat the
-            # timeout as a WARN (not FAIL) so a slow keychain doesn't block
-            # startup. The process is still killed to avoid orphans (#6576).
-            rc = await asyncio.wait_for(proc.wait(), timeout=15.0)
+            # Timeout WARNs (not FAILs) so a slow keychain doesn't block
+            # startup; downstream gh calls do their own auth handling. The
+            # process is killed on timeout to avoid orphans (#6576).
+            rc = await asyncio.wait_for(proc.wait(), timeout=_GH_AUTH_TIMEOUT_S)
         except TimeoutError:
             proc.kill()
             return CheckResult(
                 "gh-auth",
                 CheckStatus.WARN,
-                "gh auth status did not complete within 15s — gh CLI appears hung; skipping auth verification",
+                f"gh auth status did not complete within {_GH_AUTH_TIMEOUT_S:g}s — gh CLI appears hung; skipping auth verification",
             )
         if rc == 0:
             return CheckResult("gh-auth", CheckStatus.PASS, "gh CLI authenticated")
