@@ -272,6 +272,31 @@ def build_services(
 
     configure_gh_concurrency(config.gh_api_concurrency)
 
+    # Shadow corpus (#8786, Phase 0.3). When the config flag is on,
+    # install a ShadowCorpus-backed sampler so every gh/git/docker/claude
+    # call feeds the bounded, normalized, PII-scrubbed corpus that the
+    # eventual LiveCorpusReplayLoop will consume. Off by default — the
+    # subprocess-side hook is a no-op when no sampler is installed.
+    from subprocess_util import set_shadow_sampler
+
+    if config.shadow_corpus_enabled:
+        from contracts.shadow import ShadowCorpus
+
+        _shadow_corpus = ShadowCorpus(
+            config.data_root / "contract_shadow",
+            max_per_adapter=config.shadow_corpus_max_per_adapter,
+        )
+        set_shadow_sampler(_shadow_corpus.record)
+        logger.info(
+            "shadow corpus enabled at %s (max %s per adapter)",
+            config.data_root / "contract_shadow",
+            config.shadow_corpus_max_per_adapter,
+        )
+    else:
+        # Defensive clear — if a prior test or process left a sampler
+        # installed, this guarantees the flag actually controls behavior.
+        set_shadow_sampler(None)
+
     # Hindsight semantic memory and MemoryJudge — REMOVED in Phase 3 cutover.
     # The wiki + tribal + ADR-draft pipeline is the new primary. Any
     # historical Hindsight content that needs to be preserved should have

@@ -1252,6 +1252,32 @@ class HydraFlowConfig(BaseModel):
         ),
     )
 
+    # Shadow corpus (#8786) — opt-in live sampling of production
+    # subprocess calls. When enabled, every gh/git/docker/claude call
+    # feeds a bounded, normalized, PII-scrubbed YAML corpus that
+    # LiveCorpusReplayLoop will eventually diff against fake-adapter
+    # outputs. Off by default until the v2 pattern is validated.
+    shadow_corpus_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable the live shadow corpus (#8786). When True, "
+            "production gh/git/docker/claude calls are sampled into "
+            "<data_root>/contract_shadow/<adapter>/ with normalizers + "
+            "PII scrub. Off by default — turn on once the v2 contract "
+            "pattern is validated."
+        ),
+    )
+    shadow_corpus_max_per_adapter: int = Field(
+        default=100,
+        ge=10,
+        le=10000,
+        description=(
+            "Per-adapter LRU cap on shadow corpus size. Most-recently-"
+            "recorded call shapes survive eviction; older shapes are "
+            "deleted from disk."
+        ),
+    )
+
     # Code grooming
     code_grooming_enabled: bool = Field(
         default=False,
