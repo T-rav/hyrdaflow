@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps  # noqa: TCH001
 from models import WorkCycleResult  # noqa: TCH001
+from state import StateTracker  # noqa: TCH001
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -68,6 +69,7 @@ class LiveCorpusReplayLoop(BaseBackgroundLoop):
         pr_manager: PRManager,
         dedup: DedupStore,
         deps: LoopDeps,
+        state: StateTracker | None = None,
         dispatchers: dict[DispatcherKey, Dispatcher] | None = None,
     ) -> None:
         super().__init__(
@@ -79,6 +81,7 @@ class LiveCorpusReplayLoop(BaseBackgroundLoop):
         self._corpus = corpus
         self._pr = pr_manager
         self._dedup = dedup
+        self._state = state
         self._dispatchers: dict[DispatcherKey, Dispatcher] = dict(dispatchers or {})
 
     def _get_default_interval(self) -> int:
@@ -136,13 +139,38 @@ class LiveCorpusReplayLoop(BaseBackgroundLoop):
                 drifted.append((path, signature))
 
         filed_issue: int | None = None
+        escalated_issue: int | None = None
+        escalated_signatures: list[str] = []
+
         if drifted:
+            # Increment per-signature attempt counters and identify any
+            # that have hit the escalation threshold.
+            if self._state is not None:
+                threshold = self._config.live_corpus_max_drift_attempts
+                for _path, sig in drifted:
+                    attempts = self._state.inc_live_corpus_drift_attempts(sig)
+                    if attempts >= threshold and sig not in escalated_signatures:
+                        escalated_signatures.append(sig)
+
             dedup_key = _fleet_dedup_key(drifted)
             seen = self._dedup.get()
             if dedup_key not in seen:
                 filed_issue = await self._file_drift_issue(drifted)
                 seen.add(dedup_key)
                 self._dedup.set_all(seen)
+
+            # If any signature reached the threshold, file an escalation
+            # issue routed to the auto-agent preflight loop via the
+            # ``hitl-escalation`` label.
+            if escalated_signatures:
+                escalated_issue = await self._file_escalation_issue(
+                    escalated_signatures
+                )
+        # Clean tick: clear all attempt counters so a future
+        # re-occurrence of the same drift starts fresh.
+        elif self._state is not None:
+            self._state.clear_live_corpus_drift_attempts()
+
         return {
             "status": "ok",
             "compared": compared,
@@ -150,7 +178,45 @@ class LiveCorpusReplayLoop(BaseBackgroundLoop):
             "drifted": len(drifted),
             "errors": errors,
             "filed_issue": filed_issue,
+            "escalated_issue": escalated_issue,
+            "escalated_signatures": len(escalated_signatures),
         }
+
+    async def _file_escalation_issue(self, signatures: list[str]) -> int:
+        """File a ``hitl-escalation`` issue when drift signatures exhaust
+        the loop's own retry budget.
+
+        Routed via the existing ``hitl-escalation`` label to the
+        ``AutoAgentPreflightLoop`` — that loop runs its OWN 3-attempt
+        cycle (auto-agent IMPL pipeline) before labeling
+        ``human-required``. The combined autonomous-attempt budget is
+        ``live_corpus_max_drift_attempts × auto_agent_max_attempts``.
+        """
+        labels = ["hitl-escalation", "shadow-drift-stuck"]
+        title = (
+            f"Shadow drift stuck: {len(signatures)} signature(s) survived "
+            f"{self._config.live_corpus_max_drift_attempts} tick(s) without repair"
+        )
+        sig_lines = "\n".join(f"- `{s[:12]}`" for s in signatures[:50])
+        body = (
+            f"## Drift survived the LiveCorpusReplayLoop retry budget\n\n"
+            f"After {self._config.live_corpus_max_drift_attempts} consecutive "
+            f"ticks of detecting the same drift signature(s) without the "
+            f"earlier `hydraflow-find` repair PR landing, the loop escalates "
+            f"to `hitl-escalation` so `AutoAgentPreflightLoop` runs its own "
+            f"attempts.\n\n"
+            f"### Stuck signatures\n\n{sig_lines}\n\n"
+            f"### Repair path\n\n"
+            f"The auto-agent preflight loop will pick this up and run "
+            f"`auto_agent_max_attempts` IMPL attempts before adding "
+            f"`human-required`. Closing this issue clears all per-signature "
+            f"counters on the next clean tick."
+        )
+        return await self._pr.create_issue(
+            title=title,
+            body=body,
+            labels=labels,
+        )
 
     async def _file_drift_issue(self, drifted: list[tuple[Path, str]]) -> int:
         """File a single hydraflow-find issue covering all drift this tick."""

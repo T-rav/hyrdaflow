@@ -1287,6 +1287,17 @@ class HydraFlowConfig(BaseModel):
             "adapter output via registered dispatchers."
         ),
     )
+    live_corpus_max_drift_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+        description=(
+            "Per-drift-signature attempt cap before LiveCorpusReplayLoop "
+            "escalates to hitl-escalation (auto-agent preflight). Each "
+            "tick that re-detects the same drift signature counts as "
+            "one attempt; a clean tick clears all counters."
+        ),
+    )
 
     # Code grooming
     code_grooming_enabled: bool = Field(

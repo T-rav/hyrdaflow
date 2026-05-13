@@ -1060,6 +1060,7 @@ def build_services(
             corpus=shadow_corpus,
             pr_manager=prs,
             dedup=_live_corpus_replay_dedup,
+            state=state,
             deps=loop_deps,
         )
 
