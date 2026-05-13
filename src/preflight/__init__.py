@@ -80,14 +80,17 @@ async def _check_gh_auth() -> CheckResult:
             stderr=asyncio.subprocess.DEVNULL,
         )
         try:
-            rc = await asyncio.wait_for(proc.wait(), timeout=1.0)
+            # `gh auth status` can take 5-10s on first invocation when the OS
+            # keychain has to unlock the token. A real hang is rare; treat the
+            # timeout as a WARN (not FAIL) so a slow keychain doesn't block
+            # startup. The process is still killed to avoid orphans (#6576).
+            rc = await asyncio.wait_for(proc.wait(), timeout=15.0)
         except TimeoutError:
-            # Kill the hung process so it doesn't linger as an orphan (#6576).
             proc.kill()
             return CheckResult(
                 "gh-auth",
-                CheckStatus.FAIL,
-                "gh auth status timed out after 1s — gh CLI appears hung",
+                CheckStatus.WARN,
+                "gh auth status did not complete within 15s — gh CLI appears hung; skipping auth verification",
             )
         if rc == 0:
             return CheckResult("gh-auth", CheckStatus.PASS, "gh CLI authenticated")

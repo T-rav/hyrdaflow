@@ -108,6 +108,27 @@ async def test_check_gh_auth_oserror() -> None:
     assert "spawn failed" in result.message
 
 
+@pytest.mark.asyncio
+async def test_check_gh_auth_timeout_warns_not_fails() -> None:
+    """Slow `gh auth status` (e.g. keychain unlock) must not abort startup.
+
+    Regression: keychain-backed gh installs can take 5–10s on first call. A
+    1s timeout produced spurious FAILs; the check now WARNs and lets startup
+    proceed since downstream gh calls do their own auth handling.
+    """
+    mock_proc = MagicMock()
+    mock_proc.wait = AsyncMock(side_effect=TimeoutError)
+    mock_proc.kill = MagicMock()
+    with (
+        patch("preflight.shutil.which", return_value="/usr/bin/gh"),
+        patch("preflight.asyncio.create_subprocess_exec", return_value=mock_proc),
+    ):
+        result = await _check_gh_auth()
+    assert result.status == CheckStatus.WARN
+    assert "15s" in result.message
+    mock_proc.kill.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # _check_repo_root
 # ---------------------------------------------------------------------------
