@@ -52,6 +52,7 @@ from subprocess_util import (
 if TYPE_CHECKING:
     from base_background_loop import BaseBackgroundLoop
     from crate_manager import CrateManager
+    from epic import EpicManager
     from github_cache_loop import GitHubDataCache
     from issue_store import IssueStore
     from metrics_manager import MetricsManager
@@ -248,6 +249,11 @@ class HydraFlowOrchestrator:
     def metrics_manager(self) -> MetricsManager:
         """Expose metrics manager for dashboard API."""
         return self._svc.metrics_manager
+
+    @property
+    def epic_manager(self) -> EpicManager:
+        """Expose epic manager for dashboard API."""
+        return self._svc.epic_manager
 
     @property
     def running(self) -> bool:

@@ -21,7 +21,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
         orch = _get_orch()
         if orch is None:
             return JSONResponse([])
-        details = await orch._svc.epic_manager.get_all_detail()
+        details = await orch.epic_manager.get_all_detail()
         return JSONResponse([d.model_dump() for d in details])
 
     @router.get("/api/epics/{epic_number}")
@@ -34,7 +34,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
         orch = _get_orch()
         if orch is None:
             return JSONResponse({"error": "orchestrator not running"}, status_code=503)
-        detail = await orch._svc.epic_manager.get_detail(epic_number)
+        detail = await orch.epic_manager.get_detail(epic_number)
         if detail is None:
             return JSONResponse({"error": "epic not found"}, status_code=404)
         return JSONResponse(detail.model_dump())
@@ -53,7 +53,7 @@ def register(router: APIRouter, ctx: RouteContext) -> None:
         orch = _get_orch()
         if orch is None:
             return JSONResponse({"error": "orchestrator not running"}, status_code=503)
-        result = await orch._svc.epic_manager.trigger_release(epic_number)
+        result = await orch.epic_manager.trigger_release(epic_number)
         if "error" in result:
             return JSONResponse(result, status_code=400)
         return JSONResponse(result)
