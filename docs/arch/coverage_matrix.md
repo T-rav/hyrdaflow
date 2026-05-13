@@ -3,7 +3,7 @@
 **Snapshot date:** 2026-05-12
 **Audit commit SHA:** `de42e482cfce04eb8a584a2e4ebeb02cb96aa35d`
 **Spec:** `docs/superpowers/specs/2026-05-12-coverage-matrix-design.md`
-**Automation follow-up bead:** `<paste bead ID after Task 14>`
+**Automation follow-up bead:** `bd:advisor-bpl`
 
 ## Column criteria
 
