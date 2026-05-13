@@ -1,6 +1,7 @@
 # ADR-0047: Fake-adapter contract testing via cassette record/replay
 
-- **Status:** Proposed
+- **Status:** Accepted
+- **Accepted on:** 2026-05-12 — promoted after slice #5 audit confirmed live production usage.
 - **Date:** 2026-04-23
 - **Supersedes:** none
 - **Superseded by:** none
