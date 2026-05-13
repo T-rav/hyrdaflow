@@ -1,0 +1,18 @@
+adapter: github
+interaction: add_labels
+recorded_at: "2026-05-13T00:00:00Z"
+recorder_sha: "00000000"
+fixture_repo: T-rav-Hydra-Ops/hydraflow-contracts-sandbox
+input:
+  command: add_labels
+  args:
+    - "42"
+    - "in-progress"
+    - "review-requested"
+  stdin: null
+  env: {}
+output:
+  exit_code: 0
+  stdout: ""
+  stderr: ""
+normalizers: []

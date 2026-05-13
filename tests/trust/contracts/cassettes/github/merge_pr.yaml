@@ -1,0 +1,17 @@
+adapter: github
+interaction: merge_pr
+recorded_at: "2026-05-13T00:00:00Z"
+recorder_sha: "00000000"
+fixture_repo: T-rav-Hydra-Ops/hydraflow-contracts-sandbox
+input:
+  command: merge_pr
+  args:
+    - "42"
+  stdin: null
+  env: {}
+output:
+  exit_code: 0
+  stdout: "merged pull request https://github.com/_/_/pull/42\n"
+  stderr: ""
+normalizers:
+  - pr_number
