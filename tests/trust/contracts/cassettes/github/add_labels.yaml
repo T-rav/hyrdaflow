@@ -16,3 +16,4 @@ output:
   stdout: ""
   stderr: ""
 normalizers: []
+baseline_only: true

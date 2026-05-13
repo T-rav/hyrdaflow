@@ -2,7 +2,31 @@
 
 Every cassette in this directory is a **hand-authored baseline** — they are
 not refreshed by `ContractRefreshLoop` against a live `gh` CLI. Identifiable
-by `recorder_sha: "00000000"` in the YAML header.
+by both:
+
+- `recorder_sha: "00000000"` (historical convention)
+- `baseline_only: true` in the YAML body (Phase 4 of #8786 — the machine-
+  checkable retirement marker)
+
+## Retirement plan (Phase 4 of #8786)
+
+A baseline cassette is **redundant** (and eligible for removal) once the
+same `(adapter, command, args)` shape is covered by a `LiveCorpusReplayLoop`
+dispatcher in `src/live_corpus_replay_loop.py`'s registry. At that point:
+
+- The shadow corpus captures the *real* gh output continuously.
+- The Pydantic shape models in `src/contracts/shapes.py` catch shape drift
+  at the call site.
+- The replay loop diffs sample vs fake output every 15 minutes.
+
+The hand-authored baseline becomes a duplicate of stronger signals.
+
+A future `FakeCoverageAuditorLoop` check (filed as follow-up) will warn
+when `baseline_only=true` AND a live dispatcher exists for the same shape
+— that's the retirement signal. Removal then happens in a one-PR cleanup.
+
+Until then, baselines stay because they're the only contract test for the
+respective FakeGitHub methods.
 
 ## Why hand-authored?
 

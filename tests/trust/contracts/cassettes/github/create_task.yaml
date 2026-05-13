@@ -16,3 +16,4 @@ output:
   stderr: ""
 normalizers:
   - pr_number
+baseline_only: true
