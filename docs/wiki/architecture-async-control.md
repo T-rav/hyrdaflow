@@ -331,3 +331,107 @@ All LLM invocations from HydraFlow runtime (advisor included) go through Claude 
 ```json:entry
 {"id":"01KQP0XFBGMB32VFGNPV8GZ26X","title":"Advisor uses Claude Code subagent dispatch — never the Anthropic SDK directly","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-08T00:00:00.000000+00:00","updated_at":"2026-05-08T00:00:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
+
+
+## EpicMonitorLoop — stale epic detection and progress refresh
+
+`EpicMonitorLoop` is a caretaker background loop (tick default 30 min, `HYDRAFLOW_EPIC_MONITOR_INTERVAL`) that detects stale epics and refreshes the in-memory progress cache. Each cycle it calls `EpicManager.check_stale_epics()` to flag epics with no recent child-issue movement, then `EpicManager.refresh_cache()` to pull current state for all tracked epics. The result dict exposes `stale_count` and `tracked_epics` for telemetry.
+
+**When it runs:** Every `epic_monitor_interval` seconds (default 1800). Honoured by the ADR-0049 kill-switch gate at the top of `_do_work`; set `HYDRAFLOW_EPIC_MONITOR_ENABLED=false` for deploy-time disable.
+
+**What it produces:** No label mutations or GitHub API writes — this loop is read-only. It updates the in-memory `EpicManager` cache that `EpicSweeperLoop` and the dashboard epic-progress route rely on.
+
+**How it interacts:** Feeds the `EpicSweeperLoop` indirectly via the shared `EpicManager` cache. The sweeper decides whether to close; the monitor decides whether to mark stale. Separating them means stale detection can run twice as often as the heavier sweep operation.
+
+**Gotchas:** `refresh_cache()` is async; forgetting the `await` returns an unawaited coroutine with no error, silently leaving the cache stale. The loop does not publish events — dashboard consumers poll `EpicManager.get_all_progress()` directly.
+
+
+```json:entry
+{"id":"01KRBX2N4QP7VW8FGH3J5YD0M1","title":"EpicMonitorLoop — stale epic detection and progress refresh","topic":null,"source_type":"compiled","source_issue":8764,"source_repo":null,"created_at":"2026-05-12T00:00:00.000000+00:00","updated_at":"2026-05-12T00:00:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"high","stale":false,"corroborations":1}
+```
+
+
+## EpicSweeperLoop — auto-close completed epics
+
+`EpicSweeperLoop` is a caretaker background loop (tick default 1 h, `HYDRAFLOW_EPIC_SWEEP_INTERVAL`) that auto-closes epics whose every sub-issue is resolved. Each cycle it fetches up to 50 open issues carrying the `epic_label`, collects sub-issue refs from two sources — formal `EpicState.child_issues` entries and `#NNN` checkbox refs parsed from the body — then verifies each ref is closed. If all are closed it checks all checkboxes, posts an auto-close comment, optionally adds the `fixed_label`, and closes the epic via `PRPort`.
+
+**When it runs:** Every `epic_sweep_interval` seconds (600–86400 range; default 3600). ADR-0049 kill-switch gate at top of `_do_work`.
+
+**What it produces:** GitHub API mutations — updated epic body, a comment, optional label addition, and issue close. Returns `{checked, swept, total_open_epics}` for telemetry.
+
+**How it interacts:** Reads `StateTracker.get_epic_state()` for formal children and calls `parse_epic_sub_issues()` (from `epic.py`) for body refs. Uses `IssueFetcherPort.fetch_issue_by_number()` to verify each sub-issue state and `PRPort` for all mutations.
+
+**Gotchas / limits:** The 50-issue fetch cap is intentional but logged as a warning when hit — if a repo has more than 50 open epics, some will be skipped each cycle. A stale body ref (sub-issue deleted from GitHub) causes the sweep to skip that epic with a warning rather than closing it. Remove stale refs from the body to unblock auto-close. Per-epic exceptions are caught and logged; one bad epic does not abort the whole sweep.
+
+
+```json:entry
+{"id":"01KRBX2N4QP7VW8FGH3J5YD0M2","title":"EpicSweeperLoop — auto-close completed epics","topic":null,"source_type":"compiled","source_issue":8765,"source_repo":null,"created_at":"2026-05-12T00:00:00.000000+00:00","updated_at":"2026-05-12T00:00:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"high","stale":false,"corroborations":1}
+```
+
+
+## RetrospectiveLoop — durable-queue pattern analysis
+
+`RetrospectiveLoop` is a background loop (tick default 30 min, `HYDRAFLOW_RETROSPECTIVE_INTERVAL`) that drains a durable JSONL work queue and runs three types of analysis: retrospective pattern detection (`RETRO_PATTERNS`), review insight pattern analysis with issue filing (`REVIEW_PATTERNS`), and stale improvement-proposal verification with HITL escalation (`VERIFY_PROPOSALS`). Producers — `PostMergeHandler` and `ReviewPhase` — append items; the loop acknowledges each item only after successful processing, so crashes leave items eligible for replay.
+
+**When it runs:** Every `retrospective_interval` seconds (60–86400; default 1800). ADR-0049 kill-switch gate at top of `_do_work`. Respects `stop_event` between items to enable clean shutdown mid-batch.
+
+**What it produces:** Filed GitHub issues (`[Review Insight]` and `[HITL]` labels), updated `ReviewInsightStore` state, and `RETROSPECTIVE_UPDATE` events on the `EventBus`. Returns `{processed, patterns_filed, stale_proposals}`.
+
+**How it interacts:** Reads from `RetrospectiveQueue` (JSONL at `data_root`), writes to `ReviewInsightStore`, calls `PRPort.create_issue()` for new pattern issues, and publishes to `EventBus`. The `prs` dependency is optional — missing it suppresses issue filing with a warning rather than crashing.
+
+**Gotchas:** Items that raise are retried on the next cycle (not acknowledged). This means pattern analysis for a failing item repeats; ensure `_handle_retro_patterns` is idempotent. `_handle_review_patterns` tracks proposed categories via `ReviewInsightStore.mark_category_proposed()` to avoid duplicate issue filing across cycles.
+
+
+```json:entry
+{"id":"01KRBX2N4QP7VW8FGH3J5YD0M3","title":"RetrospectiveLoop — durable-queue pattern analysis","topic":null,"source_type":"compiled","source_issue":8766,"source_repo":null,"created_at":"2026-05-12T00:00:00.000000+00:00","updated_at":"2026-05-12T00:00:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"high","stale":false,"corroborations":1}
+```
+
+
+## RunsGCLoop — artifact retention enforcement
+
+`RunsGCLoop` is a caretaker background loop (tick default 1 h, `HYDRAFLOW_RUNS_GC_INTERVAL`) that purges expired and oversized run artifacts produced by `RunRecorder`. Each cycle runs two passes: `purge_expired(artifact_retention_days)` removes artifacts older than the configured TTL (default 30 days, `HYDRAFLOW_ARTIFACT_RETENTION_DAYS`) and `purge_oversized(artifact_max_size_mb)` drops the oldest artifacts once total storage exceeds the size cap (default 500 MB, `HYDRAFLOW_ARTIFACT_MAX_SIZE_MB`).
+
+**When it runs:** Every `runs_gc_interval` seconds (default 3600). ADR-0049 kill-switch gate at top of `_do_work`.
+
+**What it produces:** File-system deletions only; no GitHub API calls. Returns `{expired_purged, oversized_purged, total_runs, total_mb, issues}` from `RunRecorder.get_storage_stats()`. Logs a single INFO line per cycle only when something was purged — quiet cycles produce no output.
+
+**How it interacts:** Entirely mediated through `RunRecorder`; the loop itself holds no file handles. Other loops and runners write artifacts; this loop deletes the old ones. No event publishing.
+
+**Gotchas:** The two purge passes are independent — a cycle can trigger both. Retention check runs first (time-based), then size cap (oldest-first). If the retention window is tight and the pipeline is busy, the size cap may also fire on the same cycle. Set `artifact_max_size_mb` conservatively for disk-constrained environments.
+
+
+```json:entry
+{"id":"01KRBX2N4QP7VW8FGH3J5YD0M4","title":"RunsGCLoop — artifact retention enforcement","topic":null,"source_type":"compiled","source_issue":8767,"source_repo":null,"created_at":"2026-05-12T00:00:00.000000+00:00","updated_at":"2026-05-12T00:00:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"high","stale":false,"corroborations":1}
+```
+
+
+## SecurityPatchLoop — Dependabot alert triage and issue filing
+
+`SecurityPatchLoop` is a caretaker background loop (tick default 1 h, `HYDRAFLOW_SECURITY_PATCH_INTERVAL`) that polls open Dependabot alerts and files a GitHub issue for each actionable, unduplicated vulnerability. An alert is actionable when it meets the configured severity threshold (`HYDRAFLOW_SECURITY_PATCH_SEVERITY_THRESHOLD`, default `high`; options: `critical`, `high`, `medium`, `low`) and has a `first_patched_version` available. `DedupStore` (persisted at `data_root/memory/security_patch_dedup.json`) prevents refiling the same alert number across cycles.
+
+**When it runs:** Every `security_patch_interval` seconds (default 3600). ADR-0049 kill-switch gate. Skips all work in `dry_run` mode.
+
+**What it produces:** GitHub issues with title `[Security] <summary> in <pkg>` and label `security`. Returns `{total_alerts, filed, skipped_dedup, skipped_unfixable, skipped_severity}`.
+
+**How it interacts:** Calls `PRPort.get_dependabot_alerts(state="open")` and `PRPort.create_issue()`. No label-state-machine involvement — the filed issue is an unmanaged advisory, not a pipeline issue.
+
+**Gotchas:** Severity ranking is explicit (`critical=0`, `high=1`, `medium=2`, `low=3`); unknown severity strings map to rank 99 (treated as below threshold). Dedup key is the Dependabot alert `number` field as a string — alerts without a `number` field are silently skipped. The `DedupStore` is reconciled-on-close; a crash mid-cycle may re-file an alert that was filed but not yet persisted.
+
+
+```json:entry
+{"id":"01KRBX2N4QP7VW8FGH3J5YD0M5","title":"SecurityPatchLoop — Dependabot alert triage and issue filing","topic":null,"source_type":"compiled","source_issue":8769,"source_repo":null,"created_at":"2026-05-12T00:00:00.000000+00:00","updated_at":"2026-05-12T00:00:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"high","stale":false,"corroborations":1}
+```
+
+
+## HITLController and HITLPhase — correction lifecycle
+
+`HITLController` is a thin orchestrator facade that owns the public correction API: `submit_correction(issue, text)`, `provide_human_input(issue, answer)`, `skip_issue(issue)`, and `get_status(issue)`. It delegates all stateful work to `HITLPhase`, which owns the full async correction lifecycle. On each `do_work()` tick it fetches open HITL issues via `IssueFetcher`, then calls `HITLPhase.process_corrections()` to drain the pending-corrections dict.
+
+`HITLPhase.process_corrections()` snapshots and clears the pending dict atomically (preventing re-entrancy), then fans out one `asyncio.Task` per pending issue, bounded by `max_hitl_workers` semaphore. For each issue the phase: fetches the issue, looks up the recorded escalation cause and origin label, creates or reuses the worktree, swaps the pipeline label to `hitl_active_label`, runs `HITLRunner.run()` with the correction text, and then on success pushes the branch, returns the issue to its pre-escalation origin label (recorded in `StateTracker.get_hitl_origin()`), resets attempt counters, and auto-files a `[Memory]` lesson capturing the correction principle. On failure the issue label stays at `hitl_label` and a failure comment is posted for the operator to retry.
+
+**Gotchas:** The origin label is consumed on success (`remove_hitl_origin`) — if the same issue re-escalates, the origin is gone and the issue stays on `hitl_label` rather than routing back to its stage. Keep worktrees on failure (`Preserve worktrees on HITL failure` in gotchas.md) for post-mortem inspection. `CreditExhaustedError`, `AuthenticationError`, and `MemoryError` are re-raised out of `_process_one_hitl` and bubble to the orchestrator.
+
+
+```json:entry
+{"id":"01KRBX2N4QP7VW8FGH3J5YD0M6","title":"HITLController and HITLPhase — correction lifecycle","topic":null,"source_type":"compiled","source_issue":8815,"source_repo":null,"created_at":"2026-05-12T00:00:00.000000+00:00","updated_at":"2026-05-12T00:00:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"high","stale":false,"corroborations":1}
+```

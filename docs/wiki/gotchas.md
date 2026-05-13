@@ -789,3 +789,21 @@ at ready waiting for impl, PR at review awaiting human), call
   "added": "2026-05-07"
 }
 ```
+
+
+## StaleIssueLoop vs StaleIssueGCLoop — distinct scopes, zero business-logic overlap
+
+These two loops both close stale issues but target completely different populations and must not be conflated.
+
+**`StaleIssueLoop`** (`HYDRAFLOW_STALE_ISSUE_INTERVAL`, default 24 h) owns general open issues — those without any HydraFlow lifecycle label (`planner`, `ready`, `review`, `hitl`). It fetches via `gh issue list`, filters out excluded labels, checks `updatedAt` against a configurable `staleness_days` threshold (stored in `StateTracker.get_stale_issue_settings()`), posts a farewell comment, closes the issue via `gh issue close`, and persists the closed issue number in `StateTracker` to prevent re-processing. It supports a per-setting `dry_run` mode that logs without closing.
+
+**`StaleIssueGCLoop`** (`HYDRAFLOW_STALE_ISSUE_GC_INTERVAL`, default 1 h) owns HITL escalation issues — those carrying `hitl_label`. It uses `stale_issue_threshold_days` (default 14 days) from config (not from `StateTracker`), fetches via `PRPort.list_issues_by_label()`, and caps at 10 closes per cycle (`_MAX_CLOSE_PER_CYCLE`) to avoid GitHub rate-limiting. It uses the global `dry_run` config gate rather than a per-setting flag.
+
+**Why both exist:** HITL escalations need a faster check cadence and a hard close-cap; general issues need per-tag exclusion logic and state-file dedup to avoid closing the same issue twice across restarts. Merging them would require either overloading `StateTracker` with HITL-specific thresholds or adding rate-limit caps to the general loop.
+
+**Gotcha:** Adding a new lifecycle label to the pipeline requires updating the `exclude_labels` list inside `StaleIssueLoop._do_work` — otherwise newly-labelled pipeline issues will be swept as general stale issues after the configured inactivity window.
+
+
+```json:entry
+{"id":"01KRBX2N4QP7VW8FGH3J5YD0M7","title":"StaleIssueLoop vs StaleIssueGCLoop — distinct scopes, zero business-logic overlap","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-12T00:00:00.000000+00:00","updated_at":"2026-05-12T00:00:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"high","stale":false,"corroborations":1}
+```

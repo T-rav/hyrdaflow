@@ -122,7 +122,8 @@
       "Self-review PRs before declaring done",
       "Use explicit reasoning prompts for analysis-heavy tasks",
       "Sentry captures real code bugs only, not transient failures",
-      "Never use git commit --no-verify or --no-hooks"
+      "Never use git commit --no-verify or --no-hooks",
+      "StaleIssueLoop vs StaleIssueGCLoop — distinct scopes, zero business-logic overlap"
     ],
     "testing": [
       "Enforce function structure limits for testability",
@@ -201,7 +202,15 @@
       "Phase-filtered skill injection: tool filtering only, execution unchanged",
       "Multiple backend skills: use marker-based checks, not strict structure",
       "Two-file consolidation: Pydantic model and JSONL persistence must sync",
-      "Operator review gates dynamic skills due to prompt injection risk"
+      "Operator review gates dynamic skills due to prompt injection risk",
+      "Advisor pattern layers Opus reviewer over Sonnet executor on review surfaces",
+      "Advisor uses Claude Code subagent dispatch — never the Anthropic SDK directly",
+      "EpicMonitorLoop — stale epic detection and progress refresh",
+      "EpicSweeperLoop — auto-close completed epics",
+      "RetrospectiveLoop — durable-queue pattern analysis",
+      "RunsGCLoop — artifact retention enforcement",
+      "SecurityPatchLoop — Dependabot alert triage and issue filing",
+      "HITLController and HITLPhase — correction lifecycle"
     ],
     "architecture-imports-types": [
       "TYPE_CHECKING guard pattern for type-only imports",
