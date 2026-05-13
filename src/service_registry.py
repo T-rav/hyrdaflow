@@ -1063,6 +1063,13 @@ def build_services(
             state=state,
             deps=loop_deps,
         )
+        # Phase 5: register the Pydantic shape dispatcher for gh JSON
+        # output. Validates sample.stdout against contracts.shapes models
+        # — shape drift in real gh (renamed/removed/typed-differently
+        # fields, new enum values) fires immediately on the next tick.
+        from contracts.shape_dispatchers import gh_shape_validator
+
+        _live_corpus_replay_loop.register("github", "gh", gh_shape_validator)
 
     corpus_learning_dedup = DedupStore(
         "corpus_learning",
