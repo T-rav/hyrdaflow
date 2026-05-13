@@ -136,10 +136,30 @@ Cassette and Contract columns are N/A for all ports because ADR-0047 defines con
 
 ## Sampling check
 
-(Populated in Task 13.)
+**Sampling check (post-D8):** Random sample of 5 ✅ cells and 5 ❌ cells across all three sections (seeded `random.seed(2026)`).
+
+- Sample:
+  - (`OK`, `` `DiagnosticLoop` ``, col 1 ADR, `✅ [0050](../adr/0050-auto-agent-hitl-preflight.md)`)
+  - (`OK`, `` `ReportIssueLoop` ``, col 6 Scenario, `✅ in catalog`)
+  - (`OK`, `` `TrustFleetSanityLoop` ``, col 6 Scenario, `✅ in catalog`)
+  - (`OK`, `` `WikiRotDetectorLoop` ``, col 5 Unit, `✅ test_wiki_rot_detector_loop.py`)
+  - (`OK`, `` `DependabotMergeLoop` ``, col 1 ADR, `✅ [0054](../adr/0054-term-auto-proposer-loop.md), [0057](../adr/0057-term-pruner-loop.md), [0058](../adr/0058-edge-proposer-loop.md)`)
+  - (`GAP`, `` `FlakeTrackerLoop` ``, col 3 Generated, `❌`)
+  - (`GAP`, `` `ReviewInsightStorePort` ``, col 2 Wiki, `❌`)
+  - (`GAP`, `` `RouteBackCounterPort` ``, col 5 Fake adapter, `❌`)
+  - (`GAP`, `` `BotPRPort` ``, col 1 ADR, `❌`)
+  - (`GAP`, `` `SentryLoop` ``, col 3 Generated, `❌`)
+- Result: 10/10 agree with manual verification.
+- Disagreements: none
+
+If N < 9, the extractor logic was patched and the affected section was re-run before this entry was recorded.
 
 **Early extractor sample (post-Task 7, after snake() acronym-bug fix):** WorkspaceGCLoop, CostBudgetWatcherLoop, AdrTouchpointAuditorLoop. Result: 3/3 agree with manual grep. Run on commit `73cf6f28dcf6070a2f7fdba27eefe5075a057e3a`.
 
 ## Counts reconciliation
 
-(Populated in Task 13.)
+- Loops: 41 rows (matches `docs/arch/generated/loops.md`).
+- Ports: 9 rows (matches `docs/arch/generated/ports.md`).
+- Phases: 8 rows (matches `docs/standards/factory_operation/README.md`).
+- Cell totals: 41 × 7 + 9 × 7 + 8 × 6 = 398.
+- ✅ / ⚠️ / ❌ / N/A breakdown: `{'✅': 182, '⚠️': 13, '❌': 161, 'N/A': 18}` sum=374 (symbol-bearing cells only; the remaining 24 cells are prose descriptions in the Phases table's "Loops driving it", "Escalation path", and "HITL trigger" columns, which do not carry ✅/❌ vocabulary).
