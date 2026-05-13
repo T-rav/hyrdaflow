@@ -70,8 +70,7 @@ def test_emit_writes_all_artifacts(populated_repo: Path):
         "mockworld.md",
         "changelog.md",
         "functional_areas.md",
-        "ubiquitous-language.md",
-        "ubiquitous-language-context-map.md",
+        "coverage_matrix.md",
     }
     assert {p.name for p in out.iterdir() if p.suffix == ".md"} == expected
     assert (out.parent / ".meta.json").exists()

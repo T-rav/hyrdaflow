@@ -33,6 +33,7 @@ from arch.extractors.modules import extract_module_graph
 from arch.extractors.ports import extract_ports
 from arch.generators.adr_cross_reference import render_adr_cross_reference
 from arch.generators.changelog import render_changelog
+from arch.generators.coverage_matrix import render_coverage_matrix
 from arch.generators.event_bus import render_event_bus
 from arch.generators.functional_areas import render_functional_areas
 from arch.generators.label_state import render_label_state
@@ -51,8 +52,7 @@ _ARTIFACT_FILES = [
     "mockworld.md",
     "changelog.md",
     "functional_areas.md",
-    "ubiquitous-language.md",
-    "ubiquitous-language-context-map.md",
+    "coverage_matrix.md",
 ]
 
 
@@ -130,6 +130,7 @@ def _compute_artifacts(repo_root: Path) -> dict[str, str]:
             extract_mockworld_map(fakes_dir=fakes_dir, scenarios_dir=scenarios_dir)
         ),
         "changelog.md": render_changelog(_git_log_changelog(repo_root)),
+        "coverage_matrix.md": render_coverage_matrix(loops, ports, repo_root=repo_root),
     }
     if fa_path.exists():
         fa = load_functional_areas(fa_path)

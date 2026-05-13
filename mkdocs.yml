@@ -87,6 +87,7 @@ nav:
     - Event Bus: arch/generated/events.md
     - ADR Cross-Reference: arch/generated/adr_xref.md
     - MockWorld Map: arch/generated/mockworld.md
+    - Coverage Matrix: arch/generated/coverage_matrix.md
   - Decisions:
     - Index: adr/README.md
   - Wiki:
