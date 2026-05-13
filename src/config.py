@@ -1277,6 +1277,16 @@ class HydraFlowConfig(BaseModel):
             "deleted from disk."
         ),
     )
+    live_corpus_replay_interval: int = Field(
+        default=900,  # 15 min — drift surfaces within one fresh sample cycle
+        ge=60,
+        le=86400,
+        description=(
+            "Seconds between LiveCorpusReplayLoop ticks. Each tick diffs "
+            "every fresh shadow-corpus sample against the matching fake-"
+            "adapter output via registered dispatchers."
+        ),
+    )
 
     # Code grooming
     code_grooming_enabled: bool = Field(

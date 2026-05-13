@@ -274,19 +274,20 @@ def build_services(
 
     # Shadow corpus (#8786, Phase 0.3). When the config flag is on,
     # install a ShadowCorpus-backed sampler so every gh/git/docker/claude
-    # call feeds the bounded, normalized, PII-scrubbed corpus that the
-    # eventual LiveCorpusReplayLoop will consume. Off by default — the
-    # subprocess-side hook is a no-op when no sampler is installed.
+    # call feeds the bounded, normalized, PII-scrubbed corpus that
+    # LiveCorpusReplayLoop consumes. Off by default — the subprocess-side
+    # hook is a no-op when no sampler is installed.
     from subprocess_util import set_shadow_sampler
 
+    shadow_corpus = None
     if config.shadow_corpus_enabled:
         from contracts.shadow import ShadowCorpus
 
-        _shadow_corpus = ShadowCorpus(
+        shadow_corpus = ShadowCorpus(
             config.data_root / "contract_shadow",
             max_per_adapter=config.shadow_corpus_max_per_adapter,
         )
-        set_shadow_sampler(_shadow_corpus.record)
+        set_shadow_sampler(shadow_corpus.record)
         logger.info(
             "shadow corpus enabled at %s (max %s per adapter)",
             config.data_root / "contract_shadow",
@@ -1042,6 +1043,25 @@ def build_services(
         prs=prs,
         state=state,
     )
+
+    # LiveCorpusReplayLoop (#8786 Phase 2). Only meaningful when the shadow
+    # corpus is enabled — otherwise the corpus is empty every tick and the
+    # loop is a no-op. Tied to the same flag so a single toggle controls
+    # the full v2 path.
+    if config.shadow_corpus_enabled and shadow_corpus is not None:
+        from live_corpus_replay_loop import LiveCorpusReplayLoop
+
+        _live_corpus_replay_dedup = DedupStore(
+            "live_corpus_replay",
+            config.data_root / "dedup" / "live_corpus_replay.json",
+        )
+        _live_corpus_replay_loop = LiveCorpusReplayLoop(  # noqa: F841
+            config=config,
+            corpus=shadow_corpus,
+            pr_manager=prs,
+            dedup=_live_corpus_replay_dedup,
+            deps=loop_deps,
+        )
 
     corpus_learning_dedup = DedupStore(
         "corpus_learning",
