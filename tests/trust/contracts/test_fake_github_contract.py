@@ -81,6 +81,47 @@ async def _invoke_fake_github(cassette: Cassette) -> FakeOutput:  # noqa: PLR091
         await fake.ensure_labels_exist()
         return FakeOutput(exit_code=0, stdout="", stderr="")
 
+    if method == "get_latest_ci_status":
+        # Default FakeGitHub._ci_main_status is ("success", "").
+        conclusion, url = await fake.get_latest_ci_status()
+        stdout = f"{conclusion}\n{url}\n"
+        return FakeOutput(exit_code=0, stdout=stdout, stderr="")
+
+    if method == "list_issues_by_label":
+        import json as _json
+
+        label = str(args[0])
+        # Seed one issue carrying the label so the list is non-empty and
+        # the contract covers the dict shape, not just the empty-list path.
+        fake.add_issue(42, "CI failure detected", "main is red", labels=[label])
+        issues = await fake.list_issues_by_label(label)
+        stdout = _json.dumps(issues) + "\n"
+        return FakeOutput(exit_code=0, stdout=stdout, stderr="")
+
+    if method == "create_issue":
+        title = str(args[0])
+        body = str(args[1]) if len(args) > 1 else ""
+        labels = [str(a) for a in args[2:]] if len(args) > 2 else None
+        # Empty store: max(keys, default=9000)+1 = 9001; cassette hard-codes
+        # that value so the contract is deterministic.
+        new_number = await fake.create_issue(title, body, labels=labels)
+        return FakeOutput(
+            exit_code=0,
+            stdout=f"https://github.com/test-org/test-repo/issues/{new_number}\n",
+            stderr="",
+        )
+
+    if method == "post_comment":
+        issue_number = int(args[0])
+        body = str(args[1]) if len(args) > 1 else ""
+        fake.add_issue(issue_number, "Seed issue", "")
+        await fake.post_comment(issue_number, body)
+        # Side-effect: comment must be recorded on the issue.
+        assert body in fake._issues[issue_number].comments, (
+            f"post_comment did not record comment on issue #{issue_number}"
+        )
+        return FakeOutput(exit_code=0, stdout="", stderr="")
+
     msg = f"FakeGitHub has no contract-tested method {method!r}"
     raise NotImplementedError(msg)
 

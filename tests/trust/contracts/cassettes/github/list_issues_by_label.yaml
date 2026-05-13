@@ -1,0 +1,24 @@
+# Hand-authored baseline (recorder_sha: "00000000").
+# list_issues_by_label returns a list of open-issue dicts for issues carrying
+# the requested label. The dispatcher seeds one issue (#42, title "CI failure
+# detected") with the label "hydraflow-ci-failure" and asserts the JSON list
+# back as stdout. The updated_at field is normalised with timestamps.ISO8601
+# so replay is stable across time zones.
+adapter: github
+interaction: list_issues_by_label
+recorded_at: "2026-05-12T00:00:00Z"
+recorder_sha: "00000000"
+fixture_repo: T-rav-Hydra-Ops/hydraflow-contracts-sandbox
+input:
+  command: list_issues_by_label
+  args:
+    - "hydraflow-ci-failure"
+  stdin: null
+  env: {}
+output:
+  exit_code: 0
+  stdout: "[{\"number\": 42, \"title\": \"CI failure detected\", \"body\": \"main is red\",
+    \"updated_at\": \"2026-01-01T00:00:00Z\"}]\n"
+  stderr: ""
+normalizers:
+  - timestamps.ISO8601
