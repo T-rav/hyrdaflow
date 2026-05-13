@@ -1,7 +1,7 @@
 # Coverage Matrix Baseline
 
 **Snapshot date:** 2026-05-12
-**Audit commit SHA:** `de42e482cfce04eb8a584a2e4ebeb02cb96aa35d`
+**Audit commit SHA:** `06781b1b3ffd068169ea5fd991d88c67510356b7`
 **Spec:** `docs/superpowers/specs/2026-05-12-coverage-matrix-design.md`
 **Automation follow-up bead:** `bd:advisor-bpl`
 
@@ -23,8 +23,8 @@
 
 - **ADR / Wiki / Generated / Standard.** Same predicates with PortName.
 - **Fake adapter.** `Fake<PortName>` class under `tests/scenarios/fakes/` implementing every Protocol method (ADR-0047).
-- **Cassette tests.** `tests/trust/contracts/cassettes/<port>/` exists with recordings.
-- **Contract test.** Test asserts fake satisfies same contract as real adapter (ADR-0047).
+- **Cassette tests.** N/A — ADR-0047 contracts are per-adapter (github / git / docker / llm), not per-port. See the note above the Ports table.
+- **Contract test.** N/A — same per-adapter rationale as Cassette tests.
 
 ### Phases table
 
