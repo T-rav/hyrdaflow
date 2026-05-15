@@ -1298,6 +1298,18 @@ class HydraFlowConfig(BaseModel):
             "one attempt; a clean tick clears all counters."
         ),
     )
+    cassette_retirement_audit_enabled: bool = Field(
+        default=False,
+        description=(
+            "When True, FakeCoverageAuditorLoop runs the cassette "
+            "retirement audit each tick — for every baseline_only "
+            "cassette whose (adapter, command) is covered by a live "
+            "LiveCorpusReplayLoop dispatcher, files one issue per "
+            "batch (dedup'd) flagging the cassette as eligible for "
+            "removal. Off by default — turn on after the dispatcher "
+            "registry has stabilized."
+        ),
+    )
 
     # Code grooming
     code_grooming_enabled: bool = Field(

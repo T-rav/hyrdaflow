@@ -1071,6 +1071,15 @@ def build_services(
 
         _live_corpus_replay_loop.register("github", "gh", gh_shape_validator)
 
+        # Phase 9: thread LiveCorpusReplayLoop's registered_shapes() into
+        # FakeCoverageAuditorLoop so the retirement audit can flag
+        # baseline cassettes whose shape is now dispatcher-covered. Only
+        # wired when both flags are on — the audit is gated by
+        # ``cassette_retirement_audit_enabled``.
+        fake_coverage_auditor_loop.set_retirement_keys_cb(
+            _live_corpus_replay_loop.registered_shapes
+        )
+
     corpus_learning_dedup = DedupStore(
         "corpus_learning",
         config.data_root / "dedup" / "corpus_learning.json",
