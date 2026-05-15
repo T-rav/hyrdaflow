@@ -2518,9 +2518,19 @@ class PRManager:
             return None
 
     async def list_conflicting_prs(self) -> list[ConflictingPR]:
-        """Return open PRs whose ``mergeable`` field is ``CONFLICTING``."""
+        """Return open PRs whose ``mergeable`` field is ``CONFLICTING``.
+
+        #8786 Phase 14: routed through the contracts boundary helper in
+        lenient mode against ``GhPRDetail``. The shape (``number``,
+        ``headRefName``, ``labels``, ``mergeable``) matches exactly, so
+        validation fires for any drift in the ``mergeable`` enum or
+        labels-array structure.
+        """
         if self._config.dry_run:
             return []
+
+        from contracts.boundary import parse_list_with_shape  # noqa: PLC0415
+        from contracts.shapes import GhPRDetail  # noqa: PLC0415
 
         try:
             raw = await self._run_gh(
@@ -2539,29 +2549,43 @@ class PRManager:
             return []
 
         try:
-            payload = json.loads(raw or "[]")
-        except json.JSONDecodeError:
+            results_list = parse_list_with_shape(raw or "[]", GhPRDetail)
+        except ValueError:
             logger.warning(
                 "list_conflicting_prs: malformed JSON from gh", exc_info=True
             )
             return []
 
         results: list[ConflictingPR] = []
-        for entry in payload:
+        for r in results_list:
             try:
-                if entry.get("mergeable") != "CONFLICTING":
-                    continue
-                results.append(
-                    ConflictingPR(
-                        number=int(entry["number"]),
-                        branch=str(entry.get("headRefName") or ""),
-                        labels=[
-                            str(lbl.get("name", ""))
-                            for lbl in (entry.get("labels") or [])
-                            if lbl.get("name")
-                        ],
+                if r.model_instance is not None:
+                    m = r.model_instance
+                    if m.mergeable != "CONFLICTING":
+                        continue
+                    results.append(
+                        ConflictingPR(
+                            number=m.number,
+                            branch=m.head_ref_name or "",
+                            labels=[lbl.name for lbl in m.labels if lbl.name],
+                        )
                     )
-                )
+                else:
+                    # Lenient fallback — drift logged by helper, behaviour preserved.
+                    entry = r.payload if isinstance(r.payload, dict) else {}
+                    if entry.get("mergeable") != "CONFLICTING":
+                        continue
+                    results.append(
+                        ConflictingPR(
+                            number=int(entry["number"]),
+                            branch=str(entry.get("headRefName") or ""),
+                            labels=[
+                                str(lbl.get("name", ""))
+                                for lbl in (entry.get("labels") or [])
+                                if lbl.get("name")
+                            ],
+                        )
+                    )
             except (KeyError, TypeError, ValueError):
                 logger.debug(
                     "list_conflicting_prs: skipping malformed entry", exc_info=True
