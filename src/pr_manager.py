@@ -1375,7 +1375,19 @@ class PRManager:
             return "UNKNOWN"
 
     async def list_issues_by_label(self, label: str) -> list[GitHubIssueSummary]:
-        """Return open issues with the given label as a list of dicts."""
+        """Return open issues with the given label as a list of dicts.
+
+        #8786 Phase 8: parses through ``contracts.boundary.parse_list_with_shape``
+        in *lenient* mode — validation failures log WARN but the method's
+        return type and behaviour are unchanged. Existing callers that
+        access ``item["number"]`` etc keep working; shape drift is
+        observable in ``server.log`` and via ``LiveCorpusReplayLoop``.
+        """
+        # Local import keeps the module-load contract identical when
+        # the contracts subsystem isn't imported elsewhere yet.
+        from contracts.boundary import parse_list_with_shape  # noqa: PLC0415
+        from contracts.shapes import GhIssueListItem  # noqa: PLC0415
+
         self._assert_repo()
         output = await self._run_gh(
             "gh",
@@ -1392,15 +1404,31 @@ class PRManager:
             "--limit",
             "100",
         )
-        items = json.loads(output)
+        results = parse_list_with_shape(output, GhIssueListItem)
         return [
             {
-                "number": item.get("number", 0),
-                "title": item.get("title", ""),
-                "body": item.get("body", ""),
-                "updated_at": item.get("updatedAt", ""),
+                "number": (
+                    r.model_instance.number
+                    if r.model_instance is not None
+                    else (r.payload or {}).get("number", 0)
+                ),
+                "title": (
+                    r.model_instance.title
+                    if r.model_instance is not None
+                    else (r.payload or {}).get("title", "")
+                ),
+                "body": (
+                    r.model_instance.body or ""
+                    if r.model_instance is not None
+                    else (r.payload or {}).get("body", "")
+                ),
+                "updated_at": (
+                    r.model_instance.updated_at or ""
+                    if r.model_instance is not None
+                    else (r.payload or {}).get("updatedAt", "")
+                ),
             }
-            for item in items
+            for r in results
         ]
 
     async def list_closed_issues_by_label(
