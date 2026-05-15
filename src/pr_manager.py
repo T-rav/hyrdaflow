@@ -1862,6 +1862,11 @@ class PRManager:
         """Search for an open issue with an exact title match.
 
         Returns the issue number of the first match, or 0 if none found.
+
+        #8786 Phase 15: routed through the contracts boundary helper in
+        lenient mode against ``GhIssueListItem``. The ``--json number,title``
+        shape is a strict subset; drift in either field surfaces via WARN
+        without changing the method's return semantics.
         """
         self._assert_repo()
         if self._config.dry_run:
@@ -1885,10 +1890,19 @@ class PRManager:
                 title,
                 cwd=self._config.repo_root,
             )
-            import json as _json  # noqa: PLC0415
+            if not raw.strip():
+                return 0
+            from contracts.boundary import parse_list_with_shape  # noqa: PLC0415
+            from contracts.shapes import GhIssueListItem  # noqa: PLC0415
 
-            results = _json.loads(raw) if raw.strip() else []
-            for item in results:
+            results = parse_list_with_shape(raw, GhIssueListItem)
+            for r in results:
+                if r.model_instance is not None:
+                    if r.model_instance.title == title:
+                        return r.model_instance.number
+                    continue
+                # Lenient fallback preserves the legacy dict-access path.
+                item = r.payload if isinstance(r.payload, dict) else {}
                 if item.get("title") == title:
                     return int(item["number"])
             return 0
