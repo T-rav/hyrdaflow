@@ -422,9 +422,9 @@ class TestCIFailureResolution:
             captured_prompt = prompt
             return await original_execute(cmd, prompt, wt_arg, issue_number, **kwargs)
 
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = capture_execute
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = capture_execute
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
 
@@ -816,9 +816,9 @@ class TestPromptTelemetry:
         h.state.set_hitl_cause(42, "x" * 6000)
 
         h.wt.start_merge_main = AsyncMock(return_value=True)
-        h.agents._build_command = MagicMock(return_value=["cmd"])
-        h.agents._execute = AsyncMock(return_value="done")
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["cmd"])
+        h.agents.execute = AsyncMock(return_value="done")
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="")
         )
 
@@ -830,7 +830,7 @@ class TestPromptTelemetry:
             "https://example.com/pull/1",
         )
         assert ok is True
-        telemetry = h.agents._execute.await_args.kwargs["telemetry_stats"]
+        telemetry = h.agents.execute.await_args.kwargs["telemetry_stats"]
         assert telemetry["pruned_chars_total"] > 0
 
 
@@ -1066,9 +1066,9 @@ def _setup_ci_fix_memory_test(
     h.wt.start_merge_main = AsyncMock(return_value=True)  # Clean rebase
     h.wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
 
-    h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-    h.agents._execute = AsyncMock(return_value=transcript)
-    h.agents._verify_result = AsyncMock(
+    h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+    h.agents.execute = AsyncMock(return_value=transcript)
+    h.agents.verify_result = AsyncMock(
         return_value=LoopResult(passed=True, summary="OK")
     )
 
@@ -1128,9 +1128,9 @@ class TestCITimeoutResolution:
             captured_prompt = prompt
             return await original_execute(cmd, prompt, wt_arg, issue_meta, **kwargs)
 
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = capture_execute
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = capture_execute
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
 
@@ -1211,9 +1211,9 @@ class TestCITimeoutResolution:
             captured_prompt = prompt
             return "transcript"
 
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = capture_execute
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = capture_execute
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
         h.prs.push_branch = AsyncMock(return_value=True)
@@ -1257,10 +1257,10 @@ class TestCITimeoutResolution:
         h.agents._runner = MagicMock()
         h.agents._runner.run_simple = AsyncMock(side_effect=TimeoutError("timed out"))
 
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = AsyncMock(return_value="transcript")
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = AsyncMock(return_value="transcript")
         # Verification always fails
-        h.agents._verify_result = AsyncMock(
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=False, summary="tests still hang")
         )
         h.prs.push_branch = AsyncMock(return_value=True)
@@ -1276,7 +1276,7 @@ class TestCITimeoutResolution:
         assert stats["failed"] == 1
         assert stats["resolved"] == 0
         # Agent should have been called max_ci_timeout_fix_attempts times
-        assert h.agents._execute.await_count == 2
+        assert h.agents.execute.await_count == 2
 
     def test_ci_timeout_priority_ordering(self) -> None:
         """CI_TIMEOUT should sort before CI_FAILURE in priority."""
@@ -1339,9 +1339,9 @@ class TestCITimeoutResolution:
             captured_prompt = prompt
             return "transcript"
 
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = capture_execute
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = capture_execute
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
         h.prs.push_branch = AsyncMock(return_value=True)
@@ -1403,9 +1403,9 @@ Done."""
         h.agents._runner = MagicMock()
         h.agents._runner.run_simple = AsyncMock(side_effect=TimeoutError("timed out"))
 
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = AsyncMock(return_value=transcript_with_pattern)
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = AsyncMock(return_value=transcript_with_pattern)
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
         h.prs.push_branch = AsyncMock(return_value=True)
@@ -1454,9 +1454,9 @@ Done."""
 
         h.agents._runner = MagicMock()
         h.agents._runner.run_simple = AsyncMock(side_effect=TimeoutError("timed out"))
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = AsyncMock(return_value="transcript")
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = AsyncMock(return_value="transcript")
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
         h.prs.push_branch = AsyncMock(return_value=True)
@@ -1523,9 +1523,9 @@ Done."""
 
         h.agents._runner = MagicMock()
         h.agents._runner.run_simple = AsyncMock(side_effect=TimeoutError("timed out"))
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = AsyncMock(return_value=transcript_no_block)
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = AsyncMock(return_value=transcript_no_block)
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
         h.prs.push_branch = AsyncMock(return_value=True)
@@ -1597,9 +1597,9 @@ TROUBLESHOOTING_PATTERN_END
         h.wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
 
         h.agents._runner = MagicMock()
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = AsyncMock(return_value="Fixed by setting return_value.")
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = AsyncMock(return_value="Fixed by setting return_value.")
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
         h.prs.push_branch = AsyncMock(return_value=True)
@@ -1659,9 +1659,9 @@ TROUBLESHOOTING_PATTERN_END
         h.wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
 
         h.agents._runner = MagicMock()
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = AsyncMock(return_value="Fixed it.")
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = AsyncMock(return_value="Fixed it.")
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
         h.prs.push_branch = AsyncMock(return_value=True)
@@ -1758,8 +1758,8 @@ class TestNarrowedExceptionHandling:
         h.state.set_hitl_cause(42, "ci_failure")
 
         h.wt.start_merge_main = AsyncMock(return_value=True)
-        h.agents._build_command = MagicMock(return_value=["cmd"])
-        h.agents._execute = AsyncMock(side_effect=AttributeError("bad attr"))
+        h.agents.build_command = MagicMock(return_value=["cmd"])
+        h.agents.execute = AsyncMock(side_effect=AttributeError("bad attr"))
 
         with pytest.raises(AttributeError, match="bad attr"):
             await h.unsticker._resolve_ci_or_quality(
@@ -1777,8 +1777,8 @@ class TestNarrowedExceptionHandling:
         h.state.set_hitl_cause(42, "ci_failure")
 
         h.wt.start_merge_main = AsyncMock(return_value=True)
-        h.agents._build_command = MagicMock(return_value=["cmd"])
-        h.agents._execute = AsyncMock(side_effect=RuntimeError("agent crashed"))
+        h.agents.build_command = MagicMock(return_value=["cmd"])
+        h.agents.execute = AsyncMock(side_effect=RuntimeError("agent crashed"))
 
         result = await h.unsticker._resolve_ci_or_quality(
             42, issue, tmp_path / "h.wt", "branch", "url"
@@ -1892,8 +1892,8 @@ class TestNarrowedExceptionHandling:
         h.state.set_hitl_cause(42, "ci_timeout")
 
         h.wt.start_merge_main = AsyncMock(return_value=True)
-        h.agents._build_command = MagicMock(return_value=["cmd"])
-        h.agents._execute = AsyncMock(side_effect=AttributeError("bad attr"))
+        h.agents.build_command = MagicMock(return_value=["cmd"])
+        h.agents.execute = AsyncMock(side_effect=AttributeError("bad attr"))
 
         with pytest.raises(AttributeError, match="bad attr"):
             await h.unsticker._resolve_ci_timeout(

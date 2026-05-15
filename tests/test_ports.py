@@ -511,9 +511,9 @@ class TestAgentPortMethods:
     """All methods declared in AgentPort exist on AgentRunner."""
 
     _REQUIRED_METHODS = [
-        "_build_command",
-        "_execute",
-        "_verify_result",
+        "build_command",
+        "execute",
+        "verify_result",
     ]
 
     @pytest.mark.parametrize("method", _REQUIRED_METHODS)
@@ -529,8 +529,9 @@ class TestAgentPortSignatures:
     """AgentPort method signatures must match AgentRunner's implementations."""
 
     _SIGNED_METHODS = [
-        "_build_command",
-        "_execute",
+        "build_command",
+        "execute",
+        "verify_result",
     ]
 
     @pytest.mark.parametrize("method", _SIGNED_METHODS)

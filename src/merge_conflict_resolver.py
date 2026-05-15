@@ -188,8 +188,8 @@ class MergeConflictResolver:
                         "previous_error_after": error_after,
                     },
                 )
-                cmd = self._agents._build_command(wt_path)
-                transcript = await self._agents._execute(
+                cmd = self._agents.build_command(wt_path)
+                transcript = await self._agents.execute(
                     cmd,
                     prompt,
                     wt_path,
@@ -204,7 +204,7 @@ class MergeConflictResolver:
                 if self._suggest_memory is not None:
                     await self._suggest_memory(transcript, source, f"PR #{pr.number}")
 
-                verify = await self._agents._verify_result(wt_path, pr.branch)
+                verify = await self._agents.verify_result(wt_path, pr.branch)
                 if verify.passed:
                     await self._maybe_summarize_conflict(
                         transcript, issue.id, pr.number
@@ -317,8 +317,8 @@ class MergeConflictResolver:
                     ),
                 },
             )
-            cmd = self._agents._build_command(new_wt)
-            transcript = await self._agents._execute(
+            cmd = self._agents.build_command(new_wt)
+            transcript = await self._agents.execute(
                 cmd,
                 prompt,
                 new_wt,
@@ -333,7 +333,7 @@ class MergeConflictResolver:
             if self._suggest_memory is not None:
                 await self._suggest_memory(transcript, source, f"PR #{pr.number}")
 
-            verify = await self._agents._verify_result(new_wt, pr.branch)
+            verify = await self._agents.verify_result(new_wt, pr.branch)
             if verify.passed:
                 await self._maybe_summarize_conflict(transcript, issue.id, pr.number)
                 expected_title = self._prs.expected_pr_title(issue.id, issue.title)

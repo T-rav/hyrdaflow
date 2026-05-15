@@ -1346,6 +1346,39 @@ SUMMARY: <one-line summary>
         except (TimeoutError, ValueError, FileNotFoundError):
             return 0
 
+    # AgentPort public interface (hexagonal contract).
+    # The underscore implementations remain for internal BaseRunner use; these
+    # thin forwarders expose the port boundary names used by infrastructure
+    # modules (merge_conflict_resolver, pr_unsticker).
+
+    def build_command(self, _worktree_path: Path | None = None) -> list[str]:
+        """Public AgentPort entry point — delegates to ``_build_command``."""
+        return self._build_command(_worktree_path)
+
+    async def execute(
+        self,
+        cmd: list[str],
+        prompt: str,
+        cwd: Path,
+        event_data: TranscriptEventData,
+        *,
+        on_output: Callable[[str], bool] | None = None,
+        telemetry_stats: Mapping[str, object] | None = None,
+    ) -> str:
+        """Public AgentPort entry point — delegates to ``_execute``."""
+        return await self._execute(
+            cmd,
+            prompt,
+            cwd,
+            event_data,
+            on_output=on_output,
+            telemetry_stats=telemetry_stats,
+        )
+
+    async def verify_result(self, worktree_path: Path, branch: str) -> LoopResult:
+        """Public AgentPort entry point — delegates to ``_verify_result``."""
+        return await self._verify_result(worktree_path, branch)
+
     async def _emit_status(
         self, issue_number: int, worker_id: int, status: WorkerStatus
     ) -> None:

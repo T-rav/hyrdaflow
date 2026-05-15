@@ -432,8 +432,8 @@ class PRUnsticker:
         prompt, prompt_stats = self._build_ci_fix_prompt(issue, pr_url, cause_str)
 
         try:
-            cmd = self._agents._build_command(wt_path)
-            transcript = await self._agents._execute(
+            cmd = self._agents.build_command(wt_path)
+            transcript = await self._agents.execute(
                 cmd,
                 prompt,
                 wt_path,
@@ -454,7 +454,7 @@ class PRUnsticker:
                 transcript, "pr_unsticker", f"issue #{issue_number}"
             )
 
-            verify = await self._agents._verify_result(wt_path, branch)
+            verify = await self._agents.verify_result(wt_path, branch)
             if verify.passed:
                 return True
 
@@ -603,8 +603,8 @@ diff — you may catch things `make quality` won't.
             )
 
             try:
-                cmd = self._agents._build_command(wt_path)
-                transcript = await self._agents._execute(
+                cmd = self._agents.build_command(wt_path)
+                transcript = await self._agents.execute(
                     cmd,
                     prompt,
                     wt_path,
@@ -624,7 +624,7 @@ diff — you may catch things `make quality` won't.
                     transcript, "pr_unsticker", f"issue #{issue_number}"
                 )
 
-                verify = await self._agents._verify_result(wt_path, branch)
+                verify = await self._agents.verify_result(wt_path, branch)
                 if verify.passed:
                     # Write path: persist pattern from transcript
                     await self._persist_troubleshooting_pattern(
