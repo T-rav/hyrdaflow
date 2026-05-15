@@ -1434,7 +1434,14 @@ class PRManager:
     async def list_closed_issues_by_label(
         self, label: str, limit: int = 100
     ) -> list[GitHubIssueSummary]:
-        """Return closed issues with the given label as a list of dicts."""
+        """Return closed issues with the given label as a list of dicts.
+
+        #8786 Phase 10: routed through the contracts boundary helper in
+        lenient mode — same pattern as ``list_issues_by_label``.
+        """
+        from contracts.boundary import parse_list_with_shape  # noqa: PLC0415
+        from contracts.shapes import GhIssueListItem  # noqa: PLC0415
+
         self._assert_repo()
         output = await self._run_gh(
             "gh",
@@ -1451,15 +1458,31 @@ class PRManager:
             "--limit",
             str(limit),
         )
-        items = json.loads(output)
+        results = parse_list_with_shape(output, GhIssueListItem)
         return [
             {
-                "number": item.get("number", 0),
-                "title": item.get("title", ""),
-                "body": item.get("body", ""),
-                "updated_at": item.get("updatedAt", ""),
+                "number": (
+                    r.model_instance.number
+                    if r.model_instance is not None
+                    else (r.payload or {}).get("number", 0)
+                ),
+                "title": (
+                    r.model_instance.title
+                    if r.model_instance is not None
+                    else (r.payload or {}).get("title", "")
+                ),
+                "body": (
+                    r.model_instance.body or ""
+                    if r.model_instance is not None
+                    else (r.payload or {}).get("body", "")
+                ),
+                "updated_at": (
+                    r.model_instance.updated_at or ""
+                    if r.model_instance is not None
+                    else (r.payload or {}).get("updatedAt", "")
+                ),
             }
-            for item in items
+            for r in results
         ]
 
     async def list_prs_by_label(self, label: str) -> list[PRInfo]:
