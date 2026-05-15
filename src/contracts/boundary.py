@@ -8,23 +8,20 @@ opt in without changing their return type or breaking on novel inputs.
 Contract:
 
 - ``parse_with_shape(json_str, model)`` returns a typed
-  :class:`BoundaryParseResult`. ``payload`` is always populated when the
-  JSON parsed at all; ``model_instance`` is the validated Pydantic model
-  when validation succeeded, else None; ``validation_error`` carries a
-  compact diagnostic on failure.
+  :class:`BoundaryParseResult[T]` where ``T`` is the model class supplied
+  at the call site. ``payload`` is always populated when the JSON parsed
+  at all; ``model_instance`` is the validated Pydantic model (typed as
+  ``T``) when validation succeeded, else None; ``validation_error``
+  carries a compact diagnostic on failure.
 - The helper NEVER raises on validation failure — it logs at WARNING and
   returns a partial result. Call sites that want strict behaviour check
   ``model_instance is None`` and raise themselves.
 - JSON parse failures (truly malformed input) DO raise ``ValueError`` so
   callers don't silently fall back to a stale value.
-
-Why this shape:
-
-- Existing call sites do ``json.loads(stdout)`` → dict and access fields
-  by key. Migrating them to a typed model is a big refactor. This
-  helper lets them log shape drift today without touching their hot
-  path; tightening to ``raise`` on validation failure is a per-call-site
-  decision once the corpus is stable enough.
+- ``field_or(result, attr, default, dict_key=None)`` is the canonical
+  accessor for the lenient pattern — pulls the field from the typed
+  model when available, else falls back to dict access on the raw
+  payload. Hides the dual-path boilerplate at every call site.
 """
 
 from __future__ import annotations
@@ -32,7 +29,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -51,11 +48,20 @@ class BoundaryValidationError:
 
 
 @dataclass(frozen=True)
-class BoundaryParseResult:
-    """Outcome of a call-site validation."""
+class BoundaryParseResult(Generic[T]):
+    """Outcome of a call-site validation.
 
-    payload: object | None
-    model_instance: BaseModel | None
+    Generic over the Pydantic model class ``T`` so callers can access
+    ``result.model_instance.<attr>`` with full type information.
+
+    ``payload`` is typed ``Any`` because JSON can decode to any value; in
+    the validated path it's always a dict/list of dicts, but in the
+    lenient fallback we want simple ``.get`` access without a cast at
+    every call site.
+    """
+
+    payload: Any
+    model_instance: T | None
     validation_error: BoundaryValidationError | None
 
     @property
@@ -64,7 +70,25 @@ class BoundaryParseResult:
         return self.model_instance is not None and self.validation_error is None
 
 
-def parse_with_shape(json_str: str, model: type[T]) -> BoundaryParseResult:
+def _build_error_diag(
+    model: type[BaseModel], exc: ValidationError
+) -> BoundaryValidationError:
+    """Compact a ValidationError into a log-friendly diagnostic."""
+    return BoundaryValidationError(
+        shape=model.__name__,
+        failure_count=len(exc.errors()),
+        sample=[
+            {
+                "loc": ".".join(str(p) for p in e.get("loc", ())),
+                "type": str(e.get("type", "")),
+                "msg": str(e.get("msg", ""))[:200],
+            }
+            for e in exc.errors()[:10]
+        ],
+    )
+
+
+def parse_with_shape(json_str: str, model: type[T]) -> BoundaryParseResult[T]:
     """Parse *json_str* and validate it against *model*.
 
     Returns a BoundaryParseResult capturing all three possible outcomes:
@@ -80,18 +104,7 @@ def parse_with_shape(json_str: str, model: type[T]) -> BoundaryParseResult:
     try:
         instance = model.model_validate(payload)
     except ValidationError as exc:
-        diag = BoundaryValidationError(
-            shape=model.__name__,
-            failure_count=len(exc.errors()),
-            sample=[
-                {
-                    "loc": ".".join(str(p) for p in e.get("loc", ())),
-                    "type": str(e.get("type", "")),
-                    "msg": str(e.get("msg", ""))[:200],
-                }
-                for e in exc.errors()[:10]
-            ],
-        )
+        diag = _build_error_diag(model, exc)
         logger.warning(
             "boundary validation failed for %s (count=%d): %s",
             model.__name__,
@@ -107,7 +120,9 @@ def parse_with_shape(json_str: str, model: type[T]) -> BoundaryParseResult:
     )
 
 
-def parse_list_with_shape(json_str: str, model: type[T]) -> list[BoundaryParseResult]:
+def parse_list_with_shape(
+    json_str: str, model: type[T]
+) -> list[BoundaryParseResult[T]]:
     """Parse *json_str* as a list and validate each element against *model*.
 
     Returns one BoundaryParseResult per list element. Element-level
@@ -126,23 +141,12 @@ def parse_list_with_shape(json_str: str, model: type[T]) -> list[BoundaryParseRe
         )
         raise ValueError(msg)
 
-    out: list[BoundaryParseResult] = []
+    out: list[BoundaryParseResult[T]] = []
     for i, item in enumerate(payload):
         try:
             instance = model.model_validate(item)
         except ValidationError as exc:
-            diag = BoundaryValidationError(
-                shape=model.__name__,
-                failure_count=len(exc.errors()),
-                sample=[
-                    {
-                        "loc": ".".join(str(p) for p in e.get("loc", ())),
-                        "type": str(e.get("type", "")),
-                        "msg": str(e.get("msg", ""))[:200],
-                    }
-                    for e in exc.errors()[:10]
-                ],
-            )
+            diag = _build_error_diag(model, exc)
             logger.warning(
                 "boundary validation failed for %s[%d]: %s",
                 model.__name__,
@@ -161,3 +165,32 @@ def parse_list_with_shape(json_str: str, model: type[T]) -> list[BoundaryParseRe
                 )
             )
     return out
+
+
+def field_or(
+    result: BoundaryParseResult[T],
+    attr: str,
+    default: Any,
+    *,
+    dict_key: str | None = None,
+) -> Any:
+    """Pull ``attr`` from the typed model when valid, else from the raw dict.
+
+    Hides the lenient-pattern boilerplate at every call site. Returns
+    ``default`` when the dict path also has no value (e.g. payload is
+    not a dict, key absent, or value is None).
+
+    ``dict_key`` defaults to ``attr`` — pass it when the gh/REST JSON
+    field name differs from the Python attribute name (camelCase vs
+    snake_case). Most callers can omit it because the Pydantic models
+    use ``populate_by_name`` with the camelCase alias, so the raw dict
+    key matches the Python attribute snake_case... only when the
+    payload is a Pydantic-aliased model field, which is exactly the
+    drift case we're worried about. Be explicit when in doubt.
+    """
+    if result.model_instance is not None:
+        value = getattr(result.model_instance, attr, None)
+        return default if value is None else value
+    payload = result.payload if isinstance(result.payload, dict) else {}
+    value = payload.get(dict_key or attr)
+    return default if value is None else value

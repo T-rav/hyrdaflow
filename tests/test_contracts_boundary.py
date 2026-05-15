@@ -141,3 +141,56 @@ def test_boundary_parse_result_dataclass_fields() -> None:
     """Compile-time check that the dataclass exposes the documented fields."""
     fields = BoundaryParseResult.__dataclass_fields__
     assert set(fields) == {"payload", "model_instance", "validation_error"}
+
+
+# ---------------------------------------------------------------------------
+# field_or accessor — dedups the lenient-pattern boilerplate
+# ---------------------------------------------------------------------------
+
+
+def test_field_or_returns_typed_model_value_when_valid() -> None:
+    """Validation succeeded → accessor pulls from the typed model."""
+    from contracts.boundary import field_or
+
+    result = parse_with_shape(
+        '{"number": 42, "title": "x", "state": "OPEN"}', GhPRSummary
+    )
+    assert field_or(result, "number", 0) == 42
+    assert field_or(result, "title", "") == "x"
+
+
+def test_field_or_falls_back_to_payload_on_validation_fail() -> None:
+    """Validation failed → accessor uses dict lookup on the raw payload."""
+    from contracts.boundary import field_or
+
+    result = parse_with_shape(
+        '{"number": 42, "title": "x", "state": "QUEUED"}', GhPRSummary
+    )
+    assert result.model_instance is None
+    assert field_or(result, "number", 0) == 42
+    assert field_or(result, "title", "") == "x"
+
+
+def test_field_or_default_when_attribute_missing() -> None:
+    """Default returned when the attribute is missing from the typed model
+    OR the raw dict."""
+    from contracts.boundary import field_or
+
+    result = parse_with_shape(
+        '{"number": 1, "title": "x", "state": "OPEN"}', GhPRSummary
+    )
+    # body is optional, not set → None in the model; default fires.
+    assert field_or(result, "body", "fallback") == "fallback"
+
+
+def test_field_or_dict_key_override_for_camelcase_drift() -> None:
+    """When validation fails, the dict still has camelCase fields. The
+    ``dict_key`` override lets the accessor target the underlying key."""
+    from contracts.boundary import field_or
+    from contracts.shapes import GhPRDetail
+
+    result = parse_with_shape('{"number": "bad", "headRefName": "feat/x"}', GhPRDetail)
+    assert result.model_instance is None
+    # The Python attribute is ``head_ref_name`` but the raw dict key is
+    # ``headRefName`` — pass dict_key to target it.
+    assert field_or(result, "head_ref_name", "", dict_key="headRefName") == "feat/x"

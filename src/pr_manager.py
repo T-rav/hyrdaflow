@@ -984,28 +984,21 @@ class PRManager:
                 "--jq",
                 "[.[] | {number, url: .html_url, isDraft: .draft}]",
             )
+            from contracts.boundary import field_or  # noqa: PLC0415
+
             results = parse_list_with_shape(raw, GhPRDetail)
             if not results:
                 return None
             r = results[0]
-            if r.model_instance is not None:
-                m = r.model_instance
-                return PRInfo(
-                    number=m.number,
-                    issue_number=issue_number,
-                    branch=branch,
-                    url=m.url or "",
-                    draft=bool(m.is_draft),
-                )
-            # Lenient fallback to raw dict — preserves existing behaviour
-            # if a future gh shape change trips validation.
-            pr_data = r.payload if isinstance(r.payload, dict) else {}
+            # ``number`` may be a string from a drifted payload; coerce
+            # via int() so the existing except clause catches bad shapes
+            # cleanly with the same semantics as before.
             return PRInfo(
-                number=int(pr_data["number"]),
+                number=int(field_or(r, "number", 0)),
                 issue_number=issue_number,
                 branch=branch,
-                url=str(pr_data.get("url", "")),
-                draft=bool(pr_data.get("isDraft", False)),
+                url=str(field_or(r, "url", "")),
+                draft=bool(field_or(r, "is_draft", False, dict_key="isDraft")),
             )
         except (RuntimeError, ValueError, KeyError, TypeError, json.JSONDecodeError):
             logger.debug(
@@ -1442,29 +1435,15 @@ class PRManager:
             "--limit",
             "100",
         )
+        from contracts.boundary import field_or  # noqa: PLC0415
+
         results = parse_list_with_shape(output, GhIssueListItem)
         return [
             {
-                "number": (
-                    r.model_instance.number
-                    if r.model_instance is not None
-                    else (r.payload or {}).get("number", 0)
-                ),
-                "title": (
-                    r.model_instance.title
-                    if r.model_instance is not None
-                    else (r.payload or {}).get("title", "")
-                ),
-                "body": (
-                    r.model_instance.body or ""
-                    if r.model_instance is not None
-                    else (r.payload or {}).get("body", "")
-                ),
-                "updated_at": (
-                    r.model_instance.updated_at or ""
-                    if r.model_instance is not None
-                    else (r.payload or {}).get("updatedAt", "")
-                ),
+                "number": field_or(r, "number", 0),
+                "title": field_or(r, "title", ""),
+                "body": field_or(r, "body", ""),
+                "updated_at": field_or(r, "updated_at", "", dict_key="updatedAt"),
             }
             for r in results
         ]
@@ -1496,29 +1475,15 @@ class PRManager:
             "--limit",
             str(limit),
         )
+        from contracts.boundary import field_or  # noqa: PLC0415
+
         results = parse_list_with_shape(output, GhIssueListItem)
         return [
             {
-                "number": (
-                    r.model_instance.number
-                    if r.model_instance is not None
-                    else (r.payload or {}).get("number", 0)
-                ),
-                "title": (
-                    r.model_instance.title
-                    if r.model_instance is not None
-                    else (r.payload or {}).get("title", "")
-                ),
-                "body": (
-                    r.model_instance.body or ""
-                    if r.model_instance is not None
-                    else (r.payload or {}).get("body", "")
-                ),
-                "updated_at": (
-                    r.model_instance.updated_at or ""
-                    if r.model_instance is not None
-                    else (r.payload or {}).get("updatedAt", "")
-                ),
+                "number": field_or(r, "number", 0),
+                "title": field_or(r, "title", ""),
+                "body": field_or(r, "body", ""),
+                "updated_at": field_or(r, "updated_at", "", dict_key="updatedAt"),
             }
             for r in results
         ]
@@ -1892,19 +1857,16 @@ class PRManager:
             )
             if not raw.strip():
                 return 0
-            from contracts.boundary import parse_list_with_shape  # noqa: PLC0415
+            from contracts.boundary import (  # noqa: PLC0415
+                field_or,
+                parse_list_with_shape,
+            )
             from contracts.shapes import GhIssueListItem  # noqa: PLC0415
 
             results = parse_list_with_shape(raw, GhIssueListItem)
             for r in results:
-                if r.model_instance is not None:
-                    if r.model_instance.title == title:
-                        return r.model_instance.number
-                    continue
-                # Lenient fallback preserves the legacy dict-access path.
-                item = r.payload if isinstance(r.payload, dict) else {}
-                if item.get("title") == title:
-                    return int(item["number"])
+                if field_or(r, "title", "") == title:
+                    return int(field_or(r, "number", 0))
             return 0
         except (RuntimeError, ValueError):
             return 0
@@ -2239,7 +2201,7 @@ class PRManager:
         detailsUrl) and falls back to the raw dict so the existing
         downstream processing keeps working.
         """
-        from contracts.boundary import parse_list_with_shape  # noqa: PLC0415
+        from contracts.boundary import field_or, parse_list_with_shape  # noqa: PLC0415
         from contracts.shapes import GhCheckRun  # noqa: PLC0415
 
         raw = await self._run_gh(
@@ -2257,16 +2219,9 @@ class PRManager:
         seen_run_ids: set[str] = set()
         failed_names: list[tuple[str, str]] = []
         for r in results:
-            if r.model_instance is not None:
-                m = r.model_instance
-                name = m.name
-                state = (m.state or "").upper() if m.state else ""
-                details_url = m.details_url or ""
-            else:
-                check = r.payload if isinstance(r.payload, dict) else {}
-                name = str(check.get("name", "unknown"))
-                state = str(check.get("state", "")).upper()
-                details_url = str(check.get("detailsUrl", ""))
+            name = str(field_or(r, "name", "unknown"))
+            state = str(field_or(r, "state", "")).upper()
+            details_url = str(field_or(r, "details_url", "", dict_key="detailsUrl"))
             if state in self._PASSING_STATES or state in self._PENDING_STATES:
                 continue
             if not details_url:
@@ -2590,36 +2545,33 @@ class PRManager:
             )
             return []
 
+        from contracts.boundary import field_or  # noqa: PLC0415
+
         results: list[ConflictingPR] = []
         for r in results_list:
             try:
+                if field_or(r, "mergeable", "") != "CONFLICTING":
+                    continue
                 if r.model_instance is not None:
-                    m = r.model_instance
-                    if m.mergeable != "CONFLICTING":
-                        continue
-                    results.append(
-                        ConflictingPR(
-                            number=m.number,
-                            branch=m.head_ref_name or "",
-                            labels=[lbl.name for lbl in m.labels if lbl.name],
-                        )
-                    )
+                    label_names = [
+                        lbl.name for lbl in r.model_instance.labels if lbl.name
+                    ]
                 else:
-                    # Lenient fallback — drift logged by helper, behaviour preserved.
                     entry = r.payload if isinstance(r.payload, dict) else {}
-                    if entry.get("mergeable") != "CONFLICTING":
-                        continue
-                    results.append(
-                        ConflictingPR(
-                            number=int(entry["number"]),
-                            branch=str(entry.get("headRefName") or ""),
-                            labels=[
-                                str(lbl.get("name", ""))
-                                for lbl in (entry.get("labels") or [])
-                                if lbl.get("name")
-                            ],
-                        )
+                    label_names = [
+                        str(lbl.get("name", ""))
+                        for lbl in (entry.get("labels") or [])
+                        if lbl.get("name")
+                    ]
+                results.append(
+                    ConflictingPR(
+                        number=int(field_or(r, "number", 0)),
+                        branch=str(
+                            field_or(r, "head_ref_name", "", dict_key="headRefName")
+                        ),
+                        labels=label_names,
                     )
+                )
             except (KeyError, TypeError, ValueError):
                 logger.debug(
                     "list_conflicting_prs: skipping malformed entry", exc_info=True
