@@ -955,9 +955,18 @@ class PRManager:
     async def find_open_pr_for_branch(
         self, branch: str, *, issue_number: int = 0
     ) -> PRInfo | None:
-        """Return the open PR for *branch*, or ``None`` when absent/unreadable."""
+        """Return the open PR for *branch*, or ``None`` when absent/unreadable.
+
+        #8786 Phase 12: routed through the contracts boundary helper in
+        lenient mode against ``GhPRDetail`` (only ``number`` is required;
+        ``url``/``isDraft`` are optional, matching the narrow ``--jq``
+        projection used here).
+        """
         if self._config.dry_run:
             return None
+        from contracts.boundary import parse_list_with_shape  # noqa: PLC0415
+        from contracts.shapes import GhPRDetail  # noqa: PLC0415
+
         head_filter = f"{self._repo_owner}:{branch}" if self._repo_owner else branch
         try:
             raw = await self._run_gh(
@@ -975,10 +984,22 @@ class PRManager:
                 "--jq",
                 "[.[] | {number, url: .html_url, isDraft: .draft}]",
             )
-            prs = json.loads(raw)
-            if not prs:
+            results = parse_list_with_shape(raw, GhPRDetail)
+            if not results:
                 return None
-            pr_data = prs[0]
+            r = results[0]
+            if r.model_instance is not None:
+                m = r.model_instance
+                return PRInfo(
+                    number=m.number,
+                    issue_number=issue_number,
+                    branch=branch,
+                    url=m.url or "",
+                    draft=bool(m.is_draft),
+                )
+            # Lenient fallback to raw dict — preserves existing behaviour
+            # if a future gh shape change trips validation.
+            pr_data = r.payload if isinstance(r.payload, dict) else {}
             return PRInfo(
                 number=int(pr_data["number"]),
                 issue_number=issue_number,
