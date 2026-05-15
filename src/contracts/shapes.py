@@ -116,3 +116,20 @@ class GhIssueSummary(BaseModel):
     body: str | None = None
     labels: list[GhLabel] = Field(default_factory=list)
     updated_at: str | None = Field(default=None, alias="updatedAt")
+
+
+class GhIssueListItem(BaseModel):
+    """``gh issue list --json number,title,body,updatedAt`` element shape.
+
+    Narrower than :class:`GhIssueSummary` — list invocations typically
+    omit ``state`` (the filter is already applied by ``--state open|closed``)
+    and ``labels``. A separate shape so the broader summary keeps its
+    drift-detection bite on view invocations.
+    """
+
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    number: int
+    title: str
+    body: str | None = None
+    updated_at: str | None = Field(default=None, alias="updatedAt")
