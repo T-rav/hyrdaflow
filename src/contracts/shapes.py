@@ -151,3 +151,42 @@ class GhPromotionPR(BaseModel):
     merged: bool
     closed_at: str | None = None
     url: str | None = None
+
+
+_GhReviewState = Literal[
+    "APPROVED",
+    "CHANGES_REQUESTED",
+    "COMMENTED",
+    "DISMISSED",
+    "PENDING",
+]
+
+
+class GhReviewAuthor(BaseModel):
+    """Reviewer identity. ``login`` is the GitHub username."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    login: str = ""
+
+
+class GhReview(BaseModel):
+    """One PR review as returned by ``gh pr view N --json reviews`` (each
+    element of the ``reviews`` array) or the underlying GitHub REST
+    ``/pulls/N/reviews`` endpoint."""
+
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    state: _GhReviewState
+    author: GhReviewAuthor | None = None
+    submitted_at: str | None = Field(default=None, alias="submittedAt")
+    commit_id: str | None = Field(default=None, alias="commitId")
+
+
+class GhPRReviewsResponse(BaseModel):
+    """Wrapper for ``gh pr view N --json reviews`` — the outer object
+    carries a single ``reviews`` array."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    reviews: list[GhReview] = Field(default_factory=list)

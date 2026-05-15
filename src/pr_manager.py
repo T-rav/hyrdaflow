@@ -2129,7 +2129,16 @@ class PRManager:
             return []
 
     async def get_pr_approvers(self, pr_number: int) -> list[str]:
-        """Fetch the list of GitHub usernames that approved *pr_number*."""
+        """Fetch the list of GitHub usernames that approved *pr_number*.
+
+        #8786 Phase 16: routed through the contracts boundary helper in
+        lenient mode against ``GhPRReviewsResponse``. Drift in the
+        review state enum (e.g. a new ``DRAFT`` state) or author shape
+        fires WARN immediately at the call site.
+        """
+        from contracts.boundary import parse_with_shape  # noqa: PLC0415
+        from contracts.shapes import GhPRReviewsResponse  # noqa: PLC0415
+
         try:
             output = await self._run_gh(
                 "gh",
@@ -2141,15 +2150,26 @@ class PRManager:
                 "--json",
                 "reviews",
             )
-            data = json.loads(output)
-            reviews = data.get("reviews", [])
+            result = parse_with_shape(output, GhPRReviewsResponse)
             approvers: list[str] = []
-            for review in reviews:
+            if result.model_instance is not None:
+                for review in result.model_instance.reviews:
+                    if review.state == "APPROVED" and review.author is not None:
+                        login = review.author.login
+                        if login and login not in approvers:
+                            approvers.append(login)
+                return approvers
+            # Lenient fallback — drift logged, dict-access keeps working.
+            data = result.payload if isinstance(result.payload, dict) else {}
+            for review in data.get("reviews", []) or []:
+                if not isinstance(review, dict):
+                    continue
                 if review.get("state") == "APPROVED":
-                    author = review.get("author", {})
-                    login = author.get("login", "")
-                    if login and login not in approvers:
-                        approvers.append(login)
+                    author = review.get("author") or {}
+                    if isinstance(author, dict):
+                        login = author.get("login", "")
+                        if login and login not in approvers:
+                            approvers.append(login)
             return approvers
         except (RuntimeError, ValueError) as exc:
             logger.debug("Could not get approvers for PR #%d: %s", pr_number, exc)
