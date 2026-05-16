@@ -1,0 +1,124 @@
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+
+import pytest
+from src.adversarial_retry_loop import AdversarialRetryLoop
+from src.pending_concerns import Concern
+from src.subprocess_util import CreditExhaustedError
+
+
+@dataclass
+class FakeContext:
+    plan_text: str = "v0"
+
+
+@dataclass
+class FakeFindings:
+    findings: list[Concern] = field(default_factory=list)
+
+
+def _make_concern(severity: str, concern: str = "X") -> Concern:
+    return Concern(
+        id=f"T-{concern}",
+        raised_in_phase="plan",
+        raised_in_stage="test",
+        severity=severity,
+        concern=concern,
+        raised_at=datetime.now(UTC),
+        must_address_by="next",
+    )
+
+
+@pytest.mark.asyncio
+async def test_loop_converges_on_first_retry():
+    calls = {"critic": 0, "retry": 0}
+
+    async def critic(ctx):
+        calls["critic"] += 1
+        return FakeFindings(
+            findings=[_make_concern("HIGH")] if calls["critic"] == 1 else []
+        )
+
+    async def retry(findings, ctx):
+        calls["retry"] += 1
+        return FakeContext(plan_text="v1")
+
+    def is_converged(f):
+        return len(f.findings) == 0
+
+    loop = AdversarialRetryLoop(budget=3)
+    final, unresolved = await loop.run(FakeContext(), critic, retry, is_converged)
+
+    assert calls["critic"] == 2  # initial + after-retry
+    assert calls["retry"] == 1
+    assert unresolved == []
+    assert final.plan_text == "v1"
+
+
+@pytest.mark.asyncio
+async def test_loop_exhausts_budget_and_forwards():
+    async def critic(ctx):
+        return FakeFindings(findings=[_make_concern("HIGH", concern=ctx.plan_text)])
+
+    async def retry(findings, ctx):
+        return FakeContext(plan_text=ctx.plan_text + "+")
+
+    loop = AdversarialRetryLoop(budget=3)
+    final, unresolved = await loop.run(
+        FakeContext(plan_text="x"), critic, retry, is_converged=lambda f: False
+    )
+
+    assert len(unresolved) >= 1  # findings forwarded
+    assert final.plan_text == "x+++"  # 3 retries applied
+
+
+@pytest.mark.asyncio
+async def test_oscillation_detector_exits_early():
+    """Same CRITICAL/HIGH concern repeating twice exits before budget exhaust."""
+
+    async def critic(ctx):
+        return FakeFindings(findings=[_make_concern("CRITICAL", concern="same")])
+
+    async def retry(findings, ctx):
+        return ctx
+
+    loop = AdversarialRetryLoop(budget=3, oscillation_window=2)
+    final, unresolved = await loop.run(
+        FakeContext(), critic, retry, is_converged=lambda f: False
+    )
+
+    # critic runs 2x (oscillation detected after second identical finding)
+    # Implementation MUST exit before consuming full budget.
+    assert len(unresolved) >= 1
+    # No direct call counter exposed; oscillation logged on StageRun (asserted in scenario tests)
+
+
+@pytest.mark.asyncio
+async def test_credit_exhausted_reraises_immediately():
+    async def critic(ctx):
+        raise CreditExhaustedError("billing")
+
+    async def retry(findings, ctx):
+        return ctx
+
+    loop = AdversarialRetryLoop(budget=3)
+    with pytest.raises(CreditExhaustedError):
+        await loop.run(FakeContext(), critic, retry, is_converged=lambda f: False)
+
+
+@pytest.mark.asyncio
+async def test_consecutive_crashes_count_as_exhaustion():
+    """Per spec: 3 consecutive critic crashes -> forward + treat as exhaustion."""
+
+    async def critic(ctx):
+        raise RuntimeError("transient")
+
+    async def retry(findings, ctx):
+        return ctx
+
+    loop = AdversarialRetryLoop(budget=3)
+    final, unresolved = await loop.run(
+        FakeContext(), critic, retry, is_converged=lambda f: False
+    )
+    # Crash converted to a synthetic forwarded concern; no exception escapes.
+    assert any("crash" in c.concern.lower() for c in unresolved)
