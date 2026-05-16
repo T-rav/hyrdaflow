@@ -21,11 +21,11 @@ graph LR
     src_state["src.state"]
     src_telemetry["src.telemetry"]
     src -- "4" --> src_arch
-    src -- "1" --> src_contracts
+    src -- "25" --> src_contracts
     src -- "4" --> src_dashboard_routes
     src -- "12" --> src_preflight
     src -- "1" --> src_review_phase
-    src -- "45" --> src_state
+    src -- "46" --> src_state
     src -- "7" --> src_telemetry
     src_arch_extractors -- "7" --> src_arch
     src_arch_generators -- "10" --> src_arch
@@ -39,4 +39,4 @@ graph LR
     src_runners -- "1" --> src_preflight
 ```
 
-_Regenerated from commit `d649803` on 2026-05-11 15:51 UTC. Source last changed at `d649803`. Status: 🟢 fresh._
+_Regenerated from commit `51a70cd` on 2026-05-16 23:51 UTC. Source last changed at `51a70cd`. Status: 🟢 fresh._

@@ -4,6 +4,12 @@
 
 Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdocs.yml`. Grouped by ISO week.
 
+## 2026-W20
+
+- `01ae95c` — fix(bg-loops): YAML resilience + auto-ensure PR labels (#8753) (#8753) *(2026-05-12)*
+- `dcde17f` — docs(audit): coherency drift audit — slice #2 of 5 *(2026-05-12)*
+- `67a16cd` — refactor(review): split review_phase.py into package for file-size discipline (T36, advisor-zpv) *(2026-05-11)*
+
 ## 2026-W19
 
 - `9cb158f` — Merge origin/staging into feat/advisor-pattern-review *(2026-05-10)*
@@ -201,4 +207,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `d649803` on 2026-05-11 15:51 UTC. Source last changed at `d649803`. Status: 🟢 fresh._
+_Regenerated from commit `51a70cd` on 2026-05-16 23:51 UTC. Source last changed at `51a70cd`. Status: 🟢 fresh._
