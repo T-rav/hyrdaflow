@@ -201,12 +201,39 @@ class TestLoadAllADRs:
         assert len(result) == 1
         assert result[0][0] == 1
 
-    def test_extracts_title_from_filename(self, tmp_path: Path) -> None:
+    def test_extracts_title_from_h1(self, tmp_path: Path) -> None:
         adr_dir = tmp_path / "docs" / "adr"
         _write_adr(adr_dir, 5, "Use Docker Containers", "Accepted")
         reviewer = _make_reviewer(tmp_path)
         result = reviewer._load_all_adrs(adr_dir)
-        assert result[0][1] == "use docker containers"
+        assert result[0][1] == "Use Docker Containers"
+
+    def test_h1_title_wins_over_filename_slug(self, tmp_path: Path) -> None:
+        """When H1 differs from the filename slug (real-world ADR-0023 pattern),
+        the H1 is the canonical title — citations must validate against it."""
+        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir.mkdir(parents=True)
+        (adr_dir / "0023-dead-class-artifacts-in-mock-based-tests.md").write_text(
+            "# ADR-0023: Require Instantiation Verification for Test-Local Classes\n"
+            "\n**Status:** Accepted\n",
+            encoding="utf-8",
+        )
+        reviewer = _make_reviewer(tmp_path)
+        result = reviewer._load_all_adrs(adr_dir)
+        assert (
+            result[0][1] == "Require Instantiation Verification for Test-Local Classes"
+        )
+
+    def test_falls_back_to_filename_slug_when_no_h1(self, tmp_path: Path) -> None:
+        adr_dir = tmp_path / "docs" / "adr"
+        adr_dir.mkdir(parents=True)
+        (adr_dir / "0099-legacy-no-heading.md").write_text(
+            "**Status:** Accepted\n\nSome body without an H1.\n",
+            encoding="utf-8",
+        )
+        reviewer = _make_reviewer(tmp_path)
+        result = reviewer._load_all_adrs(adr_dir)
+        assert result[0][1] == "legacy no heading"
 
     def test_includes_filename_in_tuple(self, tmp_path: Path) -> None:
         adr_dir = tmp_path / "docs" / "adr"
