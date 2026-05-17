@@ -263,23 +263,29 @@ class PlanPhase:
             return not t.should_retry
 
         loop: AdversarialRetryLoop[str, CouncilTally] = AdversarialRetryLoop(
-            budget=self._adversarial_budget
+            budget=self._adversarial_budget,
+            event_bus=self._bus,
+            issue_id=issue.id,
+            phase="plan",
+            stage="plan_council",
         )
         # AdversarialRetryLoop.run expects findings to expose a
         # `.findings: list[Concern]` attribute — CouncilTally satisfies
         # that (its dataclass field is named ``findings``).
-        _ctx_out, unresolved = await loop.run(plan_text, _critic, _retry, _converged)
+        _ctx_out, unresolved, metrics = await loop.run_with_metrics(
+            plan_text, _critic, _retry, _converged
+        )
         adv.pending_concerns.extend(unresolved)
         adv.current_stage = "plan_council"
         adv.stage_history.append(
             StageRun(
                 stage="plan_council",
                 phase="plan",
-                retries=0,
+                retries=metrics.retries,
                 converged=not bool(unresolved),
                 concerns_raised=len(unresolved),
                 concerns_forwarded=len(unresolved),
-                oscillation_detected=False,
+                oscillation_detected=metrics.oscillation_detected,
                 duration_ms=0,
             )
         )
@@ -320,9 +326,15 @@ class PlanPhase:
             return r.verdict == "PASS"
 
         loop: AdversarialRetryLoop[str, JudgeResult] = AdversarialRetryLoop(
-            budget=self._adversarial_budget
+            budget=self._adversarial_budget,
+            event_bus=self._bus,
+            issue_id=issue.id,
+            phase="plan",
+            stage="spec_judge",
         )
-        _ctx_out, unresolved = await loop.run(plan_text, _critic, _retry, _converged)
+        _ctx_out, unresolved, metrics = await loop.run_with_metrics(
+            plan_text, _critic, _retry, _converged
+        )
         adv.pending_concerns.extend(unresolved)
         adv.current_stage = "spec_judge"
         adv.stage_history.append(
@@ -341,11 +353,11 @@ class PlanPhase:
             StageRun(
                 stage="spec_judge",
                 phase="plan",
-                retries=0,
+                retries=metrics.retries,
                 converged=not bool(unresolved),
                 concerns_raised=len(unresolved),
                 concerns_forwarded=len(unresolved),
-                oscillation_detected=False,
+                oscillation_detected=metrics.oscillation_detected,
                 duration_ms=0,
             )
         )

@@ -218,9 +218,13 @@ class ShapePhase:
             return not t.should_retry
 
         loop: AdversarialRetryLoop[str, ShapeCouncilTally] = AdversarialRetryLoop(
-            budget=self._adversarial_budget
+            budget=self._adversarial_budget,
+            event_bus=self._bus,
+            issue_id=issue.id,
+            phase="shape",
+            stage="shape_expert_council",
         )
-        _ctx_out, unresolved = await loop.run(
+        _ctx_out, unresolved, metrics = await loop.run_with_metrics(
             shape_content, _critic, _retry, _converged
         )
         adv.pending_concerns.extend(unresolved)
@@ -229,11 +233,11 @@ class ShapePhase:
             StageRun(
                 stage="shape_expert_council",
                 phase="shape",
-                retries=0,
+                retries=metrics.retries,
                 converged=not bool(unresolved),
                 concerns_raised=len(unresolved),
                 concerns_forwarded=len(unresolved),
-                oscillation_detected=False,
+                oscillation_detected=metrics.oscillation_detected,
                 duration_ms=0,
             )
         )

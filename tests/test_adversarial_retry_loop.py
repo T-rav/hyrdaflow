@@ -122,3 +122,102 @@ async def test_consecutive_crashes_count_as_exhaustion():
     )
     # Crash converted to a synthetic forwarded concern; no exception escapes.
     assert any("crash" in c.concern.lower() for c in unresolved)
+
+
+@pytest.mark.asyncio
+async def test_run_with_metrics_first_pass_convergence():
+    """First-pass convergence reports zero retries and no oscillation."""
+
+    async def critic(ctx):
+        return FakeFindings(findings=[])
+
+    async def retry(findings, ctx):
+        raise AssertionError("retry should not be invoked")
+
+    loop = AdversarialRetryLoop(budget=3)
+    _ctx, unresolved, metrics = await loop.run_with_metrics(
+        FakeContext(), critic, retry, is_converged=lambda f: True
+    )
+
+    assert unresolved == []
+    assert metrics.retries == 0
+    assert metrics.oscillation_detected is False
+    assert metrics.crashed is False
+
+
+@pytest.mark.asyncio
+async def test_run_with_metrics_exhausts_budget_records_retries():
+    """Budget-exhaustion path records the actual number of retry invocations."""
+
+    async def critic(ctx):
+        return FakeFindings(findings=[_make_concern("HIGH", concern=ctx.plan_text)])
+
+    async def retry(findings, ctx):
+        return FakeContext(plan_text=ctx.plan_text + "+")
+
+    loop = AdversarialRetryLoop(budget=3)
+    _ctx, unresolved, metrics = await loop.run_with_metrics(
+        FakeContext(plan_text="x"), critic, retry, is_converged=lambda f: False
+    )
+
+    assert len(unresolved) >= 1
+    # 3 retries applied between 4 critic invocations.
+    assert metrics.retries == 3
+    assert metrics.oscillation_detected is False
+    assert metrics.crashed is False
+
+
+@pytest.mark.asyncio
+async def test_run_with_metrics_oscillation_flagged():
+    """Oscillation early-exit flips the oscillation_detected flag."""
+
+    async def critic(ctx):
+        return FakeFindings(findings=[_make_concern("CRITICAL", concern="same")])
+
+    async def retry(findings, ctx):
+        return ctx
+
+    loop = AdversarialRetryLoop(budget=3, oscillation_window=2)
+    _ctx, unresolved, metrics = await loop.run_with_metrics(
+        FakeContext(), critic, retry, is_converged=lambda f: False
+    )
+
+    assert len(unresolved) >= 1
+    assert metrics.oscillation_detected is True
+    assert metrics.crashed is False
+
+
+@pytest.mark.asyncio
+async def test_run_with_metrics_crash_marked():
+    """Three consecutive critic crashes report crashed=True."""
+
+    async def critic(ctx):
+        raise RuntimeError("transient")
+
+    async def retry(findings, ctx):
+        return ctx
+
+    loop = AdversarialRetryLoop(budget=3)
+    _ctx, unresolved, metrics = await loop.run_with_metrics(
+        FakeContext(), critic, retry, is_converged=lambda f: False
+    )
+
+    assert any("crash" in c.concern.lower() for c in unresolved)
+    assert metrics.crashed is True
+    assert metrics.oscillation_detected is False
+
+
+@pytest.mark.asyncio
+async def test_run_remains_backward_compatible():
+    """``run()`` still returns a two-tuple, ignoring metrics."""
+
+    async def critic(ctx):
+        return FakeFindings(findings=[])
+
+    async def retry(findings, ctx):
+        return ctx
+
+    loop = AdversarialRetryLoop(budget=3)
+    result = await loop.run(FakeContext(), critic, retry, is_converged=lambda f: True)
+    assert isinstance(result, tuple)
+    assert len(result) == 2

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Generic, Protocol, TypeVar
 
@@ -21,6 +22,23 @@ class HasFindings(Protocol):
 
 
 F = TypeVar("F", bound=HasFindings)
+
+
+@dataclass(frozen=True)
+class RunMetrics:
+    """Observability metrics for one ``AdversarialRetryLoop.run`` invocation.
+
+    Returned alongside the final context + unresolved concerns by
+    :py:meth:`AdversarialRetryLoop.run_with_metrics`. Callers plumb
+    these into ``StageRun(retries=..., oscillation_detected=...)`` so
+    dashboards can distinguish "converged first try" from "oscillated
+    twice and exhausted" — the original ``run()`` shape hardcoded
+    ``retries=0`` at every callsite, hiding that signal.
+    """
+
+    retries: int
+    oscillation_detected: bool
+    crashed: bool
 
 
 class AdversarialRetryLoop(Generic[Ctx, F]):
@@ -70,11 +88,43 @@ class AdversarialRetryLoop(Generic[Ctx, F]):
         retry: Callable[[F, Ctx], Awaitable[Ctx]],
         is_converged: Callable[[F], bool],
     ) -> tuple[Ctx, list[Concern]]:
+        """Backward-compatible entry point — discards :class:`RunMetrics`.
+
+        Existing callers (and tests) keep their two-tuple return shape.
+        New callers that need ``retries`` / ``oscillation_detected``
+        for ``StageRun`` propagation should call :py:meth:`run_with_metrics`.
+        """
+        ctx, unresolved, _metrics = await self.run_with_metrics(
+            initial_ctx, critic, retry, is_converged
+        )
+        return ctx, unresolved
+
+    async def run_with_metrics(
+        self,
+        initial_ctx: Ctx,
+        critic: Callable[[Ctx], Awaitable[F]],
+        retry: Callable[[F, Ctx], Awaitable[Ctx]],
+        is_converged: Callable[[F], bool],
+    ) -> tuple[Ctx, list[Concern], RunMetrics]:
+        """Run the loop and return ``(ctx, unresolved, RunMetrics)``.
+
+        The third tuple element exposes the actual ``retries`` consumed
+        and whether oscillation was detected, so callers can plumb the
+        real values into ``StageRun(retries=..., oscillation_detected=...)``
+        instead of hardcoding ``0`` / ``False``.
+
+        ``retries`` is the number of completed retry steps — i.e. how
+        many times the ``retry`` callable was invoked, which for
+        convergence-on-first-pass is ``0``.  ``crashed`` is True if the
+        loop returned because of three consecutive critic crashes (the
+        synthetic-crash-concern path).
+        """
         ctx = initial_ctx
         recent_signatures: list[str] = []
         consecutive_crashes = 0
         last_findings: F | None = None
         total_concerns_raised = 0
+        retries_completed = 0
 
         for attempt in range(self.budget + 1):
             await self._emit_stage_started(retry_count=attempt)
@@ -93,7 +143,15 @@ class AdversarialRetryLoop(Generic[Ctx, F]):
                         retries=attempt,
                         concerns_forwarded=len(crash_concerns),
                     )
-                    return ctx, crash_concerns
+                    return (
+                        ctx,
+                        crash_concerns,
+                        RunMetrics(
+                            retries=retries_completed,
+                            oscillation_detected=False,
+                            crashed=True,
+                        ),
+                    )
                 continue
 
             last_findings = findings
@@ -105,7 +163,15 @@ class AdversarialRetryLoop(Generic[Ctx, F]):
                     concerns_raised=total_concerns_raised,
                     concerns_forwarded=0,
                 )
-                return ctx, []
+                return (
+                    ctx,
+                    [],
+                    RunMetrics(
+                        retries=retries_completed,
+                        oscillation_detected=False,
+                        crashed=False,
+                    ),
+                )
 
             signature = _signature_for(findings)
             recent_signatures.append(signature)
@@ -120,12 +186,21 @@ class AdversarialRetryLoop(Generic[Ctx, F]):
                     retries=attempt,
                     concerns_forwarded=len(unresolved),
                 )
-                return ctx, unresolved
+                return (
+                    ctx,
+                    unresolved,
+                    RunMetrics(
+                        retries=retries_completed,
+                        oscillation_detected=True,
+                        crashed=False,
+                    ),
+                )
 
             if attempt == self.budget:
                 break
 
             ctx = await retry(findings, ctx)
+            retries_completed += 1
 
         unresolved = list(last_findings.findings) if last_findings else []
         await self._emit_concerns_forwarded(unresolved)
@@ -133,7 +208,15 @@ class AdversarialRetryLoop(Generic[Ctx, F]):
             retries=self.budget,
             concerns_forwarded=len(unresolved),
         )
-        return ctx, unresolved
+        return (
+            ctx,
+            unresolved,
+            RunMetrics(
+                retries=retries_completed,
+                oscillation_detected=False,
+                crashed=False,
+            ),
+        )
 
     # -- EventBus emission helpers (all no-op when wiring is incomplete) --
 

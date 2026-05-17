@@ -213,9 +213,13 @@ class DiscoverPhase:
             return not t.should_retry
 
         loop: AdversarialRetryLoop[str, CouncilTally] = AdversarialRetryLoop(
-            budget=self._adversarial_budget
+            budget=self._adversarial_budget,
+            event_bus=self._bus,
+            issue_id=issue.id,
+            phase="discover",
+            stage="discovery_council",
         )
-        _ctx_out, unresolved = await loop.run(
+        _ctx_out, unresolved, metrics = await loop.run_with_metrics(
             discovery_text, _critic, _retry, _converged
         )
         adv.pending_concerns.extend(unresolved)
@@ -224,11 +228,11 @@ class DiscoverPhase:
             StageRun(
                 stage="discovery_council",
                 phase="discover",
-                retries=0,
+                retries=metrics.retries,
                 converged=not bool(unresolved),
                 concerns_raised=len(unresolved),
                 concerns_forwarded=len(unresolved),
-                oscillation_detected=False,
+                oscillation_detected=metrics.oscillation_detected,
                 duration_ms=0,
             )
         )
