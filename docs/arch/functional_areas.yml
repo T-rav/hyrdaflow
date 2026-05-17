@@ -70,6 +70,7 @@ areas:
       - CorpusLearningLoop
       - FakeCoverageAuditorLoop
       - FlakeTrackerLoop
+      - LiveCorpusReplayLoop
       - PrinciplesAuditLoop
       - RCBudgetLoop
       - StagingBisectLoop

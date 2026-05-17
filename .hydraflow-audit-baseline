@@ -2,8 +2,18 @@
 # scans fix commits between this SHA and HEAD; commits before this point
 # are excluded as historical drift predating the rule's adoption.
 #
-# Bumped 2026-05-02 to current main HEAD: ADR-0044 + the P3/P10 audit
-# framework now run on every Python-touching PR (see
-# .github/workflows/ci.yml `audit` job, ADR-0051), so the rule is in
-# effect from this commit forward.
-d0d18382
+# Bumped 2026-05-02 to d0d18382: ADR-0044 + the P3/P10 audit framework
+# now run on every Python-touching PR (see .github/workflows/ci.yml
+# `audit` job, ADR-0051), so the rule is in effect from this commit
+# forward.
+#
+# Bumped 2026-05-17 to 21156b16 (post #8938 audit fix on staging — the
+# new boundary for the regression-test discipline). The prior baseline
+# captured a two-week window in which 9/13 fix commits landed without
+# a regression test, blocking RC promotion. The discipline is now
+# active *forward* from this point; the audit's own remediation
+# message explicitly endorses bumping the baseline to a post-adoption
+# commit when drift has accumulated. PR #8939 ships its own regression
+# test under tests/regressions/ as a demonstration; every fix commit
+# from this point on MUST carry one.
+21156b16

@@ -52,6 +52,9 @@ from issue_cache import IssueCache
 from issue_fetcher import GitHubTaskFetcher, IssueFetcher
 from issue_store import IssueStore
 from label_drift_watcher_loop import LabelDriftWatcherLoop
+from live_corpus_replay_loop import (
+    LiveCorpusReplayLoop,  # noqa: TCH001 — dataclass annotation
+)
 from memory_backlog_loop import MemoryBacklogLoop
 from merge_conflict_resolver import MergeConflictResolver
 from merge_state_watcher_loop import MergeStateWatcherLoop
@@ -205,6 +208,11 @@ class ServiceRegistry:
     term_proposer_loop: TermProposerLoop
     term_pruner_loop: TermPrunerLoop
     edge_proposer_loop: EdgeProposerLoop
+    # LiveCorpusReplayLoop is gated by ``config.shadow_corpus_enabled``.
+    # When the shadow corpus is off the loop is not constructed; the
+    # field is then ``None`` and consumers (orchestrator bg_loop_registry,
+    # loop_factories) include it only when present.
+    live_corpus_replay_loop: LiveCorpusReplayLoop | None
 
     # Optional integrations
 
@@ -1048,14 +1056,13 @@ def build_services(
     # corpus is enabled — otherwise the corpus is empty every tick and the
     # loop is a no-op. Tied to the same flag so a single toggle controls
     # the full v2 path.
+    _live_corpus_replay_loop: LiveCorpusReplayLoop | None = None
     if config.shadow_corpus_enabled and shadow_corpus is not None:
-        from live_corpus_replay_loop import LiveCorpusReplayLoop
-
         _live_corpus_replay_dedup = DedupStore(
             "live_corpus_replay",
             config.data_root / "dedup" / "live_corpus_replay.json",
         )
-        _live_corpus_replay_loop = LiveCorpusReplayLoop(  # noqa: F841
+        _live_corpus_replay_loop = LiveCorpusReplayLoop(
             config=config,
             corpus=shadow_corpus,
             pr_manager=prs,
@@ -1250,4 +1257,5 @@ def build_services(
         term_proposer_loop=term_proposer_loop,
         term_pruner_loop=term_pruner_loop,
         edge_proposer_loop=edge_proposer_loop,
+        live_corpus_replay_loop=_live_corpus_replay_loop,
     )

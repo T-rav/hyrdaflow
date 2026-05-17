@@ -6,6 +6,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W20
 
+- `ef3b5f5` — chore(arch): regen arch + wiki artifacts from staging tip (#8926) (#8926) *(2026-05-16)*
 - `01ae95c` — fix(bg-loops): YAML resilience + auto-ensure PR labels (#8753) (#8753) *(2026-05-12)*
 - `dcde17f` — docs(audit): coherency drift audit — slice #2 of 5 *(2026-05-12)*
 - `67a16cd` — refactor(review): split review_phase.py into package for file-size discipline (T36, advisor-zpv) *(2026-05-11)*
@@ -207,4 +208,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `51a70cd` on 2026-05-16 23:51 UTC. Source last changed at `51a70cd`. Status: 🟢 fresh._
+_Regenerated from commit `6da599c` on 2026-05-17 00:44 UTC. Source last changed at `6da599c`. Status: 🟢 fresh._

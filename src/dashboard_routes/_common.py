@@ -67,6 +67,7 @@ _INTERVAL_BOUNDS: dict[str, tuple[int, int]] = {
     "term_proposer": (3600, 86400),  # 1h min, 24h max
     "term_pruner": (3600, 604800),  # 1h min, 7d max (default 24h)
     "edge_proposer": (3600, 604800),  # 1h min, 7d max (default 24h)
+    "live_corpus_replay": (60, 86400),  # 1m min, 1d max (default 15m, ADR-0045 / #8786)
     "github_cache": (10, 3600),  # 15m min, 1d max (default 4h)
 }
 
