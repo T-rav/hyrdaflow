@@ -307,3 +307,50 @@ Dynamic skills (with user-supplied content) require operator review before deplo
 ```json:entry
 {"id":"01KQP0XFBGMB32VFGNPV8GZ26V","title":"Operator review gates dynamic skills due to prompt injection risk","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-03T04:18:02.224970+00:00","updated_at":"2026-05-03T04:18:02.224972+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"medium","stale":false,"corroborations":1}
 ```
+
+
+## Pending concerns forwarding contract — tight loop, wide loop, wiki carryover
+
+The adversarial pipeline (ADR-0063) cannot deadlock on irreducible dissent. The contract that prevents this is a three-stage forwarding protocol:
+
+1. **Tight loop.** `AdversarialRetryLoop` gives each adversarial stage a bounded retry budget (default 3) with oscillation detection. Most concerns resolve here — voter raises, host re-runs, voter passes.
+2. **Wide loop fallback.** On retry-budget exhaustion or `OscillationDetected`, the unresolved concerns are written to `AdversarialState.pending_concerns` and the issue progresses. Downstream stages (Plan Reviewer at minimum, often Implementer too) see each concern's `must_address_by` field, which names the stage that's required to address it before the issue can merge.
+3. **Wiki carryover.** Concerns that survive the wide loop *and* still ship emit `ShippedWithKnownGap`. `src/wiki_carryover.py` turns each into a wiki entry tagged with the merging PR and `confidence: low` — closing the loop so future `AssumptionSurfacer` runs can read what the factory shipped *despite* dissent.
+
+The `Concern` schema (`src/pending_concerns.py:Concern`) is the lingua franca every stage speaks. Fields: `id`, `category`, `summary`, `raised_by`, `must_address_by`, `evidence` (list of source anchors), `fingerprint()` (for oscillation detection).
+
+**Why:** In a dark factory there is no operator to break ties. "Block until resolved" deadlocks the issue forever; "drop on the floor" loses signal. The forwarding contract chooses progress + visibility: dissent is always carried forward to the stage that *can* act on it, and ultimately to durable knowledge if it survives merge.
+
+Code anchors:
+
+- `src/pending_concerns.py:Concern` — the schema.
+- `src/adversarial_retry_loop.py:AdversarialRetryLoop` — the tight loop.
+- `src/wiki_carryover.py` — the wiki carryover consumer.
+
+
+```json:entry
+{"id":"01KRADV2026B0PHASE0002","title":"Pending concerns forwarding contract — tight loop, wide loop, wiki carryover","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-17T00:00:00.000000+00:00","updated_at":"2026-05-17T00:00:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"high","stale":false,"corroborations":1}
+```
+
+
+## Complexity gate routing — bypass adversarial stages for trivial issues
+
+The adversarial pipeline can burn up to ~30 LLM calls per issue (3 retries × ~2 calls/stage × 5 stages). Running that on every doc-fix and dependency bump would make the factory operationally expensive. `src/complexity_gate.py:ComplexityGate` classifies each issue before the adversarial stages fire:
+
+- `trivial` → bypass all five adversarial stages, route directly to planner / implementer.
+- `load_bearing` → run the full pipeline (AssumptionSurfacer → DiscoveryCouncil → PlanCouncil → SpecJudge → Shape Challenger/ExpertCouncil).
+
+The classification is a separate component (not buried in `plan_phase`) so its decisions are:
+
+- **Auditable** — every routing decision emits a `ComplexityGateRouted` EventBus event with the classification and the rationale.
+- **Testable in isolation** — unit tests can exercise the gate without standing up a full plan phase.
+- **Overridable by label** — operators can apply a label to force load-bearing classification when the gate gets it wrong; see `src/adversarial_labels.py` for the transient label set.
+
+**Why:** A monotonic "always run the heavy machinery" policy is operationally untenable in a dark factory that ingests hundreds of issues a week. Equally, a hard-coded "skip adversarial for issues under N lines" rule misses load-bearing changes inside small diffs. The gate is a deliberate, auditable decision point — and when it's wrong, it's wrong *visibly* (via the event), which is the only kind of wrong a dark factory can recover from.
+
+Code anchor: `src/complexity_gate.py:ComplexityGate`.
+
+
+```json:entry
+{"id":"01KRADV2026B0PHASE0003","title":"Complexity gate routing — bypass adversarial stages for trivial issues","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-17T00:00:00.000000+00:00","updated_at":"2026-05-17T00:00:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"high","stale":false,"corroborations":1}
+```
