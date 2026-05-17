@@ -63,6 +63,29 @@ def test_na_without_src(tmp_path: Path) -> None:
     assert _run("P10.2", _ctx(tmp_path)).status is Status.NA
 
 
+def test_sharded_tests_cover_module(tmp_path: Path) -> None:
+    """A module with no ``test_<module>.py`` but with ``test_<module>_<X>.py``
+    shards is considered covered.  pr_manager.py has ~20 sharded test files
+    but no ``test_pr_manager.py`` — the audit must not flag it as orphan."""
+    _write(tmp_path / "src" / "pr_manager.py", "def f(): pass\n")
+    _write(tmp_path / "tests" / "test_pr_manager_observability.py", "def t(): pass\n")
+    _write(tmp_path / "tests" / "test_pr_manager_boundary.py", "def t(): pass\n")
+    assert _run("P10.2", _ctx(tmp_path)).status is Status.PASS
+
+
+def test_longer_module_prefix_wins_over_shorter(tmp_path: Path) -> None:
+    """When both ``state.py`` and ``state_tracking.py`` exist,
+    ``test_state_tracking.py`` is credited to ``state_tracking``, leaving
+    ``state.py`` as an orphan unless it has its own test."""
+    _write(tmp_path / "src" / "state.py", "def f(): pass\n")
+    _write(tmp_path / "src" / "state_tracking.py", "def f(): pass\n")
+    _write(tmp_path / "tests" / "test_state_tracking.py", "def t(): pass\n")
+    result = _run("P10.2", _ctx(tmp_path))
+    assert result.status is Status.WARN
+    assert "src/state.py" in (result.message or "")
+    assert "src/state_tracking.py" not in (result.message or "")
+
+
 # --- P10.3 (git log) ------------------------------------------------------
 
 
