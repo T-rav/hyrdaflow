@@ -46,23 +46,38 @@ def _every_module_has_a_test(ctx: CheckContext) -> Finding:
         return finding("P10.2", Status.NA, "no src/")
     if not tests.is_dir():
         return finding("P10.2", Status.FAIL, "tests/ missing")
-    test_stems = {_normalise_test_stem(p.stem) for p in tests.rglob("test_*.py")}
-    orphans: list[str] = []
+
+    src_modules: dict[str, Path] = {}
     for module in src.rglob("*.py"):
-        if _skip_module(module):
+        if _skip_module(module) or module.stem.startswith("_"):
             continue
-        expected = module.stem
-        if expected.startswith("_"):
-            continue
-        if expected not in test_stems:
-            orphans.append(module.relative_to(ctx.root).as_posix())
+        src_modules[module.stem] = module
+    src_stems = set(src_modules)
+
+    # A module is "covered" by any test whose stem matches it exactly OR
+    # starts with ``<module>_`` — pr_manager.py is covered by
+    # test_pr_manager_observability.py, not just test_pr_manager.py.
+    # Longest-prefix wins so that test_state_tracking.py is credited to
+    # state_tracking (when that module exists), not to state.
+    covered: set[str] = set()
+    for tp in tests.rglob("test_*.py"):
+        test_stem = tp.stem.removeprefix("test_")
+        best: str | None = None
+        for src_stem in src_stems:
+            if (test_stem == src_stem or test_stem.startswith(src_stem + "_")) and (
+                best is None or len(src_stem) > len(best)
+            ):
+                best = src_stem
+        if best is not None:
+            covered.add(best)
+
+    orphans = sorted(
+        src_modules[stem].relative_to(ctx.root).as_posix()
+        for stem in src_stems - covered
+    )
+    total = len(src_stems)
     if not orphans:
         return finding("P10.2", Status.PASS)
-    total = sum(
-        1
-        for p in src.rglob("*.py")
-        if not _skip_module(p) and not p.stem.startswith("_")
-    )
     ratio = len(orphans) / total if total else 0
     if ratio < 0.2:
         return finding(
@@ -85,11 +100,6 @@ def _skip_module(path: Path) -> bool:
         or name.endswith("_pb2.py")
         or "/migrations/" in path.as_posix()
     )
-
-
-def _normalise_test_stem(stem: str) -> str:
-    """`test_config` → `config`; `test_config_integration` → `config_integration` (preserve for later)."""
-    return stem.removeprefix("test_")
 
 
 _FIX_COMMIT_RE = re.compile(r"^(fix|bugfix|bug)[\(:]", re.IGNORECASE)
