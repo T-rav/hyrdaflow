@@ -372,6 +372,132 @@ class TestImplementPhaseReadsAdversarialState:
         assert warnings_or_errors == []
 
 
+# ---------------------------------------------------------------------------
+# HITL escalation clears adversarial state (regression for unbounded growth).
+# ---------------------------------------------------------------------------
+
+
+class TestHitlEscalationClearsAdversarialState:
+    """When plan_phase escalates an issue to HITL, the per-issue
+    AdversarialState must be cleared so the next retry starts fresh.
+
+    Regression for review issue 3: without this, ``_run_assumption_surfacer``
+    extended ``adv.pending_concerns`` on every retry, growing the list
+    unboundedly across HITL cycles.
+    """
+
+    @staticmethod
+    def _seed_adversarial_state(state: StateTracker, issue_id: int) -> None:
+        """Seed an AdversarialState with two concerns under *issue_id*."""
+        from datetime import UTC, datetime
+
+        adv = AdversarialState(
+            phase="plan",
+            current_stage="assumption_surfacer",
+            pending_concerns=[
+                Concern(
+                    id="SURFACER-001",
+                    raised_in_phase="plan",
+                    raised_in_stage="assumption_surfacer",
+                    severity="HIGH",
+                    concern="Unverified dependency.",
+                    raised_at=datetime.now(UTC),
+                    must_address_by="implement",
+                ),
+                Concern(
+                    id="SURFACER-002",
+                    raised_in_phase="plan",
+                    raised_in_stage="assumption_surfacer",
+                    severity="MEDIUM",
+                    concern="Unclear acceptance bar.",
+                    raised_at=datetime.now(UTC),
+                    must_address_by="implement",
+                ),
+            ],
+        )
+        state.set_adversarial_state(issue_id, adv)
+        assert state.get_adversarial_state(issue_id) is not None
+
+    @pytest.mark.asyncio
+    async def test_rejected_evidence_escalation_clears_adv_state(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """``_plan_one`` rejected-evidence path must clear adv state on escalation."""
+        phase, state, planners, prs, store, _stop = make_plan_phase(config)
+        self._seed_adversarial_state(state, 42)
+
+        issue = TaskFactory.create(id=42)
+        plan_result = PlanResultFactory.create(
+            issue_number=42,
+            success=True,
+            already_satisfied=True,
+            summary="The feature already exists.",  # No Evidence — rejected
+        )
+        planners.plan = AsyncMock(return_value=plan_result)
+        store.get_plannable = supply_once([issue])
+
+        await phase.plan_issues()
+
+        # Escalator fired (label swap) AND state cleared.
+        prs.swap_pipeline_labels.assert_awaited()
+        assert state.get_adversarial_state(42) is None, (
+            "AdversarialState must be cleared on HITL escalation so the "
+            "next retry starts fresh — otherwise pending_concerns grows "
+            "unboundedly across HITL cycles."
+        )
+
+    @pytest.mark.asyncio
+    async def test_epic_child_false_claim_escalation_clears_adv_state(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Epic-child false-claim escalation must clear adv state."""
+        phase, state, planners, prs, store, _stop = make_plan_phase(config)
+        self._seed_adversarial_state(state, 42)
+
+        issue = TaskFactory.create(id=42, tags=["hydraflow-epic-child"])
+        plan_result = PlanResultFactory.create(
+            issue_number=42,
+            success=True,
+            already_satisfied=True,
+            summary="The feature is already implemented",
+        )
+        planners.plan = AsyncMock(return_value=plan_result)
+        store.get_plannable = supply_once([issue])
+
+        await phase.plan_issues()
+
+        prs.swap_pipeline_labels.assert_awaited()
+        assert state.get_adversarial_state(42) is None
+
+    @pytest.mark.asyncio
+    async def test_handle_plan_failure_clears_adv_state(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """``_handle_plan_failure`` clears adv state before escalating.
+
+        Direct-call test — the method is currently not invoked from
+        ``_plan_one`` (validation-warning plans are accepted there
+        instead), but the helper is the canonical HITL hand-off and
+        must clear state defensively if any future caller wires it up.
+        """
+        from models import PlanResult
+
+        phase, state, _planners, prs, _store, _stop = make_plan_phase(config)
+        self._seed_adversarial_state(state, 99)
+
+        issue = TaskFactory.create(id=99)
+        result = PlanResult(
+            issue_number=99,
+            success=False,
+            validation_errors=["Step 3 references unknown file"],
+        )
+
+        await phase._handle_plan_failure(issue, result)
+
+        prs.swap_pipeline_labels.assert_awaited()
+        assert state.get_adversarial_state(99) is None
+
+
 # Avoid pytest collection warning by referencing asyncio so the
 # `from asyncio` import does not appear unused on some pytest versions.
 _ = asyncio
