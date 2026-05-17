@@ -13,11 +13,25 @@
 
 ## What this document is
 
-A pattern + interface design for **standing up a new HydraFlow-format target repo** the way an IDE handles "File → New Project": the operator clicks a button, answers a handful of questions in a wizard, and lands on a project dashboard with a green-CI repo, provisioned branches + labels + protection, a design spec, an implementation plan, and the first batch of `hydraflow-find` issues queued for the factory.
+A pattern + interface **proposal** for **standing up a new HydraFlow-format target repo** the way an IDE handles "File → New Project": the operator clicks a button, answers a handful of questions in a wizard, and lands on a project dashboard with a green-CI repo, provisioned branches + labels + protection, a design spec, an implementation plan, and the first batch of `hydraflow-find` issues queued for the factory.
 
-It exists because we did this process twice in close succession (amplifier, then harvestd) and the second pass cost noticeably less than the first. The deltas tell us which pieces are stable (and belong in a template the backend stamps out), which are one-knob choices (and belong in the wizard form), which are genuinely creative work (and belong in an embedded AI design dialogue), and which are friction the interface should absorb so the operator never sees them. All of this is reachable from a UI, with no Claude Code CLI dependency on the operator side.
+It exists because we did this process twice in close succession (amplifier, then harvestd) and the second pass cost noticeably less than the first. The deltas tell us which pieces are stable (and belong in a template the backend stamps out), which are one-knob choices (and belong in the wizard form), which are genuinely creative work (and belong in an embedded AI design dialogue), and which are friction the interface should absorb so the operator never sees them. All of this *should be* reachable from a UI, with no Claude Code CLI dependency on the operator side.
 
-If you are about to bootstrap a third HydraFlow-format repo by hand: this doc tells you what's invariant, what's a knob, where the friction lives, and what a UI-driven onboarding surface that absorbs the friction should look like.
+If you are about to bootstrap a third HydraFlow-format repo by hand: this doc tells you what's invariant, what's a knob, where the friction lives, and what a UI-driven onboarding surface that absorbs the friction *should* look like.
+
+### Confidence level — read first
+
+This is a **proposal informed by two internal bootstraps**, not a validated design. Specifically:
+
+- **High confidence:** The 10-file invariant kernel claim (grounded in diff evidence) and the friction catalog F1-F8 (honest data from the two bootstraps).
+- **Medium confidence:** The UI design was iterated through 6 HTML mockups in one operator-review session. That's *shaping*, not validation. The real test is a third bootstrap by a different person/operator following the procedure end-to-end. Until that happens, treat the UI as a proposal that will mutate on first implementation contact.
+- **Low confidence:** The 4-phase implementation roadmap presents phases as cleaner than they are. Phases 2, 3, and 4 are wizard-UI-behavior intertwined; treat the roadmap as "logical decomposition for tracking" rather than "shippable phases in isolation." Phase 1 alone produces a curl-driven API nobody wants; Phase 2 without Phase 3 ships a worse UX than the mockups suggest.
+
+Two related ideas got filed as separate issues during planning and were **subsequently closed as premature**: the "hybrid SHAPE handshake" (factory refining wizard-drafted artifacts via frontmatter convention) and "SHAPE phase consumes methodology docs as input." Both are solving problems we don't have evidence for yet. Reopen criteria are documented on the closed issues; build those patterns only after the wizard ships and we observe real refinement friction.
+
+### Dependency on Claude Code + superpowers plugin
+
+The "Quick reference manual procedure" at the bottom of this doc — the pre-wizard pathway that produced amplifier + harvestd — is *significantly easier* with Claude Code + the superpowers plugin installed (brainstorming + writing-plans + subagent-driven-development skills). Without that toolchain, the manual procedure is doable but requires hand-composing the design dialogue + plan + subagent dispatches yourself. Anyone trying the manual procedure cold should be aware they're doing the work the wizard is meant to absorb.
 
 ---
 
@@ -364,6 +378,27 @@ The validated UI mockups live in `.superpowers/brainstorm/` from the mockup-revi
 - `06-quiet-ops.html` — **kept**: show outcome, collapse activity log by default
 
 The supersession history is itself part of the design rationale: each iteration removed scope from the proposal in response to operator feedback. The final design is smaller than the initial draft on every axis (fewer panes, fewer steps visible, fewer ops in the face).
+
+### Error story (the part the mockups skip)
+
+The mockups show happy paths. Real operators hit failures. The earlier draft said "backend absorbs friction silently" — which is aspirational, not designed. Concrete failure modes the interface must handle:
+
+| Failure | Detection | Recovery |
+|---|---|---|
+| `gh repo create` 422 (name collision) | gh exit code | surface error to operator; abort cleanly; no local mutation |
+| `gh repo create` succeeds but BP apply fails | second gh call returns non-zero | repo exists but unprotected; emit warning; surface "Re-apply protection" button on project view |
+| Materialize succeeds, push fails network mid-push | SSE stream times out | repo state on GitHub indeterminate; check `gh repo view` before retry; surface state to operator |
+| `make quality` fails on materialize | non-zero exit | abort materialize; show last 50 lines of output in activity log; do not commit the partial scaffolding |
+| `create-next-app` pulls a major version different from pinned | postinstall version check | abort materialize; refuse to commit a drifted scaffold; surface explicit version mismatch error |
+| Anthropic API down during Phase-3 design chat | HTTP error | save chat state; offer "Skip chat" fallback to form-fill; allow resume when API recovers |
+| Anthropic returns malformed structured output | Pydantic validation error | retry once; on second failure, surface "AI assist unavailable; please fill manually" |
+| Operator closes browser tab mid-materialize or mid-push | client disconnect | server continues operation; on next dashboard load, surface current state via activity log |
+| Disk fills up mid-materialize | OSError on write | abort + roll back; surface free-space requirement |
+| GitHub OAuth token expired | 401 from gh | surface "Re-authenticate GitHub" banner; queue operation for retry after auth refresh |
+
+Every failure path needs a unit test that triggers it + asserts the recovery behavior. This is non-negotiable for an interface that touches GitHub state.
+
+These failures are not edge cases. Each one was either hit during the reference bootstraps or is a known mode of the underlying APIs. Designing the error UI alongside the happy path is what makes the "backend absorbs friction silently" claim real instead of aspirational.
 
 ### Behind the UI — backend services
 
