@@ -1878,7 +1878,14 @@ class PRManager:
         body: str,
         labels: list[str] | None = None,
     ) -> int:
-        """Create a new GitHub issue. Returns the issue number (0 on failure)."""
+        """Create a new GitHub issue. Returns the issue number (0 on failure).
+
+        Callers MUST check for ``0`` before storing or referencing the
+        returned value.  Treating ``0`` as a real issue number causes
+        downstream ``gh issue comment 0`` / ``gh issue close 0`` calls
+        to fail with "Could not resolve to an issue or pull request with
+        the number of 0" every cycle.
+        """
         self._assert_repo()
         if self._config.dry_run:
             logger.info("[dry-run] Would create issue: %s", title)
