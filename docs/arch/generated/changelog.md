@@ -6,6 +6,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W20
 
+- `9972ac3` — docs(adr): add ADR-0063 for earlier-adversarial pipeline + wiki entries *(2026-05-17)*
 - `4cb1dfb` — feat(adversarial): add ShippedWithKnownGap → wiki carryover *(2026-05-17)*
 - `50d6654` — feat(adversarial): add 6 EventBus events for adversarial stages *(2026-05-17)*
 - `8a80f95` — feat(adversarial): wire ComplexityGate routing + register transient labels *(2026-05-16)*
@@ -212,4 +213,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `875c134` on 2026-05-17 08:58 UTC. Source last changed at `875c134`. Status: 🟢 fresh._
+_Regenerated from commit `9972ac3` on 2026-05-17 20:33 UTC. Source last changed at `9972ac3`. Status: 🟢 fresh._

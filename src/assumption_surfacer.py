@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import cast
 
+from exception_classify import reraise_on_credit_or_bug
 from src.adversarial_agents import AgentLike
 from src.pending_concerns import Concern, Phase
 
@@ -82,6 +83,7 @@ class AssumptionSurfacer:
             logger.warning("AssumptionSurfacer JSON parse failure: %s", exc)
             return SurfacerOutput()
         except Exception as exc:
+            reraise_on_credit_or_bug(exc)
             logger.warning("AssumptionSurfacer agent failure: %s", exc)
             return SurfacerOutput()
 

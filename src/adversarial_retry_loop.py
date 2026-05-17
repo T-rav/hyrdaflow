@@ -30,15 +30,27 @@ class RunMetrics:
 
     Returned alongside the final context + unresolved concerns by
     :py:meth:`AdversarialRetryLoop.run_with_metrics`. Callers plumb
-    these into ``StageRun(retries=..., oscillation_detected=...)`` so
-    dashboards can distinguish "converged first try" from "oscillated
-    twice and exhausted" — the original ``run()`` shape hardcoded
-    ``retries=0`` at every callsite, hiding that signal.
+    these into ``StageRun(retries=..., oscillation_detected=...,
+    concerns_raised=...)`` so dashboards can distinguish "converged
+    first try" from "oscillated twice and exhausted" — the original
+    ``run()`` shape hardcoded ``retries=0`` at every callsite, hiding
+    that signal.
+
+    ``total_concerns_raised`` is the cumulative count of ``findings``
+    emitted by the critic across all attempts inside the loop —
+    *every* concern the stage saw, not just the unresolved tail that
+    forwarded. This is the semantic ``StageRun.concerns_raised``
+    expects per :class:`src.pending_concerns.StageRun`; the
+    forwarded-tail count belongs on ``concerns_forwarded`` instead.
+    On a stage that converges on the first attempt with zero findings
+    this is ``0``; on a stage that raises 3 then 0 (converges after
+    one retry) it is ``3``.
     """
 
     retries: int
     oscillation_detected: bool
     crashed: bool
+    total_concerns_raised: int = 0
 
 
 class AdversarialRetryLoop(Generic[Ctx, F]):
@@ -150,6 +162,7 @@ class AdversarialRetryLoop(Generic[Ctx, F]):
                             retries=retries_completed,
                             oscillation_detected=False,
                             crashed=True,
+                            total_concerns_raised=total_concerns_raised,
                         ),
                     )
                 continue
@@ -170,6 +183,7 @@ class AdversarialRetryLoop(Generic[Ctx, F]):
                         retries=retries_completed,
                         oscillation_detected=False,
                         crashed=False,
+                        total_concerns_raised=total_concerns_raised,
                     ),
                 )
 
@@ -193,6 +207,7 @@ class AdversarialRetryLoop(Generic[Ctx, F]):
                         retries=retries_completed,
                         oscillation_detected=True,
                         crashed=False,
+                        total_concerns_raised=total_concerns_raised,
                     ),
                 )
 
@@ -215,6 +230,7 @@ class AdversarialRetryLoop(Generic[Ctx, F]):
                 retries=retries_completed,
                 oscillation_detected=False,
                 crashed=False,
+                total_concerns_raised=total_concerns_raised,
             ),
         )
 

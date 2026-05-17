@@ -235,7 +235,7 @@ class ShapePhase:
                 phase="shape",
                 retries=metrics.retries,
                 converged=not bool(unresolved),
-                concerns_raised=len(unresolved),
+                concerns_raised=metrics.total_concerns_raised,
                 concerns_forwarded=len(unresolved),
                 oscillation_detected=metrics.oscillation_detected,
                 duration_ms=0,

@@ -221,3 +221,47 @@ async def test_run_remains_backward_compatible():
     result = await loop.run(FakeContext(), critic, retry, is_converged=lambda f: True)
     assert isinstance(result, tuple)
     assert len(result) == 2
+
+
+@pytest.mark.asyncio
+async def test_run_with_metrics_total_concerns_raised_accumulates():
+    """``total_concerns_raised`` sums findings across attempts, not just tail.
+
+    The bug: callers were using ``len(unresolved)`` for
+    ``StageRun.concerns_raised`` — that's the *forwarded* count.
+    ``StageRun.concerns_raised`` semantically means "total concerns the
+    council raised in this stage", which on convergence-after-retry
+    must include the concerns from the failed attempts that were
+    resolved by the retry.
+
+    Scenario: 3 findings on attempt 1, 2 on attempt 2 (post-retry),
+    0 on attempt 3 (convergence). ``total_concerns_raised`` must be
+    ``3 + 2 + 0 == 5`` even though ``unresolved`` is empty.
+    """
+    counts = [3, 2, 0]
+    call_idx = {"n": 0}
+
+    async def critic(ctx):
+        idx = call_idx["n"]
+        call_idx["n"] += 1
+        n = counts[idx] if idx < len(counts) else 0
+        return FakeFindings(
+            findings=[_make_concern("HIGH", concern=f"c{idx}-{j}") for j in range(n)]
+        )
+
+    async def retry(findings, ctx):
+        return ctx
+
+    def is_converged(f):
+        return len(f.findings) == 0
+
+    loop = AdversarialRetryLoop(budget=3)
+    _ctx, unresolved, metrics = await loop.run_with_metrics(
+        FakeContext(), critic, retry, is_converged
+    )
+
+    assert unresolved == []
+    assert metrics.total_concerns_raised == 5
+    assert metrics.retries == 2  # two retry invocations between three critic passes
+    assert metrics.crashed is False
+    assert metrics.oscillation_detected is False

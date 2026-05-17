@@ -230,7 +230,7 @@ class DiscoverPhase:
                 phase="discover",
                 retries=metrics.retries,
                 converged=not bool(unresolved),
-                concerns_raised=len(unresolved),
+                concerns_raised=metrics.total_concerns_raised,
                 concerns_forwarded=len(unresolved),
                 oscillation_detected=metrics.oscillation_detected,
                 duration_ms=0,
@@ -329,7 +329,13 @@ class DiscoverPhase:
                 # tight-loop around the produced brief. Concerns are
                 # persisted and forward to ``shape`` per the dark-factory
                 # contract.
-                if adv is not None:
+                #
+                # Gate on ``self._runner`` as well: when no runner is
+                # attached, ``result.research_brief`` is the hardcoded
+                # stub placeholder above, and running the council against
+                # that text just generates noise concerns and forwards
+                # them to shape. Skip the council in degraded mode.
+                if adv is not None and self._runner is not None:
                     await self._run_discovery_council(
                         issue, adv, discovery_text=result.research_brief
                     )

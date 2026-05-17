@@ -25,6 +25,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from exception_classify import reraise_on_credit_or_bug
 from src.adversarial_agents import AgentLike
 from src.pending_concerns import Concern
 
@@ -105,6 +106,7 @@ class ShapeChallenger:
             logger.warning("ShapeChallenger JSON parse failure: %s", exc)
             return ChallengerOutput(findings=[])
         except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             logger.warning("ShapeChallenger agent failure: %s", exc)
             return ChallengerOutput(findings=[])
 

@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
 
+from exception_classify import reraise_on_credit_or_bug
 from src.adversarial_agents import AgentLike
 from src.pending_concerns import Concern
 
@@ -75,6 +76,7 @@ class SpecJudge:
                 f"SpecJudge could not parse agent output: {exc}"
             )
         except Exception as exc:
+            reraise_on_credit_or_bug(exc)
             logger.warning("SpecJudge agent failure: %s", exc)
             return _parse_failure_result(f"SpecJudge agent error: {exc}")
 

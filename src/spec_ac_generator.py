@@ -13,6 +13,7 @@ import json
 import logging
 from dataclasses import dataclass
 
+from exception_classify import reraise_on_credit_or_bug
 from src.adversarial_agents import AgentLike
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class SpecACGenerator:
             logger.warning("SpecACGenerator JSON parse failure: %s", exc)
             return []
         except Exception as exc:
+            reraise_on_credit_or_bug(exc)
             logger.warning("SpecACGenerator agent failure: %s", exc)
             return []
 
