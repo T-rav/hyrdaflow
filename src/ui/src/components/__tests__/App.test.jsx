@@ -227,15 +227,34 @@ describe('Config warning banner', () => {
 })
 
 describe('Main tab bar', () => {
-  it('has exactly 5 main tabs including Wiki', async () => {
+  it('has exactly 5 main tabs including Atlas', async () => {
     const { default: App } = await import('../../App')
     render(<App />)
-    const tabLabels = ['Work Stream', 'HITL', 'Outcomes', 'Wiki', 'System']
+    const tabLabels = ['Work Stream', 'HITL', 'Outcomes', 'Atlas', 'System']
     const tabContainer = screen.getByTestId('main-tabs')
     expect(tabContainer.childElementCount).toBe(tabLabels.length)
     for (const label of tabLabels) {
       expect(within(tabContainer).getByText(label)).toBeInTheDocument()
     }
+  })
+
+  it('coerces ?tab=wiki query param to atlas on mount', async () => {
+    const oldHref = window.location.href
+    const oldFetch = global.fetch
+    global.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ nodes: [], edges: [], contexts: [] }),
+      }),
+    )
+    window.history.replaceState({}, '', '/?tab=wiki')
+    const { default: App } = await import('../../App')
+    render(<App />)
+    expect(
+      screen.getByRole('button', { name: /^domain$/i }),
+    ).toBeInTheDocument()
+    window.history.replaceState({}, '', oldHref)
+    global.fetch = oldFetch
   })
 
   it('does not render Transcript in the main tab bar', async () => {
