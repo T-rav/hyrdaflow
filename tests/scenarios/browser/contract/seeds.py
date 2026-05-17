@@ -1,7 +1,10 @@
-"""Deterministic seed helpers for contract snapshot tests.
+"""Deterministic seed helpers for browser contract tests.
 
-Mirrors ``src/ui/e2e/fixtures/seed-state.js`` so visual baselines can be
-compared against the JS suite (Task 14) before the JS harness is deleted.
+Mirrors ``src/ui/e2e/fixtures/seed-state.js``. Originally introduced
+alongside snapshot-based contract tests (since removed 2026-05-17 — see
+this directory's conftest.py); kept because ``test_seeds.py`` and the
+behaviour-level scenarios under ``tests/scenarios/browser/scenarios/``
+still consume them.
 """
 
 from __future__ import annotations
