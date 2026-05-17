@@ -21,6 +21,7 @@ areas:
       - DependabotMergeLoop
       - DiagnosticLoop
       - EdgeProposerLoop
+      - EntryEvidenceLoop
       - EpicMonitorLoop
       - EpicSweeperLoop
       - GitHubCacheLoop

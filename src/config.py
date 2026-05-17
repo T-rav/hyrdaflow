@@ -248,6 +248,12 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ),
     ("term_pruner_interval", "HYDRAFLOW_TERM_PRUNER_INTERVAL", 86400),
     ("edge_proposer_interval", "HYDRAFLOW_EDGE_PROPOSER_INTERVAL", 86400),
+    ("entry_evidence_interval", "HYDRAFLOW_ENTRY_EVIDENCE_INTERVAL", 86400),
+    (
+        "entry_evidence_max_entries_per_tick",
+        "HYDRAFLOW_ENTRY_EVIDENCE_MAX_ENTRIES_PER_TICK",
+        20,
+    ),
     ("trust_fleet_sanity_interval", "HYDRAFLOW_TRUST_FLEET_SANITY_INTERVAL", 600),
     ("label_drift_watcher_interval", "HYDRAFLOW_LABEL_DRIFT_WATCHER_INTERVAL", 600),
     ("loop_anomaly_issues_per_hour", "HYDRAFLOW_LOOP_ANOMALY_ISSUES_PER_HOUR", 10),
@@ -367,6 +373,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("term_proposer_enabled", "HYDRAFLOW_TERM_PROPOSER_ENABLED", True),
     ("term_pruner_enabled", "HYDRAFLOW_TERM_PRUNER_ENABLED", True),
     ("edge_proposer_enabled", "HYDRAFLOW_EDGE_PROPOSER_ENABLED", True),
+    ("entry_evidence_enabled", "HYDRAFLOW_ENTRY_EVIDENCE_ENABLED", True),
 ]
 
 # Literal-typed env-var overrides.
@@ -2133,6 +2140,27 @@ class HydraFlowConfig(BaseModel):
         ge=3600,
         le=604800,
         description="Seconds between EdgeProposerLoop ticks.",
+    )
+
+    # Trust fleet — EntryEvidenceLoop (ADR-0062)
+    entry_evidence_enabled: bool = Field(
+        default=True,
+        description="Kill-switch for EntryEvidenceLoop (ADR-0062).",
+    )
+    entry_evidence_interval: int = Field(
+        default=86400,
+        ge=3600,
+        le=604800,
+        description="Seconds between EntryEvidenceLoop ticks.",
+    )
+    entry_evidence_max_entries_per_tick: int = Field(
+        default=20,
+        ge=1,
+        le=200,
+        description=(
+            "Max wiki entries the loop sends to the LLM per tick — bounds "
+            "credit cost. Untracked entries roll over to the next tick."
+        ),
     )
 
     # Trust fleet — CorpusLearningLoop (spec §4.1 v2)
