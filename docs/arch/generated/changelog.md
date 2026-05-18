@@ -6,6 +6,18 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
+- `31d8e7e` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `0d3d203` — fix(persistence): ADR-0021 data layout + metrics path slug-doubling (closes slice 5.6 advisor-0ca7) *(2026-05-18)*
+- `4a5caa1` — fix(sandbox): also disable ResearchRunner — second claude-spawning caller (#8966) (#8966) *(2026-05-18)*
+- `6d35133` — fix(lint): ruff auto-fixes after staging rebase *(2026-05-18)*
+- `7ad3209` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `6badaf2` — fix(format): ruff format *(2026-05-18)*
+- `e80d302` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `d67e2b4` — fix: ruff auto-fixes (unused imports + import sort) *(2026-05-18)*
+- `990441b` — fix(format): ruff format *(2026-05-18)*
+- `47d4138` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `95b28e1` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `ff38501` — fix: ruff auto-fixes (unused imports + import sort) *(2026-05-18)*
 - `280478c` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
 - `b6e104d` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
 - `bcc0b25` — fix(contracts): widen Cassette._validate_adapter to accept all 9 known fakes (closes slice 5.7) *(2026-05-18)*
@@ -88,6 +100,11 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W20
 
+- `0c98560` — merge: reconcile main into staging (33 commits ahead) *(2026-05-16)*
+- `b1eafc5` — fix(staging): wire LiveCorpusReplayLoop + audit fixes — unblock RC promotion (#8939) (#8939) *(2026-05-16)*
+- `ef3b5f5` — chore(arch): regen arch + wiki artifacts from staging tip (#8926) (#8926) *(2026-05-16)*
+- `9bfce88` — docs(wiki): backfill 7 undocumented topics (closes slice 5.0 + 5.3 doc gaps) *(2026-05-12)*
+- `4ba1202` — docs(adr): promote 0031 + 0047 to Accepted (status drift fix from slice 5 audits) *(2026-05-12)*
 - `01ae95c` — fix(bg-loops): YAML resilience + auto-ensure PR labels (#8753) (#8753) *(2026-05-12)*
 - `92601fd` — audit: per-area review — Auto-Agent (slice 5.3) *(2026-05-12)*
 - `1f954c2` — docs(audit): per-area review — Hexagonal Boundaries (slice 5.2 of 5) *(2026-05-12)*
@@ -314,4 +331,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `629efbc` on 2026-05-15 18:13 UTC. Source last changed at `629efbc`. Status: 🟢 fresh._
+_Regenerated from commit `31d8e7e` on 2026-05-19 00:59 UTC. Source last changed at `31d8e7e`. Status: 🟢 fresh._
