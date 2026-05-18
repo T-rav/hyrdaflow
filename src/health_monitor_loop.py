@@ -486,7 +486,9 @@ class HealthMonitorLoop(BaseBackgroundLoop):
                 # event-dict construction (#6622).
                 logger.debug("EventBus enrichment failed", exc_info=True)
 
-            log_result = await file_log_patterns(patterns, known, self._config, self._obs)
+            log_result = await file_log_patterns(
+                patterns, known, self._config, self._obs
+            )
             save_known_patterns(self._config.memory_dir, known)
             self._last_log_scan = datetime.now(UTC)
 

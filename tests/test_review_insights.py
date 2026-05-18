@@ -874,7 +874,8 @@ class TestReviewInsightsSentryBreadcrumbs:
         results = analyze_patterns(records, threshold=3, obs=fake_obs)
         assert len(results) > 0
         pattern_bcs = [
-            b for b in fake_obs.breadcrumbs
+            b
+            for b in fake_obs.breadcrumbs
             if b["category"] == "review_insights.pattern_detected"
         ]
         assert len(pattern_bcs) >= 1

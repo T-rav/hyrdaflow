@@ -832,7 +832,9 @@ class TestTriageSentryBreadcrumbs:
         result = await runner.evaluate(issue)
         assert result.ready is True
         assert len(fake_obs.breadcrumbs) >= 1
-        evaluated_bcs = [b for b in fake_obs.breadcrumbs if b["category"] == "triage.evaluated"]
+        evaluated_bcs = [
+            b for b in fake_obs.breadcrumbs if b["category"] == "triage.evaluated"
+        ]
         assert len(evaluated_bcs) >= 1
         assert evaluated_bcs[0]["issue_id"] == 10
 
@@ -865,5 +867,7 @@ class TestTriageSentryBreadcrumbs:
         runner._obs = fake_obs
         result = await runner.evaluate(issue)
         assert result.ready is True  # Parse failures default to ready
-        parse_bcs = [b for b in fake_obs.breadcrumbs if b["category"] == "triage.parse_failed"]
+        parse_bcs = [
+            b for b in fake_obs.breadcrumbs if b["category"] == "triage.parse_failed"
+        ]
         assert len(parse_bcs) == 1

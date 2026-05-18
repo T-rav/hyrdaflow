@@ -113,7 +113,9 @@ class TestSentryAdapterForwarding:
     def test_set_measurement_with_unit(self, mock_sentry: MagicMock) -> None:
         adapter = SentryObservabilityAdapter()
         adapter.set_measurement("my.metric", 1.5, "millisecond")
-        mock_sentry.set_measurement.assert_called_once_with("my.metric", 1.5, "millisecond")
+        mock_sentry.set_measurement.assert_called_once_with(
+            "my.metric", 1.5, "millisecond"
+        )
 
 
 # ---------------------------------------------------------------------------
