@@ -1,4 +1,10 @@
-"""Verify all 20 phase-1+3b loops register via the catalog."""
+"""Verify every catalog builder registers successfully via the catalog.
+
+The loop list is derived from ``_BUILDERS`` so it stays in sync automatically
+when new builders are added. The CI completeness guard lives in
+``test_catalog_completeness.py``; this file only checks that each registered
+builder is retrievable from ``LoopCatalog`` after ``ensure_registered()``.
+"""
 
 from __future__ import annotations
 
@@ -7,47 +13,7 @@ from collections.abc import Iterator
 import pytest
 
 from tests.scenarios.catalog import LoopCatalog
-from tests.scenarios.catalog.loop_registrations import ensure_registered
-
-ALL_LOOPS = (
-    # phase 1 (6)
-    "ci_monitor",
-    "stale_issue_gc",
-    "dependabot_merge",
-    "pr_unsticker",
-    "health_monitor",
-    "workspace_gc",
-    # phase 3b (14)
-    "runs_gc",
-    "retrospective",
-    "adr_reviewer",
-    "github_cache",
-    "repo_wiki",
-    "sentry",
-    "diagnostic",
-    "code_grooming",
-    "report_issue",
-    "epic_sweeper",
-    "security_patch",
-    "stale_issue",
-    "epic_monitor",
-    "wiki_rot_detector",
-    # trust-arch caretaker fleet (§4.4–§4.8)
-    "principles_audit",
-    "flake_tracker",
-    "skill_prompt_eval",
-    "fake_coverage_auditor",
-    "rc_budget",
-    # trust-arch meta + attribution (§4.3 + §12.1)
-    "staging_bisect",
-    "trust_fleet_sanity",
-    # trust-arch contract refresh (§4.2)
-    "contract_refresh",
-    # trust-arch corpus learning (§4.1 v2)
-    "corpus_learning",
-    # auto-agent HITL pre-flight (ADR-0050)
-    "auto_agent_preflight",
-)
+from tests.scenarios.catalog.loop_registrations import _BUILDERS, ensure_registered
 
 
 @pytest.fixture(autouse=True)
@@ -56,6 +22,6 @@ def _ensure_registered() -> Iterator[None]:
     yield
 
 
-@pytest.mark.parametrize("name", ALL_LOOPS)
+@pytest.mark.parametrize("name", sorted(_BUILDERS.keys()))
 def test_loop_registered(name: str) -> None:
     assert LoopCatalog.is_registered(name), f"{name!r} not registered"

@@ -154,7 +154,7 @@ def _build_repo_wiki(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     return RepoWikiLoop(config=config, wiki_store=wiki_store, deps=deps)
 
 
-def _build_sentry(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+def _build_sentry_ingest(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     from sentry_loop import SentryLoop  # noqa: PLC0415
 
     return SentryLoop(config=config, prs=ports["github"], deps=deps)
@@ -978,6 +978,140 @@ def _build_contract_refresh(ports: dict[str, Any], config: Any, deps: Any) -> An
     return loop
 
 
+def _build_edge_proposer(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build EdgeProposerLoop for scenarios (ADR-0058).
+
+    The loop's external surface — ``_do_work`` shells to ``gh pr create`` /
+    ``git`` via ``OpenAutoPRBotPRPort`` — cannot run inside a unit scenario.
+    Tests seed a fake BotPRPort via ``edge_proposer_pr_port``, and a repo root
+    via ``edge_proposer_repo_root`` (defaults to ``config.repo_root``).
+    """
+    from edge_proposer_loop import EdgeProposerLoop  # noqa: PLC0415
+
+    pr_port = ports.get("edge_proposer_pr_port")
+    if pr_port is None:
+        pr_port = MagicMock()
+        pr_port.open_bot_pr = AsyncMock(return_value=0)
+        ports["edge_proposer_pr_port"] = pr_port
+
+    repo_root = ports.get("edge_proposer_repo_root") or config.repo_root
+    return EdgeProposerLoop(
+        config=config,
+        deps=deps,
+        pr_port=pr_port,
+        repo_root=repo_root,
+    )
+
+
+def _build_label_drift_watcher(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build LabelDriftWatcherLoop for scenarios (ADR-0056).
+
+    Minimal builder: the loop takes only ``pr_manager``; no state or dedup.
+    The ``pr_manager`` port falls back to ``ports['github']`` so the standard
+    FakeGitHub fixture is sufficient for smoke scenarios.
+    """
+    from label_drift_watcher_loop import LabelDriftWatcherLoop  # noqa: PLC0415
+
+    pr_manager = ports.get("pr_manager") or ports["github"]
+    return LabelDriftWatcherLoop(config=config, pr_manager=pr_manager, deps=deps)
+
+
+def _build_staging_promotion(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build StagingPromotionLoop for scenarios (ADR-0042).
+
+    The loop's external surface — ``gh pr create`` / ``gh pr merge`` /
+    ``gh api`` calls made through ``PRPort`` — cannot run live inside a
+    scenario. Tests seed a FakeGitHub via ``ports['github']`` and may
+    pre-seed ``staging_promotion_state`` to inspect cadence tracking.
+
+    ``staging_enabled`` is forced ``True`` so the loop's internal guard
+    doesn't short-circuit every tick in the scenario sandbox (mirrors
+    the ``_build_staging_bisect`` pattern).
+    """
+    from staging_promotion_loop import StagingPromotionLoop  # noqa: PLC0415
+
+    state = ports.get("staging_promotion_state") or MagicMock()
+    ports.setdefault("staging_promotion_state", state)
+
+    prs = ports.get("pr_manager") or ports["github"]
+
+    if not getattr(config, "staging_enabled", False):
+        object.__setattr__(config, "staging_enabled", True)
+
+    return StagingPromotionLoop(config=config, prs=prs, deps=deps, state=state)
+
+
+def _build_term_proposer(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build TermProposerLoop for scenarios (ADR-0054).
+
+    The loop calls an LLM (``TermProposerLLM``) and opens bot PRs via
+    ``BotPRPort``; neither can run live inside a scenario. Tests seed:
+
+    * ``term_proposer_llm`` — a ``TermProposerLLM`` instance (or duck-typed
+      substitute with a ``draft`` async method); defaults to a MagicMock.
+    * ``term_proposer_pr_port`` — a ``BotPRPort`` duck-type; defaults to a
+      MagicMock whose ``open_bot_pr`` resolves to ``0``.
+    * ``term_proposer_repo_root`` — ``Path``; defaults to ``config.repo_root``.
+    * ``term_proposer_dedup_path`` — ``Path``; defaults to a ``dedup.json``
+      under ``config.repo_root``.
+    """
+    from term_proposer_loop import TermProposerLoop  # noqa: PLC0415
+
+    llm = ports.get("term_proposer_llm")
+    if llm is None:
+        llm = MagicMock()
+        llm.draft = AsyncMock(return_value=[])
+        ports["term_proposer_llm"] = llm
+
+    pr_port = ports.get("term_proposer_pr_port")
+    if pr_port is None:
+        pr_port = MagicMock()
+        pr_port.open_bot_pr = AsyncMock(return_value=0)
+        ports["term_proposer_pr_port"] = pr_port
+
+    repo_root = ports.get("term_proposer_repo_root") or config.repo_root
+    dedup_path = ports.get("term_proposer_dedup_path") or (
+        config.repo_root / ".term_proposer_dedup.json"
+    )
+
+    return TermProposerLoop(
+        config=config,
+        deps=deps,
+        llm=llm,
+        pr_port=pr_port,
+        repo_root=repo_root,
+        dedup_path=dedup_path,
+    )
+
+
+def _build_term_pruner(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build TermPrunerLoop for scenarios (ADR-0057).
+
+    The loop opens bot PRs via ``BotPRPort``; this cannot run live inside a
+    scenario. Tests seed:
+
+    * ``term_pruner_pr_port`` — a ``BotPRPort`` duck-type; defaults to a
+      MagicMock whose ``open_bot_pr`` resolves to ``0``.
+    * ``term_pruner_repo_root`` — ``Path``; defaults to ``config.repo_root``.
+    """
+    from term_pruner_loop import TermPrunerLoop  # noqa: PLC0415
+
+    pr_port = ports.get("term_pruner_pr_port")
+    if pr_port is None:
+        pr_port = MagicMock()
+        pr_port.open_bot_pr = AsyncMock(return_value=0)
+        ports["term_pruner_pr_port"] = pr_port
+
+    repo_root = ports.get("term_pruner_repo_root") or config.repo_root
+
+    return TermPrunerLoop(
+        config=config,
+        deps=deps,
+        pr_port=pr_port,
+        repo_root=repo_root,
+    )
+
+
 def _build_diagram_loop(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     from diagram_loop import DiagramLoop  # noqa: PLC0415
 
@@ -1034,7 +1168,7 @@ _BUILDERS: dict[str, Any] = {
     "adr_reviewer": _build_adr_reviewer,
     "github_cache": _build_github_cache,
     "repo_wiki": _build_repo_wiki,
-    "sentry": _build_sentry,
+    "sentry_ingest": _build_sentry_ingest,
     "diagnostic": _build_diagnostic,
     "code_grooming": _build_code_grooming,
     "report_issue": _build_report_issue,
@@ -1068,6 +1202,14 @@ _BUILDERS: dict[str, Any] = {
     # auto-agent (spec §1–§11; ADR-0050)
     "auto_agent_preflight": _build_auto_agent_preflight,
     "sandbox_failure_fixer": _build_sandbox_failure_fixer,
+    # ubiquitous-language (ADR-0054 + ADR-0057 + ADR-0058)
+    "edge_proposer": _build_edge_proposer,
+    "term_proposer": _build_term_proposer,
+    "term_pruner": _build_term_pruner,
+    # label drift (ADR-0056)
+    "label_drift_watcher": _build_label_drift_watcher,
+    # staging promotion (ADR-0042)
+    "staging_promotion": _build_staging_promotion,
 }
 
 

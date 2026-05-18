@@ -9,45 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from tests.scenarios.catalog import LoopCatalog
-from tests.scenarios.catalog.loop_registrations import ensure_registered
-
-ALL_LOOPS = (
-    "ci_monitor",
-    "stale_issue_gc",
-    "dependabot_merge",
-    "pr_unsticker",
-    "health_monitor",
-    "workspace_gc",
-    "runs_gc",
-    "retrospective",
-    "adr_reviewer",
-    "github_cache",
-    "repo_wiki",
-    "sentry",
-    "diagnostic",
-    "code_grooming",
-    "report_issue",
-    "epic_sweeper",
-    "security_patch",
-    "stale_issue",
-    "epic_monitor",
-    "wiki_rot_detector",
-    # trust-arch caretaker fleet (§4.4–§4.8)
-    "principles_audit",
-    "flake_tracker",
-    "skill_prompt_eval",
-    "fake_coverage_auditor",
-    "rc_budget",
-    # trust-arch meta + attribution (§4.3 + §12.1)
-    "staging_bisect",
-    "trust_fleet_sanity",
-    # trust-arch contract refresh (§4.2)
-    "contract_refresh",
-    # trust-arch corpus learning (§4.1 v2)
-    "corpus_learning",
-    # auto-agent HITL pre-flight (ADR-0050)
-    "auto_agent_preflight",
-)
+from tests.scenarios.catalog.loop_registrations import _BUILDERS, ensure_registered
 
 
 @pytest.fixture(autouse=True)
@@ -56,7 +18,7 @@ def _ensure_registered() -> Iterator[None]:
     yield
 
 
-@pytest.mark.parametrize("name", ALL_LOOPS)
+@pytest.mark.parametrize("name", sorted(_BUILDERS.keys()))
 def test_loop_instantiates(tmp_path: Path, name: str) -> None:
     """Every loop builder returns an instance — no TypeError from signature drift.
 
@@ -84,6 +46,7 @@ def test_loop_instantiates(tmp_path: Path, name: str) -> None:
         "hindsight": MagicMock(),
         "sentry": MagicMock(),
         "clock": MagicMock(),
+        "state": MagicMock(),
     }
 
     try:

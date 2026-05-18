@@ -6,7 +6,8 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
-- `f6933e0` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `536d623` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `b714ab0` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
 - `dc79b3f` — chore(arch): regen arch artifacts from rebased staging tip *(2026-05-18)*
 - `f202e6e` — feat(arch): regenerable coverage_matrix generator for arch-regen (closes advisor-bpl parent bead) *(2026-05-18)*
 - `7f7792d` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
@@ -304,4 +305,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `f6933e0` on 2026-05-18 19:02 UTC. Source last changed at `f6933e0`. Status: 🟢 fresh._
+_Regenerated from commit `536d623` on 2026-05-18 19:03 UTC. Source last changed at `536d623`. Status: 🟢 fresh._
