@@ -59,6 +59,10 @@ class Credentials(BaseModel):
         default="",
         description="WhatsApp webhook verification token",
     )
+    whatsapp_app_secret: str = Field(
+        default="",
+        description="WhatsApp app secret used to verify X-Hub-Signature-256 webhook signatures",
+    )
 
 
 class ManagedRepo(BaseModel):
@@ -2651,6 +2655,7 @@ def build_credentials(config: HydraFlowConfig) -> Credentials:
         whatsapp_phone_id=os.environ.get("HYDRAFLOW_WHATSAPP_PHONE_ID", ""),
         whatsapp_recipient=os.environ.get("HYDRAFLOW_WHATSAPP_RECIPIENT", ""),
         whatsapp_verify_token=os.environ.get("HYDRAFLOW_WHATSAPP_VERIFY_TOKEN", ""),
+        whatsapp_app_secret=os.environ.get("HYDRAFLOW_WHATSAPP_APP_SECRET", ""),
     )
 
 

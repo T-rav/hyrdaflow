@@ -660,6 +660,7 @@ class CredentialsFactory:
         whatsapp_phone_id: str = "",
         whatsapp_recipient: str = "",
         whatsapp_verify_token: str = "",
+        whatsapp_app_secret: str = "",
     ) -> Credentials:
         """Create a Credentials with test-friendly defaults."""
         return Credentials(
@@ -671,6 +672,7 @@ class CredentialsFactory:
             whatsapp_phone_id=whatsapp_phone_id,
             whatsapp_recipient=whatsapp_recipient,
             whatsapp_verify_token=whatsapp_verify_token,
+            whatsapp_app_secret=whatsapp_app_secret,
         )
 
 
