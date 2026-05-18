@@ -13,7 +13,7 @@ from dedup_store import DedupStore
 from models import IsoTimestamp, ReviewVerdict
 
 if TYPE_CHECKING:
-    from ports import ReviewInsightStorePort  # noqa: TCH004
+    from ports import ObservabilityPort, ReviewInsightStorePort  # noqa: TCH004
 
 logger = logging.getLogger("hydraflow.review_insights")
 
@@ -205,13 +205,19 @@ def extract_categories(summary: str) -> list[str]:
 class ReviewInsightStore:
     """File-backed store for review records and proposed-category tracking."""
 
-    def __init__(self, memory_dir: Path) -> None:
+    def __init__(
+        self,
+        memory_dir: Path,
+        *,
+        observability: ObservabilityPort | None = None,
+    ) -> None:
         self._memory_dir = memory_dir
         self._reviews_path = memory_dir / "reviews.jsonl"
         self._proposed = DedupStore(
             "proposed_categories",
             memory_dir / "proposed_categories.json",
         )
+        self._obs: ObservabilityPort | None = observability
 
     def append_review(self, record: ReviewRecord) -> None:
         """Append *record* as a JSON line to ``reviews.jsonl``."""
@@ -226,17 +232,14 @@ class ReviewInsightStore:
                 exc_info=True,
             )
 
-        try:
-            import sentry_sdk as _sentry
-
-            _sentry.add_breadcrumb(
-                category="review_insights.recorded",
-                message=f"Review insight recorded for PR #{record.pr_number}",
+        if self._obs is not None:
+            self._obs.breadcrumb(
+                "review_insights.recorded",
+                f"Review insight recorded for PR #{record.pr_number}",
                 level="info",
-                data={"pr_number": record.pr_number, "verdict": str(record.verdict)},
+                pr_number=record.pr_number,
+                verdict=str(record.verdict),
             )
-        except ImportError:
-            pass
 
     def load_recent(self, n: int = 10) -> list[ReviewRecord]:
         """Load the last *n* review records from disk."""
@@ -331,6 +334,7 @@ class ReviewInsightStore:
 def analyze_patterns(
     records: list[ReviewRecord],
     threshold: int = 3,
+    obs: ObservabilityPort | None = None,
 ) -> list[tuple[str, int, list[ReviewRecord]]]:
     """Identify recurring feedback categories above *threshold*.
 
@@ -357,18 +361,15 @@ def analyze_patterns(
         if count >= threshold
     ]
 
-    for cat, count, _recs in results:
-        try:
-            import sentry_sdk as _sentry
-
-            _sentry.add_breadcrumb(
-                category="review_insights.pattern_detected",
-                message=f"Review pattern detected: {cat} ({count} occurrences)",
+    if obs is not None:
+        for cat, count, _recs in results:
+            obs.breadcrumb(
+                "review_insights.pattern_detected",
+                f"Review pattern detected: {cat} ({count} occurrences)",
                 level="warning",
-                data={"category": cat, "count": count},
+                pattern_category=cat,
+                count=count,
             )
-        except ImportError:
-            pass
 
     return results
 

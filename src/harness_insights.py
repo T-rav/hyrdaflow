@@ -19,6 +19,7 @@ from models import IsoTimestamp, PipelineStage
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
+    from ports import ObservabilityPort
 
 logger = logging.getLogger("hydraflow.harness_insights")
 
@@ -144,6 +145,7 @@ class HarnessInsightStore:
         memory_dir: Path,
         *,
         sensor_enrichment_enabled: bool = True,
+        observability: ObservabilityPort | None = None,
     ) -> None:
         from dedup_store import DedupStore  # noqa: PLC0415
 
@@ -154,6 +156,7 @@ class HarnessInsightStore:
             memory_dir / "harness_proposed.json",
         )
         self._sensor_enrichment_enabled = sensor_enrichment_enabled
+        self._obs: ObservabilityPort | None = observability
 
     def _enrich_record_hints(self, record: FailureRecord) -> None:
         """Populate ``record.hints`` from matching sensor rules.
@@ -210,17 +213,14 @@ class HarnessInsightStore:
                 exc_info=True,
             )
 
-        try:
-            import sentry_sdk as _sentry
-
-            _sentry.add_breadcrumb(
-                category="harness_insights.failure_recorded",
-                message=f"Harness failure recorded: {record.category}",
+        if self._obs is not None:
+            self._obs.breadcrumb(
+                "harness_insights.failure_recorded",
+                f"Harness failure recorded: {record.category}",
                 level="info",
-                data={"category": str(record.category), "stage": str(record.stage)},
+                failure_category=str(record.category),
+                stage=str(record.stage),
             )
-        except ImportError:
-            pass
 
     def load_recent(self, n: int = 20) -> list[FailureRecord]:
         """Load the last *n* failure records from disk."""

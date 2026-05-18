@@ -23,7 +23,7 @@ from dedup_store import DedupStore
 
 if TYPE_CHECKING:
     from bg_worker_manager import BGWorkerManager
-    from ports import PRPort
+    from ports import ObservabilityPort, PRPort
     from retrospective_queue import RetrospectiveQueue
     from state import StateTracker
 
@@ -318,6 +318,7 @@ class HealthMonitorLoop(BaseBackgroundLoop):
         retrospective_queue: RetrospectiveQueue | None = None,
         state: StateTracker | None = None,
         bg_workers: BGWorkerManager | None = None,
+        observability: ObservabilityPort | None = None,
     ) -> None:
         super().__init__(
             worker_name="health_monitor",
@@ -333,6 +334,7 @@ class HealthMonitorLoop(BaseBackgroundLoop):
         # registry, so orchestrator injects it via ``set_bg_workers``.
         self._state: StateTracker | None = state
         self._bg_workers: BGWorkerManager | None = bg_workers
+        self._obs: ObservabilityPort | None = observability
         # Dedup for the dead-man-switch so we file one sanity-loop-stalled
         # issue per stall event, not one per health_monitor tick.
         self._sanity_stall_dedup = DedupStore(
@@ -484,7 +486,9 @@ class HealthMonitorLoop(BaseBackgroundLoop):
                 # event-dict construction (#6622).
                 logger.debug("EventBus enrichment failed", exc_info=True)
 
-            log_result = await file_log_patterns(patterns, known, self._config)
+            log_result = await file_log_patterns(
+                patterns, known, self._config, self._obs
+            )
             save_known_patterns(self._config.memory_dir, known)
             self._last_log_scan = datetime.now(UTC)
 
@@ -676,22 +680,16 @@ class HealthMonitorLoop(BaseBackgroundLoop):
                     new_val,
                     condition_key,
                 )
-                try:
-                    import sentry_sdk  # noqa: PLC0415
-
-                    sentry_sdk.add_breadcrumb(
-                        category="memory.auto_adjust",
-                        message=f"Adjusted {parameter}: {current_val} → {new_val}",
+                if self._obs is not None:
+                    self._obs.breadcrumb(
+                        "memory.auto_adjust",
+                        f"Adjusted {parameter}: {current_val} → {new_val}",
                         level="warning",
-                        data={
-                            "parameter": parameter,
-                            "before": current_val,
-                            "after": new_val,
-                            "reason": record["reason"],
-                        },
+                        parameter=parameter,
+                        before=current_val,
+                        after=new_val,
+                        reason=record["reason"],
                     )
-                except ImportError:
-                    pass
 
                 self._pending.append(
                     PendingAdjustment(
@@ -904,15 +902,11 @@ class HealthMonitorLoop(BaseBackgroundLoop):
                         logger.debug(
                             "Failed to write HITL recommendation", exc_info=True
                         )
-                    try:
-                        import sentry_sdk  # noqa: PLC0415
-
-                        sentry_sdk.capture_message(
+                    if self._obs is not None:
+                        self._obs.capture_message(
                             f"Health monitor filed HITL recommendation: {metric_name}",
                             level="warning",
                         )
-                    except ImportError:
-                        pass
                 except Exception:  # noqa: BLE001
                     logger.warning(
                         "Failed to file HITL recommendation for %s",
@@ -952,8 +946,8 @@ class HealthMonitorLoop(BaseBackgroundLoop):
     # Sentry metrics
     # ------------------------------------------------------------------
 
-    @staticmethod
     def _emit_sentry_metrics(
+        self,
         metrics: TrendMetrics,
         *,
         gap_count: int = 0,
@@ -963,32 +957,27 @@ class HealthMonitorLoop(BaseBackgroundLoop):
         log_patterns_escalating: int = 0,
         hitl_recommendations_count: int = 0,
     ) -> None:
-        try:
-            import sentry_sdk  # noqa: PLC0415
-
-            sentry_sdk.set_measurement("memory.avg_score", metrics.avg_memory_score)
-            sentry_sdk.set_measurement(
-                "memory.first_pass_rate", metrics.first_pass_rate
-            )
-            sentry_sdk.set_measurement("memory.surprise_rate", metrics.surprise_rate)
-            sentry_sdk.set_measurement(
-                "memory.stale_items", float(metrics.stale_item_count)
-            )
-            sentry_sdk.set_measurement("memory.knowledge_gaps", gap_count)
-            sentry_sdk.set_measurement("memory.auto_adjustments", adjustment_count)
-            sentry_sdk.set_measurement("memory.log_patterns_total", log_patterns_total)
-            sentry_sdk.set_measurement("memory.log_patterns_novel", log_patterns_novel)
-            sentry_sdk.set_measurement(
-                "memory.log_patterns_escalating", log_patterns_escalating
-            )
-            sentry_sdk.set_measurement(
-                "memory.hitl_recommendations_unactioned",
-                hitl_recommendations_count,
-            )
-        except ImportError:
-            pass
-        except Exception:  # noqa: BLE001
-            logger.debug("Sentry metric emission failed", exc_info=True)
+        if self._obs is None:
+            return
+        self._obs.set_measurement("memory.avg_score", metrics.avg_memory_score)
+        self._obs.set_measurement("memory.first_pass_rate", metrics.first_pass_rate)
+        self._obs.set_measurement("memory.surprise_rate", metrics.surprise_rate)
+        self._obs.set_measurement("memory.stale_items", float(metrics.stale_item_count))
+        self._obs.set_measurement("memory.knowledge_gaps", float(gap_count))
+        self._obs.set_measurement("memory.auto_adjustments", float(adjustment_count))
+        self._obs.set_measurement(
+            "memory.log_patterns_total", float(log_patterns_total)
+        )
+        self._obs.set_measurement(
+            "memory.log_patterns_novel", float(log_patterns_novel)
+        )
+        self._obs.set_measurement(
+            "memory.log_patterns_escalating", float(log_patterns_escalating)
+        )
+        self._obs.set_measurement(
+            "memory.hitl_recommendations_unactioned",
+            float(hitl_recommendations_count),
+        )
 
     # ------------------------------------------------------------------
     # Dead-man-switch for TrustFleetSanityLoop (spec §12.1)

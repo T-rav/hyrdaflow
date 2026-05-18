@@ -12,6 +12,10 @@ Extracted from ``phase_utils`` as part of the architecture layering fix
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ports import ObservabilityPort
 
 logger = logging.getLogger("exception_classify")
 
@@ -34,8 +38,30 @@ def is_likely_bug(exc: BaseException) -> bool:
     return isinstance(exc, LIKELY_BUG_EXCEPTIONS)
 
 
-def capture_if_bug(exc: Exception, **context: object) -> None:
-    """Send to Sentry only if the exception looks like a real bug."""
+def capture_if_bug(
+    exc: Exception,
+    obs: ObservabilityPort | None = None,
+    **context: object,
+) -> None:
+    """Send to the observability port only if the exception looks like a real bug.
+
+    When *obs* is ``None`` the function falls back to a direct ``sentry_sdk``
+    import for backwards-compatibility with call sites that have not yet been
+    threaded an injected port.
+    """
+    if obs is not None:
+        if is_likely_bug(exc):
+            obs.capture_exception(exc)
+        else:
+            obs.breadcrumb(
+                "transient_error",
+                str(exc)[:500],
+                level="warning",
+                **context,
+            )
+        return
+
+    # Legacy path: direct sentry_sdk import for call sites without an injected port.
     try:
         import sentry_sdk  # noqa: PLC0415
 

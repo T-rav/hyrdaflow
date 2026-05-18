@@ -12,10 +12,14 @@ import logging
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from models import IsoTimestamp
+
+if TYPE_CHECKING:
+    from ports import ObservabilityPort
 
 logger = logging.getLogger("hydraflow.troubleshooting_store")
 
@@ -56,9 +60,12 @@ class TroubleshootingPatternStore:
     def __init__(
         self,
         memory_dir: Path,
+        *,
+        observability: ObservabilityPort | None = None,
     ) -> None:
         self._memory_dir = memory_dir
         self._path = memory_dir / "troubleshooting_patterns.jsonl"
+        self._obs: ObservabilityPort | None = observability
 
     def append_pattern(self, pattern: TroubleshootingPattern) -> None:
         """Append or merge *pattern* into the store.
@@ -90,20 +97,14 @@ class TroubleshootingPatternStore:
         # dedup, Hindsight for semantic recall.
         self._write_all(all_patterns)
 
-        try:
-            import sentry_sdk as _sentry
-
-            _sentry.add_breadcrumb(
-                category="troubleshooting.pattern_stored",
-                message=f"Troubleshooting pattern stored: {pattern.pattern_name}",
+        if self._obs is not None:
+            self._obs.breadcrumb(
+                "troubleshooting.pattern_stored",
+                f"Troubleshooting pattern stored: {pattern.pattern_name}",
                 level="info",
-                data={
-                    "language": pattern.language,
-                    "pattern_name": pattern.pattern_name,
-                },
+                language=pattern.language,
+                pattern_name=pattern.pattern_name,
             )
-        except ImportError:
-            pass
 
     def load_patterns(
         self, *, language: str | None = None, limit: int | None = 10

@@ -13,6 +13,8 @@ graph LR
     IssueStorePort --> CachingIssueStore
     IssueStorePort --> IssueStore
     IssueStorePort -.-> FakeIssueStore
+    ObservabilityPort --> SentryObservabilityAdapter
+    ObservabilityPort -.-> FakeSentry
     PRPort --> PRManager
     PRPort -.-> FakePR
     ReviewInsightStorePort --> ReviewInsightStore
@@ -59,9 +61,10 @@ graph LR
 ### ObservabilityPort
 
 - Module: `src.ports`
-- Methods: `breadcrumb`, `capture_exception`, `flush`
-- Adapters: —
-- Fake: ⚠️ no fake (every Port needs a fake per ADR-0047)
+- Methods: `breadcrumb`, `capture_exception`, `capture_message`, `flush`, `set_measurement`
+- Adapters:
+  - `SentryObservabilityAdapter` (`src.observability.sentry_adapter`)
+- Fake: `FakeSentry` (`mockworld.fakes.fake_sentry`)
 
 ### PRPort
 
@@ -95,4 +98,4 @@ graph LR
   - `WorkspaceManager` (`src.workspace`)
 - Fake: `FakeWorkspace` (`mockworld.fakes.fake_workspace`)
 
-_Regenerated from commit `28d5c30` on 2026-05-18 23:30 UTC. Source last changed at `28d5c30`. Status: 🟢 fresh._
+_Regenerated from commit `8cec6db` on 2026-05-18 23:39 UTC. Source last changed at `8cec6db`. Status: 🟢 fresh._

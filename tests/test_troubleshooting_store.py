@@ -382,14 +382,15 @@ TROUBLESHOOTING_PATTERN_END
 
 
 class TestTroubleshootingSentryBreadcrumbs:
-    """Sentry breadcrumb emitted when a pattern is stored."""
+    """Observability breadcrumb emitted when a pattern is stored."""
 
     def test_append_pattern_adds_breadcrumb(self, tmp_path: Path) -> None:
-        from unittest.mock import MagicMock, patch
+        from mockworld.fakes.fake_sentry import FakeSentry
 
         memory_dir = tmp_path / "memory"
         memory_dir.mkdir()
-        store = TroubleshootingPatternStore(memory_dir)
+        fake_obs = FakeSentry()
+        store = TroubleshootingPatternStore(memory_dir, observability=fake_obs)
         pattern = TroubleshootingPattern(
             language="python",
             pattern_name="test_pattern",
@@ -397,11 +398,9 @@ class TestTroubleshootingSentryBreadcrumbs:
             fix_strategy="fix",
         )
 
-        sentry_mock = MagicMock()
-        with patch.dict("sys.modules", {"sentry_sdk": sentry_mock}):
-            store.append_pattern(pattern)
-            assert sentry_mock.add_breadcrumb.called
-            kw = sentry_mock.add_breadcrumb.call_args[1]
-            assert kw["category"] == "troubleshooting.pattern_stored"
-            assert kw["data"]["language"] == "python"
-            assert kw["data"]["pattern_name"] == "test_pattern"
+        store.append_pattern(pattern)
+        assert len(fake_obs.breadcrumbs) >= 1
+        bc = fake_obs.breadcrumbs[0]
+        assert bc["category"] == "troubleshooting.pattern_stored"
+        assert bc["language"] == "python"
+        assert bc["pattern_name"] == "test_pattern"
