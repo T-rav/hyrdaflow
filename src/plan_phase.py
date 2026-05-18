@@ -131,6 +131,8 @@ class PlanPhase:
 
     def _should_research(self) -> bool:
         """Return True if research should run before planning."""
+        if not getattr(self._config, "research_enabled", True):
+            return False
         return self._research_runner is not None
 
     async def _handle_already_satisfied(self, issue: Task, result: PlanResult) -> bool:

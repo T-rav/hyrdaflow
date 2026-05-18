@@ -1546,6 +1546,14 @@ class HydraFlowConfig(BaseModel):
         description="Upload screenshot gists as public (True) or secret/unlisted (False)",
     )
 
+    # Research before planning. ResearchRunner spawns a real ``claude``
+    # subprocess; disabling lets the sandbox skip that subprocess in the
+    # air-gapped container. Production defaults to True.
+    research_enabled: bool = Field(
+        default=True,
+        description="Run ResearchRunner before PlanPhase to inject codebase context",
+    )
+
     # Transcript summarization
     transcript_summarization_enabled: bool = Field(
         default=True,
