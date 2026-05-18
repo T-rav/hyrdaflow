@@ -1832,6 +1832,9 @@ class StateData(BaseModel):
     adr_audit_cursor: str = Field(default="")
     adr_audit_attempts: dict[str, int] = Field(default_factory=dict)
     memory_backlog_attempts: dict[str, int] = Field(default_factory=dict)
+    # LiveCorpusReplayLoop (#8786 Phase 3) — per-drift-signature attempt
+    # counters for the 3-attempt escalation chain.
+    live_corpus_drift_attempts: dict[str, int] = Field(default_factory=dict)
     escalation_contexts: dict[str, dict[str, object]] = Field(default_factory=dict)
     diagnostic_attempts: dict[str, list[dict[str, object]]] = Field(
         default_factory=dict

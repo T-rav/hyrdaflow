@@ -70,77 +70,25 @@ def _load_yaml(path: Path) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
-def test_record_github_invokes_gh_api_with_sandbox_repo(tmp_path: Path) -> None:
-    """``record_github`` shells out to ``gh`` against the sandbox repo."""
-    calls: list[list[str]] = []
-
-    def fake_run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        calls.append(list(argv))
-        return _completed(argv=argv, stdout='[{"number": 1}]\n')
-
-    with patch("contract_recording.subprocess.run", side_effect=fake_run):
+def test_record_github_is_no_op(tmp_path: Path) -> None:
+    """``record_github`` is intentionally a no-op pending shape-aligned
+    read-only recording. It must return [] without invoking subprocess —
+    github cassettes are hand-authored baselines (see
+    tests/trust/contracts/cassettes/github/README.md)."""
+    with patch("contract_recording.subprocess.run") as run_mock:
         paths = record_github(
             sandbox_repo="T-rav-Hydra-Ops/hydraflow-contracts-sandbox",
             tmp_cassette_dir=tmp_path,
         )
 
-    assert len(paths) == 1
-    # First call must be ``gh`` with the sandbox repo slug — we pin the
-    # subcommand enough that an accidental ``gh repo view`` swap trips this.
-    first = calls[0]
-    assert first[0] == "gh"
-    assert "T-rav-Hydra-Ops/hydraflow-contracts-sandbox" in first
-    assert "--json" in first or "api" in first[1]
-
-
-def test_record_github_writes_schema_valid_cassette(tmp_path: Path) -> None:
-    """The YAML written by ``record_github`` round-trips through ``Cassette``."""
-    with patch(
-        "contract_recording.subprocess.run",
-        side_effect=lambda argv, **_: _completed(
-            argv=argv, stdout='[{"number": 1, "title": "t"}]\n'
-        ),
-    ):
-        paths = record_github(
-            sandbox_repo="T-rav-Hydra-Ops/hydraflow-contracts-sandbox",
-            tmp_cassette_dir=tmp_path,
-        )
-
-    assert paths, "recorder must write at least one cassette"
-    for path in paths:
-        assert path.parent == tmp_path
-        assert path.suffix == ".yaml"
-        cassette = Cassette.model_validate(_load_yaml(path))
-        assert cassette.adapter == "github"
-        assert cassette.fixture_repo == "T-rav-Hydra-Ops/hydraflow-contracts-sandbox"
-
-
-def test_record_github_returns_empty_when_gh_missing(tmp_path: Path) -> None:
-    """``FileNotFoundError`` (missing ``gh``) yields an empty list, not a raise."""
-    with patch(
-        "contract_recording.subprocess.run",
-        side_effect=FileNotFoundError("gh not installed"),
-    ):
-        paths = record_github(
-            sandbox_repo="T-rav-Hydra-Ops/hydraflow-contracts-sandbox",
-            tmp_cassette_dir=tmp_path,
-        )
     assert paths == []
-
-
-def test_record_github_returns_empty_on_nonzero_exit(tmp_path: Path) -> None:
-    """A non-zero ``gh`` exit is treated as a failed recording (empty list)."""
-    with patch(
-        "contract_recording.subprocess.run",
-        side_effect=lambda argv, **_: _completed(
-            argv=argv, stderr="network error\n", returncode=1
-        ),
-    ):
-        paths = record_github(
-            sandbox_repo="T-rav-Hydra-Ops/hydraflow-contracts-sandbox",
-            tmp_cassette_dir=tmp_path,
-        )
-    assert paths == []
+    assert run_mock.call_count == 0, (
+        "record_github must not shell out — github corpus is hand-authored"
+    )
+    # tmp_cassette_dir must remain pristine.
+    assert not any(tmp_path.iterdir()), (
+        f"record_github must not write any files; found {list(tmp_path.iterdir())}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -390,12 +338,8 @@ def test_record_claude_stream_returns_empty_when_stdout_blank(tmp_path: Path) ->
 @pytest.mark.parametrize(
     "recorder_args",
     [
-        (
-            record_github,
-            {
-                "sandbox_repo": "T-rav-Hydra-Ops/hydraflow-contracts-sandbox",
-            },
-        ),
+        # record_github is a no-op (see test_record_github_is_no_op);
+        # it doesn't shell out so it can't log a missing-binary warning.
         (record_docker, {}),
         (record_claude_stream, {}),
     ],
@@ -455,14 +399,9 @@ def test_recorders_invoke_subprocess_run_with_text_capture(tmp_path: Path) -> No
     sandbox = tmp_path / "sbx"
     sandbox.mkdir()
 
+    # record_github is a no-op so subprocess.run is never invoked for it
+    # — exclude from this contract test.
     for recorder, kwargs in (
-        (
-            record_github,
-            {
-                "sandbox_repo": "x/y",
-                "tmp_cassette_dir": cassette_dir,
-            },
-        ),
         (record_git, {"sandbox_dir": sandbox, "tmp_cassette_dir": cassette_dir}),
         (record_docker, {"tmp_cassette_dir": cassette_dir}),
         (record_claude_stream, {"tmp_stream_dir": cassette_dir}),

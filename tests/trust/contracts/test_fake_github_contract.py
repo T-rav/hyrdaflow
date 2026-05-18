@@ -24,7 +24,7 @@ from tests.trust.contracts._schema import Cassette
 _CASSETTE_DIR = Path(__file__).parent / "cassettes" / "github"
 
 
-async def _invoke_fake_github(cassette: Cassette) -> FakeOutput:
+async def _invoke_fake_github(cassette: Cassette) -> FakeOutput:  # noqa: PLR0911
     """Dispatch the cassette input through FakeGitHub's matching method."""
     fake = FakeGitHub()
     method = cassette.input.command
@@ -56,6 +56,30 @@ async def _invoke_fake_github(cassette: Cassette) -> FakeOutput:
         await fake.close_task(n)
         assert fake._issues[n].state == "closed"
         return FakeOutput(exit_code=0, stdout="", stderr=f"✓ Closed issue #{n}\n")
+
+    if method == "create_task":
+        title = str(args[0])
+        body = str(args[1]) if len(args) > 1 else ""
+        # FakeGitHub.create_task seeds an issue starting at 9001 when the
+        # store is empty; the cassette hard-codes that initial value so the
+        # contract is deterministic.
+        new_number = await fake.create_task(title, body)
+        return FakeOutput(
+            exit_code=0,
+            stdout=f"https://github.com/test-org/test-repo/issues/{new_number}\n",
+            stderr="",
+        )
+
+    if method == "add_labels":
+        issue_number = int(args[0])
+        fake.add_issue(issue_number, "Seed issue", "")
+        labels = [str(a) for a in args[1:]]
+        await fake.add_labels(issue_number, labels)
+        return FakeOutput(exit_code=0, stdout="", stderr="")
+
+    if method == "ensure_labels_exist":
+        await fake.ensure_labels_exist()
+        return FakeOutput(exit_code=0, stdout="", stderr="")
 
     msg = f"FakeGitHub has no contract-tested method {method!r}"
     raise NotImplementedError(msg)

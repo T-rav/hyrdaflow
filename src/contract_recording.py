@@ -153,8 +153,31 @@ def _build_cassette_payload(
 
 
 def _write_yaml_cassette(path: Path, payload: dict[str, Any]) -> None:
-    """Serialize *payload* to *path* as YAML (mirrors ``_schema.dump_cassette``)."""
+    """Serialize *payload* to *path* as YAML (mirrors ``_schema.dump_cassette``).
+
+    Refuses to overwrite an existing cassette whose ``output.stdout`` was
+    non-empty with a new payload whose ``output.stdout`` is empty — that
+    almost always means the recorder ran in a degenerate context
+    (suppressed output, broken pipe, locale weirdness) and the existing
+    cassette is the better contract. Logs a WARN so the skip is visible
+    in operator logs instead of going silent.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    new_stdout = (payload.get("output") or {}).get("stdout") or ""
+    if not new_stdout and path.exists():
+        try:
+            existing = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            existing = {}
+        existing_stdout = (existing.get("output") or {}).get("stdout") or ""
+        if existing_stdout:
+            logger.warning(
+                "contract_recording: refusing to overwrite %s — new stdout is "
+                "empty but existing cassette has non-empty stdout (likely "
+                "degenerate recording context)",
+                path,
+            )
+            return
     with path.open("w", encoding="utf-8") as fh:
         yaml.safe_dump(payload, fh, sort_keys=False, default_flow_style=False)
 
@@ -218,48 +241,36 @@ def _require_success(
 
 
 def record_github(sandbox_repo: str, tmp_cassette_dir: Path) -> list[Path]:
-    """Record cassettes for the GitHub adapter.
+    """No-op: the GitHub cassette corpus is hand-authored.
 
-    Runs a stable, read-only ``gh pr list`` against *sandbox_repo* (see
-    Task 0 — ``T-rav-Hydra-Ops/hydraflow-contracts-sandbox``) so the shape
-    of ``gh``'s JSON output is captured without side-effects on the
-    sandbox.
+    See ``tests/trust/contracts/cassettes/github/README.md`` for the
+    two-tier corpus design. Briefly: every github cassette is a
+    hand-authored baseline (``recorder_sha: "00000000"``) because the call
+    shapes the fakes contract-test against are predominantly *mutating*
+    ops (``gh pr create``, ``gh pr merge``, ``gh issue create``, ``gh issue
+    close``, ``gh label create``) — recording those live would pollute the
+    shared sandbox repo with every refresh tick.
 
-    Returns the list of YAML cassette paths written to
-    *tmp_cassette_dir*. Returns ``[]`` if ``gh`` is missing, the call
-    exits non-zero, or any other subprocess error occurs.
+    An earlier version of this recorder ran ``gh pr list`` and wrote a
+    ``pr_list.yaml`` tagged ``command: list_issues_by_label`` to the temp
+    dir. Two problems with that: (1) the shape of ``gh pr list`` (PR
+    objects with ``state``) does not align with
+    ``FakeGitHub.list_issues_by_label`` (issue objects), so the cassette
+    could never replay through the fake; (2) no ``pr_list.yaml`` was
+    committed to ``tests/trust/contracts/cassettes/github/``, so the
+    refresh loop would propose ``new_cassettes=[pr_list.yaml]`` and
+    ``deleted_cassettes=[every hand-authored cassette]`` every single
+    tick. Removed.
+
+    Returning ``[]`` here is a deliberate signal to the refresh loop: the
+    github diff bucket is always empty, no refresh PR is opened. The
+    ``sandbox_repo`` and ``tmp_cassette_dir`` parameters are preserved
+    for API stability with sibling recorders. A follow-up will replace
+    this no-op with shape-aligned read-only recordings once the
+    contracts sandbox repo is reliably provisioned in CI.
     """
-    tmp_cassette_dir = Path(tmp_cassette_dir)
-    tmp_cassette_dir.mkdir(parents=True, exist_ok=True)
-
-    argv = [
-        "gh",
-        "pr",
-        "list",
-        "--repo",
-        sandbox_repo,
-        "--json",
-        "number,title,state",
-    ]
-    proc = _run(argv)
-    if not _require_success(proc, label="gh pr list"):
-        return []
-    assert proc is not None  # for the type checker — guarded above
-
-    payload = _build_cassette_payload(
-        adapter="github",
-        interaction="pr_list",
-        fixture_repo=sandbox_repo,
-        command="list_issues_by_label",
-        args=[],
-        exit_code=proc.returncode,
-        stdout=proc.stdout,
-        stderr=proc.stderr,
-        normalizers=["pr_number", "timestamps.ISO8601", "sha:short"],
-    )
-    path = tmp_cassette_dir / "pr_list.yaml"
-    _write_yaml_cassette(path, payload)
-    return [path]
+    del sandbox_repo, tmp_cassette_dir
+    return []
 
 
 def record_git(sandbox_dir: Path, tmp_cassette_dir: Path) -> list[Path]:
@@ -282,7 +293,10 @@ def record_git(sandbox_dir: Path, tmp_cassette_dir: Path) -> list[Path]:
 
     sandbox_str = str(sandbox_dir)
 
-    init = _run(["git", "-C", sandbox_str, "init", "-q"])
+    # ``-b main`` forces the initial branch regardless of the host's
+    # ``init.defaultBranch`` (some systems still ship ``master``) so the
+    # recording matches the ``[main <sha>] initial`` line the fake emits.
+    init = _run(["git", "-C", sandbox_str, "init", "-q", "-b", "main"])
     if not _require_success(init, label="git init"):
         return []
 
@@ -290,6 +304,9 @@ def record_git(sandbox_dir: Path, tmp_cassette_dir: Path) -> list[Path]:
     if not _require_success(add, label="git add"):
         return []
 
+    # NOTE: no ``-q`` — the cassette must capture the ``[main <sha>] initial``
+    # confirmation line that ``FakeGit.commit`` emulates. ``-q`` suppresses
+    # that line and produced empty-stdout cassettes that broke replay.
     commit = _run(
         [
             "git",
@@ -300,7 +317,6 @@ def record_git(sandbox_dir: Path, tmp_cassette_dir: Path) -> list[Path]:
             "-c",
             "user.name=contract-refresh",
             "commit",
-            "-q",
             "-m",
             "initial",
         ]

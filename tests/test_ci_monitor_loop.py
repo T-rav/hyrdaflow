@@ -144,3 +144,24 @@ class TestCIMonitorLoop:
         """_get_default_interval reads from config."""
         loop, _stop, _pr = _make_loop(tmp_path)
         assert loop._get_default_interval() == loop._config.ci_monitor_interval
+
+    @pytest.mark.asyncio
+    async def test_failed_issue_creation_does_not_track_phantom_zero(
+        self, tmp_path: Path
+    ) -> None:
+        """When create_issue returns 0 (failure sentinel — e.g. missing label),
+        the loop must not store 0 as ``_open_issue``.  Otherwise every later cycle
+        emits ``gh issue comment 0`` / ``gh issue close 0`` calls that GitHub
+        rejects with "Could not resolve to an issue or pull request with the
+        number of 0"."""
+        loop, _stop, pr = _make_loop(tmp_path)
+        pr.get_latest_ci_status.return_value = ("failure", "https://github.com/runs/1")
+        pr.create_issue = AsyncMock(return_value=0)
+
+        result = await loop._do_work()
+
+        assert result is not None
+        assert result["status"] == "red"
+        assert result.get("error") is True
+        assert "issue_created" not in result
+        assert loop._open_issue is None

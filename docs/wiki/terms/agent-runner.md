@@ -5,13 +5,13 @@ kind: "runner"
 bounded_context: "builder"
 code_anchor: "src/agent.py:AgentRunner"
 aliases: ["agent runner", "implement runner", "claude agent runner"]
-related: [{"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K7"}, {"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K8"}, {"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K9"}]
+related: [{"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K7"}, {"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K8"}, {"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K9"}, {"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K2"}, {"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K6"}, {"kind": "depends_on", "target": "01KR1GDECRP5Z9X3HNGX3XFS8B"}, {"kind": "depends_on", "target": "01KQV37D10M06PGF32CF77W6K3"}]
 evidence: []
 superseded_by: null
 superseded_reason: null
 confidence: "accepted"
 created_at: "2026-05-05T03:35:36.668798+00:00"
-updated_at: "2026-05-05T03:35:36.668799+00:00"
+updated_at: "2026-05-16T23:48:13.299804+00:00"
 ---
 
 ## Definition
