@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Accepted on:** 2026-05-12 — promoted after slice #5 audit confirmed live production usage.
 **Date:** 2026-04-04
-**Enforced by:** `tests/test_discover_phase.py`; `tests/test_shape_phase.py`; `tests/test_discover_runner.py`; `tests/test_shape_runner.py`; `tests/scenarios/test_discover_*` and `tests/scenarios/test_shape_*` scenarios; `tests/architecture/test_functional_area_coverage.py` (which asserts discover/shape phases are wired).
+**Enforced by:** tests/test_discover_phase.py, tests/test_shape_phase.py, tests/test_discover_runner.py, tests/test_shape_runner.py, tests/architecture/test_functional_area_coverage.py
 
 ## Context
 
