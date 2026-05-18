@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
 
-from models import LifetimeStats, StateData
+from models import LifetimeStats, StateData, TraceRunsContainer
 from state import StateTracker
 from tests.helpers import make_tracker
 
@@ -222,7 +222,7 @@ class TestStateDataModel:
         assert data.issue_attempts == {}
         assert data.active_issue_numbers == []
         assert data.lifetime_stats == LifetimeStats()
-        assert data.trace_runs == {"active": {}, "next_run_id": {}}
+        assert data.trace_runs == TraceRunsContainer()
         assert data.last_updated is None
 
     def test_validates_correct_data(self) -> None:

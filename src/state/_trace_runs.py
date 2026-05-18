@@ -29,26 +29,25 @@ class TraceRunsMixin:
 
     def begin_trace_run(self, issue_number: int, phase: str) -> int:
         """Allocate a new run_id and mark the run active. Returns the new run_id."""
+        from models import ActiveTraceRun
+
         key = self._trace_run_key(issue_number, phase)
-        next_ids = self._data.trace_runs.setdefault("next_run_id", {})
-        active = self._data.trace_runs.setdefault("active", {})
+        next_ids = self._data.trace_runs.next_run_id
+        active = self._data.trace_runs.active
 
-        current = int(
-            next_ids.get(key, 0)  # type: ignore[arg-type]
-        )
+        current = next_ids.get(key, 0)
         new_id = current + 1
-        next_ids[key] = new_id  # type: ignore[index]
+        next_ids[key] = new_id
 
-        active[key] = {  # type: ignore[index]
-            "run_id": new_id,
-            "started_at": datetime.now(UTC).isoformat(),
-        }
+        active[key] = ActiveTraceRun(
+            run_id=new_id,
+            started_at=datetime.now(UTC).isoformat(),
+        )
         self.save()
         return new_id
 
     def end_trace_run(self, issue_number: int, phase: str) -> None:
         """Mark the run finalized — removes from active set."""
         key = self._trace_run_key(issue_number, phase)
-        active = self._data.trace_runs.setdefault("active", {})
-        active.pop(key, None)
+        self._data.trace_runs.active.pop(key, None)
         self.save()
