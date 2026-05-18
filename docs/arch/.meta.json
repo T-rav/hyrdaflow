@@ -1,36 +1,42 @@
 {
-  "regenerated_at": "2026-05-18T14:53:15.262122+00:00",
-  "commit_sha": "c2b2569d735d08934d70df1825c0369175a3aa1f",
+  "regenerated_at": "2026-05-18T19:02:46.092508+00:00",
+  "commit_sha": "f6933e01e8af70677f3dc547f2d02006ed3290f0",
   "artifacts": {
     "loops.md": {
-      "source_sha": "c2b2569d735d08934d70df1825c0369175a3aa1f"
+      "source_sha": "f6933e01e8af70677f3dc547f2d02006ed3290f0"
     },
     "ports.md": {
-      "source_sha": "c2b2569d735d08934d70df1825c0369175a3aa1f"
+      "source_sha": "f6933e01e8af70677f3dc547f2d02006ed3290f0"
     },
     "labels.md": {
-      "source_sha": "c2b2569d735d08934d70df1825c0369175a3aa1f"
+      "source_sha": "f6933e01e8af70677f3dc547f2d02006ed3290f0"
     },
     "modules.md": {
-      "source_sha": "c2b2569d735d08934d70df1825c0369175a3aa1f"
+      "source_sha": "f6933e01e8af70677f3dc547f2d02006ed3290f0"
     },
     "events.md": {
-      "source_sha": "c2b2569d735d08934d70df1825c0369175a3aa1f"
+      "source_sha": "f6933e01e8af70677f3dc547f2d02006ed3290f0"
     },
     "adr_xref.md": {
-      "source_sha": "c2b2569d735d08934d70df1825c0369175a3aa1f"
+      "source_sha": "f6933e01e8af70677f3dc547f2d02006ed3290f0"
     },
     "mockworld.md": {
-      "source_sha": "c2b2569d735d08934d70df1825c0369175a3aa1f"
+      "source_sha": "f6933e01e8af70677f3dc547f2d02006ed3290f0"
     },
     "changelog.md": {
-      "source_sha": "c2b2569d735d08934d70df1825c0369175a3aa1f"
+      "source_sha": "f6933e01e8af70677f3dc547f2d02006ed3290f0"
     },
     "coverage_matrix.md": {
-      "source_sha": "c2b2569d735d08934d70df1825c0369175a3aa1f"
+      "source_sha": "f6933e01e8af70677f3dc547f2d02006ed3290f0"
     },
     "functional_areas.md": {
-      "source_sha": "c2b2569d735d08934d70df1825c0369175a3aa1f"
+      "source_sha": "f6933e01e8af70677f3dc547f2d02006ed3290f0"
+    },
+    "ubiquitous-language.md": {
+      "source_sha": "f6933e01e8af70677f3dc547f2d02006ed3290f0"
+    },
+    "ubiquitous-language-context-map.md": {
+      "source_sha": "f6933e01e8af70677f3dc547f2d02006ed3290f0"
     }
   }
 }

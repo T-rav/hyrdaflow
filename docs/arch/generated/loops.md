@@ -6,49 +6,49 @@ All `BaseBackgroundLoop` subclasses discovered in `src/`. Generated from AST (no
 
 | Loop | Module | Tick (s) | Kill Switch | Events | ADRs |
 |---|---|---|---|---|---|
-| **ADRReviewerLoop** | `src.adr_reviewer_loop` | — | — | — | — |
-| **AdrTouchpointAuditorLoop** | `src.adr_touchpoint_auditor_loop` | — | — | — | ADR-0056 |
-| **AutoAgentPreflightLoop** | `src.auto_agent_preflight_loop` | — | — | — | — |
-| **CIMonitorLoop** | `src.ci_monitor_loop` | — | — | — | — |
-| **CodeGroomingLoop** | `src.code_grooming_loop` | — | — | — | — |
-| **ContractRefreshLoop** | `src.contract_refresh_loop` | — | — | — | — |
-| **CorpusLearningLoop** | `src.corpus_learning_loop` | — | — | — | — |
-| **CostBudgetWatcherLoop** | `src.cost_budget_watcher_loop` | — | — | — | — |
-| **DependabotMergeLoop** | `src.dependabot_merge_loop` | — | — | — | — |
-| **DiagnosticLoop** | `src.diagnostic_loop` | — | — | DIAGNOSTIC_UPDATE | — |
-| **DiagramLoop** | `src.diagram_loop` | — | — | — | ADR-0029, ADR-0049 |
-| **EdgeProposerLoop** | `src.edge_proposer_loop` | — | — | — | — |
-| **EntryEvidenceLoop** | `src.entry_evidence_loop` | — | — | — | ADR-0062 |
-| **EpicMonitorLoop** | `src.epic_monitor_loop` | — | — | — | — |
-| **EpicSweeperLoop** | `src.epic_sweeper_loop` | — | — | — | — |
-| **FakeCoverageAuditorLoop** | `src.fake_coverage_auditor_loop` | — | — | — | — |
-| **FlakeTrackerLoop** | `src.flake_tracker_loop` | — | — | — | — |
-| **GitHubCacheLoop** | `src.github_cache_loop` | — | — | — | — |
-| **HealthMonitorLoop** | `src.health_monitor_loop` | — | — | — | — |
-| **LabelDriftWatcherLoop** | `src.label_drift_watcher_loop` | — | — | — | — |
-| **LiveCorpusReplayLoop** | `src.live_corpus_replay_loop` | — | — | — | — |
-| **MemoryBacklogLoop** | `src.memory_backlog_loop` | — | — | — | — |
-| **MergeStateWatcherLoop** | `src.merge_state_watcher_loop` | — | — | — | — |
-| **PRUnstickerLoop** | `src.pr_unsticker_loop` | — | — | — | — |
-| **PricingRefreshLoop** | `src.pricing_refresh_loop` | — | — | — | — |
-| **PrinciplesAuditLoop** | `src.principles_audit_loop` | — | — | — | ADR-0044 |
-| **RCBudgetLoop** | `src.rc_budget_loop` | — | — | — | — |
-| **RepoWikiLoop** | `src.repo_wiki_loop` | — | — | — | — |
-| **ReportIssueLoop** | `src.report_issue_loop` | — | — | REPORT_UPDATE | — |
-| **RetrospectiveLoop** | `src.retrospective_loop` | — | — | RETROSPECTIVE_UPDATE | — |
-| **RunsGCLoop** | `src.runs_gc_loop` | — | — | — | — |
-| **SandboxFailureFixerLoop** | `src.sandbox_failure_fixer_loop` | — | — | — | ADR-0049 |
-| **SecurityPatchLoop** | `src.security_patch_loop` | — | — | — | — |
-| **SentryLoop** | `src.sentry_loop` | — | — | — | — |
-| **SkillPromptEvalLoop** | `src.skill_prompt_eval_loop` | — | — | — | — |
-| **StagingBisectLoop** | `src.staging_bisect_loop` | — | — | — | ADR-0042 |
-| **StagingPromotionLoop** | `src.staging_promotion_loop` | — | — | — | ADR-0042 |
-| **StaleIssueGCLoop** | `src.stale_issue_gc_loop` | — | — | — | — |
-| **StaleIssueLoop** | `src.stale_issue_loop` | — | — | — | — |
-| **TermProposerLoop** | `src.term_proposer_loop` | — | — | — | ADR-0054 |
-| **TermPrunerLoop** | `src.term_pruner_loop` | — | — | — | — |
-| **TrustFleetSanityLoop** | `src.trust_fleet_sanity_loop` | — | — | BACKGROUND_WORKER_STATUS | — |
-| **WikiRotDetectorLoop** | `src.wiki_rot_detector_loop` | — | — | — | — |
-| **WorkspaceGCLoop** | `src.workspace_gc_loop` | — | — | — | — |
+| **ADRReviewerLoop** | `src.adr_reviewer_loop` | 86400 | — | — | — |
+| **AdrTouchpointAuditorLoop** | `src.adr_touchpoint_auditor_loop` | 14400 | — | — | ADR-0056 |
+| **AutoAgentPreflightLoop** | `src.auto_agent_preflight_loop` | 120 | — | — | — |
+| **CIMonitorLoop** | `src.ci_monitor_loop` | 300 | — | — | — |
+| **CodeGroomingLoop** | `src.code_grooming_loop` | 86400 | — | — | — |
+| **ContractRefreshLoop** | `src.contract_refresh_loop` | 604800 | — | — | — |
+| **CorpusLearningLoop** | `src.corpus_learning_loop` | 3600 | — | — | — |
+| **CostBudgetWatcherLoop** | `src.cost_budget_watcher_loop` | 300 | `HYDRAFLOW_DISABLE_COST_BUDGET_WATCHER` | — | — |
+| **DependabotMergeLoop** | `src.dependabot_merge_loop` | 3600 | — | — | — |
+| **DiagnosticLoop** | `src.diagnostic_loop` | 30 | — | DIAGNOSTIC_UPDATE | — |
+| **DiagramLoop** | `src.diagram_loop` | 14400 | `HYDRAFLOW_DISABLE_DIAGRAM_LOOP` | — | ADR-0029, ADR-0049 |
+| **EdgeProposerLoop** | `src.edge_proposer_loop` | 86400 | — | — | — |
+| **EntryEvidenceLoop** | `src.entry_evidence_loop` | 86400 | — | — | ADR-0062 |
+| **EpicMonitorLoop** | `src.epic_monitor_loop` | 1800 | — | — | — |
+| **EpicSweeperLoop** | `src.epic_sweeper_loop` | 3600 | — | — | — |
+| **FakeCoverageAuditorLoop** | `src.fake_coverage_auditor_loop` | 604800 | — | — | — |
+| **FlakeTrackerLoop** | `src.flake_tracker_loop` | 14400 | — | — | — |
+| **GitHubCacheLoop** | `src.github_cache_loop` | 300 | — | — | — |
+| **HealthMonitorLoop** | `src.health_monitor_loop` | 7200 | — | — | — |
+| **LabelDriftWatcherLoop** | `src.label_drift_watcher_loop` | 600 | — | — | — |
+| **LiveCorpusReplayLoop** | `src.live_corpus_replay_loop` | 900 | — | — | — |
+| **MemoryBacklogLoop** | `src.memory_backlog_loop` | 86400 | — | — | — |
+| **MergeStateWatcherLoop** | `src.merge_state_watcher_loop` | 600 | — | — | — |
+| **PRUnstickerLoop** | `src.pr_unsticker_loop` | 3600 | — | — | — |
+| **PricingRefreshLoop** | `src.pricing_refresh_loop` | 86400 | `HYDRAFLOW_DISABLE_PRICING_REFRESH` | — | — |
+| **PrinciplesAuditLoop** | `src.principles_audit_loop` | 604800 | — | — | ADR-0044 |
+| **RCBudgetLoop** | `src.rc_budget_loop` | 14400 | — | — | — |
+| **RepoWikiLoop** | `src.repo_wiki_loop` | 3600 | — | — | — |
+| **ReportIssueLoop** | `src.report_issue_loop` | 30 | — | REPORT_UPDATE | — |
+| **RetrospectiveLoop** | `src.retrospective_loop` | 1800 | — | RETROSPECTIVE_UPDATE | — |
+| **RunsGCLoop** | `src.runs_gc_loop` | 3600 | — | — | — |
+| **SandboxFailureFixerLoop** | `src.sandbox_failure_fixer_loop` | 3600 | — | — | ADR-0049 |
+| **SecurityPatchLoop** | `src.security_patch_loop` | 3600 | — | — | — |
+| **SentryLoop** | `src.sentry_loop` | 600 | — | — | — |
+| **SkillPromptEvalLoop** | `src.skill_prompt_eval_loop` | 604800 | — | — | — |
+| **StagingBisectLoop** | `src.staging_bisect_loop` | 600 | — | — | ADR-0042 |
+| **StagingPromotionLoop** | `src.staging_promotion_loop` | 300 | — | — | ADR-0042 |
+| **StaleIssueGCLoop** | `src.stale_issue_gc_loop` | 3600 | — | — | — |
+| **StaleIssueLoop** | `src.stale_issue_loop` | 86400 | — | — | — |
+| **TermProposerLoop** | `src.term_proposer_loop` | 14400 | — | — | ADR-0054 |
+| **TermPrunerLoop** | `src.term_pruner_loop` | 86400 | — | — | — |
+| **TrustFleetSanityLoop** | `src.trust_fleet_sanity_loop` | 600 | — | BACKGROUND_WORKER_STATUS | — |
+| **WikiRotDetectorLoop** | `src.wiki_rot_detector_loop` | 604800 | — | — | — |
+| **WorkspaceGCLoop** | `src.workspace_gc_loop` | 1800 | — | — | — |
 
-_Regenerated from commit `c2b2569` on 2026-05-18 14:53 UTC. Source last changed at `c2b2569`. Status: 🟢 fresh._
+_Regenerated from commit `f6933e0` on 2026-05-18 19:02 UTC. Source last changed at `f6933e0`. Status: 🟢 fresh._
