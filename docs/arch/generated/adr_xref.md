@@ -69,6 +69,10 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | ADR-0057 | `src.term_pruner_loop`, `src.ubiquitous_language` |
 | ADR-0058 | `src.edge_proposer_loop`, `src.ubiquitous_language` |
 | ADR-0059 | `src.mockworld.fakes.fake_llm`, `src.review_advisor`, `src.review_phase`, `src.reviewer` |
+| ADR-0059 | `src.dashboard_routes._atlas_routes`, `src.ubiquitous_language` |
+| ADR-0060 | `src.dashboard_routes._atlas_routes` |
+| ADR-0061 | `src.repo_wiki` |
+| ADR-0062 | `src.entry_evidence_loop`, `src.term_proposer_llm` |
 
 ## Module → ADRs
 
@@ -93,6 +97,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.corpus_learning_loop` | ADR-0045 |
 | `src.dashboard` | ADR-0007, ADR-0008, ADR-0038 |
 | `src.dashboard_routes` | ADR-0007, ADR-0008, ADR-0013, ADR-0019, ADR-0038 |
+| `src.dashboard_routes._atlas_routes` | ADR-0059, ADR-0060 |
 | `src.dashboard_routes._cost_rollups` | ADR-0045 |
 | `src.dashboard_routes._diagnostics_routes` | ADR-0050 |
 | `src.dashboard_routes._routes` | ADR-0030 |
@@ -100,6 +105,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.discover_runner` | ADR-0031, ADR-0045 |
 | `src.docker_runner` | ADR-0010, ADR-0043 |
 | `src.edge_proposer_loop` | ADR-0058 |
+| `src.entry_evidence_loop` | ADR-0062 |
 | `src.epic` | ADR-0011, ADR-0012, ADR-0019 |
 | `src.epic_monitor_loop` | ADR-0012 |
 | `src.escalation_gate` | ADR-0015 |
@@ -144,7 +150,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.prompt_template` | ADR-0043 |
 | `src.rc_budget_loop` | ADR-0045 |
 | `src.repo_runtime` | ADR-0038 |
-| `src.repo_wiki` | ADR-0032, ADR-0053 |
+| `src.repo_wiki` | ADR-0032, ADR-0053, ADR-0061 |
 | `src.repo_wiki_loop` | ADR-0032, ADR-0053 |
 | `src.report_issue_loop` | ADR-0013, ADR-0018, ADR-0045 |
 | `src.review_advisor` | ADR-0059 |
@@ -168,16 +174,17 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.telemetry.slugs` | ADR-0055 |
 | `src.telemetry.spans` | ADR-0055 |
 | `src.telemetry.subprocess_bridge` | ADR-0055 |
+| `src.term_proposer_llm` | ADR-0062 |
 | `src.term_proposer_loop` | ADR-0054 |
 | `src.term_pruner_loop` | ADR-0057 |
 | `src.trace_collector` | ADR-0055 |
 | `src.triage_phase` | ADR-0014, ADR-0017, ADR-0031, ADR-0039 |
 | `src.trust_fleet_sanity_loop` | ADR-0045, ADR-0046 |
-| `src.ubiquitous_language` | ADR-0054, ADR-0057, ADR-0058 |
+| `src.ubiquitous_language` | ADR-0054, ADR-0057, ADR-0058, ADR-0059 |
 | `src.visual_validation` | ADR-0015 |
 | `src.wiki_compiler` | ADR-0032 |
 | `src.wiki_rot_detector_loop` | ADR-0045 |
 | `src.workspace` | ADR-0055 |
 | `src.worktree` | ADR-0003, ADR-0009, ADR-0010 |
 
-_Regenerated from commit `d649803` on 2026-05-11 15:51 UTC. Source last changed at `d649803`. Status: 🟢 fresh._
+_Regenerated from commit `b1eafc5` on 2026-05-17 02:17 UTC. Source last changed at `b1eafc5`. Status: 🟢 fresh._

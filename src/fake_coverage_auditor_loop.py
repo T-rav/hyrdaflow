@@ -25,6 +25,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import yaml
@@ -178,6 +179,18 @@ class FakeCoverageAuditorLoop(BaseBackgroundLoop):
         self._state = state
         self._pr = pr_manager
         self._dedup = dedup
+        # #8786 Phase 9 — when set, the loop runs the cassette retirement
+        # audit each tick. Injected after construction by service_registry
+        # so the callback can point at LiveCorpusReplayLoop's
+        # ``registered_shapes`` (which is built later in the wiring).
+        self._retirement_keys_cb: Callable[[], set[tuple[str, str]]] | None = None
+
+    def set_retirement_keys_cb(
+        self, cb: Callable[[], set[tuple[str, str]]] | None
+    ) -> None:
+        """Install (or clear with None) the dispatcher-key callback for the
+        cassette retirement audit. Idempotent."""
+        self._retirement_keys_cb = cb
 
     def _get_default_interval(self) -> int:
         return self._config.fake_coverage_auditor_interval
@@ -384,13 +397,73 @@ class FakeCoverageAuditorLoop(BaseBackgroundLoop):
             all_known[fake] = sorted(covered)
 
         self._state.set_fake_coverage_last_known(all_known)
+
+        # #8786 Phase 9 — cassette retirement audit. Off by default;
+        # enabled by ``cassette_retirement_audit_enabled`` config flag.
+        retirement_filed = 0
+        if (
+            self._config.cassette_retirement_audit_enabled
+            and self._retirement_keys_cb is not None
+        ):
+            retirement_filed = await self._audit_retirement(cassette_root)
+
         self._emit_trace(t0, fakes_seen=len(catalog))
         return {
             "status": "ok",
             "filed": filed,
             "escalated": escalated,
             "fakes_seen": len(catalog),
+            "retirement_filed": retirement_filed,
         }
+
+    async def _audit_retirement(self, cassette_root: Path) -> int:
+        """Find baseline_only cassettes covered by live dispatchers; file
+        one issue per batch (dedup'd on candidate set) flagging them as
+        eligible for removal.
+
+        Returns the number of issues filed this tick (0 or 1).
+        """
+        from contracts.retirement import (  # noqa: PLC0415
+            find_retirement_candidates,
+            format_candidates_for_issue,
+        )
+
+        cb = self._retirement_keys_cb
+        if cb is None:
+            return 0
+        try:
+            keys = cb()
+        except Exception:  # noqa: BLE001 — audit must not crash the loop
+            logger.exception("retirement audit: callback raised; skipping tick")
+            return 0
+        candidates = find_retirement_candidates(cassette_root, keys)
+        if not candidates:
+            return 0
+
+        dedup_key = (
+            f"cassette_retirement:{','.join(sorted(c.path.name for c in candidates))}"
+        )
+        if dedup_key in self._dedup.get():
+            return 0
+
+        title = (
+            f"Cassette retirement: {len(candidates)} hand-authored baseline(s) "
+            f"now covered by live dispatchers"
+        )
+        body = format_candidates_for_issue(candidates)
+        labels = [
+            *self._config.find_label,
+            "cassette-retirement-ready",
+        ]
+        try:
+            await self._pr.create_issue(title, body, labels)
+        except Exception:  # noqa: BLE001 — issue filing failure ≠ loop failure
+            logger.exception("retirement audit: create_issue failed")
+            return 0
+        seen = self._dedup.get()
+        seen.add(dedup_key)
+        self._dedup.set_all(seen)
+        return 1
 
     def _emit_trace(self, t0: float, *, fakes_seen: int) -> None:
         try:

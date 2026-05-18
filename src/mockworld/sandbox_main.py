@@ -49,6 +49,20 @@ def _load_seed() -> MockWorldSeed:
 
 async def main() -> None:
     config = load_runtime_config()
+    # Sandbox-specific config override — disable transcript summarization.
+    # TranscriptSummarizer spawns a real `claude` subprocess via
+    # `subprocess_util.run_simple` after each agent phase to summarize the
+    # transcript. The sandbox is `internal: true` per
+    # docker-compose.sandbox.yml, so that subprocess hangs for ~30s of
+    # api_retry exponential backoff before failing with "unknown" network
+    # errors. With multiple parallel issues (s02_batch_three_issues) the
+    # cumulative hang exceeds the per-scenario 60s test timeout and the
+    # implement phase reports `in_progress` past deadline.
+    #
+    # The four primary LLM-backed runners (triage/plan/agent/review) are
+    # already overridden via `runners=fake_llm` below; this turns off the
+    # remaining secondary `claude` caller on the post-phase hook path.
+    config.transcript_summarization_enabled = False  # type: ignore[misc]
     seed = _load_seed()
     event_bus = EventBus()
     state = build_state_tracker(config)
