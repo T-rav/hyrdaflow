@@ -6,7 +6,10 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
-- `5a74449` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `a85a539` — fix(format): ruff format *(2026-05-18)*
+- `77b63eb` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `2997071` — fix(arch): populate Tick + Kill columns in loops.md generator (closes audit gap) *(2026-05-18)*
+- `e3822b1` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
 - `8d259e3` — Merge branch 'staging' into cleanup/ci-integrity-trio *(2026-05-18)*
 - `5f913e6` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
 - `a5e7c4a` — fix(adr): reformat ADR-0031 enforcement (commas + bare paths for parser) *(2026-05-18)*
@@ -287,4 +290,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `5a74449` on 2026-05-18 17:23 UTC. Source last changed at `5a74449`. Status: 🟢 fresh._
+_Regenerated from commit `a85a539` on 2026-05-18 17:42 UTC. Source last changed at `a85a539`. Status: 🟢 fresh._
