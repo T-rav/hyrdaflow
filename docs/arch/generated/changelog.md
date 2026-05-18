@@ -6,7 +6,9 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
-- `b65be00` — fix(format): ruff format *(2026-05-18)*
+- `a2dacb8` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `bcc0b25` — fix(contracts): widen Cassette._validate_adapter to accept all 9 known fakes (closes slice 5.7) *(2026-05-18)*
+- `a06faa7` — fix(format): ruff format *(2026-05-18)*
 - `0a5dcad` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
 - `11b4807` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
 - `899d7aa` — fix: ruff auto-fixes (unused imports + import sort) *(2026-05-18)*
@@ -85,6 +87,11 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W20
 
+- `0c98560` — merge: reconcile main into staging (33 commits ahead) *(2026-05-16)*
+- `b1eafc5` — fix(staging): wire LiveCorpusReplayLoop + audit fixes — unblock RC promotion (#8939) (#8939) *(2026-05-16)*
+- `ef3b5f5` — chore(arch): regen arch + wiki artifacts from staging tip (#8926) (#8926) *(2026-05-16)*
+- `9bfce88` — docs(wiki): backfill 7 undocumented topics (closes slice 5.0 + 5.3 doc gaps) *(2026-05-12)*
+- `4ba1202` — docs(adr): promote 0031 + 0047 to Accepted (status drift fix from slice 5 audits) *(2026-05-12)*
 - `01ae95c` — fix(bg-loops): YAML resilience + auto-ensure PR labels (#8753) (#8753) *(2026-05-12)*
 - `92601fd` — audit: per-area review — Auto-Agent (slice 5.3) *(2026-05-12)*
 - `1f954c2` — docs(audit): per-area review — Hexagonal Boundaries (slice 5.2 of 5) *(2026-05-12)*
@@ -311,4 +318,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `7ab9e33` on 2026-05-13 04:20 UTC. Source last changed at `7ab9e33`. Status: 🟢 fresh._
+_Regenerated from commit `a2dacb8` on 2026-05-18 23:04 UTC. Source last changed at `a2dacb8`. Status: 🟢 fresh._
