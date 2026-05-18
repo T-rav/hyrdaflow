@@ -1264,16 +1264,6 @@ class HydraFlowConfig(BaseModel):
     # feeds a bounded, normalized, PII-scrubbed YAML corpus that
     # LiveCorpusReplayLoop will eventually diff against fake-adapter
     # outputs. Off by default until the v2 pattern is validated.
-    shadow_corpus_enabled: bool = Field(
-        default=False,
-        description=(
-            "Enable the live shadow corpus (#8786). When True, "
-            "production gh/git/docker/claude calls are sampled into "
-            "<data_root>/contract_shadow/<adapter>/ with normalizers + "
-            "PII scrub. Off by default — turn on once the v2 contract "
-            "pattern is validated."
-        ),
-    )
     shadow_corpus_max_per_adapter: int = Field(
         default=100,
         ge=10,
@@ -1303,18 +1293,6 @@ class HydraFlowConfig(BaseModel):
             "escalates to hitl-escalation (auto-agent preflight). Each "
             "tick that re-detects the same drift signature counts as "
             "one attempt; a clean tick clears all counters."
-        ),
-    )
-    cassette_retirement_audit_enabled: bool = Field(
-        default=False,
-        description=(
-            "When True, FakeCoverageAuditorLoop runs the cassette "
-            "retirement audit each tick — for every baseline_only "
-            "cassette whose (adapter, command) is covered by a live "
-            "LiveCorpusReplayLoop dispatcher, files one issue per "
-            "batch (dedup'd) flagging the cassette as eligible for "
-            "removal. Off by default — turn on after the dispatcher "
-            "registry has stabilized."
         ),
     )
 

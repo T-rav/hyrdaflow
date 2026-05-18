@@ -1,13 +1,13 @@
-"""Tests for shadow-corpus registration at orchestrator startup (Phase 0.3 of #8786).
+"""Tests for shadow-corpus registration at orchestrator startup (#8786).
 
-`build_services` must:
-- Install a ShadowCorpus-backed sampler when `config.shadow_corpus_enabled=True`.
-- Leave the sampler clear (`None`) when the flag is False — defensive against
-  prior installs leaking across processes / test invocations.
+``build_services`` always installs a ShadowCorpus-backed sampler so every
+gh/git/docker/claude subprocess call feeds the corpus that
+``LiveCorpusReplayLoop`` consumes. The pipeline is unconditional —
+``shadow_corpus_max_per_adapter`` is the only operator knob.
 
 We don't run the full registry build here (heavy); instead we exercise the
 same fragment in isolation, matching the pattern in service_registry where
-the shadow-corpus install lives right after `configure_gh_concurrency`.
+the shadow-corpus install lives right after ``configure_gh_concurrency``.
 """
 
 from __future__ import annotations
@@ -30,18 +30,14 @@ def _reset_sampler() -> Generator[None, None, None]:
 
 def _apply_registration(config) -> None:  # noqa: ANN001
     """Mirror the registration block from service_registry.build_services."""
+    from contracts.shadow import ShadowCorpus
     from subprocess_util import set_shadow_sampler
 
-    if config.shadow_corpus_enabled:
-        from contracts.shadow import ShadowCorpus
-
-        corpus = ShadowCorpus(
-            config.data_root / "contract_shadow",
-            max_per_adapter=config.shadow_corpus_max_per_adapter,
-        )
-        set_shadow_sampler(corpus.record)
-    else:
-        set_shadow_sampler(None)
+    corpus = ShadowCorpus(
+        config.data_root / "contract_shadow",
+        max_per_adapter=config.shadow_corpus_max_per_adapter,
+    )
+    set_shadow_sampler(corpus.record)
 
 
 def _config(tmp_path: Path, **overrides):  # noqa: ANN201
@@ -55,22 +51,12 @@ def _config(tmp_path: Path, **overrides):  # noqa: ANN201
     )
 
 
-def test_disabled_by_default(tmp_path: Path) -> None:
-    """Default config leaves the sampler clear."""
+def test_registration_installs_sampler(tmp_path: Path) -> None:
+    """Default config installs a working ShadowCorpus.record sampler."""
     config = _config(tmp_path)
-    assert config.shadow_corpus_enabled is False
-    _apply_registration(config)
-    assert subprocess_util._shadow_sampler is None
-
-
-def test_enabled_installs_sampler(tmp_path: Path) -> None:
-    """Flag on → a sampler is installed that writes through ShadowCorpus."""
-    config = _config(tmp_path, shadow_corpus_enabled=True)
     _apply_registration(config)
     assert subprocess_util._shadow_sampler is not None
 
-    # The installed sampler must be a ShadowCorpus.record bound method
-    # — exercise it end-to-end via run_subprocess to prove the wiring.
     sampler = subprocess_util._shadow_sampler
     path = sampler(
         adapter="git",
@@ -84,22 +70,9 @@ def test_enabled_installs_sampler(tmp_path: Path) -> None:
     assert path.parent == config.data_root / "contract_shadow" / "git"
 
 
-def test_disabled_clears_previously_installed_sampler(tmp_path: Path) -> None:
-    """Re-running registration with the flag off clears any prior install."""
-    enabled = _config(tmp_path, shadow_corpus_enabled=True)
-    _apply_registration(enabled)
-    assert subprocess_util._shadow_sampler is not None
-
-    disabled = _config(tmp_path, shadow_corpus_enabled=False)
-    _apply_registration(disabled)
-    assert subprocess_util._shadow_sampler is None
-
-
 def test_max_per_adapter_propagates_to_corpus(tmp_path: Path) -> None:
     """The config knob actually controls the LRU cap."""
-    config = _config(
-        tmp_path, shadow_corpus_enabled=True, shadow_corpus_max_per_adapter=11
-    )
+    config = _config(tmp_path, shadow_corpus_max_per_adapter=11)
     _apply_registration(config)
 
     # Write 12 distinct shapes; only 11 should survive.
