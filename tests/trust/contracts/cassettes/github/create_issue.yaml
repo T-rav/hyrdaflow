@@ -1,0 +1,23 @@
+# Hand-authored baseline (recorder_sha: "00000000").
+# create_issue returns the new issue number. When the fake's _issues store is
+# empty, max(keys, default=9000) + 1 = 9001. stdout follows the same URL
+# convention as create_task so the contract is checkable and consistent with
+# `gh issue create --json url` output shape.
+adapter: github
+interaction: create_issue
+recorded_at: "2026-05-12T00:00:00Z"
+recorder_sha: "00000000"
+fixture_repo: T-rav-Hydra-Ops/hydraflow-contracts-sandbox
+input:
+  command: create_issue
+  args:
+    - "[CI] Main branch CI is failing (failure)"
+    - "CI failure body."
+    - "hydraflow-ci-failure"
+  stdin: null
+  env: {}
+output:
+  exit_code: 0
+  stdout: "https://github.com/test-org/test-repo/issues/9001\n"
+  stderr: ""
+normalizers: []

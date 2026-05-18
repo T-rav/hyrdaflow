@@ -6,7 +6,8 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
-- `9a44abb` — fix(format): ruff format *(2026-05-18)*
+- `5489df2` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `bf90023` — fix(format): ruff format *(2026-05-18)*
 - `2ff5ebd` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
 - `60c556b` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
 - `a0fd1b9` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
@@ -311,4 +312,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `9a44abb` on 2026-05-18 21:25 UTC. Source last changed at `9a44abb`. Status: 🟢 fresh._
+_Regenerated from commit `5489df2` on 2026-05-18 22:37 UTC. Source last changed at `5489df2`. Status: 🟢 fresh._
