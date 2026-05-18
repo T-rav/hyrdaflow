@@ -1392,3 +1392,4 @@
 {"ts": "2026-05-03T04:16:50.812123+00:00", "op": "compile", "topic": "architecture", "before": 33, "after": 33}
 {"ts": "2026-05-03T04:18:02.236366+00:00", "op": "compile", "topic": "architecture-async-control", "before": 25, "after": 24}
 {"ts": "2026-05-03T04:19:35.651398+00:00", "op": "compile", "topic": "testing", "before": 35, "after": 34}
+{"ts": "2026-05-16T23:48:09.052646+00:00", "op": "active_lint", "stale_entries": 0, "orphan_entries": 0, "empty_topics": [], "total_entries": 168, "entries_marked_stale": 0, "orphans_pruned": 0, "review_candidates_flagged": 0, "index_rebuilt": false}

@@ -248,6 +248,12 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ),
     ("term_pruner_interval", "HYDRAFLOW_TERM_PRUNER_INTERVAL", 86400),
     ("edge_proposer_interval", "HYDRAFLOW_EDGE_PROPOSER_INTERVAL", 86400),
+    ("entry_evidence_interval", "HYDRAFLOW_ENTRY_EVIDENCE_INTERVAL", 86400),
+    (
+        "entry_evidence_max_entries_per_tick",
+        "HYDRAFLOW_ENTRY_EVIDENCE_MAX_ENTRIES_PER_TICK",
+        20,
+    ),
     ("trust_fleet_sanity_interval", "HYDRAFLOW_TRUST_FLEET_SANITY_INTERVAL", 600),
     ("label_drift_watcher_interval", "HYDRAFLOW_LABEL_DRIFT_WATCHER_INTERVAL", 600),
     ("loop_anomaly_issues_per_hour", "HYDRAFLOW_LOOP_ANOMALY_ISSUES_PER_HOUR", 10),
@@ -367,6 +373,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("term_proposer_enabled", "HYDRAFLOW_TERM_PROPOSER_ENABLED", True),
     ("term_pruner_enabled", "HYDRAFLOW_TERM_PRUNER_ENABLED", True),
     ("edge_proposer_enabled", "HYDRAFLOW_EDGE_PROPOSER_ENABLED", True),
+    ("entry_evidence_enabled", "HYDRAFLOW_ENTRY_EVIDENCE_ENABLED", True),
 ]
 
 # Literal-typed env-var overrides.
@@ -1252,6 +1259,65 @@ class HydraFlowConfig(BaseModel):
         ),
     )
 
+    # Shadow corpus (#8786) — opt-in live sampling of production
+    # subprocess calls. When enabled, every gh/git/docker/claude call
+    # feeds a bounded, normalized, PII-scrubbed YAML corpus that
+    # LiveCorpusReplayLoop will eventually diff against fake-adapter
+    # outputs. Off by default until the v2 pattern is validated.
+    shadow_corpus_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable the live shadow corpus (#8786). When True, "
+            "production gh/git/docker/claude calls are sampled into "
+            "<data_root>/contract_shadow/<adapter>/ with normalizers + "
+            "PII scrub. Off by default — turn on once the v2 contract "
+            "pattern is validated."
+        ),
+    )
+    shadow_corpus_max_per_adapter: int = Field(
+        default=100,
+        ge=10,
+        le=10000,
+        description=(
+            "Per-adapter LRU cap on shadow corpus size. Most-recently-"
+            "recorded call shapes survive eviction; older shapes are "
+            "deleted from disk."
+        ),
+    )
+    live_corpus_replay_interval: int = Field(
+        default=900,  # 15 min — drift surfaces within one fresh sample cycle
+        ge=60,
+        le=86400,
+        description=(
+            "Seconds between LiveCorpusReplayLoop ticks. Each tick diffs "
+            "every fresh shadow-corpus sample against the matching fake-"
+            "adapter output via registered dispatchers."
+        ),
+    )
+    live_corpus_max_drift_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+        description=(
+            "Per-drift-signature attempt cap before LiveCorpusReplayLoop "
+            "escalates to hitl-escalation (auto-agent preflight). Each "
+            "tick that re-detects the same drift signature counts as "
+            "one attempt; a clean tick clears all counters."
+        ),
+    )
+    cassette_retirement_audit_enabled: bool = Field(
+        default=False,
+        description=(
+            "When True, FakeCoverageAuditorLoop runs the cassette "
+            "retirement audit each tick — for every baseline_only "
+            "cassette whose (adapter, command) is covered by a live "
+            "LiveCorpusReplayLoop dispatcher, files one issue per "
+            "batch (dedup'd) flagging the cassette as eligible for "
+            "removal. Off by default — turn on after the dispatcher "
+            "registry has stabilized."
+        ),
+    )
+
     # Code grooming
     code_grooming_enabled: bool = Field(
         default=False,
@@ -2074,6 +2140,27 @@ class HydraFlowConfig(BaseModel):
         ge=3600,
         le=604800,
         description="Seconds between EdgeProposerLoop ticks.",
+    )
+
+    # Trust fleet — EntryEvidenceLoop (ADR-0062)
+    entry_evidence_enabled: bool = Field(
+        default=True,
+        description="Kill-switch for EntryEvidenceLoop (ADR-0062).",
+    )
+    entry_evidence_interval: int = Field(
+        default=86400,
+        ge=3600,
+        le=604800,
+        description="Seconds between EntryEvidenceLoop ticks.",
+    )
+    entry_evidence_max_entries_per_tick: int = Field(
+        default=20,
+        ge=1,
+        le=200,
+        description=(
+            "Max wiki entries the loop sends to the LLM per tick — bounds "
+            "credit cost. Untracked entries roll over to the next tick."
+        ),
     )
 
     # Trust fleet — CorpusLearningLoop (spec §4.1 v2)

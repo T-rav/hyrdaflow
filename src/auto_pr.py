@@ -45,6 +45,13 @@ BOT_NAME = "HydraFlow"
 # may contain "/" and other characters; sanitize for the worktree dir name.
 _SANITIZE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
+# Default color/description used when auto-creating PR labels. ``gh label
+# create`` (no ``--force``) only applies these on first creation; if the
+# label already exists, the call fails with "already exists" which we treat
+# as success — existing labels keep their hand-tuned color/description.
+_AUTO_LABEL_COLOR = "ededed"
+_AUTO_LABEL_DESCRIPTION = "Auto-created by HydraFlow"
+
 # Hard timeout for every ``subprocess.run`` invocation in this module.
 # ``open_automated_pr_async`` runs these wrappers under ``asyncio.to_thread``,
 # so an unbounded subprocess (hung ``git push`` against a stale remote, ``gh``
@@ -379,6 +386,47 @@ def _extract_pr_url(stdout: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+async def _ensure_labels_async(
+    labels: list[str], *, cwd: Path, gh_token: str
+) -> list[str]:
+    """Return the subset of ``labels`` that exist on the repo.
+
+    For each requested label: try ``gh label create NAME --color … --desc …``.
+    If gh exits 0 the label was just created; if it exits non-zero with an
+    "already exists" stderr, that's still a success for our purposes.
+    Anything else is logged as a warning and the label is dropped from the
+    returned list, so the downstream ``gh pr create`` doesn't fail wholesale
+    on a label that the repo refuses to host.
+    """
+    from subprocess_util import run_subprocess  # local import: avoids cycles
+
+    ensured: list[str] = []
+    for name in labels:
+        try:
+            await run_subprocess(
+                "gh",
+                "label",
+                "create",
+                name,
+                "--color",
+                _AUTO_LABEL_COLOR,
+                "--description",
+                _AUTO_LABEL_DESCRIPTION,
+                cwd=cwd,
+                gh_token=gh_token,
+            )
+        except RuntimeError as exc:
+            if "already exists" in str(exc).lower():
+                ensured.append(name)
+                continue
+            logger.warning(
+                "could not ensure label %r exists; dropping from PR: %s", name, exc
+            )
+            continue
+        ensured.append(name)
+    return ensured
+
+
 async def open_automated_pr_async(  # noqa: PLR0911 — linear step-by-step guards, each with its own fail path
     *,
     repo_root: Path,
@@ -568,6 +616,16 @@ async def open_automated_pr_async(  # noqa: PLR0911 — linear step-by-step guar
         except RuntimeError as exc:
             return _fail(f"git push failed for {branch!r}: {exc}")
 
+        # Ensure each requested label exists on the repo before pr-create —
+        # otherwise a missing label crashes the whole PR (#6643 / EdgeProposer).
+        ensured_labels = (
+            await _ensure_labels_async(
+                labels or [], cwd=worktree_path, gh_token=gh_token
+            )
+            if labels
+            else []
+        )
+
         # Create the PR.
         create_args: list[str] = [
             "gh",
@@ -582,7 +640,7 @@ async def open_automated_pr_async(  # noqa: PLR0911 — linear step-by-step guar
             "--head",
             branch,
         ]
-        for label in labels or []:
+        for label in ensured_labels:
             create_args.extend(["--label", label])
         try:
             create_stdout = await run_subprocess(

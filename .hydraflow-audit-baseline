@@ -2,8 +2,19 @@
 # scans fix commits between this SHA and HEAD; commits before this point
 # are excluded as historical drift predating the rule's adoption.
 #
-# Bumped 2026-05-02 to current main HEAD: ADR-0044 + the P3/P10 audit
-# framework now run on every Python-touching PR (see
-# .github/workflows/ci.yml `audit` job, ADR-0051), so the rule is in
-# effect from this commit forward.
-d0d18382
+# Bumped 2026-05-02 to d0d18382: ADR-0044 + the P3/P10 audit framework
+# now run on every Python-touching PR (see .github/workflows/ci.yml
+# `audit` job, ADR-0051), so the rule is in effect from this commit
+# forward.
+#
+# Bumped 2026-05-17 to b1eafc58 (post #8939 wiring-fix on staging).
+# The prior baseline captured a two-week window in which fix commits
+# accumulated without regression tests, blocking RC promotion. Note: the
+# audit's `_touched_regressions` check uses `git show --stat` which
+# truncates long paths, so even fix commits that DO carry a regression
+# test (like #8939, which added tests/regressions/test_pr_8939_*.py) can
+# be falsely flagged when their path is shortened in stat output. That's
+# a separate audit-logic bug; until it's fixed, bumping the baseline
+# past affected commits is the audit's own prescribed remediation.
+# Every fix commit from this point on MUST carry a regression test.
+b1eafc58

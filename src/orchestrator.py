@@ -197,6 +197,8 @@ class HydraFlowOrchestrator:
             "term_pruner": svc.term_pruner_loop,
             "edge_proposer": svc.edge_proposer_loop,
         }
+        if svc.live_corpus_replay_loop is not None:
+            bg_loop_registry.update({"live_corpus_replay": svc.live_corpus_replay_loop})
         self._bg_workers = BGWorkerManager(config, self._state, bg_loop_registry)
         # Loops that need a reference to BGWorkerManager cannot take one
         # at construction time (chicken-and-egg: BGWorkerManager takes the
@@ -1017,6 +1019,10 @@ class HydraFlowOrchestrator:
             ("term_pruner", self._svc.term_pruner_loop.run),
             ("edge_proposer", self._svc.edge_proposer_loop.run),
         ]
+        if self._svc.live_corpus_replay_loop is not None:
+            loop_factories.append(
+                ("live_corpus_replay", self._svc.live_corpus_replay_loop.run)
+            )
 
         # Hindsight WAL replay loop removed in Phase 3 cutover — the wiki
         # pipeline doesn't need a replay loop.

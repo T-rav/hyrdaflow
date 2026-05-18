@@ -13,6 +13,7 @@ flowchart LR
         caretaking_DependabotMergeLoop([DependabotMergeLoop])
         caretaking_DiagnosticLoop([DiagnosticLoop])
         caretaking_EdgeProposerLoop([EdgeProposerLoop])
+        caretaking_EntryEvidenceLoop([EntryEvidenceLoop])
         caretaking_EpicMonitorLoop([EpicMonitorLoop])
         caretaking_EpicSweeperLoop([EpicSweeperLoop])
         caretaking_GitHubCacheLoop([GitHubCacheLoop])
@@ -46,6 +47,7 @@ flowchart LR
         trust_fleet_CorpusLearningLoop([CorpusLearningLoop])
         trust_fleet_FakeCoverageAuditorLoop([FakeCoverageAuditorLoop])
         trust_fleet_FlakeTrackerLoop([FlakeTrackerLoop])
+        trust_fleet_LiveCorpusReplayLoop([LiveCorpusReplayLoop])
         trust_fleet_PrinciplesAuditLoop([PrinciplesAuditLoop])
         trust_fleet_RCBudgetLoop([RCBudgetLoop])
         trust_fleet_StagingBisectLoop([StagingBisectLoop])
@@ -94,6 +96,7 @@ Autonomous background loops that maintain the system without human input — wik
 - `DependabotMergeLoop` — `src.dependabot_merge_loop`
 - `DiagnosticLoop` — `src.diagnostic_loop`
 - `EdgeProposerLoop` — `src.edge_proposer_loop`
+- `EntryEvidenceLoop` — `src.entry_evidence_loop`
 - `EpicMonitorLoop` — `src.epic_monitor_loop`
 - `EpicSweeperLoop` — `src.epic_sweeper_loop`
 - `GitHubCacheLoop` — `src.github_cache_loop`
@@ -143,6 +146,7 @@ The trust-architecture hardening fleet (ADR-0045) — RC promotion gate, staging
 - `CorpusLearningLoop` — `src.corpus_learning_loop`
 - `FakeCoverageAuditorLoop` — `src.fake_coverage_auditor_loop`
 - `FlakeTrackerLoop` — `src.flake_tracker_loop`
+- `LiveCorpusReplayLoop` — `src.live_corpus_replay_loop`
 - `PrinciplesAuditLoop` — `src.principles_audit_loop`
 - `RCBudgetLoop` — `src.rc_budget_loop`
 - `StagingBisectLoop` — `src.staging_bisect_loop`
@@ -273,4 +277,4 @@ The plan→implement→review pipeline driving each issue from hydraflow-ready t
 **Related ADRs:** `ADR-0001`, `ADR-0004`, `ADR-0011`, `ADR-0012`, `ADR-0029`
 
 
-_Regenerated from commit `d649803` on 2026-05-11 15:51 UTC. Source last changed at `d649803`. Status: 🟢 fresh._
+_Regenerated from commit `b1eafc5` on 2026-05-17 02:17 UTC. Source last changed at `b1eafc5`. Status: 🟢 fresh._
