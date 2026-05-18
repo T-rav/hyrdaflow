@@ -324,9 +324,7 @@ class TestEpicEndpoints:
             merged_children=2,
             readiness=EpicReadiness(all_implemented=True),
         )
-        mock_orch.epic_manager.get_all_detail = AsyncMock(
-            return_value=[mock_detail]
-        )
+        mock_orch.epic_manager.get_all_detail = AsyncMock(return_value=[mock_detail])
 
         router, _pr = make_dashboard_router(
             config, event_bus, state, tmp_path, get_orch=lambda: mock_orch
