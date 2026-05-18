@@ -182,7 +182,7 @@ Crash-recovery state (StateTracker), event bus, session logs, and the on-disk la
 
 - `src/state/**`
 - `src/events.py`
-- `src/session_log.py`
+- `src/state/_session.py`
 
 **Related ADRs:** `ADR-0021`, `ADR-0028`
 
@@ -265,16 +265,15 @@ The plan→implement→review pipeline driving each issue from hydraflow-ready t
 
 - `src/orchestrator.py`
 - `src/agent.py`
-- `src/agent_runner.py`
 - `src/planner.py`
 - `src/reviewer.py`
 - `src/triage_phase.py`
 - `src/plan_phase.py`
 - `src/implement_phase.py`
-- `src/review_phase.py`
+- `src/review_phase/`
 - `src/hitl_phase.py`
 
 **Related ADRs:** `ADR-0001`, `ADR-0004`, `ADR-0011`, `ADR-0012`, `ADR-0029`
 
 
-_Regenerated from commit `e6dad0c` on 2026-05-18 19:04 UTC. Source last changed at `e6dad0c`. Status: 🟢 fresh._
+_Regenerated from commit `316e16c` on 2026-05-18 21:24 UTC. Source last changed at `316e16c`. Status: 🟢 fresh._
