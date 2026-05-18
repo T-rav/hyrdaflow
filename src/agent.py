@@ -36,8 +36,11 @@ from skill_registry import (  # noqa: F401
 from task_graph import extract_phases, has_task_graph, topological_sort
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+
     from config import Credentials, HydraFlowConfig
     from execution import SubprocessRunner
+    from models import TranscriptEventData
     from repo_wiki import RepoWikiStore
     from tracing_context import TracingContext
     from tribal_wiki import TribalWikiStore
