@@ -216,12 +216,6 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
         out.write_text(json.dumps(report, indent=2))
         return out
 
-    async def _audit_hydraflow_self(self) -> dict[str, str]:
-        """Audit the HydraFlow working tree and persist the dated snapshot."""
-        report = await self._run_audit(_HYDRAFLOW_SELF, self._config.repo_root)
-        self._save_snapshot(_HYDRAFLOW_SELF, report)
-        return self._snapshot_from_report(report)
-
     async def _run_git(self, *args: str, cwd: Path | None = None) -> tuple[int, str]:
         """Run a git subcommand; returns ``(exit_code, combined_output)``."""
         cmd = ["git", *args]

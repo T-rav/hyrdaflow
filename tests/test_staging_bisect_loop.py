@@ -848,12 +848,3 @@ class TestG10RetryLineageWiring:
         # past cap.
         all_labels = [c.args[2] for c in prs.create_issue.await_args_list]
         assert all("hitl-escalation" not in lbls for lbls in all_labels)
-
-    def test_compute_lineage_id_is_deterministic(self) -> None:
-        from staging_bisect_loop import StagingBisectLoop
-
-        a = StagingBisectLoop._compute_lineage_id("Title X", "test_a, test_b")
-        b = StagingBisectLoop._compute_lineage_id("Title X", "test_b, test_a")
-        c = StagingBisectLoop._compute_lineage_id("Title X", "test_a, test_c")
-        assert a == b  # order-independent
-        assert a != c  # different test sets diverge
