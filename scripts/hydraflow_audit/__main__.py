@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -65,9 +66,12 @@ def main(argv: list[str] | None = None) -> int:
         findings = run_checks(specs, ctx)
 
         out_path = args.out or (target_root / ".hydraflow" / "audit-report.json")
-        write_json(findings, out_path)
+        payload = write_json(findings, out_path)
 
-        if not args.json:
+        if args.json:
+            json.dump(payload, sys.stdout, indent=2)
+            sys.stdout.write("\n")
+        else:
             print(format_terminal(findings))
             print(f"\nJSON report: {out_path}")
 
