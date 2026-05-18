@@ -47,6 +47,8 @@ class StaleIssueLoop(BaseBackgroundLoop):
         """Scan for stale issues and close them."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.stale_issue_loop_enabled:
+            return {"status": "config_disabled"}
         settings = self._state.get_stale_issue_settings()
         already_closed = self._state.get_stale_issue_closed()
 

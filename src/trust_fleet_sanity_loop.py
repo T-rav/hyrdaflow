@@ -195,6 +195,8 @@ class TrustFleetSanityLoop(BaseBackgroundLoop):
         """Task 6: scan trust loops, file one-attempt escalations on breaches."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.trust_fleet_sanity_loop_enabled:
+            return {"status": "config_disabled"}
         t0 = time.perf_counter()
         await self._reconcile_closed_escalations()
 

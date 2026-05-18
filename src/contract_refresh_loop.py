@@ -612,6 +612,8 @@ class ContractRefreshLoop(BaseBackgroundLoop):
         """
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.contract_refresh_loop_enabled:
+            return {"status": "config_disabled"}
 
         tmp_root = self._config.data_root / "contract_refresh" / "recordings"
         tmp_root.mkdir(parents=True, exist_ok=True)

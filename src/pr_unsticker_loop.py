@@ -36,6 +36,8 @@ class PRUnstickerLoop(BaseBackgroundLoop):
         """Resolve all HITL causes (conflicts, CI failures, generic)."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.pr_unsticker_loop_enabled:
+            return {"status": "config_disabled"}
         hitl_items = await self._prs.list_hitl_items(self._config.hitl_label)
         # Only process HITL issues that currently have an open PR.
         active_pr_items = [item for item in hitl_items if int(item.pr or 0) > 0]

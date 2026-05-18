@@ -68,6 +68,8 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
         """One audit cycle: onboarding reconcile, HydraFlow-self, managed repos."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.principles_audit_loop_enabled:
+            return {"status": "config_disabled"}
 
         stats: dict[str, Any] = {
             "onboarded": 0,

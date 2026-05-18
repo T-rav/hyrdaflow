@@ -80,10 +80,9 @@ class PricingRefreshLoop(BaseBackgroundLoop):
         return 86400
 
     async def _do_work(self) -> WorkCycleResult:  # noqa: PLR0911 — linear gate checks, each with its own return path
-        # Canonical operator UI kill-switch (ADR-0049).
-        if not self._enabled_cb(self._worker_name):
-            return {"status": "disabled"}
-        # Static env-var gate — defense-in-depth (slice #5.0). Belt and suspenders.
+        if not self._config.pricing_refresh_loop_enabled:
+            return {"status": "config_disabled"}
+        # Kill-switch (ADR-0049). Belt and suspenders.
         if os.environ.get(_KILL_SWITCH_ENV) == "1":
             return {"skipped": "kill_switch"}
 

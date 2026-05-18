@@ -36,6 +36,8 @@ class RunsGCLoop(BaseBackgroundLoop):
         """Run one GC cycle: purge expired runs, then enforce size cap."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.runs_gc_loop_enabled:
+            return {"status": "config_disabled"}
         expired = self._recorder.purge_expired(self._config.artifact_retention_days)
         oversized = self._recorder.purge_oversized(self._config.artifact_max_size_mb)
         stats = self._recorder.get_storage_stats()

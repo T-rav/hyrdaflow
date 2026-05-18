@@ -91,6 +91,8 @@ class DiagnosticLoop(BaseBackgroundLoop):
         """Poll for diagnosed issues and run the diagnostic pipeline."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.diagnostic_loop_enabled:
+            return {"status": "config_disabled"}
         try:
             issues = await self._prs.list_issues_by_label(
                 self._config.diagnose_label[0]

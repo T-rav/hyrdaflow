@@ -56,6 +56,8 @@ class StaleIssueGCLoop(BaseBackgroundLoop):
         """Run one GC cycle: find and close stale HITL issues."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.stale_issue_gc_loop_enabled:
+            return {"status": "config_disabled"}
 
         if self._config.dry_run:
             return None

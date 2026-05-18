@@ -789,6 +789,8 @@ class CorpusLearningLoop(BaseBackgroundLoop):
         """
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.corpus_learning_loop_enabled:
+            return {"status": "config_disabled"}
 
         # Reconcile closed `corpus-learning-stuck` escalations so the
         # operator's "close issue → clear counter" lifecycle (spec §3.2)

@@ -60,6 +60,8 @@ class CIMonitorLoop(BaseBackgroundLoop):
         """Check CI status and create/close issues as needed."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.ci_monitor_loop_enabled:
+            return {"status": "config_disabled"}
 
         if self._config.dry_run:
             return None

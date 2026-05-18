@@ -91,6 +91,8 @@ class WikiRotDetectorLoop(BaseBackgroundLoop):
         """
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.wiki_rot_detector_loop_enabled:
+            return {"status": "config_disabled"}
 
         import time  # noqa: PLC0415
 

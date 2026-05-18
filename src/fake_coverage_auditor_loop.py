@@ -330,6 +330,8 @@ class FakeCoverageAuditorLoop(BaseBackgroundLoop):
         """Scan fakes, compare to cassettes + scenario grep, file gaps."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.fake_coverage_auditor_loop_enabled:
+            return {"status": "config_disabled"}
 
         t0 = time.perf_counter()
         await self._reconcile_closed_escalations()
