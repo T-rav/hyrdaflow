@@ -115,16 +115,33 @@ class TestPRPortMethods:
         "push_branch",
         "create_pr",
         "merge_pr",
+        # RC / promotion methods (added since original design)
+        "update_pr_branch",
+        "update_pr_base",
+        "create_rc_branch",
+        "push_synthetic_commit",
+        "create_promotion_pr",
+        "find_open_promotion_pr",
+        "merge_promotion_pr",
+        "list_rc_branches",
+        "delete_branch",
         "get_pr_diff",
         "wait_for_ci",
         "add_labels",
         "remove_label",
+        # PR label methods
+        "add_pr_labels",
+        "remove_pr_label",
         "swap_pipeline_labels",
         "post_comment",
+        # Comment / listing methods
+        "list_issue_comments",
         "submit_review",
         "fetch_ci_failure_logs",
         "fetch_code_scanning_alerts",
         "close_issue",
+        # Issue search / listing methods
+        "find_existing_issue",
         "create_issue",
         "list_hitl_items",
         "find_open_pr_for_branch",
@@ -135,8 +152,13 @@ class TestPRPortMethods:
         "get_pr_approvers",
         "get_pr_head_sha",
         "get_pr_mergeable",
+        # Conflict / listing methods
+        "list_conflicting_prs",
         "post_pr_comment",
         "list_issues_by_label",
+        "list_closed_issues_by_label",
+        "list_prs_by_label",
+        "find_label_drift",
         "get_issue_state",
         "get_issue_updated_at",
         "update_issue_body",
@@ -144,6 +166,10 @@ class TestPRPortMethods:
         "get_dependabot_alerts",
         "pull_main",
         "upload_screenshot",
+        # TaskTransitioner compatibility methods
+        "transition",
+        "close_task",
+        "create_task",
     ]
 
     @pytest.mark.parametrize("method", _REQUIRED_METHODS)
@@ -220,16 +246,33 @@ class TestPRPortSignatures:
         "push_branch",
         "create_pr",
         "merge_pr",
+        # RC / promotion methods (added since original design — slice 5.2 finding)
+        "update_pr_branch",
+        "update_pr_base",
+        "create_rc_branch",
+        "push_synthetic_commit",
+        "create_promotion_pr",
+        "find_open_promotion_pr",
+        "merge_promotion_pr",
+        "list_rc_branches",
+        "delete_branch",
         "get_pr_diff",
         "wait_for_ci",
         "add_labels",
         "remove_label",
+        # PR label methods
+        "add_pr_labels",
+        "remove_pr_label",
         "swap_pipeline_labels",
         "post_comment",
+        # Comment / listing methods
+        "list_issue_comments",
         "submit_review",
         "fetch_ci_failure_logs",
         "fetch_code_scanning_alerts",
         "close_issue",
+        # Issue search / listing methods
+        "find_existing_issue",
         "create_issue",
         "list_hitl_items",
         "find_open_pr_for_branch",
@@ -240,8 +283,13 @@ class TestPRPortSignatures:
         "get_pr_approvers",
         "get_pr_head_sha",
         "get_pr_mergeable",
+        # Conflict / listing methods
+        "list_conflicting_prs",
         "post_pr_comment",
         "list_issues_by_label",
+        "list_closed_issues_by_label",
+        "list_prs_by_label",
+        "find_label_drift",
         "get_issue_state",
         "get_issue_updated_at",
         "update_issue_body",
@@ -249,6 +297,10 @@ class TestPRPortSignatures:
         "get_dependabot_alerts",
         "pull_main",
         "upload_screenshot",
+        # TaskTransitioner compatibility methods
+        "transition",
+        "close_task",
+        "create_task",
     ]
 
     @pytest.mark.parametrize("method", _SIGNED_METHODS)
