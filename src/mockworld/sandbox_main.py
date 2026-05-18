@@ -26,6 +26,8 @@ from mockworld.fakes import (
     FakeLLM,
     FakeWorkspace,
 )
+from mockworld.fakes.fake_docker import FakeDocker
+from mockworld.fakes.fake_subprocess_runner import FakeSubprocessRunner
 from mockworld.seed import MockWorldSeed
 from orchestrator import HydraFlowOrchestrator
 from ports import IssueFetcherPort, IssueStorePort, PRPort, WorkspacePort
@@ -122,6 +124,17 @@ async def main() -> None:
         get_interval=lambda *_a, **_kw: 60,
     )
 
+    # FakeSubprocessRunner short-circuits every remaining shell-out to
+    # ``claude -p`` that isn't covered by ``runners=fake_llm`` — most
+    # critically ``TranscriptSummarizer``, ``HITLRunner``, and the
+    # pre-quality-review skill subprocesses inside ``AgentRunner``.
+    # Without this override they hit the air-gapped network, retry for
+    # ~90s each, and overrun the scenario timeout.  The default
+    # FakeDocker response is a single ``{success: True}`` event that
+    # returns instantly.
+    fake_docker = FakeDocker()
+    fake_subprocess_runner = FakeSubprocessRunner(fake_docker)
+
     svc = build_services(
         config,
         event_bus,
@@ -133,6 +146,7 @@ async def main() -> None:
         store=store,
         fetcher=fetcher,
         runners=fake_llm,
+        subprocess_runner=fake_subprocess_runner,
     )
 
     # Attach the advisor-routing sentinel — mirrors

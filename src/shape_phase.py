@@ -97,7 +97,10 @@ class ShapePhase:
         self._council: ExpertCouncil | None = None
         self._suggest_memory = MemorySuggester(config)
         if self._runner is not None:
-            self._runner.bind_escalation_deps(self._prs, _build_hitl_dedup(config))
+            self._runner.bind_escalation_deps(
+                self._prs,  # type: ignore[arg-type]
+                _build_hitl_dedup(config),
+            )
 
     async def shape_issues(self) -> bool:
         """Process shape-labeled issues. Returns True if work was done."""

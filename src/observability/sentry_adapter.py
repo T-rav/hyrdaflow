@@ -40,17 +40,18 @@ class SentryObservabilityAdapter:
             logger.debug("sentry capture_exception failed", exc_info=True)
 
     def capture_message(self, message: str, *, level: str = "info") -> None:
-        """Forward *message* to ``sentry_sdk.capture_message``."""
-        try:
-            from typing import Any, cast  # noqa: PLC0415
+        """Forward *message* to ``sentry_sdk.capture_message``.
 
+        ``sentry_sdk.capture_message`` types ``level`` as ``LogLevelStr | None``
+        — a Literal of valid level strings.  The ``level: str`` parameter on
+        this adapter is a deliberate runtime widening so callers can pass any
+        string without depending on Sentry's literal type.  Invalid levels are
+        safe at runtime because the broad ``except`` below swallows them.
+        """
+        try:
             import sentry_sdk  # noqa: PLC0415
 
-            # sentry-sdk's `capture_message` types `level` as
-            # ``LogLevelStr | None`` (a Literal). Our public API accepts
-            # an open ``str`` so callers don't have to import sentry-sdk
-            # types; narrow at this seam via cast.
-            sentry_sdk.capture_message(message, level=cast(Any, level))  # type: ignore[arg-type]
+            sentry_sdk.capture_message(message, level=level)  # type: ignore[arg-type]
         except ImportError:
             pass
         except Exception:  # noqa: BLE001
