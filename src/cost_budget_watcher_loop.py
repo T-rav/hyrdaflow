@@ -108,7 +108,7 @@ class CostBudgetWatcherLoop(BaseBackgroundLoop):
         # 5 minutes; configurable via HydraFlowConfig.
         return 300
 
-    async def _do_work(self) -> WorkCycleResult:
+    async def _do_work(self) -> WorkCycleResult:  # noqa: PLR0911
         if not self._config.cost_budget_watcher_loop_enabled:
             return {"status": "config_disabled"}
         if os.environ.get(_KILL_SWITCH_ENV) == "1":
