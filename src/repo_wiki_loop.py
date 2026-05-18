@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING, Any
 from auto_pr import open_automated_pr_async
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import Credentials, HydraFlowConfig
-from exception_classify import reraise_on_credit_or_bug
 from events import EventType, HydraFlowEvent
+from exception_classify import reraise_on_credit_or_bug
 from knowledge_metrics import metrics as _metrics
 from repo_wiki import DEFAULT_TOPICS, RepoWikiStore, WikiEntry, active_lint_tracked
 from staleness import evaluate as evaluate_staleness
