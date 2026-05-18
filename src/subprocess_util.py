@@ -22,6 +22,62 @@ if TYPE_CHECKING:
 logger = logging.getLogger("hydraflow.subprocess")
 
 # ---------------------------------------------------------------------------
+# Shadow sampling hook (#8786 Phase 0.2)
+#
+# When a sampler is installed via :func:`set_shadow_sampler`, every
+# completed ``gh`` / ``git`` / ``docker`` / ``claude`` call feeds it the
+# (adapter, command, args, stdout, stderr, exit_code) tuple. Sampler
+# failures are caught and logged — they MUST NOT break the production
+# call path. Default is None (no sampling).
+# ---------------------------------------------------------------------------
+_ShadowSampler = Callable[..., object]
+_shadow_sampler: _ShadowSampler | None = None
+
+_ADAPTER_BY_COMMAND: dict[str, str] = {
+    "gh": "github",
+    "git": "git",
+    "docker": "docker",
+    "claude": "claude",
+}
+
+
+def set_shadow_sampler(sampler: _ShadowSampler | None) -> None:
+    """Install (or clear with None) the shadow-corpus sampling hook.
+
+    The sampler is invoked with keyword args
+    ``adapter, command, args, stdout, stderr, exit_code`` after every
+    completed call to ``gh``/``git``/``docker``/``claude``. Non-adapter
+    binaries (npm, ruff, …) are skipped. The sampler runs synchronously
+    inside ``run_subprocess`` but exceptions are swallowed — observability
+    must never break the production call path.
+    """
+    global _shadow_sampler  # noqa: PLW0603
+    _shadow_sampler = sampler
+
+
+def _maybe_sample_shadow(
+    cmd: tuple[str, ...], exit_code: int, stdout: str, stderr: str
+) -> None:
+    """Fire the shadow sampler (if installed) for known adapter commands."""
+    if _shadow_sampler is None or not cmd:
+        return
+    adapter = _ADAPTER_BY_COMMAND.get(cmd[0])
+    if adapter is None:
+        return
+    try:
+        _shadow_sampler(
+            adapter=adapter,
+            command=cmd[0],
+            args=list(cmd[1:]),
+            stdout=stdout,
+            stderr=stderr,
+            exit_code=exit_code,
+        )
+    except Exception:  # noqa: BLE001 — observability must never break the call path
+        logger.warning("shadow sampler raised; ignoring", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
 # Pluggable time source — allows tests to inject FakeClock without patching
 # stdlib. Production code always uses time.time. Only the rate-limit cooldown
 # logic calls _time_source(); all other timing calls are left untouched.
@@ -479,6 +535,10 @@ async def run_subprocess(
                 f"Command {cmd!r} timed out after {timeout}s"
             ) from exc
         if result.returncode != 0:
+            # Sample the failure shape too — a loop that branches on a
+            # specific stderr (404, "not found", auth errors) needs that
+            # shape protected against drift just as much as success.
+            _maybe_sample_shadow(cmd, result.returncode, result.stdout, result.stderr)
             msg = f"Command {cmd!r} failed (rc={result.returncode}): {result.stderr}"
             cause = subprocess.CalledProcessError(
                 result.returncode,
@@ -492,6 +552,7 @@ async def run_subprocess(
                 _trigger_rate_limit_cooldown()
             raise RuntimeError(msg) from cause
         _reset_rate_limit_backoff()
+        _maybe_sample_shadow(cmd, result.returncode, result.stdout, result.stderr)
         return result.stdout
 
     if use_semaphore:

@@ -35,6 +35,7 @@ from discover_phase import DiscoverPhase  # noqa: TCH001
 from discover_runner import DiscoverRunner
 from docker_runner import get_docker_runner
 from edge_proposer_loop import EdgeProposerLoop
+from entry_evidence_loop import EntryEvidenceLoop
 from epic import EpicCompletionChecker, EpicManager
 from epic_monitor_loop import EpicMonitorLoop
 from epic_sweeper_loop import EpicSweeperLoop
@@ -52,6 +53,9 @@ from issue_cache import IssueCache
 from issue_fetcher import GitHubTaskFetcher, IssueFetcher
 from issue_store import IssueStore
 from label_drift_watcher_loop import LabelDriftWatcherLoop
+from live_corpus_replay_loop import (
+    LiveCorpusReplayLoop,  # noqa: TCH001 — dataclass annotation
+)
 from memory_backlog_loop import MemoryBacklogLoop
 from merge_conflict_resolver import MergeConflictResolver
 from merge_state_watcher_loop import MergeStateWatcherLoop
@@ -205,6 +209,12 @@ class ServiceRegistry:
     term_proposer_loop: TermProposerLoop
     term_pruner_loop: TermPrunerLoop
     edge_proposer_loop: EdgeProposerLoop
+    entry_evidence_loop: EntryEvidenceLoop
+    # LiveCorpusReplayLoop is gated by ``config.shadow_corpus_enabled``.
+    # When the shadow corpus is off the loop is not constructed; the
+    # field is then ``None`` and consumers (orchestrator bg_loop_registry,
+    # loop_factories) include it only when present.
+    live_corpus_replay_loop: LiveCorpusReplayLoop | None
 
     # Optional integrations
 
@@ -271,6 +281,32 @@ def build_services(
     from subprocess_util import configure_gh_concurrency
 
     configure_gh_concurrency(config.gh_api_concurrency)
+
+    # Shadow corpus (#8786, Phase 0.3). When the config flag is on,
+    # install a ShadowCorpus-backed sampler so every gh/git/docker/claude
+    # call feeds the bounded, normalized, PII-scrubbed corpus that
+    # LiveCorpusReplayLoop consumes. Off by default — the subprocess-side
+    # hook is a no-op when no sampler is installed.
+    from subprocess_util import set_shadow_sampler
+
+    shadow_corpus = None
+    if config.shadow_corpus_enabled:
+        from contracts.shadow import ShadowCorpus
+
+        shadow_corpus = ShadowCorpus(
+            config.data_root / "contract_shadow",
+            max_per_adapter=config.shadow_corpus_max_per_adapter,
+        )
+        set_shadow_sampler(shadow_corpus.record)
+        logger.info(
+            "shadow corpus enabled at %s (max %s per adapter)",
+            config.data_root / "contract_shadow",
+            config.shadow_corpus_max_per_adapter,
+        )
+    else:
+        # Defensive clear — if a prior test or process left a sampler
+        # installed, this guarantees the flag actually controls behavior.
+        set_shadow_sampler(None)
 
     # Hindsight semantic memory and MemoryJudge — REMOVED in Phase 3 cutover.
     # The wiki + tribal + ADR-draft pipeline is the new primary. Any
@@ -1018,6 +1054,41 @@ def build_services(
         state=state,
     )
 
+    # LiveCorpusReplayLoop (#8786 Phase 2). Only meaningful when the shadow
+    # corpus is enabled — otherwise the corpus is empty every tick and the
+    # loop is a no-op. Tied to the same flag so a single toggle controls
+    # the full v2 path.
+    _live_corpus_replay_loop: LiveCorpusReplayLoop | None = None
+    if config.shadow_corpus_enabled and shadow_corpus is not None:
+        _live_corpus_replay_dedup = DedupStore(
+            "live_corpus_replay",
+            config.data_root / "dedup" / "live_corpus_replay.json",
+        )
+        _live_corpus_replay_loop = LiveCorpusReplayLoop(
+            config=config,
+            corpus=shadow_corpus,
+            pr_manager=prs,
+            dedup=_live_corpus_replay_dedup,
+            state=state,
+            deps=loop_deps,
+        )
+        # Phase 5: register the Pydantic shape dispatcher for gh JSON
+        # output. Validates sample.stdout against contracts.shapes models
+        # — shape drift in real gh (renamed/removed/typed-differently
+        # fields, new enum values) fires immediately on the next tick.
+        from contracts.shape_dispatchers import gh_shape_validator
+
+        _live_corpus_replay_loop.register("github", "gh", gh_shape_validator)
+
+        # Phase 9: thread LiveCorpusReplayLoop's registered_shapes() into
+        # FakeCoverageAuditorLoop so the retirement audit can flag
+        # baseline cassettes whose shape is now dispatcher-covered. Only
+        # wired when both flags are on — the audit is gated by
+        # ``cassette_retirement_audit_enabled``.
+        fake_coverage_auditor_loop.set_retirement_keys_cb(
+            _live_corpus_replay_loop.registered_shapes
+        )
+
     corpus_learning_dedup = DedupStore(
         "corpus_learning",
         config.data_root / "dedup" / "corpus_learning.json",
@@ -1074,9 +1145,8 @@ def build_services(
         deps=loop_deps,
     )
 
-    term_proposer_llm = TermProposerLLM(
-        client=ClaudeCLIClient(runner=subprocess_runner)
-    )
+    term_proposer_claude_client = ClaudeCLIClient(runner=subprocess_runner)
+    term_proposer_llm = TermProposerLLM(client=term_proposer_claude_client)
     term_proposer_pr_port = OpenAutoPRBotPRPort(
         repo_root=config.repo_root,
         gh_token=credentials.gh_token,
@@ -1111,6 +1181,20 @@ def build_services(
         deps=loop_deps,
         pr_port=term_proposer_pr_port,
         repo_root=config.repo_root,
+    )
+
+    # Entry-Evidence (ADR-0062). Reuses the proposer's LLM client and PR port —
+    # both LLM-driven term-graph maintenance jobs share the same auto-merge
+    # plumbing and rate-limited Claude CLI subprocess.
+    from entry_evidence_loop import EntryEvidenceLoop  # noqa: PLC0415
+
+    entry_evidence_loop = EntryEvidenceLoop(  # noqa: F841
+        config=config,
+        deps=loop_deps,
+        llm=term_proposer_claude_client,
+        pr_port=term_proposer_pr_port,
+        repo_root=config.repo_root,
+        dedup_path=config.data_root / "dedup" / "entry_evidence.json",
     )
 
     return ServiceRegistry(
@@ -1188,4 +1272,6 @@ def build_services(
         term_proposer_loop=term_proposer_loop,
         term_pruner_loop=term_pruner_loop,
         edge_proposer_loop=edge_proposer_loop,
+        entry_evidence_loop=entry_evidence_loop,
+        live_corpus_replay_loop=_live_corpus_replay_loop,
     )
