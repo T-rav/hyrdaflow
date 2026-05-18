@@ -439,7 +439,7 @@ def build_services(
     # full widening of downstream method signatures to take
     # ``IssueFetcherPort`` directly, after which this cast can be removed.
     fetcher = cast(IssueFetcher, fetcher)
-    gh_cache = GitHubDataCache(config, prs, fetcher)  # noqa: F841
+    gh_cache = GitHubDataCache(config, prs, fetcher)
     if store is None:
         store = IssueStore(config, GitHubTaskFetcher(fetcher), event_bus)
     # Cast is duck-safe at runtime: the override (FakeIssueStore, if any)

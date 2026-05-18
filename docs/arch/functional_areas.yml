@@ -128,7 +128,7 @@ areas:
       DiagramLoop (Plan C), CI guard, and Pages site that publishes
       live architectural truth alongside ADRs and the wiki.
     loops:
-      - DiagramLoop  # Plan C — pre-staged so coverage doesn't fail when L24 lands.
+      - DiagramLoop
     modules:
       - src/arch/**
     related_adrs: ['0029', '0032']

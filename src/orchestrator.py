@@ -469,7 +469,7 @@ class HydraFlowOrchestrator:
                     interrupted[issue_number] = "hitl"
             return interrupted
 
-    # Alias for backward compatibility
+    # Alias used live by dashboard_routes/_control_routes.py:326
     request_stop = stop
 
     def reset(self) -> None:

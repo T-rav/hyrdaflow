@@ -73,6 +73,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | ADR-0060 | `src.dashboard_routes._atlas_routes` |
 | ADR-0061 | `src.repo_wiki` |
 | ADR-0062 | `src.entry_evidence_loop`, `src.term_proposer_llm` |
+| ADR-0063 | `src.auto_agent_preflight_loop`, `src.discover_runner`, `src.implement_phase`, `src.plan_phase`, `src.review_phase._phase`, `src.shape_phase`, `src.triage_phase` |
 
 ## Module → ADRs
 
@@ -84,7 +85,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.adr_touchpoint_auditor_loop` | ADR-0056 |
 | `src.agent` | ADR-0024, ADR-0027 |
 | `src.agent_cli` | ADR-0004 |
-| `src.auto_agent_preflight_loop` | ADR-0050 |
+| `src.auto_agent_preflight_loop` | ADR-0050, ADR-0063 |
 | `src.base_background_loop` | ADR-0049, ADR-0055 |
 | `src.base_runner` | ADR-0004, ADR-0032, ADR-0055 |
 | `src.bg_worker_manager` | ADR-0049 |
@@ -102,7 +103,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.dashboard_routes._diagnostics_routes` | ADR-0050 |
 | `src.dashboard_routes._routes` | ADR-0030 |
 | `src.discover_phase` | ADR-0031, ADR-0045 |
-| `src.discover_runner` | ADR-0031, ADR-0045 |
+| `src.discover_runner` | ADR-0031, ADR-0045, ADR-0063 |
 | `src.docker_runner` | ADR-0010, ADR-0043 |
 | `src.edge_proposer_loop` | ADR-0058 |
 | `src.entry_evidence_loop` | ADR-0062 |
@@ -119,7 +120,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.hf_cli.supervisor_client` | ADR-0007 |
 | `src.hf_cli.supervisor_service` | ADR-0006, ADR-0007, ADR-0008, ADR-0009 |
 | `src.hindsight` | ADR-0032 |
-| `src.implement_phase` | ADR-0005, ADR-0014, ADR-0024 |
+| `src.implement_phase` | ADR-0005, ADR-0014, ADR-0024, ADR-0063 |
 | `src.issue_cache` | ADR-0041 |
 | `src.issue_fetcher` | ADR-0019 |
 | `src.issue_store` | ADR-0006, ADR-0022, ADR-0041 |
@@ -133,7 +134,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.models` | ADR-0011, ADR-0012, ADR-0013, ADR-0014, ADR-0015, ADR-0016, ADR-0025, ADR-0031, ADR-0037, ADR-0045, ADR-0050, ADR-0056 |
 | `src.orchestrator` | ADR-0006, ADR-0009, ADR-0014, ADR-0044, ADR-0045 |
 | `src.path` | ADR-0032 |
-| `src.plan_phase` | ADR-0014, ADR-0031 |
+| `src.plan_phase` | ADR-0014, ADR-0031, ADR-0063 |
 | `src.ports` | ADR-0003, ADR-0044 |
 | `src.post_merge_handler` | ADR-0012, ADR-0014, ADR-0015, ADR-0016, ADR-0019 |
 | `src.pr_manager` | ADR-0002, ADR-0005, ADR-0011, ADR-0013, ADR-0018, ADR-0045, ADR-0055, ADR-0056 |
@@ -155,13 +156,14 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.report_issue_loop` | ADR-0013, ADR-0018, ADR-0045 |
 | `src.review_advisor` | ADR-0059 |
 | `src.review_phase` | ADR-0012, ADR-0014, ADR-0015, ADR-0031, ADR-0059 |
+| `src.review_phase._phase` | ADR-0063 |
 | `src.reviewer` | ADR-0025, ADR-0027, ADR-0059 |
 | `src.route_back` | ADR-0041 |
 | `src.screenshot_scanner` | ADR-0018 |
 | `src.sentry.reverse_lookup` | ADR-0050 |
 | `src.server` | ADR-0038, ADR-0055 |
 | `src.service_registry` | ADR-0045 |
-| `src.shape_phase` | ADR-0031, ADR-0045 |
+| `src.shape_phase` | ADR-0031, ADR-0045, ADR-0063 |
 | `src.shape_runner` | ADR-0031, ADR-0045 |
 | `src.skill_prompt_eval_loop` | ADR-0045 |
 | `src.staging_bisect_loop` | ADR-0045, ADR-0048 |
@@ -178,7 +180,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.term_proposer_loop` | ADR-0054 |
 | `src.term_pruner_loop` | ADR-0057 |
 | `src.trace_collector` | ADR-0055 |
-| `src.triage_phase` | ADR-0014, ADR-0017, ADR-0031, ADR-0039 |
+| `src.triage_phase` | ADR-0014, ADR-0017, ADR-0031, ADR-0039, ADR-0063 |
 | `src.trust_fleet_sanity_loop` | ADR-0045, ADR-0046 |
 | `src.ubiquitous_language` | ADR-0054, ADR-0057, ADR-0058, ADR-0059 |
 | `src.visual_validation` | ADR-0015 |
@@ -187,4 +189,4 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.workspace` | ADR-0055 |
 | `src.worktree` | ADR-0003, ADR-0009, ADR-0010 |
 
-_Regenerated from commit `b1eafc5` on 2026-05-17 02:17 UTC. Source last changed at `b1eafc5`. Status: 🟢 fresh._
+_Regenerated from commit `cbde7f7` on 2026-05-18 15:48 UTC. Source last changed at `cbde7f7`. Status: 🟢 fresh._

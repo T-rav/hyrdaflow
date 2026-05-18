@@ -6,10 +6,7 @@ from arch._functional_areas_schema import load_functional_areas
 from arch.extractors.loops import extract_loops
 from arch.extractors.ports import extract_ports
 
-# DiagramLoop is pre-staged for Plan C; allow it as a phantom in Plan B's
-# state. Once Plan C lands, the loop class will be discovered by the
-# extractor and the exception becomes unnecessary.
-_PRE_ASSIGNED = {"DiagramLoop"}
+_PRE_ASSIGNED: set[str] = set()
 
 
 def test_every_loop_is_assigned_to_an_area(real_repo_root: Path):
@@ -60,11 +57,7 @@ def test_every_port_is_assigned_to_an_area(real_repo_root: Path):
 
 
 def test_no_phantom_assignments(real_repo_root: Path):
-    """Loops/ports listed in the YAML but absent from code → fail.
-
-    Exception: `DiagramLoop` is pre-assigned ahead of Plan C. Once Plan C
-    lands and DiagramLoop exists in src/, this exception is obsolete.
-    """
+    """Loops/ports listed in the YAML but absent from code → fail."""
     yaml_path = real_repo_root / "docs/arch/functional_areas.yml"
     if not yaml_path.exists():
         pytest.skip("docs/arch/functional_areas.yml not yet authored")

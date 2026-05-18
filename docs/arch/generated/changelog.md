@@ -4,20 +4,95 @@
 
 Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdocs.yml`. Grouped by ISO week.
 
+## 2026-W21
+
+- `cbde7f7` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `d75c5e3` — Merge branch 'staging' into cleanup/ci-integrity-trio *(2026-05-18)*
+- `3cf70d6` — fix(adr): add Enforced by line to ADR-0031 (unblocks Tests on staging) *(2026-05-18)*
+- `f9ad184` — Merge pull request #8738 from T-rav/worktree-audit+coverage-matrix-baseline *(2026-05-18)*
+- `c17ffe4` — Merge pull request #8841 from T-rav/docs/wiki-backfill-seven *(2026-05-18)*
+- `1bc107e` — Merge pull request #8817 from T-rav/audit/area-auto-agent *(2026-05-18)*
+- `0550ced` — Merge pull request #8811 from T-rav/audit/area-hexagonal *(2026-05-18)*
+- `6a38b76` — Merge pull request #8805 from T-rav/audit/area-quality-gates *(2026-05-18)*
+- `e9480be` — Merge pull request #8803 from T-rav/audit/area-mockworld *(2026-05-18)*
+- `7d69454` — Merge pull request #8801 from T-rav/audit/area-state-persistence *(2026-05-18)*
+- `8ad91b1` — Merge pull request #8795 from T-rav/audit/area-goal-driven *(2026-05-18)*
+- `e07431b` — Merge pull request #8794 from T-rav/audit/area-arch-knowledge *(2026-05-18)*
+- `4b44c0f` — Merge pull request #8793 from T-rav/audit/area-trust-fleet *(2026-05-18)*
+- `08994cf` — Merge pull request #8789 from T-rav/audit/area-orchestration *(2026-05-18)*
+- `ef8979f` — Merge pull request #8787 from T-rav/audit/area-dashboard *(2026-05-18)*
+- `423f2dc` — Merge pull request #8782 from T-rav/audit/area-caretaking *(2026-05-18)*
+- `94a0c81` — Merge pull request #8757 from T-rav/audit/factory-phase-drift *(2026-05-18)*
+- `5d2da98` — chore(arch): regen after rebase onto staging *(2026-05-18)*
+- `ff2e21e` — docs(audit): post-review fixups — bead bodies, header SHA, Ports criteria *(2026-05-18)*
+- `b14d242` — docs(audit): coverage matrix — gap beads filed and cross-linked *(2026-05-18)*
+- `76a89f8` — docs(audit): coverage matrix — parent automation bead advisor-bpl linked *(2026-05-18)*
+- `8581fca` — docs(audit): coverage matrix — sampling + counts reconciliation *(2026-05-18)*
+- `cfea975` — docs(audit): coverage matrix — aliases + excluded_refs lists *(2026-05-18)*
+- `bec174c` — docs(audit): coverage matrix — Phases section populated (8 rows × 6 cols) *(2026-05-18)*
+- `10122ba` — docs(audit): coverage matrix — fix Ports section fake/cassette/contract logic *(2026-05-18)*
+- `826355b` — docs(audit): coverage matrix — Ports section populated (9 rows × 7 cols) *(2026-05-18)*
+- `98872f2` — docs(audit): coverage matrix — Loops section populated (41 rows × 7 cols) *(2026-05-18)*
+- `8b43af9` — docs(audit): coverage matrix baseline skeleton (slice 1 of 5) *(2026-05-18)*
+- `586b727` — cleanup: CI integrity fixes — ubiquitous-language guard + 3 misc (slices 5.5 + 5.10) *(2026-05-18)*
+- `6e74dcf` — Merge branch 'staging' into docs/wiki-backfill-seven *(2026-05-18)*
+- `127d4ae` — Merge branch 'staging' into audit/area-auto-agent *(2026-05-18)*
+- `7ac00f7` — Merge branch 'staging' into audit/area-hexagonal *(2026-05-18)*
+- `86f5c3a` — Merge branch 'staging' into audit/area-quality-gates *(2026-05-18)*
+- `55bb1f3` — Merge branch 'staging' into audit/area-mockworld *(2026-05-18)*
+- `507446a` — Merge branch 'staging' into audit/area-state-persistence *(2026-05-18)*
+- `d5e9f09` — Merge branch 'staging' into audit/area-goal-driven *(2026-05-18)*
+- `0428ce8` — Merge branch 'staging' into audit/area-arch-knowledge *(2026-05-18)*
+- `ed9e629` — Merge branch 'staging' into audit/area-trust-fleet *(2026-05-18)*
+- `9486027` — Merge branch 'staging' into audit/area-orchestration *(2026-05-18)*
+- `e638d27` — Merge branch 'staging' into audit/area-dashboard *(2026-05-18)*
+- `69a3235` — Merge branch 'staging' into audit/area-caretaking *(2026-05-18)*
+- `d8257f4` — Merge branch 'staging' into audit/factory-phase-drift *(2026-05-18)*
+- `e8aff97` — Merge branch 'staging' into audit/dark-factory-compat *(2026-05-18)*
+- `c0c7aab` — Merge pull request #8824 from T-rav/docs/promote-adrs-31-47 *(2026-05-18)*
+
 ## 2026-W20
 
+- `0c98560` — merge: reconcile main into staging (33 commits ahead) *(2026-05-16)*
 - `b1eafc5` — fix(staging): wire LiveCorpusReplayLoop + audit fixes — unblock RC promotion (#8939) (#8939) *(2026-05-16)*
 - `ef3b5f5` — chore(arch): regen arch + wiki artifacts from staging tip (#8926) (#8926) *(2026-05-16)*
+- `9bfce88` — docs(wiki): backfill 7 undocumented topics (closes slice 5.0 + 5.3 doc gaps) *(2026-05-12)*
+- `4ba1202` — docs(adr): promote 0031 + 0047 to Accepted (status drift fix from slice 5 audits) *(2026-05-12)*
 - `01ae95c` — fix(bg-loops): YAML resilience + auto-ensure PR labels (#8753) (#8753) *(2026-05-12)*
+- `92601fd` — audit: per-area review — Auto-Agent (slice 5.3) *(2026-05-12)*
+- `1f954c2` — docs(audit): per-area review — Hexagonal Boundaries (slice 5.2 of 5) *(2026-05-12)*
+- `b1b0395` — docs(audit): per-area review — State & Persistence (slice 5.6) *(2026-05-12)*
+- `173d167` — docs(audit): per-area review — Quality Gates (slice 5.4) *(2026-05-12)*
+- `a6c1957` — docs(audit): per-area review — MockWorld test harness (slice 5.7) *(2026-05-12)*
+- `80d4185` — docs(audit): per-area review — Trust Fleet (slice 5.1 of 5) *(2026-05-12)*
+- `9df7abe` — audit(area): per-area review — Goal-Driven Development (slice 5.9) *(2026-05-12)*
+- `6cc295c` — audit: per-area review — Architecture Knowledge (slice 5.5) *(2026-05-12)*
+- `f641882` — audit(orchestration): per-area review slice 5.10 — 2026-05-12 *(2026-05-12)*
+- `dda8313` — docs(audit): per-area review — Dashboard (slice 5.8) *(2026-05-12)*
+- `2b25507` — docs(audit): per-area review — Caretaking (slice 5.0 of 5) *(2026-05-12)*
+- `b3d52be` — docs(audit): factory-phase drift mitigation ADR + report — slice #4 of 5 *(2026-05-12)*
+- `a7db05f` — docs(audit): dark-factory compatibility sweep — slice #3 of 5 *(2026-05-12)*
 - `dcde17f` — docs(audit): coherency drift audit — slice #2 of 5 *(2026-05-12)*
 - `67a16cd` — refactor(review): split review_phase.py into package for file-size discipline (T36, advisor-zpv) *(2026-05-11)*
 
 ## 2026-W19
 
+- `48ffc6b` — feat(loops): EntryEvidenceLoop — autonomous term ↔ wiki-entry backlinks (ADR-0062) *(2026-05-10)*
 - `9cb158f` — Merge origin/staging into feat/advisor-pattern-review *(2026-05-10)*
+- `367d165` — chore(arch): regen artifacts post-quality (P4) *(2026-05-09)*
+- `fe84239` — chore(arch): regen artifacts post-quality (P3) *(2026-05-09)*
+- `9a5df5a` — feat(atlas): entries-as-evidence + Discovered bucket endpoints (T3-T4) *(2026-05-09)*
+- `68c9342` — docs(adr): ADR-0061 atlas entries-as-evidence + Discovered bucket *(2026-05-09)*
+- `da05260` — chore(arch): regen artifacts post-quality (P2) *(2026-05-09)*
+- `315b5e4` — feat(atlas): graph + ADRs + term provenance + term-loops status (T4-T6) *(2026-05-09)*
+- `f202f81` — docs(adr): ADR-0060 atlas graph view + ADR nodes + term provenance *(2026-05-09)*
 - `8db1004` — feat(caretaker): LabelDriftWatcherLoop — periodic drift reconciliation (#8723) (#8723) *(2026-05-08)*
 - `f018b09` — feat(memory-backlog): auto-mirror feedback memories on Write (closes hydraflow-edn7) (#8721) (#8721) *(2026-05-08)*
+- `f0dc42d` — chore(arch): regen artifacts post-quality (T13) *(2026-05-08)*
+- `1d0390f` — feat(atlas): UI shell + Domain/Articles/Maintenance views + tab rename (T5-T11) *(2026-05-08)*
 - `2533d8f` — docs(memory-backlog): mirror 3 new feedback memories (#8720) (#8720) *(2026-05-08)*
+- `634ba7f` — feat(atlas): /api/atlas/* term + ADR endpoints (T2-T4 + T14-T15) *(2026-05-08)*
+- `169ff25` — docs(adr): ADR-0059 atlas knowledge graph dashboard *(2026-05-08)*
 - `df80b0c` — fix(pr-unsticker): split issue vs PR label targets on HITL release (#8715) (#8715) *(2026-05-08)*
 - `ab7d575` — chore(arch): regenerate curated arch docs for ADR-0059 cross-references (T30.7) *(2026-05-08)*
 - `2953fc7` — docs(wiki): advisor-pattern entries (architecture-async-control + dark-factory) (T32, advisor-h4y) *(2026-05-08)*
@@ -209,4 +284,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `b1eafc5` on 2026-05-17 02:17 UTC. Source last changed at `b1eafc5`. Status: 🟢 fresh._
+_Regenerated from commit `cbde7f7` on 2026-05-18 15:48 UTC. Source last changed at `cbde7f7`. Status: 🟢 fresh._

@@ -50,7 +50,7 @@ def populated_repo(tmp_path: Path):
     return repo
 
 
-def test_emit_writes_all_nine_artifacts(populated_repo: Path):
+def test_emit_writes_all_artifacts(populated_repo: Path):
     fa_path = populated_repo / "docs/arch/functional_areas.yml"
     fa_path.parent.mkdir(parents=True, exist_ok=True)
     fa_path.write_text(
@@ -70,6 +70,8 @@ def test_emit_writes_all_nine_artifacts(populated_repo: Path):
         "mockworld.md",
         "changelog.md",
         "functional_areas.md",
+        "ubiquitous-language.md",
+        "ubiquitous-language-context-map.md",
     }
     assert {p.name for p in out.iterdir() if p.suffix == ".md"} == expected
     assert (out.parent / ".meta.json").exists()
