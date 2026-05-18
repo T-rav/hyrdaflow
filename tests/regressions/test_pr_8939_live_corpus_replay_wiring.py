@@ -30,9 +30,9 @@ _SRC = _REPO / "src"
 
 def test_service_registry_declares_live_corpus_replay_loop_field() -> None:
     text = (_SRC / "service_registry.py").read_text(encoding="utf-8")
-    assert "live_corpus_replay_loop: LiveCorpusReplayLoop | None" in text, (
+    assert "live_corpus_replay_loop: LiveCorpusReplayLoop" in text, (
         "ServiceRegistry must declare `live_corpus_replay_loop: "
-        "LiveCorpusReplayLoop | None` — see PR #8939."
+        "LiveCorpusReplayLoop` — see PR #8939."
     )
 
 
