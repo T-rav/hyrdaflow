@@ -126,6 +126,9 @@ class TestInitialization:
             "trust_fleet_sanity_last_seen_counts",
             "wiki_rot_attempts",
             "contract_refresh_attempts",
+            # LiveCorpusReplayLoop (#8786 Phase 2 / ADR-0045) — per-drift-
+            # signature attempt cap; clean tick resets all counters.
+            "live_corpus_drift_attempts",
             # Auto-Agent — AutoAgentPreflightLoop (spec §3.6)
             "auto_agent_attempts",
             "auto_agent_daily_spend",

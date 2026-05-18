@@ -43,6 +43,12 @@ class Cassette(BaseModel):
     input: CassetteInput
     output: CassetteOutput
     normalizers: list[str] = Field(default_factory=list)
+    # Phase 4 of #8786 — marks cassettes that are hand-authored baselines
+    # rather than recorded live. The eventual retirement signal: once a
+    # ``LiveCorpusReplayLoop`` dispatcher covers the same (adapter, command,
+    # args) shape, the baseline cassette is redundant and can be removed.
+    # ``FakeCoverageAuditorLoop`` will surface such overlaps (follow-up).
+    baseline_only: bool = Field(default=False)
 
     @field_validator("recorded_at", mode="before")
     @classmethod

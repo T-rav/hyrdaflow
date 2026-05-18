@@ -14,3 +14,4 @@ output:
   stdout: ""
   stderr: "✓ Closed issue #42\n"
 normalizers: []
+baseline_only: true

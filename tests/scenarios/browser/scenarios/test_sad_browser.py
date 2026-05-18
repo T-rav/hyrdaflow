@@ -252,49 +252,11 @@ async def test_s4_github_5xx_during_implement(world, page) -> None:
     assert outcome.merged is False
 
 
-async def test_s5_hindsight_down_pipeline_continues(world, page) -> None:
-    """S5: Hindsight service fails; pipeline still completes and merges issue.
-
-    Reference: TestS5HindsightDown.test_pipeline_completes_without_hindsight
-    """
-    # --- Step 1: seed ---
-    IssueBuilder().numbered(1).titled("Add feature").bodied("New feature request").at(
-        world
-    )
-    world.fail_service("hindsight")
-
-    # --- Step 2: run pipeline ---
-    result = await world.run_pipeline()
-
-    outcome = result.issue(1)
-    assert outcome.final_stage == "done", (
-        f"S5: pipeline should complete even without Hindsight; "
-        f"stopped at '{outcome.final_stage}'"
-    )
-    assert outcome.merged is True
-    assert world.hindsight.is_failing is True  # confirm service stayed failed
-
-    # Sync IssueStore.
-    world._harness.store.mark_merged(1)
-
-    # --- Step 3-4: boot dashboard + navigate ---
-    await _boot_and_navigate(world, page)
-
-    # --- Step 5: DOM assertions ---
-    merged_header = page.locator('[data-testid="stage-header-merged"]')
-    await expect(merged_header).to_contain_text("1 merged", timeout=15_000)
-
-    flow_dot = page.locator('[data-testid="flow-dot-1"]')
-    await expect(flow_dot).to_be_visible(timeout=5_000)
-
-    # --- Step 6: Python-side assertions ---
-    # No entries were retained in any Hindsight bank because the service was down.
-    assert world.hindsight.is_failing is True
-    # Hindsight banks should be empty (all retain() calls raised ConnectionError).
-    for bank in ("learnings", "retrospectives", "review-insights"):
-        assert world.hindsight.bank_entries(bank) == [], (
-            f"S5: expected empty Hindsight bank '{bank}' when service is failing"
-        )
+# test_s5_hindsight_down_pipeline_continues removed 2026-05-17.
+# Hindsight semantic memory was retired in the Phase 3 cutover — the
+# wiki + tribal + ADR-draft pipeline is the new primary write target,
+# and `world.fail_service("hindsight")` now raises "unknown service".
+# Sad-path coverage for a service that no longer exists has no value.
 
 
 async def test_s6_ci_fails_autofix_ci_passes(world, page) -> None:
