@@ -18,14 +18,15 @@ from __future__ import annotations
 from mockworld.seed import MockWorldSeed
 
 NAME = "s15_ci_monitor_main_branch_red"
-DESCRIPTION = (
-    "Main-branch CI red → CIMonitorLoop files one issue; second tick dedupes."
-)
+DESCRIPTION = "Main-branch CI red → CIMonitorLoop files one issue; second tick dedupes."
 
 
 def seed() -> MockWorldSeed:
     return MockWorldSeed(
-        main_branch_ci_status=("failure", "https://github.com/test/repo/actions/runs/1"),
+        main_branch_ci_status=(
+            "failure",
+            "https://github.com/test/repo/actions/runs/1",
+        ),
         loops_enabled=["ci_monitor"],
         cycles_to_run=2,
     )
