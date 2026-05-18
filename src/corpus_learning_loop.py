@@ -902,7 +902,7 @@ class CorpusLearningLoop(BaseBackgroundLoop):
             )
 
         return {
-            "status": "noop",
+            "status": "ok" if cases_filed > 0 else "noop",
             "escape_issues_seen": len(signals),
             "cases_synthesized": cases_synthesized,
             "cases_validated": cases_validated,
