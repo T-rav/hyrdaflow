@@ -17,14 +17,19 @@ _STATUS_GLYPH = {
 }
 
 
-def write_json(findings: list[Finding], out_path: Path) -> None:
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
+def build_payload(findings: list[Finding]) -> dict:
+    return {
         "version": 1,
         "summary": _summarise(findings),
         "findings": [f.to_dict() for f in findings],
     }
+
+
+def write_json(findings: list[Finding], out_path: Path) -> dict:
+    payload = build_payload(findings)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return payload
 
 
 def format_terminal(findings: list[Finding]) -> str:

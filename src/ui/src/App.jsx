@@ -8,17 +8,26 @@ import { SystemPanel } from './components/SystemPanel'
 import { OutcomesPanel } from './components/IssueHistoryPanel'
 import { StreamView } from './components/StreamView'
 import { SessionSidebar } from './components/SessionSidebar'
-import { WikiExplorer } from './components/wiki/WikiExplorer'
+import { AtlasExplorer } from './components/atlas/AtlasExplorer'
 import { theme } from './theme'
 
-const TABS = ['issues', 'hitl', 'outcomes', 'wiki', 'system']
+const TABS = ['issues', 'hitl', 'outcomes', 'atlas', 'system']
 
 const TAB_LABELS = {
   issues: 'Work Stream',
   outcomes: 'Outcomes',
   hitl: 'HITL',
-  wiki: 'Wiki',
+  atlas: 'Atlas',
   system: 'System',
+}
+
+function _initialTabFromUrl() {
+  if (typeof window === 'undefined') return 'issues'
+  const params = new URLSearchParams(window.location.search)
+  const requested = params.get('tab')
+  if (requested === 'wiki') return 'atlas'
+  if (requested && TABS.includes(requested)) return requested
+  return 'issues'
 }
 
 function formatResumeAt(isoString) {
@@ -152,7 +161,7 @@ function AppContent() {
     reporterId,
     mockworldActive,
   } = useHydraFlow()
-  const [activeTab, setActiveTab] = useState('issues')
+  const [activeTab, setActiveTab] = useState(_initialTabFromUrl)
   const [expandedStages, setExpandedStages] = useState({})
 
 
@@ -219,7 +228,7 @@ function AppContent() {
               ? <HITLTable items={hitlItems} onRefresh={refreshHitl} />
               : <div style={idleMessage}>Pipeline is not running — HITL actions are unavailable.</div>
           )}
-          {activeTab === 'wiki' && <WikiExplorer />}
+          {activeTab === 'atlas' && <AtlasExplorer />}
           {activeTab === 'system' && (
             <SystemPanel
               backgroundWorkers={backgroundWorkers}
