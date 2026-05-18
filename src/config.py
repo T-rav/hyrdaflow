@@ -439,7 +439,11 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         "HYDRAFLOW_TRUST_FLEET_SANITY_LOOP_ENABLED",
         True,
     ),
-    ("wiki_rot_detector_loop_enabled", "HYDRAFLOW_WIKI_ROT_DETECTOR_LOOP_ENABLED", True),
+    (
+        "wiki_rot_detector_loop_enabled",
+        "HYDRAFLOW_WIKI_ROT_DETECTOR_LOOP_ENABLED",
+        True,
+    ),
     ("workspace_gc_loop_enabled", "HYDRAFLOW_WORKSPACE_GC_LOOP_ENABLED", True),
 ]
 
