@@ -65,6 +65,16 @@ any one breaks the contract:
 
 ## Self-modifying maintenance mode
 
+This section describes the **inner learning loop** — the factory observing its
+own runtime patterns and absorbing them. The **outer learning loop** — operator
++ Claude doing capability work manually, then feeding the pattern back into the
+factory via methodology docs + issues — is documented separately at
+[`docs/methodology/learning-cycle-manual-to-factory.md`](../../methodology/learning-cycle-manual-to-factory.md).
+Both loops produce the same shape of output (the factory grows new lobes); only
+the inputs differ. Inner observes; outer creates.
+
+### Inner cycle (this section)
+
 The factory does not stay static. As it operates, patterns surface that the
 factory itself should automate:
 

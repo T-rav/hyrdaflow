@@ -26,6 +26,16 @@ services:
       # adapters take over.
       GH_TOKEN: "unused-by-fake-github"
       ANTHROPIC_API_KEY: "unused-by-fake-llm"
+      # ``TranscriptSummarizer`` shells out to real ``claude -p`` via
+      # ``build_lightweight_command`` after every implementer/planner/
+      # reviewer run.  In this air-gapped network it can't reach the
+      # Anthropic API → infinite retries → scenarios time out (root
+      # cause of the rc/* promotion Sandbox failure on 2026-05-17).
+      # The ``runners=fake_llm`` override in ``mockworld.sandbox_main``
+      # rebinds the four phase runners but NOT the summarizer, so we
+      # disable it explicitly here.  Sandbox scenarios assert lifecycle
+      # outcomes, never summarizer comment text.
+      HYDRAFLOW_TRANSCRIPT_SUMMARIZATION_ENABLED: "false"
     volumes:
       - ./tests/sandbox_scenarios/seeds:/seed:ro
     networks: [sandbox]

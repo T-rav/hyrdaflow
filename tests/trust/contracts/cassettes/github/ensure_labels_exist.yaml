@@ -1,0 +1,16 @@
+adapter: github
+interaction: ensure_labels_exist
+recorded_at: "2026-05-13T00:00:00Z"
+recorder_sha: "00000000"
+fixture_repo: T-rav-Hydra-Ops/hydraflow-contracts-sandbox
+input:
+  command: ensure_labels_exist
+  args: []
+  stdin: null
+  env: {}
+output:
+  exit_code: 0
+  stdout: ""
+  stderr: ""
+normalizers: []
+baseline_only: true

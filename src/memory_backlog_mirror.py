@@ -7,11 +7,14 @@ status state-machine.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import yaml
+
+logger = logging.getLogger("hydraflow.memory_backlog_mirror")
 
 Status = Literal["pending", "issue-open", "promoted", "wontfix"]
 _VALID_STATUS: frozenset[str] = frozenset(
@@ -46,7 +49,13 @@ def load_mirror_entry(path: Path) -> MirrorEntry:
     if end == -1:
         msg = f"unterminated frontmatter in {path}"
         raise ValueError(msg)
-    front = yaml.safe_load(text[4:end]) or {}
+    try:
+        front = yaml.safe_load(text[4:end]) or {}
+    except yaml.YAMLError as exc:
+        # A malformed entry is data corruption, not a loop bug — surface as
+        # ValueError so callers (pending_entries) can skip it uniformly.
+        msg = f"malformed frontmatter in {path}: {exc}"
+        raise ValueError(msg) from exc
     body = text[end + 4 :].lstrip("\n").rstrip() + "\n"
     status = front.get("status", "pending")
     if status not in _VALID_STATUS:
@@ -58,7 +67,7 @@ def load_mirror_entry(path: Path) -> MirrorEntry:
         source=str(front.get("source", "")),
         name=str(front.get("name", path.stem)),
         description=str(front.get("description", "")),
-        status=status,
+        status=cast(Status, status),
         issue=front.get("issue"),
         promoted_in=front.get("promoted_in"),
         wontfix_reason=front.get("wontfix_reason"),
@@ -73,7 +82,8 @@ def pending_entries(mirror_dir: Path) -> list[MirrorEntry]:
             continue
         try:
             entry = load_mirror_entry(path)
-        except ValueError:
+        except ValueError as exc:
+            logger.warning("Skipping malformed mirror entry %s: %s", path, exc)
             continue
         if entry.status == "pending":
             entries.append(entry)
