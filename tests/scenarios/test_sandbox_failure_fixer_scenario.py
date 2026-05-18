@@ -178,9 +178,7 @@ class TestSandboxFailureFixerScenario:
         assert _AUTO_FIX_LABEL not in pr.labels, (
             "sandbox-fail-auto-fix should be removed after escalation"
         )
-        assert _HITL_LABEL in pr.labels, (
-            "sandbox-hitl should be added after escalation"
-        )
+        assert _HITL_LABEL in pr.labels, "sandbox-hitl should be added after escalation"
 
     async def test_hitl_queue_reflects_escalated_pr(self, tmp_path) -> None:
         """End-to-end HITL queue integration.

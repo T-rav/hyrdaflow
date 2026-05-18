@@ -41,7 +41,7 @@ Regenerated from the live source tree. Cell vocabulary: ✅ covered, ⚠️ part
 | `ReportIssueLoop` | ✅ [0013, 0018, 0028] | ❌ | ❌ | ✅ (caretaker loop) | ✅ `test_report_issue_loop.py` | ✅ in catalog | ❌ |
 | `RetrospectiveLoop` | ❌ | ✅ [architecture-async-control.md] | ❌ | ✅ (caretaker loop) | ✅ `test_retrospective_loop.py` | ✅ in catalog | ❌ |
 | `RunsGCLoop` | ❌ | ✅ [architecture-async-control.md] | ❌ | ✅ (caretaker loop) | ✅ `test_runs_gc_loop.py` | ✅ in catalog | ❌ |
-| `SandboxFailureFixerLoop` | ✅ [0052, 0063] | ✅ [dark-factory.md] | ❌ | ❌ | ✅ `test_sandbox_failure_fixer_loop.py` | ⚠️ in catalog (no scenario file) | ❌ |
+| `SandboxFailureFixerLoop` | ✅ [0052, 0063] | ✅ [dark-factory.md] | ❌ | ❌ | ✅ `test_sandbox_failure_fixer_loop.py` | ✅ in catalog | ❌ |
 | `SecurityPatchLoop` | ✅ [0029] | ✅ [architecture-async-control.md] | ❌ | ✅ (caretaker loop) | ✅ `test_security_patch_loop.py` | ✅ in catalog | ❌ |
 | `SentryLoop` | ✅ [0055] | ❌ | ❌ | ✅ (caretaker loop) | ✅ `test_sentry_loop.py` | ❌ | ❌ |
 | `SkillPromptEvalLoop` | ✅ [0045] | ❌ | ❌ | ✅ (caretaker loop) | ✅ `test_skill_prompt_eval_loop.py` | ✅ in catalog | ❌ |
@@ -77,4 +77,4 @@ HITL trigger). It is not regenerable from source and is maintained in
 `docs/arch/coverage_matrix.md` (the hand-curated baseline document).
 
 
-_Regenerated from commit `8e52890` on 2026-05-18 23:30 UTC. Source last changed at `8e52890`. Status: 🟢 fresh._
+_Regenerated from commit `28d5c30` on 2026-05-18 23:30 UTC. Source last changed at `28d5c30`. Status: 🟢 fresh._
