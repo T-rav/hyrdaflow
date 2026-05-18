@@ -1,9 +1,8 @@
 """Phase 9 tests: FakeCoverageAuditorLoop's retirement audit path.
 
-The audit runs each tick when ``cassette_retirement_audit_enabled=True``
-AND a ``retirement_keys_cb`` has been installed. Each candidate batch
-fires at most one issue (dedup'd on the candidate set) labeled
-``hydraflow-find`` + ``cassette-retirement-ready``.
+The audit runs each tick when a ``retirement_keys_cb`` is installed.
+Each candidate batch fires at most one issue (dedup'd on the candidate
+set) labeled ``hydraflow-find`` + ``cassette-retirement-ready``.
 """
 
 from __future__ import annotations
@@ -76,23 +75,11 @@ def _make_loop(tmp_path: Path, **config_overrides):  # noqa: ANN201
 
 
 @pytest.mark.asyncio
-async def test_audit_skipped_when_flag_off(tmp_path: Path) -> None:
-    """Default config → audit doesn't run, no issue."""
-    cassette_root = tmp_path / "repo" / "tests" / "trust" / "contracts" / "cassettes"
-    _write_baseline_cassette(cassette_root, "github", "merge_pr", "gh")
-    loop, pr, _ = _make_loop(tmp_path)
-    # Flag is False; cb is None — both block.
-    filed = await loop._audit_retirement(cassette_root)
-    assert filed == 0
-    pr.create_issue.assert_not_awaited()
-
-
-@pytest.mark.asyncio
 async def test_audit_skipped_when_cb_missing(tmp_path: Path) -> None:
+    """No retirement-keys callback installed → audit no-ops."""
     cassette_root = tmp_path / "cassettes"
     _write_baseline_cassette(cassette_root, "github", "merge_pr", "gh")
-    loop, pr, _ = _make_loop(tmp_path, cassette_retirement_audit_enabled=True)
-    # Flag is True but no cb installed; audit no-ops.
+    loop, pr, _ = _make_loop(tmp_path)
     filed = await loop._audit_retirement(cassette_root)
     assert filed == 0
     pr.create_issue.assert_not_awaited()
@@ -103,7 +90,7 @@ async def test_audit_files_issue_when_candidates_exist(tmp_path: Path) -> None:
     """A baseline cassette covered by a live dispatcher → one issue filed."""
     cassette_root = tmp_path / "cassettes"
     _write_baseline_cassette(cassette_root, "github", "covered", "gh")
-    loop, pr, _ = _make_loop(tmp_path, cassette_retirement_audit_enabled=True)
+    loop, pr, _ = _make_loop(tmp_path)
     loop.set_retirement_keys_cb(lambda: {("github", "gh")})
 
     filed = await loop._audit_retirement(cassette_root)
@@ -139,7 +126,7 @@ async def test_audit_dedups_across_ticks(tmp_path: Path) -> None:
     """Same candidate batch on consecutive ticks → at most one issue."""
     cassette_root = tmp_path / "cassettes"
     _write_baseline_cassette(cassette_root, "github", "covered", "gh")
-    loop, pr, _dedup = _make_loop(tmp_path, cassette_retirement_audit_enabled=True)
+    loop, pr, _dedup = _make_loop(tmp_path)
     loop._dedup = _DictDedup()  # type: ignore[assignment]
     loop.set_retirement_keys_cb(lambda: {("github", "gh")})
 
@@ -156,7 +143,7 @@ async def test_audit_catches_callback_exception(tmp_path: Path) -> None:
     """A broken keys callback must not crash the loop."""
     cassette_root = tmp_path / "cassettes"
     _write_baseline_cassette(cassette_root, "github", "covered", "gh")
-    loop, pr, _ = _make_loop(tmp_path, cassette_retirement_audit_enabled=True)
+    loop, pr, _ = _make_loop(tmp_path)
 
     def angry_cb() -> set[tuple[str, str]]:
         raise RuntimeError("boom")
@@ -171,7 +158,7 @@ async def test_audit_catches_callback_exception(tmp_path: Path) -> None:
 async def test_setter_clears_previous_callback(tmp_path: Path) -> None:
     cassette_root = tmp_path / "cassettes"
     _write_baseline_cassette(cassette_root, "github", "covered", "gh")
-    loop, pr, _ = _make_loop(tmp_path, cassette_retirement_audit_enabled=True)
+    loop, pr, _ = _make_loop(tmp_path)
     loop.set_retirement_keys_cb(lambda: {("github", "gh")})
     loop.set_retirement_keys_cb(None)  # cleared
     filed = await loop._audit_retirement(cassette_root)
