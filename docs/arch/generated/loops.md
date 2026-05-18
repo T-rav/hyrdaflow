@@ -18,6 +18,7 @@ All `BaseBackgroundLoop` subclasses discovered in `src/`. Generated from AST (no
 | **DiagnosticLoop** | `src.diagnostic_loop` | — | — | DIAGNOSTIC_UPDATE | — |
 | **DiagramLoop** | `src.diagram_loop` | — | — | — | ADR-0029, ADR-0049 |
 | **EdgeProposerLoop** | `src.edge_proposer_loop` | — | — | — | — |
+| **EntryEvidenceLoop** | `src.entry_evidence_loop` | — | — | — | ADR-0062 |
 | **EpicMonitorLoop** | `src.epic_monitor_loop` | — | — | — | — |
 | **EpicSweeperLoop** | `src.epic_sweeper_loop` | — | — | — | — |
 | **FakeCoverageAuditorLoop** | `src.fake_coverage_auditor_loop` | — | — | — | — |
@@ -25,6 +26,7 @@ All `BaseBackgroundLoop` subclasses discovered in `src/`. Generated from AST (no
 | **GitHubCacheLoop** | `src.github_cache_loop` | — | — | — | — |
 | **HealthMonitorLoop** | `src.health_monitor_loop` | — | — | — | — |
 | **LabelDriftWatcherLoop** | `src.label_drift_watcher_loop` | — | — | — | — |
+| **LiveCorpusReplayLoop** | `src.live_corpus_replay_loop` | — | — | — | — |
 | **MemoryBacklogLoop** | `src.memory_backlog_loop` | — | — | — | — |
 | **MergeStateWatcherLoop** | `src.merge_state_watcher_loop` | — | — | — | — |
 | **PRUnstickerLoop** | `src.pr_unsticker_loop` | — | — | — | — |
@@ -49,4 +51,4 @@ All `BaseBackgroundLoop` subclasses discovered in `src/`. Generated from AST (no
 | **WikiRotDetectorLoop** | `src.wiki_rot_detector_loop` | — | — | — | — |
 | **WorkspaceGCLoop** | `src.workspace_gc_loop` | — | — | — | — |
 
-_Regenerated from commit `d649803` on 2026-05-11 15:51 UTC. Source last changed at `d649803`. Status: 🟢 fresh._
+_Regenerated from commit `b1eafc5` on 2026-05-17 02:17 UTC. Source last changed at `b1eafc5`. Status: 🟢 fresh._

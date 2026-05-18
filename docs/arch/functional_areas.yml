@@ -21,6 +21,7 @@ areas:
       - DependabotMergeLoop
       - DiagnosticLoop
       - EdgeProposerLoop
+      - EntryEvidenceLoop
       - EpicMonitorLoop
       - EpicSweeperLoop
       - GitHubCacheLoop
@@ -70,6 +71,7 @@ areas:
       - CorpusLearningLoop
       - FakeCoverageAuditorLoop
       - FlakeTrackerLoop
+      - LiveCorpusReplayLoop
       - PrinciplesAuditLoop
       - RCBudgetLoop
       - StagingBisectLoop
