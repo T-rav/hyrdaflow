@@ -848,4 +848,3 @@ class TestG10RetryLineageWiring:
         # past cap.
         all_labels = [c.args[2] for c in prs.create_issue.await_args_list]
         assert all("hitl-escalation" not in lbls for lbls in all_labels)
-

@@ -6,7 +6,24 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
-- `1976701` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `9ca35c7` — fix(format): ruff format *(2026-05-18)*
+- `ebe1710` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `d0635fe` — fix(format): ruff format *(2026-05-18)*
+- `ea0e084` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `469d933` — fix(format): ruff format *(2026-05-18)*
+- `73a1a7f` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `6811034` — fix(format): ruff format *(2026-05-18)*
+- `ea0e457` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `6b7e670` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `f50f9d7` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `8f2ece5` — fix(format): ruff format *(2026-05-18)*
+- `77b63eb` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `2997071` — fix(arch): populate Tick + Kill columns in loops.md generator (closes audit gap) *(2026-05-18)*
+- `e3822b1` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `8d259e3` — Merge branch 'staging' into cleanup/ci-integrity-trio *(2026-05-18)*
+- `5f913e6` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `a5e7c4a` — fix(adr): reformat ADR-0031 enforcement (commas + bare paths for parser) *(2026-05-18)*
+- `d75c5e3` — Merge branch 'staging' into cleanup/ci-integrity-trio *(2026-05-18)*
 - `3cf70d6` — fix(adr): add Enforced by line to ADR-0031 (unblocks Tests on staging) *(2026-05-18)*
 - `f9ad184` — Merge pull request #8738 from T-rav/worktree-audit+coverage-matrix-baseline *(2026-05-18)*
 - `c17ffe4` — Merge pull request #8841 from T-rav/docs/wiki-backfill-seven *(2026-05-18)*
@@ -22,6 +39,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `ef8979f` — Merge pull request #8787 from T-rav/audit/area-dashboard *(2026-05-18)*
 - `423f2dc` — Merge pull request #8782 from T-rav/audit/area-caretaking *(2026-05-18)*
 - `94a0c81` — Merge pull request #8757 from T-rav/audit/factory-phase-drift *(2026-05-18)*
+- `5d2da98` — chore(arch): regen after rebase onto staging *(2026-05-18)*
 - `ff2e21e` — docs(audit): post-review fixups — bead bodies, header SHA, Ports criteria *(2026-05-18)*
 - `b14d242` — docs(audit): coverage matrix — gap beads filed and cross-linked *(2026-05-18)*
 - `76a89f8` — docs(audit): coverage matrix — parent automation bead advisor-bpl linked *(2026-05-18)*
@@ -32,6 +50,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `826355b` — docs(audit): coverage matrix — Ports section populated (9 rows × 7 cols) *(2026-05-18)*
 - `98872f2` — docs(audit): coverage matrix — Loops section populated (41 rows × 7 cols) *(2026-05-18)*
 - `8b43af9` — docs(audit): coverage matrix baseline skeleton (slice 1 of 5) *(2026-05-18)*
+- `586b727` — cleanup: CI integrity fixes — ubiquitous-language guard + 3 misc (slices 5.5 + 5.10) *(2026-05-18)*
 - `6e74dcf` — Merge branch 'staging' into docs/wiki-backfill-seven *(2026-05-18)*
 - `127d4ae` — Merge branch 'staging' into audit/area-auto-agent *(2026-05-18)*
 - `7ac00f7` — Merge branch 'staging' into audit/area-hexagonal *(2026-05-18)*
@@ -281,4 +300,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `1976701` on 2026-05-18 15:47 UTC. Source last changed at `1976701`. Status: 🟢 fresh._
+_Regenerated from commit `9ca35c7` on 2026-05-18 18:45 UTC. Source last changed at `9ca35c7`. Status: 🟢 fresh._
