@@ -6,7 +6,9 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
-- `b65be00` — fix(format): ruff format *(2026-05-18)*
+- `a2dacb8` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `bcc0b25` — fix(contracts): widen Cassette._validate_adapter to accept all 9 known fakes (closes slice 5.7) *(2026-05-18)*
+- `a06faa7` — fix(format): ruff format *(2026-05-18)*
 - `0a5dcad` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
 - `11b4807` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
 - `899d7aa` — fix: ruff auto-fixes (unused imports + import sort) *(2026-05-18)*
@@ -316,4 +318,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `b65be00` on 2026-05-18 22:38 UTC. Source last changed at `b65be00`. Status: 🟢 fresh._
+_Regenerated from commit `a2dacb8` on 2026-05-18 23:04 UTC. Source last changed at `a2dacb8`. Status: 🟢 fresh._
