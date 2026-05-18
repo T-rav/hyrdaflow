@@ -49,7 +49,9 @@ def _deps() -> LoopDeps:
     )
 
 
-def _make_loop(tmp_path: Path, *, max_quality_fix_attempts: int = 2) -> HealthMonitorLoop:
+def _make_loop(
+    tmp_path: Path, *, max_quality_fix_attempts: int = 2
+) -> HealthMonitorLoop:
     """Build a minimal HealthMonitorLoop backed by tmp_path."""
     cfg = HydraFlowConfig(
         data_root=tmp_path,
@@ -92,7 +94,9 @@ class TestComputeTrendMetrics:
         scores = tmp_path / "item_scores.json"
         failures = tmp_path / "harness_failures.jsonl"
         # 3 successes, 2 failures → rate 0.6
-        _write_outcomes(outcomes, ["success", "success", "failure", "success", "failure"])
+        _write_outcomes(
+            outcomes, ["success", "success", "failure", "success", "failure"]
+        )
         metrics = compute_trend_metrics(outcomes, scores, failures)
         assert metrics.first_pass_rate == pytest.approx(0.6)
         assert metrics.total_outcomes == 5
@@ -373,9 +377,7 @@ class TestFileHitlRecommendations:
         assert rec["type"] == "recommendation"
         assert "surprise_rate" in rec["title"]
 
-    async def test_high_hitl_rate_writes_recommendation(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_high_hitl_rate_writes_recommendation(self, tmp_path: Path) -> None:
         loop = _make_loop(tmp_path)
         metrics = TrendMetrics(
             first_pass_rate=0.5,
@@ -391,9 +393,7 @@ class TestFileHitlRecommendations:
         assert len(lines) == 1
         assert "hitl_escalation_rate" in json.loads(lines[0])["title"]
 
-    async def test_high_stale_count_writes_recommendation(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_high_stale_count_writes_recommendation(self, tmp_path: Path) -> None:
         loop = _make_loop(tmp_path)
         metrics = TrendMetrics(
             first_pass_rate=0.5,

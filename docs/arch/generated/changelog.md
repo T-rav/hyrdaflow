@@ -6,7 +6,8 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
-- `31d8e7e` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `f9b65a6` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
+- `119279f` — chore(arch): regenerate arch docs after rebase *(2026-05-18)*
 - `0d3d203` — fix(persistence): ADR-0021 data layout + metrics path slug-doubling (closes slice 5.6 advisor-0ca7) *(2026-05-18)*
 - `4a5caa1` — fix(sandbox): also disable ResearchRunner — second claude-spawning caller (#8966) (#8966) *(2026-05-18)*
 - `6d35133` — fix(lint): ruff auto-fixes after staging rebase *(2026-05-18)*
@@ -331,4 +332,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `31d8e7e` on 2026-05-19 00:59 UTC. Source last changed at `31d8e7e`. Status: 🟢 fresh._
+_Regenerated from commit `f9b65a6` on 2026-05-19 01:23 UTC. Source last changed at `f9b65a6`. Status: 🟢 fresh._

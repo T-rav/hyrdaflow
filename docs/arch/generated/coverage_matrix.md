@@ -28,7 +28,7 @@ Regenerated from the live source tree. Cell vocabulary: ✅ covered, ⚠️ part
 | `FakeCoverageAuditorLoop` | ✅ [0045, 0056, 0057] | ❌ | ❌ | ❌ | ✅ `test_fake_coverage_auditor_loop.py` | ✅ in catalog | ❌ |
 | `FlakeTrackerLoop` | ✅ [0045, 0056, 0057] | ❌ | ❌ | ❌ | ✅ `test_flake_tracker_loop.py` | ✅ in catalog | ❌ |
 | `GitHubCacheLoop` | ❌ | ❌ | ❌ | ✅ (caretaker loop) | ❌ | ❌ | ❌ |
-| `HealthMonitorLoop` | ✅ [0045, 0046] | ✅ [testing.md] | ❌ | ✅ (caretaker loop) | ❌ | ⚠️ in catalog (no scenario file) | ❌ |
+| `HealthMonitorLoop` | ✅ [0045, 0046] | ✅ [testing.md] | ❌ | ✅ (caretaker loop) | ✅ `test_health_monitor_loop_primary_cycle.py` | ⚠️ in catalog (no scenario file) | ❌ |
 | `LabelDriftWatcherLoop` | ✅ [0056] | ❌ | ❌ | ✅ (caretaker loop) | ✅ `test_label_drift_watcher_loop.py` | ⚠️ in catalog (no scenario file) | ❌ |
 | `LiveCorpusReplayLoop` | ❌ | ❌ | ❌ | ❌ | ✅ `test_live_corpus_replay_loop.py` | ❌ | ❌ |
 | `MemoryBacklogLoop` | ✅ [0057] | ✅ [README.md] | ❌ | ✅ (caretaker loop) | ✅ `test_memory_backlog_loop.py` | ✅ in catalog | ❌ |
@@ -77,4 +77,4 @@ HITL trigger). It is not regenerable from source and is maintained in
 `docs/arch/coverage_matrix.md` (the hand-curated baseline document).
 
 
-_Regenerated from commit `31d8e7e` on 2026-05-19 00:59 UTC. Source last changed at `31d8e7e`. Status: 🟢 fresh._
+_Regenerated from commit `f9b65a6` on 2026-05-19 01:23 UTC. Source last changed at `f9b65a6`. Status: 🟢 fresh._
