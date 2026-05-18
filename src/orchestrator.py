@@ -52,6 +52,7 @@ from subprocess_util import (
 if TYPE_CHECKING:
     from base_background_loop import BaseBackgroundLoop
     from crate_manager import CrateManager
+    from epic import EpicManager
     from github_cache_loop import GitHubDataCache
     from issue_store import IssueStore
     from metrics_manager import MetricsManager
@@ -196,9 +197,8 @@ class HydraFlowOrchestrator:
             "term_proposer": svc.term_proposer_loop,
             "term_pruner": svc.term_pruner_loop,
             "edge_proposer": svc.edge_proposer_loop,
+            "live_corpus_replay": svc.live_corpus_replay_loop,
         }
-        if svc.live_corpus_replay_loop is not None:
-            bg_loop_registry.update({"live_corpus_replay": svc.live_corpus_replay_loop})
         self._bg_workers = BGWorkerManager(config, self._state, bg_loop_registry)
         # Loops that need a reference to BGWorkerManager cannot take one
         # at construction time (chicken-and-egg: BGWorkerManager takes the
@@ -249,6 +249,11 @@ class HydraFlowOrchestrator:
     def metrics_manager(self) -> MetricsManager:
         """Expose metrics manager for dashboard API."""
         return self._svc.metrics_manager
+
+    @property
+    def epic_manager(self) -> EpicManager:
+        """Expose epic manager for dashboard API."""
+        return self._svc.epic_manager
 
     @property
     def running(self) -> bool:
@@ -470,7 +475,7 @@ class HydraFlowOrchestrator:
                     interrupted[issue_number] = "hitl"
             return interrupted
 
-    # Alias for backward compatibility
+    # Alias used live by dashboard_routes/_control_routes.py:326
     request_stop = stop
 
     def reset(self) -> None:
@@ -1018,11 +1023,8 @@ class HydraFlowOrchestrator:
             ("term_proposer", self._svc.term_proposer_loop.run),
             ("term_pruner", self._svc.term_pruner_loop.run),
             ("edge_proposer", self._svc.edge_proposer_loop.run),
+            ("live_corpus_replay", self._svc.live_corpus_replay_loop.run),
         ]
-        if self._svc.live_corpus_replay_loop is not None:
-            loop_factories.append(
-                ("live_corpus_replay", self._svc.live_corpus_replay_loop.run)
-            )
 
         # Hindsight WAL replay loop removed in Phase 3 cutover — the wiki
         # pipeline doesn't need a replay loop.

@@ -50,46 +50,6 @@ def test_skeleton_worker_name_and_interval(loop_env):
     assert loop._get_default_interval() == 604800  # spec §4.4
 
 
-async def test_audit_hydraflow_self_saves_snapshot(loop_env, tmp_path, monkeypatch):
-    cfg, state, pr = loop_env
-    stop = asyncio.Event()
-    loop = PrinciplesAuditLoop(config=cfg, state=state, pr_manager=pr, deps=_deps(stop))
-
-    fake_findings = [
-        {
-            "check_id": "P1.1",
-            "status": "PASS",
-            "severity": "STRUCTURAL",
-            "principle": "P1",
-            "source": "docs/adr",
-            "what": "doc exists",
-            "remediation": "write docs",
-            "message": "",
-        },
-        {
-            "check_id": "P2.4",
-            "status": "PASS",
-            "severity": "BEHAVIORAL",
-            "principle": "P2",
-            "source": "Makefile",
-            "what": "target runs",
-            "remediation": "fix target",
-            "message": "",
-        },
-    ]
-
-    async def fake_run_audit(slug, repo_root):
-        return {"summary": {}, "findings": fake_findings}
-
-    monkeypatch.setattr(loop, "_run_audit", fake_run_audit)
-
-    snapshot = await loop._audit_hydraflow_self()
-    assert snapshot == {"P1.1": "PASS", "P2.4": "PASS"}
-    snap_dir = cfg.data_root / "hydraflow-self" / "audit"
-    saved = list(snap_dir.glob("*.json"))
-    assert len(saved) == 1
-
-
 async def test_audit_managed_repo_clones_or_fetches(loop_env, tmp_path, monkeypatch):
     cfg, state, pr = loop_env
     stop = asyncio.Event()

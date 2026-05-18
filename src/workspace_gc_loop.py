@@ -53,6 +53,8 @@ class WorkspaceGCLoop(BaseBackgroundLoop):
         """Run one GC cycle: state workspaces, orphan dirs, orphan branches."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.workspace_gc_loop_enabled:
+            return {"status": "config_disabled"}
         collected = 0
         skipped = 0
         errors = 0

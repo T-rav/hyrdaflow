@@ -378,6 +378,8 @@ class HealthMonitorLoop(BaseBackgroundLoop):
         """Execute one health-monitor cycle."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.health_monitor_loop_enabled:
+            return {"status": "config_disabled"}
 
         # Dead-man-switch: detect a stalled TrustFleetSanityLoop (spec §12.1).
         try:

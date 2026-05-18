@@ -1725,8 +1725,30 @@ class CodeGroomingSettings(BaseModel):
     dry_run: bool = False
 
 
+class ActiveTraceRun(BaseModel):
+    """A single in-progress trace run stored in ``trace_runs["active"]``."""
+
+    run_id: int
+    started_at: str
+
+
+class TraceRunsContainer(BaseModel):
+    """Typed container for the ``trace_runs`` field of StateData.
+
+    Structure (from _trace_runs.py):
+    - ``active``: keyed by ``"<issue>:<phase>"``, value is an ActiveTraceRun.
+    - ``next_run_id``: keyed by ``"<issue>:<phase>"``, value is the next int
+      run_id to allocate.
+    """
+
+    active: dict[str, ActiveTraceRun] = Field(default_factory=dict)
+    next_run_id: dict[str, int] = Field(default_factory=dict)
+
+
 class StateData(BaseModel):
     """Typed schema for the JSON-backed crash-recovery state."""
+
+    model_config = ConfigDict(extra="ignore")
 
     schema_version: int = 1
     processed_issues: dict[str, str] = Field(default_factory=dict)
@@ -1841,9 +1863,7 @@ class StateData(BaseModel):
     )
     diagnosis_severities: dict[str, str] = Field(default_factory=dict)
     sentry_creation_attempts: dict[str, int] = Field(default_factory=dict)
-    trace_runs: dict[str, dict[str, object]] = Field(
-        default_factory=lambda: {"active": {}, "next_run_id": {}}
-    )
+    trace_runs: TraceRunsContainer = Field(default_factory=TraceRunsContainer)
     # StagingBisectLoop state (spec §4.3 + §8). Written by StagingPromotionLoop
     # on each promotion outcome; polled + mutated by StagingBisectLoop.
     last_green_rc_sha: str = ""

@@ -262,6 +262,8 @@ class FlakeTrackerLoop(BaseBackgroundLoop):
         """One flake-tracking cycle (spec §4.5)."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.flake_tracker_loop_enabled:
+            return {"status": "config_disabled"}
 
         t0 = time.perf_counter()
         await self._reconcile_closed_escalations()

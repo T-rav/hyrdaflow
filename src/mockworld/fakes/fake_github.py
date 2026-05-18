@@ -111,6 +111,10 @@ class FakeGitHub:
             )
             for label in pr_dict.get("labels", []):
                 gh.add_pr_label(pr_dict["number"], label)
+        # Apply main-branch CI status if the seed overrides the default green.
+        conclusion, url = seed.main_branch_ci_status
+        if conclusion != "success":
+            gh.set_ci_main_status(conclusion, url)
         return gh
 
     # --- Seed API ---

@@ -210,11 +210,7 @@ class ServiceRegistry:
     term_pruner_loop: TermPrunerLoop
     edge_proposer_loop: EdgeProposerLoop
     entry_evidence_loop: EntryEvidenceLoop
-    # LiveCorpusReplayLoop is gated by ``config.shadow_corpus_enabled``.
-    # When the shadow corpus is off the loop is not constructed; the
-    # field is then ``None`` and consumers (orchestrator bg_loop_registry,
-    # loop_factories) include it only when present.
-    live_corpus_replay_loop: LiveCorpusReplayLoop | None
+    live_corpus_replay_loop: LiveCorpusReplayLoop
 
     # Optional integrations
 
@@ -282,31 +278,18 @@ def build_services(
 
     configure_gh_concurrency(config.gh_api_concurrency)
 
-    # Shadow corpus (#8786, Phase 0.3). When the config flag is on,
-    # install a ShadowCorpus-backed sampler so every gh/git/docker/claude
-    # call feeds the bounded, normalized, PII-scrubbed corpus that
-    # LiveCorpusReplayLoop consumes. Off by default — the subprocess-side
-    # hook is a no-op when no sampler is installed.
+    # Shadow corpus (#8786). Every gh/git/docker/claude subprocess call
+    # feeds the bounded, normalized, PII-scrubbed corpus that
+    # LiveCorpusReplayLoop consumes. ``shadow_corpus_max_per_adapter``
+    # caps disk usage via LRU eviction.
+    from contracts.shadow import ShadowCorpus
     from subprocess_util import set_shadow_sampler
 
-    shadow_corpus = None
-    if config.shadow_corpus_enabled:
-        from contracts.shadow import ShadowCorpus
-
-        shadow_corpus = ShadowCorpus(
-            config.data_root / "contract_shadow",
-            max_per_adapter=config.shadow_corpus_max_per_adapter,
-        )
-        set_shadow_sampler(shadow_corpus.record)
-        logger.info(
-            "shadow corpus enabled at %s (max %s per adapter)",
-            config.data_root / "contract_shadow",
-            config.shadow_corpus_max_per_adapter,
-        )
-    else:
-        # Defensive clear — if a prior test or process left a sampler
-        # installed, this guarantees the flag actually controls behavior.
-        set_shadow_sampler(None)
+    shadow_corpus = ShadowCorpus(
+        config.data_root / "contract_shadow",
+        max_per_adapter=config.shadow_corpus_max_per_adapter,
+    )
+    set_shadow_sampler(shadow_corpus.record)
 
     # Hindsight semantic memory and MemoryJudge — REMOVED in Phase 3 cutover.
     # The wiki + tribal + ADR-draft pipeline is the new primary. Any
@@ -456,7 +439,7 @@ def build_services(
     # full widening of downstream method signatures to take
     # ``IssueFetcherPort`` directly, after which this cast can be removed.
     fetcher = cast(IssueFetcher, fetcher)
-    gh_cache = GitHubDataCache(config, prs, fetcher)  # noqa: F841
+    gh_cache = GitHubDataCache(config, prs, fetcher)
     if store is None:
         store = IssueStore(config, GitHubTaskFetcher(fetcher), event_bus)
     # Cast is duck-safe at runtime: the override (FakeIssueStore, if any)
@@ -1054,40 +1037,36 @@ def build_services(
         state=state,
     )
 
-    # LiveCorpusReplayLoop (#8786 Phase 2). Only meaningful when the shadow
-    # corpus is enabled — otherwise the corpus is empty every tick and the
-    # loop is a no-op. Tied to the same flag so a single toggle controls
-    # the full v2 path.
-    _live_corpus_replay_loop: LiveCorpusReplayLoop | None = None
-    if config.shadow_corpus_enabled and shadow_corpus is not None:
-        _live_corpus_replay_dedup = DedupStore(
-            "live_corpus_replay",
-            config.data_root / "dedup" / "live_corpus_replay.json",
-        )
-        _live_corpus_replay_loop = LiveCorpusReplayLoop(
-            config=config,
-            corpus=shadow_corpus,
-            pr_manager=prs,
-            dedup=_live_corpus_replay_dedup,
-            state=state,
-            deps=loop_deps,
-        )
-        # Phase 5: register the Pydantic shape dispatcher for gh JSON
-        # output. Validates sample.stdout against contracts.shapes models
-        # — shape drift in real gh (renamed/removed/typed-differently
-        # fields, new enum values) fires immediately on the next tick.
-        from contracts.shape_dispatchers import gh_shape_validator
+    # LiveCorpusReplayLoop (#8786 Phase 2). Consumes the shadow corpus,
+    # diffs samples against fake-adapter outputs via registered dispatchers,
+    # files hydraflow-find issues on drift, escalates to hitl-escalation
+    # after ``live_corpus_max_drift_attempts`` consecutive ticks.
+    _live_corpus_replay_dedup = DedupStore(
+        "live_corpus_replay",
+        config.data_root / "dedup" / "live_corpus_replay.json",
+    )
+    _live_corpus_replay_loop = LiveCorpusReplayLoop(
+        config=config,
+        corpus=shadow_corpus,
+        pr_manager=prs,
+        dedup=_live_corpus_replay_dedup,
+        state=state,
+        deps=loop_deps,
+    )
+    # Phase 5: register the Pydantic shape dispatcher for gh JSON output.
+    # Validates sample.stdout against contracts.shapes models — shape
+    # drift in real gh (renamed/removed/typed-differently fields, new
+    # enum values) fires immediately on the next tick.
+    from contracts.shape_dispatchers import gh_shape_validator
 
-        _live_corpus_replay_loop.register("github", "gh", gh_shape_validator)
+    _live_corpus_replay_loop.register("github", "gh", gh_shape_validator)
 
-        # Phase 9: thread LiveCorpusReplayLoop's registered_shapes() into
-        # FakeCoverageAuditorLoop so the retirement audit can flag
-        # baseline cassettes whose shape is now dispatcher-covered. Only
-        # wired when both flags are on — the audit is gated by
-        # ``cassette_retirement_audit_enabled``.
-        fake_coverage_auditor_loop.set_retirement_keys_cb(
-            _live_corpus_replay_loop.registered_shapes
-        )
+    # Phase 9: thread the live dispatcher registry into the auditor so
+    # the cassette retirement audit can flag baseline cassettes whose
+    # shape is now dispatcher-covered.
+    fake_coverage_auditor_loop.set_retirement_keys_cb(
+        _live_corpus_replay_loop.registered_shapes
+    )
 
     corpus_learning_dedup = DedupStore(
         "corpus_learning",

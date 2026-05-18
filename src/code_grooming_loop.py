@@ -11,6 +11,7 @@ from agent_cli import build_agent_command
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import Credentials, HydraFlowConfig
 from dedup_store import DedupStore
+from exception_classify import reraise_on_credit_or_bug
 from runner_utils import StreamConfig, stream_claude_process
 
 if TYPE_CHECKING:
@@ -127,7 +128,8 @@ class CodeGroomingLoop(BaseBackgroundLoop):
 
         try:
             findings = await self._run_audit()
-        except Exception:
+        except Exception as exc:
+            reraise_on_credit_or_bug(exc)
             logger.warning("Code grooming audit failed", exc_info=True)
             return {"filed": 0, "error": True}
 

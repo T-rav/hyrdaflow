@@ -78,6 +78,8 @@ class SecurityPatchLoop(BaseBackgroundLoop):
     async def _do_work(self) -> dict[str, Any] | None:
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.security_patch_loop_enabled:
+            return {"status": "config_disabled"}
 
         if self._config.dry_run:
             return None

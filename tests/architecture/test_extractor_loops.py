@@ -67,3 +67,90 @@ def test_output_is_sorted_by_name(fixture_src_tree):
     )
     names = [loop.name for loop in extract_loops(root / "src")]
     assert names == ["AlphaLoop", "ZebraLoop"]
+
+
+def test_tick_from_get_default_interval_literal(fixture_src_tree):
+    """Tick is extracted from _get_default_interval returning a literal int."""
+    root = fixture_src_tree(
+        {
+            "src/diagram_loop.py": """
+            from base_background_loop import BaseBackgroundLoop
+
+            class DiagramLoop(BaseBackgroundLoop):
+                def _get_default_interval(self) -> int:
+                    # 4 hours
+                    return 14400
+            """,
+        }
+    )
+    loops = extract_loops(root / "src")
+    assert len(loops) == 1
+    assert loops[0].tick_interval_seconds == 14400
+
+
+def test_tick_from_get_default_interval_module_constant(fixture_src_tree):
+    """Tick is extracted from _get_default_interval returning a module-level constant."""
+    root = fixture_src_tree(
+        {
+            "src/merge_loop.py": """
+            from base_background_loop import BaseBackgroundLoop
+
+            _DEFAULT_INTERVAL_SECONDS = 600
+
+            class MergeLoop(BaseBackgroundLoop):
+                def _get_default_interval(self) -> int:
+                    return _DEFAULT_INTERVAL_SECONDS
+            """,
+        }
+    )
+    loops = extract_loops(root / "src")
+    assert len(loops) == 1
+    assert loops[0].tick_interval_seconds == 600
+
+
+def test_tick_from_get_default_interval_config_field(fixture_src_tree):
+    """Tick is extracted from _get_default_interval returning self._config.<field>
+    where the field default is declared in config.py as Field(default=<int>)."""
+    root = fixture_src_tree(
+        {
+            "src/ci_monitor_loop.py": """
+            from base_background_loop import BaseBackgroundLoop
+
+            class CIMonitorLoop(BaseBackgroundLoop):
+                def _get_default_interval(self) -> int:
+                    return self._config.ci_monitor_interval
+            """,
+            "src/config.py": """
+            from pydantic import Field
+
+            class HydraFlowConfig:
+                ci_monitor_interval: int = Field(default=300)
+            """,
+        }
+    )
+    loops = extract_loops(root / "src")
+    assert len(loops) == 1
+    assert loops[0].tick_interval_seconds == 300
+
+
+def test_kill_switch_from_module_level_constant(fixture_src_tree):
+    """Kill switch env var is found even when defined as a module-level constant
+    referenced by name inside the class body (not inlined as a string literal)."""
+    root = fixture_src_tree(
+        {
+            "src/diagram_loop.py": """
+            import os
+            from base_background_loop import BaseBackgroundLoop
+
+            _KILL_SWITCH_ENV = "HYDRAFLOW_DISABLE_DIAGRAM_LOOP"
+
+            class DiagramLoop(BaseBackgroundLoop):
+                def _do_work(self):
+                    if os.environ.get(_KILL_SWITCH_ENV) == "1":
+                        return {"skipped": "kill_switch"}
+            """,
+        }
+    )
+    loops = extract_loops(root / "src")
+    assert len(loops) == 1
+    assert loops[0].kill_switch_var == "HYDRAFLOW_DISABLE_DIAGRAM_LOOP"

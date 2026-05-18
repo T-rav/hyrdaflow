@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import copy
+import hashlib
+import hmac
 import json
 import logging
 import math
@@ -2040,10 +2042,25 @@ def create_router(
         """
         from whatsapp_bridge import WhatsAppBridge  # noqa: PLC0415
 
-        # Signature verification: reject unsigned or forged requests
         _cfg, _st, _bus, _get_orch = _resolve_runtime(None)
         if not _cfg.whatsapp_enabled:
             return JSONResponse({"status": "disabled"}, status_code=403)
+
+        # Signature verification: reject unsigned or forged requests.
+        # Meta sends X-Hub-Signature-256: sha256=<hex> computed over the raw
+        # request body using the app secret.  We must verify before processing.
+        raw_body = await request.body()
+        sig_header = request.headers.get("x-hub-signature-256")
+        if sig_header is None:
+            return JSONResponse({"status": "missing_signature"}, status_code=403)
+
+        app_secret = ctx.credentials.whatsapp_app_secret
+        expected_mac = hmac.new(
+            app_secret.encode(), raw_body, hashlib.sha256
+        ).hexdigest()
+        expected_header = f"sha256={expected_mac}"
+        if not hmac.compare_digest(sig_header, expected_header):
+            return JSONResponse({"status": "invalid_signature"}, status_code=403)
 
         request_body = await request.json()
         text, issue_number = WhatsAppBridge.parse_webhook(request_body)

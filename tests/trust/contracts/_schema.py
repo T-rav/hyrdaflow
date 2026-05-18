@@ -11,6 +11,7 @@ Existing test-side call sites continue to work via this re-export.
 from __future__ import annotations
 
 from contracts._schema import (  # noqa: F401
+    KNOWN_ADAPTERS,
     NORMALIZERS,
     Cassette,
     CassetteInput,

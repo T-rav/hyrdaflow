@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 import trace_collector
 from base_background_loop import BaseBackgroundLoop, LoopDeps
+from exception_classify import reraise_on_credit_or_bug
 from models import WorkCycleResult
 
 if TYPE_CHECKING:
@@ -67,6 +68,8 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
         """One audit cycle: onboarding reconcile, HydraFlow-self, managed repos."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.principles_audit_loop_enabled:
+            return {"status": "config_disabled"}
 
         stats: dict[str, Any] = {
             "onboarded": 0,
@@ -95,7 +98,8 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
         # running.
         try:
             self_report = await self._run_audit(_HYDRAFLOW_SELF, self._config.repo_root)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             logger.warning(
                 "Skipping self-audit this tick — audit-json unavailable",
                 exc_info=True,
@@ -135,7 +139,8 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
                     stats["escalations_filed"] += fire["escalated"]
                 else:
                     self._state.set_last_green_audit(mr.slug, snapshot)
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                reraise_on_credit_or_bug(exc)
                 logger.warning(
                     "PrinciplesAuditLoop: skipping %s — audit failed",
                     mr.slug,
@@ -210,12 +215,6 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(report, indent=2))
         return out
-
-    async def _audit_hydraflow_self(self) -> dict[str, str]:
-        """Audit the HydraFlow working tree and persist the dated snapshot."""
-        report = await self._run_audit(_HYDRAFLOW_SELF, self._config.repo_root)
-        self._save_snapshot(_HYDRAFLOW_SELF, report)
-        return self._snapshot_from_report(report)
 
     async def _run_git(self, *args: str, cwd: Path | None = None) -> tuple[int, str]:
         """Run a git subcommand; returns ``(exit_code, combined_output)``."""
@@ -382,7 +381,8 @@ class PrinciplesAuditLoop(BaseBackgroundLoop):
                 logger.debug("reconcile: gh issue list failed")
                 return
             issues = json.loads(out or b"[]")
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             logger.debug("reconcile: skipped", exc_info=True)
             return
         for issue in issues:

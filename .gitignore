@@ -251,3 +251,4 @@ MagicMock/
 # Visual brainstorming companion artifacts
 .superpowers/
 
+.tmp/

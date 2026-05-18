@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from contracts._schema import KNOWN_ADAPTERS
 from tests.trust.contracts._schema import (
     NORMALIZERS,
     Cassette,
@@ -51,6 +52,17 @@ class TestLoadCassette:
         path.write_text(_MINIMAL_YAML.replace("adapter: github", "adapter: slack"))
         with pytest.raises(ValueError, match="adapter must be one of"):
             load_cassette(path)
+
+    @pytest.mark.parametrize(
+        "adapter",
+        sorted(KNOWN_ADAPTERS),
+    )
+    def test_all_known_adapters_validate(self, tmp_path: Path, adapter: str) -> None:
+        """Every adapter name in KNOWN_ADAPTERS must pass Pydantic validation."""
+        path = tmp_path / f"{adapter}.yaml"
+        path.write_text(_MINIMAL_YAML.replace("adapter: github", f"adapter: {adapter}"))
+        cas = load_cassette(path)
+        assert cas.adapter == adapter
 
     def test_rejects_unknown_normalizer(self, tmp_path: Path) -> None:
         path = tmp_path / "c.yaml"

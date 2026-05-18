@@ -28,7 +28,7 @@ graph LR
     src -- "46" --> src_state
     src -- "7" --> src_telemetry
     src_arch_extractors -- "7" --> src_arch
-    src_arch_generators -- "10" --> src_arch
+    src_arch_generators -- "11" --> src_arch
     src_dashboard_routes -- "1" --> src_preflight
     src_dashboard_routes -- "1" --> src_state
     src_mockworld_fakes -- "25" --> src_mockworld
@@ -39,4 +39,4 @@ graph LR
     src_runners -- "1" --> src_preflight
 ```
 
-_Regenerated from commit `b1eafc5` on 2026-05-17 02:17 UTC. Source last changed at `b1eafc5`. Status: 🟢 fresh._
+_Regenerated from commit `4e754a9` on 2026-05-18 23:04 UTC. Source last changed at `4e754a9`. Status: 🟢 fresh._

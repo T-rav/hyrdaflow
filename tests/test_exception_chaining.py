@@ -365,7 +365,7 @@ class TestMergeConflictResolverExceptionChaining:
         resolver._publish_review_status = AsyncMock()
 
         # Mock agents._build_command to raise TypeError (a likely bug)
-        resolver._agents._build_command = MagicMock(
+        resolver._agents.build_command = MagicMock(
             side_effect=TypeError("bad merge arg")
         )
 
@@ -384,7 +384,7 @@ class TestMergeConflictResolverExceptionChaining:
         resolver._workspaces.abort_merge = AsyncMock()
 
         # Mock agents._build_command to raise RuntimeError (transient)
-        resolver._agents._build_command = MagicMock(
+        resolver._agents.build_command = MagicMock(
             side_effect=RuntimeError("transient")
         )
 

@@ -31,4 +31,6 @@ class ADRReviewerLoop(BaseBackgroundLoop):
         """Review proposed ADRs via the council process."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.adr_reviewer_loop_enabled:
+            return {"status": "config_disabled"}
         return await self._adr_reviewer.review_proposed_adrs()

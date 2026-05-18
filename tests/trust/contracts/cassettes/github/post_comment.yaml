@@ -1,0 +1,22 @@
+# Hand-authored baseline (recorder_sha: "00000000").
+# post_comment appends a comment to an issue; it returns None and produces no
+# stdout/stderr (mirrors `gh issue comment` with --body-file which exits 0
+# silently on success). The dispatcher seeds issue #42 and verifies the
+# comment landed via side-effect inspection, not stdout.
+adapter: github
+interaction: post_comment
+recorded_at: "2026-05-12T00:00:00Z"
+recorder_sha: "00000000"
+fixture_repo: T-rav-Hydra-Ops/hydraflow-contracts-sandbox
+input:
+  command: post_comment
+  args:
+    - "42"
+    - "CI has recovered — auto-closing this issue."
+  stdin: null
+  env: {}
+output:
+  exit_code: 0
+  stdout: ""
+  stderr: ""
+normalizers: []

@@ -29,6 +29,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
+from exception_classify import reraise_on_credit_or_bug
 from models import WorkCycleResult
 from trust_fleet_anomaly_detectors import (
     TRUST_LOOP_WORKERS,
@@ -194,6 +195,8 @@ class TrustFleetSanityLoop(BaseBackgroundLoop):
         """Task 6: scan trust loops, file one-attempt escalations on breaches."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.trust_fleet_sanity_loop_enabled:
+            return {"status": "config_disabled"}
         t0 = time.perf_counter()
         await self._reconcile_closed_escalations()
 
@@ -388,7 +391,8 @@ class TrustFleetSanityLoop(BaseBackgroundLoop):
                 stderr=asyncio.subprocess.PIPE,
             )
             stdout, _ = await proc.communicate()
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             logger.debug("gh issue list failed", exc_info=True)
             return
         if proc.returncode != 0:
@@ -429,7 +433,8 @@ class TrustFleetSanityLoop(BaseBackgroundLoop):
                 duration_ms=duration_ms,
                 stderr_excerpt=f"anomalies={anomalies}",
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             logger.debug("trace emission failed", exc_info=True)
 
     # ------------------------------------------------------------------
@@ -503,7 +508,8 @@ class TrustFleetSanityLoop(BaseBackgroundLoop):
         """
         try:
             loaded = await self._source_bus.load_events_since(since)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             logger.debug("load_events_since failed", exc_info=True)
             return []
         return loaded or []

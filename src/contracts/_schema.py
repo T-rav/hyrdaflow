@@ -14,6 +14,23 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
+# Canonical set of known adapter names. Derived from
+# ``FakeCoverageAuditorLoop._FAKE_TO_CASSETTE_DIR`` — the two must stay in
+# sync. When a new fake is added to that map, add its cassette-dir name here.
+KNOWN_ADAPTERS: frozenset[str] = frozenset(
+    {
+        "github",
+        "docker",
+        "git",
+        "beads",
+        "sentry",
+        "http",
+        "subprocess",
+        "fs",
+        "llm",
+    }
+)
+
 
 class CassetteInput(BaseModel):
     """One-interaction input block."""
@@ -61,8 +78,9 @@ class Cassette(BaseModel):
     @field_validator("adapter")
     @classmethod
     def _validate_adapter(cls, v: str) -> str:
-        if v not in {"github", "git", "docker"}:
-            msg = f"adapter must be one of github|git|docker, got {v!r}"
+        if v not in KNOWN_ADAPTERS:
+            known = "|".join(sorted(KNOWN_ADAPTERS))
+            msg = f"adapter must be one of {known}, got {v!r}"
             raise ValueError(msg)
         return v
 

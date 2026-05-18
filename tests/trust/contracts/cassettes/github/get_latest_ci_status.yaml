@@ -1,0 +1,20 @@
+# Hand-authored baseline (recorder_sha: "00000000").
+# get_latest_ci_status returns the (conclusion, url) tuple for main-branch CI.
+# The default FakeGitHub._ci_main_status is ("success", "") — no prior
+# set_ci_main_status call. stdout encodes "conclusion\nurl\n" so that
+# the dispatcher can be verified against the real `gh run list` shape.
+adapter: github
+interaction: get_latest_ci_status
+recorded_at: "2026-05-12T00:00:00Z"
+recorder_sha: "00000000"
+fixture_repo: T-rav-Hydra-Ops/hydraflow-contracts-sandbox
+input:
+  command: get_latest_ci_status
+  args: []
+  stdin: null
+  env: {}
+output:
+  exit_code: 0
+  stdout: "success\n\n"
+  stderr: ""
+normalizers: []

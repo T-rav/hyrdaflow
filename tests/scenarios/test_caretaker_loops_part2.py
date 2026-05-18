@@ -417,9 +417,9 @@ class TestL21SentryLoop:
         world = MockWorld(tmp_path)
         world.harness.config.sentry_org = ""
 
-        stats = await world.run_with_loops(["sentry"], cycles=1)
+        stats = await world.run_with_loops(["sentry_ingest"], cycles=1)
 
-        result = stats["sentry"]
+        result = stats["sentry_ingest"]
         assert result is not None
         assert result.get("skipped") is True
         assert "reason" in result
@@ -430,9 +430,9 @@ class TestL21SentryLoop:
         world.harness.config.sentry_org = "my-org"
 
         # Credentials default to empty strings; sentry_auth_token is empty
-        stats = await world.run_with_loops(["sentry"], cycles=1)
+        stats = await world.run_with_loops(["sentry_ingest"], cycles=1)
 
-        result = stats["sentry"]
+        result = stats["sentry_ingest"]
         assert result is not None
         assert result.get("skipped") is True
 

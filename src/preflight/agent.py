@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from exception_classify import reraise_on_credit_or_bug
 from preflight.context import PreflightContext
 from preflight.decision import PreflightResult
 from preflight.runner import parse_agent_response, render_blocks, render_prompt
@@ -71,6 +72,7 @@ async def run_preflight(
     try:
         spawn = await deps.spawn_fn(prompt=prompt, worktree_path=worktree_path)
     except Exception as exc:
+        reraise_on_credit_or_bug(exc)
         logger.exception("PreflightAgent spawn failed: %s", exc)
         return PreflightResult(
             status="fatal",

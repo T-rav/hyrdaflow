@@ -74,6 +74,8 @@ class MemoryBacklogLoop(BaseBackgroundLoop):
     async def _do_work(self) -> WorkCycleResult:
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.memory_backlog_loop_enabled:
+            return {"status": "config_disabled"}
 
         await self._reconcile_closed_escalations()
 

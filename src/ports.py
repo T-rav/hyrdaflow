@@ -602,11 +602,11 @@ class AgentPort(Protocol):
     implementations to satisfy structural subtype checks.
     """
 
-    def _build_command(self, _worktree_path: Path | None = None) -> list[str]:
+    def build_command(self, _worktree_path: Path | None = None) -> list[str]:
         """Construct the CLI command for the agent."""
         ...
 
-    async def _execute(
+    async def execute(
         self,
         cmd: list[str],
         prompt: str,
@@ -619,7 +619,7 @@ class AgentPort(Protocol):
         """Run the agent subprocess and return the transcript."""
         ...
 
-    async def _verify_result(self, worktree_path: Path, branch: str) -> LoopResult:
+    async def verify_result(self, worktree_path: Path, branch: str) -> LoopResult:
         """Verify the agent produced valid commits and quality passes."""
         ...
 

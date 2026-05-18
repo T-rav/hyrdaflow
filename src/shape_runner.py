@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
@@ -50,6 +50,7 @@ class ShapeRunner(BaseRunner):
     """
 
     _log = logger
+    _phase_name: ClassVar[str] = "shape"
 
     def bind_escalation_deps(
         self, prs: PRManager, dedup: DedupStore | None = None

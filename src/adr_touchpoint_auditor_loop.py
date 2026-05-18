@@ -204,6 +204,8 @@ class AdrTouchpointAuditorLoop(BaseBackgroundLoop):
         """Scan recently-merged PRs vs ADR citations, file drift findings."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.adr_touchpoint_auditor_loop_enabled:
+            return {"status": "config_disabled"}
 
         t0 = time.perf_counter()
         cursor = self._state.get_adr_audit_cursor()

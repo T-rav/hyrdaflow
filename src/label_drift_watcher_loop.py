@@ -53,6 +53,8 @@ class LabelDriftWatcherLoop(BaseBackgroundLoop):
     async def _do_work(self) -> WorkCycleResult:
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.label_drift_watcher_loop_enabled:
+            return {"status": "config_disabled"}
 
         drift = await self._prs.find_label_drift()
         reconciled = 0

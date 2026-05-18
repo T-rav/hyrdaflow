@@ -54,6 +54,12 @@ class MockWorldSeed:
     # Subset of loops to enable. None = all registered loops.
     loops_enabled: list[str] | None = None
 
+    # (conclusion, url) for the main-branch CI status returned by
+    # FakeGitHub.get_latest_ci_status().  Defaults to green so all existing
+    # scenarios are unaffected.  CIMonitorLoop sandbox scenarios set this to
+    # ("failure", "<run_url>") to drive the red-CI path.
+    main_branch_ci_status: tuple[str, str] = ("success", "")
+
     def to_json(self) -> str:
         """Serialize to JSON for cross-process transfer."""
         return json.dumps(asdict(self), indent=2)
@@ -62,9 +68,11 @@ class MockWorldSeed:
     def from_json(cls, raw: str) -> MockWorldSeed:
         """Deserialize from JSON string."""
         data = json.loads(raw)
-        # asdict() converts tuples to lists; coerce repos back.
+        # asdict() converts tuples to lists; coerce repos and ci status back.
         if "repos" in data:
             data["repos"] = [tuple(r) for r in data["repos"]]
+        if "main_branch_ci_status" in data:
+            data["main_branch_ci_status"] = tuple(data["main_branch_ci_status"])
         # JSON keys are strings; coerce script issue keys back to int.
         if "scripts" in data:
             data["scripts"] = {

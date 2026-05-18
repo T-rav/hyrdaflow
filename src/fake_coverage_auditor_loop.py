@@ -330,6 +330,8 @@ class FakeCoverageAuditorLoop(BaseBackgroundLoop):
         """Scan fakes, compare to cassettes + scenario grep, file gaps."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.fake_coverage_auditor_loop_enabled:
+            return {"status": "config_disabled"}
 
         t0 = time.perf_counter()
         await self._reconcile_closed_escalations()
@@ -398,13 +400,11 @@ class FakeCoverageAuditorLoop(BaseBackgroundLoop):
 
         self._state.set_fake_coverage_last_known(all_known)
 
-        # #8786 Phase 9 — cassette retirement audit. Off by default;
-        # enabled by ``cassette_retirement_audit_enabled`` config flag.
+        # #8786 Phase 9 — cassette retirement audit. Runs each tick;
+        # ``_retirement_keys_cb`` is wired by service_registry from
+        # LiveCorpusReplayLoop's registered dispatcher set.
         retirement_filed = 0
-        if (
-            self._config.cassette_retirement_audit_enabled
-            and self._retirement_keys_cb is not None
-        ):
+        if self._retirement_keys_cb is not None:
             retirement_filed = await self._audit_retirement(cassette_root)
 
         self._emit_trace(t0, fakes_seen=len(catalog))
