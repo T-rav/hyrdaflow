@@ -45,7 +45,9 @@ class TestFakeGitHelperClassification:
         )
         import asyncio
 
-        result = asyncio.get_event_loop().run_until_complete(
-            fake.config_get(tmp_path, "core.worktree")
-        )
+        # `asyncio.get_event_loop()` raises RuntimeError on Python 3.12+ when
+        # no loop exists in the current thread (and warns on 3.10/3.11).
+        # `asyncio.run` creates + closes its own loop, which is the
+        # idiomatic way to drive a coroutine from sync test code.
+        result = asyncio.run(fake.config_get(tmp_path, "core.worktree"))
         assert result == "/workspace"
