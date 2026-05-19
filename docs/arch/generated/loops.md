@@ -51,4 +51,4 @@ All `BaseBackgroundLoop` subclasses discovered in `src/`. Generated from AST (no
 | **WikiRotDetectorLoop** | `src.wiki_rot_detector_loop` | 604800 | — | — | — |
 | **WorkspaceGCLoop** | `src.workspace_gc_loop` | 1800 | — | — | — |
 
-_Regenerated from commit `8f59fe9` on 2026-05-19 01:36 UTC. Source last changed at `8f59fe9`. Status: 🟢 fresh._
+_Regenerated from commit `f9c757b` on 2026-05-19 06:50 UTC. Source last changed at `f9c757b`. Status: 🟢 fresh._

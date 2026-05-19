@@ -96,6 +96,13 @@ class EventType(StrEnum):
     WIKI_SUPERSEDES = "wiki_supersedes"
     TRIBAL_PROMOTION = "tribal_promotion"
     ADR_DRAFT_OPENED = "adr_draft_opened"
+    # Adversarial pipeline (ADR draft — earlier-adversarial-pipeline)
+    ADVERSARIAL_STAGE_STARTED = "adversarial_stage_started"
+    ADVERSARIAL_STAGE_CONVERGED = "adversarial_stage_converged"
+    ADVERSARIAL_STAGE_EXHAUSTED = "adversarial_stage_exhausted"
+    CONCERN_FORWARDED = "concern_forwarded"
+    CONCERN_ADDRESSED = "concern_addressed"
+    SHIPPED_WITH_KNOWN_GAP = "shipped_with_known_gap"
 
 
 _T = TypeVar("_T")

@@ -1,24 +1,117 @@
-"""Regression: broad except Exception blocks in caretaker loops must NOT swallow
-CreditExhaustedError (dark-factory.md §2.2).
+"""Regression: broad ``except Exception`` blocks must NOT swallow ``CreditExhaustedError``.
 
-Slice #3 + #5.0 audit found 7 loops with broad except blocks that would eat
-CreditExhaustedError, causing the loop to burn attempt budget against an
-exhausted billing signal. This file guards two representative loops; the
-same reraise_on_credit_or_bug pattern covers all 7.
+The dark-factory contract (``docs/wiki/dark-factory.md`` §2.2) requires every
+subprocess-spawning runner to propagate ``CreditExhaustedError`` so the active-
+issue loop can suspend ticking instead of burning attempt budget against an
+exhausted billing signal. The guard is ``reraise_on_credit_or_bug``.
+
+This file covers two layers:
+
+1. ``AdversarialRetryLoop`` (earlier-adversarial pipeline, ADR-0064) — its
+   ``critic`` callable invokes LLM agents that run subprocesses, so by
+   transitivity the loop must re-raise rather than swallow into its broad
+   ``except Exception`` crash counter.
+
+2. ``CodeGroomingLoop`` + ``CorpusLearningLoop`` (Slice #3 / #5.0 audit) —
+   representative caretaker loops with broad except blocks. The same
+   ``reraise_on_credit_or_bug`` pattern covers all 7 loops found in the audit;
+   these two are the regression anchors.
+
+Locking these behaviours so a future refactor (e.g. collapsing ``except``
+clauses, swallowing crashes into a generic forward) trips CI.
 """
 
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
+# Match the project's PYTHONPATH=src convention used by make quality.
+# Mixing `from src.X` and `from X` imports would load some modules under
+# two different paths, producing distinct class objects and breaking
+# isinstance checks (e.g. reraise_on_credit_or_bug uses bare imports).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
+from adversarial_retry_loop import AdversarialRetryLoop
+from pending_concerns import Concern
 from subprocess_util import CreditExhaustedError
 from tests.helpers import make_bg_loop_deps
+
+
+# ---------------------------------------------------------------------------
+# AdversarialRetryLoop (ADR-0064)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _Ctx:
+    text: str = "v0"
+
+
+@dataclass
+class _Findings:
+    findings: list[Concern] = field(default_factory=list)
+
+
+@pytest.mark.asyncio
+async def test_credit_exhausted_propagates_on_first_attempt() -> None:
+    """CreditExhaustedError on first critic call escapes the loop."""
+
+    async def critic(ctx):
+        raise CreditExhaustedError("anthropic billing")
+
+    async def retry(findings, ctx):
+        return ctx
+
+    loop = AdversarialRetryLoop(budget=3)
+    with pytest.raises(CreditExhaustedError, match="anthropic billing"):
+        await loop.run(_Ctx(), critic, retry, is_converged=lambda f: False)
+
+
+@pytest.mark.asyncio
+async def test_credit_exhausted_propagates_via_run_with_metrics() -> None:
+    """The richer metrics entry point also re-raises (no silent swallow)."""
+
+    async def critic(ctx):
+        raise CreditExhaustedError("credits gone")
+
+    async def retry(findings, ctx):
+        return ctx
+
+    loop = AdversarialRetryLoop(budget=3)
+    with pytest.raises(CreditExhaustedError, match="credits gone"):
+        await loop.run_with_metrics(
+            _Ctx(), critic, retry, is_converged=lambda f: False
+        )
+
+
+@pytest.mark.asyncio
+async def test_credit_exhausted_not_counted_as_crash() -> None:
+    """A single CreditExhaustedError must not roll into the 3-crash counter.
+
+    If the broad ``except Exception`` swallowed it, three consecutive
+    runs would hit the synthetic-crash-concern path. The contract is
+    instead: raise on the first occurrence, let the active-issue loop
+    handle suspension upstream.
+    """
+    attempts = {"n": 0}
+
+    async def critic(ctx):
+        attempts["n"] += 1
+        raise CreditExhaustedError("billing")
+
+    async def retry(findings, ctx):
+        return ctx
+
+    loop = AdversarialRetryLoop(budget=3)
+    with pytest.raises(CreditExhaustedError):
+        await loop.run(_Ctx(), critic, retry, is_converged=lambda f: False)
+    # Critic invoked exactly once before the exception propagated.
+    assert attempts["n"] == 1
 
 
 # ---------------------------------------------------------------------------

@@ -746,21 +746,31 @@ class ReviewPhase:
         # DependabotMergeLoop, ADR-0054 / ADR-0057 / ADR-0058 / ADR-0062).
         # All four loops open auto-merging bot PRs whose content is purely
         # generated; the agent pipeline must not route them.
+        #
+        # Also skip PRs carrying adversarial-pipeline transient labels
+        # (Task 10 of earlier-adversarial-pipeline). These labels are
+        # intra-stage issue markers, not review work — if one ever leaks
+        # onto a PR, the agent reviewer should not process it.
         from edge_proposer_loop import EDGE_PROPOSER_PR_LABEL  # noqa: PLC0415
         from entry_evidence_loop import ENTRY_EVIDENCE_PR_LABEL  # noqa: PLC0415
+        from src.adversarial_labels import (  # noqa: PLC0415
+            LABELS_ADVERSARIAL_TRANSIENT,
+        )
         from term_proposer_loop import TERM_PROPOSER_PR_LABEL  # noqa: PLC0415
         from term_pruner_loop import TERM_PRUNER_PR_LABEL  # noqa: PLC0415
 
-        _ul_bot_labels = {
+        _skip_pr_labels = {
             TERM_PROPOSER_PR_LABEL,
             TERM_PRUNER_PR_LABEL,
             EDGE_PROPOSER_PR_LABEL,
             ENTRY_EVIDENCE_PR_LABEL,
-        }
-        prs = [pr for pr in prs if not (set(pr.labels or []) & _ul_bot_labels)]
+        } | set(LABELS_ADVERSARIAL_TRANSIENT)
+        prs = [pr for pr in prs if not (set(pr.labels or []) & _skip_pr_labels)]
         if not prs:
             logger.debug(
-                "review_phase: all PRs filtered out (term-proposer/pruner/edge-proposer/entry-evidence candidates)"
+                "review_phase: all PRs filtered out "
+                "(term-proposer/pruner/edge-proposer/entry-evidence "
+                "or adversarial-transient candidates)"
             )
             return []
 

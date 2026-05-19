@@ -7,10 +7,14 @@ Every `EventType` published or subscribed in `src/`. Events with no subscribers 
 | Event | Publishers | Subscribers |
 |---|---|---|
 | **ADR_DRAFT_OPENED** ⚠️ | `src.base_runner:BaseRunner._process_transcript_for_adr_draft` | — |
+| **ADVERSARIAL_STAGE_CONVERGED** ⚠️ | `src.adversarial_retry_loop:AdversarialRetryLoop._emit_stage_converged` | — |
+| **ADVERSARIAL_STAGE_EXHAUSTED** ⚠️ | `src.adversarial_retry_loop:AdversarialRetryLoop._emit_stage_exhausted` | — |
+| **ADVERSARIAL_STAGE_STARTED** ⚠️ | `src.adversarial_retry_loop:AdversarialRetryLoop._emit_stage_started` | — |
 | **AGENT_ACTIVITY** ⚠️ | `src.runner_utils:_stream_and_collect` | — |
 | **BACKGROUND_WORKER_STATUS** ⚠️ | `src.base_background_loop:BaseBackgroundLoop._execute_cycle` | — |
 | **BASELINE_UPDATE** ⚠️ | `src.baseline_policy:BaselinePolicy.check_approval`<br>`src.baseline_policy:BaselinePolicy.rollback` | — |
 | **CI_CHECK** ⚠️ | `src.pr_manager:PRManager.wait_for_ci`<br>`src.reviewer:ReviewRunner.fix_ci` | — |
+| **CONCERN_FORWARDED** ⚠️ | `src.adversarial_retry_loop:AdversarialRetryLoop._emit_concerns_forwarded` | — |
 | **CRATE_ACTIVATED** ⚠️ | `src.crate_manager:CrateManager.activate_crate` | — |
 | **CRATE_COMPLETED** ⚠️ | `src.crate_manager:CrateManager.check_and_advance` | — |
 | **DIAGNOSTIC_UPDATE** ⚠️ | `src.diagnostic_loop:DiagnosticLoop._publish_update` | — |
@@ -38,6 +42,7 @@ Every `EventType` published or subscribed in `src/`. Events with no subscribers 
 | **SESSION_END** ⚠️ | `src.orchestrator:HydraFlowOrchestrator._end_session` | — |
 | **SESSION_START** ⚠️ | `src.orchestrator:HydraFlowOrchestrator._start_session` | — |
 | **SHAPE_UPDATE** ⚠️ | `src.shape_phase:ShapePhase._process_finalization`<br>`src.shape_phase:ShapePhase._run_council_vote`<br>`src.shape_phase:ShapePhase._shape_with_runner` | — |
+| **SHIPPED_WITH_KNOWN_GAP** ⚠️ | `src.post_merge_handler:PostMergeHandler._maybe_emit_shipped_with_known_gap` | — |
 | **SYSTEM_ALERT** ⚠️ | `src.cost_budget_alerts:check_daily_budget`<br>`src.cost_budget_alerts:check_issue_cost`<br>`src.epic:EpicManager.check_stale_epics`<br>`src.orchestrator:HydraFlowOrchestrator._deferred_pipeline_start`<br>`src.orchestrator:HydraFlowOrchestrator._handle_auth_error`<br>`src.orchestrator:HydraFlowOrchestrator._pause_for_credits`<br>`src.orchestrator:HydraFlowOrchestrator._polling_loop`<br>`src.orchestrator:HydraFlowOrchestrator._resume_loops_after_credit_pause`<br>`src.post_merge_handler:PostMergeHandler._safe_hook`<br>`src.post_merge_handler:PostMergeHandler.handle_approved` | — |
 | **SYSTEM_REROUTE** ⚠️ | `src.review_phase._phase:ReviewPhase._review_single_adr`<br>`src.review_phase._phase:ReviewPhase._run_post_verify_advisor_for_adr`<br>`src.triage_phase:TriagePhase._triage_single_traced` | — |
 | **TRANSCRIPT_LINE** ⚠️ | `src.runner_utils:_stream_and_collect`<br>`src.triage:TriageRunner._emit_transcript` | — |
@@ -47,4 +52,4 @@ Every `EventType` published or subscribed in `src/`. Events with no subscribers 
 | **VISUAL_GATE** ⚠️ | `src.post_merge_handler:PostMergeHandler._run_visual_gate`<br>`src.review_phase._phase:ReviewPhase._emit_visual_gate_telemetry`<br>`src.review_phase._phase:ReviewPhase.check_visual_gate` | — |
 | **WORKER_UPDATE** ⚠️ | `src.agent:AgentRunner._emit_status` | — |
 
-_Regenerated from commit `8f59fe9` on 2026-05-19 01:36 UTC. Source last changed at `8f59fe9`. Status: 🟢 fresh._
+_Regenerated from commit `f9c757b` on 2026-05-19 06:50 UTC. Source last changed at `f9c757b`. Status: 🟢 fresh._

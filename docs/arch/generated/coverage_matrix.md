@@ -37,7 +37,7 @@ Regenerated from the live source tree. Cell vocabulary: ✅ covered, ⚠️ part
 | `PricingRefreshLoop` | ❌ | ❌ | ✅ loops.md | ✅ (caretaker loop) | ✅ `test_pricing_refresh_loop_scenario.py` | ✅ in catalog | ❌ |
 | `PrinciplesAuditLoop` | ✅ [0045, 0056] | ✅ [dark-factory.md] | ❌ | ❌ | ✅ `test_principles_audit_loop.py` | ✅ in catalog | ❌ |
 | `RCBudgetLoop` | ✅ [0045] | ❌ | ❌ | ❌ | ✅ `test_rc_budget_loop.py` | ✅ in catalog | ❌ |
-| `RepoWikiLoop` | ✅ [0032, 0053, 0061, 0062] | ✅ [dark-factory.md] | ❌ | ✅ (caretaker loop) | ✅ `test_repo_wiki_loop.py` | ✅ in catalog | ❌ |
+| `RepoWikiLoop` | ✅ [0032, 0053, 0061, 0062, 0064] | ✅ [dark-factory.md] | ❌ | ✅ (caretaker loop) | ✅ `test_repo_wiki_loop.py` | ✅ in catalog | ❌ |
 | `ReportIssueLoop` | ✅ [0013, 0018, 0028] | ❌ | ❌ | ✅ (caretaker loop) | ✅ `test_report_issue_loop.py` | ✅ in catalog | ❌ |
 | `RetrospectiveLoop` | ❌ | ✅ [architecture-async-control.md] | ❌ | ✅ (caretaker loop) | ✅ `test_retrospective_loop.py` | ✅ in catalog | ❌ |
 | `RunsGCLoop` | ❌ | ✅ [architecture-async-control.md] | ❌ | ✅ (caretaker loop) | ✅ `test_runs_gc_loop.py` | ✅ in catalog | ❌ |
@@ -77,4 +77,4 @@ HITL trigger). It is not regenerable from source and is maintained in
 `docs/arch/coverage_matrix.md` (the hand-curated baseline document).
 
 
-_Regenerated from commit `8f59fe9` on 2026-05-19 01:36 UTC. Source last changed at `8f59fe9`. Status: 🟢 fresh._
+_Regenerated from commit `f9c757b` on 2026-05-19 06:50 UTC. Source last changed at `f9c757b`. Status: 🟢 fresh._

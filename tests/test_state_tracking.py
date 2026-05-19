@@ -137,6 +137,8 @@ class TestInitialization:
             # AdrTouchpointAuditorLoop (ADR-0056)
             "adr_audit_cursor",
             "adr_audit_attempts",
+            # Earlier-adversarial pipeline (ADR-0064)
+            "adversarial_states",
             # MemoryBacklogLoop (ADR-0057)
             "memory_backlog_attempts",
         }

@@ -430,3 +430,27 @@ Canonical rulesets are versioned JSON at [`docs/standards/branch_protection/`](.
 ```json:entry
 {"id":"01KQRULESET2026B0PHASE2002","title":"Branch protection — rulesets that enforce the two-tier model (ADR-0042)","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-07T03:55:00.000000+00:00","updated_at":"2026-05-07T03:55:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"high","stale":false,"corroborations":1}
 ```
+
+
+## AdversarialRetryLoop pattern — shared contract for dissent stages
+
+The earlier-adversarial pipeline (ADR-0064) routes every dissent stage — `AssumptionSurfacer`, `DiscoveryCouncil`, `PlanCouncil`, pre-impl `SpecJudge`, and the retrofitted Shape `Challenger`/`ExpertCouncil` — through a single shared retry primitive: `src/adversarial_retry_loop.py:AdversarialRetryLoop`.
+
+The contract is uniform:
+
+1. **Three-retry budget per stage.** Voter surfaces concerns → host agent (planner / surfacer / Shape-runner) re-runs with concerns attached → re-vote. Repeat up to 3 retries.
+2. **Oscillation detection.** If round N+1's concerns are structurally equal to round N's (`Concern.fingerprint()` equality), short-circuit as `OscillationDetected` — don't burn the full budget on a fixed-point disagreement.
+3. **Wide-loop forwarding fallback.** Budget exhaustion or oscillation doesn't gate the issue forever. Unresolved `Concern`s are written to `AdversarialState.pending_concerns` and the wider lifecycle (Plan Reviewer, downstream stages) sees them as `must_address_by` constraints. Carryover concerns that survive to merge emit `ShippedWithKnownGap` and become wiki entries via `src/wiki_carryover.py`.
+
+**Use this pattern when:** adding a new adversarial voter, a new contrarian judge, or any agent whose role is to *surface dissent the host can't see by itself*. Don't reinvent the retry-with-budget-plus-fallback wheel; instantiate `AdversarialRetryLoop` and pass the voter + host as callables.
+
+**Don't use this pattern when:** the agent is a normal validator with a yes/no contract (use a plain assertion or gate), or when the operation must block until resolved (the wide-loop fallback is load-bearing — without it the dark factory deadlocks).
+
+Observability: `run_with_metrics()` returns per-invocation metrics that flow through the `AdversarialStageStarted` / `AdversarialStageCompleted` / `AdversarialRetryExhausted` / `OscillationDetected` EventBus events.
+
+**Why:** A uniform contract means once you understand one adversarial stage, you understand all of them. Adding a new voter is a localised change — write the voter, plug it into `AdversarialRetryLoop`, register the events. No bespoke retry logic per stage.
+
+
+```json:entry
+{"id":"01KRADV2026B0PHASE0001","title":"AdversarialRetryLoop pattern — shared contract for dissent stages","topic":null,"source_type":"compiled","source_issue":null,"source_repo":null,"created_at":"2026-05-17T00:00:00.000000+00:00","updated_at":"2026-05-17T00:00:00.000000+00:00","valid_to":null,"superseded_by":null,"superseded_reason":null,"confidence":"high","stale":false,"corroborations":1}
+```

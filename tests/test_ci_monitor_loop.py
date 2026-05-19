@@ -168,8 +168,6 @@ class TestCIMonitorLoop:
 
 
 class TestRehydrateOpenIssue:
-    """Tests for _rehydrate_open_issue — the restart-recovery path (ADR-0029)."""
-
     @pytest.mark.asyncio
     async def test_rehydrate_open_issue_when_existing_issue_found(
         self, tmp_path: Path

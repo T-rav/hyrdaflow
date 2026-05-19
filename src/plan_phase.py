@@ -30,6 +30,13 @@ from repo_wiki import (
     increment_corroboration,
 )
 from research_runner import ResearchRunner
+from src.adversarial_agents import AgentLike
+from src.adversarial_retry_loop import AdversarialRetryLoop
+from src.assumption_surfacer import AssumptionSurfacer, SurfacerOutput
+from src.pending_concerns import AdversarialState, StageRun
+from src.plan_council import CouncilTally, PlanCouncil
+from src.spec_ac_generator import SpecACGenerator
+from src.spec_judge import JudgeResult, SpecJudge
 from state import StateTracker
 from task_source import TaskTransitioner
 from transcript_summarizer import TranscriptSummarizer
@@ -117,6 +124,15 @@ class PlanPhase:
         self._wiki_compiler = wiki_compiler
         self._issue_cache = issue_cache
         self._plan_reviewer = plan_reviewer
+        # Earlier-adversarial pipeline agents (ADR-pending). Optional —
+        # the factory wires them in when feature-enabled; legacy paths
+        # leave them None and the adversarial stages are skipped. See
+        # ``attach_adversarial_agents`` for the production entry point.
+        self._surfacer_agent: AgentLike | None = None
+        self._council_agents: dict[str, AgentLike] | None = None
+        self._spec_ac_agent: AgentLike | None = None
+        self._spec_judge_agent: AgentLike | None = None
+        self._adversarial_budget: int = 3
         self._suggest_memory = MemorySuggester(config)
         self._escalator = PipelineEscalator(
             state,
@@ -128,6 +144,224 @@ class PlanPhase:
             diagnose_label=config.diagnose_label[0],
             stage=PipelineStage.PLAN,
         )
+
+    # ------------------------------------------------------------------
+    # Earlier-adversarial pipeline wiring (ADR-pending)
+    # ------------------------------------------------------------------
+
+    def attach_adversarial_agents(
+        self,
+        *,
+        surfacer_agent: AgentLike | None = None,
+        council_agents: dict[str, AgentLike] | None = None,
+        spec_ac_agent: AgentLike | None = None,
+        spec_judge_agent: AgentLike | None = None,
+        budget: int = 3,
+    ) -> None:
+        """Wire the four adversarial-stage agents onto this phase.
+
+        Called by the factory once on construction (or by tests).
+        Each agent is independently optional — when ``None``, that
+        stage is skipped, the rest of the pipeline runs unchanged.
+        All four together enable the full Surfacer → Council → AC →
+        Judge sequence around the existing planner + plan_reviewer.
+
+        ``council_agents`` must contain keys ``builder``, ``tester``,
+        ``risk_skeptic`` (per ``PlanCouncil``'s contract).
+        """
+        self._surfacer_agent = surfacer_agent
+        self._council_agents = council_agents
+        self._spec_ac_agent = spec_ac_agent
+        self._spec_judge_agent = spec_judge_agent
+        self._adversarial_budget = budget
+
+    def _has_any_adversarial_agent(self) -> bool:
+        return (
+            self._surfacer_agent is not None
+            or self._council_agents is not None
+            or self._spec_ac_agent is not None
+            or self._spec_judge_agent is not None
+        )
+
+    def _persist_adversarial_state(self, issue: Task, adv: AdversarialState) -> None:
+        """Persist *adv* into state.json under the issue's key.
+
+        Per contract: every adversarial stage persists before
+        returning so the next stage (and implement_phase) can read the
+        accumulated pending concerns.
+        """
+        self._state.set_adversarial_state(issue.id, adv)
+
+    async def _run_assumption_surfacer(
+        self, issue: Task, adv: AdversarialState, research_context: str
+    ) -> None:
+        """Stage 1: surface assumptions + uncertainty concerns.
+
+        One-shot — the surfacer is a read-only critic; there is no
+        planner to retry. Concerns are appended to ``adv.pending_concerns``
+        and the state is persisted before returning.
+        """
+        if self._surfacer_agent is None:
+            return
+        surfacer = AssumptionSurfacer(agent=self._surfacer_agent, phase="plan")
+        out: SurfacerOutput = await surfacer.run(
+            issue_body=issue.body or "",
+            research_context=research_context,
+            carryover_concerns=list(adv.pending_concerns),
+        )
+        adv.pending_concerns.extend(out.concerns)
+        adv.current_stage = "assumption_surfacer"
+        adv.stage_history.append(
+            StageRun(
+                stage="assumption_surfacer",
+                phase="plan",
+                retries=0,
+                converged=True,
+                concerns_raised=len(out.concerns),
+                concerns_forwarded=len(out.concerns),
+                oscillation_detected=False,
+                duration_ms=0,
+            )
+        )
+        self._persist_adversarial_state(issue, adv)
+
+    async def _run_plan_council(
+        self,
+        issue: Task,
+        adv: AdversarialState,
+        plan_text: str,
+    ) -> None:
+        """Stage 3: PlanCouncil tight-loop around the (already-run) plan.
+
+        Wired via AdversarialRetryLoop with the configured budget.
+        Because the planner has already produced its plan and we don't
+        currently re-invoke it on Council retry, the loop runs the
+        Council with a no-op ``retry`` step so unresolved concerns
+        forward forward rather than block. This honors the dark-factory
+        contract: never deadlock; surface, persist, forward.
+        """
+        if self._council_agents is None:
+            return
+        council = PlanCouncil(agents=self._council_agents)
+
+        async def _critic(_ctx: str) -> CouncilTally:
+            return await council.deliberate(
+                plan_text=_ctx, pending_concerns=list(adv.pending_concerns)
+            )
+
+        async def _retry(_findings: CouncilTally, ctx: str) -> str:
+            # The plan text is unchanged on retry — we do not currently
+            # re-invoke the planner from inside the council loop. The
+            # Council's ``should_retry`` instead drives whether the
+            # AdversarialRetryLoop returns convergence on the next pass.
+            # In a future pass we may thread a planner-retry callback
+            # in here. For now: forward findings (dark-factory
+            # contract) once budget is exhausted.
+            return ctx
+
+        def _converged(t: CouncilTally) -> bool:
+            return not t.should_retry
+
+        loop: AdversarialRetryLoop[str, CouncilTally] = AdversarialRetryLoop(
+            budget=self._adversarial_budget,
+            event_bus=self._bus,
+            issue_id=issue.id,
+            phase="plan",
+            stage="plan_council",
+        )
+        # AdversarialRetryLoop.run expects findings to expose a
+        # `.findings: list[Concern]` attribute — CouncilTally satisfies
+        # that (its dataclass field is named ``findings``).
+        _ctx_out, unresolved, metrics = await loop.run_with_metrics(
+            plan_text, _critic, _retry, _converged
+        )
+        adv.pending_concerns.extend(unresolved)
+        adv.current_stage = "plan_council"
+        adv.stage_history.append(
+            StageRun(
+                stage="plan_council",
+                phase="plan",
+                retries=metrics.retries,
+                converged=not bool(unresolved),
+                concerns_raised=metrics.total_concerns_raised,
+                concerns_forwarded=len(unresolved),
+                oscillation_detected=metrics.oscillation_detected,
+                duration_ms=0,
+            )
+        )
+        self._persist_adversarial_state(issue, adv)
+
+    async def _run_spec_ac_and_judge(
+        self,
+        issue: Task,
+        adv: AdversarialState,
+        plan_text: str,
+    ) -> None:
+        """Stages 5 + 6: draft AC, then judge plan+AC.
+
+        AC generation is one-shot (no retry). The judge runs through
+        AdversarialRetryLoop so a FAIL verdict drives the configured
+        budget of retries. As with the Council, retry currently does
+        not re-invoke the planner — concerns forward on exhaustion per
+        the dark-factory contract.
+        """
+        if self._spec_ac_agent is None or self._spec_judge_agent is None:
+            return
+        ac_gen = SpecACGenerator(agent=self._spec_ac_agent)
+        acceptance_criteria = await ac_gen.draft(plan_text)
+
+        judge = SpecJudge(agent=self._spec_judge_agent)
+
+        async def _critic(_ctx: str) -> JudgeResult:
+            return await judge.evaluate(
+                plan_text=_ctx,
+                acceptance_criteria=acceptance_criteria,
+                pending_concerns=list(adv.pending_concerns),
+            )
+
+        async def _retry(_result: JudgeResult, ctx: str) -> str:
+            return ctx  # see Council retry note above
+
+        def _converged(r: JudgeResult) -> bool:
+            return r.verdict == "PASS"
+
+        loop: AdversarialRetryLoop[str, JudgeResult] = AdversarialRetryLoop(
+            budget=self._adversarial_budget,
+            event_bus=self._bus,
+            issue_id=issue.id,
+            phase="plan",
+            stage="spec_judge",
+        )
+        _ctx_out, unresolved, metrics = await loop.run_with_metrics(
+            plan_text, _critic, _retry, _converged
+        )
+        adv.pending_concerns.extend(unresolved)
+        adv.current_stage = "spec_judge"
+        adv.stage_history.append(
+            StageRun(
+                stage="spec_ac_generator",
+                phase="plan",
+                retries=0,
+                converged=True,
+                concerns_raised=0,
+                concerns_forwarded=0,
+                oscillation_detected=False,
+                duration_ms=0,
+            )
+        )
+        adv.stage_history.append(
+            StageRun(
+                stage="spec_judge",
+                phase="plan",
+                retries=metrics.retries,
+                converged=not bool(unresolved),
+                concerns_raised=metrics.total_concerns_raised,
+                concerns_forwarded=len(unresolved),
+                oscillation_detected=metrics.oscillation_detected,
+                duration_ms=0,
+            )
+        )
+        self._persist_adversarial_state(issue, adv)
 
     def _should_research(self) -> bool:
         """Return True if research should run before planning."""
@@ -290,6 +524,28 @@ class PlanPhase:
         # `enqueue_transition` is in-memory only and does not protect
         # against the GitHub label being visible to other pollers.
         await self._write_plan_records(issue, result)
+
+        # Earlier-adversarial pipeline stages 5+6: SpecACGenerator + SpecJudge.
+        # Run AFTER PlanReviewer (which is invoked from inside
+        # ``_write_plan_records``). No-op when SpecAC/Judge agents are
+        # not configured.
+        if (
+            self._spec_ac_agent is not None
+            and self._spec_judge_agent is not None
+            and result.plan
+        ):
+            adv = self._state.get_adversarial_state(issue.id) or AdversarialState(
+                phase="plan"
+            )
+            try:
+                await self._run_spec_ac_and_judge(issue, adv, result.plan)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "SpecAC/Judge stage failed for issue #%d — forwarding "
+                    "concerns unchanged",
+                    issue.id,
+                    exc_info=True,
+                )
 
         # Activate eager-transition protection BEFORE the GitHub label swap
         # so that concurrent polling cannot re-queue the issue during the
@@ -666,6 +922,12 @@ class PlanPhase:
             f"*Generated by HydraFlow Planner*"
         )
         await self._transitioner.post_comment(issue.id, hitl_comment)
+        # Clear any accumulated adversarial state before HITL hand-off. Next
+        # retry (after operator re-labels to hydraflow-ready) starts with a
+        # fresh AdversarialState — otherwise the surfacer's concerns would
+        # be appended on top of the prior attempt's, growing unboundedly
+        # across HITL cycles.
+        self._state.clear_adversarial_state(issue.id)
         await self._escalator(
             issue,
             cause="Plan validation failed after retry",
@@ -840,6 +1102,26 @@ class PlanPhase:
                         source_to_phase,
                     )
 
+                    # Earlier-adversarial pipeline stage 1: AssumptionSurfacer.
+                    # Runs BEFORE the planner so surfaced concerns can be
+                    # forwarded into the planner's context. No-op when
+                    # surfacer agent is not configured.
+                    adv = self._state.get_adversarial_state(
+                        issue.id
+                    ) or AdversarialState(phase="plan")
+                    if self._surfacer_agent is not None:
+                        try:
+                            await self._run_assumption_surfacer(
+                                issue, adv, research_context
+                            )
+                        except Exception:  # noqa: BLE001
+                            logger.warning(
+                                "AssumptionSurfacer failed for issue #%d — "
+                                "forwarding to planner unchanged",
+                                issue.id,
+                                exc_info=True,
+                            )
+
                     trace_phase = source_to_phase("planner")
                     run_id = self._state.begin_trace_run(issue.id, trace_phase)
                     self._planners.set_tracing_context(
@@ -873,6 +1155,26 @@ class PlanPhase:
                             )
                         self._state.end_trace_run(issue.id, trace_phase)
 
+                    # Earlier-adversarial pipeline stage 3: PlanCouncil.
+                    # Runs AFTER the planner produces its plan, BEFORE
+                    # the existing PlanReviewer (which is invoked inside
+                    # ``_write_plan_records``). No-op when council agents
+                    # are not configured.
+                    if (
+                        self._council_agents is not None
+                        and result.success
+                        and result.plan
+                    ):
+                        try:
+                            await self._run_plan_council(issue, adv, result.plan)
+                        except Exception:  # noqa: BLE001
+                            logger.warning(
+                                "PlanCouncil failed for issue #%d — forwarding "
+                                "concerns unchanged",
+                                issue.id,
+                                exc_info=True,
+                            )
+
                     already_handled = False
                     ts_status = "failed"
                     if result.already_satisfied:
@@ -892,6 +1194,9 @@ class PlanPhase:
                                 "Planner claimed already satisfied but issue "
                                 "is an epic child — escalating to HITL"
                             )
+                            # Clear accumulated adversarial state before HITL
+                            # hand-off so the next retry starts fresh.
+                            self._state.clear_adversarial_state(issue.id)
                             await self._escalator(
                                 issue,
                                 cause="Epic child falsely claimed already satisfied",
@@ -907,6 +1212,9 @@ class PlanPhase:
                             # Evidence validation failed — escalate directly
                             # to HITL (do NOT fall through to _handle_plan_failure
                             # which would post a second misleading comment).
+                            # Clear accumulated adversarial state before HITL
+                            # hand-off so the next retry starts fresh.
+                            self._state.clear_adversarial_state(issue.id)
                             await self._escalator(
                                 issue,
                                 cause="Already-satisfied evidence rejected: "

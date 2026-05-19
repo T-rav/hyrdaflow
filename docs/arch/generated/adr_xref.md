@@ -74,6 +74,7 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | ADR-0061 | `src.repo_wiki` |
 | ADR-0062 | `src.entry_evidence_loop`, `src.term_proposer_llm` |
 | ADR-0063 | `src.auto_agent_preflight_loop`, `src.discover_runner`, `src.implement_phase`, `src.plan_phase`, `src.review_phase._phase`, `src.shape_phase`, `src.triage_phase` |
+| ADR-0064 | `src.adversarial_labels`, `src.adversarial_retry_loop`, `src.assumption_surfacer`, `src.complexity_gate`, `src.discovery_council`, `src.discovery_council_prompts`, `src.events`, `src.models`, `src.pending_concerns`, `src.plan_council`, `src.plan_council_prompts`, `src.plan_phase`, `src.post_merge_handler`, `src.shape_challenger`, `src.shape_expert_council`, `src.shape_phase`, `src.spec_ac_generator`, `src.spec_judge`, `src.wiki_carryover` |
 
 ## Module → ADRs
 
@@ -83,14 +84,18 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.adr_pre_validator` | ADR-0037 |
 | `src.adr_reviewer` | ADR-0033, ADR-0034, ADR-0037, ADR-0039, ADR-0040 |
 | `src.adr_touchpoint_auditor_loop` | ADR-0056 |
+| `src.adversarial_labels` | ADR-0064 |
+| `src.adversarial_retry_loop` | ADR-0064 |
 | `src.agent` | ADR-0024, ADR-0027 |
 | `src.agent_cli` | ADR-0004 |
+| `src.assumption_surfacer` | ADR-0064 |
 | `src.auto_agent_preflight_loop` | ADR-0050, ADR-0063 |
 | `src.base_background_loop` | ADR-0049, ADR-0055 |
 | `src.base_runner` | ADR-0004, ADR-0032, ADR-0055 |
 | `src.bg_worker_manager` | ADR-0049 |
 | `src.caching_issue_store` | ADR-0041 |
 | `src.cli` | ADR-0036 |
+| `src.complexity_gate` | ADR-0064 |
 | `src.config` | ADR-0002, ADR-0009, ADR-0010, ADR-0018, ADR-0021, ADR-0022, ADR-0031, ADR-0033, ADR-0034, ADR-0035, ADR-0036, ADR-0045, ADR-0050, ADR-0055 |
 | `src.contract_diff` | ADR-0047, ADR-0052 |
 | `src.contract_recording` | ADR-0047, ADR-0052 |
@@ -104,13 +109,15 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.dashboard_routes._routes` | ADR-0030 |
 | `src.discover_phase` | ADR-0031, ADR-0045 |
 | `src.discover_runner` | ADR-0031, ADR-0045, ADR-0063 |
+| `src.discovery_council` | ADR-0064 |
+| `src.discovery_council_prompts` | ADR-0064 |
 | `src.docker_runner` | ADR-0010, ADR-0043 |
 | `src.edge_proposer_loop` | ADR-0058 |
 | `src.entry_evidence_loop` | ADR-0062 |
 | `src.epic` | ADR-0011, ADR-0012, ADR-0019 |
 | `src.epic_monitor_loop` | ADR-0012 |
 | `src.escalation_gate` | ADR-0015 |
-| `src.events` | ADR-0006, ADR-0055 |
+| `src.events` | ADR-0006, ADR-0055, ADR-0064 |
 | `src.exception_classify` | ADR-0055 |
 | `src.fake_coverage_auditor_loop` | ADR-0045 |
 | `src.file_util` | ADR-0021 |
@@ -131,12 +138,15 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.mockworld.fakes.fake_honeycomb` | ADR-0055 |
 | `src.mockworld.fakes.fake_llm` | ADR-0059 |
 | `src.mockworld.sandbox_main` | ADR-0052 |
-| `src.models` | ADR-0011, ADR-0012, ADR-0013, ADR-0014, ADR-0015, ADR-0016, ADR-0025, ADR-0031, ADR-0037, ADR-0045, ADR-0050, ADR-0056 |
+| `src.models` | ADR-0011, ADR-0012, ADR-0013, ADR-0014, ADR-0015, ADR-0016, ADR-0025, ADR-0031, ADR-0037, ADR-0045, ADR-0050, ADR-0056, ADR-0064 |
 | `src.orchestrator` | ADR-0006, ADR-0009, ADR-0014, ADR-0044, ADR-0045 |
 | `src.path` | ADR-0032 |
-| `src.plan_phase` | ADR-0014, ADR-0031, ADR-0063 |
+| `src.pending_concerns` | ADR-0064 |
+| `src.plan_council` | ADR-0064 |
+| `src.plan_council_prompts` | ADR-0064 |
+| `src.plan_phase` | ADR-0014, ADR-0031, ADR-0063, ADR-0064 |
 | `src.ports` | ADR-0003, ADR-0044 |
-| `src.post_merge_handler` | ADR-0012, ADR-0014, ADR-0015, ADR-0016, ADR-0019 |
+| `src.post_merge_handler` | ADR-0012, ADR-0014, ADR-0015, ADR-0016, ADR-0019, ADR-0064 |
 | `src.pr_manager` | ADR-0002, ADR-0005, ADR-0011, ADR-0013, ADR-0018, ADR-0045, ADR-0055, ADR-0056 |
 | `src.precondition_gate` | ADR-0041 |
 | `src.preflight` | ADR-0043 |
@@ -163,9 +173,13 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.sentry.reverse_lookup` | ADR-0050 |
 | `src.server` | ADR-0038, ADR-0055 |
 | `src.service_registry` | ADR-0045 |
-| `src.shape_phase` | ADR-0031, ADR-0045, ADR-0063 |
+| `src.shape_challenger` | ADR-0064 |
+| `src.shape_expert_council` | ADR-0064 |
+| `src.shape_phase` | ADR-0031, ADR-0045, ADR-0063, ADR-0064 |
 | `src.shape_runner` | ADR-0031, ADR-0045 |
 | `src.skill_prompt_eval_loop` | ADR-0045 |
+| `src.spec_ac_generator` | ADR-0064 |
+| `src.spec_judge` | ADR-0064 |
 | `src.staging_bisect_loop` | ADR-0045, ADR-0048 |
 | `src.state` | ADR-0006, ADR-0013, ADR-0014, ADR-0017, ADR-0024 |
 | `src.state._adr_audit` | ADR-0056 |
@@ -184,9 +198,10 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.trust_fleet_sanity_loop` | ADR-0045, ADR-0046 |
 | `src.ubiquitous_language` | ADR-0054, ADR-0057, ADR-0058, ADR-0059 |
 | `src.visual_validation` | ADR-0015 |
+| `src.wiki_carryover` | ADR-0064 |
 | `src.wiki_compiler` | ADR-0032 |
 | `src.wiki_rot_detector_loop` | ADR-0045 |
 | `src.workspace` | ADR-0055 |
 | `src.worktree` | ADR-0003, ADR-0009, ADR-0010 |
 
-_Regenerated from commit `8f59fe9` on 2026-05-19 01:36 UTC. Source last changed at `8f59fe9`. Status: 🟢 fresh._
+_Regenerated from commit `f9c757b` on 2026-05-19 06:50 UTC. Source last changed at `f9c757b`. Status: 🟢 fresh._

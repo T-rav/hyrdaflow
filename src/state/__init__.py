@@ -23,6 +23,7 @@ from file_util import atomic_write, rotate_backups
 from models import IssueOutcomeType, StateData, ThresholdProposal
 
 from ._adr_audit import AdrAuditStateMixin
+from ._adversarial import AdversarialStateMixin
 from ._auto_agent import AutoAgentStateMixin
 from ._ci_monitor import CIMonitorStateMixin
 from ._code_grooming import CodeGroomingStateMixin
@@ -99,6 +100,7 @@ class StateTracker(
     AutoAgentStateMixin,
     SandboxFailureFixerStateMixin,
     AdrAuditStateMixin,
+    AdversarialStateMixin,
 ):
     """JSON-file backed state for crash recovery.
 

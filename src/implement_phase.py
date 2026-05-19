@@ -98,6 +98,39 @@ class ImplementPhase:
     def active_issues(self) -> set[int]:
         return self._active_issues
 
+    def _log_adversarial_carryover(self, issue: Task) -> None:
+        """Log CRITICAL/HIGH carryover concerns surfaced during plan phase.
+
+        Dark-factory contract (Task 7 of earlier-adversarial pipeline):
+        implement_phase READS the per-issue ``AdversarialState`` so the
+        operator (and downstream tooling) can see pending concerns, but
+        it MUST NOT block on them. Concerns are logged at INFO level
+        and the implementation proceeds.
+
+        Safe to call when no state has been persisted — the read
+        returns ``None`` and the method is a no-op.
+        """
+        adv = self._state.get_adversarial_state(issue.id)
+        if adv is None:
+            return
+        loud_concerns = [
+            c for c in adv.pending_concerns if c.severity in {"CRITICAL", "HIGH"}
+        ]
+        if not loud_concerns:
+            return
+        lines = [
+            f"  - [{c.id}|{c.severity}|{c.raised_in_stage}] {c.concern}"
+            for c in loud_concerns
+        ]
+        logger.info(
+            "Adversarial carryover for issue #%d (%d %s concern(s)) — "
+            "forwarding to implementation per dark-factory contract:\n%s",
+            issue.id,
+            len(loud_concerns),
+            "CRITICAL/HIGH",
+            "\n".join(lines),
+        )
+
     async def _post_impl_transcript(self, result: WorkerResult, *, status: str) -> None:
         """File memory suggestion and post transcript summary for a single result."""
         if result.transcript:
@@ -280,6 +313,10 @@ class ImplementPhase:
 
     async def _worker_inner(self, idx: int, issue: Task, branch: str) -> WorkerResult:
         """Core implementation logic — called inside the semaphore."""
+        # Earlier-adversarial pipeline: read carryover concerns
+        # surfaced during plan_phase, log them, then proceed. Never
+        # blocks — dark-factory contract.
+        self._log_adversarial_carryover(issue)
         self._prepare_adr_plan(issue)
 
         # If a non-draft PR already exists and this is NOT a review-feedback

@@ -617,6 +617,17 @@ class PostMergeHandler:
                 pr.issue_number,
             )
 
+        # Adversarial pipeline: emit a SHIPPED_WITH_KNOWN_GAP event when
+        # the merged issue carried pending concerns to post-merge with
+        # no matching ConcernResolution. Pure detect + publish — wiki
+        # persistence is RepoWikiLoop's job (see its event subscription)
+        # so we don't block the merge path on filesystem writes.
+        await self._safe_hook(
+            "shipped-with-known-gap emission",
+            self._maybe_emit_shipped_with_known_gap(pr.issue_number, pr.number),
+            pr.issue_number,
+        )
+
         verdict: JudgeVerdict | None = None
         if self._verification_judge:
             verdict = await self._safe_hook(
@@ -676,6 +687,92 @@ class PostMergeHandler:
                 "epic completion check",
                 self._epic_checker.check_and_close_epics(pr.issue_number),
                 pr.issue_number,
+            )
+
+    async def _maybe_emit_shipped_with_known_gap(
+        self, issue_id: int, pr_number: int
+    ) -> None:
+        """Publish ``SHIPPED_WITH_KNOWN_GAP`` and persist a wiki entry
+        when the merged issue carried unresolved adversarial concerns.
+
+        No-op when the issue had no adversarial state recorded
+        (non-adversarial path) or when every pending concern has a
+        matching :class:`ConcernResolution`.
+
+        Persistence runs inline so the next planner / reviewer sees the
+        gap on the very next run (the same pattern
+        ``_bridge_reflections_to_wiki`` uses for reflections). The
+        ``RepoWikiLoop`` picks up the new file on its next tick — its
+        lint / drift / maintenance-PR rollup is the existing
+        subscription path.
+        """
+        from src.wiki_carryover import (  # noqa: PLC0415
+            build_wiki_entry,
+            detect_shipped_with_known_gaps,
+        )
+
+        adv = self._state.get_adversarial_state(issue_id)
+        if adv is None:
+            return
+        surviving = detect_shipped_with_known_gaps(adv)
+        if not surviving:
+            return
+
+        await self._bus.publish(
+            HydraFlowEvent(
+                type=EventType.SHIPPED_WITH_KNOWN_GAP,
+                data={
+                    "issue_id": issue_id,
+                    "pr_number": pr_number,
+                    "surviving_concerns": [
+                        c.model_dump(mode="json") for c in surviving
+                    ],
+                },
+            )
+        )
+        logger.info(
+            "SHIPPED_WITH_KNOWN_GAP published for issue #%d (PR #%d): "
+            "%d surviving concern(s)",
+            issue_id,
+            pr_number,
+            len(surviving),
+        )
+
+        # Persist a wiki entry inline so the next run has the gap in
+        # context. Bail silently when wiki is disabled (no store) — the
+        # event is still emitted for any future subscriber.
+        if self._wiki_store is None:
+            return
+        repo_slug = self._config.repo or ""
+        if not repo_slug:
+            return
+        rendered = build_wiki_entry(surviving, pr_number=pr_number)
+        if not rendered:
+            return
+        try:
+            from datetime import UTC as _UTC  # noqa: PLC0415
+            from datetime import datetime as _datetime
+
+            from repo_wiki import WikiEntry as _WikiEntry  # noqa: PLC0415
+
+            now_iso = _datetime.now(_UTC).isoformat()
+            entry = _WikiEntry(
+                title=f"Shipped with known gap — PR #{pr_number}",
+                content=rendered,
+                topic="gotchas",
+                source_type="shipped-with-known-gap",
+                source_issue=issue_id,
+                source_repo=repo_slug,
+                created_at=now_iso,
+                updated_at=now_iso,
+                confidence="high",
+            )
+            self._wiki_store.ingest(repo_slug, [entry])
+        except Exception:  # noqa: BLE001 — never block merge path on wiki I/O
+            logger.warning(
+                "shipped-with-known-gap wiki persistence failed for issue #%d",
+                issue_id,
+                exc_info=True,
             )
 
     def _get_judge_result(

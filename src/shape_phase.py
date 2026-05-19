@@ -25,6 +25,12 @@ from phase_utils import (
     store_lifecycle,
 )
 from shape_runner import ShapeRunner  # noqa: TCH001
+from src.adversarial_agents import AgentLike
+from src.adversarial_retry_loop import AdversarialRetryLoop
+from src.pending_concerns import AdversarialState, StageRun
+from src.shape_challenger import ChallengerOutput, ShapeChallenger
+from src.shape_expert_council import CouncilTally as ShapeCouncilTally
+from src.shape_expert_council import ShapeExpertCouncil
 from state import StateTracker
 from task_source import TaskTransitioner
 from whatsapp_bridge import WhatsAppBridge  # noqa: TCH001
@@ -101,6 +107,146 @@ class ShapePhase:
                 self._prs,  # type: ignore[arg-type]
                 _build_hitl_dedup(config),
             )
+        # Earlier-adversarial pipeline agents (ADR-pending). Optional —
+        # the factory wires them in when feature-enabled; legacy paths
+        # leave them None and the adversarial stages are skipped. See
+        # ``attach_adversarial_agents`` for the production entry point.
+        self._challenger_agent: AgentLike | None = None
+        self._shape_council_agents: dict[str, AgentLike] | None = None
+        self._adversarial_budget: int = 3
+
+    # ------------------------------------------------------------------
+    # Earlier-adversarial pipeline wiring (ADR-pending)
+    # ------------------------------------------------------------------
+
+    def attach_adversarial_agents(
+        self,
+        *,
+        challenger_agent: AgentLike | None = None,
+        council_agents: dict[str, AgentLike] | None = None,
+        budget: int = 3,
+    ) -> None:
+        """Wire the two Shape-phase adversarial agents onto this phase.
+
+        Called by the factory once on construction (or by tests). Each
+        agent is independently optional — when ``None``, that stage is
+        skipped, the rest of the pipeline runs unchanged. Both together
+        enable the full Challenger → ExpertCouncil sequence around the
+        existing ShapeRunner.
+
+        ``council_agents`` must contain keys ``user_advocate``,
+        ``tech_lead``, ``product_strategist`` (per
+        :class:`ShapeExpertCouncil`'s contract).
+        """
+        self._challenger_agent = challenger_agent
+        self._shape_council_agents = council_agents
+        self._adversarial_budget = budget
+
+    def _has_any_adversarial_agent(self) -> bool:
+        return (
+            self._challenger_agent is not None or self._shape_council_agents is not None
+        )
+
+    def _persist_adversarial_state(self, issue: Task, adv: AdversarialState) -> None:
+        """Persist *adv* into state.json under the issue's key.
+
+        Per contract: every adversarial stage persists before returning
+        so the next stage (and plan_phase) can read the accumulated
+        pending concerns.
+        """
+        self._state.set_adversarial_state(issue.id, adv)
+
+    async def _run_shape_challenger(
+        self, issue: Task, adv: AdversarialState, shape_content: str
+    ) -> None:
+        """Stage A: ShapeChallenger surfaces concerns about the proposal.
+
+        One-shot — the challenger is a read-only critic. Concerns are
+        appended to ``adv.pending_concerns`` and the state is persisted
+        before returning.
+        """
+        if self._challenger_agent is None:
+            return
+        challenger = ShapeChallenger(agent=self._challenger_agent)
+        out: ChallengerOutput = await challenger.run(
+            shape_content=shape_content,
+            carryover_concerns=list(adv.pending_concerns),
+        )
+        adv.pending_concerns.extend(out.findings)
+        adv.current_stage = "shape_challenger"
+        adv.stage_history.append(
+            StageRun(
+                stage="shape_challenger",
+                phase="shape",
+                retries=0,
+                converged=True,
+                concerns_raised=len(out.findings),
+                concerns_forwarded=len(out.findings),
+                oscillation_detected=False,
+                duration_ms=0,
+            )
+        )
+        self._persist_adversarial_state(issue, adv)
+
+    async def _run_shape_expert_council(
+        self,
+        issue: Task,
+        adv: AdversarialState,
+        shape_content: str,
+    ) -> None:
+        """Stage B: ShapeExpertCouncil tight-loop around the shape proposal.
+
+        Wired via :class:`AdversarialRetryLoop` with the configured
+        budget. Because the ShapeRunner has already produced its
+        proposal and we don't currently re-invoke it on Council retry,
+        the loop runs the Council with a no-op ``retry`` step so
+        unresolved concerns forward rather than block. Honors the
+        dark-factory contract: never deadlock; surface, persist, forward.
+        """
+        if self._shape_council_agents is None:
+            return
+        council = ShapeExpertCouncil(agents=self._shape_council_agents)
+
+        async def _critic(_ctx: str) -> ShapeCouncilTally:
+            return await council.deliberate(
+                shape_content=_ctx, pending_concerns=list(adv.pending_concerns)
+            )
+
+        async def _retry(_findings: ShapeCouncilTally, ctx: str) -> str:
+            # The shape text is unchanged on retry — we do not currently
+            # re-invoke the ShapeRunner from inside the council loop.
+            # Forward findings (dark-factory contract) once budget is
+            # exhausted.
+            return ctx
+
+        def _converged(t: ShapeCouncilTally) -> bool:
+            return not t.should_retry
+
+        loop: AdversarialRetryLoop[str, ShapeCouncilTally] = AdversarialRetryLoop(
+            budget=self._adversarial_budget,
+            event_bus=self._bus,
+            issue_id=issue.id,
+            phase="shape",
+            stage="shape_expert_council",
+        )
+        _ctx_out, unresolved, metrics = await loop.run_with_metrics(
+            shape_content, _critic, _retry, _converged
+        )
+        adv.pending_concerns.extend(unresolved)
+        adv.current_stage = "shape_expert_council"
+        adv.stage_history.append(
+            StageRun(
+                stage="shape_expert_council",
+                phase="shape",
+                retries=metrics.retries,
+                converged=not bool(unresolved),
+                concerns_raised=metrics.total_concerns_raised,
+                concerns_forwarded=len(unresolved),
+                oscillation_detected=metrics.oscillation_detected,
+                duration_ms=0,
+            )
+        )
+        self._persist_adversarial_state(issue, adv)
 
     async def shape_issues(self) -> bool:
         """Process shape-labeled issues. Returns True if work was done."""
@@ -212,6 +358,35 @@ class ShapePhase:
         conv.last_activity_at = datetime.now(UTC).isoformat()
         self._truncate_old_turns(conv)
         self._state.set_shape_conversation(issue.id, conv)
+
+        # Earlier-adversarial pipeline stages around the shape proposal.
+        # Both run only when an AgentLike adversarial agent is attached
+        # (legacy paths skip these entirely). Per dark-factory contract:
+        # never deadlock — concerns persist + forward, even on exhaustion.
+        if self._has_any_adversarial_agent():
+            adv = self._state.get_adversarial_state(issue.id) or AdversarialState(
+                phase="shape"
+            )
+            if self._challenger_agent is not None:
+                try:
+                    await self._run_shape_challenger(issue, adv, result.content)
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "ShapeChallenger failed for issue #%d — "
+                        "forwarding concerns unchanged",
+                        issue.id,
+                        exc_info=True,
+                    )
+            if self._shape_council_agents is not None:
+                try:
+                    await self._run_shape_expert_council(issue, adv, result.content)
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "ShapeExpertCouncil failed for issue #%d — "
+                        "forwarding concerns unchanged",
+                        issue.id,
+                        exc_info=True,
+                    )
 
         if result.is_final or conv.status == "finalizing":
             await self._process_finalization(issue, conv, result.content)

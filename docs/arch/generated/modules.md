@@ -37,8 +37,10 @@ graph LR
     src_mockworld_fakes -- "1" --> src_telemetry
     src_preflight -- "1" --> src_runners
     src_preflight -- "1" --> src_sentry
+    src_review_phase -- "1" --> src
     src_review_phase -- "1" --> src_state
     src_runners -- "1" --> src_preflight
+    src_state -- "1" --> src
 ```
 
-_Regenerated from commit `8f59fe9` on 2026-05-19 01:36 UTC. Source last changed at `8f59fe9`. Status: 🟢 fresh._
+_Regenerated from commit `f9c757b` on 2026-05-19 06:50 UTC. Source last changed at `f9c757b`. Status: 🟢 fresh._

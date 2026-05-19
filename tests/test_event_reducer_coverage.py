@@ -62,6 +62,16 @@ SKIP_LIST: set[str] = {
     # Tribal promotion events are consumed server-side for audit; no
     # dashboard reducer case.
     "tribal_promotion",
+    # Earlier-adversarial-pipeline (ADR pending). These events are emitted
+    # by AdversarialRetryLoop for observability + post-merge audit; the
+    # dashboard surfaces them via dedicated stage timelines/feeds rather
+    # than the central reducer.
+    "adversarial_stage_started",
+    "adversarial_stage_converged",
+    "adversarial_stage_exhausted",
+    "concern_forwarded",
+    "concern_addressed",
+    "shipped_with_known_gap",
 }
 
 

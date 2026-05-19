@@ -73,6 +73,8 @@ See [ADR-0053](../adr/0053-ubiquitous-language-as-living-artifact.md).
 - Multiple backend skills: use marker-based checks, not strict structure
 - Two-file consolidation: Pydantic model and JSONL persistence must sync
 - Operator review gates dynamic skills due to prompt injection risk
+- Pending concerns forwarding contract — tight loop, wide loop, wiki carryover
+- Complexity gate routing — bypass adversarial stages for trivial issues
 - Advisor pattern layers Opus reviewer over Sonnet executor on review surfaces
 - Advisor uses Claude Code subagent dispatch — never the Anthropic SDK directly
 - EpicMonitorLoop — stale epic detection and progress refresh
@@ -308,6 +310,7 @@ See [ADR-0053](../adr/0053-ubiquitous-language-as-living-artifact.md).
 - Worktree workflow and conventions
 - Run and dev commands
 - Why memory/observation is harnessed, not autonomous
+- AdversarialRetryLoop pattern — shared contract for dissent stages
 
 ## Testing (34)
 

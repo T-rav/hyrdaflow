@@ -31,6 +31,8 @@ from pydantic.alias_generators import (
 )
 from typing_extensions import TypedDict
 
+from src.pending_concerns import AdversarialState
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -1896,6 +1898,13 @@ class StateData(BaseModel):
     # (spec §4.1 v2 step 5). At 3 consecutive failures on the same escape
     # issue the loop files `hitl-escalation` + `corpus-learning-stuck`.
     corpus_learning_validation_attempts: dict[str, int] = Field(default_factory=dict)
+    # Earlier-adversarial pipeline (ADR-pending). One AdversarialState per
+    # issue, persisted across phases so implement_phase can read carryover
+    # concerns surfaced during plan_phase without re-running the stages.
+    # Keyed by str(issue_id) for JSON-compat with the rest of StateData.
+    # Default empty dict — schema-evolution safe: legacy state files load
+    # cleanly because Pydantic fills the default.
+    adversarial_states: dict[str, AdversarialState] = Field(default_factory=dict)
     last_updated: str | None = None
 
 
@@ -2612,6 +2621,76 @@ class TriageUpdatePayload(TypedDict, total=False):
     worker: int
     status: str
     role: str
+
+
+# --- Earlier-adversarial pipeline event payloads (ADR pending) -----------
+#
+# These power dashboard observability for the new adversarial stages
+# (DiscoveryCouncil, PlanCouncil, SpecJudge, ShapeChallenger,
+# ShapeExpertCouncil, AssumptionSurfacer). Emitted by
+# ``AdversarialRetryLoop`` and by post-merge wiki carryover.
+
+
+class AdversarialStageStartedPayload(TypedDict):
+    """Payload for ``EventType.ADVERSARIAL_STAGE_STARTED``."""
+
+    issue_id: int
+    phase: str
+    stage: str
+    retry_count: int
+
+
+class AdversarialStageConvergedPayload(TypedDict, total=False):
+    """Payload for ``EventType.ADVERSARIAL_STAGE_CONVERGED``."""
+
+    issue_id: int
+    phase: str
+    stage: str
+    retries: int
+    concerns_raised: int
+    concerns_forwarded: int  # default 0
+
+
+class AdversarialStageExhaustedPayload(TypedDict):
+    """Payload for ``EventType.ADVERSARIAL_STAGE_EXHAUSTED``."""
+
+    issue_id: int
+    phase: str
+    stage: str
+    retries: int
+    concerns_forwarded: int
+
+
+class ConcernForwardedPayload(TypedDict):
+    """Payload for ``EventType.CONCERN_FORWARDED``."""
+
+    issue_id: int
+    concern_id: str
+    from_stage: str
+    to_stage: str
+    severity: str
+
+
+class ConcernAddressedPayload(TypedDict):
+    """Payload for ``EventType.CONCERN_ADDRESSED``."""
+
+    issue_id: int
+    concern_id: str
+    addressed_by_stage: str
+    resolution_kind: str
+
+
+class ShippedWithKnownGapPayload(TypedDict):
+    """Payload for ``EventType.SHIPPED_WITH_KNOWN_GAP``.
+
+    ``surviving_concerns`` is a list of serialized ``Concern`` dicts —
+    each entry is the output of ``Concern.model_dump(mode="json")`` so
+    the payload is JSON-safe for ``EventLog`` persistence.
+    """
+
+    issue_id: int
+    pr_number: int
+    surviving_concerns: list[dict[str, object]]
 
 
 class GitHubIssueSummary(TypedDict):

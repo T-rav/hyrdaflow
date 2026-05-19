@@ -643,6 +643,21 @@ def build_services(
     from expert_council import ExpertCouncil  # noqa: PLC0415
 
     shape_phase._council = ExpertCouncil(config, event_bus)
+
+    # Earlier-adversarial pipeline (ADR-0064). Opt-in via
+    # ``adversarial_pipeline_enabled`` so the pipeline ships dark by
+    # default. The ComplexityGate wiring is colocated here because it
+    # only depends on ``discover_phase``; the full AgentLike wiring for
+    # plan/discover/shape happens after ``planner_phase`` is
+    # constructed (see _wire_adversarial_agents below).
+    if config.adversarial_pipeline_enabled:
+        from complexity_gate import ComplexityGate  # noqa: PLC0415
+
+        # ``llm=None`` falls back to label + keyword heuristics; the
+        # gate defaults to LOAD_BEARING when uncertain, so a heuristic-
+        # only gate is safe (it never silently skips real work).
+        discover_phase.attach_complexity_gate(ComplexityGate(llm=None))
+
     planner_phase = PlanPhase(
         config,
         state,
@@ -661,6 +676,56 @@ def build_services(
         issue_cache=issue_cache,
         plan_reviewer=plan_reviewer,
     )
+
+    # Earlier-adversarial pipeline AgentLike wiring (ADR-0064).
+    #
+    # Once the config flag is on, attach ``SubprocessAgentRunner``
+    # adapters to every adversarial-stage slot across plan, discover,
+    # and shape phases. Each adapter is stateless (the per-call
+    # ``system_prompt`` differentiates a surfacer from a council
+    # voter), so a single instance is shared across all slots.
+    #
+    # Why one shared instance: the AgentLike contract is
+    # ``run(system_prompt, user_message) -> str``. The adapter holds
+    # only the SubprocessRunner + model/tool config — no per-stage
+    # state. Sharing also keeps the factory small; tests still verify
+    # each slot is non-None per-phase.
+    if config.adversarial_pipeline_enabled:
+        from adversarial_agent_runner import SubprocessAgentRunner  # noqa: PLC0415
+
+        adversarial_agent = SubprocessAgentRunner(
+            runner=subprocess_runner,
+            tool=config.implementation_tool,
+            credentials=credentials,
+        )
+
+        planner_phase.attach_adversarial_agents(
+            surfacer_agent=adversarial_agent,
+            council_agents={
+                "builder": adversarial_agent,
+                "tester": adversarial_agent,
+                "risk_skeptic": adversarial_agent,
+            },
+            spec_ac_agent=adversarial_agent,
+            spec_judge_agent=adversarial_agent,
+        )
+        discover_phase.attach_adversarial_agents(
+            surfacer_agent=adversarial_agent,
+            council_agents={
+                "problem_sharpener": adversarial_agent,
+                "existing_solution_hunter": adversarial_agent,
+                "cheapest_test_advocate": adversarial_agent,
+            },
+        )
+        shape_phase.attach_adversarial_agents(
+            challenger_agent=adversarial_agent,
+            council_agents={
+                "user_advocate": adversarial_agent,
+                "tech_lead": adversarial_agent,
+                "product_strategist": adversarial_agent,
+            },
+        )
+
     hitl_phase = HITLPhase(
         config,
         state,
