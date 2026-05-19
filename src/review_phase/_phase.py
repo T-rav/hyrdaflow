@@ -120,14 +120,6 @@ from review_insights import (
 )
 from reviewer import ReviewRunner
 from state import StateTracker
-
-# Mirrors ``retrospective_loop._HITL_DEDUP_WINDOW``. Two PR reviews
-# completing back-to-back for the same stale category could otherwise
-# both call ``find_existing_issue`` before either write is indexed by
-# GitHub search, and both file. The window is intentionally identical
-# between sites so behavior is uniform whether the loop or the fallback
-# fires (#8988).
-_HITL_DEDUP_WINDOW = timedelta(hours=1)
 from task_source import TaskTransitioner
 from transcript_summarizer import TranscriptSummarizer
 
@@ -145,6 +137,14 @@ from ._common import (
 )
 
 logger = logging.getLogger("hydraflow.review_phase")
+
+# Mirrors ``retrospective_loop._HITL_DEDUP_WINDOW``. Two PR reviews
+# completing back-to-back for the same stale category could otherwise
+# both call ``find_existing_issue`` before either write is indexed by
+# GitHub search, and both file. The window is intentionally identical
+# between sites so behavior is uniform whether the loop or the fallback
+# fires (#8988).
+_HITL_DEDUP_WINDOW = timedelta(hours=1)
 
 
 class ReviewPhase:
@@ -3278,9 +3278,7 @@ class ReviewPhase:
                     )
                     self._hitl_filed_at[category] = now_hitl
                     try:
-                        await self._transitioner.create_task(
-                            title, body, hitl_labels
-                        )
+                        await self._transitioner.create_task(title, body, hitl_labels)
                     except Exception:
                         self._hitl_filed_at.pop(category, None)
                         raise
