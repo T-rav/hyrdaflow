@@ -6,13 +6,6 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
-- `31313f7` — feat(adversarial): flip pipeline ON by default (#9025) (#9025) *(2026-05-19)*
-- `6d6ed95` — test+docs(coverage): final cleanup wave — 6 sandbox scenarios + 1 ADR draft *(2026-05-19)*
-- `cb8508c` — test(scenarios): bulk coverage backfill C (9 beads) *(2026-05-19)*
-- `c32919f` — test(scenarios): coverage backfill for 10 loops (bulk B) *(2026-05-19)*
-- `2cc3d81` — chore(arch): regen after UL lint updates generated views *(2026-05-19)*
-- `7e4fc62` — docs(wiki+standards+adr): backfill 19 coverage-gap beads (batch 2) *(2026-05-19)*
-- `52a6c17` — test(flake-tracker): cover _download_junit paths (closes advisor-q08q) *(2026-05-19)*
 - `007c86c` — fix(tests): import AgentPort + FakeAgent in conformance test *(2026-05-19)*
 - `1a5b156` — test(contracts): FakeHoneycomb contract test (closes ADR-0047 gap for fake #5 of 11) *(2026-05-19)*
 - `d5f127d` — fix(tests): import AgentPort + FakeAgent in conformance test *(2026-05-19)*
@@ -357,4 +350,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `31313f7` on 2026-05-19 23:08 UTC. Source last changed at `31313f7`. Status: 🟢 fresh._
+_Regenerated from commit `c8b9e07` on 2026-05-19 19:58 UTC. Source last changed at `c8b9e07`. Status: 🟢 fresh._

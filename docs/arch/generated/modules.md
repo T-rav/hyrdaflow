@@ -16,7 +16,6 @@ graph LR
     src_mockworld_fakes["src.mockworld.fakes"]
     src_observability["src.observability"]
     src_preflight["src.preflight"]
-    src_preflight_playbooks["src.preflight.playbooks"]
     src_review_phase["src.review_phase"]
     src_runners["src.runners"]
     src_sentry["src.sentry"]
@@ -44,4 +43,4 @@ graph LR
     src_state -- "1" --> src
 ```
 
-_Regenerated from commit `31313f7` on 2026-05-19 23:08 UTC. Source last changed at `31313f7`. Status: 🟢 fresh._
+_Regenerated from commit `c8b9e07` on 2026-05-19 19:58 UTC. Source last changed at `c8b9e07`. Status: 🟢 fresh._
