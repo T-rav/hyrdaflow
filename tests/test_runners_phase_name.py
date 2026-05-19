@@ -4,14 +4,10 @@ import pytest
 
 from agent import AgentRunner
 from base_runner import BaseRunner
-from diagnostic_runner import DiagnosticRunner
 from discover_runner import DiscoverRunner
-from hitl_runner import HITLRunner
 from planner import PlannerRunner
-from research_runner import ResearchRunner
 from reviewer import ReviewRunner
 from shape_runner import ShapeRunner
-from triage import TriageRunner
 
 
 @pytest.mark.parametrize(

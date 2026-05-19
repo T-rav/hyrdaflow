@@ -10,7 +10,6 @@ graph LR
     BotPRPort --> OpenAutoPRBotPRPort
     IssueFetcherPort --> IssueFetcher
     IssueFetcherPort -.-> FakeIssueFetcher
-    IssueStorePort --> CachingIssueStore
     IssueStorePort --> IssueStore
     IssueStorePort -.-> FakeIssueStore
     ObservabilityPort --> SentryObservabilityAdapter
@@ -52,9 +51,8 @@ graph LR
 ### IssueStorePort
 
 - Module: `src.ports`
-- Methods: `enqueue_transition`, `enrich_with_comments`, `get_implementable`, `get_plannable`, `get_reviewable`, `get_triageable`, `is_active`, `mark_active`, `mark_complete`, `mark_merged`, `release_in_flight`
+- Methods: `enqueue_transition`, `enrich_with_comments`, `get_discoverable`, `get_implementable`, `get_plannable`, `get_reviewable`, `get_shapeable`, `get_triageable`, `is_active`, `mark_active`, `mark_complete`, `mark_merged`, `release_in_flight`
 - Adapters:
-  - `CachingIssueStore` (`src.caching_issue_store`)
   - `IssueStore` (`src.issue_store`)
 - Fake: `FakeIssueStore` (`mockworld.fakes.fake_issue_store`)
 
@@ -98,4 +96,4 @@ graph LR
   - `WorkspaceManager` (`src.workspace`)
 - Fake: `FakeWorkspace` (`mockworld.fakes.fake_workspace`)
 
-_Regenerated from commit `8cec6db` on 2026-05-18 23:39 UTC. Source last changed at `8cec6db`. Status: 🟢 fresh._
+_Regenerated from commit `08be199` on 2026-05-19 00:05 UTC. Source last changed at `08be199`. Status: 🟢 fresh._
