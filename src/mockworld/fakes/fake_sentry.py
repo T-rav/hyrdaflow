@@ -63,3 +63,10 @@ class FakeSentry:
     def set_tag(self, key: str, value: str) -> None:
         """Legacy shim — records as a breadcrumb with type='tag'."""
         self.breadcrumbs.append({"type": "tag", "key": key, "value": value})
+
+
+# ADR-0047: every Port must have a named Fake in mockworld/fakes/.
+# FakeSentry IS the ObservabilityPort fake — this alias makes the
+# relationship explicit so discovery tools and the ports.md coverage
+# matrix can find it by the canonical ADR naming convention.
+FakeObservability = FakeSentry

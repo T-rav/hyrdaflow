@@ -6,7 +6,8 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
-- `b915e02` — style(tests): ruff format test_fake_bot_pr.py — collapse short kwarg calls *(2026-05-19)*
+- `2978aac` — feat(mockworld): FakeObservability satisfies ObservabilityPort (ADR-0047, closes advisor-ddje) *(2026-05-19)*
+- `0546b35` — style(tests): ruff format test_fake_bot_pr.py — collapse short kwarg calls *(2026-05-19)*
 - `1c2daf7` — feat(mockworld): FakeBotPR satisfies BotPRPort Protocol (ADR-0047, closes advisor-25fr) *(2026-05-19)*
 - `c4e5906` — chore(arch): refresh generated artifacts against b688225 *(2026-05-19)*
 - `66440b0` — refactor(mockworld): move InMemoryRouteBackCounter → FakeRouteBackCounter under src/mockworld/fakes/ (ADR-0047) *(2026-05-19)*
@@ -344,4 +345,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `b915e02` on 2026-05-19 16:17 UTC. Source last changed at `b915e02`. Status: 🟢 fresh._
+_Regenerated from commit `2978aac` on 2026-05-19 16:23 UTC. Source last changed at `2978aac`. Status: 🟢 fresh._
