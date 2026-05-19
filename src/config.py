@@ -206,6 +206,8 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("health_monitor_interval", "HYDRAFLOW_HEALTH_MONITOR_INTERVAL", 7200),
     ("wiki_freshness_stale_days", "HYDRAFLOW_WIKI_FRESHNESS_STALE_DAYS", 7),
     ("stale_issue_interval", "HYDRAFLOW_STALE_ISSUE_INTERVAL", 86400),
+    ("triage_retry_interval", "HYDRAFLOW_TRIAGE_RETRY_INTERVAL", 86400),
+    ("triage_retry_max_attempts", "HYDRAFLOW_TRIAGE_RETRY_MAX_ATTEMPTS", 3),
     ("sentry_poll_interval", "SENTRY_POLL_INTERVAL", 600),
     ("sentry_min_events", "SENTRY_MIN_EVENTS", 2),
     ("sentry_max_creation_attempts", "SENTRY_MAX_CREATION_ATTEMPTS", 3),
@@ -432,6 +434,7 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ),
     ("stale_issue_gc_loop_enabled", "HYDRAFLOW_STALE_ISSUE_GC_LOOP_ENABLED", True),
     ("stale_issue_loop_enabled", "HYDRAFLOW_STALE_ISSUE_LOOP_ENABLED", True),
+    ("triage_retry_loop_enabled", "HYDRAFLOW_TRIAGE_RETRY_LOOP_ENABLED", True),
     (
         "trust_fleet_sanity_loop_enabled",
         "HYDRAFLOW_TRUST_FLEET_SANITY_LOOP_ENABLED",
@@ -800,6 +803,13 @@ class HydraFlowConfig(BaseModel):
         default=["hydraflow-parked"],
         description="Labels for issues parked awaiting author clarification (OR logic)",
     )
+    triage_retry_exhausted_label: list[str] = Field(
+        default=["triage-retry-exhausted"],
+        description=(
+            "Sub-label applied alongside hitl-escalation when TriageRetryLoop "
+            "exhausts its retry budget on a parked issue (ADR-0063 W2)."
+        ),
+    )
     diagnose_label: list[str] = Field(
         default=["hydraflow-diagnose"],
         description="Labels for issues in diagnostic analysis (OR logic)",
@@ -896,6 +906,25 @@ class HydraFlowConfig(BaseModel):
         ge=60,
         le=604800,
         description="Stale issue check interval (seconds)",
+    )
+    triage_retry_interval: int = Field(
+        default=86400,
+        ge=3600,
+        le=604800,
+        description=(
+            "TriageRetryLoop tick interval in seconds (default 24h, ADR-0063 W2). "
+            "Re-runs parked-issue triage with the original parking reason as context."
+        ),
+    )
+    triage_retry_max_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description=(
+            "Maximum number of autonomous retries before TriageRetryLoop escalates "
+            "the parked issue to HITL via the triage_retry_exhausted_label "
+            "sub-label (ADR-0063 W2)."
+        ),
     )
     stale_issue_threshold_days: int = Field(
         default=14,
@@ -2641,6 +2670,13 @@ class HydraFlowConfig(BaseModel):
         default=True,
         description="Deploy-time kill-switch for StaleIssueLoop.",
     )
+    triage_retry_loop_enabled: bool = Field(
+        default=True,
+        description=(
+            "Deploy-time kill-switch for TriageRetryLoop "
+            "(ADR-0063 W2 — autonomous re-triage of parked issues)."
+        ),
+    )
     trust_fleet_sanity_loop_enabled: bool = Field(
         default=True,
         description="Deploy-time kill-switch for TrustFleetSanityLoop.",
@@ -2673,6 +2709,7 @@ class HydraFlowConfig(BaseModel):
         "diagnose_label",
         "memory_backlog_label",
         "memory_backlog_stuck_label",
+        "triage_retry_exhausted_label",
     )
     @classmethod
     def labels_must_not_be_empty(cls, v: list[str]) -> list[str]:

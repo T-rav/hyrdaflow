@@ -75,6 +75,7 @@ flowchart LR
     subgraph auto_agent["Auto-Agent (HITL Pre-Flight)"]
         auto_agent_AutoAgentPreflightLoop([AutoAgentPreflightLoop])
         auto_agent_SandboxFailureFixerLoop([SandboxFailureFixerLoop])
+        auto_agent_TriageRetryLoop([TriageRetryLoop])
     end
     subgraph goal_driven_dev["Goal-Driven Development"]
     end
@@ -228,19 +229,21 @@ The operator-facing FastAPI + React dashboard for observing the fleet and overri
 
 ## Auto-Agent (HITL Pre-Flight)
 
-The Auto-Agent HITL pre-flight loop intercepts every `hitl-escalation` issue before a human sees it, spawns a Claude Code subprocess with a sub-label-routed "lead engineer" persona prompt, and either auto-resolves or hands off with full context. Per ADR-0050.
+The Auto-Agent HITL pre-flight loop intercepts every `hitl-escalation` issue before a human sees it, spawns a Claude Code subprocess with a sub-label-routed "lead engineer" persona prompt, and either auto-resolves or hands off with full context. Per ADR-0050. Companion: TriageRetryLoop closes the only factory phase with no autonomous re-entry path (ADR-0063 W2) — parked issues get up to 3 autonomous re-triage attempts on a 24h cadence before escalating to the same HITL queue Auto-Agent consumes.
 
 **Loops**
 
 - `AutoAgentPreflightLoop` — `src.auto_agent_preflight_loop`
 - `SandboxFailureFixerLoop` — `src.sandbox_failure_fixer_loop`
+- `TriageRetryLoop` — `src.triage_retry_loop`
 
 **Module globs**
 
 - `src/auto_agent_preflight_loop.py`
 - `src/preflight/**`
+- `src/triage_retry_loop.py`
 
-**Related ADRs:** `ADR-0050`
+**Related ADRs:** `ADR-0050`, `ADR-0063`
 
 
 ## Goal-Driven Development
@@ -274,4 +277,4 @@ The plan→implement→review pipeline driving each issue from hydraflow-ready t
 **Related ADRs:** `ADR-0001`, `ADR-0004`, `ADR-0011`, `ADR-0012`, `ADR-0029`
 
 
-_Regenerated from commit `dd8eade` on 2026-05-19 16:25 UTC. Source last changed at `dd8eade`. Status: 🟢 fresh._
+_Regenerated from commit `705fb3b` on 2026-05-19 16:44 UTC. Source last changed at `705fb3b`. Status: 🟢 fresh._

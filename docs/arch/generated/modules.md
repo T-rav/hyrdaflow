@@ -27,7 +27,7 @@ graph LR
     src -- "1" --> src_observability
     src -- "12" --> src_preflight
     src -- "1" --> src_review_phase
-    src -- "46" --> src_state
+    src -- "47" --> src_state
     src -- "7" --> src_telemetry
     src_arch_extractors -- "7" --> src_arch
     src_arch_generators -- "11" --> src_arch
@@ -43,4 +43,4 @@ graph LR
     src_state -- "1" --> src
 ```
 
-_Regenerated from commit `dd8eade` on 2026-05-19 16:25 UTC. Source last changed at `dd8eade`. Status: 🟢 fresh._
+_Regenerated from commit `705fb3b` on 2026-05-19 16:44 UTC. Source last changed at `705fb3b`. Status: 🟢 fresh._

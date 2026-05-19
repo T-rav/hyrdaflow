@@ -1158,6 +1158,41 @@ def _build_pricing_refresh_loop(ports: dict[str, Any], config: Any, deps: Any) -
     return loop
 
 
+def _build_triage_retry(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build TriageRetryLoop for scenarios (ADR-0063 W2).
+
+    The loop polls parked issues via ``PRPort.list_issues_by_label`` and
+    re-dispatches them by swapping the parked label back to find. Tests
+    seed a FakeGitHub via ``ports['github']``; the optional
+    ``triage_retry_state`` port lets a scenario inject a pre-built
+    StateTracker mock when it needs to assert on the attempt counter.
+    """
+    from triage_retry_loop import TriageRetryLoop  # noqa: PLC0415
+
+    state = ports.get("triage_retry_state")
+    if state is None:
+        state = MagicMock()
+        state.get_triage_retry_attempts.return_value = 0
+        state.inc_triage_retry_attempts.return_value = 1
+        state.get_triage_retry_last_attempt.return_value = ""
+        state.set_triage_retry_last_attempt.return_value = None
+        state.clear_triage_retry_attempts.return_value = None
+        # ``_reconcile_closed_parked`` reads from ``state._data`` directly.
+        data = MagicMock()
+        data.triage_retry_attempts = {}
+        state._data = data
+        ports["triage_retry_state"] = state
+
+    pr_manager = ports.get("pr_manager") or ports["github"]
+
+    return TriageRetryLoop(
+        config=config,
+        state=state,
+        pr_manager=pr_manager,
+        deps=deps,
+    )
+
+
 _BUILDERS: dict[str, Any] = {
     # phase 1
     "ci_monitor": _build_ci_monitor,
@@ -1214,6 +1249,8 @@ _BUILDERS: dict[str, Any] = {
     "label_drift_watcher": _build_label_drift_watcher,
     # staging promotion (ADR-0042)
     "staging_promotion": _build_staging_promotion,
+    # factory-phase drift mitigation (ADR-0063 W2)
+    "triage_retry": _build_triage_retry,
 }
 
 

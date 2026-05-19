@@ -1850,6 +1850,13 @@ class StateData(BaseModel):
     # Used so subsequent ticks update the body in-place rather than re-filing.
     adr_rollup_issues: dict[str, dict] = Field(default_factory=dict)
     memory_backlog_attempts: dict[str, int] = Field(default_factory=dict)
+    # TriageRetryLoop (ADR-0063 W2) — per-issue retry counters and the
+    # ISO-8601 timestamp of the last retry attempt, used to honour the
+    # 24h-between-retries gate so a slow loop tick doesn't double-fire.
+    # Keys are the GitHub issue number as a string. Counter is cleared
+    # on the underlying issue closing (reconciled via gh issue list).
+    triage_retry_attempts: dict[str, int] = Field(default_factory=dict)
+    triage_retry_last_attempt: dict[str, str] = Field(default_factory=dict)
     # LiveCorpusReplayLoop (#8786 Phase 3) — per-drift-signature attempt
     # counters for the 3-attempt escalation chain.
     live_corpus_drift_attempts: dict[str, int] = Field(default_factory=dict)

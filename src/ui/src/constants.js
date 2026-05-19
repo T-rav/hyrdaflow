@@ -238,7 +238,7 @@ export const WORKER_PRESETS = {
 /**
  * Workers whose interval can be edited from the UI.
  */
-export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'pr_unsticker', 'merge_state_watcher', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer', 'epic_sweeper', 'epic_monitor', 'dependabot_merge', 'staging_promotion', 'staging_bisect', 'stale_issue', 'security_patch', 'ci_monitor', 'sentry_ingest', 'retrospective', 'principles_audit', 'flake_tracker', 'skill_prompt_eval', 'fake_coverage_auditor', 'adr_touchpoint_auditor', 'memory_backlog', 'rc_budget', 'wiki_rot_detector', 'trust_fleet_sanity', 'contract_refresh', 'corpus_learning', 'live_corpus_replay', 'auto_agent_preflight', 'diagram_loop', 'pricing_refresh', 'cost_budget_watcher', 'label_drift_watcher', 'github_cache', 'runs_gc'])
+export const EDITABLE_INTERVAL_WORKERS = new Set(['memory_sync', 'pr_unsticker', 'merge_state_watcher', 'pipeline_poller', 'report_issue', 'worktree_gc', 'adr_reviewer', 'epic_sweeper', 'epic_monitor', 'dependabot_merge', 'staging_promotion', 'staging_bisect', 'stale_issue', 'security_patch', 'ci_monitor', 'sentry_ingest', 'retrospective', 'principles_audit', 'flake_tracker', 'skill_prompt_eval', 'fake_coverage_auditor', 'adr_touchpoint_auditor', 'memory_backlog', 'rc_budget', 'wiki_rot_detector', 'trust_fleet_sanity', 'contract_refresh', 'corpus_learning', 'live_corpus_replay', 'auto_agent_preflight', 'diagram_loop', 'pricing_refresh', 'cost_budget_watcher', 'label_drift_watcher', 'github_cache', 'runs_gc', 'triage_retry'])
 
 /**
  * Default intervals (in seconds) for system workers.
@@ -281,6 +281,7 @@ export const SYSTEM_WORKER_INTERVALS = {
   github_cache: 30,
   runs_gc: 3600,
   label_drift_watcher: 600,
+  triage_retry: 86400,
 }
 
 /**
@@ -339,6 +340,7 @@ export const BACKGROUND_WORKERS = [
   { key: 'corpus_learning', label: 'Corpus Learning', description: 'Grows the adversarial skill corpus from production escape signals; synthesizes + self-validates before/after cases and files PRs under tests/trust/adversarial/cases/. See spec §4.1 v2.', color: theme.purple, group: 'learning', tags: ['insights'] },
   { key: 'live_corpus_replay', label: 'Live Corpus Replay', description: 'Diffs fresh shadow-corpus samples against fake-adapter outputs to catch value-level drift between real and fake adapters; files one hydraflow-find issue per unique drift signature. See #8786 / ADR-0045.', color: theme.accent, group: 'governance', tags: ['audit', 'drift'] },
   { key: 'auto_agent_preflight', label: 'Auto-Agent Pre-Flight', description: 'Intercepts hitl-escalation issues; runs an emulated-engineer subprocess to attempt autonomous resolution before the issue surfaces to a human (spec §1–§11; ADR-0050).', color: theme.purple, group: 'autonomy', tags: ['hitl', 'autonomy'] },
+  { key: 'triage_retry', label: 'Triage Retry', description: 'Re-runs parked-issue triage every 24h with the original parking reason as context. Caps at 3 retries before escalating to HITL with the triage-retry-exhausted sub-label. Closes the only factory phase with no autonomous re-entry path. See ADR-0063 W2.', color: theme.purple, group: 'autonomy', tags: ['recovery', 'autonomy'] },
   { key: 'sandbox_failure_fixer', label: 'Sandbox Failure Fixer', description: 'Auto-fixes promotion PRs failing sandbox CI by dispatching the auto-agent', color: theme.purple, group: 'autonomy', tags: ['scaffold'] },
   { key: 'diagram_loop', label: 'Diagram Loop (L24)', description: 'Self-documenting architecture caretaker. Walks src/, tests/, docs/adr/ every 4h; emits regenerated docs/arch/generated/ markdown + opens a PR when the live truth has drifted. Per ADR-0029 (caretaker pattern) and the Architecture Knowledge System spec.', color: theme.cyan, group: 'governance', tags: ['drift'] },
   { key: 'pricing_refresh', label: 'Pricing Refresh', description: 'Daily upstream-pricing refresh caretaker. Fetches LiteLLM\'s structured pricing JSON, diffs against src/assets/model_pricing.json, opens a PR if upstream has new or changed Claude models. Bounds-guard rejects suspicious price moves (>+100% or <-50%). Always human-reviewed; never auto-merges.', color: theme.cyan, group: 'learning', tags: ['cost'] },

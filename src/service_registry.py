@@ -108,6 +108,7 @@ from term_pruner_loop import TermPrunerLoop
 from transcript_summarizer import TranscriptSummarizer
 from triage import TriageRunner
 from triage_phase import TriagePhase
+from triage_retry_loop import TriageRetryLoop
 from troubleshooting_store import TroubleshootingPatternStore
 from trust_fleet_sanity_loop import TrustFleetSanityLoop
 from verification_judge import VerificationJudge
@@ -217,6 +218,7 @@ class ServiceRegistry:
     edge_proposer_loop: EdgeProposerLoop
     entry_evidence_loop: EntryEvidenceLoop
     live_corpus_replay_loop: LiveCorpusReplayLoop
+    triage_retry_loop: TriageRetryLoop
 
     # Optional integrations
 
@@ -941,6 +943,12 @@ def build_services(
         deps=loop_deps,
         observability=observability,
     )
+    triage_retry_loop = TriageRetryLoop(
+        config=config,
+        state=state,
+        pr_manager=prs,
+        deps=loop_deps,
+    )
     gh_cache_loop = GitHubCacheLoop(config, gh_cache, deps=loop_deps)  # noqa: F841
     from dedup_store import DedupStore  # noqa: PLC0415
 
@@ -1344,4 +1352,5 @@ def build_services(
         edge_proposer_loop=edge_proposer_loop,
         entry_evidence_loop=entry_evidence_loop,
         live_corpus_replay_loop=_live_corpus_replay_loop,
+        triage_retry_loop=triage_retry_loop,
     )

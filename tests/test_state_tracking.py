@@ -140,6 +140,9 @@ class TestInitialization:
             "adr_rollup_issues",
             # MemoryBacklogLoop (ADR-0057)
             "memory_backlog_attempts",
+            # TriageRetryLoop (ADR-0063 W2)
+            "triage_retry_attempts",
+            "triage_retry_last_attempt",
             # Earlier-adversarial pipeline (#8953) — pulled in by the
             # rebase; the enumeration needs the entry so set-equality
             # holds against the live StateData.

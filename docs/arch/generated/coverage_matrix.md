@@ -50,6 +50,7 @@ Regenerated from the live source tree. Cell vocabulary: ✅ covered, ⚠️ part
 | `StaleIssueLoop` | ❌ | ✅ [gotchas.md] | ❌ | ✅ (caretaker loop) | ✅ `test_stale_issue_loop.py` | ✅ in catalog | ❌ |
 | `TermProposerLoop` | ✅ [0054, 0057, 0060, 0061, 0062] | ✅ [bot-pr-port.md, task.md] | ❌ | ✅ (caretaker loop) | ✅ `test_term_proposer_loop.py` | ⚠️ in catalog (no scenario file) | ❌ |
 | `TermPrunerLoop` | ✅ [0057, 0060, 0062] | ❌ | ❌ | ✅ (caretaker loop) | ✅ `test_term_pruner_loop.py` | ⚠️ in catalog (no scenario file) | ❌ |
+| `TriageRetryLoop` | ✅ [0063] | ❌ | ❌ | ❌ | ✅ `test_triage_retry_loop.py` | ✅ in catalog | ❌ |
 | `TrustFleetSanityLoop` | ✅ [0045, 0046] | ✅ [testing.md] | ❌ | ❌ | ✅ `test_trust_fleet_sanity_loop.py` | ✅ in catalog | ❌ |
 | `WikiRotDetectorLoop` | ✅ [0045, 0056, 0057] | ❌ | ❌ | ✅ (caretaker loop) | ✅ `test_wiki_rot_detector_loop.py` | ✅ in catalog | ❌ |
 | `WorkspaceGCLoop` | ❌ | ❌ | ❌ | ✅ (caretaker loop) | ✅ `test_workspace_gc_loop.py` | ⚠️ in catalog (no scenario file) | ✅ `s07_workspace_gc_reaps_dead_worktree.py` |
@@ -76,4 +77,4 @@ HITL trigger). It is not regenerable from source and is maintained in
 `docs/arch/coverage_matrix.md` (the hand-curated baseline document).
 
 
-_Regenerated from commit `dd8eade` on 2026-05-19 16:25 UTC. Source last changed at `dd8eade`. Status: 🟢 fresh._
+_Regenerated from commit `705fb3b` on 2026-05-19 16:44 UTC. Source last changed at `705fb3b`. Status: 🟢 fresh._

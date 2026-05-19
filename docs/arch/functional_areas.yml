@@ -151,14 +151,19 @@ areas:
       `hitl-escalation` issue before a human sees it, spawns a Claude
       Code subprocess with a sub-label-routed "lead engineer" persona
       prompt, and either auto-resolves or hands off with full context.
-      Per ADR-0050.
+      Per ADR-0050. Companion: TriageRetryLoop closes the only factory
+      phase with no autonomous re-entry path (ADR-0063 W2) — parked
+      issues get up to 3 autonomous re-triage attempts on a 24h cadence
+      before escalating to the same HITL queue Auto-Agent consumes.
     loops:
       - AutoAgentPreflightLoop
       - SandboxFailureFixerLoop
+      - TriageRetryLoop
     modules:
       - src/auto_agent_preflight_loop.py
       - src/preflight/**
-    related_adrs: ['0050']
+      - src/triage_retry_loop.py
+    related_adrs: ['0050', '0063']
 
   goal_driven_dev:
     label: Goal-Driven Development
