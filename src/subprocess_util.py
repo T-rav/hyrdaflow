@@ -131,10 +131,18 @@ def configure_gh_concurrency(limit: int) -> None:
 
 
 def _get_gh_semaphore() -> asyncio.Semaphore:
-    """Return the global semaphore, creating with defaults if not configured."""
+    """Return the global semaphore, creating with defaults if not configured.
+
+    The None-check + construct + assign sequence is guarded by
+    ``_rate_limit_lock`` so two threads racing the lazy init can't each
+    construct a fresh ``Semaphore`` and silently overwrite each other
+    (issue #8657 — same TOCTOU anti-pattern as #7838 and #7839).
+    """
     global _gh_semaphore  # noqa: PLW0603
     if _gh_semaphore is None:
-        _gh_semaphore = asyncio.Semaphore(_GH_DEFAULT_CONCURRENCY)
+        with _rate_limit_lock:
+            if _gh_semaphore is None:
+                _gh_semaphore = asyncio.Semaphore(_GH_DEFAULT_CONCURRENCY)
     return _gh_semaphore
 
 
