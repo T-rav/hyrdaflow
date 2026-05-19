@@ -17,5 +17,6 @@ output:
   exit_code: 0
   stdout: "success\n\n"
   stderr: ""
+baseline_only: true
 normalizers: []
 baseline_only: true

@@ -56,7 +56,7 @@ class DiscoverPhase:
                 "hitl_escalations",
                 config.data_root / "memory" / "hitl_escalations_dedup.json",
             )
-            self._runner.bind_escalation_deps(self._prs, dedup)
+            self._runner.bind_escalation_deps(self._prs, dedup)  # type: ignore[arg-type]
 
     async def discover_issues(self) -> bool:
         """Process discover-labeled issues. Returns True if work was done."""

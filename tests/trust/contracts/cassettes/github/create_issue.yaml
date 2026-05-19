@@ -20,5 +20,6 @@ output:
   exit_code: 0
   stdout: "https://github.com/test-org/test-repo/issues/9001\n"
   stderr: ""
+baseline_only: true
 normalizers: []
 baseline_only: true

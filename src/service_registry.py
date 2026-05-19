@@ -265,6 +265,17 @@ def build_services(
     # FakeLLM does. See spec Component 1 RunnerSet pattern if a
     # stricter type is preferred.
     runners: object | None = None,
+    # ``subprocess_runner`` is the LOWER-LEVEL docker dispatch — separate
+    # from the four phase runners above.  ``runners=fake_llm`` rebinds
+    # the phase runners but ``SubprocessRunner`` is still used by
+    # ``TranscriptSummarizer``, ``HITLRunner``, ``AutoAgentRunner``,
+    # and the pre-quality-review skill subprocesses inside
+    # ``AgentRunner``.  All of those shell ``claude -p`` directly,
+    # which hangs forever on the sandbox's air-gapped network.  Pass a
+    # ``FakeSubprocessRunner`` here to short-circuit every remaining
+    # claude path; production callers pass nothing and get the real
+    # Docker runner.
+    subprocess_runner: SubprocessRunner | None = None,
 ) -> ServiceRegistry:
     """Create all services wired together.
 
@@ -329,7 +340,8 @@ def build_services(
     # widening of downstream method signatures to take
     # ``WorkspacePort`` directly, after which this cast can be removed.
     workspaces = cast(WorkspaceManager, workspaces)
-    subprocess_runner = get_docker_runner(config, credentials=credentials)
+    if subprocess_runner is None:
+        subprocess_runner = get_docker_runner(config, credentials=credentials)
     # The self-repo's wiki lives at ``docs/wiki/`` so it is
     # git-tracked alongside the code it documents. Other managed repos'
     # wikis are runtime-cached under ``.hydraflow/repo_wiki/<owner>/<repo>/``.
@@ -497,15 +509,14 @@ def build_services(
     # at the raw IssueStore. Phases consume `phase_store` (the
     # IssueStorePort interface) so the wiring is unchanged whether
     # caching is enabled or not.
-    phase_store: IssueStorePort = cast(
-        IssueStorePort,
-        CachingIssueStore(
+    phase_store: IssueStorePort = (
+        CachingIssueStore(  # type: ignore[assignment]
             store,
             cache=issue_cache,
             cache_ttl_seconds=config.issue_cache_enrich_ttl_seconds,
         )
         if config.issue_cache_enabled and config.caching_issue_store_enabled
-        else store,
+        else store
     )
 
     # Harness insight store (shared across phases)

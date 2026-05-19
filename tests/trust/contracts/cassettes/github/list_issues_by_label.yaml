@@ -20,6 +20,7 @@ output:
   stdout: "[{\"number\": 42, \"title\": \"CI failure detected\", \"body\": \"main is red\",
     \"updated_at\": \"2026-01-01T00:00:00Z\"}]\n"
   stderr: ""
+baseline_only: true
 normalizers:
   - timestamps.ISO8601
 baseline_only: true
