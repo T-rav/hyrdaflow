@@ -31,25 +31,25 @@ Regenerated from the live source tree. Cell vocabulary: ✅ covered, ⚠️ part
 | `LabelDriftWatcherLoop` | ✅ [0056] | ❌ | ❌ | ✅ README.md | ✅ `test_label_drift_watcher_loop.py` | ⚠️ in catalog (no scenario file) | ❌ |
 | `LiveCorpusReplayLoop` | ❌ | ❌ | ❌ | ❌ | ✅ `test_live_corpus_replay_loop.py` | ❌ | ❌ |
 | `MemoryBacklogLoop` | ✅ [0057] | ✅ [README.md] | ❌ | ✅ README.md | ✅ `test_memory_backlog_loop.py` | ✅ in catalog | ❌ |
-| `MergeStateWatcherLoop` | ✅ [0075, 0077] | ✅ [merge-state-watcher-loop.md] | ❌ | ✅ README.md | ❌ | ⚠️ in catalog (no scenario file) | ❌ |
+| `MergeStateWatcherLoop` | ✅ [0075, 0077] | ✅ [merge-state-watcher-loop.md] | ❌ | ✅ README.md | ✅ `test_merge_state_watcher_loop.py` | ✅ in catalog | ❌ |
 | `PRUnstickerLoop` | ✅ [0075, 0077] | ✅ [pr-unsticker-loop.md] | ❌ | ✅ README.md | ✅ `test_pr_unsticker_loop.py` | ⚠️ in catalog (no scenario file) | ✅ `s08_pr_unsticker_revives_stuck_pr.py` |
 | `PricingRefreshLoop` | ✅ [0078] | ✅ [pricing-refresh-loop.md] | ✅ loops.md | ✅ README.md | ✅ `test_pricing_refresh_loop_scenario.py` | ✅ in catalog | ❌ |
 | `PrinciplesAuditLoop` | ✅ [0045, 0056] | ✅ [dark-factory.md] | ❌ | ✅ README.md | ✅ `test_principles_audit_loop.py` | ✅ in catalog | ❌ |
-| `RCBudgetLoop` | ✅ [0045] | ✅ [rc-budget-loop.md] | ❌ | ✅ README.md | ✅ `test_rc_budget_loop.py` | ✅ in catalog | ❌ |
+| `RCBudgetLoop` | ✅ [0045] | ✅ [rc-budget-loop.md] | ❌ | ✅ README.md | ✅ `test_rc_budget_loop.py` | ✅ in catalog | ✅ `s20_rc_budget_no_regression.py` |
 | `RepoWikiLoop` | ✅ [0032, 0053, 0061, 0062, 0064] | ✅ [dark-factory.md] | ❌ | ✅ README.md | ✅ `test_repo_wiki_loop.py` | ✅ in catalog | ❌ |
-| `ReportIssueLoop` | ✅ [0013, 0018, 0028] | ✅ [report-issue-loop.md] | ❌ | ✅ README.md | ✅ `test_report_issue_loop.py` | ✅ in catalog | ❌ |
-| `RetrospectiveLoop` | ✅ [0074] | ✅ [architecture-async-control.md] | ❌ | ✅ README.md | ✅ `test_retrospective_loop.py` | ✅ in catalog | ❌ |
+| `ReportIssueLoop` | ✅ [0013, 0018, 0028] | ✅ [report-issue-loop.md] | ❌ | ✅ README.md | ✅ `test_report_issue_loop.py` | ✅ in catalog | ✅ `s19_report_issue_empty_queue.py` |
+| `RetrospectiveLoop` | ✅ [0074] | ✅ [architecture-async-control.md] | ❌ | ✅ README.md | ✅ `test_retrospective_loop.py` | ✅ in catalog | ✅ `s18_retrospective_empty_queue.py` |
 | `RunsGCLoop` | ✅ [0073] | ✅ [architecture-async-control.md] | ❌ | ✅ README.md | ✅ `test_runs_gc_loop.py` | ✅ in catalog | ❌ |
 | `SandboxFailureFixerLoop` | ✅ [0052, 0063] | ✅ [dark-factory.md] | ❌ | ✅ README.md | ✅ `test_sandbox_failure_fixer_loop.py` | ✅ in catalog | ❌ |
-| `SecurityPatchLoop` | ✅ [0029, 0065] | ✅ [architecture-async-control.md] | ❌ | ✅ README.md | ✅ `test_security_patch_loop.py` | ✅ in catalog | ❌ |
+| `SecurityPatchLoop` | ✅ [0029, 0065] | ✅ [architecture-async-control.md] | ❌ | ✅ README.md | ✅ `test_security_patch_loop.py` | ✅ in catalog | ✅ `s21_security_patch_no_alerts.py` |
 | `SentryLoop` | ✅ [0055] | ✅ [sentry-loop.md] | ❌ | ✅ README.md | ✅ `test_sentry_loop.py` | ❌ | ❌ |
-| `SkillPromptEvalLoop` | ✅ [0045] | ✅ [skill-prompt-eval-loop.md] | ❌ | ✅ README.md | ✅ `test_skill_prompt_eval_loop.py` | ✅ in catalog | ❌ |
+| `SkillPromptEvalLoop` | ✅ [0045] | ✅ [skill-prompt-eval-loop.md] | ❌ | ✅ README.md | ✅ `test_skill_prompt_eval_loop.py` | ✅ in catalog | ✅ `s17_skill_prompt_eval_clean_corpus.py` |
 | `StagingBisectLoop` | ✅ [0045, 0048, 0063] | ✅ [architecture.md] | ❌ | ✅ README.md | ✅ `test_staging_bisect_loop.py` | ✅ in catalog | ❌ |
 | `StagingPromotionLoop` | ✅ [0042] | ✅ [patterns.md] | ❌ | ✅ README.md | ✅ `test_staging_promotion_loop.py` | ✅ in catalog | ✅ `s13_rc_rebase_recovery.py` |
 | `StaleIssueGCLoop` | ✅ [0029] | ✅ [gotchas.md, stale-issue-gc-loop.md] | ❌ | ✅ README.md | ✅ `test_stale_issue_gc_loop.py` | ✅ in catalog | ❌ |
-| `StaleIssueLoop` | ❌ | ✅ [gotchas.md, stale-issue-gc-loop.md] | ❌ | ✅ README.md | ✅ `test_stale_issue_loop.py` | ✅ in catalog | ❌ |
-| `TermProposerLoop` | ✅ [0054, 0057, 0060, 0061, 0062] | ✅ [bot-pr-port.md, task.md] | ❌ | ✅ README.md | ✅ `test_term_proposer_loop.py` | ⚠️ in catalog (no scenario file) | ❌ |
-| `TermPrunerLoop` | ✅ [0057, 0060, 0062] | ❌ | ❌ | ✅ README.md | ✅ `test_term_pruner_loop.py` | ⚠️ in catalog (no scenario file) | ❌ |
+| `StaleIssueLoop` | ❌ | ✅ [gotchas.md, stale-issue-gc-loop.md] | ❌ | ✅ README.md | ✅ `test_stale_issue_loop.py` | ✅ in catalog | ✅ `s16_stale_issue_scan.py` |
+| `TermProposerLoop` | ✅ [0054, 0057, 0060, 0061, 0062] | ✅ [bot-pr-port.md, task.md] | ❌ | ✅ README.md | ✅ `test_term_proposer_loop.py` | ✅ in catalog | ❌ |
+| `TermPrunerLoop` | ✅ [0057, 0060, 0062] | ❌ | ❌ | ✅ README.md | ✅ `test_term_pruner_loop.py` | ✅ in catalog | ❌ |
 | `TriageRetryLoop` | ✅ [0063] | ❌ | ❌ | ✅ README.md | ✅ `test_triage_retry_loop.py` | ✅ in catalog | ❌ |
 | `TrustFleetSanityLoop` | ✅ [0045, 0046] | ✅ [testing.md] | ❌ | ✅ README.md | ✅ `test_trust_fleet_sanity_loop.py` | ✅ in catalog | ❌ |
 | `WikiRotDetectorLoop` | ✅ [0045, 0056, 0057] | ❌ | ❌ | ✅ README.md | ✅ `test_wiki_rot_detector_loop.py` | ✅ in catalog | ❌ |
@@ -77,4 +77,4 @@ HITL trigger). It is not regenerable from source and is maintained in
 `docs/arch/coverage_matrix.md` (the hand-curated baseline document).
 
 
-_Regenerated from commit `7e4fc62` on 2026-05-19 20:27 UTC. Source last changed at `7e4fc62`. Status: 🟢 fresh._
+_Regenerated from commit `06a3de7` on 2026-05-19 20:28 UTC. Source last changed at `06a3de7`. Status: 🟢 fresh._

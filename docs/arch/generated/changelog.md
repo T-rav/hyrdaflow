@@ -6,6 +6,8 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
+- `06a3de7` — test(scenarios): coverage backfill for 10 loops (bulk B) *(2026-05-19)*
+- `2cc3d81` — chore(arch): regen after UL lint updates generated views *(2026-05-19)*
 - `7e4fc62` — docs(wiki+standards+adr): backfill 19 coverage-gap beads (batch 2) *(2026-05-19)*
 - `52a6c17` — test(flake-tracker): cover _download_junit paths (closes advisor-q08q) *(2026-05-19)*
 - `007c86c` — fix(tests): import AgentPort + FakeAgent in conformance test *(2026-05-19)*
@@ -352,4 +354,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `7e4fc62` on 2026-05-19 20:27 UTC. Source last changed at `7e4fc62`. Status: 🟢 fresh._
+_Regenerated from commit `06a3de7` on 2026-05-19 20:28 UTC. Source last changed at `06a3de7`. Status: 🟢 fresh._
