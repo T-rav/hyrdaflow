@@ -6,6 +6,7 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
+- `194894a` — feat(adversarial): flip pipeline ON by default *(2026-05-19)*
 - `52a6c17` — test(flake-tracker): cover _download_junit paths (closes advisor-q08q) *(2026-05-19)*
 - `007c86c` — fix(tests): import AgentPort + FakeAgent in conformance test *(2026-05-19)*
 - `1a5b156` — test(contracts): FakeHoneycomb contract test (closes ADR-0047 gap for fake #5 of 11) *(2026-05-19)*
@@ -351,4 +352,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `8f0e9d3` on 2026-05-19 20:27 UTC. Source last changed at `8f0e9d3`. Status: 🟢 fresh._
+_Regenerated from commit `194894a` on 2026-05-19 20:30 UTC. Source last changed at `194894a`. Status: 🟢 fresh._

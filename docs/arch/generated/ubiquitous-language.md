@@ -2,7 +2,7 @@
 
 # Ubiquitous Language
 
-_11 terms across 2 bounded contexts._
+_20 terms across 3 bounded contexts._
 
 See [ADR-0053](../../adr/0053-ubiquitous-language-as-living-artifact.md) for the governing pattern.
 
@@ -53,6 +53,18 @@ Async pub/sub bus that fans HydraFlowEvent objects out to subscriber asyncio.Que
 - Slow subscribers do not block the publisher: a full subscriber queue drops its oldest entry before the new event is enqueued.
 - History mutation is serialized through an asyncio.Lock.
 
+## GitHubCacheLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/github_cache_loop.py:GitHubCacheLoop` · **Confidence:** `accepted`
+**Aliases:** `github cache loop`, `github data cache loop`, `github poller`
+
+Centralized GitHub data poller that replaces the pattern where every dashboard endpoint and background worker makes its own `gh api` calls (ADR-0041). A single `GitHubCacheLoop` polls GitHub on a fixed interval and stores results in `GitHubDataCache` — in memory and on disk. Dashboard endpoints and background workers read from the cache instantly rather than hitting the API. Write operations (create PR, merge, comment, label swap) still call `gh` directly because they need immediate confirmation.
+
+**Invariants:**
+- Only one instance per repo runtime; all read consumers share the same cache snapshot.
+- Write operations bypass the cache and call `gh` directly.
+- Cache staleness is observable: each `CacheSnapshot` carries a `fetched_at` timestamp; `age_seconds` is infinite until the first poll completes.
+
 ## HydraFlowConfig
 
 **Kind:** `aggregate` · **Context:** `shared-kernel` · **Anchor:** `src/config.py:HydraFlowConfig` · **Confidence:** `accepted`
@@ -76,6 +88,30 @@ Hexagonal port for the in-memory issue work-queue — exposes only the queue acc
 - Pure Protocol — no implementation, no state.
 - Only domain-consumed methods are declared; orchestrator and dashboard methods deliberately stay off the port.
 
+## MergeStateWatcherLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/merge_state_watcher_loop.py:MergeStateWatcherLoop` · **Confidence:** `accepted`
+**Aliases:** `merge state watcher loop`, `merge state watcher`, `conflict rebase loop`
+
+Caretaker loop that periodically scans all open PRs for merge conflicts and auto-rebases or escalates them (ADR-0029). The filter is intentionally broad: RC promotion PRs, Dependabot bumps, agent PRs, and manual PRs all benefit from auto-rebase when they go DIRTY against `main`. PRs already labeled `hydraflow-hitl` (being handled by `PRUnsticker`) or `hydraflow-review` (active reviewer worktree) are skipped to avoid stepping on in-progress work. Delegates the actual conflict-detection and rebase logic to `MergeStateWatcher`.
+
+**Invariants:**
+- Default tick interval is 600 seconds (10 minutes).
+- PRs labeled `hydraflow-hitl` or `hydraflow-review` are skipped.
+- Kill-switch is via `enabled_cb("merge_state_watcher")` and `config.merge_state_watcher_loop_enabled`.
+
+## PricingRefreshLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/pricing_refresh_loop.py:PricingRefreshLoop` · **Confidence:** `accepted`
+**Aliases:** `pricing refresh loop`, `litellm pricing poller`, `model pricing caretaker`
+
+Daily caretaker loop that fetches LiteLLM's `model_prices_and_context_window.json` via stdlib `urllib`, filters to Anthropic-provider entries (normalizing Bedrock keys), diffs against `src/assets/model_pricing.json`, and opens or updates a `pricing-refresh-auto` PR when drift is detected (ADR-0029, ADR-0049). A bounds guard rejects suspicious price moves. Bounds violations, parse errors, and schema errors open a single deduplicated `[pricing-refresh]` `hydraflow-find` issue. Network errors log-and-retry on the next tick without filing issues.
+
+**Invariants:**
+- Kill-switch is the `HYDRAFLOW_DISABLE_PRICING_REFRESH=1` env var.
+- PR is always on the fixed branch `pricing-refresh-auto`; no-op ticks do not open a PR.
+- Bounds violations are separate from network errors; each has a distinct response path.
+
 ## PRPort
 
 **Kind:** `port` · **Context:** `shared-kernel` · **Anchor:** `src/ports.py:PRPort` · **Confidence:** `accepted`
@@ -86,6 +122,42 @@ Hexagonal port for GitHub PR, label, and CI operations — branch push, PR creat
 **Invariants:**
 - Pure Protocol — no implementation, no state.
 - Method signatures must match pr_manager.PRManager exactly so structural subtype checks in tests/test_ports.py pass.
+
+## PRUnstickerLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/pr_unsticker_loop.py:PRUnstickerLoop` · **Confidence:** `accepted`
+**Aliases:** `pr unsticker loop`, `pr unsticker`, `hitl unsticker`
+
+Caretaker loop that polls HITL items and delegates to `PRUnsticker` to resolve all HITL causes — merge conflicts, CI failures, and generic stuck states. Operates only on HITL issues that currently have an open PR. The loop wraps the unsticker worker in the standard `BaseBackgroundLoop` tick-and-interval skeleton, keeping the HITL resolution logic in `PRUnsticker` separate from the polling infrastructure.
+
+**Invariants:**
+- Only processes HITL issues with an associated open PR (`item.pr > 0`); issues without PRs are skipped.
+- Kill-switch is via `enabled_cb("pr_unsticker")` and `config.pr_unsticker_loop_enabled` (ADR-0049).
+- Interval is driven by `config.pr_unstick_interval`.
+
+## RCBudgetLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/rc_budget_loop.py:RCBudgetLoop` · **Confidence:** `accepted`
+**Aliases:** `rc budget loop`, `rc ci wall-clock detector`, `rc duration regression detector`
+
+4-hour RC CI wall-clock regression detector (ADR-0045 §4.8). Reads the last 30 days of `rc-promotion-scenario.yml` runs via `gh run list`, extracts per-run wall-clock duration, and emits a `hydraflow-find` + `rc-duration-regression` issue when the newest run trips either a gradual-bloat signal (current run ≥ 1.5× rolling median) or a sudden-spike signal (current run ≥ 2.0× recent-five maximum). Both signals are independent; both may fire on the same tick with distinct dedup keys. After 3 unresolved attempts per signal the loop escalates to `hitl-escalation` + `rc-duration-stuck`.
+
+**Invariants:**
+- Kill-switch is via `enabled_cb("rc_budget")` only — no `rc_budget_enabled` config field (ADR-0049 §12.2).
+- Requires at least 5 historical data points before emitting any signal.
+- Dedup keys clear on escalation-close.
+
+## ReportIssueLoop
+
+**Kind:** `loop` · **Context:** `builder` · **Anchor:** `src/report_issue_loop.py:ReportIssueLoop` · **Confidence:** `accepted`
+**Aliases:** `report issue loop`, `bug report loop`, `dashboard report processor`
+
+Background loop that dequeues pending bug reports from state, saves any attached screenshots to temp files, and invokes the Claude CLI with `/hf.issue` so the agent can see the image, research the codebase, and file a well-structured GitHub issue (ADR-0028). This is the same issue-filing flow triggered by dashboard bug reports. Supports base64-encoded screenshot payloads and scans them for secrets before saving. Caps retries at 5 attempts per report.
+
+**Invariants:**
+- Screenshot payloads are scanned for secrets before being written to disk.
+- Reports cap at `_MAX_REPORT_ATTEMPTS` (5) before being abandoned.
+- Kill-switch is via `enabled_cb("report_issue")` (ADR-0049).
 
 ## RepoWikiStore
 
@@ -98,6 +170,42 @@ File-based per-repo wiki manager (ADR-0032). Owns the on-disk layout for both th
 - Self-repo pages live directly under wiki_root; every other slug is nested under wiki_root/owner/repo.
 - ingest() updates topic pages, refreshes index.json/index.md, and appends to log.jsonl in a single operation.
 - When a tracked_root with per-entry layout is configured, reads prefer it and fall back to the legacy topic-page layout.
+
+## SentryLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/sentry_loop.py:SentryLoop` · **Confidence:** `accepted`
+**Aliases:** `sentry loop`, `sentry ingestion loop`, `sentry issue poller`
+
+Background loop that polls the Sentry API for unresolved issues across configured projects, deduplicates them against already-filed GitHub issues, and invokes a Claude agent via `/hf.issue` to research the codebase and file a properly triaged GitHub issue — the same flow as dashboard bug reports (ADR-0055). Requires Sentry credentials in config. Sentry captures real code bugs only; transient failures and operational noise are excluded by the loop's dedup and filtering logic.
+
+**Invariants:**
+- Issues are deduplicated before filing; re-ingestion of the same Sentry event does not produce duplicate GitHub issues.
+- Kill-switch is via `enabled_cb("sentry")` (ADR-0049).
+- Sentry errors in the `ERROR+` level range trigger the issue-filing path; `WARNING` and below are skipped.
+
+## SkillPromptEvalLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/skill_prompt_eval_loop.py:SkillPromptEvalLoop` · **Confidence:** `accepted`
+**Aliases:** `skill prompt eval loop`, `skill prompt drift detector`, `corpus health auditor`
+
+Weekly background loop with two responsibilities. First, it runs the full adversarial skill-prompt corpus on a fixed schedule, catching regressions the RC-gate subset sampling misses (ADR-0045 §4.6). Second, it samples 10% of `provenance: learning-loop` corpus cases, flagging any that the `expected_catcher` skill passes — a weak-case signal the §4.1 learner uses for corpus quality improvement. Files `skill-prompt-drift` issues on PASS→FAIL transitions and `corpus-case-weak` issues for human triage.
+
+**Invariants:**
+- Both subsystems share a single loop tick; neither runs independently.
+- Issues are deduplicated before filing; the same regression does not produce duplicate bead spam.
+- Subclasses `BaseBackgroundLoop`; kill-switch is via `enabled_cb("skill_prompt_eval")` (ADR-0049).
+
+## StaleIssueGCLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/stale_issue_gc_loop.py:StaleIssueGCLoop` · **Confidence:** `accepted`
+**Aliases:** `stale issue gc loop`, `stale hitl gc loop`, `hitl stale closer`
+
+Caretaker loop that auto-closes stale HITL escalation issues (ADR-0029). Scope is specifically open issues carrying the configured HITL label that have been inactive beyond `stale_issue_threshold_days`. Posts a farewell comment, then closes. Caps at 10 closures per cycle to avoid GitHub rate-limiting. Distinct from `StaleIssueLoop`, which handles stale general issues with no HydraFlow lifecycle label — the two loops share only the `BaseBackgroundLoop` framework and have zero business-logic overlap.
+
+**Invariants:**
+- Maximum 10 issues closed per tick to respect GitHub rate limits.
+- Only closes issues carrying the HITL label (`config.hitl_label`), not general issues.
+- `StaleIssueGCLoop` and `StaleIssueLoop` are fully separate; do not conflate them.
 
 ## StateTracker
 
