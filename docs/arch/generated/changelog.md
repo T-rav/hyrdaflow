@@ -333,4 +333,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `67d29f1` on 2026-05-19 07:16 UTC. Source last changed at `67d29f1`. Status: 🟢 fresh._
+_Regenerated from commit `67d29f1` on 2026-05-19 07:22 UTC. Source last changed at `67d29f1`. Status: 🟢 fresh._
