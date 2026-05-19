@@ -6,6 +6,8 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
+- `32e2589` — docs(standards,adr): backfill standards refs and ADR drafts for 9 ports/loops *(2026-05-19)*
+- `7824a41` — docs(wiki): backfill missing wiki entries for 8 ports/loops *(2026-05-19)*
 - `007c86c` — fix(tests): import AgentPort + FakeAgent in conformance test *(2026-05-19)*
 - `1a5b156` — test(contracts): FakeHoneycomb contract test (closes ADR-0047 gap for fake #5 of 11) *(2026-05-19)*
 - `d5f127d` — fix(tests): import AgentPort + FakeAgent in conformance test *(2026-05-19)*
@@ -350,4 +352,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `b0686df` on 2026-05-19 20:03 UTC. Source last changed at `b0686df`. Status: 🟢 fresh._
+_Regenerated from commit `32e2589` on 2026-05-19 20:04 UTC. Source last changed at `32e2589`. Status: 🟢 fresh._
