@@ -117,6 +117,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
     ("max_test_adequacy_attempts", "HYDRAFLOW_MAX_TEST_ADEQUACY_ATTEMPTS", 1),
     ("max_plan_compliance_attempts", "HYDRAFLOW_MAX_PLAN_COMPLIANCE_ATTEMPTS", 1),
     ("max_discover_attempts", "HYDRAFLOW_MAX_DISCOVER_ATTEMPTS", 3),
+    ("max_discover_expansions", "HYDRAFLOW_MAX_DISCOVER_EXPANSIONS", 1),
     ("max_shape_attempts", "HYDRAFLOW_MAX_SHAPE_ATTEMPTS", 3),
     ("max_review_fix_attempts", "HYDRAFLOW_MAX_REVIEW_FIX_ATTEMPTS", 2),
     ("min_review_findings", "HYDRAFLOW_MIN_REVIEW_FINDINGS", 3),
@@ -719,6 +720,15 @@ class HydraFlowConfig(BaseModel):
         ge=0,
         le=5,
         description="Max Discover-brief evaluator retries before HITL escalation (0 = disabled)",
+    )
+    max_discover_expansions: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        description=(
+            "Max discover-expander subagent dispatches per issue before "
+            "falling through to HITL escalation (ADR-0063 W3a; 0 = disabled)"
+        ),
     )
     max_shape_attempts: int = Field(
         default=3,

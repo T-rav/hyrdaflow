@@ -48,6 +48,11 @@ def _make_runner(
 ):
     """Build a DiscoverRunner with ``_execute`` scripted [discover, eval, ...]."""
     config.max_discover_attempts = max_attempts
+    # These tests pre-date the discover-expander (ADR-0063 W3a) and
+    # script ``_execute`` strictly as [discover, eval, ...]. Disable the
+    # expander here so the dispatch sequence stays as designed; the
+    # expander itself is covered by ``test_discover_runner_expander.py``.
+    config.max_discover_expansions = 0
     config.repo_root = Path("/tmp")
     config.dry_run = False
     runner = DiscoverRunner(config=config, event_bus=MagicMock(spec=EventBus))
