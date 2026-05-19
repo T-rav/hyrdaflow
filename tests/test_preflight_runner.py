@@ -47,6 +47,51 @@ def test_default_fallback_for_unknown_sub_label() -> None:
     assert "Default Playbook" in out
 
 
+def test_explicit_prompt_template_overrides_sub_label_lookup() -> None:
+    """ADR-0063 W1: PreflightPlaybook.prompt_template lets the registry pick
+    a prompt file independent of the sub-label string. Sub-label
+    ``my-custom-stuck`` with template ``plan-stuck`` must render plan-stuck.md.
+    """
+    out = render_prompt(
+        sub_label="my-custom-stuck",
+        persona="x",
+        issue_number=1,
+        repo_slug="r/s",
+        worktree_path="/tmp",
+        issue_body="b",
+        issue_comments_block="x",
+        escalation_context_block="x",
+        wiki_excerpts_block="x",
+        sentry_events_block="x",
+        recent_commits_block="x",
+        prior_attempts_block="x",
+        prompt_template="plan-stuck",
+    )
+    assert "plan-stuck Playbook" in out
+
+
+def test_explicit_default_template_renders_default_even_for_known_sub_label() -> None:
+    """A playbook that points at ``_default`` renders the generic prompt even
+    when a same-named prompt file exists (e.g. for sub-labels whose specialist
+    persona is enough and no custom file is justified)."""
+    out = render_prompt(
+        sub_label="flaky-test-stuck",  # has its own .md file
+        persona="x",
+        issue_number=1,
+        repo_slug="r/s",
+        worktree_path="/tmp",
+        issue_body="b",
+        issue_comments_block="x",
+        escalation_context_block="x",
+        wiki_excerpts_block="x",
+        sentry_events_block="x",
+        recent_commits_block="x",
+        prior_attempts_block="x",
+        prompt_template="_default",
+    )
+    assert "Default Playbook" in out
+
+
 def test_parse_agent_response_resolved() -> None:
     out = parse_agent_response(
         "<status>resolved</status><pr_url>https://x</pr_url><diagnosis>did it</diagnosis>"

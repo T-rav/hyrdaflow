@@ -27,9 +27,20 @@ def render_prompt(
     sentry_events_block: str,
     recent_commits_block: str,
     prior_attempts_block: str,
+    prompt_template: str | None = None,
 ) -> str:
-    """Load the sub-label prompt file (or _default.md) + envelope, render."""
-    prompt_path = _PROMPT_DIR / f"{sub_label}.md"
+    """Load the sub-label prompt file (or _default.md) + envelope, render.
+
+    Args:
+        prompt_template: When provided, overrides the sub-label-derived file
+            lookup. The W1 playbook registry (ADR-0063) uses this to drive
+            prompt selection from the playbook bundle rather than the raw
+            sub-label string — letting a sub-label without its own prompt
+            file route to a specialist persona + the ``_default`` template,
+            or vice versa.
+    """
+    template_stem = prompt_template if prompt_template is not None else sub_label
+    prompt_path = _PROMPT_DIR / f"{template_stem}.md"
     if not prompt_path.exists():
         prompt_path = _PROMPT_DIR / "_default.md"
 
