@@ -14,6 +14,7 @@ from typing import Any
 from exception_classify import reraise_on_credit_or_bug
 from preflight.context import PreflightContext
 from preflight.decision import PreflightResult
+from preflight.playbooks import DEFAULT_PERSONA, get_playbook
 from preflight.runner import parse_agent_response, render_blocks, render_prompt
 
 logger = logging.getLogger("hydraflow.preflight.agent")
@@ -57,13 +58,23 @@ async def run_preflight(
         recent_commits=context.recent_commits,
         prior_attempts=context.prior_attempts,
     )
+
+    # ADR-0063 W1: route by sub-label to a specialist playbook. When the
+    # registry has no specialist (unrecognised sub-label, or a sub-label like
+    # `flaky-test-stuck` whose existing prompt file is enough), the default
+    # playbook returns `_default` persona + `_default` template — and we keep
+    # the operator-configured `deps.persona` so deployments that customised
+    # the persona via config still see their value.
+    playbook = get_playbook(context.sub_label)
+    persona = playbook.persona if playbook.persona != DEFAULT_PERSONA else deps.persona
     prompt = render_prompt(
         sub_label=context.sub_label,
-        persona=deps.persona,
+        persona=persona,
         issue_number=context.issue_number,
         repo_slug=repo_slug,
         worktree_path=worktree_path,
         issue_body=context.issue_body,
+        prompt_template=playbook.prompt_template,
         **blocks,
     )
 
