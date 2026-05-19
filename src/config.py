@@ -1371,18 +1371,20 @@ class HydraFlowConfig(BaseModel):
         ),
     )
 
-    # Earlier-adversarial pipeline. Defaults to False so the pipeline ships
-    # dark — the four adversarial stages (AssumptionSurfacer, PlanCouncil,
+    # Earlier-adversarial pipeline (ADR-0064). Flipped ON by default — the
+    # four adversarial stages (AssumptionSurfacer, PlanCouncil,
     # SpecACGenerator, SpecJudge in plan; ComplexityGate + DiscoveryCouncil
-    # in discover; ShapeChallenger + ShapeExpertCouncil in shape) only run
-    # when an operator explicitly flips this on. Backward-compat: legacy
-    # deployments behave exactly as before.
+    # in discover; ShapeChallenger + ShapeExpertCouncil in shape) wire onto
+    # the phases at factory construction. Operators can set this to False
+    # to disable, but the intent is one-way-on: the pipeline is the new
+    # baseline for load-bearing work in the dark factory.
     adversarial_pipeline_enabled: bool = Field(
-        default=False,
+        default=True,
         description=(
             "Enable the earlier-adversarial pipeline: ComplexityGate routing "
             "+ AssumptionSurfacer / Council / SpecJudge stages around the "
-            "existing planner. Defaults to False so the pipeline is opt-in."
+            "existing planner. ON by default — the pipeline is now the "
+            "baseline for load-bearing work."
         ),
     )
 

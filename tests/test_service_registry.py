@@ -324,11 +324,11 @@ class TestWorkerRegistryCallbacks:
 class TestAdversarialPipelineWiring:
     """Factory wiring for the earlier-adversarial pipeline (ADR-0064).
 
-    Per ``HydraFlowConfig.adversarial_pipeline_enabled``: defaults False
-    (the pipeline ships dark — legacy behavior preserved). When flipped
-    True, ``DiscoverPhase`` gets a ``ComplexityGate`` attached AND all
-    three phases (plan, discover, shape) get ``SubprocessAgentRunner``
-    adapters wired into every adversarial-stage slot.
+    Per ``HydraFlowConfig.adversarial_pipeline_enabled``: defaults True
+    (the pipeline is the new baseline). ``DiscoverPhase`` gets a
+    ``ComplexityGate`` attached AND all three phases (plan, discover,
+    shape) get ``SubprocessAgentRunner`` adapters wired into every
+    adversarial-stage slot. Operators can flip it False to disable.
     """
 
     @staticmethod
@@ -339,26 +339,29 @@ class TestAdversarialPipelineWiring:
         callbacks = _make_callbacks()
         return build_services(config, bus, state, stop_event, callbacks)
 
-    def test_default_disabled_no_complexity_gate_attached(
+    def test_disabled_no_complexity_gate_attached(
         self, config: HydraFlowConfig
     ) -> None:
-        """Default ``adversarial_pipeline_enabled=False`` preserves legacy behavior.
-
-        DiscoverPhase has no ComplexityGate attached — every discover-
-        labeled issue runs the full discovery flow with no bypass.
+        """``adversarial_pipeline_enabled=False`` (explicit opt-out) leaves
+        DiscoverPhase without a ComplexityGate — every discover-labeled
+        issue runs the full discovery flow with no bypass.
         """
-        assert config.adversarial_pipeline_enabled is False  # default
-        registry = self._build(config)
+        disabled_config = config.model_copy(
+            update={"adversarial_pipeline_enabled": False}
+        )
+        registry = self._build(disabled_config)
         assert registry.discover_phase._complexity_gate is None
 
-    def test_default_disabled_no_adversarial_agents_attached(
+    def test_disabled_no_adversarial_agents_attached(
         self, config: HydraFlowConfig
     ) -> None:
-        """Default ``adversarial_pipeline_enabled=False`` leaves every
-        adversarial agent slot at None across plan, discover, and shape.
+        """``adversarial_pipeline_enabled=False`` (explicit opt-out) leaves
+        every adversarial agent slot at None across plan, discover, and shape.
         """
-        assert config.adversarial_pipeline_enabled is False  # default
-        registry = self._build(config)
+        disabled_config = config.model_copy(
+            update={"adversarial_pipeline_enabled": False}
+        )
+        registry = self._build(disabled_config)
         # PlanPhase
         assert registry.planner_phase._surfacer_agent is None
         assert registry.planner_phase._council_agents is None
@@ -370,6 +373,38 @@ class TestAdversarialPipelineWiring:
         # ShapePhase
         assert registry.shape_phase._challenger_agent is None
         assert registry.shape_phase._shape_council_agents is None
+
+    def test_default_enabled_attaches_complexity_gate(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Default ``adversarial_pipeline_enabled=True`` attaches the gate."""
+        assert config.adversarial_pipeline_enabled is True  # default
+        registry = self._build(config)
+        assert registry.discover_phase._complexity_gate is not None
+
+    def test_default_enabled_attaches_all_adversarial_agents(
+        self, config: HydraFlowConfig
+    ) -> None:
+        """Default ``adversarial_pipeline_enabled=True`` wires every slot."""
+        from adversarial_agent_runner import SubprocessAgentRunner
+
+        assert config.adversarial_pipeline_enabled is True  # default
+        registry = self._build(config)
+        # PlanPhase
+        assert isinstance(registry.planner_phase._surfacer_agent, SubprocessAgentRunner)
+        assert registry.planner_phase._council_agents is not None
+        assert isinstance(registry.planner_phase._spec_ac_agent, SubprocessAgentRunner)
+        assert isinstance(
+            registry.planner_phase._spec_judge_agent, SubprocessAgentRunner
+        )
+        # DiscoverPhase
+        assert isinstance(
+            registry.discover_phase._surfacer_agent, SubprocessAgentRunner
+        )
+        assert registry.discover_phase._council_agents is not None
+        # ShapePhase
+        assert isinstance(registry.shape_phase._challenger_agent, SubprocessAgentRunner)
+        assert registry.shape_phase._shape_council_agents is not None
 
     def test_enabled_attaches_complexity_gate(self, config: HydraFlowConfig) -> None:
         """``adversarial_pipeline_enabled=True`` attaches the ComplexityGate."""
