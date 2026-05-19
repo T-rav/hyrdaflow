@@ -431,7 +431,10 @@ class AdrTouchpointAuditorLoop(BaseBackgroundLoop):
                 updated += 1
                 # Attempt-counter ticks per ADR; escalate at 3 strikes.
                 attempts = self._state.inc_adr_audit_attempts(rollup_key)
-                if attempts >= _MAX_ATTEMPTS:
+                # Fire escalation exactly once at the threshold — using
+                # ``==`` not ``>=`` so subsequent ticks for a still-open
+                # rollup don't file a fresh HITL issue every tick.
+                if attempts == _MAX_ATTEMPTS:
                     await self._file_drift_escalation(rollup_key, attempts)
                     escalated += 1
                 continue
@@ -442,7 +445,10 @@ class AdrTouchpointAuditorLoop(BaseBackgroundLoop):
                 continue
 
             attempts = self._state.inc_adr_audit_attempts(rollup_key)
-            if attempts >= _MAX_ATTEMPTS:
+            # Same once-at-threshold guard as the existing-rollup branch
+            # above. ``_reconcile_closed_escalations`` resets attempts on
+            # human close so a recurrence after close can re-escalate.
+            if attempts == _MAX_ATTEMPTS:
                 await self._file_drift_escalation(rollup_key, attempts)
                 escalated += 1
             else:

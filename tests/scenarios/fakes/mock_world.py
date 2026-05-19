@@ -310,6 +310,7 @@ class MockWorld:
             "create_task",
             "close_task",
             "close_issue",
+            "update_issue_body",
             "find_existing_issue",
             "push_branch",
             "create_pr",

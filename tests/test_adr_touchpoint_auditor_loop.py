@@ -423,6 +423,56 @@ async def test_escalation_after_three_attempts(loop_env, monkeypatch) -> None:
     state.inc_adr_audit_attempts.assert_called_with("ADR-0024")
 
 
+async def test_escalation_does_not_storm_after_threshold(loop_env, monkeypatch) -> None:
+    """Regression for the #8993 review finding: escalation fires exactly
+    once when the per-ADR attempt counter crosses ``_MAX_ATTEMPTS`` (==3),
+    not on every subsequent tick.
+
+    Setup: an existing rollup (issue #4242) is open for ADR-0024, the
+    attempt counter is now 4 (one tick after threshold). The loop should
+    update the body and persist the new PR set, but it should NOT file a
+    fresh HITL escalation issue.
+    """
+    cfg, state, pr, dedup, idx = loop_env
+    # Tracked rollup exists with one prior PR; counter is past the threshold.
+    state.get_adr_rollup.return_value = {
+        "issue_number": 4242,
+        "pr_numbers": [8473],
+    }
+    state.inc_adr_audit_attempts.return_value = 4
+
+    stop = asyncio.Event()
+    loop = AdrTouchpointAuditorLoop(
+        config=cfg,
+        state=state,
+        pr_manager=pr,
+        dedup=dedup,
+        adr_index=idx,
+        deps=_deps(stop),
+    )
+
+    async def fake_list(_cursor):
+        return [
+            {
+                "number": 8473,
+                "mergedAt": "2026-05-06T20:00:00Z",
+                "files": [{"path": "src/agent.py"}],
+            }
+        ]
+
+    monkeypatch.setattr(loop, "_list_recent_merged_prs", fake_list)
+    monkeypatch.setattr(loop, "_reconcile_closed_escalations", AsyncMock())
+
+    stats = await loop._do_work()
+
+    # Existing rollup body was refreshed.
+    assert pr.update_issue_body.await_count >= 1
+    # And NO new escalation issue was filed — ``==`` not ``>=`` is the
+    # whole point of this regression test.
+    assert pr.create_issue.await_count == 0
+    assert stats["escalated"] == 0
+
+
 async def test_cursor_advances_to_most_recent_merged_at(loop_env, monkeypatch) -> None:
     cfg, state, pr, dedup, idx = loop_env
 
