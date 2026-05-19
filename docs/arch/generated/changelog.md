@@ -6,7 +6,10 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
+- `1147674` — merge: integrate latest origin/staging into adversarial-pipeline-default-on *(2026-05-19)*
 - `194894a` — feat(adversarial): flip pipeline ON by default *(2026-05-19)*
+- `2cc3d81` — chore(arch): regen after UL lint updates generated views *(2026-05-19)*
+- `7e4fc62` — docs(wiki+standards+adr): backfill 19 coverage-gap beads (batch 2) *(2026-05-19)*
 - `52a6c17` — test(flake-tracker): cover _download_junit paths (closes advisor-q08q) *(2026-05-19)*
 - `007c86c` — fix(tests): import AgentPort + FakeAgent in conformance test *(2026-05-19)*
 - `1a5b156` — test(contracts): FakeHoneycomb contract test (closes ADR-0047 gap for fake #5 of 11) *(2026-05-19)*
@@ -352,4 +355,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `194894a` on 2026-05-19 20:30 UTC. Source last changed at `194894a`. Status: 🟢 fresh._
+_Regenerated from commit `1147674` on 2026-05-19 20:33 UTC. Source last changed at `1147674`. Status: 🟢 fresh._

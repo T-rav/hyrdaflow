@@ -179,8 +179,16 @@ def _build_diagnostic(ports: dict[str, Any], config: Any, deps: Any) -> Any:
 def _build_report_issue(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     from report_issue_loop import ReportIssueLoop  # noqa: PLC0415
 
-    state = ports.get("report_issue_state") or MagicMock()
-    ports.setdefault("report_issue_state", state)
+    state = ports.get("report_issue_state")
+    if state is None:
+        state = MagicMock()
+        # Return None from peek_report so _do_work takes the empty-queue path
+        # without constructing a report object whose MagicMock attributes cause
+        # TypeError in scan_base64_for_secrets (parity test safety).
+        state.peek_report.return_value = None
+        state.get_pending_reports.return_value = []
+        state.get_filed_reports.return_value = []
+        ports["report_issue_state"] = state
     return ReportIssueLoop(
         config=config,
         state=state,
@@ -212,10 +220,17 @@ def _build_security_patch(ports: dict[str, Any], config: Any, deps: Any) -> Any:
 
 
 def _build_stale_issue(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    from models import StaleIssueSettings  # noqa: PLC0415
     from stale_issue_loop import StaleIssueLoop  # noqa: PLC0415
 
-    state = ports.get("stale_issue_state") or MagicMock()
-    ports.setdefault("stale_issue_state", state)
+    state = ports.get("stale_issue_state")
+    if state is None:
+        state = MagicMock()
+        # Provide a real StaleIssueSettings so staleness_days is an int, not
+        # a MagicMock — prevents TypeError in timedelta() during parity tests.
+        state.get_stale_issue_settings.return_value = StaleIssueSettings()
+        state.get_stale_issue_closed.return_value = set()
+        ports["stale_issue_state"] = state
     return StaleIssueLoop(config=config, prs=ports["github"], state=state, deps=deps)
 
 
