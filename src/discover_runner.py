@@ -22,7 +22,7 @@ from skill_registry import BUILTIN_SKILLS
 if TYPE_CHECKING:
     from dedup_store import DedupStore
     from models import Task
-    from pr_manager import PRManager
+    from ports import PRPort
 
 logger = logging.getLogger("hydraflow.discover")
 
@@ -50,7 +50,7 @@ class DiscoverRunner(BaseRunner):
     _phase_name: ClassVar[str] = "discover"
 
     def bind_escalation_deps(
-        self, prs: PRManager, dedup: DedupStore | None = None
+        self, prs: PRPort, dedup: DedupStore | None = None
     ) -> None:
         """Wire issue-filing + dedup deps used by evaluator escalation.
 
@@ -219,7 +219,7 @@ class DiscoverRunner(BaseRunner):
         ``hitl_escalations`` set. Closing the escalation issue clears
         the key (per §3.2) so the runner can retry on the next cycle.
         """
-        prs: PRManager | None = getattr(self, "_prs", None)
+        prs: PRPort | None = getattr(self, "_prs", None)
         dedup: DedupStore | None = getattr(self, "_dedup", None)
         key = f"discover_runner:{task.id}"
         if dedup is not None and key in dedup.get():

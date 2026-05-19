@@ -10,9 +10,10 @@ graph LR
     BotPRPort --> OpenAutoPRBotPRPort
     IssueFetcherPort --> IssueFetcher
     IssueFetcherPort -.-> FakeIssueFetcher
-    IssueStorePort --> CachingIssueStore
     IssueStorePort --> IssueStore
     IssueStorePort -.-> FakeIssueStore
+    ObservabilityPort --> SentryObservabilityAdapter
+    ObservabilityPort -.-> FakeSentry
     PRPort --> PRManager
     PRPort -.-> FakePR
     ReviewInsightStorePort --> ReviewInsightStore
@@ -50,18 +51,18 @@ graph LR
 ### IssueStorePort
 
 - Module: `src.ports`
-- Methods: `enqueue_transition`, `enrich_with_comments`, `get_implementable`, `get_plannable`, `get_reviewable`, `get_triageable`, `is_active`, `mark_active`, `mark_complete`, `mark_merged`, `release_in_flight`
+- Methods: `enqueue_transition`, `enrich_with_comments`, `get_discoverable`, `get_implementable`, `get_plannable`, `get_reviewable`, `get_shapeable`, `get_triageable`, `is_active`, `mark_active`, `mark_complete`, `mark_merged`, `release_in_flight`
 - Adapters:
-  - `CachingIssueStore` (`src.caching_issue_store`)
   - `IssueStore` (`src.issue_store`)
 - Fake: `FakeIssueStore` (`mockworld.fakes.fake_issue_store`)
 
 ### ObservabilityPort
 
 - Module: `src.ports`
-- Methods: `breadcrumb`, `capture_exception`, `flush`
-- Adapters: —
-- Fake: ⚠️ no fake (every Port needs a fake per ADR-0047)
+- Methods: `breadcrumb`, `capture_exception`, `capture_message`, `flush`, `set_measurement`
+- Adapters:
+  - `SentryObservabilityAdapter` (`src.observability.sentry_adapter`)
+- Fake: `FakeSentry` (`mockworld.fakes.fake_sentry`)
 
 ### PRPort
 
@@ -95,4 +96,4 @@ graph LR
   - `WorkspaceManager` (`src.workspace`)
 - Fake: `FakeWorkspace` (`mockworld.fakes.fake_workspace`)
 
-_Regenerated from commit `4e754a9` on 2026-05-18 23:04 UTC. Source last changed at `4e754a9`. Status: 🟢 fresh._
+_Regenerated from commit `abe91e0` on 2026-05-19 00:21 UTC. Source last changed at `abe91e0`. Status: 🟢 fresh._

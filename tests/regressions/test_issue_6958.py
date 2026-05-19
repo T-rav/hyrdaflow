@@ -6,8 +6,12 @@ Bug: ``process_corrections`` iterates ``asyncio.as_completed`` with a bare
 exception propagates unhandled and terminates the loop — remaining
 corrections in the batch are silently dropped.
 
-Expected behaviour (after fix): exceptions from individual tasks are caught
-and logged; remaining corrections continue processing.
+Expected behaviour (after fix):
+- ``AuthenticationError`` and ``MemoryError`` from individual tasks are caught
+  and logged; remaining corrections continue processing.
+- ``CreditExhaustedError`` still aborts the batch (billing exhaustion must
+  stop the outer loop from ticking against an exhausted signal per
+  dark-factory.md §2.2), but remaining tasks are cancelled cleanly.
 """
 
 from __future__ import annotations
@@ -25,18 +29,14 @@ from tests.helpers import make_hitl_phase
 
 
 class TestIssue6958BatchExceptionDropsCorrections:
-    """process_corrections must not abort the batch when one task raises."""
+    """process_corrections must handle per-task exceptions correctly."""
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="Regression for issue #6958 — fix not yet landed", strict=False)
     async def test_exception_in_one_task_does_not_abort_remaining(self, config) -> None:
         """Submit 3 corrections; one raises AuthenticationError.
 
         Acceptance criterion: process_corrections does NOT propagate the
         exception and the two healthy corrections are both processed.
-
-        Current (buggy) behaviour: the bare ``await task`` propagates the
-        exception out of the for-loop, aborting the batch.
         """
         from subprocess_util import AuthenticationError
 
@@ -56,25 +56,20 @@ class TestIssue6958BatchExceptionDropsCorrections:
         phase.submit_correction(30, "Fix C")
 
         with patch.object(phase, "_process_one_hitl", side_effect=fake_process_one):
-            # BUG: this raises AuthenticationError instead of catching it
             await phase.process_corrections()
 
-        # If we reach here the exception was caught (good).
         # Verify every non-failing correction ran:
         assert processed == {10, 30}, (
             f"Expected both healthy corrections to run, but only got {processed}"
         )
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="Regression for issue #6958 — fix not yet landed", strict=False)
-    async def test_exception_does_not_lose_already_popped_corrections(
-        self, config
-    ) -> None:
-        """Corrections are popped from _hitl_corrections before task creation.
+    async def test_credit_exhausted_aborts_batch(self, config) -> None:
+        """CreditExhaustedError must still abort the batch.
 
-        If process_corrections raises, the popped corrections are lost — they
-        won't be retried on the next poll cycle.  This test verifies that
-        after a batch with a failing task, no corrections are silently lost.
+        Per dark-factory.md §2.2: billing exhaustion stops the batch so the
+        outer loop does not continue ticking against an exhausted signal.
+        Remaining tasks are cancelled cleanly before re-raising.
         """
         from subprocess_util import CreditExhaustedError
 
@@ -87,22 +82,13 @@ class TestIssue6958BatchExceptionDropsCorrections:
                 raise CreditExhaustedError("limit reached")
 
         phase.submit_correction(40, "Fix X")
-        phase.submit_correction(50, "Fix Y")  # will raise
+        phase.submit_correction(50, "Fix Y")  # will raise CreditExhaustedError
 
         with patch.object(phase, "_process_one_hitl", side_effect=fake_process_one):
-            # BUG: raises CreditExhaustedError
-            await phase.process_corrections()
-
-        # After processing, the failed correction should NOT have been
-        # silently lost.  The corrections dict was cleared before task
-        # creation (line 116-117), so if the batch aborts with an
-        # exception the caller has no way to know issue 50 was dropped.
-        # The fix should either re-enqueue or log — either way,
-        # process_corrections must return normally.
-        # (This assertion simply verifies the method returned without raising.)
+            with pytest.raises(CreditExhaustedError):
+                await phase.process_corrections()
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="Regression for issue #6958 — fix not yet landed", strict=False)
     async def test_all_tasks_awaited_even_after_exception(self, config) -> None:
         """All created tasks must be properly awaited (no 'Task was destroyed
         but it is pending!' warnings) even when one raises."""
@@ -127,7 +113,70 @@ class TestIssue6958BatchExceptionDropsCorrections:
         with patch.object(phase, "_process_one_hitl", side_effect=fake_process_one):
             await phase.process_corrections()
 
-        # Every task should have started (they were all created as
-        # asyncio tasks).  The key assertion is that process_corrections
-        # returned normally — with the bug it raises instead.
+        # Every task should have started (they were all created as asyncio tasks)
+        # and process_corrections must have returned normally.
         assert all(task_started.values()), f"Not all tasks started: {task_started}"
+
+    @pytest.mark.asyncio
+    async def test_auth_error_logs_and_continues_remaining_tasks(self, config) -> None:
+        """AuthenticationError in one task logs a structured error and lets
+        remaining tasks complete.  The failing correction is not silently
+        dropped — it is logged as an audit trail.
+        """
+        import logging
+
+        from subprocess_util import AuthenticationError
+
+        phase, *_ = make_hitl_phase(config)
+
+        completed: list[int] = []
+
+        async def fake_process_one(
+            issue_number: int, correction: str, semaphore: asyncio.Semaphore
+        ) -> None:
+            if issue_number == 2:
+                raise AuthenticationError("token expired after retries")
+            completed.append(issue_number)
+
+        phase.submit_correction(1, "Fix 1")
+        phase.submit_correction(2, "Fix 2")  # will raise
+        phase.submit_correction(3, "Fix 3")
+
+        with patch.object(phase, "_process_one_hitl", side_effect=fake_process_one):
+            with self._assert_logged("hydraflow.hitl_phase", logging.ERROR):
+                await phase.process_corrections()
+
+        # The two healthy corrections must have completed.
+        assert sorted(completed) == [1, 3], (
+            f"Expected corrections 1 and 3 to complete, got {completed}"
+        )
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _assert_logged(self, logger_name: str, level: int):  # type: ignore[misc]
+        """Context manager that asserts at least one record was emitted at
+        *level* or above on the named logger during the body."""
+        import logging
+
+        records: list[logging.LogRecord] = []
+
+        class _Capture(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                records.append(record)
+
+        handler = _Capture(level)
+        log = logging.getLogger(logger_name)
+        log.addHandler(handler)
+        try:
+            yield records
+        finally:
+            log.removeHandler(handler)
+        assert any(r.levelno >= level for r in records), (
+            f"Expected at least one log record at level {level} from {logger_name!r}, "
+            f"got: {[r.getMessage() for r in records]}"
+        )

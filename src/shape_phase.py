@@ -6,12 +6,12 @@ import asyncio
 import logging
 import re
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from config import HydraFlowConfig
 from dedup_store import DedupStore
 from events import EventBus, EventType, HydraFlowEvent
 from expert_council import CouncilResult, ExpertCouncil  # noqa: TCH001
-from issue_store import IssueStore
 from models import (
     ConversationTurn,
     ShapeConversation,
@@ -24,11 +24,13 @@ from phase_utils import (
     run_refilling_pool,
     store_lifecycle,
 )
-from pr_manager import PRManager
 from shape_runner import ShapeRunner  # noqa: TCH001
 from state import StateTracker
 from task_source import TaskTransitioner
 from whatsapp_bridge import WhatsAppBridge  # noqa: TCH001
+
+if TYPE_CHECKING:
+    from ports import IssueStorePort, PRPort
 
 logger = logging.getLogger("hydraflow.shape_phase")
 
@@ -76,8 +78,8 @@ class ShapePhase:
         self,
         config: HydraFlowConfig,
         state: StateTracker,
-        store: IssueStore,
-        prs: PRManager,
+        store: IssueStorePort,
+        prs: PRPort,
         event_bus: EventBus,
         stop_event: asyncio.Event,
         shape_runner: ShapeRunner | None = None,

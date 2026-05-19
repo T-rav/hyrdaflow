@@ -6,11 +6,15 @@ import json
 import logging
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
 from events import EventType, HydraFlowEvent
 from exception_classify import reraise_on_credit_or_bug
+
+if TYPE_CHECKING:
+    from ports import ObservabilityPort
 from models import (
     EpicDecompResult,
     IssueType,
@@ -76,6 +80,10 @@ class TriageRunner(BaseRunner):
     """
 
     _log = logger
+
+    def set_observability(self, obs: ObservabilityPort) -> None:
+        """Inject the observability port after construction."""
+        self._obs: ObservabilityPort | None = obs
 
     async def evaluate(
         self,
@@ -301,18 +309,16 @@ or for truly insufficient issues:
             )
 
         result = self._parse_verdict(transcript, issue.id)
+        obs: ObservabilityPort | None = getattr(self, "_obs", None)
         if result is not None:
-            try:
-                import sentry_sdk as _sentry
-
-                _sentry.add_breadcrumb(
-                    category="triage.evaluated",
-                    message=f"Triage evaluated issue #{issue.id}",
+            if obs is not None:
+                obs.breadcrumb(
+                    "triage.evaluated",
+                    f"Triage evaluated issue #{issue.id}",
                     level="info",
-                    data={"issue_id": issue.id, "ready": result.ready},
+                    issue_id=issue.id,
+                    ready=result.ready,
                 )
-            except ImportError:
-                pass
             return result
 
         # Fallback: could not parse LLM response.  Rather than escalating
@@ -326,17 +332,13 @@ or for truly insufficient issues:
             issue.id,
             transcript.strip(),
         )
-        try:
-            import sentry_sdk as _sentry  # noqa: PLC0415
-
-            _sentry.add_breadcrumb(
-                category="triage.parse_failed",
-                message=f"Triage parse failed for issue #{issue.id}",
+        if obs is not None:
+            obs.breadcrumb(
+                "triage.parse_failed",
+                f"Triage parse failed for issue #{issue.id}",
                 level="warning",
-                data={"issue_id": issue.id},
+                issue_id=issue.id,
             )
-        except ImportError:
-            pass
         return TriageResult(
             issue_number=issue.id,
             ready=True,

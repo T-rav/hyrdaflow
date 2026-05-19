@@ -644,31 +644,25 @@ class TestFileLogPatterns:
 
     @pytest.mark.asyncio
     async def test_sentry_breadcrumb_called_for_novel_pattern(self) -> None:
-        """Sentry breadcrumb is added when a novel pattern is detected."""
-        from unittest.mock import AsyncMock as _AsyncMock
-        from unittest.mock import MagicMock, patch
+        """ObservabilityPort breadcrumb is added when a novel pattern is detected."""
+        from mockworld.fakes.fake_sentry import FakeSentry
 
         config = _make_config()
         known: dict[str, KnownLogPattern] = {}
         pattern = self._make_pattern()
+        fake_obs = FakeSentry()
 
-        mock_sentry = MagicMock()
-        mock_file_mem = _AsyncMock()
-        with (
-            patch.dict("sys.modules", {"sentry_sdk": mock_sentry}),
-            patch("phase_utils.file_memory_suggestion", mock_file_mem),
-        ):
-            await file_log_patterns([pattern], known, config)
+        await file_log_patterns([pattern], known, config, fake_obs)
 
-        mock_sentry.add_breadcrumb.assert_called_once()
-        call_kwargs = mock_sentry.add_breadcrumb.call_args[1]
-        assert call_kwargs["category"] == "log_ingestion.novel"
-        assert "level" in call_kwargs
+        assert len(fake_obs.breadcrumbs) >= 1
+        bc = fake_obs.breadcrumbs[0]
+        assert bc["category"] == "log_ingestion.novel"
+        assert "level" in bc
 
     @pytest.mark.asyncio
     async def test_sentry_capture_message_called_on_escalation(self) -> None:
-        """Sentry capture_message is called when a pattern escalates."""
-        from unittest.mock import MagicMock, patch
+        """ObservabilityPort capture_message is called when a pattern escalates."""
+        from mockworld.fakes.fake_sentry import FakeSentry
 
         config = _make_config()
         pattern = self._make_pattern(count=15)
@@ -684,14 +678,13 @@ class TestFileLogPatterns:
             )
         }
 
-        mock_sentry = MagicMock()
-        with patch.dict("sys.modules", {"sentry_sdk": mock_sentry}):
-            await file_log_patterns([pattern], known, config)
+        fake_obs = FakeSentry()
+        await file_log_patterns([pattern], known, config, fake_obs)
 
-        mock_sentry.capture_message.assert_called_once()
-        args = mock_sentry.capture_message.call_args
-        assert "escalating" in args[0][0].lower()
-        assert args[1]["level"] == "warning"
+        msg_events = [e for e in fake_obs.events if e["type"] == "message"]
+        assert len(msg_events) >= 1
+        assert "escalating" in msg_events[0]["message"].lower()
+        assert msg_events[0]["level"] == "warning"
 
 
 # ---------------------------------------------------------------------------

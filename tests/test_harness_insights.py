@@ -750,18 +750,17 @@ class TestMarkPatternProposedOSError:
 
 
 class TestHarnessInsightsSentryBreadcrumbs:
-    """Sentry breadcrumb emitted when a failure is recorded."""
+    """Observability breadcrumb emitted when a failure is recorded."""
 
     def test_append_failure_adds_breadcrumb(self, tmp_path: Path) -> None:
-        from unittest.mock import MagicMock
+        from mockworld.fakes.fake_sentry import FakeSentry
 
-        store = HarnessInsightStore(tmp_path)
+        fake_obs = FakeSentry()
+        store = HarnessInsightStore(tmp_path, observability=fake_obs)
         record = _make_record(category=FailureCategory.CI_FAILURE, stage="review")
 
-        sentry_mock = MagicMock()
-        with patch.dict("sys.modules", {"sentry_sdk": sentry_mock}):
-            store.append_failure(record)
-            assert sentry_mock.add_breadcrumb.called
-            kw = sentry_mock.add_breadcrumb.call_args[1]
-            assert kw["category"] == "harness_insights.failure_recorded"
-            assert kw["data"]["category"] == "ci_failure"
+        store.append_failure(record)
+        assert len(fake_obs.breadcrumbs) >= 1
+        bc = fake_obs.breadcrumbs[0]
+        assert bc["category"] == "harness_insights.failure_recorded"
+        assert bc["failure_category"] == "ci_failure"

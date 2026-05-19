@@ -67,6 +67,7 @@ __all__ = [
     "AgentPort",
     "IssueFetcherPort",
     "IssueStorePort",
+    "ObservabilityPort",
     "PRPort",
     "WorkspacePort",
 ]
@@ -518,6 +519,14 @@ class IssueStorePort(Protocol):
         """Return up to *max_count* issues from the find queue."""
         ...
 
+    def get_discoverable(self, max_count: int) -> list[Task]:
+        """Return up to *max_count* issues from the discover queue."""
+        ...
+
+    def get_shapeable(self, max_count: int) -> list[Task]:
+        """Return up to *max_count* issues from the shape queue."""
+        ...
+
     def get_plannable(self, max_count: int) -> list[Task]:
         """Return up to *max_count* issues from the plan queue."""
         ...
@@ -652,14 +661,20 @@ class ReviewInsightStorePort(Protocol):
 class ObservabilityPort(Protocol):
     """Observability boundary (ADR-0044 P7.7).
 
-    The concrete adapter today is Sentry-backed (see ``src/server.py``); the
-    port exists so a future OTLP, structured-log, or sidecar adapter can slot
-    in without editing call sites. Keep the surface minimal — rich APIs drag
-    every backend into the union.
+    The concrete adapter today is Sentry-backed (see
+    ``src/observability/sentry_adapter.py``); the port exists so a future OTLP,
+    structured-log, or sidecar adapter can slot in without editing call sites.
+    Keep the surface minimal — rich APIs drag every backend into the union.
+
+    Concrete adapter: ``observability.sentry_adapter.SentryObservabilityAdapter``
     """
 
     def capture_exception(self, exc: BaseException) -> None: ...
 
+    def capture_message(self, message: str, *, level: str = "info") -> None: ...
+
     def breadcrumb(self, category: str, message: str, **data: object) -> None: ...
+
+    def set_measurement(self, name: str, value: float, unit: str = "") -> None: ...
 
     def flush(self, timeout_ms: int = 2000) -> bool: ...

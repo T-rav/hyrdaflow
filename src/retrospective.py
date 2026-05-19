@@ -16,6 +16,7 @@ from models import IsoTimestamp, PlanAccuracyResult, ReviewVerdict
 if TYPE_CHECKING:
     from config import HydraFlowConfig
     from models import ReviewResult
+    from ports import ObservabilityPort
     from pr_manager import PRManager
     from retrospective_queue import RetrospectiveQueue
     from state import StateTracker
@@ -51,6 +52,7 @@ class RetrospectiveCollector:
         prs: PRManager,
         *,
         queue: RetrospectiveQueue | None = None,
+        observability: ObservabilityPort | None = None,
     ) -> None:
         from dedup_store import DedupStore  # noqa: PLC0415
 
@@ -58,6 +60,7 @@ class RetrospectiveCollector:
         self._state = state
         self._prs = prs
         self._queue = queue
+        self._obs: ObservabilityPort | None = observability
         self._retro_path = config.data_path("memory", "retrospectives.jsonl")
         self._filed = DedupStore(
             "filed_patterns",
@@ -78,20 +81,14 @@ class RetrospectiveCollector:
         try:
             entry = await self._collect(issue_number, pr_number, review_result)
             self._append_entry(entry)
-            try:
-                import sentry_sdk as _sentry
-
-                _sentry.add_breadcrumb(
-                    category="retrospective.stored",
-                    message=f"Retrospective stored for issue #{issue_number}",
+            if self._obs is not None:
+                self._obs.breadcrumb(
+                    "retrospective.stored",
+                    f"Retrospective stored for issue #{issue_number}",
                     level="info",
-                    data={
-                        "issue_number": issue_number,
-                        "accuracy": entry.plan_accuracy_pct,
-                    },
+                    issue_number=issue_number,
+                    accuracy=entry.plan_accuracy_pct,
                 )
-            except ImportError:
-                pass
             if self._queue is not None:
                 from retrospective_queue import QueueItem, QueueKind  # noqa: PLC0415
 

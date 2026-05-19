@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field  # noqa: TCH002
 
 if TYPE_CHECKING:
     from config import HydraFlowConfig
+    from ports import ObservabilityPort
 
 logger = logging.getLogger("hydraflow.log_ingestion")
 
@@ -335,6 +336,7 @@ def _escalate_log_pattern(
     pattern: LogPattern,
     known: KnownLogPattern,
     config: HydraFlowConfig,
+    obs: ObservabilityPort | None = None,
 ) -> None:
     """Write a HITL recommendation for an escalating log pattern."""
     title = f"[Health Monitor] Log pattern escalating: {pattern.fingerprint[:60]}"
@@ -354,21 +356,18 @@ def _escalate_log_pattern(
     except OSError:
         logger.debug("Failed to write HITL recommendation", exc_info=True)
 
-    try:
-        import sentry_sdk  # noqa: PLC0415
-
-        sentry_sdk.capture_message(
+    if obs is not None:
+        obs.capture_message(
             f"Log pattern escalating: {pattern.fingerprint[:60]}",
             level="warning",
         )
-    except ImportError:
-        pass
 
 
 async def file_log_patterns(
     patterns: list[LogPattern],
     known_patterns: dict[str, KnownLogPattern],
     config: HydraFlowConfig,
+    obs: ObservabilityPort | None = None,
 ) -> LogIngestionResult:
     """Track novel log patterns for dedup and escalate frequency spikes.
 
@@ -400,21 +399,17 @@ async def file_log_patterns(
             )
             filed += 1
 
-            try:
-                import sentry_sdk  # noqa: PLC0415
-
-                sentry_sdk.add_breadcrumb(
-                    category="log_ingestion.novel",
-                    message=f"Novel log pattern: {pattern.fingerprint[:80]}",
+            if obs is not None:
+                obs.breadcrumb(
+                    "log_ingestion.novel",
+                    f"Novel log pattern: {pattern.fingerprint[:80]}",
                     level="info",
                 )
-            except ImportError:
-                pass
         else:
             # Known pattern — check for escalation (3x increase over filed baseline)
             known = known_patterns[key]
             if pattern.count >= known.filed_count * 3:
-                _escalate_log_pattern(pattern, known, config)
+                _escalate_log_pattern(pattern, known, config, obs)
                 escalated += 1
             known.last_count = pattern.count
 

@@ -9,11 +9,6 @@ from planner import PlannerRunner
 from reviewer import ReviewRunner
 from shape_runner import ShapeRunner
 
-# DiagnosticRunner, HITLRunner, ResearchRunner, TriageRunner intentionally
-# excluded — they inherit the default ``_phase_name = "unknown"`` from
-# BaseRunner. The test asserts `phase_name != "unknown"` so including them
-# would always fail. Add them here only after assigning a real phase name.
-
 
 @pytest.mark.parametrize(
     "runner_class",
