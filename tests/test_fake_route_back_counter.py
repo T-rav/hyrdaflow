@@ -11,13 +11,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from mockworld.fakes.fake_route_back_counter import FakeRouteBackCounter
 from route_back import RouteBackCounterPort
-
 
 # ---------------------------------------------------------------------------
 # Conformance

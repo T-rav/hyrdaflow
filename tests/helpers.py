@@ -1797,4 +1797,3 @@ def make_pr_manager(config: Any, event_bus: Any) -> Any:
 
 # Re-exported under the old name for backward compatibility.  New code should
 # import FakeRouteBackCounter from mockworld.fakes directly.
-from mockworld.fakes.fake_route_back_counter import FakeRouteBackCounter as InMemoryRouteBackCounter  # noqa: E501

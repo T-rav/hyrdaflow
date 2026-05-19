@@ -11,17 +11,19 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from issue_cache import CacheRecordKind, IssueCache
-from route_back import (
-    RouteBackCoordinator,
-    RouteBackCounterPort,
-    RouteBackOutcome,
-)
 
 # ---------------------------------------------------------------------------
 # FakeRouteBackCounter lives in src/mockworld/fakes/ (ADR-0047).
 # InMemoryRouteBackCounter is a backward-compat alias in tests/helpers.py.
 # ---------------------------------------------------------------------------
-from mockworld.fakes.fake_route_back_counter import FakeRouteBackCounter as InMemoryRouteBackCounter
+from mockworld.fakes.fake_route_back_counter import (
+    FakeRouteBackCounter as InMemoryRouteBackCounter,
+)
+from route_back import (
+    RouteBackCoordinator,
+    RouteBackCounterPort,
+    RouteBackOutcome,
+)
 
 
 def _coordinator(

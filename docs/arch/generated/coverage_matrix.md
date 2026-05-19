@@ -76,4 +76,4 @@ HITL trigger). It is not regenerable from source and is maintained in
 `docs/arch/coverage_matrix.md` (the hand-curated baseline document).
 
 
-_Regenerated from commit `dc49678` on 2026-05-19 15:32 UTC. Source last changed at `dc49678`. Status: 🟢 fresh._
+_Regenerated from commit `c83cd0c` on 2026-05-19 16:09 UTC. Source last changed at `c83cd0c`. Status: 🟢 fresh._

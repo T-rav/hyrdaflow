@@ -17,11 +17,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from issue_cache import CacheRecordKind, IssueCache
+from mockworld.fakes.fake_route_back_counter import (
+    FakeRouteBackCounter as InMemoryRouteBackCounter,
+)
 from models import Task
 from precondition_gate import PreconditionGate
 from route_back import RouteBackCoordinator
 from stage_preconditions import Stage
-from mockworld.fakes.fake_route_back_counter import FakeRouteBackCounter as InMemoryRouteBackCounter
 
 # ---------------------------------------------------------------------------
 # FakeRouteBackCounter is the canonical fake (src/mockworld/fakes/, ADR-0047).
