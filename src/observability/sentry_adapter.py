@@ -50,7 +50,7 @@ class SentryObservabilityAdapter:
             # ``LogLevelStr | None`` (a Literal). Our public API accepts
             # an open ``str`` so callers don't have to import sentry-sdk
             # types; narrow at this seam via cast.
-            sentry_sdk.capture_message(message, level=cast(Any, level))
+            sentry_sdk.capture_message(message, level=cast(Any, level))  # type: ignore[arg-type]
         except ImportError:
             pass
         except Exception:  # noqa: BLE001
