@@ -15,6 +15,12 @@ from agent import AgentRunner
 from beads_manager import BeadsManager
 from config import HydraFlowConfig
 from harness_insights import FailureCategory, HarnessInsightStore
+from implement_spec_reviewer import (
+    SpecComplianceReviewer,
+    SpecReviewInput,
+    compute_branch_diff,
+    format_gaps_for_prior_failure,
+)
 from models import (
     GitHubIssue,
     PipelineStage,
@@ -64,6 +70,7 @@ class ImplementPhase:
         active_issues_cb: Callable[[], None] | None = None,
         transcript_summarizer: TranscriptSummarizer | None = None,
         precondition_gate: PreconditionGate | None = None,
+        spec_reviewer: SpecComplianceReviewer | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -83,6 +90,11 @@ class ImplementPhase:
         self._suggest_memory = MemorySuggester(config)
         self._zero_diff_memory_filed: set[int] = set()
         self._precondition_gate = precondition_gate
+        # ADR-0063 W5: spec-compliance reviewer dispatched after failed
+        # attempts. None disables the two-stage flow entirely (used by tests
+        # that don't care, and by production when ``spec_reviewer`` isn't
+        # wired into the service registry).
+        self._spec_reviewer = spec_reviewer
         self._escalator = PipelineEscalator(
             state,
             prs,
@@ -554,7 +566,18 @@ class ImplementPhase:
         # focus on reviewer comments, not a potentially-resolved quality gate error.
         if last_meta and not review_feedback:
             prior_error = last_meta.get("error") or ""
-            if prior_error:
+            # ADR-0063 W5: spec-compliance gaps from the prior attempt's
+            # post-failure review take priority — they describe *what* was
+            # missing (or wrong), which is more actionable than the runner's
+            # error string. Both are included when both exist.
+            spec_gaps = last_meta.get("spec_review_gaps") or ""
+            if spec_gaps and prior_error:
+                prior_failure = f"{spec_gaps}\n\nRunner error: {prior_error}"
+                reset_for_retry = True
+            elif spec_gaps:
+                prior_failure = spec_gaps
+                reset_for_retry = True
+            elif prior_error:
                 prior_failure = prior_error
                 reset_for_retry = True
 
@@ -653,7 +676,9 @@ class ImplementPhase:
     ) -> WorkerResult:
         """Handle the result of an agent run: close, create PR, swap labels."""
         if self._is_zero_commit_failure(result):
-            return await self._handle_zero_commits(issue, result)
+            await self._handle_zero_commits(issue, result)
+            await self._run_spec_compliance_review(issue, result)
+            return result
 
         # Fresh failed attempts skip the push entirely — partial commits
         # never land on origin, so there is no orphan branch and no
@@ -677,6 +702,11 @@ class ImplementPhase:
 
         status = "success" if result.success else "failed"
         self._state.mark_issue(issue.id, status)
+        # ADR-0063 W5: spec-compliance review runs on any failed attempt
+        # (with or without commits) so the next attempt sees concrete gaps
+        # instead of just the prior error string.
+        if not result.success:
+            await self._run_spec_compliance_review(issue, result)
         return result
 
     @staticmethod
@@ -690,6 +720,135 @@ class ImplementPhase:
         commits=0 must route to _handle_zero_commits, not push/PR.
         """
         return not result.success and result.commits == 0
+
+    async def _run_spec_compliance_review(
+        self, issue: Task, result: WorkerResult
+    ) -> None:
+        """Run spec-compliance review on a failed attempt (ADR-0063 W5).
+
+        Best-effort, never raises (except auth/credit/bug exceptions which
+        propagate through the reviewer module). On success, persists gaps
+        into ``WorkerResultMeta.spec_review_gaps`` for the next attempt.
+
+        Skips silently when:
+        - the kill-switch ``implement_two_stage_review_enabled`` is False
+        - no ``spec_reviewer`` was wired into ``__init__``
+        - the issue has already reached the attempt cap (no next attempt
+          will run, so gathering gaps wastes a subagent dispatch)
+        """
+        if not self._config.implement_two_stage_review_enabled:
+            return
+        if self._spec_reviewer is None:
+            return
+        attempts = self._state.get_issue_attempts(issue.id)
+        if attempts >= self._config.max_issue_attempts:
+            # The next call to _check_attempt_cap will escalate this issue
+            # to HITL; the gaps would never be read.
+            return
+
+        diff = await self._compute_diff_for_review(result)
+        plan = self._read_plan_for_recording(issue.id)
+        inp = SpecReviewInput(
+            issue_number=issue.id,
+            issue_title=issue.title,
+            issue_body=issue.body or "",
+            plan=plan,
+            diff=diff,
+            commits=result.commits,
+            error=result.error or "",
+        )
+
+        try:
+            review = await self._spec_reviewer.review(inp)
+        except Exception as exc:
+            from exception_classify import (  # noqa: PLC0415
+                reraise_on_credit_or_bug,
+            )
+
+            reraise_on_credit_or_bug(exc)
+            log_exception_with_bug_classification(
+                logger,
+                exc,
+                f"Spec-compliance review failed for issue #{issue.id}",
+            )
+            return
+
+        if review.degraded:
+            logger.info(
+                "Spec-compliance reviewer degraded for issue #%d — "
+                "falling through to prior_failure-only retry",
+                issue.id,
+            )
+            return
+
+        if review.compliant or not review.gaps:
+            logger.info(
+                "Spec-compliance review found no gaps for issue #%d "
+                "(failure mode is not spec drift)",
+                issue.id,
+            )
+            return
+
+        formatted = format_gaps_for_prior_failure(review.gaps, review.reasoning)
+        self._persist_spec_review_gaps(issue.id, formatted)
+        await self._post_spec_review_comment(issue, review.gaps, review.reasoning)
+        logger.info(
+            "Spec-compliance review captured %d gap(s) for issue #%d — "
+            "will be fed into next attempt",
+            len(review.gaps),
+            issue.id,
+        )
+
+    async def _compute_diff_for_review(self, result: WorkerResult) -> str:
+        """Return the unified diff of the result's branch vs base, or ''."""
+        if not result.workspace_path:
+            return ""
+        if not Path(result.workspace_path).is_dir():
+            return ""
+        # AgentRunner exposes a ``_runner`` with run_simple — use it via the
+        # injected agents instance so we share the same subprocess plumbing.
+        runner = getattr(self._agents, "_runner", None)
+        run_simple = getattr(runner, "run_simple", None) if runner else None
+        if run_simple is None:
+            return ""
+        return await compute_branch_diff(
+            Path(result.workspace_path),
+            result.branch,
+            self._config.base_branch(),
+            runner_run_simple=run_simple,
+            timeout=self._config.git_command_timeout,
+        )
+
+    def _persist_spec_review_gaps(self, issue_id: int, formatted: str) -> None:
+        """Update WorkerResultMeta with spec_review_gaps, preserving other fields."""
+        meta = dict(self._state.get_worker_result_meta(issue_id) or {})
+        meta["spec_review_gaps"] = formatted
+        self._state.set_worker_result_meta(issue_id, meta)  # type: ignore[arg-type]
+
+    async def _post_spec_review_comment(
+        self, issue: Task, gaps: list[str], reasoning: str
+    ) -> None:
+        """Post the spec-compliance review verdict as an issue comment."""
+        lines = ["## Spec-Compliance Review (ADR-0063 W5)\n"]
+        lines.append(
+            "The previous implementation attempt failed. A spec-compliance "
+            "reviewer ran against the diff and surfaced these gaps; the next "
+            "attempt will see them as prior-failure context.\n"
+        )
+        for g in gaps:
+            lines.append(f"- {g}")
+        if reasoning.strip():
+            lines.append("")
+            lines.append(f"**Reasoning.** {reasoning.strip()}")
+        lines.append("\n---\n*Generated by HydraFlow ImplementPhase*")
+        try:
+            await self._transitioner.post_comment(issue.id, "\n".join(lines))
+        except Exception as exc:
+            log_exception_with_bug_classification(
+                logger,
+                exc,
+                f"Failed to post spec-review comment for issue #{issue.id}",
+            )
 
     async def _flag_requirements_gaps(self, issue: Task, transcript: str) -> None:
         """Detect and post requirements gaps discovered during implementation."""

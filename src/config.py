@@ -372,6 +372,11 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
         False,
     ),
     ("auto_agent_preflight_enabled", "HYDRAFLOW_AUTO_AGENT_PREFLIGHT_ENABLED", True),
+    (
+        "implement_two_stage_review_enabled",
+        "HYDRAFLOW_IMPLEMENT_TWO_STAGE_REVIEW_ENABLED",
+        True,
+    ),
     ("staging_enabled", "HYDRAFLOW_STAGING_ENABLED", False),
     ("otel_enabled", "HYDRAFLOW_OTEL_ENABLED", False),
     ("term_proposer_enabled", "HYDRAFLOW_TERM_PROPOSER_ENABLED", True),
@@ -2390,6 +2395,17 @@ class HydraFlowConfig(BaseModel):
     auto_agent_preflight_enabled: bool = Field(
         default=True,
         description="UI kill-switch for AutoAgentPreflightLoop (ADR-0049).",
+    )
+    implement_two_stage_review_enabled: bool = Field(
+        default=True,
+        description=(
+            "Kill-switch for the ImplementPhase two-stage spec-compliance "
+            "review (ADR-0063 W5). When enabled, a spec-compliance reviewer "
+            "subagent runs after each failed implementation attempt and the "
+            "gaps it surfaces are fed into the next attempt's prior_failure "
+            "context. Disable to revert to the pre-W5 retry-with-error-only "
+            "behavior."
+        ),
     )
     auto_agent_preflight_interval: int = Field(
         default=120,
