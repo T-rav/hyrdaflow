@@ -6,6 +6,9 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
+- `c83cd0c` — chore(arch): refresh generated artifacts against b688225 *(2026-05-19)*
+- `66440b0` — refactor(mockworld): move InMemoryRouteBackCounter → FakeRouteBackCounter under src/mockworld/fakes/ (ADR-0047) *(2026-05-19)*
+- `3d939a9` — feat(mockworld): FakeAgent satisfies AgentPort Protocol (ADR-0047, closes advisor-ayw5) *(2026-05-19)*
 - `dc49678` — fix(fake-coverage-auditor): roll up to 1 issue per (fake, gap_kind) (#8986) (#8994) (#8994) *(2026-05-19)*
 - `ce53f28` — fix(adr_touchpoint_auditor): roll up to 1 issue per ADR (#8987) (#8993) (#8993) *(2026-05-19)*
 - `1e70cc0` — fix(retrospective): dedup [HITL] Stale review insight filings (#8988) (#8992) (#8992) *(2026-05-19)*
@@ -339,4 +342,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `dc49678` on 2026-05-19 15:21 UTC. Source last changed at `dc49678`. Status: 🟢 fresh._
+_Regenerated from commit `c83cd0c` on 2026-05-19 16:09 UTC. Source last changed at `c83cd0c`. Status: 🟢 fresh._

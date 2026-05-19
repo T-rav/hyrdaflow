@@ -24,7 +24,6 @@ from mockworld.fakes.fake_agent import FakeAgent
 from models import LoopResult
 from ports import AgentPort
 
-
 # ---------------------------------------------------------------------------
 # Protocol conformance
 # ---------------------------------------------------------------------------
@@ -159,7 +158,9 @@ class TestFakeAgentScriptedExecute:
         event_data = {"issue": 42}
         await agent.execute(cmd, prompt, cwd, event_data)
         assert len(agent.execute_calls) == 1
-        recorded_cmd, recorded_prompt, recorded_cwd, recorded_ed = agent.execute_calls[0]
+        recorded_cmd, recorded_prompt, recorded_cwd, recorded_ed = agent.execute_calls[
+            0
+        ]
         assert recorded_cmd == cmd
         assert recorded_prompt == prompt
         assert recorded_cwd == cwd
@@ -170,7 +171,9 @@ class TestFakeAgentScriptedExecute:
         agent = FakeAgent()
         agent.script_execute(["hello from fake"])
         received: list[str] = []
-        await agent.execute([], "", Path("/"), {}, on_output=lambda t: received.append(t) or False)
+        await agent.execute(
+            [], "", Path("/"), {}, on_output=lambda t: received.append(t) or False
+        )
         assert received == ["hello from fake"]
 
 
@@ -183,10 +186,12 @@ class TestFakeAgentScriptedVerify:
     @pytest.mark.asyncio
     async def test_scripted_results_returned_in_order(self) -> None:
         agent = FakeAgent()
-        agent.script_verify([
-            LoopResult(passed=False, summary="quality failed", attempts=1),
-            LoopResult(passed=True, summary="OK", attempts=2),
-        ])
+        agent.script_verify(
+            [
+                LoopResult(passed=False, summary="quality failed", attempts=1),
+                LoopResult(passed=True, summary="OK", attempts=2),
+            ]
+        )
         r1 = await agent.verify_result(Path("/tmp/wt"), "feat/branch")
         assert r1.passed is False
         assert r1.summary == "quality failed"

@@ -11,18 +11,19 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from issue_cache import CacheRecordKind, IssueCache
+
+# ---------------------------------------------------------------------------
+# FakeRouteBackCounter lives in src/mockworld/fakes/ (ADR-0047).
+# InMemoryRouteBackCounter is a backward-compat alias in tests/helpers.py.
+# ---------------------------------------------------------------------------
+from mockworld.fakes.fake_route_back_counter import (
+    FakeRouteBackCounter as InMemoryRouteBackCounter,
+)
 from route_back import (
     RouteBackCoordinator,
     RouteBackCounterPort,
     RouteBackOutcome,
 )
-
-# ---------------------------------------------------------------------------
-# Stubs — InMemoryRouteBackCounter lives in tests/helpers.py so the
-# stub shape stays consistent across test_route_back and
-# test_precondition_gate.
-# ---------------------------------------------------------------------------
-from tests.helpers import InMemoryRouteBackCounter
 
 
 def _coordinator(

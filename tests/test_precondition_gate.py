@@ -17,16 +17,17 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from issue_cache import CacheRecordKind, IssueCache
+from mockworld.fakes.fake_route_back_counter import (
+    FakeRouteBackCounter as InMemoryRouteBackCounter,
+)
 from models import Task
 from precondition_gate import PreconditionGate
 from route_back import RouteBackCoordinator
 from stage_preconditions import Stage
-from tests.helpers import InMemoryRouteBackCounter
 
 # ---------------------------------------------------------------------------
-# Stubs — InMemoryRouteBackCounter is defined in tests/helpers.py to
-# stay in sync with test_route_back.py and avoid drift between two
-# parallel stubs implementing the same RouteBackCounterPort contract.
+# FakeRouteBackCounter is the canonical fake (src/mockworld/fakes/, ADR-0047).
+# Imported under InMemoryRouteBackCounter so fixture signatures stay stable.
 # ---------------------------------------------------------------------------
 
 
