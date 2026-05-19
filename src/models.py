@@ -1736,6 +1736,22 @@ class TraceRunsContainer(BaseModel):
     next_run_id: dict[str, int] = Field(default_factory=dict)
 
 
+class RcBudgetDurationEntry(BaseModel):
+    """One RC-pipeline run recorded by RCBudgetLoop (spec §4.8).
+
+    Mirrors the dict shape written by ``rc_budget_loop.py`` so that old
+    on-disk JSON (plain dicts with these four keys) is auto-coerced by
+    Pydantic v2 on load.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    run_id: int
+    created_at: str
+    duration_s: int
+    conclusion: str
+
+
 class StateData(BaseModel):
     """Typed schema for the JSON-backed crash-recovery state."""
 
@@ -1813,7 +1829,9 @@ class StateData(BaseModel):
     ci_monitor_settings: CIMonitorSettings = Field(default_factory=CIMonitorSettings)
     ci_monitor_tracked_failures: dict[str, str] = Field(default_factory=dict)
     # Trust fleet — RCBudgetLoop (spec §4.8)
-    rc_budget_duration_history: list[dict[str, Any]] = Field(default_factory=list)
+    rc_budget_duration_history: list[RcBudgetDurationEntry] = Field(
+        default_factory=list
+    )
     rc_budget_attempts: dict[str, int] = Field(default_factory=dict)
     # Trust fleet — WikiRotDetectorLoop (spec §4.9)
     wiki_rot_attempts: dict[str, int] = Field(default_factory=dict)
@@ -1860,10 +1878,8 @@ class StateData(BaseModel):
     # LiveCorpusReplayLoop (#8786 Phase 3) — per-drift-signature attempt
     # counters for the 3-attempt escalation chain.
     live_corpus_drift_attempts: dict[str, int] = Field(default_factory=dict)
-    escalation_contexts: dict[str, dict[str, object]] = Field(default_factory=dict)
-    diagnostic_attempts: dict[str, list[dict[str, object]]] = Field(
-        default_factory=dict
-    )
+    escalation_contexts: dict[str, EscalationContext] = Field(default_factory=dict)
+    diagnostic_attempts: dict[str, list[AttemptRecord]] = Field(default_factory=dict)
     diagnosis_severities: dict[str, str] = Field(default_factory=dict)
     sentry_creation_attempts: dict[str, int] = Field(default_factory=dict)
     trace_runs: TraceRunsContainer = Field(default_factory=TraceRunsContainer)

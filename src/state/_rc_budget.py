@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from models import StateData
+    from models import RcBudgetDurationEntry, StateData
 
 
 class RCBudgetStateMixin:
@@ -15,11 +15,15 @@ class RCBudgetStateMixin:
 
     def save(self) -> None: ...  # provided by CoreMixin
 
-    def get_rc_budget_duration_history(self) -> list[dict[str, Any]]:
-        return [dict(entry) for entry in self._data.rc_budget_duration_history]
+    def get_rc_budget_duration_history(self) -> list[RcBudgetDurationEntry]:
+        return list(self._data.rc_budget_duration_history)
 
     def set_rc_budget_duration_history(self, history: list[dict[str, Any]]) -> None:
-        self._data.rc_budget_duration_history = [dict(entry) for entry in history]
+        from models import RcBudgetDurationEntry as Entry  # noqa: PLC0415
+
+        self._data.rc_budget_duration_history = [
+            Entry.model_validate(entry) for entry in history
+        ]
         self.save()
 
     def get_rc_budget_attempts(self, subject: str) -> int:
