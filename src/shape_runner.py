@@ -251,7 +251,7 @@ class ShapeRunner(BaseRunner):
             return
         if prs is None:
             logger.warning(
-                "shape-stuck for #%d but PRPort not bound; logging only. "
+                "shape-stuck for #%d but PRManager not bound; logging only. "
                 "attempts=%d summary=%s",
                 task.id,
                 attempts,
