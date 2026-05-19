@@ -28,9 +28,11 @@ from typing import Any
 
 import pytest
 
+from mockworld.fakes.fake_agent import FakeAgent
 from mockworld.fakes.fake_bot_pr import FakeBotPR
 from mockworld.fakes.fake_github import FakeGitHub
 from mockworld.fakes.fake_workspace import FakeWorkspace
+from ports import AgentPort
 from term_proposer_loop import BotPRPort
 from tests.scenarios.ports import PRPort, WorkspacePort
 
