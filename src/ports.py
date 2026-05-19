@@ -340,6 +340,15 @@ class PRPort(Protocol):
         """Fetch the list of files changed in *pr_number*."""
         ...
 
+    async def get_pr_recent_commit_diffs(self, pr_number: int, *, n: int = 3) -> str:
+        """Return a concatenated diff block for the last *n* commits on *pr_number*.
+
+        Each commit section begins with a ``## <sha> <title>`` header followed by
+        the unified diff for that commit.  Returns an empty string when the PR has
+        no commits or when the underlying call fails.
+        """
+        ...
+
     async def get_pr_approvers(self, pr_number: int) -> list[str]:
         """Fetch the list of GitHub usernames that approved *pr_number*."""
         ...

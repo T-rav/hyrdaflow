@@ -8,6 +8,25 @@ production code regressed.
 - **PR:** #{PR_NUMBER}
 - **Branch:** `{PR_BRANCH}`
 
+## CI failure log (ADR-0063 W3c)
+
+The following is the test transcript from the most recent failed CI run.
+Use it to understand the failure before reading source files.
+
+```
+{CI_FAILURE_LOG}
+```
+
+## Recent commits (last 3, ADR-0063 W3c)
+
+The following are the diffs of the last three commits on this branch.
+Cross-reference with the CI failure log to identify which change introduced
+the regression and avoid re-discovering patterns that already failed.
+
+```diff
+{RECENT_COMMIT_DIFFS}
+```
+
 ## Constraints (per ADR-0050 envelope)
 
 - Do NOT modify any file under `.github/workflows/`, `.git/`, `prompts/`,
@@ -19,8 +38,9 @@ production code regressed.
 
 ## Your task
 
-1. Read `/tmp/sandbox-results/<scenario>/hydraflow.log` and the Playwright
-   trace (when present) to identify the root cause.
+1. Read the CI failure log and recent commit diffs above, then read
+   `/tmp/sandbox-results/<scenario>/hydraflow.log` and the Playwright
+   trace (when present) to confirm the root cause.
 2. Make the minimal code change that would make the scenario pass.
 3. Commit on the current branch with a message starting `fix(sandbox):`.
 4. Push the branch.

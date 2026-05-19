@@ -85,6 +85,11 @@ class FakeGitHub:
         self._rate_limit_reset_in: int = 60
         self._rate_limit_secondary: bool = False
         self._alerts: dict[str, list[Any]] = {}
+        # Per-PR list of commit-diff strings for get_pr_recent_commit_diffs.
+        # Each entry is a pre-rendered "## <sha> <title>\n<diff>" block.
+        self._commit_diffs: dict[int, list[str]] = {}
+        # Per-PR CI failure log text for fetch_ci_failure_logs.
+        self._ci_failure_logs: dict[int, str] = {}
         # Mirrors PRManager._repo. Some loops (StaleIssueLoop) read this
         # attribute directly when constructing `gh` CLI args via _run_gh.
         # The value never reaches a real GitHub API in the sandbox.
@@ -174,6 +179,14 @@ class FakeGitHub:
     def set_ci_main_status(self, conclusion: str, url: str = "") -> None:
         """Script the response for get_latest_ci_status (main branch CI)."""
         self._ci_main_status = (conclusion, url)
+
+    def seed_pr_commit_diffs(self, pr_number: int, diffs: list[str]) -> None:
+        """Seed pre-rendered commit-diff blocks for *pr_number*.
+
+        Each entry should be a ``## <sha> <title>\\n<diff>`` string.
+        ``get_pr_recent_commit_diffs`` returns the last *n* of these.
+        """
+        self._commit_diffs[pr_number] = list(diffs)
 
     def set_issue_updated_at(self, issue_number: int, updated_at: str) -> None:
         """Set the updated_at timestamp on a seeded issue."""
@@ -419,6 +432,20 @@ class FakeGitHub:
         self._maybe_rate_limit()
         return ["src/app.py"]
 
+    async def get_pr_recent_commit_diffs(self, pr_number: int, *, n: int = 3) -> str:
+        """Return a stub diff block for the last *n* commits on *pr_number*.
+
+        Returns a deterministic non-empty string so scenarios can assert that
+        the context block is populated without hitting the GitHub API.
+        """
+        self._maybe_rate_limit()
+        pr = self._prs.get(pr_number)
+        branch = pr.branch if pr is not None else f"pr-{pr_number}"
+        commits = self._commit_diffs.get(pr_number) or []
+        if commits:
+            return "\n\n".join(commits[-n:])
+        return f"## deadbeef stub-commit — {branch}\ndiff --git a/x b/x\n+fix"
+
     async def get_pr_approvers(self, pr_number: int) -> list[str]:
         self._maybe_rate_limit()
         return ["octocat"]
@@ -438,7 +465,11 @@ class FakeGitHub:
 
     async def fetch_ci_failure_logs(self, pr_number: int, **_kw: Any) -> str:
         self._maybe_rate_limit()
-        return ""
+        return self._ci_failure_logs.get(pr_number, "")
+
+    def seed_ci_failure_log(self, pr_number: int, log: str) -> None:
+        """Seed the CI failure log text returned by fetch_ci_failure_logs."""
+        self._ci_failure_logs[pr_number] = log
 
     async def merge_pr(self, pr_number: int, **_kw: Any) -> bool:
         self._maybe_rate_limit()

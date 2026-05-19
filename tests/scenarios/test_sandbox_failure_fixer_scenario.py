@@ -278,3 +278,86 @@ class TestSandboxFailureFixerScenario:
         pr = github.pr(77)
         assert _AUTO_FIX_LABEL in pr.labels
         assert _HITL_LABEL not in pr.labels
+
+    async def test_richer_context_injected_into_prompt(self, tmp_path) -> None:
+        """ADR-0063 W3c: CI failure log and recent commit diffs appear in prompt.
+
+        Seeding FakeGitHub with a CI failure log and commit diffs, then
+        running a fix attempt, must produce a prompt that contains both
+        blocks — confirming the fixer sees richer context on each attempt.
+        """
+        from sandbox_failure_fixer_loop import SandboxFailureFixerLoop
+        from tests.helpers import make_bg_loop_deps
+
+        world = MockWorld(tmp_path)
+        github = world.github
+
+        github.add_pr(
+            number=55,
+            issue_number=40,
+            branch="rc/2026-05-04-0800",
+        )
+        github.add_pr_label(55, _AUTO_FIX_LABEL)
+
+        # Seed CI failure log and commit diffs for PR #55.
+        github.seed_ci_failure_log(
+            55,
+            "FAILED tests/scenarios/test_my_scenario.py::test_flow\n"
+            "AssertionError: expected label 'hydraflow-review', got 'hydraflow-plan'",
+        )
+        github.seed_pr_commit_diffs(
+            55,
+            [
+                "## aa11bb22 fix(review): correct label routing\n"
+                "diff --git a/src/review_phase/_phase.py b/src/review_phase/_phase.py\n"
+                "-            label = 'hydraflow-plan'\n"
+                "+            label = 'hydraflow-review'\n",
+                "## cc33dd44 chore: bump test fixtures\n"
+                "diff --git a/tests/scenarios/seeds.py b/tests/scenarios/seeds.py\n"
+                "+LABEL = 'hydraflow-review'\n",
+                "## ee55ff66 fix(sandbox): align assertion\n"
+                "diff --git a/tests/scenarios/test_my_scenario.py\n"
+                "+    assert result['label'] == 'hydraflow-review'\n",
+            ],
+        )
+
+        state = _make_state()
+        captured_prompts: list[str] = []
+
+        async def _capture_run(*, prompt: str, **_kw: object) -> object:
+            captured_prompts.append(prompt)
+            from types import SimpleNamespace
+
+            return SimpleNamespace(crashed=False, output_text="fixed")
+
+        runner = MagicMock()
+        runner.run = AsyncMock(side_effect=_capture_run)
+
+        bg = make_bg_loop_deps(
+            tmp_path,
+            sandbox_failure_fixer_enabled=True,
+            auto_agent_max_attempts=3,
+        )
+        loop = SandboxFailureFixerLoop(
+            config=bg.config,
+            state=state,
+            prs=github,
+            runner=runner,
+            deps=bg.loop_deps,
+        )
+
+        result = await loop._do_work()
+
+        assert result["dispatched"] == 1, "Loop must dispatch one fix attempt"
+        assert len(captured_prompts) == 1
+
+        prompt = captured_prompts[0]
+        # CI failure log present.
+        assert "AssertionError: expected label 'hydraflow-review'" in prompt
+        # All three commit diffs present.
+        assert "aa11bb22 fix(review): correct label routing" in prompt
+        assert "cc33dd44 chore: bump test fixtures" in prompt
+        assert "ee55ff66 fix(sandbox): align assertion" in prompt
+        # No un-substituted template placeholders.
+        assert "{CI_FAILURE_LOG}" not in prompt
+        assert "{RECENT_COMMIT_DIFFS}" not in prompt

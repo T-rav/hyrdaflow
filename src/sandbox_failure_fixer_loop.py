@@ -131,7 +131,7 @@ class SandboxFailureFixerLoop(BaseBackgroundLoop):
             attempt_n = self._state.bump_sandbox_failure_fixer_attempts(pr.number)
             try:
                 outcome = await runner.run(
-                    prompt=self._build_prompt(pr),
+                    prompt=await self._build_prompt(pr),
                     worktree_path=str(getattr(pr, "branch", "")),
                     issue_number=int(pr.number),
                 )
@@ -164,8 +164,14 @@ class SandboxFailureFixerLoop(BaseBackgroundLoop):
             "skipped_opt_out": skipped_opt_out,
         }
 
-    def _build_prompt(self, pr: Any) -> str:
-        """Render the ``sandbox_fix.md`` envelope with this PR's context."""
+    async def _build_prompt(self, pr: Any) -> str:
+        """Render the ``sandbox_fix.md`` envelope with this PR's context.
+
+        W3c (ADR-0063): inject the original CI failure log and the diffs of
+        the last 3 commits so the fixer avoids re-discovering known-failing
+        patterns on each attempt.  Both sources degrade gracefully to
+        placeholder text on fetch failure.
+        """
         from pathlib import Path
 
         envelope_path = (
@@ -175,6 +181,36 @@ class SandboxFailureFixerLoop(BaseBackgroundLoop):
             / "sandbox_fix.md"
         )
         envelope = envelope_path.read_text()
-        return envelope.replace("{PR_NUMBER}", str(pr.number)).replace(
-            "{PR_BRANCH}", str(getattr(pr, "branch", ""))
+
+        # --- Context expansion (ADR-0063 W3c) ---
+        ci_failure_log = "(no CI failure log available)"
+        recent_commit_diffs = "(no recent commit diffs available)"
+        prs = self._prs
+        if prs is not None:
+            try:
+                raw_log = await prs.fetch_ci_failure_logs(pr.number)
+                if raw_log and raw_log.strip():
+                    ci_failure_log = raw_log.strip()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Could not fetch CI failure log for PR #%d: %s",
+                    pr.number,
+                    exc,
+                )
+            try:
+                raw_diffs = await prs.get_pr_recent_commit_diffs(pr.number, n=3)
+                if raw_diffs and raw_diffs.strip():
+                    recent_commit_diffs = raw_diffs.strip()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Could not fetch recent commit diffs for PR #%d: %s",
+                    pr.number,
+                    exc,
+                )
+
+        return (
+            envelope.replace("{PR_NUMBER}", str(pr.number))
+            .replace("{PR_BRANCH}", str(getattr(pr, "branch", "")))
+            .replace("{CI_FAILURE_LOG}", ci_failure_log)
+            .replace("{RECENT_COMMIT_DIFFS}", recent_commit_diffs)
         )

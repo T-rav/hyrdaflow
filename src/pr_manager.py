@@ -2111,6 +2111,60 @@ class PRManager:
             )
             return []
 
+    async def get_pr_recent_commit_diffs(self, pr_number: int, *, n: int = 3) -> str:
+        """Return a concatenated diff block for the last *n* commits on *pr_number*.
+
+        Fetches the commit list via ``gh pr view --json commits``, then retrieves
+        the diff for each commit via ``gh api repos/{repo}/commits/{sha}``.
+        Each section is headed by ``## <sha> <title>``.  Returns an empty string
+        when no commits are available or on any failure.
+        """
+        if self._config.dry_run:
+            return ""
+        try:
+            raw = await self._run_gh(
+                "gh",
+                "pr",
+                "view",
+                str(pr_number),
+                "--repo",
+                self._repo,
+                "--json",
+                "commits",
+            )
+            data = json.loads(raw)
+            commits = data.get("commits") or []
+        except (RuntimeError, json.JSONDecodeError, KeyError) as exc:
+            logger.warning("Could not fetch commits for PR #%d: %s", pr_number, exc)
+            return ""
+
+        recent = commits[-n:] if len(commits) > n else commits
+        sections: list[str] = []
+        for commit in recent:
+            sha = str(commit.get("oid") or commit.get("sha") or "").strip()
+            title = str(
+                commit.get("messageHeadline") or commit.get("message") or sha
+            ).strip()
+            if not sha:
+                continue
+            try:
+                diff_raw = await self._run_gh(
+                    "gh",
+                    "api",
+                    f"repos/{self._repo}/commits/{sha}",
+                    "--header",
+                    "Accept: application/vnd.github.diff",
+                )
+                sections.append(f"## {sha[:8]} {title}\n{diff_raw.strip()}")
+            except RuntimeError as exc:
+                logger.warning(
+                    "Could not fetch diff for commit %s on PR #%d: %s",
+                    sha[:8],
+                    pr_number,
+                    exc,
+                )
+        return "\n\n".join(sections)
+
     async def get_pr_approvers(self, pr_number: int) -> list[str]:
         """Fetch the list of GitHub usernames that approved *pr_number*.
 

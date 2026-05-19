@@ -210,3 +210,120 @@ async def test_do_work_handles_crashed_runner(tmp_path: Path) -> None:
     assert state._counts == {"200": 1}
     assert result["dispatched"] == 0
     assert result["crashed"] == 1
+
+
+# ---------------------------------------------------------------------------
+# ADR-0063 W3c — richer context injection tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_prompt_includes_ci_failure_log(tmp_path: Path) -> None:
+    """The rendered prompt must contain the CI failure log from PRPort."""
+    pr_port = MagicMock()
+    pr_port.list_prs_by_label = AsyncMock(
+        return_value=[
+            SimpleNamespace(number=42, branch="rc/2026-05-01", labels=[]),
+        ]
+    )
+    pr_port.add_pr_labels = AsyncMock()
+    pr_port.remove_pr_label = AsyncMock()
+    pr_port.fetch_ci_failure_logs = AsyncMock(
+        return_value="FAILED: test_my_scenario :: AssertionError: expected True, got False"
+    )
+    pr_port.get_pr_recent_commit_diffs = AsyncMock(return_value="")
+    runner = MagicMock()
+    runner.run = AsyncMock(
+        return_value=SimpleNamespace(crashed=False, output_text="ok")
+    )
+    state = _make_state_with_attempts()
+
+    loop, _ = _make_loop(tmp_path, prs=pr_port, runner=runner, state=state)
+    await loop._do_work()
+
+    call_kwargs = runner.run.call_args
+    prompt_used: str = (
+        call_kwargs.kwargs.get("prompt") or call_kwargs.args[0]
+        if call_kwargs.args
+        else call_kwargs.kwargs["prompt"]
+    )
+    assert "AssertionError: expected True, got False" in prompt_used
+    assert "{CI_FAILURE_LOG}" not in prompt_used
+
+
+@pytest.mark.asyncio
+async def test_build_prompt_includes_recent_commit_diffs(tmp_path: Path) -> None:
+    """The rendered prompt must contain the recent commit diffs from PRPort."""
+    pr_port = MagicMock()
+    pr_port.list_prs_by_label = AsyncMock(
+        return_value=[
+            SimpleNamespace(number=42, branch="rc/2026-05-01", labels=[]),
+        ]
+    )
+    pr_port.add_pr_labels = AsyncMock()
+    pr_port.remove_pr_label = AsyncMock()
+    pr_port.fetch_ci_failure_logs = AsyncMock(return_value="")
+    pr_port.get_pr_recent_commit_diffs = AsyncMock(
+        return_value=(
+            "## aabbccdd add scenario seed\n"
+            "diff --git a/tests/scenarios/test_x.py b/tests/scenarios/test_x.py\n"
+            "+    assert result == 'ok'"
+        )
+    )
+    runner = MagicMock()
+    runner.run = AsyncMock(
+        return_value=SimpleNamespace(crashed=False, output_text="ok")
+    )
+    state = _make_state_with_attempts()
+
+    loop, _ = _make_loop(tmp_path, prs=pr_port, runner=runner, state=state)
+    await loop._do_work()
+
+    call_kwargs = runner.run.call_args
+    prompt_used: str = (
+        call_kwargs.kwargs.get("prompt") or call_kwargs.args[0]
+        if call_kwargs.args
+        else call_kwargs.kwargs["prompt"]
+    )
+    assert "aabbccdd add scenario seed" in prompt_used
+    assert "{RECENT_COMMIT_DIFFS}" not in prompt_used
+
+
+@pytest.mark.asyncio
+async def test_build_prompt_degrades_gracefully_on_fetch_error(
+    tmp_path: Path,
+) -> None:
+    """If either context fetch raises, the prompt still renders with placeholder text."""
+    pr_port = MagicMock()
+    pr_port.list_prs_by_label = AsyncMock(
+        return_value=[
+            SimpleNamespace(number=42, branch="rc/2026-05-01", labels=[]),
+        ]
+    )
+    pr_port.add_pr_labels = AsyncMock()
+    pr_port.remove_pr_label = AsyncMock()
+    pr_port.fetch_ci_failure_logs = AsyncMock(side_effect=RuntimeError("network error"))
+    pr_port.get_pr_recent_commit_diffs = AsyncMock(side_effect=RuntimeError("timeout"))
+    runner = MagicMock()
+    runner.run = AsyncMock(
+        return_value=SimpleNamespace(crashed=False, output_text="ok")
+    )
+    state = _make_state_with_attempts()
+
+    loop, _ = _make_loop(tmp_path, prs=pr_port, runner=runner, state=state)
+    result = await loop._do_work()
+
+    # Loop must still dispatch despite fetch failures.
+    assert result["dispatched"] == 1
+
+    call_kwargs = runner.run.call_args
+    prompt_used: str = (
+        call_kwargs.kwargs.get("prompt") or call_kwargs.args[0]
+        if call_kwargs.args
+        else call_kwargs.kwargs["prompt"]
+    )
+    assert "(no CI failure log available)" in prompt_used
+    assert "(no recent commit diffs available)" in prompt_used
+    # Template placeholders must not leak into the prompt.
+    assert "{CI_FAILURE_LOG}" not in prompt_used
+    assert "{RECENT_COMMIT_DIFFS}" not in prompt_used
