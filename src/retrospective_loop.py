@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import HydraFlowConfig
 from events import EventType, HydraFlowEvent
+from exception_classify import reraise_on_credit_or_bug
 from retrospective_queue import QueueKind
 
 if TYPE_CHECKING:
@@ -91,7 +92,8 @@ class RetrospectiveLoop(BaseBackgroundLoop):
                 stale_proposals += result.get("stale_proposals", 0)
                 acknowledged.append(item.id)
                 await self._publish_update(item, "processed")
-            except Exception:
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)
                 logger.warning(
                     "Retrospective: failed to process %s item (id=%s) — will retry",
                     item.kind,
@@ -286,7 +288,8 @@ class RetrospectiveLoop(BaseBackgroundLoop):
 
         try:
             closed = await self._prs.list_closed_issues_by_label(hitl_labels[0])
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             # The lookup is best-effort; reraising would block the entire
             # verify-proposals tick on a transient GitHub fault.
             logger.debug(

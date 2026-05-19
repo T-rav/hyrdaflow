@@ -257,7 +257,8 @@ class ReportIssueLoop(BaseBackgroundLoop):
                     event_bus=self._bus,
                     total_cost_24h=total_cost_24h,
                 )
-            except Exception:
+            except Exception as exc:
+                reraise_on_credit_or_bug(exc)
                 logger.warning("Daily cost-budget sweep failed", exc_info=True)
             return None
 
