@@ -601,6 +601,78 @@ class ContractRefreshLoop(BaseBackgroundLoop):
         return escalated
 
     # ------------------------------------------------------------------
+    # Tick — phase helpers
+    # ------------------------------------------------------------------
+
+    def _on_clean_tick(self) -> WorkCycleResult:
+        """Handle a drift-free tick: clear the fleet dedup and return clean status.
+
+        A prior refresh PR has been applied (merged) and the recordings now
+        match committed cassettes.  Clearing the fleet dedup allows a *future*
+        identical drift (e.g. a reverted PR re-introduces the same diff) to be
+        re-filed rather than silently swallowed.  Keeps dedup bounded in size.
+        """
+        if self._dedup.get():
+            self._dedup.set_all(set())
+        return {
+            "status": "clean",
+            "adapters_refreshed": 0,
+            "adapters_drifted": 0,
+        }
+
+    def _on_dedup_hit(
+        self, fleet: FleetDriftReport, escalated: dict[str, int]
+    ) -> WorkCycleResult:
+        """Return the dedup-hit result when identical drift was already dispatched."""
+        dedup_key = self._dedup_key(fleet)
+        logger.info(
+            "contract_refresh: drift already dispatched (dedup hit %s)",
+            dedup_key[:12],
+        )
+        return {
+            "status": "dedup_hit",
+            "adapters_refreshed": 0,
+            "adapters_drifted": len(fleet.reports),
+            "escalated_adapters": sorted(escalated),
+        }
+
+    async def _stage_and_open_pr(
+        self, fleet: FleetDriftReport, dedup_key: str
+    ) -> tuple[list[Path], str | None]:
+        """Stage drifted cassettes, open the refresh PR, and record the dedup key.
+
+        Returns ``(written_paths, pr_url)``.  The dedup key is recorded only
+        after a successful PR open so a transient failure (branch conflict,
+        ``gh`` auth, push rejection) does not silently block the next tick
+        behind a dedup entry while the primary checkout stays dirty with
+        uncommitted cassette writes.
+        """
+        written = self._stage_drifted_cassettes(fleet.reports)
+        pr_url = await self._open_refresh_pr(written, fleet)
+        if pr_url is not None:
+            self._dedup.add(dedup_key)
+        return written, pr_url
+
+    async def _check_replay_and_maybe_file_issue(
+        self, fleet: FleetDriftReport, pr_url: str | None
+    ) -> tuple[subprocess.CompletedProcess[str], int | None]:
+        """Run the post-refresh replay gate and file a fake-drift issue on failure.
+
+        Task 16: invokes ``make trust-contracts`` after the refresh PR opens.
+        A passing gate returns ``(proc, None)``.  A failing gate additionally
+        files a ``hydraflow-find`` + ``fake-drift`` companion issue so the
+        factory can dispatch a fake-repair implementer.
+        """
+        replay_proc = await self._run_replay_gate()
+        fake_drift_issue: int | None = None
+        if replay_proc.returncode != 0:
+            adapters_drifted = sorted({r.adapter for r in fleet.reports})
+            fake_drift_issue = await self._file_fake_drift_issue(
+                adapters_drifted, replay_proc, pr_url
+            )
+        return replay_proc, fake_drift_issue
+
+    # ------------------------------------------------------------------
     # Tick
     # ------------------------------------------------------------------
 
@@ -609,6 +681,17 @@ class ContractRefreshLoop(BaseBackgroundLoop):
 
         The kill-switch short-circuits with ``{"status": "disabled"}`` so
         the base-class status reporter still has something to publish.
+
+        Phases:
+        1. Guard rails (kill-switch, config flag).
+        2. Record all adapters into a tmp directory.
+        3. Detect fleet drift; update per-adapter attempt counters on every
+           tick regardless of subsequent short-circuits (Task 18).
+        4. Clean tick → :meth:`_on_clean_tick`.
+        5. Escalate any adapter that hit the attempt threshold (Task 18).
+        6. Dedup hit → :meth:`_on_dedup_hit`.
+        7. Stage cassettes + open refresh PR → :meth:`_stage_and_open_pr`.
+        8. Replay gate + companion issue → :meth:`_check_replay_and_maybe_file_issue`.
         """
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
@@ -629,18 +712,7 @@ class ContractRefreshLoop(BaseBackgroundLoop):
         self._update_attempt_counters(drifted_adapters)
 
         if not fleet.has_drift:
-            # Clean tick: a prior refresh PR has been applied (merged) and
-            # the recordings now match committed cassettes. Clear the fleet
-            # drift dedup so a *future* identical drift (e.g. a reverted PR
-            # re-introduces the same diff) is re-filed rather than silently
-            # swallowed. Keeps dedup bounded in size, too.
-            if self._dedup.get():
-                self._dedup.set_all(set())
-            return {
-                "status": "clean",
-                "adapters_refreshed": 0,
-                "adapters_drifted": 0,
-            }
+            return self._on_clean_tick()
 
         # Task 18 — escalate any adapter that just hit the threshold.
         # Fire before the dedup short-circuit so a stuck adapter whose
@@ -649,36 +721,15 @@ class ContractRefreshLoop(BaseBackgroundLoop):
 
         dedup_key = self._dedup_key(fleet)
         if dedup_key in self._dedup.get():
-            logger.info(
-                "contract_refresh: drift already dispatched (dedup hit %s)",
-                dedup_key[:12],
-            )
-            return {
-                "status": "dedup_hit",
-                "adapters_refreshed": 0,
-                "adapters_drifted": len(fleet.reports),
-                "escalated_adapters": sorted(escalated),
-            }
+            return self._on_dedup_hit(fleet, escalated)
 
-        written = self._stage_drifted_cassettes(fleet.reports)
-        pr_url = await self._open_refresh_pr(written, fleet)
-        # Only record the dedup key after a successful PR open. A
-        # transient failure (branch conflict, ``gh`` auth, push rejection)
-        # must not be hidden by dedup — the next tick retries. Without
-        # this guard the primary checkout stays dirty with uncommitted
-        # cassette writes while dedup blocks re-filing — silent stuck.
-        if pr_url is not None:
-            self._dedup.add(dedup_key)
+        written, pr_url = await self._stage_and_open_pr(fleet, dedup_key)
 
-        # Task 16 — replay gate. Only filed as fake-drift when the replay
-        # suite fails after the refresh PR has been opened.
-        replay_proc = await self._run_replay_gate()
-        fake_drift_issue: int | None = None
-        if replay_proc.returncode != 0:
-            adapters_drifted = sorted({r.adapter for r in fleet.reports})
-            fake_drift_issue = await self._file_fake_drift_issue(
-                adapters_drifted, replay_proc, pr_url
-            )
+        # Task 16 — replay gate runs after the PR is opened. A failed gate
+        # files a fake-drift companion issue; a passing gate does not.
+        replay_proc, fake_drift_issue = await self._check_replay_and_maybe_file_issue(
+            fleet, pr_url
+        )
 
         return {
             "status": "refreshed",
