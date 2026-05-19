@@ -20,6 +20,7 @@ from config import HydraFlowConfig
 from exception_classify import reraise_on_credit_or_bug
 
 if TYPE_CHECKING:
+    from ports import ObservabilityPort
     from pr_manager import PRManager
     from state import StateTracker
 
@@ -35,10 +36,13 @@ class StaleIssueLoop(BaseBackgroundLoop):
         prs: PRManager,
         state: StateTracker,
         deps: LoopDeps,
+        *,
+        observability: ObservabilityPort | None = None,
     ) -> None:
         super().__init__(worker_name="stale_issue", config=config, deps=deps)
         self._prs = prs
         self._state = state
+        self._obs: ObservabilityPort | None = observability
 
     def _get_default_interval(self) -> int:
         return self._config.stale_issue_interval
@@ -47,6 +51,8 @@ class StaleIssueLoop(BaseBackgroundLoop):
         """Scan for stale issues and close them."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.stale_issue_loop_enabled:
+            return {"status": "config_disabled"}
         settings = self._state.get_stale_issue_settings()
         already_closed = self._state.get_stale_issue_closed()
 
@@ -145,16 +151,12 @@ class StaleIssueLoop(BaseBackgroundLoop):
                 reraise_on_credit_or_bug(exc)
                 logger.warning("Failed to close stale issue #%d", number, exc_info=True)
 
-        try:
-            import sentry_sdk as _sentry
-
-            _sentry.add_breadcrumb(
-                category="stale_issue.cycle",
-                message=f"Scanned {stats['scanned']} issues, closed {stats['closed']}",
+        if self._obs is not None:
+            self._obs.breadcrumb(
+                "stale_issue.cycle",
+                f"Scanned {stats['scanned']} issues, closed {stats['closed']}",
                 level="info",
-                data=stats,
+                **dict(stats.items()),
             )
-        except ImportError:
-            pass
 
         return stats

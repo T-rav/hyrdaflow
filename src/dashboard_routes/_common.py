@@ -52,9 +52,11 @@ _INTERVAL_BOUNDS: dict[str, tuple[int, int]] = {
     "skill_prompt_eval": (86400, 2_592_000),  # 1d min, 30d max
     "fake_coverage_auditor": (86400, 2_592_000),  # 1d min, 30d max
     "adr_touchpoint_auditor": (900, 86400),  # 15m min, 1d max (default 4h, ADR-0056)
+    "memory_backlog": (3_600, 604_800),  # 1h min, 7d max
     "rc_budget": (3600, 604800),  # 1h min, 7d max
     "wiki_rot_detector": (86400, 2_592_000),  # 1d min, 30d max
     "trust_fleet_sanity": (60, 3600),  # 1m min, 1h max
+    "label_drift_watcher": (120, 86400),  # 2m min, 1d max (ADR-0056)
     "contract_refresh": (86400, 2_592_000),  # 1d min, 30d max
     "corpus_learning": (3600, 2_592_000),  # 1h min, 30d max
     "auto_agent_preflight": (60, 600),
@@ -66,6 +68,7 @@ _INTERVAL_BOUNDS: dict[str, tuple[int, int]] = {
     "term_pruner": (3600, 604800),  # 1h min, 7d max (default 24h)
     "edge_proposer": (3600, 604800),  # 1h min, 7d max (default 24h)
     "entry_evidence": (3600, 604800),  # 1h min, 7d max (default 24h, ADR-0062)
+    "live_corpus_replay": (60, 86400),  # 1m min, 1d max (default 15m, ADR-0045 / #8786)
     "github_cache": (10, 3600),  # 10s min, 1h max (single-poller cache)
 }
 

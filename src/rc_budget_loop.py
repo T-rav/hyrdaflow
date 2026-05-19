@@ -90,6 +90,8 @@ class RCBudgetLoop(BaseBackgroundLoop):
         """Run one tick: reconcile closures, fetch runs, detect, file/escalate."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.rc_budget_loop_enabled:
+            return {"status": "config_disabled"}
 
         t0 = time.perf_counter()
         await self._reconcile_closed_escalations()

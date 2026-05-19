@@ -18,7 +18,7 @@ from tests.trust.contracts._schema import Cassette
 _CASSETTE_DIR = Path(__file__).parent / "cassettes" / "git"
 
 
-async def _invoke_fake_git(cassette: Cassette) -> FakeOutput:
+async def _invoke_fake_git(cassette: Cassette) -> FakeOutput:  # noqa: PLR0911
     """Dispatch the cassette input through FakeGit's matching method."""
     fake = FakeGit()
     method = cassette.input.command
@@ -42,11 +42,34 @@ async def _invoke_fake_git(cassette: Cassette) -> FakeOutput:
             stderr="",
         )
 
-    if method == "rev_parse_head":
+    if method == "push":
+        await fake.push(cwd, remote=str(args[0]), branch=str(args[1]))
+        return FakeOutput(exit_code=0, stdout="", stderr="")
+
+    if method == "rev_parse":
         # Seed a commit so rev_parse returns something non-zero.
         await fake.commit(cwd, message="seed")
         sha = await fake.rev_parse(cwd, "HEAD")
         return FakeOutput(exit_code=0, stdout=f"{sha}\n", stderr="")
+
+    if method == "worktree_prune":
+        await fake.worktree_prune()
+        return FakeOutput(exit_code=0, stdout="", stderr="")
+
+    if method == "config_unset":
+        # Seed the key so there is something to unset, mirroring real usage
+        # where a corrupted config entry is cleared.
+        fake.script_set_corrupted_config(cwd, key=str(args[0]), value="stale")
+        await fake.config_unset(cwd, key=str(args[0]))
+        return FakeOutput(exit_code=0, stdout="", stderr="")
+
+    if method == "config_get":
+        # Seed the value so config_get has something to return.
+        fake.script_set_corrupted_config(cwd, key=str(args[0]), value="false")
+        result = await fake.config_get(cwd, str(args[0]))
+        if result is None:
+            return FakeOutput(exit_code=1, stdout="", stderr="")
+        return FakeOutput(exit_code=0, stdout=f"{result}\n", stderr="")
 
     msg = f"FakeGit has no contract-tested method {method!r}"
     raise NotImplementedError(msg)

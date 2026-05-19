@@ -6,12 +6,14 @@ Hexagonal boundaries. Each `*Port` Protocol with its concrete adapter(s) and fak
 
 ```mermaid
 graph LR
+    AgentPort --> AgentRunner
     BotPRPort --> OpenAutoPRBotPRPort
     IssueFetcherPort --> IssueFetcher
     IssueFetcherPort -.-> FakeIssueFetcher
-    IssueStorePort --> CachingIssueStore
     IssueStorePort --> IssueStore
     IssueStorePort -.-> FakeIssueStore
+    ObservabilityPort --> SentryObservabilityAdapter
+    ObservabilityPort -.-> FakeSentry
     PRPort --> PRManager
     PRPort -.-> FakePR
     ReviewInsightStorePort --> ReviewInsightStore
@@ -25,8 +27,9 @@ graph LR
 ### AgentPort
 
 - Module: `src.ports`
-- Methods: `_build_command`, `_execute`, `_verify_result`
-- Adapters: —
+- Methods: `build_command`, `execute`, `verify_result`
+- Adapters:
+  - `AgentRunner` (`src.agent`)
 - Fake: ⚠️ no fake (every Port needs a fake per ADR-0047)
 
 ### BotPRPort
@@ -48,23 +51,23 @@ graph LR
 ### IssueStorePort
 
 - Module: `src.ports`
-- Methods: `enqueue_transition`, `enrich_with_comments`, `get_implementable`, `get_plannable`, `get_reviewable`, `get_triageable`, `is_active`, `mark_active`, `mark_complete`, `mark_merged`, `release_in_flight`
+- Methods: `enqueue_transition`, `enrich_with_comments`, `get_discoverable`, `get_implementable`, `get_plannable`, `get_reviewable`, `get_shapeable`, `get_triageable`, `is_active`, `mark_active`, `mark_complete`, `mark_merged`, `release_in_flight`
 - Adapters:
-  - `CachingIssueStore` (`src.caching_issue_store`)
   - `IssueStore` (`src.issue_store`)
 - Fake: `FakeIssueStore` (`mockworld.fakes.fake_issue_store`)
 
 ### ObservabilityPort
 
 - Module: `src.ports`
-- Methods: `breadcrumb`, `capture_exception`, `flush`
-- Adapters: —
-- Fake: ⚠️ no fake (every Port needs a fake per ADR-0047)
+- Methods: `breadcrumb`, `capture_exception`, `capture_message`, `flush`, `set_measurement`
+- Adapters:
+  - `SentryObservabilityAdapter` (`src.observability.sentry_adapter`)
+- Fake: `FakeSentry` (`mockworld.fakes.fake_sentry`)
 
 ### PRPort
 
 - Module: `src.ports`
-- Methods: `add_labels`, `add_pr_labels`, `branch_has_diff_from_main`, `close_issue`, `close_task`, `create_issue`, `create_pr`, `create_promotion_pr`, `create_rc_branch`, `create_task`, `delete_branch`, `expected_pr_title`, `fetch_ci_failure_logs`, `fetch_code_scanning_alerts`, `find_existing_issue`, `find_open_pr_for_branch`, `find_open_promotion_pr`, `get_dependabot_alerts`, `get_issue_state`, `get_issue_updated_at`, `get_latest_ci_status`, `get_pr_approvers`, `get_pr_diff`, `get_pr_diff_names`, `get_pr_head_sha`, `get_pr_mergeable`, `list_closed_issues_by_label`, `list_conflicting_prs`, `list_hitl_items`, `list_issue_comments`, `list_issues_by_label`, `list_prs_by_label`, `list_rc_branches`, `merge_pr`, `merge_promotion_pr`, `post_comment`, `post_pr_comment`, `pull_main`, `push_branch`, `remove_label`, `remove_pr_label`, `submit_review`, `swap_pipeline_labels`, `transition`, `update_issue_body`, `update_pr_branch`, `update_pr_title`, `upload_screenshot`, `wait_for_ci`
+- Methods: `add_labels`, `add_pr_labels`, `branch_has_diff_from_main`, `close_issue`, `close_task`, `create_issue`, `create_pr`, `create_promotion_pr`, `create_rc_branch`, `create_task`, `delete_branch`, `expected_pr_title`, `fetch_ci_failure_logs`, `fetch_code_scanning_alerts`, `find_existing_issue`, `find_label_drift`, `find_open_pr_for_branch`, `find_open_promotion_pr`, `get_dependabot_alerts`, `get_issue_state`, `get_issue_updated_at`, `get_latest_ci_status`, `get_pr_approvers`, `get_pr_diff`, `get_pr_diff_names`, `get_pr_head_sha`, `get_pr_mergeable`, `list_closed_issues_by_label`, `list_conflicting_prs`, `list_hitl_items`, `list_issue_comments`, `list_issues_by_label`, `list_prs_by_label`, `list_rc_branches`, `merge_pr`, `merge_promotion_pr`, `post_comment`, `post_pr_comment`, `pull_main`, `push_branch`, `push_synthetic_commit`, `remove_label`, `remove_pr_label`, `submit_review`, `swap_pipeline_labels`, `transition`, `update_issue_body`, `update_pr_base`, `update_pr_branch`, `update_pr_title`, `upload_screenshot`, `wait_for_ci`
 - Adapters:
   - `PRManager` (`src.pr_manager`)
 - Fake: `FakePR` (`mockworld.fakes.fake_github`)
@@ -93,4 +96,4 @@ graph LR
   - `WorkspaceManager` (`src.workspace`)
 - Fake: `FakeWorkspace` (`mockworld.fakes.fake_workspace`)
 
-_Regenerated from commit `9d837fb` on 2026-05-11 02:38 UTC. Source last changed at `9d837fb`. Status: 🟢 fresh._
+_Regenerated from commit `8f59fe9` on 2026-05-19 01:36 UTC. Source last changed at `8f59fe9`. Status: 🟢 fresh._

@@ -52,6 +52,7 @@ from subprocess_util import (
 if TYPE_CHECKING:
     from base_background_loop import BaseBackgroundLoop
     from crate_manager import CrateManager
+    from epic import EpicManager
     from github_cache_loop import GitHubDataCache
     from issue_store import IssueStore
     from metrics_manager import MetricsManager
@@ -181,9 +182,11 @@ class HydraFlowOrchestrator:
             "skill_prompt_eval": svc.skill_prompt_eval_loop,
             "fake_coverage_auditor": svc.fake_coverage_auditor_loop,
             "adr_touchpoint_auditor": svc.adr_touchpoint_auditor_loop,
+            "memory_backlog": svc.memory_backlog_loop,
             "rc_budget": svc.rc_budget_loop,
             "wiki_rot_detector": svc.wiki_rot_detector_loop,
             "trust_fleet_sanity": svc.trust_fleet_sanity_loop,
+            "label_drift_watcher": svc.label_drift_watcher_loop,
             "contract_refresh": svc.contract_refresh_loop,
             "corpus_learning": svc.corpus_learning_loop,
             "auto_agent_preflight": svc.auto_agent_preflight_loop,
@@ -194,6 +197,7 @@ class HydraFlowOrchestrator:
             "term_proposer": svc.term_proposer_loop,
             "term_pruner": svc.term_pruner_loop,
             "edge_proposer": svc.edge_proposer_loop,
+            "live_corpus_replay": svc.live_corpus_replay_loop,
         }
         self._bg_workers = BGWorkerManager(config, self._state, bg_loop_registry)
         # Loops that need a reference to BGWorkerManager cannot take one
@@ -245,6 +249,11 @@ class HydraFlowOrchestrator:
     def metrics_manager(self) -> MetricsManager:
         """Expose metrics manager for dashboard API."""
         return self._svc.metrics_manager
+
+    @property
+    def epic_manager(self) -> EpicManager:
+        """Expose epic manager for dashboard API."""
+        return self._svc.epic_manager
 
     @property
     def running(self) -> bool:
@@ -466,7 +475,7 @@ class HydraFlowOrchestrator:
                     interrupted[issue_number] = "hitl"
             return interrupted
 
-    # Alias for backward compatibility
+    # Alias used live by dashboard_routes/_control_routes.py:326
     request_stop = stop
 
     def reset(self) -> None:
@@ -999,9 +1008,11 @@ class HydraFlowOrchestrator:
             ("skill_prompt_eval", self._svc.skill_prompt_eval_loop.run),
             ("fake_coverage_auditor", self._svc.fake_coverage_auditor_loop.run),
             ("adr_touchpoint_auditor", self._svc.adr_touchpoint_auditor_loop.run),
+            ("memory_backlog", self._svc.memory_backlog_loop.run),
             ("rc_budget", self._svc.rc_budget_loop.run),
             ("wiki_rot_detector", self._svc.wiki_rot_detector_loop.run),
             ("trust_fleet_sanity", self._svc.trust_fleet_sanity_loop.run),
+            ("label_drift_watcher", self._svc.label_drift_watcher_loop.run),
             ("contract_refresh", self._svc.contract_refresh_loop.run),
             ("corpus_learning", self._svc.corpus_learning_loop.run),
             ("auto_agent_preflight", self._svc.auto_agent_preflight_loop.run),
@@ -1012,6 +1023,7 @@ class HydraFlowOrchestrator:
             ("term_proposer", self._svc.term_proposer_loop.run),
             ("term_pruner", self._svc.term_pruner_loop.run),
             ("edge_proposer", self._svc.edge_proposer_loop.run),
+            ("live_corpus_replay", self._svc.live_corpus_replay_loop.run),
         ]
 
         # Hindsight WAL replay loop removed in Phase 3 cutover — the wiki

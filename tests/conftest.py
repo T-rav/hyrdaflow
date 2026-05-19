@@ -102,10 +102,25 @@ def setup_test_environment():
     from ``os.environ`` for the duration of the test session, then restores
     them in a ``finally`` block.  This is intentional global state mutation
     required for test isolation — see module-level note above.
+
+    GIT identity vars (``GIT_AUTHOR_*`` / ``GIT_COMMITTER_*``) are popped
+    AND replaced with deterministic test values. CI runners have no global
+    git config; without a default identity, any test that exercises the
+    "use ambient identity" fallback (e.g. ``open_automated_pr_async`` with
+    empty author overrides) fails with ``Author identity unknown``. Tests
+    that explicitly want to verify the no-identity error path can call
+    ``monkeypatch.delenv("GIT_AUTHOR_NAME", raising=False)`` (and the
+    other three keys) at the top of the test. See feedback memory
+    ``feedback_ci_no_global_git_config.md`` (PR #8354) and
+    ``docs/superpowers/specs/2026-05-07-tier2-enforcement-batch-design.md`` §5.
     """
     test_env = {
         "HOME": "/tmp/hydraflow-test",
         "GH_TOKEN": "test-token",
+        "GIT_AUTHOR_NAME": "HydraFlow Test",
+        "GIT_AUTHOR_EMAIL": "test@hydraflow.local",
+        "GIT_COMMITTER_NAME": "HydraFlow Test",
+        "GIT_COMMITTER_EMAIL": "test@hydraflow.local",
     }
     hydra_keys = {
         key: os.environ[key]

@@ -310,13 +310,18 @@ class PRUnsticker:
                     # Restore origin label when not auto-merging
                     origin = self._state.get_hitl_origin(issue_number)
                     # Fall back to HITL label so the issue stays visible
-                    target = origin or self._config.hitl_label[0]
-                    origin_kwargs: dict[str, int] = {}
+                    issue_target = origin or self._config.hitl_label[0]
+                    # Issue goes back to its pre-HITL stage. The PR — if one
+                    # exists with commits — belongs at hydraflow-review (PR-
+                    # stage label), regardless of where the issue origin sits.
+                    # Calling swap_pipeline_labels with the same label for both
+                    # produces PR-side drift (PR labeled hydraflow-ready) when
+                    # the issue origin is pre-PR.
+                    await self._prs.swap_pipeline_labels(issue_number, issue_target)
                     if item.pr is not None and item.pr > 0:
-                        origin_kwargs["pr_number"] = item.pr
-                    await self._prs.swap_pipeline_labels(
-                        issue_number, target, **origin_kwargs
-                    )
+                        await self._prs.swap_pipeline_labels(
+                            item.pr, self._config.review_label[0]
+                        )
 
                     self._state.remove_hitl_origin(issue_number)
                     self._state.remove_hitl_cause(issue_number)
@@ -427,8 +432,8 @@ class PRUnsticker:
         prompt, prompt_stats = self._build_ci_fix_prompt(issue, pr_url, cause_str)
 
         try:
-            cmd = self._agents._build_command(wt_path)
-            transcript = await self._agents._execute(
+            cmd = self._agents.build_command(wt_path)
+            transcript = await self._agents.execute(
                 cmd,
                 prompt,
                 wt_path,
@@ -449,7 +454,7 @@ class PRUnsticker:
                 transcript, "pr_unsticker", f"issue #{issue_number}"
             )
 
-            verify = await self._agents._verify_result(wt_path, branch)
+            verify = await self._agents.verify_result(wt_path, branch)
             if verify.passed:
                 return True
 
@@ -598,8 +603,8 @@ diff — you may catch things `make quality` won't.
             )
 
             try:
-                cmd = self._agents._build_command(wt_path)
-                transcript = await self._agents._execute(
+                cmd = self._agents.build_command(wt_path)
+                transcript = await self._agents.execute(
                     cmd,
                     prompt,
                     wt_path,
@@ -619,7 +624,7 @@ diff — you may catch things `make quality` won't.
                     transcript, "pr_unsticker", f"issue #{issue_number}"
                 )
 
-                verify = await self._agents._verify_result(wt_path, branch)
+                verify = await self._agents.verify_result(wt_path, branch)
                 if verify.passed:
                     # Write path: persist pattern from transcript
                     await self._persist_troubleshooting_pattern(

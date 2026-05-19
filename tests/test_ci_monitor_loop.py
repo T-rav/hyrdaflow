@@ -144,3 +144,115 @@ class TestCIMonitorLoop:
         """_get_default_interval reads from config."""
         loop, _stop, _pr = _make_loop(tmp_path)
         assert loop._get_default_interval() == loop._config.ci_monitor_interval
+
+    @pytest.mark.asyncio
+    async def test_failed_issue_creation_does_not_track_phantom_zero(
+        self, tmp_path: Path
+    ) -> None:
+        """When create_issue returns 0 (failure sentinel — e.g. missing label),
+        the loop must not store 0 as ``_open_issue``.  Otherwise every later cycle
+        emits ``gh issue comment 0`` / ``gh issue close 0`` calls that GitHub
+        rejects with "Could not resolve to an issue or pull request with the
+        number of 0"."""
+        loop, _stop, pr = _make_loop(tmp_path)
+        pr.get_latest_ci_status.return_value = ("failure", "https://github.com/runs/1")
+        pr.create_issue = AsyncMock(return_value=0)
+
+        result = await loop._do_work()
+
+        assert result is not None
+        assert result["status"] == "red"
+        assert result.get("error") is True
+        assert "issue_created" not in result
+        assert loop._open_issue is None
+
+
+class TestRehydrateOpenIssue:
+    """Tests for _rehydrate_open_issue — the restart-recovery path (ADR-0029)."""
+
+    @pytest.mark.asyncio
+    async def test_rehydrate_open_issue_when_existing_issue_found(
+        self, tmp_path: Path
+    ) -> None:
+        """When an open CI-failure issue already exists, loop rehydrates state from it."""
+        loop, _stop, pr = _make_loop(tmp_path)
+        pr.list_issues_by_label = AsyncMock(return_value=[{"number": 42}])
+
+        await loop._rehydrate_open_issue()
+
+        assert loop._open_issue == 42
+        pr.list_issues_by_label.assert_awaited_once_with("hydraflow-ci-failure")
+
+    @pytest.mark.asyncio
+    async def test_rehydrate_open_issue_when_no_existing_issue(
+        self, tmp_path: Path
+    ) -> None:
+        """When no open CI-failure issue exists, _open_issue stays None (fresh start)."""
+        loop, _stop, pr = _make_loop(tmp_path)
+        pr.list_issues_by_label = AsyncMock(return_value=[])
+
+        await loop._rehydrate_open_issue()
+
+        assert loop._open_issue is None
+        pr.list_issues_by_label.assert_awaited_once_with("hydraflow-ci-failure")
+
+    @pytest.mark.asyncio
+    async def test_rehydrate_open_issue_api_failure_is_handled_gracefully(
+        self, tmp_path: Path
+    ) -> None:
+        """When the API call to list issues fails, the loop logs and skips — no crash."""
+        loop, _stop, pr = _make_loop(tmp_path)
+        pr.list_issues_by_label = AsyncMock(side_effect=RuntimeError("API down"))
+
+        # Must not raise; _open_issue must remain None (safe default)
+        await loop._rehydrate_open_issue()
+
+        assert loop._open_issue is None
+        assert loop._startup_check_done is True
+
+    @pytest.mark.asyncio
+    async def test_rehydrate_open_issue_is_idempotent(self, tmp_path: Path) -> None:
+        """Calling _rehydrate_open_issue twice in succession produces the same state.
+
+        The guard flag (_startup_check_done) must prevent a second API call so that
+        a concurrent or repeated invocation cannot overwrite rehydrated state.
+        """
+        loop, _stop, pr = _make_loop(tmp_path)
+        pr.list_issues_by_label = AsyncMock(return_value=[{"number": 77}])
+
+        await loop._rehydrate_open_issue()
+        assert loop._open_issue == 77
+
+        # Mutate the mock to return a different result for a second API call
+        pr.list_issues_by_label.return_value = [{"number": 99}]
+
+        await loop._rehydrate_open_issue()
+
+        # State must be unchanged; the second call must have been a no-op
+        assert loop._open_issue == 77
+        pr.list_issues_by_label.assert_awaited_once()  # called exactly once total
+
+    @pytest.mark.asyncio
+    async def test_rehydrate_does_not_duplicate_issue_on_restart(
+        self, tmp_path: Path
+    ) -> None:
+        """After restart rehydration, a red CI poll must NOT create a second issue.
+
+        This is the primary regression ADR-0029 guards against: without rehydration
+        every process restart would call create_issue even though one already exists.
+        """
+        loop, _stop, pr = _make_loop(tmp_path)
+        pr.list_issues_by_label = AsyncMock(return_value=[{"number": 55}])
+        pr.get_latest_ci_status.return_value = (
+            "failure",
+            "https://github.com/runs/456",
+        )
+
+        # Simulate the first _do_work call after a process restart
+        result = await loop._do_work()
+
+        # Rehydration should have set _open_issue; create_issue must NOT be called
+        assert loop._open_issue == 55
+        pr.create_issue.assert_not_awaited()
+        assert result is not None
+        assert result["status"] == "red"

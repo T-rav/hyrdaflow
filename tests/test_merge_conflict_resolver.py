@@ -107,15 +107,15 @@ class TestMergeConflictResolver:
         )
 
         assert result == ConflictResolutionResult(success=True, used_rebuild=False)
-        mock_agents._execute.assert_not_awaited()
+        mock_agents.execute.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_resolve_runs_agent_on_conflicts(
         self, config: HydraFlowConfig
     ) -> None:
         mock_agents = AsyncMock()
-        mock_agents._execute = AsyncMock(return_value="transcript")
-        mock_agents._verify_result = AsyncMock(
+        mock_agents.execute = AsyncMock(return_value="transcript")
+        mock_agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="")
         )
         resolver = make_conflict_resolver(config, agents=mock_agents)
@@ -129,17 +129,17 @@ class TestMergeConflictResolver:
         )
 
         assert result == ConflictResolutionResult(success=True, used_rebuild=False)
-        mock_agents._build_command.assert_called_once()
-        mock_agents._execute.assert_awaited_once()
-        telemetry = mock_agents._execute.await_args.kwargs["telemetry_stats"]
+        mock_agents.build_command.assert_called_once()
+        mock_agents.execute.assert_awaited_once()
+        telemetry = mock_agents.execute.await_args.kwargs["telemetry_stats"]
         assert "pruned_chars_total" in telemetry
 
     @pytest.mark.asyncio
     async def test_saves_transcript(self, config: HydraFlowConfig) -> None:
         """A transcript file should be saved for each attempt."""
         mock_agents = AsyncMock()
-        mock_agents._execute = AsyncMock(return_value="transcript content")
-        mock_agents._verify_result = AsyncMock(
+        mock_agents.execute = AsyncMock(return_value="transcript content")
+        mock_agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="")
         )
         resolver = make_conflict_resolver(config, agents=mock_agents)
@@ -163,8 +163,8 @@ class TestSourceParameter:
     ) -> None:
         """Verify that transcripts use the source parameter for filename prefix."""
         mock_agents = AsyncMock()
-        mock_agents._execute = AsyncMock(return_value="transcript content")
-        mock_agents._verify_result = AsyncMock(
+        mock_agents.execute = AsyncMock(return_value="transcript content")
+        mock_agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="")
         )
         resolver = make_conflict_resolver(config, agents=mock_agents)
@@ -190,8 +190,8 @@ class TestSourceParameter:
     ) -> None:
         """Verify _suggest_memory gets the correct source string."""
         mock_agents = AsyncMock()
-        mock_agents._execute = AsyncMock(return_value="transcript")
-        mock_agents._verify_result = AsyncMock(
+        mock_agents.execute = AsyncMock(return_value="transcript")
+        mock_agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="")
         )
         resolver = make_conflict_resolver(config, agents=mock_agents)
@@ -220,8 +220,8 @@ class TestWorkerIdNone:
     ) -> None:
         """Verify no REVIEW_UPDATE events when worker_id is None."""
         mock_agents = AsyncMock()
-        mock_agents._execute = AsyncMock(return_value="transcript")
-        mock_agents._verify_result = AsyncMock(
+        mock_agents.execute = AsyncMock(return_value="transcript")
+        mock_agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="")
         )
         resolver = make_conflict_resolver(config, agents=mock_agents)
@@ -258,8 +258,8 @@ class TestWorkerIdNone:
     ) -> None:
         """Verify REVIEW_UPDATE events are published when worker_id is provided."""
         mock_agents = AsyncMock()
-        mock_agents._execute = AsyncMock(return_value="transcript")
-        mock_agents._verify_result = AsyncMock(
+        mock_agents.execute = AsyncMock(return_value="transcript")
+        mock_agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="")
         )
         resolver = make_conflict_resolver(config, agents=mock_agents)
@@ -332,9 +332,9 @@ class TestFreshBranchRebuild:
             state_file=tmp_path / "state.json",
         )
         mock_agents = AsyncMock()
-        mock_agents._execute = AsyncMock(return_value="transcript")
+        mock_agents.execute = AsyncMock(return_value="transcript")
         # First call (merge attempt) fails, second call (rebuild) succeeds
-        mock_agents._verify_result = AsyncMock(
+        mock_agents.verify_result = AsyncMock(
             side_effect=[
                 LoopResult(passed=False, summary="quality failed"),
                 LoopResult(passed=True, summary=""),
@@ -372,8 +372,8 @@ class TestFreshBranchRebuild:
             state_file=tmp_path / "state.json",
         )
         mock_agents = AsyncMock()
-        mock_agents._execute = AsyncMock(return_value="rebuilt transcript")
-        mock_agents._verify_result = AsyncMock(
+        mock_agents.execute = AsyncMock(return_value="rebuilt transcript")
+        mock_agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="")
         )
         resolver = make_conflict_resolver(cfg, agents=mock_agents)
@@ -390,10 +390,10 @@ class TestFreshBranchRebuild:
         assert result is True
         resolver._workspaces.destroy.assert_awaited_once_with(pr.issue_number)
         resolver._workspaces.create.assert_awaited_once_with(pr.issue_number, pr.branch)
-        mock_agents._build_command.assert_called_once_with(new_wt)
-        mock_agents._execute.assert_awaited_once()
-        mock_agents._verify_result.assert_awaited_once()
-        telemetry = mock_agents._execute.await_args.kwargs["telemetry_stats"]
+        mock_agents.build_command.assert_called_once_with(new_wt)
+        mock_agents.execute.assert_awaited_once()
+        mock_agents.verify_result.assert_awaited_once()
+        telemetry = mock_agents.execute.await_args.kwargs["telemetry_stats"]
         assert "pruned_chars_total" in telemetry
 
     @pytest.mark.asyncio
@@ -413,7 +413,7 @@ class TestFreshBranchRebuild:
         result = await resolver.fresh_branch_rebuild(pr, issue, worker_id=0)
 
         assert result is False
-        mock_agents._execute.assert_not_awaited()
+        mock_agents.execute.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_fresh_rebuild_skipped_when_no_agents(self, tmp_path: Path) -> None:
@@ -464,9 +464,9 @@ class TestFreshBranchRebuild:
             state_file=tmp_path / "state.json",
         )
         mock_agents = AsyncMock()
-        mock_agents._execute = AsyncMock(return_value="transcript")
+        mock_agents.execute = AsyncMock(return_value="transcript")
         # Merge attempt fails, rebuild succeeds
-        mock_agents._verify_result = AsyncMock(
+        mock_agents.verify_result = AsyncMock(
             side_effect=[
                 LoopResult(passed=False, summary="failed"),
                 LoopResult(passed=True, summary=""),
@@ -523,8 +523,8 @@ class TestFreshRebuildTitleUpdate:
             state_file=tmp_path / "state.json",
         )
         mock_agents = AsyncMock()
-        mock_agents._execute = AsyncMock(return_value="rebuilt transcript")
-        mock_agents._verify_result = AsyncMock(
+        mock_agents.execute = AsyncMock(return_value="rebuilt transcript")
+        mock_agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="")
         )
         resolver = make_conflict_resolver(cfg, agents=mock_agents)
@@ -555,8 +555,8 @@ class TestFreshRebuildTitleUpdate:
             state_file=tmp_path / "state.json",
         )
         mock_agents = AsyncMock()
-        mock_agents._execute = AsyncMock(return_value="failed transcript")
-        mock_agents._verify_result = AsyncMock(
+        mock_agents.execute = AsyncMock(return_value="failed transcript")
+        mock_agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=False, summary="quality check failed")
         )
         resolver = make_conflict_resolver(cfg, agents=mock_agents)
@@ -616,8 +616,8 @@ class TestArchitectureLayering:
     ) -> None:
         """Injected suggest_memory callback should be called on success."""
         mock_agents = AsyncMock()
-        mock_agents._execute = AsyncMock(return_value="transcript")
-        mock_agents._verify_result = AsyncMock(
+        mock_agents.execute = AsyncMock(return_value="transcript")
+        mock_agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="")
         )
         suggest_fn = AsyncMock()
@@ -641,8 +641,8 @@ class TestArchitectureLayering:
     ) -> None:
         """When suggest_memory is None, resolve should still succeed."""
         mock_agents = AsyncMock()
-        mock_agents._execute = AsyncMock(return_value="transcript")
-        mock_agents._verify_result = AsyncMock(
+        mock_agents.execute = AsyncMock(return_value="transcript")
+        mock_agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="")
         )
         resolver = make_conflict_resolver(
@@ -664,8 +664,8 @@ class TestArchitectureLayering:
     ) -> None:
         """_publish_review_status should emit events via EventBus without phase_utils."""
         mock_agents = AsyncMock()
-        mock_agents._execute = AsyncMock(return_value="transcript")
-        mock_agents._verify_result = AsyncMock(
+        mock_agents.execute = AsyncMock(return_value="transcript")
+        mock_agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="")
         )
         resolver = make_conflict_resolver(config, agents=mock_agents)
@@ -705,8 +705,8 @@ class TestArchitectureLayering:
             state_file=tmp_path / "state.json",
         )
         mock_agents = AsyncMock()
-        mock_agents._execute = AsyncMock(return_value="rebuilt transcript")
-        mock_agents._verify_result = AsyncMock(
+        mock_agents.execute = AsyncMock(return_value="rebuilt transcript")
+        mock_agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="")
         )
         resolver = make_conflict_resolver(cfg, agents=mock_agents)

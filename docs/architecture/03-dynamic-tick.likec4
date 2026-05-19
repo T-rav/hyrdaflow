@@ -1,0 +1,32 @@
+// Issue #8509 — dynamic view: one auditor tick after the fix.
+// Shows what changes for clear_rate_limit / set_rate_limit_mode.
+
+specification {
+  element step
+}
+
+model {
+  s1 = step 'tick fires (weekly)'
+  s2 = step 'ast-scan src/mockworld/fakes/*.py'
+  s3 = step 'for each Fake class: _is_helper(class_name, method)'
+  s4 = step 'BEFORE: clear_rate_limit -> adapter-surface (gap filed)'
+  s5 = step 'AFTER: clear_rate_limit -> test-helper (override hit)'
+  s6 = step 'helper coverage gate: rg "clear_rate_limit(" tests/scenarios/'
+  s7 = step 'mock_world.py:446 + test_agent_realistic.py:733 -> COVERED'
+  s8 = step 'no gap issue filed; dedup state untouched'
+
+  s1 -> s2
+  s2 -> s3
+  s3 -> s4 'pre-fix branch'
+  s3 -> s5 'post-fix branch'
+  s5 -> s6
+  s6 -> s7
+  s7 -> s8
+}
+
+views {
+  view tick {
+    title 'Auditor tick — pre vs post fix'
+    include *
+  }
+}

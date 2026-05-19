@@ -845,6 +845,68 @@ class TestPipelineSnapshot:
         assert plan_issues[0]["status"] == "active"
 
 
+# ── Build Cached Entry ──────────────────────────────────────────────
+
+
+class TestBuildCachedEntry:
+    """Unit tests for IssueStore._build_cached_entry helper."""
+
+    def test_returns_fallback_when_issue_not_cached(self) -> None:
+        store = _make_store()
+        entry = store._build_cached_entry(999, "active")
+
+        assert entry["issue_number"] == 999
+        assert entry["title"] == "Issue #999"
+        assert entry["url"] == ""
+        assert entry["status"] == "active"
+
+    def test_uses_cached_title_and_url_when_present(self) -> None:
+        store = _make_store()
+        task = TaskFactory.create(
+            id=42,
+            title="Fix the widget",
+            source_url="https://github.com/org/repo/issues/42",
+            tags=["hydraflow-find"],
+        )
+        store._route_issues([task])
+
+        entry = store._build_cached_entry(42, "active")
+
+        assert entry["title"] == "Fix the widget"
+        assert entry["url"] == "https://github.com/org/repo/issues/42"
+
+    def test_status_reflects_argument(self) -> None:
+        store = _make_store()
+        entry = store._build_cached_entry(1, "hitl")
+        assert entry["status"] == "hitl"
+
+    def test_includes_epic_metadata_when_cached_issue_is_epic_child(self) -> None:
+        store = _make_store()
+        config = store._config
+        epic_label = next(iter(config.epic_child_label))
+        task = TaskFactory.create(
+            id=7,
+            tags=[epic_label],
+            metadata={"epic_number": 5},
+        )
+        store._route_issues([task])
+
+        entry = store._build_cached_entry(7, "active")
+
+        assert entry.get("is_epic_child") is True
+        assert entry.get("epic_number") == 5
+
+    def test_no_epic_fields_when_not_epic_child(self) -> None:
+        store = _make_store()
+        task = TaskFactory.create(id=10, tags=["hydraflow-find"])
+        store._route_issues([task])
+
+        entry = store._build_cached_entry(10, "active")
+
+        assert "is_epic_child" not in entry
+        assert "epic_number" not in entry
+
+
 # ── In-Flight Protection ────────────────────────────────────────────
 
 

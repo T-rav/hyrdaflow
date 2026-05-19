@@ -1,0 +1,90 @@
+// Issue #8495 — FakeGit.rev_parse cassette gap
+// Captures the four touchpoints (cassette, dispatcher, recorder, regression test)
+// and the auditor that flagged the gap.
+
+specification {
+  element system
+  element container
+  element component
+  element file
+}
+
+model {
+  hydraflow = system "HydraFlow" {
+
+    // --- Producers ----------------------------------------------------------
+    auditor = container "FakeCoverageAuditorLoop" "src/fake_coverage_auditor_loop.py" {
+      catalog_fake = component "catalog_fake_methods" "AST scan: lists FakeGit public methods"
+      catalog_cass = component "catalog_cassette_methods" "Reads cassettes/git/*.yaml input.command"
+    }
+
+    refresh = container "ContractRefreshLoop" "src/contract_refresh_loop.py" {
+      recorder = component "record_git" "src/contract_recording.py — runs real `git` against fixture sandbox"
+    }
+
+    // --- Cassette artefacts -------------------------------------------------
+    cassettes = container "Git cassette set" "tests/trust/contracts/cassettes/git/" {
+      cass_commit  = file "commit.yaml"     "input.command: commit (existing)"
+      cass_revparse= file "rev_parse.yaml"  "input.command: rev_parse (NEW — issue 8495)"
+    }
+
+    // --- Replay-side gate ---------------------------------------------------
+    replay = container "Contract replay gate" "tests/trust/contracts/" {
+      schema    = component "Cassette schema + NORMALIZERS" "src/contracts/_schema.py"
+      dispatcher= component "_invoke_fake_git" "tests/trust/contracts/test_fake_git_contract.py"
+      replay_h  = component "replay_cassette" "tests/trust/contracts/_replay.py"
+    }
+
+    fake = container "FakeGit" "src/mockworld/fakes/fake_git.py" {
+      m_revparse = component "rev_parse(cwd, ref) -> str" "Returns 40-hex SHA or '0'*40"
+    }
+
+    // --- Regression coverage ------------------------------------------------
+    regression = container "Regression suite" "tests/regressions/" {
+      reg_8495 = file "test_issue_8495.py" "NEW — asserts rev_parse is in cassetted set"
+    }
+
+    // --- Relationships ------------------------------------------------------
+    catalog_fake -> fake "AST-scans for adapter-surface methods"
+    catalog_cass -> cassettes "Reads input.command from each *.yaml"
+    auditor -> auditor "Diff: surface − cassetted = un-cassetted"
+    auditor -> regression "Files issue 8495 → fix lands cassette + test"
+
+    recorder -> cass_revparse "Writes rev_parse.yaml weekly (must be added in lockstep)"
+    recorder -> cass_commit "Writes commit.yaml weekly (existing)"
+
+    replay_h -> dispatcher "Drives FakeGit per cassette.input.command"
+    dispatcher -> m_revparse "Calls fake.rev_parse(cwd, 'HEAD') after seed commit"
+    dispatcher -> schema "Loads + validates cassette; applies normalizers"
+    schema -> cassettes "Loads YAML, validates against Pydantic Cassette model"
+
+    reg_8495 -> catalog_fake "Asserts 'rev_parse' present in surface"
+    reg_8495 -> catalog_cass "Asserts 'rev_parse' present in cassetted set"
+  }
+}
+
+views {
+  view index of hydraflow {
+    title "Issue 8495 — cassette pipeline overview"
+    include *
+    autoLayout LeftRight
+  }
+
+  view producers of hydraflow {
+    title "Producers: auditor + recorder"
+    include
+      auditor.*,
+      refresh.*,
+      cassettes.*
+    autoLayout TopBottom
+  }
+
+  view replay_path of hydraflow {
+    title "Replay-side gate (FakeGit ↔ cassette)"
+    include
+      replay.*,
+      fake.*,
+      cassettes.cass_revparse
+    autoLayout LeftRight
+  }
+}

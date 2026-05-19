@@ -30,6 +30,7 @@ from models import (
     HITLItem,
     IssueCreatedPayload,
     LabelCounts,
+    LabelDrift,
     MergeUpdatePayload,
     PRCreatedPayload,
     PRInfo,
@@ -469,6 +470,84 @@ class PRManager:
         )
         return sha
 
+    async def push_synthetic_commit(self, branch: str, message: str) -> str:
+        """Append a tree-identical synthetic commit on top of *branch*.
+
+        Workaround for issue #8705: rc/* branches created via the git/refs
+        REST API and turned into PRs by ``gh pr create`` don't fire
+        ``pull_request: opened`` workflows reliably (CodeQL, Browser
+        Scenarios, etc. never run on the PR head SHA). Pushing a
+        synthetic commit fires ``pull_request: synchronize`` which DOES
+        trigger workflows. The commit's tree is identical to its parent
+        so no real changes are introduced.
+
+        Returns the new HEAD SHA.
+        """
+        if self._config.dry_run:
+            logger.info(
+                "[dry-run] Would push synthetic commit on %s: %s", branch, message
+            )
+            return "dry-run-sha"
+        self._assert_repo()
+
+        head_raw = await self._run_gh(
+            "gh",
+            "api",
+            f"repos/{self._repo}/git/refs/heads/{branch}",
+            "--jq",
+            ".object.sha",
+        )
+        head_sha = head_raw.strip().strip('"')
+        if not head_sha:
+            raise RuntimeError(f"Could not resolve {branch} HEAD sha")
+
+        tree_raw = await self._run_gh(
+            "gh",
+            "api",
+            f"repos/{self._repo}/git/commits/{head_sha}",
+            "--jq",
+            ".tree.sha",
+        )
+        tree_sha = tree_raw.strip().strip('"')
+        if not tree_sha:
+            raise RuntimeError(f"Could not resolve tree sha for {head_sha}")
+
+        new_raw = await self._run_gh(
+            "gh",
+            "api",
+            f"repos/{self._repo}/git/commits",
+            "--method",
+            "POST",
+            "--field",
+            f"message={message}",
+            "--field",
+            f"tree={tree_sha}",
+            "--raw-field",
+            f"parents[]={head_sha}",
+        )
+        try:
+            new_commit = json.loads(new_raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"Unexpected synthetic-commit POST response: {new_raw[:200]}"
+            ) from exc
+        new_sha = str(new_commit.get("sha", "")).strip()
+        if not new_sha:
+            raise RuntimeError(
+                f"Synthetic commit POST returned no sha: {new_raw[:200]}"
+            )
+
+        await self._run_gh(
+            "gh",
+            "api",
+            f"repos/{self._repo}/git/refs/heads/{branch}",
+            "--method",
+            "PATCH",
+            "--field",
+            f"sha={new_sha}",
+        )
+        return new_sha
+
     async def find_open_promotion_pr(self) -> PRInfo | None:
         """Return the open ``rc/*`` promotion PR targeting ``main_branch``, or None.
 
@@ -608,9 +687,18 @@ class PRManager:
         Each entry: ``{number, branch, merged, closed_at, url}``. Used for
         RC lifecycle dashboard metrics (throughput + failure rate). Only
         PRs whose ``updated_at`` is within *days* of now are returned.
+
+        #8786 Phase 11: routed through the contracts boundary helper in
+        lenient mode against ``GhPromotionPR``. The HydraFlow-defined
+        projection (a custom ``--jq``) is part of our public contract
+        with downstream callers and benefits from the same drift signal
+        as direct ``--json`` invocations.
         """
         if self._config.dry_run:
             return []
+        from contracts.boundary import parse_list_with_shape  # noqa: PLC0415
+        from contracts.shapes import GhPromotionPR  # noqa: PLC0415
+
         prefix = self._config.rc_branch_prefix
         cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
         try:
@@ -641,7 +729,15 @@ class PRManager:
             text = raw.strip()
             if not text:
                 return []
-            return json.loads(text)
+            results = parse_list_with_shape(text, GhPromotionPR)
+            return [
+                (
+                    r.model_instance.model_dump(by_alias=False)
+                    if r.model_instance is not None
+                    else (r.payload if isinstance(r.payload, dict) else {})
+                )
+                for r in results
+            ]
         except (RuntimeError, ValueError, json.JSONDecodeError):
             logger.debug("Could not list recent promotion PRs", exc_info=True)
             return []
@@ -749,6 +845,40 @@ class PRManager:
             )
             return False
 
+    @port_span("hf.port.pr.update_pr_base")
+    async def update_pr_base(self, pr_number: int, *, base: str) -> bool:
+        """Retarget a PR's base branch via `gh pr edit --base`.
+
+        Used by ``BaseBranchAutoRetargeter`` to retarget PRs opened against
+        the wrong base after the two-tier branch model is activated. Idempotent
+        from GitHub's side (re-targeting to the same base is a no-op).
+
+        Returns True on success, False on failure.
+        """
+        self._assert_repo()
+        if self._config.dry_run:
+            logger.info("[dry-run] Would update PR #%d base to %s", pr_number, base)
+            return True
+        try:
+            await run_subprocess(
+                "gh",
+                "pr",
+                "edit",
+                str(pr_number),
+                "--repo",
+                self._repo,
+                "--base",
+                base,
+                cwd=self._config.repo_root,
+                gh_token=self._credentials.gh_token,
+            )
+            return True
+        except RuntimeError as exc:
+            logger.warning(
+                "update_pr_base(#%d, base=%s) failed: %s", pr_number, base, exc
+            )
+            return False
+
     async def _rebase_and_recheck_ci(
         self,
         pr_number: int,
@@ -825,9 +955,18 @@ class PRManager:
     async def find_open_pr_for_branch(
         self, branch: str, *, issue_number: int = 0
     ) -> PRInfo | None:
-        """Return the open PR for *branch*, or ``None`` when absent/unreadable."""
+        """Return the open PR for *branch*, or ``None`` when absent/unreadable.
+
+        #8786 Phase 12: routed through the contracts boundary helper in
+        lenient mode against ``GhPRDetail`` (only ``number`` is required;
+        ``url``/``isDraft`` are optional, matching the narrow ``--jq``
+        projection used here).
+        """
         if self._config.dry_run:
             return None
+        from contracts.boundary import parse_list_with_shape  # noqa: PLC0415
+        from contracts.shapes import GhPRDetail  # noqa: PLC0415
+
         head_filter = f"{self._repo_owner}:{branch}" if self._repo_owner else branch
         try:
             raw = await self._run_gh(
@@ -845,16 +984,21 @@ class PRManager:
                 "--jq",
                 "[.[] | {number, url: .html_url, isDraft: .draft}]",
             )
-            prs = json.loads(raw)
-            if not prs:
+            from contracts.boundary import field_or  # noqa: PLC0415
+
+            results = parse_list_with_shape(raw, GhPRDetail)
+            if not results:
                 return None
-            pr_data = prs[0]
+            r = results[0]
+            # ``number`` may be a string from a drifted payload; coerce
+            # via int() so the existing except clause catches bad shapes
+            # cleanly with the same semantics as before.
             return PRInfo(
-                number=int(pr_data["number"]),
+                number=int(field_or(r, "number", 0)),
                 issue_number=issue_number,
                 branch=branch,
-                url=str(pr_data.get("url", "")),
-                draft=bool(pr_data.get("isDraft", False)),
+                url=str(field_or(r, "url", "")),
+                draft=bool(field_or(r, "is_draft", False, dict_key="isDraft")),
             )
         except (RuntimeError, ValueError, KeyError, TypeError, json.JSONDecodeError):
             logger.debug(
@@ -1262,7 +1406,19 @@ class PRManager:
             return "UNKNOWN"
 
     async def list_issues_by_label(self, label: str) -> list[GitHubIssueSummary]:
-        """Return open issues with the given label as a list of dicts."""
+        """Return open issues with the given label as a list of dicts.
+
+        #8786 Phase 8: parses through ``contracts.boundary.parse_list_with_shape``
+        in *lenient* mode — validation failures log WARN but the method's
+        return type and behaviour are unchanged. Existing callers that
+        access ``item["number"]`` etc keep working; shape drift is
+        observable in ``server.log`` and via ``LiveCorpusReplayLoop``.
+        """
+        # Local import keeps the module-load contract identical when
+        # the contracts subsystem isn't imported elsewhere yet.
+        from contracts.boundary import parse_list_with_shape  # noqa: PLC0415
+        from contracts.shapes import GhIssueListItem  # noqa: PLC0415
+
         self._assert_repo()
         output = await self._run_gh(
             "gh",
@@ -1279,21 +1435,30 @@ class PRManager:
             "--limit",
             "100",
         )
-        items = json.loads(output)
+        from contracts.boundary import field_or  # noqa: PLC0415
+
+        results = parse_list_with_shape(output, GhIssueListItem)
         return [
             {
-                "number": item.get("number", 0),
-                "title": item.get("title", ""),
-                "body": item.get("body", ""),
-                "updated_at": item.get("updatedAt", ""),
+                "number": field_or(r, "number", 0),
+                "title": field_or(r, "title", ""),
+                "body": field_or(r, "body", ""),
+                "updated_at": field_or(r, "updated_at", "", dict_key="updatedAt"),
             }
-            for item in items
+            for r in results
         ]
 
     async def list_closed_issues_by_label(
         self, label: str, limit: int = 100
     ) -> list[GitHubIssueSummary]:
-        """Return closed issues with the given label as a list of dicts."""
+        """Return closed issues with the given label as a list of dicts.
+
+        #8786 Phase 10: routed through the contracts boundary helper in
+        lenient mode — same pattern as ``list_issues_by_label``.
+        """
+        from contracts.boundary import parse_list_with_shape  # noqa: PLC0415
+        from contracts.shapes import GhIssueListItem  # noqa: PLC0415
+
         self._assert_repo()
         output = await self._run_gh(
             "gh",
@@ -1310,15 +1475,17 @@ class PRManager:
             "--limit",
             str(limit),
         )
-        items = json.loads(output)
+        from contracts.boundary import field_or  # noqa: PLC0415
+
+        results = parse_list_with_shape(output, GhIssueListItem)
         return [
             {
-                "number": item.get("number", 0),
-                "title": item.get("title", ""),
-                "body": item.get("body", ""),
-                "updated_at": item.get("updatedAt", ""),
+                "number": field_or(r, "number", 0),
+                "title": field_or(r, "title", ""),
+                "body": field_or(r, "body", ""),
+                "updated_at": field_or(r, "updated_at", "", dict_key="updatedAt"),
             }
-            for item in items
+            for r in results
         ]
 
     async def list_prs_by_label(self, label: str) -> list[PRInfo]:
@@ -1532,6 +1699,114 @@ class PRManager:
                 if pr_number is not None:
                     await self._remove_label("pr", pr_number, lbl)
 
+    async def find_label_drift(self) -> list[LabelDrift]:
+        """Scan open PRs for cross-entity label drift vs their linked issues.
+
+        Returns a list of :class:`LabelDrift` records, one per drifted pair.
+        See ADR-0056 for the drift kinds and reconciliation policy.
+
+        Each tick: fetch open PRs (any state), parse ``Fixes #N`` from the
+        body, fetch the linked issue's labels, then classify the pair.
+        """
+        raw = await self._gh_json_query(
+            "gh",
+            "pr",
+            "list",
+            "--repo",
+            self._repo,
+            "--state",
+            "open",
+            "--limit",
+            "200",
+            "--json",
+            "number,labels,body,commits",
+            dry_run_return=[],
+            error_log="find_label_drift: pr list failed",
+        )
+        if not isinstance(raw, list):
+            return []
+
+        out: list[LabelDrift] = []
+        pre_pr_labels = {"hydraflow-ready", "hydraflow-plan", "hydraflow-find"}
+        post_pr_labels = {"hydraflow-fixed", "hydraflow-hitl"}
+        fixes_re = re.compile(r"[Ff]ixes\s+#(\d+)")
+
+        for pr in raw:
+            if not isinstance(pr, dict):
+                continue
+            try:
+                pr_n = int(pr.get("number", 0))
+            except (TypeError, ValueError):
+                continue
+            if pr_n <= 0:
+                continue
+            pr_labels = {
+                lbl.get("name", "")
+                for lbl in (pr.get("labels") or [])
+                if isinstance(lbl, dict)
+            }
+            pr_pipeline = next(
+                (lbl for lbl in pr_labels if lbl.startswith("hydraflow-")),
+                "",
+            )
+            commits = len(pr.get("commits") or [])
+            body = pr.get("body") or ""
+            m = fixes_re.search(body)
+            if not m:
+                continue
+            issue_n = int(m.group(1))
+
+            issue_labels_raw = await self._gh_json_query(
+                "gh",
+                "issue",
+                "view",
+                str(issue_n),
+                "--repo",
+                self._repo,
+                "--json",
+                "labels",
+                dry_run_return={"labels": []},
+                error_log=f"find_label_drift: issue {issue_n} fetch failed",
+            )
+            if not isinstance(issue_labels_raw, dict):
+                continue
+            issue_labels = {
+                lbl.get("name", "")
+                for lbl in (issue_labels_raw.get("labels") or [])
+                if isinstance(lbl, dict)
+            }
+            issue_pipeline = next(
+                (lbl for lbl in issue_labels if lbl.startswith("hydraflow-")),
+                "",
+            )
+
+            kind: str | None = None
+            if (
+                issue_pipeline in pre_pr_labels
+                and pr_pipeline == "hydraflow-review"
+                and commits > 0
+            ):
+                kind = "pr_ahead_of_issue"
+            elif pr_pipeline in pre_pr_labels and commits > 0:
+                kind = "pr_at_pre_pr_stage"
+            elif pr_pipeline in post_pr_labels and issue_pipeline in pre_pr_labels:
+                kind = "pr_ahead_of_issue"
+
+            if kind is None:
+                continue
+            out.append(
+                LabelDrift(
+                    issue=issue_n,
+                    pr=pr_n,
+                    pr_commits=commits,
+                    issue_label=issue_pipeline,
+                    pr_label=pr_pipeline,
+                    kind=kind,  # type: ignore[arg-type]
+                    detected_at=datetime.now(UTC),
+                )
+            )
+        return out
+
     async def get_dependabot_alerts(self, state: str = "open") -> list[dict]:
         """Fetch Dependabot alerts for the repository.
 
@@ -1552,6 +1827,11 @@ class PRManager:
         """Search for an open issue with an exact title match.
 
         Returns the issue number of the first match, or 0 if none found.
+
+        #8786 Phase 15: routed through the contracts boundary helper in
+        lenient mode against ``GhIssueListItem``. The ``--json number,title``
+        shape is a strict subset; drift in either field surfaces via WARN
+        without changing the method's return semantics.
         """
         self._assert_repo()
         if self._config.dry_run:
@@ -1575,12 +1855,18 @@ class PRManager:
                 title,
                 cwd=self._config.repo_root,
             )
-            import json as _json  # noqa: PLC0415
+            if not raw.strip():
+                return 0
+            from contracts.boundary import (  # noqa: PLC0415
+                field_or,
+                parse_list_with_shape,
+            )
+            from contracts.shapes import GhIssueListItem  # noqa: PLC0415
 
-            results = _json.loads(raw) if raw.strip() else []
-            for item in results:
-                if item.get("title") == title:
-                    return int(item["number"])
+            results = parse_list_with_shape(raw, GhIssueListItem)
+            for r in results:
+                if field_or(r, "title", "") == title:
+                    return int(field_or(r, "number", 0))
             return 0
         except (RuntimeError, ValueError):
             return 0
@@ -1592,7 +1878,14 @@ class PRManager:
         body: str,
         labels: list[str] | None = None,
     ) -> int:
-        """Create a new GitHub issue. Returns the issue number (0 on failure)."""
+        """Create a new GitHub issue. Returns the issue number (0 on failure).
+
+        Callers MUST check for ``0`` before storing or referencing the
+        returned value.  Treating ``0`` as a real issue number causes
+        downstream ``gh issue comment 0`` / ``gh issue close 0`` calls
+        to fail with "Could not resolve to an issue or pull request with
+        the number of 0" every cycle.
+        """
         self._assert_repo()
         if self._config.dry_run:
             logger.info("[dry-run] Would create issue: %s", title)
@@ -1747,7 +2040,12 @@ class PRManager:
 
         fd, tmp_path = tempfile.mkstemp(suffix=".png", prefix="hydraflow-screenshot-")
         try:
-            with os.fdopen(fd, "wb") as f:
+            try:
+                f = os.fdopen(fd, "wb")
+            except OSError:
+                os.close(fd)
+                raise
+            with f:
                 f.write(png_bytes)
 
             gist_args = [
@@ -1814,7 +2112,16 @@ class PRManager:
             return []
 
     async def get_pr_approvers(self, pr_number: int) -> list[str]:
-        """Fetch the list of GitHub usernames that approved *pr_number*."""
+        """Fetch the list of GitHub usernames that approved *pr_number*.
+
+        #8786 Phase 16: routed through the contracts boundary helper in
+        lenient mode against ``GhPRReviewsResponse``. Drift in the
+        review state enum (e.g. a new ``DRAFT`` state) or author shape
+        fires WARN immediately at the call site.
+        """
+        from contracts.boundary import parse_with_shape  # noqa: PLC0415
+        from contracts.shapes import GhPRReviewsResponse  # noqa: PLC0415
+
         try:
             output = await self._run_gh(
                 "gh",
@@ -1826,15 +2133,26 @@ class PRManager:
                 "--json",
                 "reviews",
             )
-            data = json.loads(output)
-            reviews = data.get("reviews", [])
+            result = parse_with_shape(output, GhPRReviewsResponse)
             approvers: list[str] = []
-            for review in reviews:
+            if result.model_instance is not None:
+                for review in result.model_instance.reviews:
+                    if review.state == "APPROVED" and review.author is not None:
+                        login = review.author.login
+                        if login and login not in approvers:
+                            approvers.append(login)
+                return approvers
+            # Lenient fallback — drift logged, dict-access keeps working.
+            data = result.payload if isinstance(result.payload, dict) else {}
+            for review in data.get("reviews", []) or []:
+                if not isinstance(review, dict):
+                    continue
                 if review.get("state") == "APPROVED":
-                    author = review.get("author", {})
-                    login = author.get("login", "")
-                    if login and login not in approvers:
-                        approvers.append(login)
+                    author = review.get("author") or {}
+                    if isinstance(author, dict):
+                        login = author.get("login", "")
+                        if login and login not in approvers:
+                            approvers.append(login)
             return approvers
         except (RuntimeError, ValueError) as exc:
             logger.debug("Could not get approvers for PR #%d: %s", pr_number, exc)
@@ -1882,7 +2200,17 @@ class PRManager:
     _RUN_ID_PATTERN = re.compile(r"/actions/runs/(\d+)")
 
     async def _get_failed_check_runs(self, pr_number: int) -> list[tuple[str, str]]:
-        """Return [(name, run_id), ...] for failed CI checks on this PR."""
+        """Return [(name, run_id), ...] for failed CI checks on this PR.
+
+        #8786 Phase 13: routed through the contracts boundary helper in
+        lenient mode against ``GhCheckRun``. The helper logs WARN on
+        shape drift (e.g. a new check state enum value, removed
+        detailsUrl) and falls back to the raw dict so the existing
+        downstream processing keeps working.
+        """
+        from contracts.boundary import field_or, parse_list_with_shape  # noqa: PLC0415
+        from contracts.shapes import GhCheckRun  # noqa: PLC0415
+
         raw = await self._run_gh(
             "gh",
             "pr",
@@ -1893,15 +2221,16 @@ class PRManager:
             "--json",
             "name,state,detailsUrl",
         )
-        checks = json.loads(raw)
+        results = parse_list_with_shape(raw, GhCheckRun)
 
         seen_run_ids: set[str] = set()
         failed_names: list[tuple[str, str]] = []
-        for check in checks:
-            state = check.get("state", "").upper()
+        for r in results:
+            name = str(field_or(r, "name", "unknown"))
+            state = str(field_or(r, "state", "")).upper()
+            details_url = str(field_or(r, "details_url", "", dict_key="detailsUrl"))
             if state in self._PASSING_STATES or state in self._PENDING_STATES:
                 continue
-            details_url = check.get("detailsUrl", "")
             if not details_url:
                 continue
             match = self._RUN_ID_PATTERN.search(details_url)
@@ -1910,7 +2239,7 @@ class PRManager:
             run_id = match.group(1)
             if run_id not in seen_run_ids:
                 seen_run_ids.add(run_id)
-                failed_names.append((check.get("name", "unknown"), run_id))
+                failed_names.append((name or "unknown", run_id))
         return failed_names
 
     async def _fetch_run_log(self, name: str, run_id: str) -> str:
@@ -2053,7 +2382,23 @@ class PRManager:
             checks = await self.get_pr_checks(pr_number)
 
             if not checks:
-                return True, "No CI checks found"
+                # No checks registered yet. For freshly-opened PRs (e.g.
+                # RC promotion PRs cut by StagingPromotionLoop), CI may
+                # not have registered any checks in the rollup until a
+                # few seconds after the PR opens. The legacy behavior
+                # ("treat empty as success") raced with the merge
+                # attempt: wait_for_ci would return True immediately,
+                # the loop would attempt merge, and GitHub would reject
+                # because required checks weren't satisfied. Fix: treat
+                # empty as PENDING — keep polling until checks appear or
+                # timeout. The caller's "timed out" / "ci_pending" path
+                # retries on the next loop tick.
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=poll_interval)
+                    return False, "Stopped"
+                except TimeoutError:
+                    elapsed += poll_interval
+                    continue
 
             verdict = self._evaluate_ci_checks(checks, pr_number)
             if verdict is None:
@@ -2169,9 +2514,19 @@ class PRManager:
             return None
 
     async def list_conflicting_prs(self) -> list[ConflictingPR]:
-        """Return open PRs whose ``mergeable`` field is ``CONFLICTING``."""
+        """Return open PRs whose ``mergeable`` field is ``CONFLICTING``.
+
+        #8786 Phase 14: routed through the contracts boundary helper in
+        lenient mode against ``GhPRDetail``. The shape (``number``,
+        ``headRefName``, ``labels``, ``mergeable``) matches exactly, so
+        validation fires for any drift in the ``mergeable`` enum or
+        labels-array structure.
+        """
         if self._config.dry_run:
             return []
+
+        from contracts.boundary import parse_list_with_shape  # noqa: PLC0415
+        from contracts.shapes import GhPRDetail  # noqa: PLC0415
 
         try:
             raw = await self._run_gh(
@@ -2190,27 +2545,38 @@ class PRManager:
             return []
 
         try:
-            payload = json.loads(raw or "[]")
-        except json.JSONDecodeError:
+            results_list = parse_list_with_shape(raw or "[]", GhPRDetail)
+        except ValueError:
             logger.warning(
                 "list_conflicting_prs: malformed JSON from gh", exc_info=True
             )
             return []
 
+        from contracts.boundary import field_or  # noqa: PLC0415
+
         results: list[ConflictingPR] = []
-        for entry in payload:
+        for r in results_list:
             try:
-                if entry.get("mergeable") != "CONFLICTING":
+                if field_or(r, "mergeable", "") != "CONFLICTING":
                     continue
+                if r.model_instance is not None:
+                    label_names = [
+                        lbl.name for lbl in r.model_instance.labels if lbl.name
+                    ]
+                else:
+                    entry = r.payload if isinstance(r.payload, dict) else {}
+                    label_names = [
+                        str(lbl.get("name", ""))
+                        for lbl in (entry.get("labels") or [])
+                        if lbl.get("name")
+                    ]
                 results.append(
                     ConflictingPR(
-                        number=int(entry["number"]),
-                        branch=str(entry.get("headRefName") or ""),
-                        labels=[
-                            str(lbl.get("name", ""))
-                            for lbl in (entry.get("labels") or [])
-                            if lbl.get("name")
-                        ],
+                        number=int(field_or(r, "number", 0)),
+                        branch=str(
+                            field_or(r, "head_ref_name", "", dict_key="headRefName")
+                        ),
+                        labels=label_names,
                     )
                 )
             except (KeyError, TypeError, ValueError):
@@ -2705,7 +3071,12 @@ class PRManager:
         """
         fd, tmp_path = tempfile.mkstemp(suffix=".md", prefix="hydraflow-body-")
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
+            try:
+                f = os.fdopen(fd, "w", encoding="utf-8")
+            except OSError:
+                os.close(fd)
+                raise
+            with f:
                 f.write(body)
             return await run_subprocess_with_retry(
                 *cmd,

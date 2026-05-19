@@ -35,11 +35,30 @@ class MockWorldSeed:
     # invocation.
     scripts: dict[str, dict[int, list[Any]]] = field(default_factory=dict)
 
+    # Per-(issue, role) scripted advisor responses. Outer key is issue
+    # number; inner key is the advisor role (``"pre_flight"`` /
+    # ``"mid_flight"`` / ``"post_verify"``); value is a list of payloads
+    # (typically JSON strings shaped like ``PostVerifyResult`` /
+    # ``ReviewPlan``) that get popped per advisor invocation.
+    #
+    # Lives in its own field instead of ``scripts`` because the FakeLLM
+    # advisor runner is keyed by a compound (issue, role) — the 2-arg
+    # ``script_<phase>(issue, results)`` shape used by the loader for
+    # ``scripts`` can't carry the role axis. Default empty for
+    # back-compat with every existing seed payload.
+    advisor_scripts: dict[int, dict[str, list[Any]]] = field(default_factory=dict)
+
     # How many ticks each enabled loop fires before assertions run.
     cycles_to_run: int = 4
 
     # Subset of loops to enable. None = all registered loops.
     loops_enabled: list[str] | None = None
+
+    # (conclusion, url) for the main-branch CI status returned by
+    # FakeGitHub.get_latest_ci_status().  Defaults to green so all existing
+    # scenarios are unaffected.  CIMonitorLoop sandbox scenarios set this to
+    # ("failure", "<run_url>") to drive the red-CI path.
+    main_branch_ci_status: tuple[str, str] = ("success", "")
 
     def to_json(self) -> str:
         """Serialize to JSON for cross-process transfer."""
@@ -49,13 +68,21 @@ class MockWorldSeed:
     def from_json(cls, raw: str) -> MockWorldSeed:
         """Deserialize from JSON string."""
         data = json.loads(raw)
-        # asdict() converts tuples to lists; coerce repos back.
+        # asdict() converts tuples to lists; coerce repos and ci status back.
         if "repos" in data:
             data["repos"] = [tuple(r) for r in data["repos"]]
+        if "main_branch_ci_status" in data:
+            data["main_branch_ci_status"] = tuple(data["main_branch_ci_status"])
         # JSON keys are strings; coerce script issue keys back to int.
         if "scripts" in data:
             data["scripts"] = {
                 phase: {int(k): v for k, v in by_issue.items()}
                 for phase, by_issue in data["scripts"].items()
+            }
+        # Same coercion for advisor_scripts (issue is the OUTER key here).
+        if "advisor_scripts" in data:
+            data["advisor_scripts"] = {
+                int(issue): by_role
+                for issue, by_role in data["advisor_scripts"].items()
             }
         return cls(**data)

@@ -26,6 +26,8 @@ from mockworld.fakes import (
     FakeLLM,
     FakeWorkspace,
 )
+from mockworld.fakes.fake_docker import FakeDocker
+from mockworld.fakes.fake_subprocess_runner import FakeSubprocessRunner
 from mockworld.seed import MockWorldSeed
 from orchestrator import HydraFlowOrchestrator
 from ports import IssueFetcherPort, IssueStorePort, PRPort, WorkspacePort
@@ -49,6 +51,24 @@ def _load_seed() -> MockWorldSeed:
 
 async def main() -> None:
     config = load_runtime_config()
+    # Sandbox-specific config overrides — disable downstream code paths
+    # that spawn real `claude` subprocesses. The sandbox is `internal: true`
+    # per docker-compose.sandbox.yml, so these subprocesses hang for ~30s
+    # of api_retry exponential backoff before failing with "unknown"
+    # network errors. With multiple parallel issues (s02_batch_three_issues)
+    # the cumulative hang exceeds the per-scenario 60s test timeout.
+    #
+    # The four primary LLM-backed runners (triage/plan/agent/review) are
+    # already overridden via `runners=fake_llm` below; these flags turn
+    # off the remaining secondary `claude` callers:
+    #
+    # - TranscriptSummarizer: spawns `claude` via subprocess_util.run_simple
+    #   after each agent phase to summarize the transcript.
+    # - ResearchRunner: spawns `claude` via _execute before each plan phase
+    #   to gather codebase context. PlanPhase._should_research() honors
+    #   this flag (see src/plan_phase.py).
+    config.transcript_summarization_enabled = False  # type: ignore[misc]
+    config.research_enabled = False  # type: ignore[misc]
     seed = _load_seed()
     event_bus = EventBus()
     state = build_state_tracker(config)
@@ -85,6 +105,14 @@ async def main() -> None:
         for issue_number, results in by_issue.items():
             getattr(fake_llm, f"script_{phase}")(issue_number, results)
 
+    # Advisor scripts use a 3-arg shape: (issue_number, role, results) — the
+    # 2-arg ``script_<phase>`` loop above can't carry the role axis, so they
+    # live in their own seed field. Empty for non-advisor scenarios, which
+    # keeps every existing seed payload unchanged.
+    for issue_number, by_role in seed.advisor_scripts.items():
+        for role, results in by_role.items():
+            fake_llm.script_advisor(issue_number, role, results)
+
     # Every async-touched ``subprocess.run`` site in production code now
     # specifies ``timeout=`` (PRs #8454, #8456, #8468 — enforced by
     # ``tests/regressions/test_async_subprocess_timeouts.py``), so caretaker
@@ -95,6 +123,17 @@ async def main() -> None:
         is_enabled=lambda *_a, **_kw: True,
         get_interval=lambda *_a, **_kw: 60,
     )
+
+    # FakeSubprocessRunner short-circuits every remaining shell-out to
+    # ``claude -p`` that isn't covered by ``runners=fake_llm`` — most
+    # critically ``TranscriptSummarizer``, ``HITLRunner``, and the
+    # pre-quality-review skill subprocesses inside ``AgentRunner``.
+    # Without this override they hit the air-gapped network, retry for
+    # ~90s each, and overrun the scenario timeout.  The default
+    # FakeDocker response is a single ``{success: True}`` event that
+    # returns instantly.
+    fake_docker = FakeDocker()
+    fake_subprocess_runner = FakeSubprocessRunner(fake_docker)
 
     svc = build_services(
         config,
@@ -107,7 +146,23 @@ async def main() -> None:
         store=store,
         fetcher=fetcher,
         runners=fake_llm,
+        subprocess_runner=fake_subprocess_runner,
     )
+
+    # Attach the advisor-routing sentinel — mirrors
+    # tests/scenarios/fakes/mock_world.py::_wire_targets so
+    # ReviewPhase._build_post_verify_runner's ``_PostVerifyRunner.run``
+    # adapter routes advisor consults into FakeLLM (via
+    # ``pop_advisor_result``) instead of falling through to
+    # ``ReviewRunner._execute``, which would spawn a real Claude
+    # subprocess and fail under the sandbox's air-gapped network.
+    #
+    # The sentinel must land on the SAME object the production runner
+    # adapter probes (``parent._reviewers.__dict__``). With
+    # ``runners=fake_llm`` above, ``svc.reviewers`` IS the
+    # ``_FakeReviewRunner`` — a plain Python instance whose ``__dict__``
+    # carries the assignment cleanly.
+    svc.reviewers._mockworld_fake_llm = fake_llm  # type: ignore[attr-defined]
 
     orch = HydraFlowOrchestrator(
         config,

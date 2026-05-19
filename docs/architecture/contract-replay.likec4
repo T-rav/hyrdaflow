@@ -1,0 +1,99 @@
+// LikeC4 view of the FakeGitHub contract-replay loop and the gap closed by
+// issue #8510 (FakeGitHub.close_issue cassette).
+
+specification {
+  element actor
+  element system
+  element module
+  element file
+  element loop
+}
+
+model {
+  auditor = loop 'FakeCoverageAuditorLoop' {
+    description '
+      Spec §4.7: walks src/mockworld/fakes/ AST + cassette dirs;
+      files a hydraflow-ready issue per uncovered method.
+    '
+  }
+
+  contractTest = system 'fake_github_contract test' {
+    description 'pytest target that replays each YAML cassette through FakeGitHub.'
+
+    dispatch = module '_invoke_fake_github' {
+      description '
+        Maps cassette.input.command -> FakeGitHub method.
+        Returns FakeOutput(exit_code, stdout, stderr).
+        Issue #8510 adds the close_issue branch here.
+      '
+    }
+
+    replay = module '_replay.replay_cassette' {
+      description 'Loads YAML, runs invoker, asserts equality after normalizers.'
+    }
+  }
+
+  cassettes = system 'cassette corpus' {
+    description 'tests/trust/contracts/cassettes/<adapter>/*.yaml'
+
+    githubDir = file 'cassettes/github/' {
+      description '
+        Existing: pr_create.yaml, merge_pr.yaml.
+        Issue #8510 adds: close_issue.yaml.
+      '
+    }
+  }
+
+  fakes = system 'MockWorld fakes' {
+    description 'src/mockworld/fakes/'
+
+    fakeGitHub = module 'FakeGitHub' {
+      description '
+        Adapter-surface methods: create_pr, merge_pr, close_issue,
+        close_task, find_existing_issue, push_branch, ...
+      '
+    }
+  }
+
+  realAdapter = system 'real-adapter counterpart' {
+    prManager = module 'PRManager.close_issue' {
+      description 'Runs `gh issue close <num> --repo <repo>` (src/pr_manager.py:1311).'
+    }
+  }
+
+  regression = file 'tests/regressions/test_issue_8510.py' {
+    description '
+      Asserts close_issue is in adapter-surface AND in
+      catalog_cassette_methods(_CASSETTE_DIR).
+    '
+  }
+
+  // relationships
+  auditor -> fakes 'AST-walks adapter surface'
+  auditor -> cassettes 'reads input.command from each YAML'
+  auditor -> contractTest 'files issue when surface ⊄ cassetted'
+
+  contractTest -> cassettes 'parametrize over *.yaml'
+  contractTest.dispatch -> fakes.fakeGitHub 'await fake.<command>(...)'
+  contractTest.replay -> contractTest.dispatch 'invokes'
+
+  cassettes.githubDir -> realAdapter.prManager 'cassette mirrors real-adapter shape'
+  regression -> auditor 'imports catalog_fake_methods/catalog_cassette_methods'
+}
+
+views {
+  view containers {
+    title 'Contract replay loop — issue #8510 closes close_issue cassette gap'
+    include *
+  }
+
+  dynamic view replayFlow {
+    title 'Cassette replay flow for close_issue (post-fix)'
+    contractTest.replay -> cassettes.githubDir 'load close_issue.yaml'
+    cassettes.githubDir -> contractTest.dispatch 'cassette.input.command="close_issue"'
+    contractTest.dispatch -> fakes.fakeGitHub 'await fake.close_issue(int(args[0]))'
+    fakes.fakeGitHub -> contractTest.dispatch 'returns None'
+    contractTest.dispatch -> contractTest.replay 'FakeOutput(0, "", "")'
+    contractTest.replay -> contractTest.replay 'assert == cassette.output'
+  }
+}

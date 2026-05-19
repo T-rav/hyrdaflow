@@ -67,6 +67,7 @@ def _make_loop(
     prs.close_issue = AsyncMock()
     prs.create_rc_branch = AsyncMock(return_value="sha123")
     prs.create_promotion_pr = AsyncMock(return_value=42)
+    prs.push_synthetic_commit = AsyncMock(return_value="synthetic-sha-rc")
     prs.create_issue = AsyncMock(return_value=1234)
     prs.list_rc_branches = AsyncMock(return_value=[])
     prs.delete_branch = AsyncMock(return_value=True)
@@ -119,6 +120,15 @@ class TestCadenceGate:
         assert result["pr"] == 42
         prs.create_rc_branch.assert_called_once()
         prs.create_promotion_pr.assert_called_once()
+        # Workflow-trigger workaround for #8705: synthetic commit is pushed
+        # AFTER PR creation so pull_request:synchronize fires the workflows
+        # that pull_request:opened doesn't.
+        prs.push_synthetic_commit.assert_called_once()
+        rc_arg = prs.push_synthetic_commit.call_args.args[0]
+        assert rc_arg.startswith("rc/")
+        msg_arg = prs.push_synthetic_commit.call_args.args[1]
+        assert "trigger CI" in msg_arg
+        assert "(#42)" in msg_arg
 
     @pytest.mark.asyncio
     async def test_cuts_rc_on_first_run_no_timestamp(

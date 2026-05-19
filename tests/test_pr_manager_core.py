@@ -626,6 +626,28 @@ class TestUploadScreenshotGist:
         assert result == ""
         mgr._run_gh.assert_not_awaited()
 
+    @pytest.mark.asyncio
+    async def test_closes_fd_when_fdopen_raises(self, config, event_bus):
+        """fd must be closed when os.fdopen raises so the OS fd is not leaked."""
+        import base64
+
+        mgr = make_pr_manager(config, event_bus)
+        fake_fd = 88
+        png_b64 = base64.b64encode(b"\x89PNG fake").decode()
+
+        with (
+            patch(
+                "pr_manager.tempfile.mkstemp",
+                return_value=(fake_fd, "/tmp/fake.png"),
+            ),
+            patch("pr_manager.os.fdopen", side_effect=OSError("cannot open")),
+            patch("pr_manager.os.close") as mock_close,
+        ):
+            result = await mgr.upload_screenshot_gist(png_b64)
+
+        assert result == ""
+        mock_close.assert_called_once_with(fake_fd)
+
 
 # ---------------------------------------------------------------------------
 # _gh_json_query
@@ -1426,8 +1448,18 @@ async def test_wait_for_ci_fails_on_failure(config, event_bus):
 
 
 @pytest.mark.asyncio
-async def test_wait_for_ci_passes_when_no_checks(config, event_bus):
-    """wait_for_ci should return (True, ...) when no CI checks exist."""
+async def test_wait_for_ci_polls_when_no_checks_until_timeout(config, event_bus):
+    """wait_for_ci should treat empty checks as pending and poll until timeout.
+
+    Regression for the StagingPromotionLoop race: a freshly-opened PR
+    (e.g. an rc/* promotion PR) has no checks registered for the first
+    few seconds. The legacy behavior was to return ``(True, "No CI
+    checks found")`` immediately, which caused the loop to attempt
+    merge before required checks were satisfied — GitHub rejected with
+    "merge commit cannot be cleanly created". Fix: keep polling until
+    checks appear or the caller's timeout elapses, then return
+    ``(False, ...)`` so the caller's existing retry-next-tick path
+    fires."""
     import asyncio
 
     mgr = make_pr_manager(config, event_bus)
@@ -1435,12 +1467,16 @@ async def test_wait_for_ci_passes_when_no_checks(config, event_bus):
 
     mgr.get_pr_checks = AsyncMock(return_value=[])
 
+    # Tight timeout + small poll_interval keeps the test fast.
     passed, summary = await mgr.wait_for_ci(
-        101, timeout=60, poll_interval=5, stop_event=stop
+        101, timeout=2, poll_interval=1, stop_event=stop
     )
 
-    assert passed is True
-    assert "No CI checks found" in summary
+    # MUST NOT silently return True for empty checks.
+    assert passed is False
+    # Must have polled at least twice (once at t=0, once at t=poll_interval)
+    # before the loop's elapsed >= timeout exits.
+    assert mgr.get_pr_checks.await_count >= 2
 
 
 @pytest.mark.asyncio
@@ -1966,6 +2002,24 @@ async def test_run_with_body_file_defaults_cwd_to_repo_root(config, event_bus):
         await mgr._run_with_body_file("gh", "issue", "comment", "1", body="content")
 
     assert str(captured_cwd) == str(config.repo_root)
+
+
+@pytest.mark.asyncio
+async def test_run_with_body_file_closes_fd_when_fdopen_raises(config, event_bus):
+    """fd must be closed when os.fdopen raises so the OS fd is not leaked."""
+
+    mgr = make_pr_manager(config, event_bus)
+    fake_fd = 99
+
+    with (
+        patch("pr_manager.tempfile.mkstemp", return_value=(fake_fd, "/tmp/fake.md")),
+        patch("pr_manager.os.fdopen", side_effect=OSError("cannot open")),
+        patch("pr_manager.os.close") as mock_close,
+        pytest.raises(OSError),
+    ):
+        await mgr._run_with_body_file("gh", "issue", "comment", "1", body="x")
+
+    mock_close.assert_called_once_with(fake_fd)
 
 
 # ---------------------------------------------------------------------------

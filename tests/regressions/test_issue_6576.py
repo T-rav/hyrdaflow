@@ -1,15 +1,17 @@
 """Regression test for issue #6576.
 
-``_check_gh_auth`` spawns ``gh auth status`` as an async subprocess but calls
-``await proc.wait()`` with no timeout.  If the ``gh`` CLI hangs (network
-proxy issue, credential store deadlock), the preflight check never completes
-and server startup is blocked forever.
+``_check_gh_auth`` spawns ``gh auth status`` as an async subprocess. Without
+a bounded ``proc.wait()``, a hung ``gh`` CLI (network proxy issue, credential
+store deadlock) would block server startup forever.
 
 By contrast, ``_check_docker()`` in the same file correctly uses
 ``subprocess.run(..., timeout=10)``.
 
-These tests will fail (RED) until ``_check_gh_auth`` wraps its
-``proc.wait()`` call in ``asyncio.wait_for`` with a bounded timeout.
+These tests verify that ``_check_gh_auth`` (a) wraps ``proc.wait()`` in
+``asyncio.wait_for`` with a bounded timeout, and (b) kills the hung process
+on timeout. Whether the result is FAIL or WARN is a separate policy choice
+(see ``test_preflight.py``); this file only guards against the unbounded-wait
+regression.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from preflight import CheckStatus, _check_gh_auth
+from preflight import _check_gh_auth
 
 # ---------------------------------------------------------------------------
 # Test 1 — _check_gh_auth hangs indefinitely when proc.wait() never returns
@@ -31,18 +33,16 @@ class TestGhAuthTimeout:
 
     @pytest.mark.asyncio
     async def test_check_gh_auth_completes_when_process_hangs(self) -> None:
-        """If the gh subprocess hangs forever, _check_gh_auth should still
-        return a FAIL result within a reasonable timeout (not block forever).
+        """If the gh subprocess hangs forever, _check_gh_auth must still
+        return a result within a bounded time, not block forever.
 
-        This test simulates a hung process by making ``proc.wait()`` sleep
-        indefinitely.  We wrap the call in a short external timeout — if
-        ``_check_gh_auth`` has its own internal timeout, it will return a
-        CheckResult before our outer timeout fires.  If it lacks an internal
-        timeout, the outer timeout will fire, proving the bug.
+        Simulates a hung process via a ``proc.wait()`` that sleeps
+        indefinitely. The production timeout is patched to a small value so
+        the test runs quickly; the outer ``asyncio.wait_for`` is the regression
+        guard — if the inner timeout were missing, it would fire.
         """
 
         async def hang_forever() -> int:
-            """Simulate a process that never exits."""
             await asyncio.sleep(3600)
             return 0  # never reached
 
@@ -51,6 +51,7 @@ class TestGhAuthTimeout:
         mock_proc.kill = MagicMock()
 
         with (
+            patch("preflight._GH_AUTH_TIMEOUT_S", 0.1),
             patch("preflight.shutil.which", return_value="/usr/bin/gh"),
             patch(
                 "preflight.asyncio.create_subprocess_exec",
@@ -58,10 +59,6 @@ class TestGhAuthTimeout:
                 return_value=mock_proc,
             ),
         ):
-            # Give _check_gh_auth a generous 2s to respond on its own.
-            # A correct implementation with a 10s timeout would need the mock
-            # to respect cancellation, but since the function currently has
-            # NO timeout at all, even 2s is enough to prove it hangs.
             try:
                 result = await asyncio.wait_for(_check_gh_auth(), timeout=2.0)
             except TimeoutError:
@@ -70,14 +67,10 @@ class TestGhAuthTimeout:
                     "proc.wait() has no timeout (issue #6576)"
                 )
 
-        # If we get here, the function returned before our outer timeout.
-        # Verify it reported the hang as a failure.
-        assert result.status == CheckStatus.FAIL, (
-            "_check_gh_auth should return FAIL when the gh process hangs, "
-            f"but returned {result.status.value}"
-        )
-        assert "timed out" in result.message.lower(), (
-            "_check_gh_auth should mention timeout in its failure message, "
+        # Returning at all (rather than hanging) is the regression guard.
+        # Message must indicate the timeout path was taken.
+        assert "did not complete" in result.message.lower(), (
+            "_check_gh_auth should report the hang via its timeout branch, "
             f"but got: {result.message!r}"
         )
 
@@ -94,8 +87,6 @@ class TestGhAuthKillsHungProcess:
     async def test_hung_process_is_killed_on_timeout(self) -> None:
         """After timing out, the subprocess must be killed so it doesn't
         linger as an orphan.
-
-        Fails until _check_gh_auth calls proc.kill() on timeout.
         """
 
         async def hang_forever() -> int:
@@ -107,6 +98,7 @@ class TestGhAuthKillsHungProcess:
         mock_proc.kill = MagicMock()
 
         with (
+            patch("preflight._GH_AUTH_TIMEOUT_S", 0.1),
             patch("preflight.shutil.which", return_value="/usr/bin/gh"),
             patch(
                 "preflight.asyncio.create_subprocess_exec",

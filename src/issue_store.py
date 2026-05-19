@@ -603,6 +603,23 @@ class IssueStore:
                 result["epic_number"] = int(match.group(1))
         return result
 
+    def _build_cached_entry(
+        self, issue_number: int, status: str
+    ) -> PipelineSnapshotEntry:
+        """Build a PipelineSnapshotEntry from cache, with fallbacks when uncached."""
+        cached = self._issue_cache.get(issue_number)
+        entry = PipelineSnapshotEntry(
+            issue_number=issue_number,
+            title=cached.title if cached else f"Issue #{issue_number}",
+            url=cached.source_url if cached else "",
+            status=status,
+        )
+        if cached:
+            epic_meta = self._epic_metadata(cached)
+            if epic_meta:
+                entry.update(epic_meta)  # type: ignore[typeddict-item]
+        return entry
+
     def _snapshot_queued(self) -> dict[str, list[PipelineSnapshotEntry]]:
         """Return queued tasks grouped by stage."""
         snapshot: dict[str, list[PipelineSnapshotEntry]] = {}
@@ -640,17 +657,7 @@ class IssueStore:
         """Return active tasks grouped by stage."""
         active_by_stage: dict[str, list[PipelineSnapshotEntry]] = {}
         for issue_number, stage in self._active.items():
-            cached = self._issue_cache.get(issue_number)
-            entry = PipelineSnapshotEntry(
-                issue_number=issue_number,
-                title=cached.title if cached else f"Issue #{issue_number}",
-                url=cached.source_url if cached else "",
-                status="active",
-            )
-            if cached:
-                epic_meta = self._epic_metadata(cached)
-                if epic_meta:
-                    entry.update(epic_meta)  # type: ignore[typeddict-item]
+            entry = self._build_cached_entry(issue_number, "active")
             active_by_stage.setdefault(stage, []).append(entry)
         return active_by_stage
 
@@ -658,36 +665,14 @@ class IssueStore:
         """Return HITL tasks as a flat list."""
         hitl_list: list[PipelineSnapshotEntry] = []
         for issue_number in self._hitl_numbers:
-            cached = self._issue_cache.get(issue_number)
-            entry = PipelineSnapshotEntry(
-                issue_number=issue_number,
-                title=cached.title if cached else f"Issue #{issue_number}",
-                url=cached.source_url if cached else "",
-                status="hitl",
-            )
-            if cached:
-                epic_meta = self._epic_metadata(cached)
-                if epic_meta:
-                    entry.update(epic_meta)  # type: ignore[typeddict-item]
-            hitl_list.append(entry)
+            hitl_list.append(self._build_cached_entry(issue_number, "hitl"))
         return hitl_list
 
     def _snapshot_merged(self) -> list[PipelineSnapshotEntry]:
         """Return merged issues as a flat list."""
         merged_list: list[PipelineSnapshotEntry] = []
         for issue_number in self._merged_numbers:
-            cached = self._issue_cache.get(issue_number)
-            entry = PipelineSnapshotEntry(
-                issue_number=issue_number,
-                title=cached.title if cached else f"Issue #{issue_number}",
-                url=cached.source_url if cached else "",
-                status="merged",
-            )
-            if cached:
-                epic_meta = self._epic_metadata(cached)
-                if epic_meta:
-                    entry.update(epic_meta)  # type: ignore[typeddict-item]
-            merged_list.append(entry)
+            merged_list.append(self._build_cached_entry(issue_number, "merged"))
         return merged_list
 
     def _snapshot_in_flight(self) -> dict[str, list[PipelineSnapshotEntry]]:
@@ -699,17 +684,9 @@ class IssueStore:
         """
         by_stage: dict[str, list[PipelineSnapshotEntry]] = {}
         for issue_number, stage in self._in_flight.items():
-            cached = self._issue_cache.get(issue_number)
-            entry = PipelineSnapshotEntry(
-                issue_number=issue_number,
-                title=cached.title if cached else f"Issue #{issue_number}",
-                url=cached.source_url if cached else "",
-                status=PipelineIssueStatus.PROCESSING,
+            entry = self._build_cached_entry(
+                issue_number, PipelineIssueStatus.PROCESSING
             )
-            if cached:
-                epic_meta = self._epic_metadata(cached)
-                if epic_meta:
-                    entry.update(epic_meta)  # type: ignore[typeddict-item]
             by_stage.setdefault(stage, []).append(entry)
         return by_stage
 

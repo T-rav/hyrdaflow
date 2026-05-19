@@ -1,0 +1,53 @@
+// Issue #8509 — context: where FakeCoverageAuditorLoop fits in the
+// trust-architecture loop fleet (ADR-0045 / spec §4.7).
+
+specification {
+  element actor
+  element loop
+  element store
+  element artifact
+}
+
+model {
+  caretaker = actor 'Caretaker (background)' {
+    description 'HydraFlow background fleet — runs weekly auditor ticks'
+  }
+
+  fakeCoverageAuditor = loop 'FakeCoverageAuditorLoop' {
+    description 'AST-scans Fake* classes; files gaps for un-cassetted public methods'
+  }
+
+  fakeFiles = artifact 'src/mockworld/fakes/fake_*.py' {
+    description 'AST sources — public methods classified surface vs helper'
+  }
+
+  cassetteDir = artifact 'tests/trust/contracts/cassettes/<adapter>/' {
+    description 'YAML cassettes — input.command names the adapter method'
+  }
+
+  scenarioDir = artifact 'tests/scenarios/' {
+    description 'Scenarios reach into helpers; grep-based coverage source'
+  }
+
+  ghIssues = store 'GitHub Issues (filed gaps)' {
+    description 'fake-coverage-gap labelled issues — repaired by next loop'
+  }
+
+  state = store 'StateTracker' {
+    description 'inc_fake_coverage_attempts; escalates after 3 attempts'
+  }
+
+  caretaker -> fakeCoverageAuditor 'tick (weekly)'
+  fakeCoverageAuditor -> fakeFiles 'ast.parse + walk classes'
+  fakeCoverageAuditor -> cassetteDir 'glob *.yaml; collect input.command'
+  fakeCoverageAuditor -> scenarioDir 'rg --fixed-strings <method>('
+  fakeCoverageAuditor -> ghIssues 'create gap issue (per uncovered method)'
+  fakeCoverageAuditor -> state 'inc_fake_coverage_attempts(key)'
+}
+
+views {
+  view context {
+    title 'FakeCoverageAuditorLoop — context (issue #8509)'
+    include *
+  }
+}

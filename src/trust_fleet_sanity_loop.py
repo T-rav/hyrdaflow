@@ -29,6 +29,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps
+from exception_classify import reraise_on_credit_or_bug
 from models import WorkCycleResult
 from trust_fleet_anomaly_detectors import (
     TRUST_LOOP_WORKERS,
@@ -194,6 +195,8 @@ class TrustFleetSanityLoop(BaseBackgroundLoop):
         """Task 6: scan trust loops, file one-attempt escalations on breaches."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.trust_fleet_sanity_loop_enabled:
+            return {"status": "config_disabled"}
         t0 = time.perf_counter()
         await self._reconcile_closed_escalations()
 
@@ -252,25 +255,31 @@ class TrustFleetSanityLoop(BaseBackgroundLoop):
             if breached:
                 per_worker_breaches.append(("tick_error_ratio", details))
 
-            hb = heartbeats.get(worker) or {}
-            last_run_iso = hb.get("last_run") if isinstance(hb, dict) else None
-            bg = self._bg_workers
-            interval_s = (
-                int(bg.get_interval(worker))
-                if bg is not None and hasattr(bg, "get_interval")
-                else 86400
-            )
-            is_enabled = bool(enabled_map.get(worker, True))
-            breached, details = detect_staleness(
-                worker,
-                last_run_iso=last_run_iso,
-                interval_s=interval_s,
-                multiplier=cfg.loop_anomaly_staleness_multiplier,
-                is_enabled=is_enabled,
-                now=now,
-            )
-            if breached:
-                per_worker_breaches.append(("staleness", details))
+            # Staleness only applies to registered trust-loop workers.
+            # Non-trust loops (e.g. report_issue) have long-running LLM
+            # work cycles that legitimately exceed 2 × their polling
+            # interval, causing false-positive staleness alerts. Staleness
+            # for non-trust loops is out of scope for this detector.
+            if worker in TRUST_LOOP_WORKERS:
+                hb = heartbeats.get(worker) or {}
+                last_run_iso = hb.get("last_run") if isinstance(hb, dict) else None
+                bg = self._bg_workers
+                interval_s = (
+                    int(bg.get_interval(worker))
+                    if bg is not None and hasattr(bg, "get_interval")
+                    else 86400
+                )
+                is_enabled = bool(enabled_map.get(worker, True))
+                breached, details = detect_staleness(
+                    worker,
+                    last_run_iso=last_run_iso,
+                    interval_s=interval_s,
+                    multiplier=cfg.loop_anomaly_staleness_multiplier,
+                    is_enabled=is_enabled,
+                    now=now,
+                )
+                if breached:
+                    per_worker_breaches.append(("staleness", details))
 
             breached, details = detect_cost_spike(
                 worker,
@@ -382,7 +391,8 @@ class TrustFleetSanityLoop(BaseBackgroundLoop):
                 stderr=asyncio.subprocess.PIPE,
             )
             stdout, _ = await proc.communicate()
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             logger.debug("gh issue list failed", exc_info=True)
             return
         if proc.returncode != 0:
@@ -423,7 +433,8 @@ class TrustFleetSanityLoop(BaseBackgroundLoop):
                 duration_ms=duration_ms,
                 stderr_excerpt=f"anomalies={anomalies}",
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             logger.debug("trace emission failed", exc_info=True)
 
     # ------------------------------------------------------------------
@@ -497,7 +508,8 @@ class TrustFleetSanityLoop(BaseBackgroundLoop):
         """
         try:
             loaded = await self._source_bus.load_events_since(since)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             logger.debug("load_events_since failed", exc_info=True)
             return []
         return loaded or []

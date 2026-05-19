@@ -1198,8 +1198,8 @@ class TestContextSeed:
 
         _seed_context_assets(config)
 
-        repo_slug = config.repo.replace("/", "-") if config.repo else "unknown"
-        metrics_file = state_file.parent / "metrics" / repo_slug / "snapshots.jsonl"
+        # ADR-0021: path is <data_root>/<repo_slug>/metrics/snapshots.jsonl
+        metrics_file = config.repo_data_root / "metrics" / "snapshots.jsonl"
 
         assert metrics_file.is_file()
 
@@ -1219,12 +1219,8 @@ class TestContextSeed:
         config = ConfigFactory.create(repo_root=tmp_path, state_file=state_file)
         _seed_context_assets(config)
 
-        metrics_file = (
-            state_file.parent
-            / "metrics"
-            / config.repo.replace("/", "-")
-            / "snapshots.jsonl"
-        )
+        # ADR-0021: path is <data_root>/<repo_slug>/metrics/snapshots.jsonl
+        metrics_file = config.repo_data_root / "metrics" / "snapshots.jsonl"
         metrics_file.write_text("existing metrics line\n")
 
         _seed_context_assets(config)

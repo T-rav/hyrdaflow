@@ -26,6 +26,8 @@ areas:
       - EpicSweeperLoop
       - GitHubCacheLoop
       - HealthMonitorLoop
+      - LabelDriftWatcherLoop
+      - MemoryBacklogLoop
       - MergeStateWatcherLoop
       - PRUnstickerLoop
       - PricingRefreshLoop
@@ -43,7 +45,7 @@ areas:
       - TermPrunerLoop
       - WikiRotDetectorLoop
       - WorkspaceGCLoop
-    related_adrs: ['0029', '0049']
+    related_adrs: ['0029', '0049', '0057']
 
   quality_gates:
     label: Quality Gates
@@ -69,6 +71,7 @@ areas:
       - CorpusLearningLoop
       - FakeCoverageAuditorLoop
       - FlakeTrackerLoop
+      - LiveCorpusReplayLoop
       - PrinciplesAuditLoop
       - RCBudgetLoop
       - StagingBisectLoop
@@ -103,7 +106,7 @@ areas:
     modules:
       - src/state/**
       - src/events.py
-      - src/session_log.py
+      - src/state/_session.py
     related_adrs: ['0021', '0028']
 
   test_harness:
@@ -125,7 +128,7 @@ areas:
       DiagramLoop (Plan C), CI guard, and Pages site that publishes
       live architectural truth alongside ADRs and the wiki.
     loops:
-      - DiagramLoop  # Plan C — pre-staged so coverage doesn't fail when L24 lands.
+      - DiagramLoop
     modules:
       - src/arch/**
     related_adrs: ['0029', '0032']
@@ -180,12 +183,11 @@ areas:
     modules:
       - src/orchestrator.py
       - src/agent.py
-      - src/agent_runner.py
       - src/planner.py
       - src/reviewer.py
       - src/triage_phase.py
       - src/plan_phase.py
       - src/implement_phase.py
-      - src/review_phase.py
+      - src/review_phase/
       - src/hitl_phase.py
     related_adrs: ['0001', '0004', '0011', '0012', '0029']

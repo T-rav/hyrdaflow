@@ -55,6 +55,7 @@ from models import (
     GitHubIssue,
     GitHubIssueSummary,
     HITLItem,
+    LabelDrift,
     LoopResult,
     PRInfo,
     ReviewVerdict,
@@ -66,6 +67,7 @@ __all__ = [
     "AgentPort",
     "IssueFetcherPort",
     "IssueStorePort",
+    "ObservabilityPort",
     "PRPort",
     "WorkspacePort",
 ]
@@ -121,10 +123,34 @@ class PRPort(Protocol):
         """
         ...
 
+    async def update_pr_base(self, pr_number: int, *, base: str) -> bool:
+        """Retarget a PR's base branch.
+
+        Wraps ``gh pr edit --base``. Returns True on success.
+
+        Matches ``pr_manager.PRManager.update_pr_base`` exactly.
+        """
+        ...
+
     async def create_rc_branch(self, rc_branch: str) -> str:
         """Create *rc_branch* at staging HEAD. Returns the SHA.
 
         Matches ``pr_manager.PRManager.create_rc_branch`` exactly.
+        """
+        ...
+
+    async def push_synthetic_commit(self, branch: str, message: str) -> str:
+        """Append a tree-identical synthetic commit on top of *branch*.
+
+        Used by ``StagingPromotionLoop`` to trigger
+        ``pull_request: synchronize`` events on rc/* PRs whose
+        ``pull_request: opened`` events were swallowed by GitHub's
+        bot-PR workflow-suppression heuristic (see issue #8705).
+        Without this, required-status-checks like CodeQL and Browser
+        Scenarios never fire on the PR head SHA, blocking auto-merge.
+
+        Returns the new HEAD SHA. Matches
+        ``pr_manager.PRManager.push_synthetic_commit`` exactly.
         """
         ...
 
@@ -360,6 +386,15 @@ class PRPort(Protocol):
         """
         ...
 
+    async def find_label_drift(self) -> list[LabelDrift]:
+        """Scan open PRs for cross-entity label drift vs their linked issues.
+
+        Returns a list of :class:`LabelDrift` records — one per drifted
+        (issue, PR) pair. See ADR-0056 for the drift kinds and the
+        ``LabelDriftWatcherLoop`` reconciliation policy.
+        """
+        ...
+
     async def get_issue_state(self, issue_number: int) -> str:
         """Return the resolved state of a GitHub issue (``'COMPLETED'``, ``'OPEN'``, etc.)."""
         ...
@@ -484,6 +519,14 @@ class IssueStorePort(Protocol):
         """Return up to *max_count* issues from the find queue."""
         ...
 
+    def get_discoverable(self, max_count: int) -> list[Task]:
+        """Return up to *max_count* issues from the discover queue."""
+        ...
+
+    def get_shapeable(self, max_count: int) -> list[Task]:
+        """Return up to *max_count* issues from the shape queue."""
+        ...
+
     def get_plannable(self, max_count: int) -> list[Task]:
         """Return up to *max_count* issues from the plan queue."""
         ...
@@ -568,11 +611,11 @@ class AgentPort(Protocol):
     implementations to satisfy structural subtype checks.
     """
 
-    def _build_command(self, _worktree_path: Path | None = None) -> list[str]:
+    def build_command(self, _worktree_path: Path | None = None) -> list[str]:
         """Construct the CLI command for the agent."""
         ...
 
-    async def _execute(
+    async def execute(
         self,
         cmd: list[str],
         prompt: str,
@@ -585,7 +628,7 @@ class AgentPort(Protocol):
         """Run the agent subprocess and return the transcript."""
         ...
 
-    async def _verify_result(self, worktree_path: Path, branch: str) -> LoopResult:
+    async def verify_result(self, worktree_path: Path, branch: str) -> LoopResult:
         """Verify the agent produced valid commits and quality passes."""
         ...
 
@@ -618,14 +661,20 @@ class ReviewInsightStorePort(Protocol):
 class ObservabilityPort(Protocol):
     """Observability boundary (ADR-0044 P7.7).
 
-    The concrete adapter today is Sentry-backed (see ``src/server.py``); the
-    port exists so a future OTLP, structured-log, or sidecar adapter can slot
-    in without editing call sites. Keep the surface minimal — rich APIs drag
-    every backend into the union.
+    The concrete adapter today is Sentry-backed (see
+    ``src/observability/sentry_adapter.py``); the port exists so a future OTLP,
+    structured-log, or sidecar adapter can slot in without editing call sites.
+    Keep the surface minimal — rich APIs drag every backend into the union.
+
+    Concrete adapter: ``observability.sentry_adapter.SentryObservabilityAdapter``
     """
 
     def capture_exception(self, exc: BaseException) -> None: ...
 
+    def capture_message(self, message: str, *, level: str = "info") -> None: ...
+
     def breadcrumb(self, category: str, message: str, **data: object) -> None: ...
+
+    def set_measurement(self, name: str, value: float, unit: str = "") -> None: ...
 
     def flush(self, timeout_ms: int = 2000) -> bool: ...

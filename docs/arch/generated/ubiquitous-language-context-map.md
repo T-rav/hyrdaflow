@@ -22,5 +22,15 @@ graph LR
   AgentRunner -->|depends_on| PRPort
   AgentRunner -->|depends_on| WorkspacePort
   AgentRunner -->|depends_on| IssueStorePort
+  AgentRunner -->|depends_on| HydraFlowConfig
+  AgentRunner -->|depends_on| RepoWikiStore
+  AgentRunner -->|depends_on| Task
+  AgentRunner -->|depends_on| EventBus
   BaseBackgroundLoop -->|depends_on| EventBus
+  BaseBackgroundLoop -->|depends_on| HydraFlowConfig
+  BotPRPort -->|depends_on| HydraFlowConfig
+  BotPRPort -->|depends_on| BaseBackgroundLoop
+  IssueStorePort -->|depends_on| Task
+  PRPort -->|depends_on| Task
+  WorkspacePort -->|depends_on| Task
 ```

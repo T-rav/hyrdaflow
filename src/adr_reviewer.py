@@ -25,6 +25,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("hydraflow.adr_reviewer")
 
+_ADR_H1_RE = re.compile(r"^#\s+ADR-\d+\s*:\s*(.+?)\s*$", re.MULTILINE)
+
+
+def _title_from_h1(content: str) -> str:
+    """Return the title text from an ADR's H1 (``# ADR-NNNN: Title``) or '' if absent."""
+    match = _ADR_H1_RE.search(content)
+    return match.group(1).strip() if match else ""
+
+
+def _title_from_slug(stem: str) -> str:
+    """Derive a fallback title from the ADR filename stem (``NNNN-some-slug`` → ``some slug``)."""
+    return stem.split("-", 1)[-1].replace("-", " ") if "-" in stem else stem
+
 
 def _write_adr_decision(
     config: HydraFlowConfig, title: str, body: str, decision_type: str
@@ -181,23 +194,25 @@ class ADRCouncilReviewer:
         return results
 
     def _load_all_adrs(self, adr_dir: Path) -> list[tuple[int, str, str, str]]:
-        """Load all ADR files as (number, title, content, filename)."""
+        """Load all ADR files as (number, title, content, filename).
+
+        The title is taken from the H1 line (``# ADR-NNNN: Title``) so that
+        cross-reference validators compare citations against the canonical
+        heading rather than the slugified filename.  Falls back to the
+        filename slug when no H1 is present.
+        """
         results: list[tuple[int, str, str, str]] = []
         for path in sorted(adr_dir.glob("*.md")):
             match = ADR_FILE_RE.match(path.name)
             if not match:
                 continue
             adr_number = int(match.group(1))
-            title = (
-                path.stem.split("-", 1)[-1].replace("-", " ")
-                if "-" in path.stem
-                else path.stem
-            )
             try:
                 content = path.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 logger.warning("Skipping unreadable ADR file: %s", path)
                 continue
+            title = _title_from_h1(content) or _title_from_slug(path.stem)
             results.append((adr_number, title, content, path.name))
         return results
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
@@ -22,7 +22,7 @@ from skill_registry import BUILTIN_SKILLS
 if TYPE_CHECKING:
     from dedup_store import DedupStore
     from models import Task
-    from pr_manager import PRManager
+    from ports import PRPort
 
 logger = logging.getLogger("hydraflow.shape")
 
@@ -50,9 +50,10 @@ class ShapeRunner(BaseRunner):
     """
 
     _log = logger
+    _phase_name: ClassVar[str] = "shape"
 
     def bind_escalation_deps(
-        self, prs: PRManager, dedup: DedupStore | None = None
+        self, prs: PRPort, dedup: DedupStore | None = None
     ) -> None:
         """Wire issue-filing + dedup deps used by evaluator escalation.
 
@@ -242,7 +243,7 @@ class ShapeRunner(BaseRunner):
         ``hitl_escalations`` set. Closing the escalation issue clears
         the key (per §3.2) so the runner can retry on the next cycle.
         """
-        prs: PRManager | None = getattr(self, "_prs", None)
+        prs: PRPort | None = getattr(self, "_prs", None)
         dedup: DedupStore | None = getattr(self, "_dedup", None)
         key = f"shape_runner:{task.id}"
         if dedup is not None and key in dedup.get():

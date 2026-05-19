@@ -25,6 +25,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import yaml
@@ -44,10 +45,28 @@ logger = logging.getLogger("hydraflow.fake_coverage_auditor_loop")
 
 _MAX_ATTEMPTS = 3
 _HELPER_PREFIXES = ("script_",)
-_HELPER_NAMES = frozenset({"fail_service", "heal_service", "set_state"})
+_HELPER_NAMES = frozenset(
+    {
+        "fail_service",
+        "heal_service",
+        "set_state",
+        "reject_next_push",
+        "set_corrupted_config",
+        "active_worktrees",
+    }
+)
+
+# Per-class overrides: methods that don't match the generic prefix/name rules
+# but are test-only helpers rather than real adapter-surface methods.
+_FAKE_HELPER_OVERRIDES: dict[tuple[str, str], str] = {
+    ("FakeGitHub", "clear_rate_limit"): "test-helper",
+    ("FakeGitHub", "set_rate_limit_mode"): "test-helper",
+}
 
 
-def _is_helper(name: str) -> bool:
+def _is_helper(name: str, class_name: str = "") -> bool:
+    if class_name and (class_name, name) in _FAKE_HELPER_OVERRIDES:
+        return True
     return any(name.startswith(p) for p in _HELPER_PREFIXES) or name in _HELPER_NAMES
 
 
@@ -88,7 +107,7 @@ def catalog_fake_methods(fake_dir: Path) -> dict[str, dict[str, list[str]]]:
                 name = child.name
                 if name.startswith("_"):
                     continue
-                if _is_helper(name):
+                if _is_helper(name, node.name):
                     helpers.append(name)
                 else:
                     surface.append(name)
@@ -132,10 +151,9 @@ _FAKE_TO_CASSETTE_DIR: dict[str, str] = {
     "FakeGit": "git",
     "FakeBeads": "beads",
     "FakeSentry": "sentry",
-    "FakeHindsight": "hindsight",
-    "FakeHttp": "http",
+    "FakeHTTP": "http",
     "FakeSubprocessRunner": "subprocess",
-    "FakeFs": "fs",
+    "FakeFS": "fs",
     "FakeLLM": "llm",
 }
 
@@ -161,6 +179,18 @@ class FakeCoverageAuditorLoop(BaseBackgroundLoop):
         self._state = state
         self._pr = pr_manager
         self._dedup = dedup
+        # #8786 Phase 9 — when set, the loop runs the cassette retirement
+        # audit each tick. Injected after construction by service_registry
+        # so the callback can point at LiveCorpusReplayLoop's
+        # ``registered_shapes`` (which is built later in the wiring).
+        self._retirement_keys_cb: Callable[[], set[tuple[str, str]]] | None = None
+
+    def set_retirement_keys_cb(
+        self, cb: Callable[[], set[tuple[str, str]]] | None
+    ) -> None:
+        """Install (or clear with None) the dispatcher-key callback for the
+        cassette retirement audit. Idempotent."""
+        self._retirement_keys_cb = cb
 
     def _get_default_interval(self) -> int:
         return self._config.fake_coverage_auditor_interval
@@ -300,6 +330,8 @@ class FakeCoverageAuditorLoop(BaseBackgroundLoop):
         """Scan fakes, compare to cassettes + scenario grep, file gaps."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.fake_coverage_auditor_loop_enabled:
+            return {"status": "config_disabled"}
 
         t0 = time.perf_counter()
         await self._reconcile_closed_escalations()
@@ -367,13 +399,71 @@ class FakeCoverageAuditorLoop(BaseBackgroundLoop):
             all_known[fake] = sorted(covered)
 
         self._state.set_fake_coverage_last_known(all_known)
+
+        # #8786 Phase 9 — cassette retirement audit. Runs each tick;
+        # ``_retirement_keys_cb`` is wired by service_registry from
+        # LiveCorpusReplayLoop's registered dispatcher set.
+        retirement_filed = 0
+        if self._retirement_keys_cb is not None:
+            retirement_filed = await self._audit_retirement(cassette_root)
+
         self._emit_trace(t0, fakes_seen=len(catalog))
         return {
             "status": "ok",
             "filed": filed,
             "escalated": escalated,
             "fakes_seen": len(catalog),
+            "retirement_filed": retirement_filed,
         }
+
+    async def _audit_retirement(self, cassette_root: Path) -> int:
+        """Find baseline_only cassettes covered by live dispatchers; file
+        one issue per batch (dedup'd on candidate set) flagging them as
+        eligible for removal.
+
+        Returns the number of issues filed this tick (0 or 1).
+        """
+        from contracts.retirement import (  # noqa: PLC0415
+            find_retirement_candidates,
+            format_candidates_for_issue,
+        )
+
+        cb = self._retirement_keys_cb
+        if cb is None:
+            return 0
+        try:
+            keys = cb()
+        except Exception:  # noqa: BLE001 — audit must not crash the loop
+            logger.exception("retirement audit: callback raised; skipping tick")
+            return 0
+        candidates = find_retirement_candidates(cassette_root, keys)
+        if not candidates:
+            return 0
+
+        dedup_key = (
+            f"cassette_retirement:{','.join(sorted(c.path.name for c in candidates))}"
+        )
+        if dedup_key in self._dedup.get():
+            return 0
+
+        title = (
+            f"Cassette retirement: {len(candidates)} hand-authored baseline(s) "
+            f"now covered by live dispatchers"
+        )
+        body = format_candidates_for_issue(candidates)
+        labels = [
+            *self._config.find_label,
+            "cassette-retirement-ready",
+        ]
+        try:
+            await self._pr.create_issue(title, body, labels)
+        except Exception:  # noqa: BLE001 — issue filing failure ≠ loop failure
+            logger.exception("retirement audit: create_issue failed")
+            return 0
+        seen = self._dedup.get()
+        seen.add(dedup_key)
+        self._dedup.set_all(seen)
+        return 1
 
     def _emit_trace(self, t0: float, *, fakes_seen: int) -> None:
         try:

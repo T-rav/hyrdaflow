@@ -6,7 +6,7 @@ import json
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -197,19 +197,21 @@ class TestStaleIssueLoopDoWork:
 
     @pytest.mark.asyncio
     async def test_sentry_breadcrumb_emitted(self, tmp_path: Path) -> None:
-        """When sentry_sdk is available, a breadcrumb is added."""
+        """When an ObservabilityPort is injected, a breadcrumb is recorded."""
+        from mockworld.fakes.fake_sentry import FakeSentry
+
         old_date = (datetime.now(UTC) - timedelta(days=60)).isoformat()
         issues = [_gh_issue_json(5, updated_at=old_date)]
         loop, prs, state = _make_loop(tmp_path, gh_issues=issues)
+        fake_obs = FakeSentry()
+        loop._obs = fake_obs
 
-        mock_sentry = MagicMock()
-        with patch.dict("sys.modules", {"sentry_sdk": mock_sentry}):
-            await loop._do_work()
+        await loop._do_work()
 
-        mock_sentry.add_breadcrumb.assert_called_once()
-        call_kwargs = mock_sentry.add_breadcrumb.call_args[1]
-        assert call_kwargs["category"] == "stale_issue.cycle"
-        assert "1" in call_kwargs["message"]  # scanned count
+        assert len(fake_obs.breadcrumbs) >= 1
+        bc = fake_obs.breadcrumbs[0]
+        assert bc["category"] == "stale_issue.cycle"
+        assert "1" in bc["message"]  # scanned count
 
     @pytest.mark.asyncio
     async def test_gh_fetch_failure_returns_stats(self, tmp_path: Path) -> None:

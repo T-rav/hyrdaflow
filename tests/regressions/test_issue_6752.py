@@ -40,9 +40,14 @@ BUG_CLASSIFICATION_CALLS = {"capture_if_bug", "reraise_on_credit_or_bug"}
 #: The AST scan below does NOT rely on exact line numbers — it checks every
 #: ``except Exception`` in the file — but these anchors let us produce
 #: targeted failure messages.
+#
+#: T36 — ``review_phase`` is now a package; the class body containing the
+#: original anchored sites lives in ``review_phase/_phase.py``. The exact
+#: line numbers from the original 3702-line file no longer apply, but the
+#: xfail markers below tolerate that drift (strict=False).
 KNOWN_UNGUARDED_SITES: list[tuple[str, int]] = [
-    ("review_phase.py", 626),
-    ("review_phase.py", 861),
+    ("review_phase/_phase.py", 626),
+    ("review_phase/_phase.py", 861),
     ("diagnostic_runner.py", 145),
     ("diagnostic_loop.py", 219),
     ("plan_phase.py", 660),
@@ -105,15 +110,20 @@ class TestExceptBlocksBugClassification:
     @pytest.mark.parametrize(
         "filename",
         [
-            "review_phase.py",
+            # T36 — ``review_phase`` is now a package; the ``ReviewPhase``
+            # class (which held the original anchored ``except Exception``
+            # sites) lives in ``review_phase/_phase.py``.
+            "review_phase/_phase.py",
             "diagnostic_runner.py",
             "diagnostic_loop.py",
             "plan_phase.py",
             "implement_phase.py",
         ],
-        ids=lambda f: f.removesuffix(".py"),
+        ids=lambda f: f.removesuffix(".py").replace("/", "_"),
     )
-    @pytest.mark.xfail(reason="Regression for issue #6752 — fix not yet landed", strict=False)
+    @pytest.mark.xfail(
+        reason="Regression for issue #6752 — fix not yet landed", strict=False
+    )
     def test_all_except_exception_blocks_call_bug_classifier(
         self, filename: str
     ) -> None:
@@ -139,7 +149,9 @@ class TestExceptBlocksBugClassification:
         KNOWN_UNGUARDED_SITES,
         ids=[f"{f}:{ln}" for f, ln in KNOWN_UNGUARDED_SITES],
     )
-    @pytest.mark.xfail(reason="Regression for issue #6752 — fix not yet landed", strict=False)
+    @pytest.mark.xfail(
+        reason="Regression for issue #6752 — fix not yet landed", strict=False
+    )
     def test_known_site_has_bug_classifier(
         self, filename: str, approx_line: int
     ) -> None:
@@ -169,7 +181,9 @@ class TestDiagnosticRunnerValidationError:
     with ``exc_info=True`` for actionable stack traces.
     """
 
-    @pytest.mark.xfail(reason="Regression for issue #6752 — fix not yet landed", strict=False)
+    @pytest.mark.xfail(
+        reason="Regression for issue #6752 — fix not yet landed", strict=False
+    )
     def test_validation_error_not_caught_specifically(self) -> None:
         """The except block around ``DiagnosisResult.model_validate()``
         must catch ``pydantic.ValidationError`` explicitly (with exc_info)

@@ -170,6 +170,25 @@ class StagingPromotionLoop(BaseBackgroundLoop):
             logger.exception("Failed to open promotion PR for %s", rc_branch)
             return {"status": "promotion_pr_failed", "rc_branch": rc_branch}
 
+        # Workaround for issue #8705: PRs whose head branch was created
+        # via the git/refs API don't reliably fire pull_request:opened
+        # workflows (CodeQL, Browser Scenarios, etc.). Push a synthetic
+        # commit to fire pull_request:synchronize, which does trigger
+        # workflows — required-status-checks then bind to the PR head SHA
+        # and the auto-merge path can complete.
+        try:
+            await self._prs.push_synthetic_commit(
+                rc_branch,
+                f"chore(rc): trigger CI for {rc_branch} promotion PR (#{pr_number})",
+            )
+        except RuntimeError:
+            logger.warning(
+                "Failed to push synthetic CI-trigger commit on %s; "
+                "workflows may not fire automatically — see issue #8705",
+                rc_branch,
+                exc_info=True,
+            )
+
         self._record_last_rc(now)
         logger.info("Opened promotion PR #%d for %s", pr_number, rc_branch)
         return {"status": "opened", "pr": pr_number, "rc_branch": rc_branch}

@@ -15,6 +15,7 @@ from auto_pr import open_automated_pr_async
 from base_background_loop import BaseBackgroundLoop, LoopDeps
 from config import Credentials, HydraFlowConfig
 from events import EventType, HydraFlowEvent
+from exception_classify import reraise_on_credit_or_bug
 from knowledge_metrics import metrics as _metrics
 from repo_wiki import DEFAULT_TOPICS, RepoWikiStore, WikiEntry, active_lint_tracked
 from staleness import evaluate as evaluate_staleness
@@ -126,7 +127,8 @@ async def run_generalization_pass(
                     )
                     try:
                         await event_bus.publish(event)
-                    except Exception:  # noqa: BLE001
+                    except Exception as exc:  # noqa: BLE001
+                        reraise_on_credit_or_bug(exc)
                         logger.debug("tribal promotion event publish failed")
     return result
 
@@ -184,6 +186,8 @@ class RepoWikiLoop(BaseBackgroundLoop):
     async def _do_work(self) -> dict[str, Any] | None:
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.repo_wiki_loop_enabled:
+            return {"status": "config_disabled"}
         # Drain console-triggered admin tasks up front — admin actions
         # may target repos the store does not yet see (e.g. rebuild-index
         # of a freshly migrated repo), so draining before the list_repos
@@ -273,7 +277,8 @@ class RepoWikiLoop(BaseBackgroundLoop):
                             )
                             if after < len(entries):
                                 total_compiled += len(entries) - after
-                        except Exception:  # noqa: BLE001
+                        except Exception as exc:  # noqa: BLE001
+                            reraise_on_credit_or_bug(exc)
                             logger.warning(
                                 "Wiki compile failed for %s/%s",
                                 slug,
@@ -310,7 +315,8 @@ class RepoWikiLoop(BaseBackgroundLoop):
                             # collapses many entries into one or two.
                             if synthesized:
                                 total_compiled += synthesized
-                        except Exception:  # noqa: BLE001
+                        except Exception as exc:  # noqa: BLE001
+                            reraise_on_credit_or_bug(exc)
                             logger.warning(
                                 "Wiki compile_tracked failed for %s/%s",
                                 slug,
@@ -365,7 +371,8 @@ class RepoWikiLoop(BaseBackgroundLoop):
                         repo_root=Path(self._config.repo_root),
                         repo_slug=slug,
                     )
-                except Exception:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001
+                    reraise_on_credit_or_bug(exc)
                     logger.warning(
                         "wiki drift detection failed for %s", slug, exc_info=True
                     )
@@ -414,7 +421,8 @@ class RepoWikiLoop(BaseBackgroundLoop):
                             self._config.semantic_drift_max_entries_per_tick
                         ),
                     )
-                except Exception:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001
+                    reraise_on_credit_or_bug(exc)
                     logger.warning(
                         "semantic drift scan failed for %s", slug, exc_info=True
                     )
@@ -443,7 +451,8 @@ class RepoWikiLoop(BaseBackgroundLoop):
                     compiler=self._wiki_compiler,
                     event_bus=self._bus,
                 )
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                reraise_on_credit_or_bug(exc)
                 logger.warning("generalization pass failed", exc_info=True)
 
         return stats

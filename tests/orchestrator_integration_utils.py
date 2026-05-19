@@ -494,9 +494,11 @@ def build_scripted_services(
     services.skill_prompt_eval_loop = FakeBackgroundLoop()
     services.fake_coverage_auditor_loop = FakeBackgroundLoop()
     services.adr_touchpoint_auditor_loop = FakeBackgroundLoop()
+    services.memory_backlog_loop = FakeBackgroundLoop()
     services.rc_budget_loop = FakeBackgroundLoop()
     services.wiki_rot_detector_loop = FakeBackgroundLoop()
     services.trust_fleet_sanity_loop = FakeBackgroundLoop()
+    services.label_drift_watcher_loop = FakeBackgroundLoop()
     services.corpus_learning_loop = FakeBackgroundLoop()
     services.contract_refresh_loop = FakeBackgroundLoop()
     services.auto_agent_preflight_loop = FakeBackgroundLoop()
@@ -507,6 +509,7 @@ def build_scripted_services(
     services.term_proposer_loop = FakeBackgroundLoop()
     services.term_pruner_loop = FakeBackgroundLoop()
     services.edge_proposer_loop = FakeBackgroundLoop()
+    services.live_corpus_replay_loop = None
     services.repo_wiki_store = SimpleNamespace(
         is_ingested=MagicMock(return_value=False),
         mark_ingested=MagicMock(),

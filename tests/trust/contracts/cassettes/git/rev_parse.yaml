@@ -1,0 +1,17 @@
+adapter: git
+interaction: rev_parse
+recorded_at: "2026-05-07T00:00:00Z"
+recorder_sha: "00000000"
+fixture_repo: tests/trust/contracts/fixtures/git_sandbox
+input:
+  command: rev_parse
+  args:
+    - "HEAD"
+  stdin: null
+  env: {}
+output:
+  exit_code: 0
+  stdout: "0000000000000000000000000000000000000000\n"
+  stderr: ""
+normalizers:
+  - sha:long

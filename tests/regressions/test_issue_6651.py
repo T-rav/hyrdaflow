@@ -84,7 +84,6 @@ class TestWhatsAppWebhookSignatureVerification:
     """Issue #6651: POST /api/webhooks/whatsapp must verify X-Hub-Signature-256."""
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="Regression for issue #6651 — fix not yet landed", strict=False)
     async def test_missing_signature_header_returns_403(
         self,
         config,
@@ -125,7 +124,6 @@ class TestWhatsAppWebhookSignatureVerification:
         )
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="Regression for issue #6651 — fix not yet landed", strict=False)
     async def test_invalid_signature_returns_403(
         self,
         config,
@@ -167,7 +165,6 @@ class TestWhatsAppWebhookSignatureVerification:
         )
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="Regression for issue #6651 — fix not yet landed", strict=False)
     async def test_unsigned_request_stores_spoofed_response(
         self,
         config,

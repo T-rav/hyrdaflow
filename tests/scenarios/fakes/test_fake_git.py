@@ -31,7 +31,7 @@ async def test_worktree_remove_clears(tmp_path: Path) -> None:
 
 async def test_core_worktree_corruption_detected(tmp_path: Path) -> None:
     fake = FakeGit()
-    fake.set_corrupted_config(tmp_path, key="core.worktree", value="/workspace")
+    fake.script_set_corrupted_config(tmp_path, key="core.worktree", value="/workspace")
     assert await fake.config_get(tmp_path, "core.worktree") == "/workspace"
     await fake.config_unset(tmp_path, "core.worktree")
     assert await fake.config_get(tmp_path, "core.worktree") is None

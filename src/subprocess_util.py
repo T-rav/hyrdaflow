@@ -8,6 +8,7 @@ import os
 import random
 import re
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -19,6 +20,62 @@ if TYPE_CHECKING:
     from execution import SubprocessRunner
 
 logger = logging.getLogger("hydraflow.subprocess")
+
+# ---------------------------------------------------------------------------
+# Shadow sampling hook (#8786 Phase 0.2)
+#
+# When a sampler is installed via :func:`set_shadow_sampler`, every
+# completed ``gh`` / ``git`` / ``docker`` / ``claude`` call feeds it the
+# (adapter, command, args, stdout, stderr, exit_code) tuple. Sampler
+# failures are caught and logged — they MUST NOT break the production
+# call path. Default is None (no sampling).
+# ---------------------------------------------------------------------------
+_ShadowSampler = Callable[..., object]
+_shadow_sampler: _ShadowSampler | None = None
+
+_ADAPTER_BY_COMMAND: dict[str, str] = {
+    "gh": "github",
+    "git": "git",
+    "docker": "docker",
+    "claude": "claude",
+}
+
+
+def set_shadow_sampler(sampler: _ShadowSampler | None) -> None:
+    """Install (or clear with None) the shadow-corpus sampling hook.
+
+    The sampler is invoked with keyword args
+    ``adapter, command, args, stdout, stderr, exit_code`` after every
+    completed call to ``gh``/``git``/``docker``/``claude``. Non-adapter
+    binaries (npm, ruff, …) are skipped. The sampler runs synchronously
+    inside ``run_subprocess`` but exceptions are swallowed — observability
+    must never break the production call path.
+    """
+    global _shadow_sampler  # noqa: PLW0603
+    _shadow_sampler = sampler
+
+
+def _maybe_sample_shadow(
+    cmd: tuple[str, ...], exit_code: int, stdout: str, stderr: str
+) -> None:
+    """Fire the shadow sampler (if installed) for known adapter commands."""
+    if _shadow_sampler is None or not cmd:
+        return
+    adapter = _ADAPTER_BY_COMMAND.get(cmd[0])
+    if adapter is None:
+        return
+    try:
+        _shadow_sampler(
+            adapter=adapter,
+            command=cmd[0],
+            args=list(cmd[1:]),
+            stdout=stdout,
+            stderr=stderr,
+            exit_code=exit_code,
+        )
+    except Exception:  # noqa: BLE001 — observability must never break the call path
+        logger.warning("shadow sampler raised; ignoring", exc_info=True)
+
 
 # ---------------------------------------------------------------------------
 # Pluggable time source — allows tests to inject FakeClock without patching
@@ -55,6 +112,12 @@ _rate_limit_until: datetime | None = None
 _RATE_LIMIT_COOLDOWN_SECONDS = 60
 _RATE_LIMIT_MAX_COOLDOWN_SECONDS = 480
 _rate_limit_current_cooldown: int = _RATE_LIMIT_COOLDOWN_SECONDS
+# Polling interval for _wait_for_rate_limit_cooldown so it re-reads the
+# deadline each tick rather than sleeping for the full remaining duration.
+_RATE_LIMIT_POLL_INTERVAL: float = 1.0
+# Guards all read-modify-write operations on _rate_limit_current_cooldown
+# and _rate_limit_until so concurrent callers cannot corrupt the backoff.
+_rate_limit_lock: threading.Lock = threading.Lock()
 
 
 def configure_gh_concurrency(limit: int) -> None:
@@ -89,37 +152,47 @@ def _trigger_rate_limit_cooldown() -> None:
     (see :func:`_reset_rate_limit_backoff`).
     """
     global _rate_limit_until, _rate_limit_current_cooldown  # noqa: PLW0603
-    _rate_limit_until = datetime.fromtimestamp(_time_source(), tz=UTC) + timedelta(
-        seconds=_rate_limit_current_cooldown
-    )
-    logger.warning(
-        "GitHub API rate limit hit — pausing ALL gh/git calls for %ds",
-        _rate_limit_current_cooldown,
-    )
-    _rate_limit_current_cooldown = min(
-        _rate_limit_current_cooldown * 2, _RATE_LIMIT_MAX_COOLDOWN_SECONDS
-    )
+    with _rate_limit_lock:
+        _rate_limit_until = datetime.fromtimestamp(_time_source(), tz=UTC) + timedelta(
+            seconds=_rate_limit_current_cooldown
+        )
+        logger.warning(
+            "GitHub API rate limit hit — pausing ALL gh/git calls for %ds",
+            _rate_limit_current_cooldown,
+        )
+        _rate_limit_current_cooldown = min(
+            _rate_limit_current_cooldown * 2, _RATE_LIMIT_MAX_COOLDOWN_SECONDS
+        )
 
 
 def _reset_rate_limit_backoff() -> None:
     """Reset the exponential backoff to the base cooldown after a successful call."""
     global _rate_limit_current_cooldown  # noqa: PLW0603
-    _rate_limit_current_cooldown = _RATE_LIMIT_COOLDOWN_SECONDS
+    with _rate_limit_lock:
+        _rate_limit_current_cooldown = _RATE_LIMIT_COOLDOWN_SECONDS
 
 
 async def _wait_for_rate_limit_cooldown() -> None:
-    """If a global rate-limit cooldown is active, sleep until it expires."""
-    if _rate_limit_until is None:
-        return
-    remaining = (
-        _rate_limit_until - datetime.fromtimestamp(_time_source(), tz=UTC)
-    ).total_seconds()
-    if remaining > 0:
+    """If a global rate-limit cooldown is active, sleep until it expires.
+
+    Polls ``_rate_limit_until`` every ``_RATE_LIMIT_POLL_INTERVAL`` seconds so
+    callers pick up deadlines extended by concurrent ``_trigger_rate_limit_cooldown``
+    calls while sleeping.
+    """
+    while True:
+        deadline = _rate_limit_until
+        if deadline is None:
+            return
+        remaining = (
+            deadline - datetime.fromtimestamp(_time_source(), tz=UTC)
+        ).total_seconds()
+        if remaining <= 0:
+            return
         logger.info(
             "Rate-limit cooldown active — waiting %.0fs before gh/git call",
             remaining,
         )
-        await asyncio.sleep(remaining)
+        await asyncio.sleep(min(remaining, _RATE_LIMIT_POLL_INTERVAL))
 
 
 class AuthenticationError(RuntimeError):
@@ -462,6 +535,10 @@ async def run_subprocess(
                 f"Command {cmd!r} timed out after {timeout}s"
             ) from exc
         if result.returncode != 0:
+            # Sample the failure shape too — a loop that branches on a
+            # specific stderr (404, "not found", auth errors) needs that
+            # shape protected against drift just as much as success.
+            _maybe_sample_shadow(cmd, result.returncode, result.stdout, result.stderr)
             msg = f"Command {cmd!r} failed (rc={result.returncode}): {result.stderr}"
             cause = subprocess.CalledProcessError(
                 result.returncode,
@@ -475,6 +552,7 @@ async def run_subprocess(
                 _trigger_rate_limit_cooldown()
             raise RuntimeError(msg) from cause
         _reset_rate_limit_backoff()
+        _maybe_sample_shadow(cmd, result.returncode, result.stdout, result.stderr)
         return result.stdout
 
     if use_semaphore:

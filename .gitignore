@@ -247,3 +247,8 @@ docs/superpowers/
 # Beads / Dolt files (added by bd init)
 .beads-credential-key
 MagicMock/
+
+# Visual brainstorming companion artifacts
+.superpowers/
+
+.tmp/

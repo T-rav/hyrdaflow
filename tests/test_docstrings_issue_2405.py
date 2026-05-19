@@ -82,10 +82,12 @@ class TestDashboardRoutesDocstrings:
 
 
 class TestReviewPhaseDocstrings:
-    """Verify docstring on the _review_one inner function in review_phase.py."""
+    """Verify docstring on the _review_one inner function in review_phase."""
 
     def test_review_one_has_docstring(self) -> None:
-        docstrings = _get_function_docstrings(SRC / "review_phase.py")
+        # T36 — ``review_phase`` is now a package; the class body lives in
+        # ``review_phase/_phase.py``. Read from there.
+        docstrings = _get_function_docstrings(SRC / "review_phase" / "_phase.py")
         assert "_review_one" in docstrings
         assert docstrings["_review_one"], "_review_one has no docstring"
 

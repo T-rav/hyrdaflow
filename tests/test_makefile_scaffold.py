@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from makefile_scaffold import (
+    _check_prereq_deps,
+    _diff_targets,
+    _normalize_recipe,
     generate_makefile,
     merge_makefile,
     parse_makefile,
@@ -267,3 +270,100 @@ class TestMergeMakefile:
         new_content, _ = merge_makefile(existing, "python")
         assert ".DEFAULT_GOAL := quality" in new_content
         assert new_content.count(".DEFAULT_GOAL") == 1
+
+    def test_warns_on_coverage_check_recipe_mismatch(self) -> None:
+        # Regression: coverage-check warning path was previously untested.
+        existing = "coverage-check:\n\t@echo 'custom coverage'\n"
+        _, warnings = merge_makefile(existing, "python")
+        assert any("coverage-check" in w for w in warnings)
+
+
+class TestNormalizeRecipe:
+    def test_strips_leading_trailing_whitespace(self) -> None:
+        assert _normalize_recipe("  ruff check .  \n") == "ruff check ."
+
+    def test_normalizes_multiline_recipe(self) -> None:
+        result = _normalize_recipe("  ruff check .\n  ruff format .\n")
+        assert result == "ruff check .\nruff format ."
+
+    def test_empty_string_returns_empty(self) -> None:
+        assert _normalize_recipe("") == ""
+
+    def test_preserves_internal_content(self) -> None:
+        result = _normalize_recipe("\t@python - <<'PY'\nimport json\nPY\n")
+        assert "import json" in result
+        assert "@python" in result
+
+
+class TestDiffTargets:
+    def test_returns_missing_targets(self) -> None:
+        existing: dict[str, str] = {"lint": "ruff check ."}
+        template: dict[str, str | None] = {"lint": "ruff check .", "test": "pytest"}
+        to_add, warnings = _diff_targets(existing, template)
+        assert "test" in to_add
+        assert "lint" not in to_add
+        assert not warnings
+
+    def test_warns_on_recipe_mismatch(self) -> None:
+        existing: dict[str, str] = {"lint": "npm test"}
+        template: dict[str, str | None] = {"lint": "ruff check ."}
+        to_add, warnings = _diff_targets(existing, template)
+        assert not to_add
+        assert any("lint" in w for w in warnings)
+
+    def test_skips_recipe_check_for_prereq_only_targets(self) -> None:
+        existing: dict[str, str] = {"quality": ""}
+        template: dict[str, str | None] = {"quality": None}
+        to_add, warnings = _diff_targets(existing, template)
+        assert not to_add
+        assert not warnings
+
+    def test_empty_existing_returns_all_template_targets(self) -> None:
+        existing: dict[str, str] = {}
+        template: dict[str, str | None] = {"lint": "ruff check .", "test": "pytest"}
+        to_add, warnings = _diff_targets(existing, template)
+        assert set(to_add) == {"lint", "test"}
+        assert not warnings
+
+    def test_empty_template_returns_nothing(self) -> None:
+        existing: dict[str, str] = {"lint": "ruff check ."}
+        template: dict[str, str | None] = {}
+        to_add, warnings = _diff_targets(existing, template)
+        assert not to_add
+        assert not warnings
+
+
+class TestCheckPrereqDeps:
+    def test_warns_on_mismatched_quality_deps(self) -> None:
+        content = "quality: build deploy\n"
+        existing = parse_makefile(content)
+        warnings = _check_prereq_deps(content, existing)
+        assert any("quality" in w for w in warnings)
+
+    def test_warns_on_mismatched_quality_lite_deps(self) -> None:
+        content = "quality-lite: lint-check typecheck\n"
+        existing = parse_makefile(content)
+        warnings = _check_prereq_deps(content, existing)
+        assert any("quality-lite" in w for w in warnings)
+
+    def test_warns_on_mismatched_smoke_deps(self) -> None:
+        content = "smoke: test-fast\n"
+        existing = parse_makefile(content)
+        warnings = _check_prereq_deps(content, existing)
+        assert any("smoke" in w for w in warnings)
+
+    def test_no_warning_when_all_deps_match(self) -> None:
+        content = (
+            "smoke: test\n"
+            "quality-lite: lint-check typecheck security\n"
+            "quality: quality-lite test coverage-check\n"
+        )
+        existing = parse_makefile(content)
+        warnings = _check_prereq_deps(content, existing)
+        assert not warnings
+
+    def test_no_warning_when_targets_absent(self) -> None:
+        content = "lint:\n\truff check .\n"
+        existing = parse_makefile(content)
+        warnings = _check_prereq_deps(content, existing)
+        assert not warnings

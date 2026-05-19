@@ -368,6 +368,12 @@ class ContractRefreshLoop(BaseBackgroundLoop):
             pr_title=title,
             pr_body=body,
             commit_message=title,
+            # Target the configured base branch (staging when ADR-0042's
+            # two-tier model is active) so GitHub's native auto-merge can
+            # actually fire. Defaulting to ``main`` blocked merges under
+            # branch protection and broke the closed-loop chain:
+            # drift → PR → auto-merge → clean tick.
+            base=self._config.base_branch(),
             auto_merge=True,
             raise_on_failure=False,
             labels=["contract-refresh", "auto-merge"],
@@ -606,6 +612,8 @@ class ContractRefreshLoop(BaseBackgroundLoop):
         """
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.contract_refresh_loop_enabled:
+            return {"status": "config_disabled"}
 
         tmp_root = self._config.data_root / "contract_refresh" / "recordings"
         tmp_root.mkdir(parents=True, exist_ok=True)

@@ -52,13 +52,25 @@ from implement_phase import ImplementPhase
 from issue_cache import IssueCache
 from issue_fetcher import GitHubTaskFetcher, IssueFetcher
 from issue_store import IssueStore
+from label_drift_watcher_loop import LabelDriftWatcherLoop
+from live_corpus_replay_loop import (
+    LiveCorpusReplayLoop,  # noqa: TCH001 — dataclass annotation
+)
+from memory_backlog_loop import MemoryBacklogLoop
 from merge_conflict_resolver import MergeConflictResolver
 from merge_state_watcher_loop import MergeStateWatcherLoop
 from models import StatusCallback
+from observability.sentry_adapter import SentryObservabilityAdapter
 from plan_phase import PlanPhase
 from plan_reviewer import PlanReviewer
 from planner import PlannerRunner
-from ports import IssueFetcherPort, IssueStorePort, PRPort, WorkspacePort
+from ports import (
+    IssueFetcherPort,
+    IssueStorePort,
+    ObservabilityPort,
+    PRPort,
+    WorkspacePort,
+)
 from post_merge_handler import PostMergeHandler
 from pr_manager import PRManager
 from pr_unsticker import PRUnsticker
@@ -115,6 +127,7 @@ class ServiceRegistry:
     """Holds all service instances for the orchestrator."""
 
     # Core infrastructure
+    observability: ObservabilityPort
     workspaces: WorkspacePort
     subprocess_runner: SubprocessRunner
     agents: AgentRunner
@@ -189,9 +202,11 @@ class ServiceRegistry:
     skill_prompt_eval_loop: SkillPromptEvalLoop
     fake_coverage_auditor_loop: FakeCoverageAuditorLoop
     adr_touchpoint_auditor_loop: AdrTouchpointAuditorLoop
+    memory_backlog_loop: MemoryBacklogLoop
     rc_budget_loop: RCBudgetLoop
     wiki_rot_detector_loop: WikiRotDetectorLoop
     trust_fleet_sanity_loop: TrustFleetSanityLoop
+    label_drift_watcher_loop: LabelDriftWatcherLoop
     contract_refresh_loop: ContractRefreshLoop
     corpus_learning_loop: CorpusLearningLoop
     auto_agent_preflight_loop: AutoAgentPreflightLoop
@@ -203,6 +218,7 @@ class ServiceRegistry:
     term_pruner_loop: TermPrunerLoop
     edge_proposer_loop: EdgeProposerLoop
     entry_evidence_loop: EntryEvidenceLoop
+    live_corpus_replay_loop: LiveCorpusReplayLoop
 
     # Optional integrations
 
@@ -243,11 +259,23 @@ def build_services(
     workspaces: WorkspacePort | None = None,
     store: IssueStorePort | None = None,
     fetcher: IssueFetcherPort | None = None,
+    observability: ObservabilityPort | None = None,
     # ``runners`` is duck-typed: any object exposing the four runner
     # attrs (triage_runner, planners, agents, reviewers) suffices.
     # FakeLLM does. See spec Component 1 RunnerSet pattern if a
     # stricter type is preferred.
     runners: object | None = None,
+    # ``subprocess_runner`` is the LOWER-LEVEL docker dispatch — separate
+    # from the four phase runners above.  ``runners=fake_llm`` rebinds
+    # the phase runners but ``SubprocessRunner`` is still used by
+    # ``TranscriptSummarizer``, ``HITLRunner``, ``AutoAgentRunner``,
+    # and the pre-quality-review skill subprocesses inside
+    # ``AgentRunner``.  All of those shell ``claude -p`` directly,
+    # which hangs forever on the sandbox's air-gapped network.  Pass a
+    # ``FakeSubprocessRunner`` here to short-circuit every remaining
+    # claude path; production callers pass nothing and get the real
+    # Docker runner.
+    subprocess_runner: SubprocessRunner | None = None,
 ) -> ServiceRegistry:
     """Create all services wired together.
 
@@ -270,10 +298,29 @@ def build_services(
 
     configure_gh_concurrency(config.gh_api_concurrency)
 
+    # Shadow corpus (#8786). Every gh/git/docker/claude subprocess call
+    # feeds the bounded, normalized, PII-scrubbed corpus that
+    # LiveCorpusReplayLoop consumes. ``shadow_corpus_max_per_adapter``
+    # caps disk usage via LRU eviction.
+    from contracts.shadow import ShadowCorpus
+    from subprocess_util import set_shadow_sampler
+
+    shadow_corpus = ShadowCorpus(
+        config.data_root / "contract_shadow",
+        max_per_adapter=config.shadow_corpus_max_per_adapter,
+    )
+    set_shadow_sampler(shadow_corpus.record)
+
     # Hindsight semantic memory and MemoryJudge — REMOVED in Phase 3 cutover.
     # The wiki + tribal + ADR-draft pipeline is the new primary. Any
     # historical Hindsight content that needs to be preserved should have
     # been extracted via scripts/extract_hindsight_to_wiki.py before merge.
+
+    # Observability port — constructed once and injected throughout.
+    # Production path: SentryObservabilityAdapter (no-ops when sentry_sdk
+    # is absent). Sandbox/test path: caller passes FakeSentry.
+    if observability is None:
+        observability = SentryObservabilityAdapter()
 
     # Core runners
     if workspaces is None:
@@ -293,7 +340,8 @@ def build_services(
     # widening of downstream method signatures to take
     # ``WorkspacePort`` directly, after which this cast can be removed.
     workspaces = cast(WorkspaceManager, workspaces)
-    subprocess_runner = get_docker_runner(config, credentials=credentials)
+    if subprocess_runner is None:
+        subprocess_runner = get_docker_runner(config, credentials=credentials)
     # The self-repo's wiki lives at ``docs/wiki/`` so it is
     # git-tracked alongside the code it documents. Other managed repos'
     # wikis are runtime-cached under ``.hydraflow/repo_wiki/<owner>/<repo>/``.
@@ -385,6 +433,7 @@ def build_services(
         wiki_store=repo_wiki_store,
         tribal_wiki_store=tribal_wiki_store,
     )
+    triage.set_observability(observability)
     # Sandbox override — replace the four LLM-backed runners with the
     # caller-supplied set (e.g. FakeLLM in mockworld.sandbox_main). The
     # real-runner constructions above still execute (they're cheap; we
@@ -418,7 +467,7 @@ def build_services(
     # full widening of downstream method signatures to take
     # ``IssueFetcherPort`` directly, after which this cast can be removed.
     fetcher = cast(IssueFetcher, fetcher)
-    gh_cache = GitHubDataCache(config, prs, fetcher)  # noqa: F841
+    gh_cache = GitHubDataCache(config, prs, fetcher)
     if store is None:
         store = IssueStore(config, GitHubTaskFetcher(fetcher), event_bus)
     # Cast is duck-safe at runtime: the override (FakeIssueStore, if any)
@@ -461,7 +510,7 @@ def build_services(
     # IssueStorePort interface) so the wiring is unchanged whether
     # caching is enabled or not.
     phase_store: IssueStorePort = (
-        CachingIssueStore(
+        CachingIssueStore(  # type: ignore[assignment]
             store,
             cache=issue_cache,
             cache_ttl_seconds=config.issue_cache_enrich_ttl_seconds,
@@ -474,11 +523,13 @@ def build_services(
     harness_insights = HarnessInsightStore(
         config.data_path("memory"),
         sensor_enrichment_enabled=config.sensor_enrichment_enabled,
+        observability=observability,
     )
 
     # Troubleshooting pattern store (CI timeout feedback loop)
     troubleshooting_store = TroubleshootingPatternStore(
         config.data_path("memory"),
+        observability=observability,
     )
 
     # Epic management
@@ -677,6 +728,7 @@ def build_services(
         state,
         prs,
         queue=retrospective_queue,
+        observability=observability,
     )
     ac_generator = AcceptanceCriteriaGenerator(
         config, prs, event_bus, runner=subprocess_runner, credentials=credentials
@@ -707,6 +759,7 @@ def build_services(
     # ReviewInsightStore shared between AgentRunner and ReviewPhase
     review_insights = ReviewInsightStore(
         config.memory_dir,
+        observability=observability,
     )
     # ``_insights`` is internal AgentRunner plumbing not part of any Port.
     # Sandbox runners (FakeAgentRunner) don't implement it — gate the
@@ -795,6 +848,7 @@ def build_services(
         prs=prs,
         retrospective_queue=retrospective_queue,
         state=state,
+        observability=observability,
         # bg_workers is injected post-construction by the orchestrator
         # (chicken-and-egg with BGWorkerManager); see orchestrator.py.
     )
@@ -822,6 +876,7 @@ def build_services(
         prs=prs,
         state=state,
         deps=loop_deps,
+        observability=observability,
     )
     gh_cache_loop = GitHubCacheLoop(config, gh_cache, deps=loop_deps)  # noqa: F841
     from dedup_store import DedupStore  # noqa: PLC0415
@@ -956,6 +1011,18 @@ def build_services(
         deps=loop_deps,
     )
 
+    memory_backlog_dedup = DedupStore(
+        "memory_backlog",
+        config.data_root / "dedup" / "memory_backlog.json",
+    )
+    memory_backlog_loop = MemoryBacklogLoop(  # noqa: F841
+        config=config,
+        state=state,
+        pr_manager=prs,
+        dedup=memory_backlog_dedup,
+        deps=loop_deps,
+    )
+
     rc_budget_dedup = DedupStore(
         "rc_budget",
         config.data_root / "dedup" / "rc_budget.json",
@@ -1002,6 +1069,37 @@ def build_services(
         deps=loop_deps,
         prs=prs,
         state=state,
+    )
+
+    # LiveCorpusReplayLoop (#8786 Phase 2). Consumes the shadow corpus,
+    # diffs samples against fake-adapter outputs via registered dispatchers,
+    # files hydraflow-find issues on drift, escalates to hitl-escalation
+    # after ``live_corpus_max_drift_attempts`` consecutive ticks.
+    _live_corpus_replay_dedup = DedupStore(
+        "live_corpus_replay",
+        config.data_root / "dedup" / "live_corpus_replay.json",
+    )
+    _live_corpus_replay_loop = LiveCorpusReplayLoop(
+        config=config,
+        corpus=shadow_corpus,
+        pr_manager=prs,
+        dedup=_live_corpus_replay_dedup,
+        state=state,
+        deps=loop_deps,
+    )
+    # Phase 5: register the Pydantic shape dispatcher for gh JSON output.
+    # Validates sample.stdout against contracts.shapes models — shape
+    # drift in real gh (renamed/removed/typed-differently fields, new
+    # enum values) fires immediately on the next tick.
+    from contracts.shape_dispatchers import gh_shape_validator
+
+    _live_corpus_replay_loop.register("github", "gh", gh_shape_validator)
+
+    # Phase 9: thread the live dispatcher registry into the auditor so
+    # the cassette retirement audit can flag baseline cassettes whose
+    # shape is now dispatcher-covered.
+    fake_coverage_auditor_loop.set_retirement_keys_cb(
+        _live_corpus_replay_loop.registered_shapes
     )
 
     corpus_learning_dedup = DedupStore(
@@ -1052,6 +1150,12 @@ def build_services(
     from term_proposer_runtime import (  # noqa: PLC0415
         ClaudeCLIClient,
         OpenAutoPRBotPRPort,
+    )
+
+    label_drift_watcher_loop = LabelDriftWatcherLoop(  # noqa: F841
+        config=config,
+        pr_manager=prs,
+        deps=loop_deps,
     )
 
     term_proposer_claude_client = ClaudeCLIClient(runner=subprocess_runner)
@@ -1107,6 +1211,7 @@ def build_services(
     )
 
     return ServiceRegistry(
+        observability=observability,
         workspaces=workspaces,
         subprocess_runner=subprocess_runner,
         agents=agents,
@@ -1166,9 +1271,11 @@ def build_services(
         skill_prompt_eval_loop=skill_prompt_eval_loop,
         fake_coverage_auditor_loop=fake_coverage_auditor_loop,
         adr_touchpoint_auditor_loop=adr_touchpoint_auditor_loop,
+        memory_backlog_loop=memory_backlog_loop,
         rc_budget_loop=rc_budget_loop,
         wiki_rot_detector_loop=wiki_rot_detector_loop,
         trust_fleet_sanity_loop=trust_fleet_sanity_loop,
+        label_drift_watcher_loop=label_drift_watcher_loop,
         contract_refresh_loop=contract_refresh_loop,
         corpus_learning_loop=corpus_learning_loop,
         auto_agent_preflight_loop=auto_agent_preflight_loop,
@@ -1180,4 +1287,5 @@ def build_services(
         term_pruner_loop=term_pruner_loop,
         edge_proposer_loop=edge_proposer_loop,
         entry_evidence_loop=entry_evidence_loop,
+        live_corpus_replay_loop=_live_corpus_replay_loop,
     )

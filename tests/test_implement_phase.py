@@ -183,10 +183,16 @@ class TestImplementIncludesPush:
         assert results[0].pr_info.number == 101
 
     @pytest.mark.asyncio
-    async def test_worker_creates_full_pr_on_failure(
+    async def test_worker_does_not_create_pr_on_fresh_failure(
         self, config: HydraFlowConfig
     ) -> None:
-        """When agent fails, PR should still be created as a full (non-draft) PR."""
+        """Fresh attempts that fail must NOT create a PR (state-machine fix).
+
+        Previously this asserted ``create_pr`` was awaited with a non-draft
+        flag, encoding the half-state bug where failed work still landed as
+        a PR with no label transition. After the fix, fresh failures skip
+        push/PR entirely; the attempt-cap mechanism retries.
+        """
         issue = TaskFactory.create()
 
         phase, _, mock_prs = make_implement_phase(
@@ -198,8 +204,7 @@ class TestImplementIncludesPush:
 
         await phase.run_batch()
 
-        call_kwargs = mock_prs.create_pr.call_args
-        assert "draft" not in (call_kwargs.kwargs or {})
+        mock_prs.create_pr.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_worker_no_pr_when_push_fails(self, config: HydraFlowConfig) -> None:
@@ -2376,7 +2381,11 @@ class TestIsZeroCommitFailure:
 
         assert ImplementPhase._is_zero_commit_failure(result) is False
 
-    def test_returns_false_when_different_error(self) -> None:
+    def test_returns_true_when_different_error(self) -> None:
+        """Any failed run with commits=0 is a zero-commit failure — not just
+        the canonical 'No commits found on branch' error. This test was
+        previously pinning the bug; broadened in PR-B.
+        """
         result = WorkerResultFactory.create(
             issue_number=1,
             branch="agent/issue-1",
@@ -2386,7 +2395,7 @@ class TestIsZeroCommitFailure:
         )
         from implement_phase import ImplementPhase
 
-        assert ImplementPhase._is_zero_commit_failure(result) is False
+        assert ImplementPhase._is_zero_commit_failure(result) is True
 
     def test_returns_false_when_has_commits(self) -> None:
         result = WorkerResultFactory.create(
@@ -2395,6 +2404,46 @@ class TestIsZeroCommitFailure:
             success=False,
             error="No commits found on branch",
             commits=3,
+        )
+        from implement_phase import ImplementPhase
+
+        assert ImplementPhase._is_zero_commit_failure(result) is False
+
+    def test_zero_commits_with_process_killed_is_zero_commit_failure(self) -> None:
+        """ProcessLookupError or any zero-commit failure must hit the
+        zero-commit handler, not push/PR.
+        """
+        result = WorkerResultFactory.create(
+            issue_number=8511,
+            success=False,
+            error="ProcessLookupError()",
+            commits=0,
+        )
+        from implement_phase import ImplementPhase
+
+        assert ImplementPhase._is_zero_commit_failure(result) is True
+
+    def test_zero_commits_with_arbitrary_error_is_zero_commit_failure(self) -> None:
+        """Any failure with commits=0 is a zero-commit failure regardless of error string."""
+        result = WorkerResultFactory.create(
+            issue_number=99,
+            success=False,
+            error="Some unexpected error",
+            commits=0,
+        )
+        from implement_phase import ImplementPhase
+
+        assert ImplementPhase._is_zero_commit_failure(result) is True
+
+    def test_success_with_zero_commits_is_not_zero_commit_failure(self) -> None:
+        """A 'successful' run that produced no commits is a separate concern
+        (the no-PR fallback path). Don't confuse the two.
+        """
+        result = WorkerResultFactory.create(
+            issue_number=99,
+            success=True,
+            error=None,
+            commits=0,
         )
         from implement_phase import ImplementPhase
 
@@ -2510,7 +2559,13 @@ class TestHandleSuccessfulPush:
     async def test_returns_none_when_push_succeeds_but_agent_failed(
         self, config: HydraFlowConfig
     ) -> None:
-        """When push succeeds but result.success=False, no PR actions fire and None is returned."""
+        """When result.success=False on a fresh attempt, no PR is opened.
+
+        Previously this asserted create_pr was awaited (encoding the
+        half-state bug). After the half-state fix, _handle_successful_push
+        bails before _resolve_pr when the implementation failed and we
+        are not on a retry path.
+        """
         issue = TaskFactory.create()
         result = WorkerResultFactory.create(
             issue_number=42,
@@ -2524,9 +2579,9 @@ class TestHandleSuccessfulPush:
 
         early = await phase._handle_successful_push(issue, result, is_retry=False)
 
-        assert early is None  # no early return — caller handles status marking
+        assert early is None
         mock_prs.transition.assert_not_awaited()
-        mock_prs.create_pr.assert_awaited_once()  # PR is still resolved
+        mock_prs.create_pr.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -2694,4 +2749,105 @@ class TestRetryPrTitleConsistency:
 
         assert pr is not None
         assert pr.number == 0
+
+
+# ---------------------------------------------------------------------------
+# Regression: blocking-skill failure must NOT create a PR or push branch.
+# See docs/superpowers/plans/2026-05-07-implement-phase-state-machine-drift-remediation.md
+# ---------------------------------------------------------------------------
+
+
+class TestBlockingSkillFailureDoesNotCreatePR:
+    """Fresh attempts that fail a blocking skill must not push/PR.
+
+    Before this fix, ``_handle_implementation_result`` would push the
+    branch and ``_handle_successful_push._resolve_pr`` would open a PR
+    regardless of ``result.success``. The swap to ``hydraflow-review``
+    was gated on success, leaving a PR on GitHub with no corresponding
+    label transition — a state-machine half-state.
+    """
+
+    @pytest.mark.asyncio
+    async def test_fresh_attempt_with_skill_failure_skips_push_and_pr(
+        self, config: HydraFlowConfig
+    ) -> None:
+        issue = TaskFactory.create(id=7653)
+        wt_path = config.workspace_path_for_issue(7653)
+        result = WorkerResultFactory.create(
+            issue_number=7653,
+            success=False,
+            error="discover-completeness failed: missing-section:intent",
+            commits=2,
+            workspace_path=str(wt_path),
+        )
+
+        phase, _, mock_prs = make_implement_phase(
+            config, [issue], create_pr_return=PRInfoFactory.create()
+        )
+
+        final = await phase._handle_implementation_result(issue, result, is_retry=False)
+
+        mock_prs.push_branch.assert_not_awaited()
+        mock_prs.create_pr.assert_not_awaited()
+        mock_prs.transition.assert_not_awaited()
+        assert final.success is False
+        assert final.error and "discover-completeness" in final.error
+
+    @pytest.mark.asyncio
+    async def test_retry_with_skill_failure_pushes_but_does_not_create_pr(
+        self, config: HydraFlowConfig
+    ) -> None:
+        issue = TaskFactory.create(id=7653)
+        wt_path = config.workspace_path_for_issue(7653)
+        result = WorkerResultFactory.create(
+            issue_number=7653,
+            success=False,
+            error="diff-sanity failed: Missing implementation",
+            commits=1,
+            workspace_path=str(wt_path),
+        )
+
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_prs_method("push_branch", AsyncMock(return_value=True))
+            .with_prs_method(
+                "find_open_pr_for_branch",
+                AsyncMock(return_value=PRInfoFactory.create()),
+            )
+            .build()
+        )
+
+        await phase._handle_implementation_result(issue, result, is_retry=True)
+
+        mock_prs.push_branch.assert_awaited_once()
+        mock_prs.create_pr.assert_not_awaited()
+        mock_prs.transition.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_fresh_attempt_with_success_still_pushes_and_creates_pr(
+        self, config: HydraFlowConfig
+    ) -> None:
+        issue = TaskFactory.create(id=7653)
+        wt_path = config.workspace_path_for_issue(7653)
+        result = WorkerResultFactory.create(
+            issue_number=7653,
+            success=True,
+            commits=3,
+            workspace_path=str(wt_path),
+        )
+
+        phase, _, mock_prs = (
+            ImplementPhaseMockBuilder(config)
+            .with_issues([issue])
+            .with_prs_method("push_branch", AsyncMock(return_value=True))
+            .with_create_pr_return(PRInfoFactory.create())
+            .build()
+        )
+
+        await phase._handle_implementation_result(issue, result, is_retry=False)
+
+        mock_prs.push_branch.assert_awaited_once()
+        mock_prs.create_pr.assert_awaited_once()
+        mock_prs.transition.assert_awaited_once()
         mock_prs.update_pr_title.assert_not_awaited()

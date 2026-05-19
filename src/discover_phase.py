@@ -4,21 +4,23 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import TYPE_CHECKING
 
 from config import HydraFlowConfig
 from dedup_store import DedupStore
 from discover_runner import DiscoverRunner
 from events import EventBus, EventType, HydraFlowEvent
-from issue_store import IssueStore
 from models import DiscoverResult, Task
 from phase_utils import (
     _sentry_transaction,
     run_refilling_pool,
     store_lifecycle,
 )
-from pr_manager import PRManager
 from state import StateTracker
 from task_source import TaskTransitioner
+
+if TYPE_CHECKING:
+    from ports import IssueStorePort, PRPort
 
 logger = logging.getLogger("hydraflow.discover_phase")
 
@@ -35,8 +37,8 @@ class DiscoverPhase:
         self,
         config: HydraFlowConfig,
         state: StateTracker,
-        store: IssueStore,
-        prs: PRManager,
+        store: IssueStorePort,
+        prs: PRPort,
         event_bus: EventBus,
         stop_event: asyncio.Event,
         discover_runner: DiscoverRunner | None = None,
@@ -54,7 +56,7 @@ class DiscoverPhase:
                 "hitl_escalations",
                 config.data_root / "memory" / "hitl_escalations_dedup.json",
             )
-            self._runner.bind_escalation_deps(self._prs, dedup)
+            self._runner.bind_escalation_deps(self._prs, dedup)  # type: ignore[arg-type]
 
     async def discover_issues(self) -> bool:
         """Process discover-labeled issues. Returns True if work was done."""

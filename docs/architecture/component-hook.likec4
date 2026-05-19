@@ -1,0 +1,41 @@
+// Component view: the pre-push hook script and the targets it invokes
+specification {
+  element component
+  element file
+  element target
+}
+
+model {
+  prePush = component "pre-push" {
+    description ".githooks/pre-push — bash script run by `git push`."
+
+    archCheckBlock = file "arch-check block (NEW)" {
+      description "Invokes `make arch-check`; on failure prints remediation and exits 1. Skippable via HYDRAFLOW_DISABLE_PRE_PUSH_ARCH_CHECK=1."
+    }
+    qualityLiteBlock = file "quality-lite block (existing)" {
+      description "Runs `make quality-lite` (lint + typecheck + security)."
+    }
+  }
+
+  archCheck = target "make arch-check" {
+    description "Wraps `python -m arch.runner --check`. Strips per-run footer before diffing. ~2.4s."
+  }
+  qualityLite = target "make quality-lite" {
+    description "Wraps lint-check + typecheck + security audits. Multi-second."
+  }
+  runner = component "arch.runner.check()" {
+    description "Regenerates to tmpdir; diffs against committed docs/arch/generated/. Excludes changelog.md (drift-exempt)."
+  }
+
+  prePush.archCheckBlock -> archCheck "shell"
+  prePush.qualityLiteBlock -> qualityLite "shell"
+  archCheck -> runner "python -m arch.runner --check"
+}
+
+views {
+  view hookComponent of prePush {
+    title "pre-push hook composition"
+    include *
+    autoLayout TopBottom
+  }
+}

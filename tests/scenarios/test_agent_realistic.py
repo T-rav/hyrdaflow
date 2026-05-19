@@ -680,7 +680,7 @@ async def test_A17_authentication_error_halts_pipeline(tmp_path) -> None:
     """AuthenticationError from _execute propagates out of run_pipeline.
 
     Like CreditExhaustedError, AuthenticationError is in the re-raise
-    allowlist at src/phase_utils.py:130-137.
+    allowlist in _process_done_tasks at src/phase_utils.py.
     """
     from unittest import mock
 
@@ -743,7 +743,7 @@ async def test_A18_rate_limit_heals_mid_pipeline(tmp_path) -> None:
 async def test_A16_credit_exhausted_halts_pipeline(tmp_path) -> None:
     """CreditExhaustedError from _execute propagates out of run_pipeline.
 
-    run_refilling_pool's re-raise allowlist (src/phase_utils.py:130-137)
+    _process_done_tasks's re-raise allowlist in src/phase_utils.py
     re-raises CreditExhaustedError (along with AuthenticationError and
     MemoryError) after cancelling sibling tasks. Non-allowlisted exceptions
     are swallowed and logged at warning.

@@ -422,9 +422,9 @@ class TestCIFailureResolution:
             captured_prompt = prompt
             return await original_execute(cmd, prompt, wt_arg, issue_number, **kwargs)
 
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = capture_execute
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = capture_execute
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
 
@@ -635,11 +635,72 @@ class TestAutoMergeDisabled:
         assert stats["resolved"] == 1
         assert stats["merged"] == 0
 
-        # Should swap back to origin label
-        h.prs.swap_pipeline_labels.assert_any_call(
-            42, "hydraflow-review", pr_number=100
-        )
+        # Issue swaps to its origin (hydraflow-review here).
+        h.prs.swap_pipeline_labels.assert_any_call(42, "hydraflow-review")
+        # PR (with commits) goes to hydraflow-review via a separate call.
+        # See TestReleaseToOriginPRTarget for why issue and PR are split.
+        h.prs.swap_pipeline_labels.assert_any_call(100, "hydraflow-review")
         # merge_pr should NOT have been called
+        h.prs.merge_pr.assert_not_called()
+
+
+class TestReleaseToOriginPRTarget:
+    """Regression: when releasing from HITL with a PR open, the PR target
+    must be hydraflow-review (PR-stage label), not the issue's origin
+    (which is typically hydraflow-ready).
+
+    Real-world drift this caught: PR #8669 (issue #7991) and PR #8653
+    (issue #7644) — both ended up at hydraflow-ready because
+    swap_pipeline_labels was called with the issue's origin and a
+    pr_number, applying the SAME label to both.
+    """
+
+    @pytest.mark.asyncio
+    async def test_pr_lands_at_review_when_origin_is_ready(
+        self, tmp_path: Path
+    ) -> None:
+        issue = IssueFactory.create(
+            title="Test issue", body="body", labels=["hydraflow-hitl"]
+        )
+        h = _make_unsticker(tmp_path, unstick_auto_merge=False)
+
+        h.state.set_hitl_cause(42, "Merge conflict")
+        # Issue's pre-HITL stage was hydraflow-ready (typical for issues
+        # that went HITL pre-implementation). The PR has commits already.
+        h.state.set_hitl_origin(42, "hydraflow-ready")
+
+        h.fetcher.fetch_issue_by_number = AsyncMock(return_value=issue)
+        h.wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
+        h.prs.push_branch = AsyncMock(return_value=True)
+
+        h.resolver.resolve_merge_conflicts = AsyncMock(
+            return_value=ConflictResolutionResult(success=True, used_rebuild=False)
+        )
+
+        wt_dir = h.unsticker._config.workspace_path_for_issue(42)
+        wt_dir.mkdir(parents=True)
+
+        stats = await h.unsticker.unstick([_make_hitl_item(42, pr=100)])
+
+        assert stats["resolved"] == 1
+        assert stats["merged"] == 0
+
+        # Issue goes back to its pre-HITL origin (hydraflow-ready).
+        h.prs.swap_pipeline_labels.assert_any_call(42, "hydraflow-ready")
+        # PR (with commits) belongs at hydraflow-review, NOT origin.
+        h.prs.swap_pipeline_labels.assert_any_call(100, "hydraflow-review")
+
+        # The buggy single-call shape MUST NOT happen — PR getting the
+        # issue's origin via the pr_number kwarg is the drift.
+        for call in h.prs.swap_pipeline_labels.call_args_list:
+            args, kwargs = call
+            # No call should pair the ready label with a pr_number kwarg.
+            if kwargs.get("pr_number") == 100 and len(args) >= 2:
+                assert args[1] != "hydraflow-ready", (
+                    "PR #100 must not be labeled hydraflow-ready via the "
+                    "swap_pipeline_labels(issue, ready, pr_number=pr) shape"
+                )
+
         h.prs.merge_pr.assert_not_called()
 
 
@@ -755,9 +816,9 @@ class TestPromptTelemetry:
         h.state.set_hitl_cause(42, "x" * 6000)
 
         h.wt.start_merge_main = AsyncMock(return_value=True)
-        h.agents._build_command = MagicMock(return_value=["cmd"])
-        h.agents._execute = AsyncMock(return_value="done")
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["cmd"])
+        h.agents.execute = AsyncMock(return_value="done")
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="")
         )
 
@@ -769,7 +830,7 @@ class TestPromptTelemetry:
             "https://example.com/pull/1",
         )
         assert ok is True
-        telemetry = h.agents._execute.await_args.kwargs["telemetry_stats"]
+        telemetry = h.agents.execute.await_args.kwargs["telemetry_stats"]
         assert telemetry["pruned_chars_total"] > 0
 
 
@@ -1005,9 +1066,9 @@ def _setup_ci_fix_memory_test(
     h.wt.start_merge_main = AsyncMock(return_value=True)  # Clean rebase
     h.wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
 
-    h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-    h.agents._execute = AsyncMock(return_value=transcript)
-    h.agents._verify_result = AsyncMock(
+    h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+    h.agents.execute = AsyncMock(return_value=transcript)
+    h.agents.verify_result = AsyncMock(
         return_value=LoopResult(passed=True, summary="OK")
     )
 
@@ -1067,9 +1128,9 @@ class TestCITimeoutResolution:
             captured_prompt = prompt
             return await original_execute(cmd, prompt, wt_arg, issue_meta, **kwargs)
 
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = capture_execute
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = capture_execute
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
 
@@ -1150,9 +1211,9 @@ class TestCITimeoutResolution:
             captured_prompt = prompt
             return "transcript"
 
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = capture_execute
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = capture_execute
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
         h.prs.push_branch = AsyncMock(return_value=True)
@@ -1196,10 +1257,10 @@ class TestCITimeoutResolution:
         h.agents._runner = MagicMock()
         h.agents._runner.run_simple = AsyncMock(side_effect=TimeoutError("timed out"))
 
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = AsyncMock(return_value="transcript")
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = AsyncMock(return_value="transcript")
         # Verification always fails
-        h.agents._verify_result = AsyncMock(
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=False, summary="tests still hang")
         )
         h.prs.push_branch = AsyncMock(return_value=True)
@@ -1215,7 +1276,7 @@ class TestCITimeoutResolution:
         assert stats["failed"] == 1
         assert stats["resolved"] == 0
         # Agent should have been called max_ci_timeout_fix_attempts times
-        assert h.agents._execute.await_count == 2
+        assert h.agents.execute.await_count == 2
 
     def test_ci_timeout_priority_ordering(self) -> None:
         """CI_TIMEOUT should sort before CI_FAILURE in priority."""
@@ -1278,9 +1339,9 @@ class TestCITimeoutResolution:
             captured_prompt = prompt
             return "transcript"
 
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = capture_execute
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = capture_execute
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
         h.prs.push_branch = AsyncMock(return_value=True)
@@ -1342,9 +1403,9 @@ Done."""
         h.agents._runner = MagicMock()
         h.agents._runner.run_simple = AsyncMock(side_effect=TimeoutError("timed out"))
 
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = AsyncMock(return_value=transcript_with_pattern)
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = AsyncMock(return_value=transcript_with_pattern)
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
         h.prs.push_branch = AsyncMock(return_value=True)
@@ -1393,9 +1454,9 @@ Done."""
 
         h.agents._runner = MagicMock()
         h.agents._runner.run_simple = AsyncMock(side_effect=TimeoutError("timed out"))
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = AsyncMock(return_value="transcript")
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = AsyncMock(return_value="transcript")
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
         h.prs.push_branch = AsyncMock(return_value=True)
@@ -1462,9 +1523,9 @@ Done."""
 
         h.agents._runner = MagicMock()
         h.agents._runner.run_simple = AsyncMock(side_effect=TimeoutError("timed out"))
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = AsyncMock(return_value=transcript_no_block)
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = AsyncMock(return_value=transcript_no_block)
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
         h.prs.push_branch = AsyncMock(return_value=True)
@@ -1536,9 +1597,9 @@ TROUBLESHOOTING_PATTERN_END
         h.wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
 
         h.agents._runner = MagicMock()
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = AsyncMock(return_value="Fixed by setting return_value.")
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = AsyncMock(return_value="Fixed by setting return_value.")
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
         h.prs.push_branch = AsyncMock(return_value=True)
@@ -1598,9 +1659,9 @@ TROUBLESHOOTING_PATTERN_END
         h.wt.create = AsyncMock(return_value=tmp_path / "worktrees" / "issue-42")
 
         h.agents._runner = MagicMock()
-        h.agents._build_command = MagicMock(return_value=["claude", "-p"])
-        h.agents._execute = AsyncMock(return_value="Fixed it.")
-        h.agents._verify_result = AsyncMock(
+        h.agents.build_command = MagicMock(return_value=["claude", "-p"])
+        h.agents.execute = AsyncMock(return_value="Fixed it.")
+        h.agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=True, summary="OK")
         )
         h.prs.push_branch = AsyncMock(return_value=True)
@@ -1697,8 +1758,8 @@ class TestNarrowedExceptionHandling:
         h.state.set_hitl_cause(42, "ci_failure")
 
         h.wt.start_merge_main = AsyncMock(return_value=True)
-        h.agents._build_command = MagicMock(return_value=["cmd"])
-        h.agents._execute = AsyncMock(side_effect=AttributeError("bad attr"))
+        h.agents.build_command = MagicMock(return_value=["cmd"])
+        h.agents.execute = AsyncMock(side_effect=AttributeError("bad attr"))
 
         with pytest.raises(AttributeError, match="bad attr"):
             await h.unsticker._resolve_ci_or_quality(
@@ -1716,8 +1777,8 @@ class TestNarrowedExceptionHandling:
         h.state.set_hitl_cause(42, "ci_failure")
 
         h.wt.start_merge_main = AsyncMock(return_value=True)
-        h.agents._build_command = MagicMock(return_value=["cmd"])
-        h.agents._execute = AsyncMock(side_effect=RuntimeError("agent crashed"))
+        h.agents.build_command = MagicMock(return_value=["cmd"])
+        h.agents.execute = AsyncMock(side_effect=RuntimeError("agent crashed"))
 
         result = await h.unsticker._resolve_ci_or_quality(
             42, issue, tmp_path / "h.wt", "branch", "url"
@@ -1831,8 +1892,8 @@ class TestNarrowedExceptionHandling:
         h.state.set_hitl_cause(42, "ci_timeout")
 
         h.wt.start_merge_main = AsyncMock(return_value=True)
-        h.agents._build_command = MagicMock(return_value=["cmd"])
-        h.agents._execute = AsyncMock(side_effect=AttributeError("bad attr"))
+        h.agents.build_command = MagicMock(return_value=["cmd"])
+        h.agents.execute = AsyncMock(side_effect=AttributeError("bad attr"))
 
         with pytest.raises(AttributeError, match="bad attr"):
             await h.unsticker._resolve_ci_timeout(

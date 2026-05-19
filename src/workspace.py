@@ -74,20 +74,12 @@ class WorkspaceManager:
     def _repo_fetch_lock(self) -> asyncio.Lock:
         """Return a shared lock for git fetch operations in this repo."""
         key = str(self._repo_root.resolve())
-        lock = _FETCH_LOCKS.get(key)
-        if lock is None:
-            lock = asyncio.Lock()
-            _FETCH_LOCKS[key] = lock
-        return lock
+        return _FETCH_LOCKS.setdefault(key, asyncio.Lock())
 
     def _repo_workspace_lock(self) -> asyncio.Lock:
         """Return a per-repo lock for workspace create/destroy operations."""
         key = f"wt:{self._config.repo_slug}"
-        lock = _WORKTREE_LOCKS.get(key)
-        if lock is None:
-            lock = asyncio.Lock()
-            _WORKTREE_LOCKS[key] = lock
-        return lock
+        return _WORKTREE_LOCKS.setdefault(key, asyncio.Lock())
 
     _ORIGIN_HTTPS_RE = re.compile(r"github\.com[/:]([^/]+/[^/.]+?)(?:\.git)?$")
     _ORIGIN_SSH_RE = re.compile(r"git@github\.com:([^/]+/[^/.]+?)(?:\.git)?$")

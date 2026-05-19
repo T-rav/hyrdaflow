@@ -1,7 +1,9 @@
 # ADR-0031: Product Track Architecture — Discover and Shape Phases
 
-**Status:** Proposed
+**Status:** Accepted
+**Accepted on:** 2026-05-12 — promoted after slice #5 audit confirmed live production usage.
 **Date:** 2026-04-04
+**Enforced by:** tests/test_discover_phase.py, tests/test_shape_phase.py, tests/test_discover_runner.py, tests/test_shape_runner.py, tests/architecture/test_functional_area_coverage.py
 
 ## Context
 

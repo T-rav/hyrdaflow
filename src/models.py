@@ -872,6 +872,37 @@ class PRInfo(BaseModel):
     )
 
 
+class LabelDrift(BaseModel):
+    """Cross-entity label drift between an issue and its PR.
+
+    See ADR-0056 for the kinds and reconciliation policy. The
+    ``LabelDriftWatcherLoop`` emits one record per drifted (issue, PR)
+    pair on each tick.
+
+    Kinds:
+        - ``pr_ahead_of_issue``: issue labelled ``hydraflow-ready`` /
+          ``hydraflow-plan`` while the PR is at ``hydraflow-review`` /
+          ``hydraflow-fixed`` / ``hydraflow-hitl`` with commits.
+        - ``pr_behind_issue``: PR at ``hydraflow-ready`` /
+          ``hydraflow-plan`` while issue is at ``hydraflow-review``.
+        - ``pr_at_pre_pr_stage``: PR labelled ``hydraflow-ready`` /
+          ``hydraflow-plan`` / ``hydraflow-find`` while it has commits
+          (PR-stage labels are review/hitl/fixed only).
+    """
+
+    issue: int = Field(description="Linked issue number")
+    pr: int = Field(description="PR number")
+    pr_commits: int = Field(ge=0, description="Number of commits on the PR")
+    issue_label: str = Field(description="Current pipeline label on the issue")
+    pr_label: str = Field(description="Current pipeline label on the PR")
+    kind: Literal["pr_ahead_of_issue", "pr_behind_issue", "pr_at_pre_pr_stage"] = Field(
+        description="Drift category — see ADR-0056"
+    )
+    detected_at: datetime = Field(
+        description="UTC timestamp when the drift was observed"
+    )
+
+
 # --- HITL ---
 
 
@@ -1694,8 +1725,30 @@ class CodeGroomingSettings(BaseModel):
     dry_run: bool = False
 
 
+class ActiveTraceRun(BaseModel):
+    """A single in-progress trace run stored in ``trace_runs["active"]``."""
+
+    run_id: int
+    started_at: str
+
+
+class TraceRunsContainer(BaseModel):
+    """Typed container for the ``trace_runs`` field of StateData.
+
+    Structure (from _trace_runs.py):
+    - ``active``: keyed by ``"<issue>:<phase>"``, value is an ActiveTraceRun.
+    - ``next_run_id``: keyed by ``"<issue>:<phase>"``, value is the next int
+      run_id to allocate.
+    """
+
+    active: dict[str, ActiveTraceRun] = Field(default_factory=dict)
+    next_run_id: dict[str, int] = Field(default_factory=dict)
+
+
 class StateData(BaseModel):
     """Typed schema for the JSON-backed crash-recovery state."""
+
+    model_config = ConfigDict(extra="ignore")
 
     schema_version: int = 1
     processed_issues: dict[str, str] = Field(default_factory=dict)
@@ -1800,15 +1853,17 @@ class StateData(BaseModel):
     # AdrTouchpointAuditorLoop (ADR-0056) — cursor is ISO-8601 of last-scanned merged PR.
     adr_audit_cursor: str = Field(default="")
     adr_audit_attempts: dict[str, int] = Field(default_factory=dict)
+    memory_backlog_attempts: dict[str, int] = Field(default_factory=dict)
+    # LiveCorpusReplayLoop (#8786 Phase 3) — per-drift-signature attempt
+    # counters for the 3-attempt escalation chain.
+    live_corpus_drift_attempts: dict[str, int] = Field(default_factory=dict)
     escalation_contexts: dict[str, dict[str, object]] = Field(default_factory=dict)
     diagnostic_attempts: dict[str, list[dict[str, object]]] = Field(
         default_factory=dict
     )
     diagnosis_severities: dict[str, str] = Field(default_factory=dict)
     sentry_creation_attempts: dict[str, int] = Field(default_factory=dict)
-    trace_runs: dict[str, dict[str, object]] = Field(
-        default_factory=lambda: {"active": {}, "next_run_id": {}}
-    )
+    trace_runs: TraceRunsContainer = Field(default_factory=TraceRunsContainer)
     # StagingBisectLoop state (spec §4.3 + §8). Written by StagingPromotionLoop
     # on each promotion outcome; polled + mutated by StagingBisectLoop.
     last_green_rc_sha: str = ""

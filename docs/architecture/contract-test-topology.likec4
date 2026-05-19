@@ -1,0 +1,101 @@
+// FakeGit cassette-replay contract topology — context for issue #8499
+// Goal: add a worktree_prune cassette so the fake-coverage auditor stops flagging it.
+
+specification {
+  element system
+  element container
+  element component
+  element file
+
+  relationship reads
+  relationship writes
+  relationship dispatches
+  relationship validates
+  relationship audits
+}
+
+model {
+  trustArch = system 'Trust Architecture (ADR-0047)' {
+    description 'Fake-adapter contract testing via cassette record/replay'
+
+    fakes = container 'MockWorld Fakes' {
+      description 'In-memory adapters that mimic real CLIs (git, gh, docker)'
+
+      fakeGit = component 'FakeGit' {
+        description 'src/mockworld/fakes/fake_git.py — public adapter-surface methods'
+        technology 'Python async class'
+      }
+    }
+
+    cassettes = container 'Cassette Library' {
+      description 'tests/trust/contracts/cassettes/<adapter>/*.yaml — YAML recordings'
+
+      gitDir = component 'cassettes/git' {
+        description 'commit.yaml today; worktree_prune.yaml is the new file'
+      }
+
+      schema = component 'Cassette Schema' {
+        description 'src/contracts/_schema.py — Pydantic Cassette + normalizers'
+        technology 'Pydantic v2'
+      }
+    }
+
+    replay = container 'Contract Test Harness' {
+      description 'tests/trust/contracts/'
+
+      replayer = component 'Replay Harness' {
+        description '_replay.py — load_cassette → invoke fake → assert equality after normalizers'
+      }
+
+      gitDispatcher = component 'FakeGit Dispatcher' {
+        description 'test_fake_git_contract.py::_invoke_fake_git — switch on cassette.input.command'
+      }
+
+      regressionTest = component 'Regression #8499' {
+        description 'tests/regressions/test_issue_8499.py — gates worktree_prune cassette presence'
+      }
+    }
+
+    auditor = container 'FakeCoverageAuditorLoop' {
+      description 'src/fake_coverage_auditor_loop.py — weekly un-cassetted-method scan (§4.7)'
+
+      catalogFakes = component 'catalog_fake_methods' {
+        description 'AST-walk Fake* classes; collect public methods'
+      }
+
+      catalogCassettes = component 'catalog_cassette_methods' {
+        description 'Read input.command from every YAML in cassette dir'
+      }
+    }
+
+    // Relationships
+    gitDispatcher -> fakeGit 'dispatches by cassette.input.command'
+    replayer -> schema 'validates with'
+    replayer -> gitDir 'reads YAML from'
+    replayer -> gitDispatcher 'invokes per cassette'
+
+    catalogFakes -> fakeGit 'AST-scans'
+    catalogCassettes -> gitDir 'reads input.command'
+    auditor -> catalogFakes 'compares output to'
+    auditor -> catalogCassettes 'compares output to'
+
+    regressionTest -> catalogFakes 'asserts surface'
+    regressionTest -> catalogCassettes 'asserts cassette match'
+  }
+}
+
+views {
+  view trustOverview of trustArch {
+    title 'Cassette-replay contract testing — overview'
+    include *
+    autoLayout LeftRight
+  }
+
+  view fakeGitFlow of fakeGit {
+    title 'FakeGit dispatch flow for a single cassette'
+    include *
+    include cassettes.*
+    include replay.*
+    autoLayout TopBottom
+  }
+}

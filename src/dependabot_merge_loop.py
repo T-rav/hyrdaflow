@@ -40,6 +40,8 @@ class DependabotMergeLoop(BaseBackgroundLoop):
         """Check bot PRs and auto-merge if CI passes."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.dependabot_merge_loop_enabled:
+            return {"status": "config_disabled"}
         settings = self._state.get_dependabot_merge_settings()
         processed = self._state.get_dependabot_merge_processed()
         bot_authors = {a.lower() for a in settings.authors}

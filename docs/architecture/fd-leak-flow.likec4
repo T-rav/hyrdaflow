@@ -1,0 +1,66 @@
+// LikeC4 dynamic view of the fd lifecycle around `os.fdopen`.
+// Issue #7799 — leak when `os.fdopen` raises before the `with` block can
+// take ownership of the fd from `tempfile.mkstemp`.
+
+specification {
+  element system
+  element container
+  element component
+  element resource
+}
+
+model {
+  hydraflow = system 'HydraFlow' {
+    pr_manager = container 'src/pr_manager.py' {
+      run_with_body_file = component '_run_with_body_file' {
+        description: 'Writes body to temp .md, calls gh with --body-file'
+      }
+      upload_screenshot_gist = component 'upload_screenshot_gist' {
+        description: 'Writes PNG bytes to temp .png, calls gh gist create'
+      }
+    }
+
+    stdlib = container 'Python stdlib' {
+      mkstemp = component 'tempfile.mkstemp' {
+        description: 'Returns (fd: int, path: str)'
+      }
+      fdopen = component 'os.fdopen' {
+        description: 'Wraps fd into a Python file object'
+      }
+      os_close = component 'os.close' {
+        description: 'Closes a raw OS fd'
+      }
+    }
+
+    os_kernel = resource 'OS kernel fd table' {
+      description: 'Bounded resource — leaked entries never recovered until process exit'
+    }
+
+    // Happy path
+    run_with_body_file -> mkstemp 'allocate fd + path'
+    run_with_body_file -> fdopen 'wrap fd (TODAY: leak window if this raises)'
+    fdopen -> os_kernel 'close fd via context manager exit'
+
+    // Bug — when fdopen raises
+    fdopen -> run_with_body_file 'raises OSError'
+    run_with_body_file -> os_kernel 'fd remains open (BUG)'
+
+    // Fix — explicit os.close on the failure branch
+    run_with_body_file -> os_close 'close fd before re-raise (FIX)'
+    os_close -> os_kernel 'fd released'
+
+    // Path cleanup is unchanged in both shapes
+    run_with_body_file -> stdlib 'Path(tmp_path).unlink(missing_ok=True) in finally'
+
+    // Same shape repeats in upload_screenshot_gist
+    upload_screenshot_gist -> mkstemp 'allocate fd + path'
+    upload_screenshot_gist -> fdopen 'wrap fd (same fix needed)'
+  }
+}
+
+views {
+  view fd_lifecycle of run_with_body_file {
+    title 'Issue #7799 — fd lifecycle and leak window'
+    include *
+  }
+}

@@ -67,6 +67,9 @@ Path resolution runs via the `resolve_defaults` validator in seven steps:
   manifest/                         # Codebase manifest snapshots
   cache/                            # Ephemeral caches
   verification/                     # Verification artifacts
+  dedup/                            # DedupStore JSON files — one per caretaker loop (e.g. sentry_filed.json, flake_tracker.json)
+  diagnostics/                      # Factory-level time-series telemetry (factory_metrics.jsonl); served by /api/diagnostics/* routes
+  visual-reports/                   # Generated visual report artifacts (screenshots, charts) produced by the VisualReportLoop
 ```
 
 [^1]: `log_dir`, `plans_dir`, and `memory_dir` are flat under `<data_root>/`

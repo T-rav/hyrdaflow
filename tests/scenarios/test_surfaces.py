@@ -51,7 +51,7 @@ class TestSD3DockerRecordsInvocation:
 
 class TestSG1GitCoreWorktreeCorruption:
     async def test_corrupted_config_detected_and_repaired(self, mock_world, tmp_path):
-        mock_world.git.set_corrupted_config(
+        mock_world.git.script_set_corrupted_config(
             tmp_path, key="core.worktree", value="/workspace"
         )
         assert (

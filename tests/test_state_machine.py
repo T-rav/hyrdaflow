@@ -369,3 +369,57 @@ class TestSwapPipelineLabelsAsync:
         assert swapped_to == [expected_label], (
             f"Stage '{stage}' should swap to '{expected_label}', got {swapped_to}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Cross-entity drift: PR labeled hydraflow-review while linked issue
+# still at hydraflow-ready. See half-state fix plan 2026-05-07.
+# ---------------------------------------------------------------------------
+
+
+class TestPRIssueLabelConsistency:
+    """swap_pipeline_labels lands the new label on both issue AND PR."""
+
+    @pytest.mark.asyncio
+    async def test_swap_to_review_labels_both_pr_and_issue(self) -> None:
+        """When pr_number is given, both issue and PR end at the new label and
+        the old hydraflow-ready label is removed from both.
+
+        Closes a coverage gap that let the half-state bug land undetected:
+        an issue stuck at hydraflow-ready while its PR sat unlabeled (or
+        vice versa). Asserts the post-swap state of both entities, not just
+        the call shape.
+        """
+        from pr_manager import PRManager
+
+        config = _make_config()
+        event_bus = MagicMock()
+        mgr = PRManager(config, event_bus)
+
+        # In-memory label state, keyed by (kind, number).
+        labels: dict[tuple[str, int], list[str]] = {
+            ("issue", 42): ["hydraflow-ready"],
+            ("pr", 101): ["hydraflow-ready"],
+        }
+
+        async def fake_add(kind: str, number: int, new_labels: list[str]) -> None:
+            for lbl in new_labels:
+                if lbl not in labels[(kind, number)]:
+                    labels[(kind, number)].append(lbl)
+
+        async def fake_remove(kind: str, number: int, label: str) -> None:
+            if label in labels[(kind, number)]:
+                labels[(kind, number)].remove(label)
+
+        mgr._add_labels_strict = fake_add  # type: ignore[method-assign]
+        mgr._remove_label = fake_remove  # type: ignore[method-assign]
+
+        await mgr.swap_pipeline_labels(42, "hydraflow-review", pr_number=101)
+
+        issue_labels = labels[("issue", 42)]
+        pr_labels = labels[("pr", 101)]
+
+        assert "hydraflow-review" in issue_labels
+        assert "hydraflow-review" in pr_labels
+        assert "hydraflow-ready" not in issue_labels
+        assert "hydraflow-ready" not in pr_labels

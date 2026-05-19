@@ -159,6 +159,10 @@ class TermProposerLoop(BaseBackgroundLoop):
         return self._config.term_proposer_interval
 
     async def _do_work(self) -> dict[str, Any] | None:
+        # Canonical operator UI kill-switch (ADR-0049).
+        if not self._enabled_cb(self._worker_name):
+            return {"status": "disabled"}
+        # Static config gate — defense-in-depth (slice #5.0).
         if not self._config.term_proposer_enabled:
             return {"status": "disabled"}
 

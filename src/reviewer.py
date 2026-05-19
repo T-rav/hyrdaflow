@@ -6,7 +6,10 @@ import logging
 import re
 import time
 from pathlib import Path
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
+
+if TYPE_CHECKING:
+    from review_advisor import ReviewPlan
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
@@ -151,10 +154,22 @@ class ReviewRunner(BaseRunner):
         worker_id: int = 0,
         code_scanning_alerts: list[CodeScanningAlert] | None = None,
         bead_tasks: list[dict[str, object]] | None = None,
+        pre_flight_plan: ReviewPlan | None = None,
+        surface: str = "pr_review",
     ) -> ReviewResult:
         """Run the review agent for *pr*.
 
         Returns a :class:`ReviewResult` with the verdict and summary.
+
+        ``pre_flight_plan`` is the optional :class:`ReviewPlan` produced by
+        ``PreFlightAdvisor`` upstream in :class:`ReviewPhase`. When set, it
+        is rendered into the prompt as a focus rubric the executor should
+        prioritize during review.
+
+        ``surface`` selects which advisor surface config drives mid-flight
+        prompt assembly. Defaults to ``"pr_review"`` for back-compat; Phase
+        4 wires other surfaces (``adr_review``, ``visual_gate``, etc.) by
+        passing the surface name explicitly.
         """
         start = time.monotonic()
         result = ReviewResult(
@@ -195,6 +210,8 @@ class ReviewRunner(BaseRunner):
                 precheck_context=precheck_context,
                 code_scanning_alerts=code_scanning_alerts,
                 bead_tasks=bead_tasks,
+                pre_flight_plan=pre_flight_plan,
+                surface=surface,
             )
             before_sha = await self._get_head_sha(worktree_path)
             transcript = await self._execute(
@@ -348,11 +365,18 @@ class ReviewRunner(BaseRunner):
         worktree_path: Path,
         review_summary: str,
         worker_id: int = 0,
+        advisor_transcript: str | None = None,
+        suggested_fix_direction: str | None = None,
     ) -> ReviewResult:
         """Spin up a sub-agent to fix issues found during review.
 
         Takes the review feedback and asks the agent to fix the identified
         issues, commit the fixes, and report whether it succeeded.
+
+        When invoked from the post-verify advisor's VETO retry loop,
+        ``advisor_transcript`` and ``suggested_fix_direction`` carry the
+        advisor's disagreement record so the fix prompt can direct the
+        executor to address it specifically.
         """
         start = time.monotonic()
         result = ReviewResult(
@@ -397,7 +421,13 @@ class ReviewRunner(BaseRunner):
 
         try:
             cmd = self._build_command(worktree_path)
-            prompt = self._build_review_fix_prompt(pr, issue, review_summary)
+            prompt = self._build_review_fix_prompt(
+                pr,
+                issue,
+                review_summary,
+                advisor_transcript=advisor_transcript,
+                suggested_fix_direction=suggested_fix_direction,
+            )
             before_sha = await self._get_head_sha(worktree_path)
             transcript = await self._execute(
                 cmd,
@@ -446,14 +476,31 @@ class ReviewRunner(BaseRunner):
         pr: PRInfo,
         issue: Task,
         review_summary: str,
+        advisor_transcript: str | None = None,
+        suggested_fix_direction: str | None = None,
     ) -> str:
-        """Build a prompt to fix issues identified during review."""
+        """Build a prompt to fix issues identified during review.
+
+        When ``advisor_transcript`` is provided, an "Advisor disagreement"
+        section is appended so the executor can address what the advisor
+        flagged.
+        """
         test_cmd = self._config.test_command
+        advisor_section = ""
+        if advisor_transcript:
+            advisor_section = (
+                "\n\n## Advisor disagreement (you must address this)\n\n"
+                f"{advisor_transcript}"
+            )
+        if suggested_fix_direction:
+            advisor_section += (
+                f"\n\n## Suggested direction\n\n{suggested_fix_direction}"
+            )
         return f"""You are fixing review findings on PR #{pr.number} (issue #{issue.id}: {issue.title}).
 
 ## Review Feedback
 
-{review_summary}
+{review_summary}{advisor_section}
 
 ## Instructions
 
@@ -684,6 +731,8 @@ Then a brief summary on the next line starting with "SUMMARY: ".
         precheck_context: str = "",
         code_scanning_alerts: list[CodeScanningAlert] | None = None,
         bead_tasks: list[dict[str, object]] | None = None,
+        pre_flight_plan: ReviewPlan | None = None,
+        surface: str = "pr_review",
     ) -> tuple[str, dict[str, object]]:
         """Build the review prompt and pruning stats."""
         ci_enabled = self._config.max_ci_fix_attempts > 0
@@ -784,11 +833,36 @@ Then a brief summary on the next line starting with "SUMMARY: ".
 
             spec_section = build_reviewer_spec_section(issue)
 
+        # Pre-flight plan section (advisor-pattern T18). When the upstream
+        # PreFlightAdvisor produced a ReviewPlan, render it as a focus rubric
+        # so the executor's review prioritizes the listed focus_areas and
+        # rubric items. Empty string when no plan was produced (kill-switched,
+        # composite trigger said "no", or advisor degraded to None).
+        from review_advisor import (  # noqa: PLC0415
+            build_surface_config,
+            format_mid_flight_for_prompt,
+            format_pre_flight_for_prompt,
+        )
+
+        pre_flight_section = format_pre_flight_for_prompt(pre_flight_plan)
+
+        # Mid-flight consult section (advisor-pattern T21). When the surface
+        # has mid-flight enabled (kill-switch chain open), document the
+        # consult_advisor Task tool so the executor knows to call it on
+        # judgment calls. The ``surface`` kwarg threaded through ``review()``
+        # picks the surface config (T24.7 — was hardcoded "pr_review" prior
+        # to Phase 4 multi-surface wiring; default keeps back-compat).
+        # Returns None when mid-flight is disabled; coerce to "" so the
+        # f-string concatenation below stays branch-free.
+        mid_flight_section = (
+            format_mid_flight_for_prompt(build_surface_config(surface)) or ""
+        )
+
         prompt = f"""You are reviewing PR #{pr.number} which implements issue #{issue.id}.
 
 ## Issue: {issue.title}
 
-{issue_body}{plan_section}{memory_section}{log_section}{scanning_section}{bead_section}{spec_section}
+{issue_body}{plan_section}{memory_section}{log_section}{scanning_section}{bead_section}{spec_section}{pre_flight_section}{mid_flight_section}
 
 ## Precheck Context
 

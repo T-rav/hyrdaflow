@@ -60,6 +60,8 @@ class CIMonitorLoop(BaseBackgroundLoop):
         """Check CI status and create/close issues as needed."""
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.ci_monitor_loop_enabled:
+            return {"status": "config_disabled"}
 
         if self._config.dry_run:
             return None
@@ -121,6 +123,12 @@ class CIMonitorLoop(BaseBackgroundLoop):
             issue_number = await self._prs.create_issue(
                 title, body, labels=["hydraflow-ci-failure"]
             )
+            if issue_number == 0:
+                logger.error(
+                    "CI monitor: create_issue returned 0 (failure sentinel) — "
+                    "not tracking phantom issue; will retry on next cycle"
+                )
+                return {"status": "red", "error": True}
             self._open_issue = issue_number
             logger.info(
                 "CI monitor: filed issue #%d for CI failure (%s)",

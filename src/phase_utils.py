@@ -44,6 +44,78 @@ def _sentry_transaction(op: str, name: str) -> Generator[None, None, None]:
         yield
 
 
+def _fill_pending_slots(
+    supply_fn: Callable[[], list[T]],
+    worker_fn: Callable[[int, T], Coroutine[Any, Any, T_Result]],
+    pending: dict[asyncio.Task[T_Result], int],
+    max_concurrent: int,
+    worker_id_counter: int,
+) -> int:
+    """Fill available pool slots from supply_fn, returning updated counter."""
+    while len(pending) < max_concurrent:
+        new_items = supply_fn()
+        if not new_items:
+            break
+        free = max_concurrent - len(pending)
+        for item in new_items[:free]:
+            task = asyncio.create_task(worker_fn(worker_id_counter, item))
+            pending[task] = worker_id_counter
+            worker_id_counter += 1
+    return worker_id_counter
+
+
+async def _cancel_remaining(pending: dict[asyncio.Task[Any], Any]) -> None:
+    """Cancel all tasks in pending and await their completion."""
+    for t in pending:
+        t.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+
+
+async def _process_done_tasks(
+    done: set[asyncio.Task[T_Result]],
+    pending: dict[asyncio.Task[T_Result], int],
+    results: list[T_Result],
+) -> None:
+    """Process completed tasks: collect results or handle exceptions.
+
+    Fatal exceptions (AuthenticationError, CreditExhaustedError, MemoryError)
+    cancel remaining pending tasks and re-raise. Non-fatal exceptions are
+    logged at WARNING; the pool continues.
+    """
+    from subprocess_util import (  # noqa: PLC0415
+        AuthenticationError,
+        CreditExhaustedError,
+    )
+
+    _FATAL = (AuthenticationError, CreditExhaustedError, MemoryError)
+    for task in done:
+        del pending[task]
+        exc = task.exception()
+        if exc is None:
+            results.append(task.result())
+        elif isinstance(exc, _FATAL):
+            await _cancel_remaining(pending)
+            raise exc
+        else:
+            logger.warning("Pool worker failed: %s", exc, exc_info=exc)
+
+
+async def _collect_batch_results(
+    all_tasks: list[asyncio.Task[T_Result]],
+    stop_event: asyncio.Event,
+) -> list[T_Result]:
+    """Iterate as_completed, collecting results; cancel remainder if stop fires."""
+    results: list[T_Result] = []
+    for task in asyncio.as_completed(all_tasks):
+        results.append(await task)
+        if stop_event.is_set():
+            for t in all_tasks:
+                t.cancel()
+            break
+    return results
+
+
 async def run_concurrent_batch(
     items: list[T],
     worker_fn: Callable[[int, T], Coroutine[Any, Any, T_Result]],
@@ -55,22 +127,15 @@ async def run_concurrent_batch(
     and cancels remaining tasks if *stop_event* is set or if this
     coroutine itself is cancelled externally.
     """
-    results: list[T_Result] = []
     all_tasks = [
         asyncio.create_task(worker_fn(i, item)) for i, item in enumerate(items)
     ]
     try:
-        for task in asyncio.as_completed(all_tasks):
-            results.append(await task)
-            if stop_event.is_set():
-                for t in all_tasks:
-                    t.cancel()
-                break
+        return await _collect_batch_results(all_tasks, stop_event)
     finally:
         for t in all_tasks:
             if not t.done():
                 t.cancel()
-    return results
 
 
 async def run_refilling_pool(
@@ -90,54 +155,22 @@ async def run_refilling_pool(
     It is called each time a slot frees up to refill the pool.
     """
     results: list[T_Result] = []
-    pending: dict[asyncio.Task[T_Result], int] = {}  # task -> issue id placeholder
+    pending: dict[asyncio.Task[T_Result], int] = {}  # task -> worker id placeholder
     worker_id_counter = 0
 
     try:
         while not stop_event.is_set():
-            # Fill all empty slots — call supply repeatedly until full or dry
-            while len(pending) < max_concurrent:
-                new_items = supply_fn()
-                if not new_items:
-                    break
-                free = max_concurrent - len(pending)
-                for item in new_items[:free]:
-                    task = asyncio.create_task(worker_fn(worker_id_counter, item))
-                    pending[task] = worker_id_counter
-                    worker_id_counter += 1
-
+            worker_id_counter = _fill_pending_slots(
+                supply_fn, worker_fn, pending, max_concurrent, worker_id_counter
+            )
             if not pending:
                 break
-
             done, _ = await asyncio.wait(
                 pending.keys(), return_when=asyncio.FIRST_COMPLETED
             )
-            for task in done:
-                del pending[task]
-                exc = task.exception()
-                if exc is not None:
-                    from subprocess_util import (  # noqa: PLC0415
-                        AuthenticationError,
-                        CreditExhaustedError,
-                    )
-
-                    if isinstance(
-                        exc,
-                        AuthenticationError | CreditExhaustedError | MemoryError,
-                    ):
-                        for t in pending:
-                            t.cancel()
-                        await asyncio.gather(*pending, return_exceptions=True)
-                        raise exc
-                    logger.warning("Pool worker failed: %s", exc, exc_info=exc)
-                else:
-                    results.append(task.result())
+            await _process_done_tasks(done, pending, results)
     finally:
-        # Cancel stragglers on stop or external cancellation
-        for task in pending:
-            task.cancel()
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
+        await _cancel_remaining(pending)
 
     return results
 

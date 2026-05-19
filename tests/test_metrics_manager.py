@@ -270,18 +270,14 @@ class TestFetchHistory:
         self, state, event_bus, tmp_path
     ) -> None:
         """Returns empty list when no local cache exists."""
-        mgr, _, _, _ = make_manager(
-            state, event_bus, state_file=tmp_path / "state.json"
-        )
+        mgr, _, _, _ = make_manager(state, event_bus, repo_root=tmp_path)
         result = await mgr.fetch_history_from_issue()
         assert result == []
 
     @pytest.mark.asyncio
     async def test_returns_local_cache(self, state, event_bus, tmp_path) -> None:
         """Returns snapshots from local cache."""
-        mgr, _, _, _ = make_manager(
-            state, event_bus, state_file=tmp_path / "state.json"
-        )
+        mgr, _, _, _ = make_manager(state, event_bus, repo_root=tmp_path)
         snap = MetricsSnapshot(timestamp="2025-03-01T00:00:00", prs_merged=3)
         mgr._save_to_local_cache(snap)
 
@@ -298,24 +294,20 @@ class TestFetchHistory:
 class TestLocalCache:
     def test_save_creates_cache_file(self, state, event_bus, tmp_path) -> None:
         """_save_to_local_cache creates the JSONL file and parent directories."""
-        mgr, _, _, _ = make_manager(
-            state, event_bus, state_file=tmp_path / "state.json"
-        )
+        mgr, _, _, _ = make_manager(state, event_bus, repo_root=tmp_path)
         snap = MetricsSnapshot(timestamp="2025-01-01T00:00:00")
         mgr._save_to_local_cache(snap)
 
-        cache_file = tmp_path / "metrics" / "test-owner-test-repo" / "snapshots.jsonl"
+        cache_file = mgr._cache_dir / "snapshots.jsonl"
         assert cache_file.exists()
 
     def test_save_appends_to_cache(self, state, event_bus, tmp_path) -> None:
         """Multiple saves append to the same JSONL file."""
-        mgr, _, _, _ = make_manager(
-            state, event_bus, state_file=tmp_path / "state.json"
-        )
+        mgr, _, _, _ = make_manager(state, event_bus, repo_root=tmp_path)
         mgr._save_to_local_cache(MetricsSnapshot(timestamp="2025-01-01T00:00:00"))
         mgr._save_to_local_cache(MetricsSnapshot(timestamp="2025-01-02T00:00:00"))
 
-        cache_file = tmp_path / "metrics" / "test-owner-test-repo" / "snapshots.jsonl"
+        cache_file = mgr._cache_dir / "snapshots.jsonl"
         lines = [ln for ln in cache_file.read_text().strip().split("\n") if ln.strip()]
         assert len(lines) == 2
 
@@ -323,9 +315,7 @@ class TestLocalCache:
         self, state, event_bus, tmp_path
     ) -> None:
         """load_local_history reads back saved snapshots."""
-        mgr, _, _, _ = make_manager(
-            state, event_bus, state_file=tmp_path / "state.json"
-        )
+        mgr, _, _, _ = make_manager(state, event_bus, repo_root=tmp_path)
         mgr._save_to_local_cache(
             MetricsSnapshot(timestamp="2025-01-01T00:00:00", issues_completed=1)
         )
@@ -342,9 +332,7 @@ class TestLocalCache:
         self, state, event_bus, tmp_path
     ) -> None:
         """load_local_history returns empty list when no cache file exists."""
-        mgr, _, _, _ = make_manager(
-            state, event_bus, state_file=tmp_path / "state.json"
-        )
+        mgr, _, _, _ = make_manager(state, event_bus, repo_root=tmp_path)
         result = mgr.load_local_history()
         assert result == []
 
@@ -352,9 +340,7 @@ class TestLocalCache:
         self, state, event_bus, tmp_path
     ) -> None:
         """load_local_history caps results at the given limit."""
-        mgr, _, _, _ = make_manager(
-            state, event_bus, state_file=tmp_path / "state.json"
-        )
+        mgr, _, _, _ = make_manager(state, event_bus, repo_root=tmp_path)
         for i in range(5):
             mgr._save_to_local_cache(
                 MetricsSnapshot(timestamp=f"2025-01-0{i + 1}T00:00:00")
@@ -371,11 +357,9 @@ class TestLocalCache:
         """Corrupt JSONL lines are skipped with debug logging."""
         import logging
 
-        mgr, _, _, _ = make_manager(
-            state, event_bus, state_file=tmp_path / "state.json"
-        )
-        cache_dir = tmp_path / "metrics" / "test-owner-test-repo"
-        cache_dir.mkdir(parents=True)
+        mgr, _, _, _ = make_manager(state, event_bus, repo_root=tmp_path)
+        cache_dir = mgr._cache_dir
+        cache_dir.mkdir(parents=True, exist_ok=True)
         cache_file = cache_dir / "snapshots.jsonl"
 
         valid = MetricsSnapshot(timestamp="2025-01-01T00:00:00", issues_completed=5)
@@ -392,23 +376,24 @@ class TestLocalCache:
         assert "Skipping corrupt metrics snapshot line" in caplog.text
 
     def test_cache_dir_uses_repo_slug(self, state, event_bus, tmp_path) -> None:
-        """Cache directory path is based on repo slug."""
-        mgr, _, _, _ = make_manager(
-            state, event_bus, state_file=tmp_path / "state.json"
+        """Cache directory path contains the repo slug exactly once and ends with /metrics."""
+        mgr, _, _, _ = make_manager(state, event_bus, repo_root=tmp_path)
+        repo_slug = "test-owner-test-repo"
+        cache_dir_str = str(mgr._cache_dir)
+        assert cache_dir_str.count(repo_slug) == 1, (
+            f"Expected repo slug to appear exactly once in {cache_dir_str!r}"
         )
-        assert mgr._cache_dir == tmp_path / "metrics" / "test-owner-test-repo"
+        assert mgr._cache_dir.name == "metrics"
 
     @pytest.mark.asyncio
     async def test_sync_writes_to_local_cache(self, state, event_bus, tmp_path) -> None:
         """sync() writes snapshot to local cache before posting to GitHub."""
-        mgr, state, _, _ = make_manager(
-            state, event_bus, state_file=tmp_path / "state.json"
-        )
+        mgr, state, _, _ = make_manager(state, event_bus, repo_root=tmp_path)
         state.record_issue_completed()
 
         await mgr.sync()
 
-        cache_file = tmp_path / "metrics" / "test-owner-test-repo" / "snapshots.jsonl"
+        cache_file = mgr._cache_dir / "snapshots.jsonl"
         assert cache_file.exists()
         lines = [ln for ln in cache_file.read_text().strip().split("\n") if ln.strip()]
         assert len(lines) == 1
@@ -419,9 +404,7 @@ class TestLocalCache:
         """When mkdir raises OSError, warning is logged and no exception raised."""
         import logging
 
-        mgr, state, _, _ = make_manager(
-            state, event_bus, state_file=tmp_path / "state.json"
-        )
+        mgr, state, _, _ = make_manager(state, event_bus, repo_root=tmp_path)
         state.record_issue_completed()
 
         snapshot = MetricsSnapshot(timestamp="2025-01-01T00:00:00", issues_completed=1)
@@ -440,9 +423,7 @@ class TestLocalCache:
         """When open() raises OSError (e.g. dir deleted between mkdir and open), warning is logged."""
         import logging
 
-        mgr, state, _, _ = make_manager(
-            state, event_bus, state_file=tmp_path / "state.json"
-        )
+        mgr, state, _, _ = make_manager(state, event_bus, repo_root=tmp_path)
         state.record_issue_completed()
 
         snapshot = MetricsSnapshot(timestamp="2025-01-01T00:00:00", issues_completed=1)

@@ -65,8 +65,8 @@ class TestHITLEscalationEvents:
     ) -> None:
         """Merge conflict escalation should emit HITL_ESCALATION with cause merge_conflict."""
         mock_agents = AsyncMock()
-        mock_agents._execute = AsyncMock(return_value="transcript")
-        mock_agents._verify_result = AsyncMock(
+        mock_agents.execute = AsyncMock(return_value="transcript")
+        mock_agents.verify_result = AsyncMock(
             return_value=LoopResult(passed=False, summary="")
         )
         phase = make_review_phase(config, agents=mock_agents, event_bus=event_bus)

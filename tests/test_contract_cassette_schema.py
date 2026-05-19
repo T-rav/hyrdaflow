@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from contracts._schema import KNOWN_ADAPTERS
 from tests.trust.contracts._schema import (
     NORMALIZERS,
     Cassette,
@@ -52,6 +53,17 @@ class TestLoadCassette:
         with pytest.raises(ValueError, match="adapter must be one of"):
             load_cassette(path)
 
+    @pytest.mark.parametrize(
+        "adapter",
+        sorted(KNOWN_ADAPTERS),
+    )
+    def test_all_known_adapters_validate(self, tmp_path: Path, adapter: str) -> None:
+        """Every adapter name in KNOWN_ADAPTERS must pass Pydantic validation."""
+        path = tmp_path / f"{adapter}.yaml"
+        path.write_text(_MINIMAL_YAML.replace("adapter: github", f"adapter: {adapter}"))
+        cas = load_cassette(path)
+        assert cas.adapter == adapter
+
     def test_rejects_unknown_normalizer(self, tmp_path: Path) -> None:
         path = tmp_path / "c.yaml"
         bad = _MINIMAL_YAML.replace("pr_number", "not_a_real_normalizer")
@@ -78,6 +90,22 @@ class TestNormalizers:
         result = NORMALIZERS["sha:short"]("commit abc1234 authored")
         assert "<SHORT_SHA>" in result
         assert "abc1234" not in result
+
+    def test_long_sha_replaces_40_char_hex(self) -> None:
+        sha = "a" * 40
+        result = NORMALIZERS["sha:long"](f"{sha}\n")
+        assert "<LONG_SHA>" in result
+        assert sha not in result
+
+    def test_long_sha_does_not_match_short_sha(self) -> None:
+        short = "abc1234"
+        result = NORMALIZERS["sha:long"](short)
+        assert result == short
+
+    def test_long_sha_does_not_match_39_char_hex(self) -> None:
+        almost = "a" * 39
+        result = NORMALIZERS["sha:long"](almost)
+        assert "<LONG_SHA>" not in result
 
     def test_apply_chains_all_names(self) -> None:
         text = "pr #7 at 2026-04-22T14:00:00Z sha deadbeef"

@@ -14,6 +14,23 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
+# Canonical set of known adapter names. Derived from
+# ``FakeCoverageAuditorLoop._FAKE_TO_CASSETTE_DIR`` — the two must stay in
+# sync. When a new fake is added to that map, add its cassette-dir name here.
+KNOWN_ADAPTERS: frozenset[str] = frozenset(
+    {
+        "github",
+        "docker",
+        "git",
+        "beads",
+        "sentry",
+        "http",
+        "subprocess",
+        "fs",
+        "llm",
+    }
+)
+
 
 class CassetteInput(BaseModel):
     """One-interaction input block."""
@@ -43,6 +60,12 @@ class Cassette(BaseModel):
     input: CassetteInput
     output: CassetteOutput
     normalizers: list[str] = Field(default_factory=list)
+    # Phase 4 of #8786 — marks cassettes that are hand-authored baselines
+    # rather than recorded live. The eventual retirement signal: once a
+    # ``LiveCorpusReplayLoop`` dispatcher covers the same (adapter, command,
+    # args) shape, the baseline cassette is redundant and can be removed.
+    # ``FakeCoverageAuditorLoop`` will surface such overlaps (follow-up).
+    baseline_only: bool = Field(default=False)
 
     @field_validator("recorded_at", mode="before")
     @classmethod
@@ -55,8 +78,9 @@ class Cassette(BaseModel):
     @field_validator("adapter")
     @classmethod
     def _validate_adapter(cls, v: str) -> str:
-        if v not in {"github", "git", "docker"}:
-            msg = f"adapter must be one of github|git|docker, got {v!r}"
+        if v not in KNOWN_ADAPTERS:
+            known = "|".join(sorted(KNOWN_ADAPTERS))
+            msg = f"adapter must be one of {known}, got {v!r}"
             raise ValueError(msg)
         return v
 
@@ -84,6 +108,10 @@ _ISO8601_RE = re.compile(
     r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})\b"
 )
 _SHORT_SHA_RE = re.compile(r"\b[0-9a-f]{7,12}\b")
+# Bare 40-hex git object SHAs (full SHA1). Must be applied before sha:short
+# because sha:short's {7,12} boundary would not match a 40-char run, but
+# ordering makes the intent explicit.
+_LONG_SHA_RE = re.compile(r"\b[0-9a-f]{40}\b")
 
 
 def _norm_pr_number(text: str) -> str:
@@ -100,10 +128,15 @@ def _norm_short_sha(text: str) -> str:
     return _SHORT_SHA_RE.sub("<SHORT_SHA>", text)
 
 
+def _norm_long_sha(text: str) -> str:
+    return _LONG_SHA_RE.sub("<LONG_SHA>", text)
+
+
 NORMALIZERS: dict[str, Callable[[str], str]] = {
     "pr_number": _norm_pr_number,
     "timestamps.ISO8601": _norm_iso8601,
     "sha:short": _norm_short_sha,
+    "sha:long": _norm_long_sha,
 }
 
 

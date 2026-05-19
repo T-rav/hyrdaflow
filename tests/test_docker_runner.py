@@ -934,6 +934,14 @@ class TestCheckDockerAvailable:
         _args, kwargs = mock_logger.debug.call_args
         assert kwargs.get("exc_info") is True
 
+    def test_passes_timeout_to_docker_from_env(self) -> None:
+        """_check_docker_available passes timeout=10 to docker.from_env to avoid hanging."""
+        mock_client = MagicMock()
+        mock_client.ping.return_value = True
+        with patch("docker.from_env", return_value=mock_client) as mock_from_env:
+            _check_docker_available()
+        mock_from_env.assert_called_once_with(timeout=10)
+
 
 # ---------------------------------------------------------------------------
 # Fallback factory tests
@@ -1081,6 +1089,36 @@ class TestGetDockerRunner:
         assert env.get("GIT_COMMITTER_NAME") == "Hydra Bot"
         assert env.get("GIT_AUTHOR_EMAIL") == "hydra-bot@example.com"
         assert env.get("GIT_COMMITTER_EMAIL") == "hydra-bot@example.com"
+
+    def test_falls_back_to_host_when_constructor_raises_docker_exception(
+        self,
+    ) -> None:
+        """get_docker_runner falls back to HostRunner when DockerRunner.__init__ raises."""
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(
+            execution_mode="docker", docker_image="hydra:latest"
+        )
+        with patch("docker.from_env", side_effect=Exception("daemon restarting")):
+            runner = get_docker_runner(config, docker_checker=lambda: True)
+        assert isinstance(runner, HostRunner)
+
+    def test_logs_warning_when_constructor_raises_docker_exception(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """get_docker_runner logs a warning when DockerRunner.__init__ raises."""
+        from tests.helpers import ConfigFactory
+
+        config = ConfigFactory.create(
+            execution_mode="docker", docker_image="hydra:latest"
+        )
+        with (
+            patch("docker.from_env", side_effect=Exception("daemon restarting")),
+            caplog.at_level("WARNING"),
+        ):
+            get_docker_runner(config, docker_checker=lambda: True)
+        assert "falling back to host runner" in caplog.text.lower()
 
 
 # ---------------------------------------------------------------------------

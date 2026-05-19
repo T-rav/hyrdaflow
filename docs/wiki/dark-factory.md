@@ -304,3 +304,15 @@ The first foreign managed repo is `T-rav/poop-scoop-hero` (PSH, a Phaser.js game
 4. (Optional) Start a `RepoRuntime` for the repo via `POST /api/runtimes/{slug}/start`. The runtime runs the orchestrator-style five-loop set in-process. **Recommend waiting** until the principles audit gives the repo a `ready` status before flipping this on.
 
 **Architectural note (April 2026):** ADR-0009 (Accepted) specifies a subprocess-per-repo model with a TCP supervisor (`hf_cli/supervisor_service.py`). That code lives in a worktree snapshot and was never merged onto main. The in-process `RepoRuntime` is the working path; isolation (state, event bus, worktree paths) is enforced via per-slug data paths but the Python interpreter is shared. Acceptable at 2 repos. Re-landing the supervisor is a separate ADR-0009 closeout.
+
+## Advisor failures degrade per-role; never crash the review
+
+Each advisor role (pre-flight planner, mid-flight consultant, post-verify gate) has a failure-soft contract: pre-flight failure → returns `None` and the executor proceeds plan-less; mid-flight failure → executor proceeds with its own judgment; post-verify failure → APPROVE by default (`FAIL_AS_VETO=true` flips the default to VETO for high-stakes surfaces). All advisor runners call `reraise_on_credit_or_bug(exc)` per §2.2 above, so `CreditExhaustedError` and likely-bug exceptions still propagate; only "advisor unavailable" failures degrade. The `_extract_json_block` helper (T16.5 fix) parses production transcripts, which aren't bare JSON — without it the advisor would silently degrade-to-APPROVE on every PR, exactly the failure mode the pattern exists to prevent.
+
+**Why:** A self-repairing review can't itself become a single point of failure; failure-soft on advisor crashes preserves pre-advisor pipeline behavior. See ADR-0059.
+
+## Advisor self-modification guard forces VETO authority on diffs to advisor's own files
+
+When a diff modifies `src/review_advisor.py` or `src/review_phase.py`, `resolve_post_verify_authority` (T29) forces post-verify authority to VETO regardless of surface configuration — including `wiki_ingest`'s normally-advisory mode. The single source of truth for these paths is `review_advisor.SELF_MODIFYING_PATHS` (frozenset). The wiki_ingest path's `_build_wiki_ingest_diff_descriptor` synthesizes pseudo `diff --git` headers when ingest content references advisor source files, so the same substring detector fires for content-driven self-modification, not just file-level diffs.
+
+**Why:** Prevents the advisor from silently approving changes to its own implementation. Operators encountering "advisor blocked my wiki ingest about advisor source files" should know it's intentional fail-closed behavior. See ADR-0059.

@@ -1,0 +1,44 @@
+// Dynamic view: how a single worktree_prune cassette flows through replay
+// for issue #8499. Sequence of calls when pytest collects the parametrized
+// test_fake_git_matches_cassette[worktree_prune] case.
+
+specification {
+  element actor
+  element step
+  relationship calls
+}
+
+model {
+  pytest = actor 'pytest collector'
+  listCassettes = step 'list_cassettes(_CASSETTE_DIR)'
+  paramTest = step 'test_fake_git_matches_cassette(path)'
+  replayCassette = step 'replay_cassette(path, _invoke_fake_git)'
+  loadCassette = step 'load_cassette(path) → Cassette'
+  pydanticValidate = step 'Cassette.model_validate (adapter=git, normalizers=[])'
+  invokeFake = step '_invoke_fake_git(cassette)'
+  newDispatch = step 'method == "worktree_prune" branch'
+  fakeMethod = step 'await FakeGit().worktree_prune()  // no-op'
+  buildOutput = step 'FakeOutput(exit_code=0, stdout="", stderr="")'
+  applyNorms = step 'apply_normalizers(stdout, []) — identity'
+  compare = step 'assert observed == cassette.output'
+
+  pytest -> listCassettes 'collects YAML paths'
+  listCassettes -> paramTest 'parametrize id=worktree_prune'
+  paramTest -> replayCassette 'awaits'
+  replayCassette -> loadCassette 'reads YAML'
+  loadCassette -> pydanticValidate 'parses'
+  replayCassette -> invokeFake 'awaits'
+  invokeFake -> newDispatch 'switch'
+  newDispatch -> fakeMethod 'awaits'
+  fakeMethod -> buildOutput 'returns'
+  buildOutput -> applyNorms 'observed → normalized'
+  applyNorms -> compare 'expected stdout="" stderr="" exit_code=0'
+}
+
+views {
+  view replaySequence {
+    title 'Replay sequence: worktree_prune cassette → FakeGit → assertion'
+    include *
+    autoLayout TopBottom
+  }
+}

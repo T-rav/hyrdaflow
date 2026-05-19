@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from mockworld.fakes._factories import PRInfoFactory
+from models import LabelDrift
 
 if TYPE_CHECKING:
     from mockworld.seed import MockWorldSeed
@@ -57,9 +59,14 @@ class FakePR:
     mergeable: bool = True
     additions: int = 0
     deletions: int = 0
+    base: str = "main"
     reviews: list[tuple[str, str]] = field(default_factory=list)
     checks: list[tuple[str, str]] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)
+    # Commit count used by ``find_label_drift`` (ADR-0056) to distinguish
+    # zero-commit PRs from real ones. Defaults to 1 so seeded PRs look
+    # "real" without explicit setup.
+    commits: int = 1
 
 
 class FakeGitHub:
@@ -104,6 +111,10 @@ class FakeGitHub:
             )
             for label in pr_dict.get("labels", []):
                 gh.add_pr_label(pr_dict["number"], label)
+        # Apply main-branch CI status if the seed overrides the default green.
+        conclusion, url = seed.main_branch_ci_status
+        if conclusion != "success":
+            gh.set_ci_main_status(conclusion, url)
         return gh
 
     # --- Seed API ---
@@ -500,6 +511,60 @@ class FakeGitHub:
             )
         return out
 
+    async def find_label_drift(self) -> list[LabelDrift]:
+        """In-memory mirror of :meth:`PRPort.find_label_drift` (ADR-0056).
+
+        Walks open, non-merged PRs and pairs each with its linked issue;
+        classifies drift kinds the same way ``PRManager.find_label_drift``
+        classifies them.
+        """
+        self._maybe_rate_limit()
+        pre_pr_labels = {"hydraflow-ready", "hydraflow-plan", "hydraflow-find"}
+        post_pr_labels = {"hydraflow-fixed", "hydraflow-hitl"}
+        out: list[LabelDrift] = []
+        for pr in self._prs.values():
+            if pr.merged:
+                continue
+            issue = self._issues.get(pr.issue_number)
+            if issue is None:
+                continue
+            pr_pipeline = next(
+                (lbl for lbl in pr.labels if lbl.startswith("hydraflow-")),
+                "",
+            )
+            issue_pipeline = next(
+                (lbl for lbl in issue.labels if lbl.startswith("hydraflow-")),
+                "",
+            )
+            commits = pr.commits
+
+            kind: str | None = None
+            if (
+                issue_pipeline in pre_pr_labels
+                and pr_pipeline == "hydraflow-review"
+                and commits > 0
+            ):
+                kind = "pr_ahead_of_issue"
+            elif pr_pipeline in pre_pr_labels and commits > 0:
+                kind = "pr_at_pre_pr_stage"
+            elif pr_pipeline in post_pr_labels and issue_pipeline in pre_pr_labels:
+                kind = "pr_ahead_of_issue"
+
+            if kind is None:
+                continue
+            out.append(
+                LabelDrift(
+                    issue=pr.issue_number,
+                    pr=pr.number,
+                    pr_commits=commits,
+                    issue_label=issue_pipeline,
+                    pr_label=pr_pipeline,
+                    kind=kind,  # type: ignore[arg-type]
+                    detected_at=datetime.now(UTC),
+                )
+            )
+        return out
+
     async def list_issue_comments(self, issue_number: int) -> list[dict[str, Any]]:
         """Return comments seeded on the issue (oldest first).
 
@@ -634,6 +699,12 @@ class FakeGitHub:
     async def create_rc_branch(self, rc_branch: str) -> str:
         return f"sha-{rc_branch}"
 
+    async def push_synthetic_commit(self, branch: str, message: str) -> str:
+        """Record a synthetic commit; deterministic SHA in scenarios."""
+        _ = (message,)
+        self._maybe_rate_limit()
+        return f"synthetic-sha-{branch}"
+
     async def create_promotion_pr(
         self, *, rc_branch: str, title: str, body: str, **_kw: Any
     ) -> int:
@@ -666,6 +737,14 @@ class FakeGitHub:
             return False
         pr.mergeable = True
         return True
+
+    async def update_pr_base(self, pr_number: int, *, base: str) -> bool:
+        """Fake retarget: records the new base on the in-memory PR."""
+        self._maybe_rate_limit()
+        if pr_number in self._prs:
+            self._prs[pr_number].base = base
+            return True
+        return False
 
     async def list_rc_branches(self) -> list[tuple[str, str]]:
         return []

@@ -1,0 +1,16 @@
+adapter: git
+interaction: config_unset
+recorded_at: "2026-05-07T00:00:00Z"
+recorder_sha: "00000000"
+fixture_repo: tests/trust/contracts/fixtures/git_sandbox
+input:
+  command: config_unset
+  args:
+    - "core.worktree"
+  stdin: null
+  env: {}
+output:
+  exit_code: 0
+  stdout: ""
+  stderr: ""
+normalizers: []

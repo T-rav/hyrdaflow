@@ -21,11 +21,10 @@ logger = logging.getLogger("hydraflow.metrics_manager")
 def get_metrics_cache_dir(config: HydraFlowConfig) -> Path:
     """Return the local metrics cache directory for a given config.
 
-    Path: ``<state_dir>/metrics/{repo_slug}/`` where *repo_slug* is the repo
-    name with ``/`` replaced by ``-`` (e.g. ``owner/repo`` → ``owner-repo``).
+    Path: ``<data_root>/<repo_slug>/metrics/`` — repo slug appears exactly
+    once, matching the layout documented in ADR-0021.
     """
-    repo_slug = config.repo.replace("/", "-") or "unknown"
-    return config.state_file.parent / "metrics" / repo_slug
+    return config.repo_data_root / "metrics"
 
 
 class MetricsManager:

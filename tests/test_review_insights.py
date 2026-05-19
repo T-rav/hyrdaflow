@@ -844,26 +844,25 @@ class TestVerifyProposals:
 
 
 class TestReviewInsightsSentryBreadcrumbs:
-    """Sentry breadcrumbs for review insight recording and pattern detection."""
+    """Observability breadcrumbs for review insight recording and pattern detection."""
 
     def test_append_review_adds_breadcrumb(self, tmp_path: Path) -> None:
-        from unittest.mock import MagicMock, patch
+        from mockworld.fakes.fake_sentry import FakeSentry
 
-        store = _make_store(tmp_path)
+        fake_obs = FakeSentry()
+        store = ReviewInsightStore(tmp_path, observability=fake_obs)
         record = _make_record(pr_number=42, verdict=ReviewVerdict.APPROVE)
 
-        sentry_mock = MagicMock()
-        with patch.dict("sys.modules", {"sentry_sdk": sentry_mock}):
-            store.append_review(record)
-            assert sentry_mock.add_breadcrumb.called
-            kw = sentry_mock.add_breadcrumb.call_args[1]
-            assert kw["category"] == "review_insights.recorded"
-            assert kw["data"]["pr_number"] == 42
+        store.append_review(record)
+        assert len(fake_obs.breadcrumbs) >= 1
+        bc = fake_obs.breadcrumbs[0]
+        assert bc["category"] == "review_insights.recorded"
+        assert bc["pr_number"] == 42
 
     def test_analyze_patterns_adds_breadcrumb_when_threshold_met(
         self, tmp_path: Path
     ) -> None:
-        from unittest.mock import MagicMock, patch
+        from mockworld.fakes.fake_sentry import FakeSentry
 
         records = [
             _make_record(
@@ -871,14 +870,12 @@ class TestReviewInsightsSentryBreadcrumbs:
             )
             for _ in range(4)
         ]
-        sentry_mock = MagicMock()
-        with patch.dict("sys.modules", {"sentry_sdk": sentry_mock}):
-            results = analyze_patterns(records, threshold=3)
-            assert len(results) > 0
-            calls = sentry_mock.add_breadcrumb.call_args_list
-            pattern_calls = [
-                c
-                for c in calls
-                if c[1].get("category") == "review_insights.pattern_detected"
-            ]
-            assert len(pattern_calls) >= 1
+        fake_obs = FakeSentry()
+        results = analyze_patterns(records, threshold=3, obs=fake_obs)
+        assert len(results) > 0
+        pattern_bcs = [
+            b
+            for b in fake_obs.breadcrumbs
+            if b["category"] == "review_insights.pattern_detected"
+        ]
+        assert len(pattern_bcs) >= 1

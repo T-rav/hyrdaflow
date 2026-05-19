@@ -43,5 +43,7 @@ class MergeStateWatcherLoop(BaseBackgroundLoop):
     async def _do_work(self) -> dict[str, Any] | None:
         if not self._enabled_cb(self._worker_name):
             return {"status": "disabled"}
+        if not self._config.merge_state_watcher_loop_enabled:
+            return {"status": "config_disabled"}
         stats = await self._watcher.unstick_conflicts()
         return dict(stats)

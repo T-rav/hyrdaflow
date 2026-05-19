@@ -901,25 +901,6 @@ class StagingBisectLoop(BaseBackgroundLoop):
             title, body, ["hydraflow-find", "rc-red-retry"]
         )
 
-    @staticmethod
-    def _compute_lineage_id(culprit_pr_title: str, failing_tests: str) -> str:
-        """Stable hash of culprit-PR title + failing-test set.
-
-        Two retries of the same defect (same PR title family + same
-        tests fail) collapse to the same lineage; a different defect
-        on the same PR title gets a different lineage because its
-        failing-test set differs. 12-char hex prefix is enough — collisions
-        across the lifetime of a single repo are vanishingly unlikely.
-        """
-        import hashlib  # noqa: PLC0415
-
-        # Normalize tests: strip + sort + dedup so order doesn't matter.
-        tests_set = sorted(
-            set(filter(None, (s.strip() for s in failing_tests.split(","))))
-        )
-        material = f"{culprit_pr_title.strip()}|{','.join(tests_set)}"
-        return hashlib.blake2s(material.encode(), digest_size=6).hexdigest()
-
     async def _check_pending_watchdog(self) -> dict[str, Any] | None:
         """Resolve any pending watchdog to green / still-red / timeout.
 

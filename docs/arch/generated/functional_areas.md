@@ -18,6 +18,8 @@ flowchart LR
         caretaking_EpicSweeperLoop([EpicSweeperLoop])
         caretaking_GitHubCacheLoop([GitHubCacheLoop])
         caretaking_HealthMonitorLoop([HealthMonitorLoop])
+        caretaking_LabelDriftWatcherLoop([LabelDriftWatcherLoop])
+        caretaking_MemoryBacklogLoop([MemoryBacklogLoop])
         caretaking_MergeStateWatcherLoop([MergeStateWatcherLoop])
         caretaking_PRUnstickerLoop([PRUnstickerLoop])
         caretaking_PricingRefreshLoop([PricingRefreshLoop])
@@ -45,6 +47,7 @@ flowchart LR
         trust_fleet_CorpusLearningLoop([CorpusLearningLoop])
         trust_fleet_FakeCoverageAuditorLoop([FakeCoverageAuditorLoop])
         trust_fleet_FlakeTrackerLoop([FlakeTrackerLoop])
+        trust_fleet_LiveCorpusReplayLoop([LiveCorpusReplayLoop])
         trust_fleet_PrinciplesAuditLoop([PrinciplesAuditLoop])
         trust_fleet_RCBudgetLoop([RCBudgetLoop])
         trust_fleet_StagingBisectLoop([StagingBisectLoop])
@@ -98,6 +101,8 @@ Autonomous background loops that maintain the system without human input — wik
 - `EpicSweeperLoop` — `src.epic_sweeper_loop`
 - `GitHubCacheLoop` — `src.github_cache_loop`
 - `HealthMonitorLoop` — `src.health_monitor_loop`
+- `LabelDriftWatcherLoop` — `src.label_drift_watcher_loop`
+- `MemoryBacklogLoop` — `src.memory_backlog_loop`
 - `MergeStateWatcherLoop` — `src.merge_state_watcher_loop`
 - `PRUnstickerLoop` — `src.pr_unsticker_loop`
 - `PricingRefreshLoop` — `src.pricing_refresh_loop`
@@ -116,7 +121,7 @@ Autonomous background loops that maintain the system without human input — wik
 - `WikiRotDetectorLoop` — `src.wiki_rot_detector_loop`
 - `WorkspaceGCLoop` — `src.workspace_gc_loop`
 
-**Related ADRs:** `ADR-0029`, `ADR-0049`
+**Related ADRs:** `ADR-0029`, `ADR-0049`, `ADR-0057`
 
 
 ## Quality Gates
@@ -141,6 +146,7 @@ The trust-architecture hardening fleet (ADR-0045) — RC promotion gate, staging
 - `CorpusLearningLoop` — `src.corpus_learning_loop`
 - `FakeCoverageAuditorLoop` — `src.fake_coverage_auditor_loop`
 - `FlakeTrackerLoop` — `src.flake_tracker_loop`
+- `LiveCorpusReplayLoop` — `src.live_corpus_replay_loop`
 - `PrinciplesAuditLoop` — `src.principles_audit_loop`
 - `RCBudgetLoop` — `src.rc_budget_loop`
 - `StagingBisectLoop` — `src.staging_bisect_loop`
@@ -176,7 +182,7 @@ Crash-recovery state (StateTracker), event bus, session logs, and the on-disk la
 
 - `src/state/**`
 - `src/events.py`
-- `src/session_log.py`
+- `src/state/_session.py`
 
 **Related ADRs:** `ADR-0021`, `ADR-0028`
 
@@ -259,16 +265,15 @@ The plan→implement→review pipeline driving each issue from hydraflow-ready t
 
 - `src/orchestrator.py`
 - `src/agent.py`
-- `src/agent_runner.py`
 - `src/planner.py`
 - `src/reviewer.py`
 - `src/triage_phase.py`
 - `src/plan_phase.py`
 - `src/implement_phase.py`
-- `src/review_phase.py`
+- `src/review_phase/`
 - `src/hitl_phase.py`
 
 **Related ADRs:** `ADR-0001`, `ADR-0004`, `ADR-0011`, `ADR-0012`, `ADR-0029`
 
 
-_Regenerated from commit `9d837fb` on 2026-05-11 02:38 UTC. Source last changed at `9d837fb`. Status: 🟢 fresh._
+_Regenerated from commit `8f59fe9` on 2026-05-19 01:36 UTC. Source last changed at `8f59fe9`. Status: 🟢 fresh._

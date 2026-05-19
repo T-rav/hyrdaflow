@@ -1,0 +1,44 @@
+// Dynamic view: how the new worktree_add.yaml cassette flows through replay.
+
+specification {
+  element actor
+  element component
+}
+
+model {
+  pytest = actor 'pytest test runner'
+
+  list_cassettes = component 'list_cassettes(_CASSETTE_DIR)' {
+    description 'Globs cassettes/git/*.yaml and parametrizes the test'
+  }
+  schema = component 'Cassette pydantic model' {
+    description '_schema.py — validates adapter ∈ {github,git,docker}, normalizers ⊆ NORMALIZERS'
+  }
+  replay_cassette = component 'replay_cassette()' {
+    description '_replay.py — loads cassette, calls invoker, applies normalizers, asserts equality'
+  }
+  invoke = component '_invoke_fake_git()' {
+    description 'Dispatch by cassette.input.command — branch for worktree_add already exists'
+  }
+  fake = component 'FakeGit.worktree_add(path, branch, *, new_branch=True)' {
+    description 'In-memory: stores path → branch in _worktrees dict; returns None'
+  }
+  output = component 'FakeOutput(exit_code=0, stdout="", stderr="")' {
+    description 'Synthesized by the dispatcher to match the empty-output cassette'
+  }
+
+  pytest -> list_cassettes 'collect parametrize ids'
+  list_cassettes -> schema 'parse worktree_add.yaml'
+  schema -> replay_cassette 'validated Cassette'
+  replay_cassette -> invoke 'await invoker(cassette)'
+  invoke -> fake 'args[0] = branch name'
+  fake -> output 'returns None → dispatcher emits empty output'
+  output -> replay_cassette 'compared against cassette.output under normalizers=[]'
+}
+
+views {
+  view replay_dispatch {
+    title 'Replay path for worktree_add.yaml'
+    include *
+  }
+}

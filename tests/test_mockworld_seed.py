@@ -37,3 +37,29 @@ def test_seed_json_is_valid_json() -> None:
     raw = seed.to_json()
     parsed = json.loads(raw)
     assert parsed["issues"] == [{"number": 1}]
+
+
+def test_default_seed_has_empty_advisor_scripts() -> None:
+    """Back-compat: every existing scenario seed predates ``advisor_scripts``."""
+    assert MockWorldSeed().advisor_scripts == {}
+
+
+def test_seed_round_trips_advisor_scripts_through_json() -> None:
+    """JSON serialization preserves the (issue, role, payloads) advisor shape.
+
+    Issue numbers are JSON object keys (always strings on the wire); the
+    ``from_json`` coercion is what makes ``script_advisor(7, ...)`` —
+    which expects an ``int`` issue number — work after a sandbox boot.
+    """
+    payload = json.dumps({"verdict": "APPROVE", "disagreements": []})
+    original = MockWorldSeed(
+        advisor_scripts={
+            7: {"post_verify": [payload]},
+            12: {"pre_flight": [payload], "mid_flight": [payload, payload]},
+        },
+    )
+
+    parsed = MockWorldSeed.from_json(original.to_json())
+
+    assert parsed == original
+    assert isinstance(next(iter(parsed.advisor_scripts.keys())), int)

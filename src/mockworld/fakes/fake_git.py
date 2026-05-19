@@ -18,7 +18,7 @@ class FakeGit:
 
     # --- script API (tests) ---
 
-    def set_corrupted_config(self, cwd: Path, *, key: str, value: str) -> None:
+    def script_set_corrupted_config(self, cwd: Path, *, key: str, value: str) -> None:
         self._configs.setdefault(cwd, {})[key] = value
 
     def reject_next_push(self) -> None:

@@ -59,6 +59,10 @@ class Credentials(BaseModel):
         default="",
         description="WhatsApp webhook verification token",
     )
+    whatsapp_app_secret: str = Field(
+        default="",
+        description="WhatsApp app secret used to verify X-Hub-Signature-256 webhook signatures",
+    )
 
 
 class ManagedRepo(BaseModel):
@@ -227,8 +231,18 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
         "HYDRAFLOW_FAKE_COVERAGE_AUDITOR_INTERVAL",
         604800,
     ),
+    (
+        "memory_backlog_interval_seconds",
+        "HYDRAFLOW_MEMORY_BACKLOG_INTERVAL",
+        86_400,
+    ),
     ("rc_budget_interval", "HYDRAFLOW_RC_BUDGET_INTERVAL", 14400),
     ("wiki_rot_detector_interval", "HYDRAFLOW_WIKI_ROT_DETECTOR_INTERVAL", 604800),
+    (
+        "adr_touchpoint_auditor_interval",
+        "HYDRAFLOW_ADR_TOUCHPOINT_AUDITOR_INTERVAL",
+        14400,
+    ),
     ("term_proposer_interval", "HYDRAFLOW_TERM_PROPOSER_INTERVAL", 14400),
     ("term_proposer_max_per_tick", "HYDRAFLOW_TERM_PROPOSER_MAX_PER_TICK", 10),
     (
@@ -245,6 +259,7 @@ _ENV_INT_OVERRIDES: list[tuple[str, str, int]] = [
         20,
     ),
     ("trust_fleet_sanity_interval", "HYDRAFLOW_TRUST_FLEET_SANITY_INTERVAL", 600),
+    ("label_drift_watcher_interval", "HYDRAFLOW_LABEL_DRIFT_WATCHER_INTERVAL", 600),
     ("loop_anomaly_issues_per_hour", "HYDRAFLOW_LOOP_ANOMALY_ISSUES_PER_HOUR", 10),
     ("corpus_learning_interval", "HYDRAFLOW_CORPUS_LEARNING_INTERVAL", 3600),
     ("contract_refresh_interval", "HYDRAFLOW_CONTRACT_REFRESH_INTERVAL", 604800),
@@ -362,7 +377,74 @@ _ENV_BOOL_OVERRIDES: list[tuple[str, str, bool]] = [
     ("term_proposer_enabled", "HYDRAFLOW_TERM_PROPOSER_ENABLED", True),
     ("term_pruner_enabled", "HYDRAFLOW_TERM_PRUNER_ENABLED", True),
     ("edge_proposer_enabled", "HYDRAFLOW_EDGE_PROPOSER_ENABLED", True),
+    # Static config gates — 34 loops (dark-factory §2.1 #3 defense-in-depth)
+    ("adr_reviewer_loop_enabled", "HYDRAFLOW_ADR_REVIEWER_LOOP_ENABLED", True),
+    (
+        "adr_touchpoint_auditor_loop_enabled",
+        "HYDRAFLOW_ADR_TOUCHPOINT_AUDITOR_LOOP_ENABLED",
+        True,
+    ),
+    ("ci_monitor_loop_enabled", "HYDRAFLOW_CI_MONITOR_LOOP_ENABLED", True),
+    ("contract_refresh_loop_enabled", "HYDRAFLOW_CONTRACT_REFRESH_LOOP_ENABLED", True),
+    ("corpus_learning_loop_enabled", "HYDRAFLOW_CORPUS_LEARNING_LOOP_ENABLED", True),
+    (
+        "cost_budget_watcher_loop_enabled",
+        "HYDRAFLOW_COST_BUDGET_WATCHER_LOOP_ENABLED",
+        True,
+    ),
+    ("dependabot_merge_loop_enabled", "HYDRAFLOW_DEPENDABOT_MERGE_LOOP_ENABLED", True),
+    ("diagnostic_loop_enabled", "HYDRAFLOW_DIAGNOSTIC_LOOP_ENABLED", True),
+    ("diagram_loop_enabled", "HYDRAFLOW_DIAGRAM_LOOP_ENABLED", True),
     ("entry_evidence_enabled", "HYDRAFLOW_ENTRY_EVIDENCE_ENABLED", True),
+    ("epic_monitor_loop_enabled", "HYDRAFLOW_EPIC_MONITOR_LOOP_ENABLED", True),
+    ("epic_sweeper_loop_enabled", "HYDRAFLOW_EPIC_SWEEPER_LOOP_ENABLED", True),
+    (
+        "fake_coverage_auditor_loop_enabled",
+        "HYDRAFLOW_FAKE_COVERAGE_AUDITOR_LOOP_ENABLED",
+        True,
+    ),
+    ("flake_tracker_loop_enabled", "HYDRAFLOW_FLAKE_TRACKER_LOOP_ENABLED", True),
+    ("github_cache_loop_enabled", "HYDRAFLOW_GITHUB_CACHE_LOOP_ENABLED", True),
+    ("health_monitor_loop_enabled", "HYDRAFLOW_HEALTH_MONITOR_LOOP_ENABLED", True),
+    (
+        "label_drift_watcher_loop_enabled",
+        "HYDRAFLOW_LABEL_DRIFT_WATCHER_LOOP_ENABLED",
+        True,
+    ),
+    ("memory_backlog_loop_enabled", "HYDRAFLOW_MEMORY_BACKLOG_LOOP_ENABLED", True),
+    (
+        "merge_state_watcher_loop_enabled",
+        "HYDRAFLOW_MERGE_STATE_WATCHER_LOOP_ENABLED",
+        True,
+    ),
+    ("pr_unsticker_loop_enabled", "HYDRAFLOW_PR_UNSTICKER_LOOP_ENABLED", True),
+    ("pricing_refresh_loop_enabled", "HYDRAFLOW_PRICING_REFRESH_LOOP_ENABLED", True),
+    ("principles_audit_loop_enabled", "HYDRAFLOW_PRINCIPLES_AUDIT_LOOP_ENABLED", True),
+    ("rc_budget_loop_enabled", "HYDRAFLOW_RC_BUDGET_LOOP_ENABLED", True),
+    ("repo_wiki_loop_enabled", "HYDRAFLOW_REPO_WIKI_LOOP_ENABLED", True),
+    ("report_issue_loop_enabled", "HYDRAFLOW_REPORT_ISSUE_LOOP_ENABLED", True),
+    ("retrospective_loop_enabled", "HYDRAFLOW_RETROSPECTIVE_LOOP_ENABLED", True),
+    ("runs_gc_loop_enabled", "HYDRAFLOW_RUNS_GC_LOOP_ENABLED", True),
+    ("security_patch_loop_enabled", "HYDRAFLOW_SECURITY_PATCH_LOOP_ENABLED", True),
+    ("sentry_loop_enabled", "HYDRAFLOW_SENTRY_LOOP_ENABLED", True),
+    (
+        "skill_prompt_eval_loop_enabled",
+        "HYDRAFLOW_SKILL_PROMPT_EVAL_LOOP_ENABLED",
+        True,
+    ),
+    ("stale_issue_gc_loop_enabled", "HYDRAFLOW_STALE_ISSUE_GC_LOOP_ENABLED", True),
+    ("stale_issue_loop_enabled", "HYDRAFLOW_STALE_ISSUE_LOOP_ENABLED", True),
+    (
+        "trust_fleet_sanity_loop_enabled",
+        "HYDRAFLOW_TRUST_FLEET_SANITY_LOOP_ENABLED",
+        True,
+    ),
+    (
+        "wiki_rot_detector_loop_enabled",
+        "HYDRAFLOW_WIKI_ROT_DETECTOR_LOOP_ENABLED",
+        True,
+    ),
+    ("workspace_gc_loop_enabled", "HYDRAFLOW_WORKSPACE_GC_LOOP_ENABLED", True),
 ]
 
 # Literal-typed env-var overrides.
@@ -806,6 +888,12 @@ class HydraFlowConfig(BaseModel):
         le=86400,
         description="Stale issue GC loop interval in seconds (default 1 hour)",
     )
+    label_drift_watcher_interval: int = Field(
+        default=600,
+        ge=120,
+        le=86400,
+        description="LabelDriftWatcherLoop scan interval in seconds (120-86400).",
+    )
     stale_issue_interval: int = Field(
         default=86400,
         ge=60,
@@ -1242,6 +1330,43 @@ class HydraFlowConfig(BaseModel):
         ),
     )
 
+    # Shadow corpus (#8786) — opt-in live sampling of production
+    # subprocess calls. When enabled, every gh/git/docker/claude call
+    # feeds a bounded, normalized, PII-scrubbed YAML corpus that
+    # LiveCorpusReplayLoop will eventually diff against fake-adapter
+    # outputs. Off by default until the v2 pattern is validated.
+    shadow_corpus_max_per_adapter: int = Field(
+        default=100,
+        ge=10,
+        le=10000,
+        description=(
+            "Per-adapter LRU cap on shadow corpus size. Most-recently-"
+            "recorded call shapes survive eviction; older shapes are "
+            "deleted from disk."
+        ),
+    )
+    live_corpus_replay_interval: int = Field(
+        default=900,  # 15 min — drift surfaces within one fresh sample cycle
+        ge=60,
+        le=86400,
+        description=(
+            "Seconds between LiveCorpusReplayLoop ticks. Each tick diffs "
+            "every fresh shadow-corpus sample against the matching fake-"
+            "adapter output via registered dispatchers."
+        ),
+    )
+    live_corpus_max_drift_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+        description=(
+            "Per-drift-signature attempt cap before LiveCorpusReplayLoop "
+            "escalates to hitl-escalation (auto-agent preflight). Each "
+            "tick that re-detects the same drift signature counts as "
+            "one attempt; a clean tick clears all counters."
+        ),
+    )
+
     # Code grooming
     code_grooming_enabled: bool = Field(
         default=False,
@@ -1468,6 +1593,14 @@ class HydraFlowConfig(BaseModel):
     screenshot_gist_public: bool = Field(
         default=False,
         description="Upload screenshot gists as public (True) or secret/unlisted (False)",
+    )
+
+    # Research before planning. ResearchRunner spawns a real ``claude``
+    # subprocess; disabling lets the sandbox skip that subprocess in the
+    # air-gapped container. Production defaults to True.
+    research_enabled: bool = Field(
+        default=True,
+        description="Run ResearchRunner before PlanPhase to inject codebase context",
     )
 
     # Transcript summarization
@@ -1950,6 +2083,33 @@ class HydraFlowConfig(BaseModel):
         description="Labels for stuck ADR drift escalations (paired with hitl_escalation_label)",
     )
 
+    # Trust fleet — MemoryBacklogLoop (ADR-0057)
+    memory_backlog_interval_seconds: int = Field(
+        default=86_400,
+        ge=3_600,
+        le=604_800,
+        description="Cadence for MemoryBacklogLoop (default 24h, range 1h–7d).",
+    )
+    memory_backlog_enabled: bool = Field(
+        default=True,
+        description=(
+            "Static gate for MemoryBacklogLoop. Defense-in-depth alongside "
+            "the in-body ADR-0049 kill-switch."
+        ),
+    )
+    memory_backlog_label: list[str] = Field(
+        default=["hydraflow-memory-backlog"],
+        description=(
+            "Label applied to issues filed by MemoryBacklogLoop (alongside find_label)."
+        ),
+    )
+    memory_backlog_stuck_label: list[str] = Field(
+        default=["hydraflow-memory-backlog-stuck"],
+        description=(
+            "Escalation label after 3 unresolved attempts on the same memory entry."
+        ),
+    )
+
     # Trust fleet — RCBudgetLoop (spec §4.8)
     rc_budget_interval: int = Field(
         default=14400,
@@ -1981,6 +2141,14 @@ class HydraFlowConfig(BaseModel):
         ge=86400,
         le=2_592_000,
         description="Seconds between WikiRotDetectorLoop ticks (default 7d)",
+    )
+
+    # Caretaker — AdrTouchpointAuditorLoop (ADR-0056)
+    adr_touchpoint_auditor_interval: int = Field(
+        default=14400,
+        ge=900,
+        le=86400,
+        description="Seconds between AdrTouchpointAuditorLoop ticks (default 4h)",
     )
 
     # Trust fleet — TermProposerLoop (ADR-0054)
@@ -2355,6 +2523,149 @@ class HydraFlowConfig(BaseModel):
         description="Maximum baseline audit records to retain per issue",
     )
 
+    # -------------------------------------------------------------------------
+    # Static config gates — 34 loops (dark-factory §2.1 #3 defense-in-depth)
+    # Each field maps to a HYDRAFLOW_<UPPER_SNAKE>_ENABLED env var (see
+    # _ENV_BOOL_OVERRIDES above). Setting any of these to False disables the
+    # corresponding loop at deploy time without a code change.
+    # -------------------------------------------------------------------------
+    adr_reviewer_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for ADRReviewerLoop.",
+    )
+    adr_touchpoint_auditor_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for AdrTouchpointAuditorLoop.",
+    )
+    ci_monitor_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for CIMonitorLoop.",
+    )
+    contract_refresh_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for ContractRefreshLoop.",
+    )
+    corpus_learning_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for CorpusLearningLoop.",
+    )
+    cost_budget_watcher_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for CostBudgetWatcherLoop.",
+    )
+    dependabot_merge_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for DependabotMergeLoop.",
+    )
+    diagnostic_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for DiagnosticLoop.",
+    )
+    diagram_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for DiagramLoop.",
+    )
+    epic_monitor_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for EpicMonitorLoop.",
+    )
+    epic_sweeper_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for EpicSweeperLoop.",
+    )
+    fake_coverage_auditor_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for FakeCoverageAuditorLoop.",
+    )
+    flake_tracker_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for FlakeTrackerLoop.",
+    )
+    github_cache_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for GitHubCacheLoop.",
+    )
+    health_monitor_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for HealthMonitorLoop.",
+    )
+    label_drift_watcher_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for LabelDriftWatcherLoop.",
+    )
+    memory_backlog_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for MemoryBacklogLoop.",
+    )
+    merge_state_watcher_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for MergeStateWatcherLoop.",
+    )
+    pr_unsticker_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for PRUnstickerLoop.",
+    )
+    pricing_refresh_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for PricingRefreshLoop.",
+    )
+    principles_audit_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for PrinciplesAuditLoop.",
+    )
+    rc_budget_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for RCBudgetLoop.",
+    )
+    repo_wiki_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for RepoWikiLoop.",
+    )
+    report_issue_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for ReportIssueLoop.",
+    )
+    retrospective_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for RetrospectiveLoop.",
+    )
+    runs_gc_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for RunsGCLoop.",
+    )
+    security_patch_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for SecurityPatchLoop.",
+    )
+    sentry_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for SentryLoop.",
+    )
+    skill_prompt_eval_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for SkillPromptEvalLoop.",
+    )
+    stale_issue_gc_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for StaleIssueGCLoop.",
+    )
+    stale_issue_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for StaleIssueLoop.",
+    )
+    trust_fleet_sanity_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for TrustFleetSanityLoop.",
+    )
+    wiki_rot_detector_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for WikiRotDetectorLoop.",
+    )
+    workspace_gc_loop_enabled: bool = Field(
+        default=True,
+        description="Deploy-time kill-switch for WorkspaceGCLoop.",
+    )
+
     @field_validator(
         "ready_label",
         "review_label",
@@ -2372,6 +2683,8 @@ class HydraFlowConfig(BaseModel):
         "verify_label",
         "parked_label",
         "diagnose_label",
+        "memory_backlog_label",
+        "memory_backlog_stuck_label",
     )
     @classmethod
     def labels_must_not_be_empty(cls, v: list[str]) -> list[str]:
@@ -2560,6 +2873,7 @@ def build_credentials(config: HydraFlowConfig) -> Credentials:
         whatsapp_phone_id=os.environ.get("HYDRAFLOW_WHATSAPP_PHONE_ID", ""),
         whatsapp_recipient=os.environ.get("HYDRAFLOW_WHATSAPP_RECIPIENT", ""),
         whatsapp_verify_token=os.environ.get("HYDRAFLOW_WHATSAPP_VERIFY_TOKEN", ""),
+        whatsapp_app_secret=os.environ.get("HYDRAFLOW_WHATSAPP_APP_SECRET", ""),
     )
 
 
