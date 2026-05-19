@@ -102,6 +102,7 @@ ADR and that named test files actually exist.
 | [0076](0076-github-cache-loop.md) | GitHubCacheLoop: Centralized GitHub Data Cache | Proposed |
 | [0077](0077-pr-unsticker-loop.md) | PRUnstickerLoop: Goal-Driven HITL PR Resolution | Proposed |
 | [0078](0078-pricing-refresh-loop.md) | PricingRefreshLoop: Autonomous LLM Pricing Drift Detection | Proposed |
+| [0079](0079-adr-reviewer-loop.md) | ADRReviewerLoop: Autonomous Council Review for Proposed ADRs | Proposed |
 
 ## Adding a new ADR
 
