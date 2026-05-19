@@ -1026,6 +1026,49 @@ def _build_edge_proposer(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     )
 
 
+def _build_entry_evidence(ports: dict[str, Any], config: Any, deps: Any) -> Any:
+    """Build EntryEvidenceLoop for scenarios (ADR-0062).
+
+    The loop's external surface — ``LLMClient.complete_structured`` and
+    ``BotPRPort.open_bot_pr`` — cannot run inside a scenario. Tests seed:
+
+    * ``entry_evidence_llm`` — an LLMClient duck-type; defaults to a
+      MagicMock whose ``complete_structured`` resolves to ``{"term_ids": []}``.
+    * ``entry_evidence_pr_port`` — a BotPRPort duck-type; defaults to a
+      MagicMock whose ``open_bot_pr`` resolves to ``0``.
+    * ``entry_evidence_repo_root`` — ``Path``; defaults to ``config.repo_root``.
+
+    Mirrors the ``_build_edge_proposer`` / ``_build_term_proposer`` pattern.
+    """
+    from entry_evidence_loop import EntryEvidenceLoop  # noqa: PLC0415
+
+    llm = ports.get("entry_evidence_llm")
+    if llm is None:
+        llm = MagicMock()
+        llm.complete_structured = AsyncMock(return_value={"term_ids": []})
+        ports["entry_evidence_llm"] = llm
+
+    pr_port = ports.get("entry_evidence_pr_port")
+    if pr_port is None:
+        pr_port = MagicMock()
+        pr_port.open_bot_pr = AsyncMock(return_value=0)
+        ports["entry_evidence_pr_port"] = pr_port
+
+    repo_root = ports.get("entry_evidence_repo_root") or config.repo_root
+    dedup_path = ports.get("entry_evidence_dedup_path") or (
+        config.repo_root / ".entry_evidence_dedup.json"
+    )
+
+    return EntryEvidenceLoop(
+        config=config,
+        deps=deps,
+        llm=llm,
+        pr_port=pr_port,
+        repo_root=repo_root,
+        dedup_path=dedup_path,
+    )
+
+
 def _build_label_drift_watcher(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     """Build LabelDriftWatcherLoop for scenarios (ADR-0056).
 
@@ -1259,8 +1302,9 @@ _BUILDERS: dict[str, Any] = {
     # auto-agent (spec §1–§11; ADR-0050)
     "auto_agent_preflight": _build_auto_agent_preflight,
     "sandbox_failure_fixer": _build_sandbox_failure_fixer,
-    # ubiquitous-language (ADR-0054 + ADR-0057 + ADR-0058)
+    # ubiquitous-language (ADR-0054 + ADR-0057 + ADR-0058 + ADR-0062)
     "edge_proposer": _build_edge_proposer,
+    "entry_evidence": _build_entry_evidence,
     "term_proposer": _build_term_proposer,
     "term_pruner": _build_term_pruner,
     # label drift (ADR-0056)
