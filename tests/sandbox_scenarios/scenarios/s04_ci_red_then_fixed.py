@@ -34,9 +34,22 @@ def seed() -> MockWorldSeed:
 
 
 async def assert_outcome(api, page) -> None:
-    timeline = await api.wait_until(
-        "/api/timeline/issue/1",
-        lambda p: p.get("outcome") == "merged",
+    # /api/timeline/issue/N has no `outcome` field — use /api/issues/history
+    # like s01_happy_single_issue.
+    def _merged(payload: dict) -> bool:
+        items = payload.get("items") if isinstance(payload, dict) else None
+        if not isinstance(items, list):
+            return False
+        for item in items:
+            if not isinstance(item, dict) or item.get("issue_number") != 1:
+                continue
+            outcome = item.get("outcome") or {}
+            if isinstance(outcome, dict) and outcome.get("outcome") == "merged":
+                return True
+        return False
+
+    await api.wait_until(
+        "/api/issues/history?limit=500",
+        _merged,
         timeout=120.0,
     )
-    assert timeline["outcome"] == "merged"

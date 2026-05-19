@@ -264,6 +264,34 @@ async def stream_claude_process(
         The transcript string, using the fallback chain:
         result_text → accumulated_text → raw_lines.
     """
+    # Sandbox short-circuit. ``HYDRAFLOW_ENV=sandbox`` is set in
+    # ``docker-compose.sandbox.yml`` and only there — the air-gapped
+    # container has no Anthropic API access, so every claude subprocess
+    # spawned through this function hangs ~30s on `api_retry` exponential
+    # backoff before failing with "unknown" network errors. The four
+    # primary LLM runners (triage/plan/agent/review) are already
+    # overridden via FakeLLM in ``sandbox_main.py``, but secondary
+    # callers (ResearchRunner, BugReproducer, HITLRunner, AC generator,
+    # MergeConflictResolver, caretaker loops, etc.) all reach this seam
+    # without going through the runner override. Returning an empty
+    # transcript here makes them all no-op cleanly — any downstream
+    # logic that depends on extracted markers will degrade gracefully
+    # (the only consumers that care about transcript content are
+    # post-merge / caretaker-loop paths that are inert in scenario tests).
+    import os  # noqa: PLC0415
+
+    if os.environ.get("HYDRAFLOW_ENV") == "sandbox":
+        await event_bus.publish(
+            HydraFlowEvent(
+                type=EventType.TRANSCRIPT_LINE,
+                data={
+                    **event_data,
+                    "line": "[sandbox: claude subprocess short-circuited]",
+                },
+            )
+        )
+        return ""
+
     env = make_clean_env(config.gh_token)
     runner = config.runner or get_default_runner()
     cmd_to_run, stdin_mode = _route_prompt_to_cmd(cmd, prompt)

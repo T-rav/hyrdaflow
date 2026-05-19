@@ -27,18 +27,35 @@ def seed() -> MockWorldSeed:
             },
             "review": {n: [{"verdict": "approve"}] for n in (1, 2, 3)},
         },
-        cycles_to_run=6,
+        cycles_to_run=20,
     )
 
 
 async def assert_outcome(api, page) -> None:
+    # /api/timeline/issue/N doesn't expose an `outcome` field — IssueTimeline
+    # lacks it. The dashboard's /api/issues/history endpoint exposes the
+    # IssueHistoryEntry payload (same source the Outcomes tab consumes), so
+    # this is the same shape as s01_happy_single_issue.assert_outcome.
+    def _has_merged_issue(payload: dict, n: int) -> bool:
+        items = payload.get("items") if isinstance(payload, dict) else None
+        if not isinstance(items, list):
+            return False
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if item.get("issue_number") != n:
+                continue
+            outcome = item.get("outcome") or {}
+            if isinstance(outcome, dict) and outcome.get("outcome") == "merged":
+                return True
+        return False
+
     for n in (1, 2, 3):
-        timeline = await api.wait_until(
-            f"/api/timeline/issue/{n}",
-            lambda p: p.get("outcome") == "merged",
+        await api.wait_until(
+            "/api/issues/history?limit=500",
+            lambda p, _n=n: _has_merged_issue(p, _n),
             timeout=60.0,
         )
-        assert timeline["outcome"] == "merged"
 
     await page.goto("/")
     await page.click("text=Work Stream")
