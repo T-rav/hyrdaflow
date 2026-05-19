@@ -885,8 +885,6 @@ class LabelDrift(BaseModel):
         - ``pr_ahead_of_issue``: issue labelled ``hydraflow-ready`` /
           ``hydraflow-plan`` while the PR is at ``hydraflow-review`` /
           ``hydraflow-fixed`` / ``hydraflow-hitl`` with commits.
-        - ``pr_behind_issue``: PR at ``hydraflow-ready`` /
-          ``hydraflow-plan`` while issue is at ``hydraflow-review``.
         - ``pr_at_pre_pr_stage``: PR labelled ``hydraflow-ready`` /
           ``hydraflow-plan`` / ``hydraflow-find`` while it has commits
           (PR-stage labels are review/hitl/fixed only).
@@ -897,7 +895,7 @@ class LabelDrift(BaseModel):
     pr_commits: int = Field(ge=0, description="Number of commits on the PR")
     issue_label: str = Field(description="Current pipeline label on the issue")
     pr_label: str = Field(description="Current pipeline label on the PR")
-    kind: Literal["pr_ahead_of_issue", "pr_behind_issue", "pr_at_pre_pr_stage"] = Field(
+    kind: Literal["pr_ahead_of_issue", "pr_at_pre_pr_stage"] = Field(
         description="Drift category — see ADR-0056"
     )
     detected_at: datetime = Field(

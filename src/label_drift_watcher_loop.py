@@ -79,21 +79,27 @@ class LabelDriftWatcherLoop(BaseBackgroundLoop):
         - ``pr_at_pre_pr_stage``: PR has commits but a pre-PR label
           (ready/plan/find); push the PR forward to ``hydraflow-review``.
           Issue label stays.
-        - ``pr_behind_issue``: PR at ready/plan while issue at review;
-          push the PR forward to ``hydraflow-review``.
         """
         if d.kind == "pr_ahead_of_issue":
             await self._prs.swap_pipeline_labels(d.issue, "hydraflow-review")
-        elif d.kind in {"pr_at_pre_pr_stage", "pr_behind_issue"}:
+            moved_clause = (
+                f"Issue #{d.issue} moved from `{d.issue_label}` to "
+                f"`hydraflow-review` to match PR #{d.pr} (which was already "
+                f"at `{d.pr_label}`)."
+            )
+        else:  # pr_at_pre_pr_stage
             await self._prs.swap_pipeline_labels(d.pr, "hydraflow-review")
+            moved_clause = (
+                f"PR #{d.pr} moved from `{d.pr_label}` to `hydraflow-review` "
+                f"to match issue #{d.issue} (which was already at "
+                f"`{d.issue_label}`)."
+            )
 
         await self._prs.post_comment(
             d.issue,
             (
                 f"**LabelDriftWatcher** reconciled label drift "
-                f"(issue was at `{d.issue_label}`, PR #{d.pr} was at "
-                f"`{d.pr_label}`, kind={d.kind}). Both should now be aligned "
-                f"at `hydraflow-review`.\n\n"
+                f"(kind=`{d.kind}`). {moved_clause}\n\n"
                 "---\n*Automated by HydraFlow Label Drift Watcher (ADR-0056)*"
             ),
         )

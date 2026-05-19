@@ -1729,7 +1729,7 @@ class PRManager:
         out: list[LabelDrift] = []
         pre_pr_labels = {"hydraflow-ready", "hydraflow-plan", "hydraflow-find"}
         post_pr_labels = {"hydraflow-fixed", "hydraflow-hitl"}
-        fixes_re = re.compile(r"[Ff]ixes\s+#(\d+)")
+        fixes_re = re.compile(r"(?:fixes|closes|resolves)\s+#(\d+)", re.IGNORECASE)
 
         for pr in raw:
             if not isinstance(pr, dict):
