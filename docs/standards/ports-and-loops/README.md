@@ -1,0 +1,114 @@
+# HydraFlow Standard — Ports and Loops
+
+Every hexagonal port and every background loop in HydraFlow follows a
+shared structural contract. This document defines that contract so that
+new ports and loops are consistent, testable, and observable from day
+one — without requiring a reviewer to catch missing pieces.
+
+## Ports
+
+A **port** is a `@runtime_checkable` `Protocol` in `src/ports.py` that
+abstracts an I/O boundary. Adapters implement ports; phases and loops
+depend on ports, not adapters.
+
+### Per-port requirements
+
+| Requirement | Where | Detail |
+|---|---|---|
+| **Protocol definition** | `src/ports.py` | `@runtime_checkable` `Protocol`; pure interface, no state. |
+| **Production adapter** | `src/<adapter>.py` | Concrete implementation; wired in the service registry. |
+| **Fake adapter** | `src/mockworld/fakes/fake_<name>.py` | `Fake<Name>` class used in MockWorld scenarios and unit tests. Must satisfy the Protocol structurally. |
+| **Wiki term entry** | `docs/wiki/terms/<kebab-name>.md` | YAML frontmatter + Definition + Invariants. UL lint must pass. |
+| **ADR** | `docs/adr/XXXX-<kebab-name>.md` | Documents the decision to introduce the port and its behavioral contract. |
+| **Standard entry** | This document, `§ Per-port registry` | One-line row in the table below. |
+
+### Per-port registry
+
+| Port | ADR | Fake | Wiki |
+|---|---|---|---|
+| `AgentPort` | [0066](../../../docs/adr/0066-agent-port.md) | `FakeAgent` | [agent-port.md](../../wiki/terms/agent-port.md) |
+| `BotPRPort` | [0068](../../../docs/adr/0068-bot-pr-port.md) | `FakeBotPR` | [bot-pr-port.md](../../wiki/terms/bot-pr-port.md) |
+| `IssueFetcherPort` | [0067](../../../docs/adr/0067-issue-fetcher-port.md) | `FakeIssueFetcher` | [issue-fetcher-port.md](../../wiki/terms/issue-fetcher-port.md) |
+| `IssueStorePort` | [0041](../../../docs/adr/0041-github-source-of-truth-cache-as-sidecar.md) | `FakeIssueStore` | [issue-store-port.md](../../wiki/terms/issue-store-port.md) |
+| `ObservabilityPort` | [0055](../../../docs/adr/0055-otel-honeycomb-instrumentation.md) | `FakeSentry` | [observability-port.md](../../wiki/terms/observability-port.md) |
+| `PRPort` | [0045](../../../docs/adr/0045-trust-architecture-hardening.md) | `FakePR` | [pr-port.md](../../wiki/terms/pr-port.md) |
+| `ReviewInsightStorePort` | [0070](../../../docs/adr/0070-review-insight-store-port.md) | `FakeReviewInsightStore` | [review-insight-store-port.md](../../wiki/terms/review-insight-store-port.md) |
+| `RouteBackCounterPort` | [0071](../../../docs/adr/0071-route-back-counter-port.md) | `FakeRouteBackCounter` | [route-back-counter-port.md](../../wiki/terms/route-back-counter-port.md) |
+| `WorkspacePort` | [0003](../../../docs/adr/0003-git-worktrees-for-isolation.md) | `FakeWorkspace` | [workspace-port.md](../../wiki/terms/workspace-port.md) |
+
+## Loops
+
+A **loop** is a `BaseBackgroundLoop` subclass that runs on a fixed interval
+inside the factory. Loops are the dark factory's autonomous workers —
+each is responsible for one caretaking concern.
+
+### Per-loop requirements
+
+| Requirement | Where | Detail |
+|---|---|---|
+| **Kill-switch** | `_do_work` method | First check: `if not self._enabled_cb(self._worker_name): return {"status": "disabled"}`. ADR-0049 mandates this on every loop. |
+| **Config gate** | `_do_work` method | Second check: `if not self._config.<loop>_loop_enabled: return {"status": "config_disabled"}` for static-config-gated loops. |
+| **Unit tests** | `tests/test_<loop>.py` | Full coverage including kill-switch path. |
+| **MockWorld scenario** | `tests/scenarios/test_<loop>_scenario.py` | Pattern A (catalog) or Pattern B (direct) — see `docs/standards/testing/`. |
+| **Wiki term entry** | `docs/wiki/terms/<kebab-loop>.md` | YAML frontmatter + Definition + Invariants. |
+| **ADR** | `docs/adr/XXXX-<kebab-loop>.md` | Documents the decision to introduce the loop. |
+| **Standard entry** | This document, `§ Per-loop registry` | One-line row in the table below. |
+
+### Per-loop registry
+
+Rows below capture the canonical standard status. Full coverage detail
+(unit, scenario, sandbox, generated) lives in `docs/arch/generated/coverage_matrix.md`.
+
+| Loop | ADR | Wiki | Notes |
+|---|---|---|---|
+| `ADRReviewerLoop` | (none) | (none) | Caretaker loop |
+| `AdrTouchpointAuditorLoop` | [0056, 0057] | (none) | Trust fleet |
+| `AutoAgentPreflightLoop` | [0050, 0063] | dark-factory.md | Phase gap mitigation |
+| `CIMonitorLoop` | [0029, 0065] | (none) | Caretaker loop |
+| `ContractRefreshLoop` | [0045, 0047] | (none) | Trust fleet |
+| `CorpusLearningLoop` | [0045] | (none) | Trust fleet |
+| `CostBudgetWatcherLoop` | [0054] | architecture.md | Caretaker loop |
+| `DependabotMergeLoop` | [0054, 0057, 0058] | (none) | Caretaker loop |
+| `DiagnosticLoop` | [0050] | (none) | Caretaker loop |
+| `DiagramLoop` | [0001] | (none) | Caretaker loop |
+| `EdgeProposerLoop` | [0058, 0060, 0062] | (none) | Caretaker loop |
+| `EntryEvidenceLoop` | [0062] | (none) | Caretaker loop |
+| `EpicMonitorLoop` | (none) | architecture-async-control.md | Caretaker loop |
+| `EpicSweeperLoop` | (none) | architecture-async-control.md | Caretaker loop |
+| `FakeCoverageAuditorLoop` | [0045, 0056, 0057] | (none) | Trust fleet |
+| `FlakeTrackerLoop` | [0045, 0056, 0057, 0065] | (none) | Trust fleet |
+| `GitHubCacheLoop` | (none) | [github-cache-loop.md](../../wiki/terms/github-cache-loop.md) | Caretaker loop |
+| `HealthMonitorLoop` | [0045, 0046] | testing.md | Caretaker loop |
+| `LabelDriftWatcherLoop` | [0056] | (none) | Caretaker loop |
+| `MemoryBacklogLoop` | [0057] | README.md | Caretaker loop |
+| `MergeStateWatcherLoop` | (none) | [merge-state-watcher-loop.md](../../wiki/terms/merge-state-watcher-loop.md) | Caretaker loop |
+| `PRUnstickerLoop` | (none) | [pr-unsticker-loop.md](../../wiki/terms/pr-unsticker-loop.md) | Caretaker loop |
+| `PricingRefreshLoop` | (none) | [pricing-refresh-loop.md](../../wiki/terms/pricing-refresh-loop.md) | Caretaker loop |
+| `PrinciplesAuditLoop` | [0045, 0056] | dark-factory.md | Trust fleet |
+| `RCBudgetLoop` | [0045] | [rc-budget-loop.md](../../wiki/terms/rc-budget-loop.md) | Trust fleet |
+| `RepoWikiLoop` | [0032, 0053, 0061, 0062, 0064] | dark-factory.md | Caretaker loop |
+| `ReportIssueLoop` | [0013, 0018, 0028] | [report-issue-loop.md](../../wiki/terms/report-issue-loop.md) | Caretaker loop |
+| `RetrospectiveLoop` | (none) | architecture-async-control.md | Caretaker loop |
+| `RunsGCLoop` | (none) | architecture-async-control.md | Caretaker loop |
+| `SandboxFailureFixerLoop` | [0052, 0063] | dark-factory.md | Caretaker loop |
+| `SecurityPatchLoop` | [0029, 0065] | architecture-async-control.md | Caretaker loop |
+| `SentryLoop` | [0055] | [sentry-loop.md](../../wiki/terms/sentry-loop.md) | Caretaker loop |
+| `SkillPromptEvalLoop` | [0045] | [skill-prompt-eval-loop.md](../../wiki/terms/skill-prompt-eval-loop.md) | Trust fleet |
+| `StagingBisectLoop` | [0045, 0048, 0063] | architecture.md | Trust fleet |
+| `StagingPromotionLoop` | [0042] | patterns.md | Caretaker loop |
+| `StaleIssueGCLoop` | [0029] | [stale-issue-gc-loop.md](../../wiki/terms/stale-issue-gc-loop.md) | Caretaker loop |
+| `StaleIssueLoop` | (none) | gotchas.md | Caretaker loop |
+| `TermProposerLoop` | [0054, 0057, 0060, 0061, 0062] | bot-pr-port.md | Caretaker loop |
+| `TermPrunerLoop` | [0057, 0060, 0062] | (none) | Caretaker loop |
+| `TriageRetryLoop` | [0063] | (none) | Caretaker loop |
+| `TrustFleetSanityLoop` | [0045, 0046] | testing.md | Trust fleet |
+| `WikiRotDetectorLoop` | [0045, 0056, 0057] | (none) | Trust fleet |
+| `WorkspaceGCLoop` | (none) | (none) | Caretaker loop |
+
+## Discoverability
+
+This standard is referenced from:
+
+- `docs/standards/factory_operation/README.md` — kernel standards table
+- `docs/wiki/gotchas.md` — "Background loop wiring: synchronize 5 locations"
+- `docs/arch/generated/coverage_matrix.md` — Standard column for each loop and port

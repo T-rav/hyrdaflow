@@ -50,6 +50,7 @@ the factory takes a spec from intent to production.
 | **Test pyramid** | [`docs/standards/testing/`](../testing/README.md) | Three layers (unit + MockWorld scenario + sandbox e2e) gate every load-bearing feature. |
 | **Branch protection** | [`docs/standards/branch_protection/`](../branch_protection/README.md) | Two-tier branch model (integration + release reference) with versioned ruleset configs and a re-applyable apply-script. |
 | **Self-modifying maintenance** | this document, §"Self-modifying maintenance mode" | Recurring patterns become caretaker loops; lessons get encoded back into the kernel. |
+| **Ports and loops** | [`docs/standards/ports-and-loops/`](../ports-and-loops/README.md) | Structural contract for every hexagonal port and background loop: kill-switch, fake, wiki, ADR, standard row. |
 
 The factory's behavior emerges from **all four** running together. Removing
 any one breaks the contract:

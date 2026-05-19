@@ -89,6 +89,19 @@ ADR and that named test files actually exist.
 | [0055](0055-otel-honeycomb-instrumentation.md) | OpenTelemetry Instrumentation as the Telemetry Layer | Accepted |
 | [0057](0057-term-pruner-loop.md) | Term-Pruner Loop (Dark-Factory Glossary Hygiene) | Accepted |
 | [0058](0058-edge-proposer-loop.md) | Edge-Proposer Loop (Dark-Factory Graph Densification) | Accepted |
+| [0059](0059-advisor-pattern-self-repairing-review.md) | Advisor Pattern — Self-Repairing Review | Proposed |
+| [0060](0060-atlas-graph-view-and-provenance.md) | Atlas Graph View and Provenance | Proposed |
+| [0061](0061-atlas-entries-as-evidence.md) | Atlas Entries as Evidence | Proposed |
+| [0062](0062-entry-evidence-loop.md) | Entry-Evidence Loop | Accepted |
+| [0063](0063-factory-phase-drift-mitigation.md) | Factory-Phase Drift Mitigation | Proposed |
+| [0064](0064-earlier-adversarial-pipeline.md) | Earlier Adversarial Pipeline | Proposed |
+| [0065](0065-remove-code-grooming-loop.md) | Remove CodeGroomingLoop | Accepted |
+| [0073](0073-runs-gc-loop.md) | RunsGCLoop: Artifact Retention Enforcement | Proposed |
+| [0074](0074-retrospective-loop.md) | RetrospectiveLoop: Durable-Queue Pattern Analysis | Proposed |
+| [0075](0075-merge-state-watcher-loop.md) | MergeStateWatcherLoop: Autonomous Conflict Detection and Rebase | Proposed |
+| [0076](0076-github-cache-loop.md) | GitHubCacheLoop: Centralized GitHub Data Cache | Proposed |
+| [0077](0077-pr-unsticker-loop.md) | PRUnstickerLoop: Goal-Driven HITL PR Resolution | Proposed |
+| [0078](0078-pricing-refresh-loop.md) | PricingRefreshLoop: Autonomous LLM Pricing Drift Detection | Proposed |
 
 ## Adding a new ADR
 
