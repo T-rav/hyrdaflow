@@ -403,6 +403,7 @@ class ConfigFactory:
             "leaves regression tests, doesn't over-engineer."
         ),
         auto_agent_preflight_enabled: bool = True,
+        implement_two_stage_review_enabled: bool = True,
     ):
         """Create a HydraFlowConfig with test-friendly defaults."""
         from config import HydraFlowConfig
@@ -639,6 +640,7 @@ class ConfigFactory:
                 else ["principles-stuck", "cultural-check"],
                 auto_agent_persona=auto_agent_persona,
                 auto_agent_preflight_enabled=auto_agent_preflight_enabled,
+                implement_two_stage_review_enabled=implement_two_stage_review_enabled,
             )
 
 
@@ -1141,6 +1143,7 @@ def make_implement_phase(
     success=True,
     push_return=True,
     create_pr_return=None,
+    spec_reviewer=None,
 ):
     """Build an ImplementPhase with standard mocks.
 
@@ -1246,6 +1249,7 @@ def make_implement_phase(
         prs=mock_prs,
         store=mock_store,
         stop_event=stop_event,
+        spec_reviewer=spec_reviewer,
     )
 
     return phase, mock_wt, mock_prs
@@ -1280,6 +1284,7 @@ class ImplementPhaseMockBuilder:
         self._success: bool = True
         self._prs_overrides: dict[str, object] = {}
         self._wt_overrides: dict[str, object] = {}
+        self._spec_reviewer: object | None = None
 
     def with_issues(self, issues: list[object]) -> ImplementPhaseMockBuilder:
         """Set the issues to be returned by get_implementable."""
@@ -1328,6 +1333,11 @@ class ImplementPhaseMockBuilder:
         self._wt_overrides[name] = mock
         return self
 
+    def with_spec_reviewer(self, reviewer: object) -> ImplementPhaseMockBuilder:
+        """Attach a SpecComplianceReviewer (ADR-0063 W5)."""
+        self._spec_reviewer = reviewer
+        return self
+
     def build(self) -> tuple[Any, Any, Any]:
         """Build and return ``(phase, mock_wt, mock_prs)``."""
         create_pr_kwarg: dict[str, Any] = (
@@ -1341,6 +1351,7 @@ class ImplementPhaseMockBuilder:
             agent_run=self._agent_run,
             success=self._success,
             push_return=self._push_return,
+            spec_reviewer=self._spec_reviewer,
             **create_pr_kwarg,
         )
         for name, mock in self._prs_overrides.items():

@@ -2730,6 +2730,12 @@ class WorkerResultMeta(TypedDict, total=False):
     duration_seconds: float
     error: str | None
     commits: int
+    # ADR-0063 W5: spec-compliance gaps captured by the two-stage reviewer
+    # after a failed implementation attempt. Prepended to the next attempt's
+    # ``prior_failure`` context so the agent sees concrete gaps, not just
+    # the prior error string. Empty/absent means no review ran or no gaps
+    # were found.
+    spec_review_gaps: str
 
 
 class TimelineStageMetadata(TypedDict, total=False):

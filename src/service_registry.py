@@ -739,6 +739,22 @@ def build_services(
         active_issues_cb=active_issues_cb,
     )
     run_recorder = RunRecorder(config)
+
+    # ADR-0063 W5: wire the spec-compliance reviewer when the kill-switch
+    # is on. The adapter reuses the AgentRunner's subprocess plumbing so
+    # the reviewer shares tracing/auth-retry behavior with the implementer.
+    spec_reviewer = None
+    if config.implement_two_stage_review_enabled:
+        from implement_spec_reviewer import (  # noqa: PLC0415
+            AgentSubagentRunnerAdapter,
+            DefaultSpecComplianceReviewer,
+        )
+
+        spec_reviewer = DefaultSpecComplianceReviewer(
+            AgentSubagentRunnerAdapter(agents, config),
+            model=config.review_model,
+        )
+
     implementer = ImplementPhase(
         config,
         state,
@@ -753,6 +769,7 @@ def build_services(
         active_issues_cb=active_issues_cb,
         transcript_summarizer=summarizer,
         precondition_gate=precondition_gate,
+        spec_reviewer=spec_reviewer,
     )
 
     from metrics_manager import MetricsManager
