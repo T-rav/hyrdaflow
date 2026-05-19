@@ -27,34 +27,26 @@ class DiagnosticStateMixin:
         self, issue_number: int, context: EscalationContext
     ) -> None:
         """Persist escalation context for *issue_number*."""
-        self._data.escalation_contexts[self._key(issue_number)] = context.model_dump()
+        self._data.escalation_contexts[self._key(issue_number)] = context
         self.save()
 
     def get_escalation_context(self, issue_number: int) -> EscalationContext | None:
         """Return escalation context for *issue_number*, or ``None`` if absent."""
-        from models import EscalationContext as EC  # noqa: PLC0415
-
-        raw = self._data.escalation_contexts.get(self._key(issue_number))
-        if raw is None:
-            return None
-        return EC.model_validate(raw)
+        return self._data.escalation_contexts.get(self._key(issue_number))
 
     # --- diagnostic attempts ---
 
     def add_diagnostic_attempt(self, issue_number: int, record: AttemptRecord) -> None:
         """Append a diagnostic fix attempt record for *issue_number*."""
         key = self._key(issue_number)
-        attempts = self._data.diagnostic_attempts.get(key, [])
-        attempts.append(record.model_dump())
+        attempts = list(self._data.diagnostic_attempts.get(key, []))
+        attempts.append(record)
         self._data.diagnostic_attempts[key] = attempts
         self.save()
 
     def get_diagnostic_attempts(self, issue_number: int) -> list[AttemptRecord]:
         """Return all diagnostic attempt records for *issue_number*."""
-        from models import AttemptRecord as AR  # noqa: PLC0415
-
-        raw_list = self._data.diagnostic_attempts.get(self._key(issue_number), [])
-        return [AR.model_validate(r) for r in raw_list]
+        return list(self._data.diagnostic_attempts.get(self._key(issue_number), []))
 
     # --- severity classification ---
 

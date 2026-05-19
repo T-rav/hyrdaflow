@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from models import AttemptRecord, EscalationContext, Severity
@@ -76,3 +78,58 @@ class TestDiagnosticState:
         assert state.get_escalation_context(42) is None
         assert state.get_diagnosis_severity(42) is None
         assert state.get_diagnostic_attempts(42) == []
+
+
+class TestDiagnosticStatePersistenceCompat:
+    """Old on-disk JSON (plain dicts) must load as typed sub-models."""
+
+    def test_escalation_context_old_disk_format(self, tmp_path) -> None:
+        """Plain-dict escalation_contexts in state.json coerces to EscalationContext."""
+        state_file = tmp_path / "state.json"
+        old_state = {
+            "schema_version": 1,
+            "escalation_contexts": {
+                "42": {
+                    "cause": "CI failed",
+                    "origin_phase": "review",
+                    "ci_logs": None,
+                    "review_comments": [],
+                    "pr_diff": None,
+                    "pr_number": 123,
+                    "code_scanning_alerts": [],
+                    "previous_attempts": [],
+                    "agent_transcript": None,
+                }
+            },
+        }
+        state_file.write_text(json.dumps(old_state))
+        st = StateTracker(state_file=state_file)
+        ctx = st.get_escalation_context(42)
+        assert ctx is not None
+        assert isinstance(ctx, EscalationContext)
+        assert ctx.cause == "CI failed"
+        assert ctx.pr_number == 123
+
+    def test_diagnostic_attempts_old_disk_format(self, tmp_path) -> None:
+        """Plain-dict diagnostic_attempts in state.json coerces to list[AttemptRecord]."""
+        state_file = tmp_path / "state.json"
+        old_state = {
+            "schema_version": 1,
+            "diagnostic_attempts": {
+                "42": [
+                    {
+                        "attempt_number": 1,
+                        "changes_made": True,
+                        "error_summary": "still failing",
+                        "timestamp": "2026-04-05T12:00:00Z",
+                    }
+                ]
+            },
+        }
+        state_file.write_text(json.dumps(old_state))
+        st = StateTracker(state_file=state_file)
+        attempts = st.get_diagnostic_attempts(42)
+        assert len(attempts) == 1
+        assert isinstance(attempts[0], AttemptRecord)
+        assert attempts[0].attempt_number == 1
+        assert attempts[0].changes_made is True
