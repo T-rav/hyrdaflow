@@ -757,6 +757,500 @@ def test_staging_bisect_flake_reruns_config_default(
     assert cfg.staging_bisect_flake_reruns == 2
 
 
+# ---------------------------------------------------------------------------
+# Watchdog path coverage (bead advisor-f6sm)
+# ---------------------------------------------------------------------------
+
+
+class TestWatchdogPaths:
+    """Cover all _check_pending_watchdog branches via _do_work entry-point."""
+
+    @pytest.mark.asyncio
+    async def test_do_work_returns_disabled_when_enabled_cb_false(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """kill-switch check at _do_work entry returns 'disabled'."""
+        from staging_bisect_loop import StagingBisectLoop
+
+        cfg = _make_cfg(tmp_path, monkeypatch)
+        stop_event = asyncio.Event()
+
+        async def _sleep(_s: float) -> None:
+            return None
+
+        deps = LoopDeps(
+            event_bus=EventBus(),
+            stop_event=stop_event,
+            status_cb=MagicMock(),
+            enabled_cb=lambda _n: False,  # always disabled
+            sleep_fn=_sleep,
+        )
+        loop = StagingBisectLoop(
+            config=cfg,
+            prs=MagicMock(),
+            deps=deps,
+            state=StateTracker(state_file=tmp_path / "s.json"),
+        )
+        result = await loop._do_work()  # type: ignore[attr-defined]
+        assert result == {"status": "disabled"}
+
+    @pytest.mark.asyncio
+    async def test_do_work_returns_watchdog_result_early(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When _check_pending_watchdog resolves, _do_work returns that result
+        immediately without consulting the red-SHA state."""
+        loop, _prs, state = _make_loop(tmp_path, monkeypatch)
+        # Schedule a watchdog that fires on timeout this tick.
+        loop._pending_watchdog = {  # type: ignore[attr-defined]
+            "red_sha_at_revert": "red_A",
+            "rc_cycle_at_revert": 1,
+            "deadline_ts": 0.0,  # already expired
+        }
+        loop._prs.create_issue = AsyncMock(return_value=42)  # type: ignore[attr-defined]
+        # No red SHA in state — if watchdog result is not returned early,
+        # _do_work would return "no_red" instead.
+        assert state.get_last_rc_red_sha() == ""
+
+        result = await loop._do_work()  # type: ignore[attr-defined]
+
+        assert result is not None
+        assert result["status"] == "watchdog_timeout"
+
+    @pytest.mark.asyncio
+    async def test_do_work_returns_watchdog_green_early(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """watchdog_green result returned before processing any new red SHA."""
+        loop, _prs, state = _make_loop(tmp_path, monkeypatch)
+        state.set_last_green_rc_sha("green_new")
+        state.reset_auto_reverts_in_cycle()
+        cycle = state.get_rc_cycle_id()
+        loop._pending_watchdog = {  # type: ignore[attr-defined]
+            "red_sha_at_revert": "red_A",
+            "rc_cycle_at_revert": cycle,
+            "deadline_ts": 9_999_999_999.0,
+        }
+
+        result = await loop._do_work()  # type: ignore[attr-defined]
+
+        assert result == {"status": "watchdog_green"}
+        assert loop._pending_watchdog is None  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_do_work_returns_watchdog_still_red_early(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """watchdog_still_red escalation blocks further processing."""
+        loop, prs, state = _make_loop(tmp_path, monkeypatch)
+        state.set_last_rc_red_sha_and_bump_cycle("red_A")
+        prior_cycle = state.get_rc_cycle_id()
+        state.set_last_rc_red_sha_and_bump_cycle("red_B")
+        prs.create_issue = AsyncMock(return_value=77)
+        loop._pending_watchdog = {  # type: ignore[attr-defined]
+            "red_sha_at_revert": "red_A",
+            "rc_cycle_at_revert": prior_cycle,
+            "deadline_ts": 9_999_999_999.0,
+        }
+
+        result = await loop._do_work()  # type: ignore[attr-defined]
+
+        assert result is not None
+        assert result["status"] == "watchdog_still_red"
+
+    @pytest.mark.asyncio
+    async def test_check_pending_watchdog_still_waiting_returns_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When neither green, still-red, nor timeout — watchdog keeps waiting."""
+        loop, _prs, state = _make_loop(tmp_path, monkeypatch)
+        cycle = state.get_rc_cycle_id()
+        loop._pending_watchdog = {  # type: ignore[attr-defined]
+            "red_sha_at_revert": "red_A",
+            "rc_cycle_at_revert": cycle,
+            "deadline_ts": 9_999_999_999.0,  # not expired
+        }
+        # No new green, no new red (auto_reverts_in_cycle still > 0)
+        state.increment_auto_reverts_in_cycle()
+
+        result = await loop._check_pending_watchdog()  # type: ignore[attr-defined]
+
+        assert result is None
+        assert loop._pending_watchdog is not None  # type: ignore[attr-defined]
+
+
+class TestWatchdogDedupPath:
+    """Line 122-124: SHA present in dedup store but NOT in _last_processed."""
+
+    @pytest.mark.asyncio
+    async def test_dedup_store_hit_sets_last_processed_and_returns_already_processed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, _prs, state = _make_loop(tmp_path, monkeypatch)
+        state.set_last_rc_red_sha_and_bump_cycle("sha_in_dedup")
+        # Add to dedup store directly without going through the pipeline.
+        loop._processed_dedup.add("sha_in_dedup")  # type: ignore[attr-defined]
+        # Ensure the in-memory shortcut does NOT fire first.
+        loop._last_processed_rc_red_sha = ""  # type: ignore[attr-defined]
+
+        result = await loop._do_work()  # type: ignore[attr-defined]
+
+        assert result == {"status": "already_processed", "sha": "sha_in_dedup"}
+        assert loop._last_processed_rc_red_sha == "sha_in_dedup"  # type: ignore[attr-defined]
+
+
+class TestBisectPipelineCancelledPath:
+    """BisectCancelledError from _run_bisect propagates as 'cancelled'."""
+
+    @pytest.mark.asyncio
+    async def test_cancelled_bisect_returns_cancelled_status(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from staging_bisect_loop import BisectCancelledError
+
+        loop, prs, state = _make_loop(tmp_path, monkeypatch)
+        state.set_last_green_rc_sha("green_sha")
+        state.set_last_rc_red_sha_and_bump_cycle("red_sha")
+        loop._run_bisect_probe = AsyncMock(return_value=(False, ""))  # type: ignore[attr-defined]
+        loop._run_bisect = AsyncMock(  # type: ignore[attr-defined]
+            side_effect=BisectCancelledError("kill-switch")
+        )
+        prs.find_open_promotion_pr = AsyncMock(return_value=None)
+
+        result = await loop._do_work()  # type: ignore[attr-defined]
+
+        assert result == {"status": "cancelled", "sha": "red_sha"}
+        prs.create_issue.assert_not_called()
+
+
+class TestBisectPipelineHarnessFailurePath:
+    """BisectHarnessError from _run_bisect escalates to hitl issue."""
+
+    @pytest.mark.asyncio
+    async def test_harness_failure_escalates_with_correct_label(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from staging_bisect_loop import BisectHarnessError
+
+        loop, prs, state = _make_loop(tmp_path, monkeypatch)
+        state.set_last_green_rc_sha("green_sha")
+        state.set_last_rc_red_sha_and_bump_cycle("red_sha")
+        loop._run_bisect_probe = AsyncMock(return_value=(False, ""))  # type: ignore[attr-defined]
+        loop._run_bisect = AsyncMock(  # type: ignore[attr-defined]
+            side_effect=BisectHarnessError("bisect internals exploded")
+        )
+        prs.create_issue = AsyncMock(return_value=501)
+        prs.find_open_promotion_pr = AsyncMock(return_value=None)
+
+        result = await loop._do_work()  # type: ignore[attr-defined]
+
+        assert result["status"] == "bisect_harness_failure"
+        assert result["escalation_issue"] == 501
+        labels = prs.create_issue.await_args.args[2]
+        assert "bisect-harness-failure" in labels
+        assert "hitl-escalation" in labels
+
+
+class TestBisectPipelineRevertConflictPath:
+    """RevertConflictError from _create_revert_pr escalates to hitl issue."""
+
+    @pytest.mark.asyncio
+    async def test_revert_conflict_in_pipeline_escalates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from staging_bisect_loop import RevertConflictError
+
+        loop, prs, state = _make_loop(tmp_path, monkeypatch)
+        state.set_last_green_rc_sha("green_sha")
+        state.set_last_rc_red_sha_and_bump_cycle("red_sha")
+        loop._run_bisect_probe = AsyncMock(return_value=(False, ""))  # type: ignore[attr-defined]
+        loop._run_bisect = AsyncMock(return_value="culprit_sha")  # type: ignore[attr-defined]
+        loop._attribute_culprit = AsyncMock(return_value=(321, "My PR"))  # type: ignore[attr-defined]
+        loop._check_guardrail_and_maybe_escalate = AsyncMock(return_value=None)  # type: ignore[attr-defined]
+        loop._file_retry_issue = AsyncMock(return_value=654)  # type: ignore[attr-defined]
+        loop._create_revert_pr = AsyncMock(  # type: ignore[attr-defined]
+            side_effect=RevertConflictError("CONFLICT (content): merge conflict")
+        )
+        prs.create_issue = AsyncMock(return_value=502)
+        prs.find_open_promotion_pr = AsyncMock(return_value=None)
+
+        result = await loop._do_work()  # type: ignore[attr-defined]
+
+        assert result["status"] == "revert_conflict"
+        assert result["escalation_issue"] == 502
+        title = prs.create_issue.await_args.args[0]
+        labels = prs.create_issue.await_args.args[2]
+        assert "revert-conflict" in labels
+        assert "hitl-escalation" in labels
+        assert "culprit_sha" in title
+
+
+class TestBisectPipelineRetryIssueFallback:
+    """Exception from _file_retry_issue is swallowed; retry_issue becomes 0."""
+
+    @pytest.mark.asyncio
+    async def test_retry_issue_failure_swallowed_pipeline_continues(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, prs, state = _make_loop(tmp_path, monkeypatch)
+        state.set_last_green_rc_sha("green_sha")
+        state.set_last_rc_red_sha_and_bump_cycle("red_sha")
+        loop._run_bisect_probe = AsyncMock(return_value=(False, ""))  # type: ignore[attr-defined]
+        loop._run_bisect = AsyncMock(return_value="culprit_sha")  # type: ignore[attr-defined]
+        loop._attribute_culprit = AsyncMock(return_value=(321, "My PR"))  # type: ignore[attr-defined]
+        loop._check_guardrail_and_maybe_escalate = AsyncMock(return_value=None)  # type: ignore[attr-defined]
+        loop._file_retry_issue = AsyncMock(  # type: ignore[attr-defined]
+            side_effect=RuntimeError("issue API down")
+        )
+        loop._create_revert_pr = AsyncMock(  # type: ignore[attr-defined]
+            return_value=(900, "auto-revert/pr-321-rc-20260101")
+        )
+        prs.find_open_promotion_pr = AsyncMock(return_value=None)
+        prs.create_issue = AsyncMock(return_value=0)
+
+        result = await loop._do_work()  # type: ignore[attr-defined]
+
+        assert result["status"] == "reverted"
+        assert result["retry_issue"] == 0  # exception swallowed, fallback value
+
+
+class TestParseFailingTests:
+    """_parse_failing_tests extracts test names from probe output."""
+
+    def test_parse_failing_tests_extracts_names(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+        output = (
+            "FAILED tests/test_foo.py::TestFoo::test_bar - AssertionError\n"
+            "FAILED tests/test_foo.py::TestFoo::test_bar - duplicate\n"
+            "failed tests/test_baz.py::test_baz - RuntimeError\n"
+        )
+        result = loop._parse_failing_tests(output)  # type: ignore[attr-defined]
+        assert "tests/test_foo.py::TestFoo::test_bar" in result
+        assert "tests/test_baz.py::test_baz" in result
+        # Deduplication: test_bar appears once only.
+        assert result.count("test_bar") == 1
+
+    def test_parse_failing_tests_fallback_on_no_match(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+        result = loop._parse_failing_tests("no test output here")  # type: ignore[attr-defined]
+        assert result == "(see bisect log)"
+
+
+class TestSetupWorktreePaths:
+    """_setup_worktree: stale-worktree removal and failure paths."""
+
+    @pytest.mark.asyncio
+    async def test_setup_worktree_removes_stale_then_creates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+        # Pre-create the directory so the `if worktree_dir.exists()` branch fires.
+        stale_wt = (
+            loop._config.data_root  # type: ignore[attr-defined]
+            / loop._config.repo_slug  # type: ignore[attr-defined]
+            / "bisect"
+            / "abc123abc123"
+        )
+        stale_wt.mkdir(parents=True, exist_ok=True)
+
+        git_calls: list[list[str]] = []
+
+        async def fake_git(cmd, cwd, timeout):
+            git_calls.append(cmd)
+            return (0, "", "")
+
+        loop._run_git = AsyncMock(side_effect=fake_git)  # type: ignore[attr-defined]
+
+        result = await loop._setup_worktree("abc123abc123def456")  # type: ignore[attr-defined]
+
+        assert result == stale_wt
+        # First call must be `git worktree remove --force`
+        assert git_calls[0][:3] == ["git", "worktree", "remove"]
+        # Second call must be `git worktree add --detach`
+        assert git_calls[1][:4] == ["git", "worktree", "add", "--detach"]
+
+    @pytest.mark.asyncio
+    async def test_setup_worktree_raises_on_add_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from staging_bisect_loop import BisectHarnessError
+
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+
+        async def fake_git(cmd, cwd, timeout):
+            if cmd[:3] == ["git", "worktree", "add"]:
+                return (1, "", "fatal: could not checkout")
+            return (0, "", "")
+
+        loop._run_git = AsyncMock(side_effect=fake_git)  # type: ignore[attr-defined]
+
+        with pytest.raises(BisectHarnessError):
+            await loop._setup_worktree("failsha12345")  # type: ignore[attr-defined]
+
+
+class TestCleanupWorktreeException:
+    """_cleanup_worktree swallows exceptions (best-effort)."""
+
+    @pytest.mark.asyncio
+    async def test_cleanup_worktree_logs_and_swallows_exception(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog
+    ) -> None:
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+
+        async def exploding_git(cmd, cwd, timeout):
+            raise OSError("git not found")
+
+        loop._run_git = AsyncMock(side_effect=exploding_git)  # type: ignore[attr-defined]
+
+        caplog.set_level("WARNING")
+        # Must not raise.
+        await loop._cleanup_worktree(tmp_path / "some-wt")  # type: ignore[attr-defined]
+
+        assert any("worktree cleanup failed" in rec.message for rec in caplog.records)
+
+
+class TestRunGitTimeoutPath:
+    """_run_git raises TimeoutError when the deadline elapses (not kill-switch)."""
+
+    @pytest.mark.asyncio
+    async def test_run_git_raises_timeout_on_deadline(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+        # `sleep 60` will block; timeout=0 forces immediate deadline expiry.
+        with pytest.raises(TimeoutError, match="git command exceeded"):
+            await loop._run_git(  # type: ignore[attr-defined]
+                ["sleep", "60"],
+                cwd=tmp_path,
+                timeout=0,
+            )
+
+
+class TestRunBisectInternalPaths:
+    """_run_bisect internal branches: bisect run timeout, bad rc, no SHA match."""
+
+    @pytest.mark.asyncio
+    async def test_bisect_run_timeout_raises_bisect_timeout_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from staging_bisect_loop import BisectTimeoutError
+
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+        loop._setup_worktree = AsyncMock(return_value=tmp_path / "wt")  # type: ignore[attr-defined]
+        loop._cleanup_worktree = AsyncMock()  # type: ignore[attr-defined]
+
+        call_count = [0]
+
+        async def fake_git(cmd, cwd, timeout):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # bisect start succeeds
+                return (0, "", "")
+            raise TimeoutError("cap hit on bisect run")
+
+        loop._run_git = AsyncMock(side_effect=fake_git)  # type: ignore[attr-defined]
+
+        with pytest.raises(BisectTimeoutError):
+            await loop._run_bisect("green", "red")  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_bisect_run_bad_rc_raises_harness_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from staging_bisect_loop import BisectHarnessError
+
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+        loop._setup_worktree = AsyncMock(return_value=tmp_path / "wt")  # type: ignore[attr-defined]
+        loop._cleanup_worktree = AsyncMock()  # type: ignore[attr-defined]
+
+        call_count = [0]
+
+        async def fake_git(cmd, cwd, timeout):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return (0, "", "")  # bisect start ok
+            return (2, "", "bisect run exited with unusual code")  # rc not in (0, 1)
+
+        loop._run_git = AsyncMock(side_effect=fake_git)  # type: ignore[attr-defined]
+
+        with pytest.raises(BisectHarnessError, match="git bisect run errored"):
+            await loop._run_bisect("green", "red")  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_bisect_run_no_sha_match_raises_harness_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from staging_bisect_loop import BisectHarnessError
+
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+        loop._setup_worktree = AsyncMock(return_value=tmp_path / "wt")  # type: ignore[attr-defined]
+        loop._cleanup_worktree = AsyncMock()  # type: ignore[attr-defined]
+
+        call_count = [0]
+
+        async def fake_git(cmd, cwd, timeout):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return (0, "", "")  # bisect start ok
+            # rc in (0, 1) but output has no "is the first bad commit"
+            return (0, "Bisecting: done\n(no SHA in this output)", "")
+
+        loop._run_git = AsyncMock(side_effect=fake_git)  # type: ignore[attr-defined]
+
+        with pytest.raises(BisectHarnessError, match="could not parse first-bad SHA"):
+            await loop._run_bisect("green", "red")  # type: ignore[attr-defined]
+
+
+class TestIsMergeCommitFailurePath:
+    """_is_merge_commit returns False when git rev-list fails."""
+
+    @pytest.mark.asyncio
+    async def test_is_merge_commit_returns_false_on_git_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+        loop._run_git = AsyncMock(return_value=(1, "", "fatal: bad object"))  # type: ignore[attr-defined]
+        result = await loop._is_merge_commit("badsha")  # type: ignore[attr-defined]
+        assert result is False
+
+
+class TestAutoMergeFailureSwallowed:
+    """_create_pr_via_gh swallows auto-merge failure and logs warning."""
+
+    @pytest.mark.asyncio
+    async def test_auto_merge_failure_swallowed_pr_number_still_returned(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog
+    ) -> None:
+        loop, _prs, _state = _make_loop(tmp_path, monkeypatch)
+
+        call_count = [0]
+
+        async def fake_run_gh(cmd):
+            call_count[0] += 1
+            if cmd[1:3] == ["pr", "create"]:
+                return "https://github.com/o/r/pull/9999\n"
+            # gh pr merge fails
+            raise RuntimeError("auto-merge not enabled on repo")
+
+        loop._run_gh = fake_run_gh  # type: ignore[method-assign]
+
+        caplog.set_level("WARNING")
+        pr_number = await loop._create_pr_via_gh(  # type: ignore[attr-defined]
+            title="t",
+            body="b",
+            branch="auto-revert/x",
+            labels=["auto-revert"],
+            auto_merge=True,
+        )
+
+        assert pr_number == 9999
+        assert any("auto-merge enable failed" in rec.message for rec in caplog.records)
+
+
 class TestG10RetryLineageWiring:
     """G10 wiring: _file_retry_issue computes a lineage_id, increments
     the per-lineage counter, and escalates when the cap is exceeded."""

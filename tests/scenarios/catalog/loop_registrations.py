@@ -659,6 +659,9 @@ def _build_staging_bisect(ports: dict[str, Any], config: Any, deps: Any) -> Any:
     run_pipeline = ports.get("staging_bisect_run_pipeline")
     if run_pipeline is not None:
         loop._run_full_bisect_pipeline = run_pipeline  # type: ignore[method-assign]
+    pending_watchdog = ports.get("staging_bisect_pending_watchdog")
+    if pending_watchdog is not None:
+        loop._pending_watchdog = pending_watchdog  # type: ignore[attr-defined]
 
     return loop
 

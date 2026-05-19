@@ -208,3 +208,45 @@ class TestStagingBisectScenario:
         assert stats["staging_bisect"]["status"] == "no_green_anchor", stats
         pipeline.assert_awaited_once()
         fake_pr.create_issue.assert_not_awaited()
+
+    async def test_watchdog_escalates_after_stuck_bisect(self, tmp_path) -> None:
+        """Watchdog fires with 'still_red' when a new red arrives in a later cycle
+        than the one where the auto-revert was filed.
+
+        This is the canonical 'stuck bisect' post-revert scenario: the revert
+        PR merged, a new RC was cut, but staging is still red (different SHA),
+        which means either the revert did not fix the underlying issue or
+        another bad commit followed immediately. The watchdog escalates with a
+        hitl-escalation issue tagged 'rc-red-post-revert-red'.
+        """
+        world = MockWorld(tmp_path)
+        fake_pr = AsyncMock()
+        fake_pr.create_issue = AsyncMock(return_value=911)
+
+        state = MagicMock()
+        # Simulate: auto-revert was filed during cycle 2 for red_A.
+        # A new, different red (red_B) appeared in cycle 3.
+        state.get_last_rc_red_sha.return_value = "red_B_after_revert"
+        state.get_last_green_rc_sha.return_value = ""
+        state.get_rc_cycle_id.return_value = 3  # cycle has advanced past revert cycle
+        state.get_auto_reverts_in_cycle.return_value = 1  # revert still in flight
+
+        _seed_ports(
+            world,
+            pr_manager=fake_pr,
+            staging_bisect_state=state,
+            staging_bisect_pending_watchdog={
+                "red_sha_at_revert": "red_A_original",
+                "rc_cycle_at_revert": 2,
+                "deadline_ts": 9_999_999_999.0,
+            },
+        )
+
+        stats = await world.run_with_loops(["staging_bisect"], cycles=1)
+
+        assert stats["staging_bisect"]["status"] == "watchdog_still_red", stats
+        assert stats["staging_bisect"]["escalation_issue"] == 911
+        fake_pr.create_issue.assert_awaited_once()
+        labels = fake_pr.create_issue.await_args.args[2]
+        assert "hitl-escalation" in labels
+        assert "rc-red-post-revert-red" in labels
