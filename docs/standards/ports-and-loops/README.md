@@ -26,15 +26,15 @@ depend on ports, not adapters.
 
 | Port | ADR | Fake | Wiki |
 |---|---|---|---|
-| `AgentPort` | [0066](../../../docs/adr/0066-agent-port.md) | `FakeAgent` | [agent-port.md](../../wiki/terms/agent-port.md) |
-| `BotPRPort` | [0068](../../../docs/adr/0068-bot-pr-port.md) | `FakeBotPR` | [bot-pr-port.md](../../wiki/terms/bot-pr-port.md) |
-| `IssueFetcherPort` | [0067](../../../docs/adr/0067-issue-fetcher-port.md) | `FakeIssueFetcher` | [issue-fetcher-port.md](../../wiki/terms/issue-fetcher-port.md) |
-| `IssueStorePort` | [0041](../../../docs/adr/0041-github-source-of-truth-cache-as-sidecar.md) | `FakeIssueStore` | [issue-store-port.md](../../wiki/terms/issue-store-port.md) |
-| `ObservabilityPort` | [0055](../../../docs/adr/0055-otel-honeycomb-instrumentation.md) | `FakeSentry` | [observability-port.md](../../wiki/terms/observability-port.md) |
-| `PRPort` | [0045](../../../docs/adr/0045-trust-architecture-hardening.md) | `FakePR` | [pr-port.md](../../wiki/terms/pr-port.md) |
-| `ReviewInsightStorePort` | [0070](../../../docs/adr/0070-review-insight-store-port.md) | `FakeReviewInsightStore` | [review-insight-store-port.md](../../wiki/terms/review-insight-store-port.md) |
-| `RouteBackCounterPort` | [0071](../../../docs/adr/0071-route-back-counter-port.md) | `FakeRouteBackCounter` | [route-back-counter-port.md](../../wiki/terms/route-back-counter-port.md) |
-| `WorkspacePort` | [0003](../../../docs/adr/0003-git-worktrees-for-isolation.md) | `FakeWorkspace` | [workspace-port.md](../../wiki/terms/workspace-port.md) |
+| `AgentPort` | 0066 (TBD) | `FakeAgent` | agent-port (TBD) |
+| `BotPRPort` | 0068 (TBD) | `FakeBotPR` | [bot-pr-port.md](../../wiki/terms/bot-pr-port.md) |
+| `IssueFetcherPort` | 0067 (TBD) | `FakeIssueFetcher` | issue-fetcher-port (TBD) |
+| `IssueStorePort` | [0041](../../adr/0041-github-source-of-truth-cache-as-sidecar.md) | `FakeIssueStore` | [issue-store-port.md](../../wiki/terms/issue-store-port.md) |
+| `ObservabilityPort` | [0055](../../adr/0055-otel-honeycomb-instrumentation.md) | `FakeSentry` | observability-port (TBD) |
+| `PRPort` | [0045](../../adr/0045-trust-architecture-hardening.md) | `FakePR` | [pr-port.md](../../wiki/terms/pr-port.md) |
+| `ReviewInsightStorePort` | 0070 (TBD) | `FakeReviewInsightStore` | review-insight-store-port (TBD) |
+| `RouteBackCounterPort` | 0071 (TBD) | `FakeRouteBackCounter` | route-back-counter-port (TBD) |
+| `WorkspacePort` | [0003](../../adr/0003-git-worktrees-for-isolation.md) | `FakeWorkspace` | workspace-port (TBD) |
 
 ## Loops
 
