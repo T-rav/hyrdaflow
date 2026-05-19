@@ -136,6 +136,81 @@ class TestL11RetrospectiveLoop:
         fake_queue.acknowledge.assert_called_once_with([item.id])
         fake_retro._load_recent.assert_called_once()
 
+    async def test_stale_hitl_dedup_across_ticks(self, tmp_path) -> None:
+        """Issue #8988: ``RetrospectiveLoop`` must not file duplicate
+        ``[HITL] Stale review insight:`` issues on repeated stale ticks.
+
+        Drives the real loop against FakeGitHub for three ticks of the
+        same stale category and asserts the FakeGitHub issue count caps
+        at 1 with follow-up comments on the existing issue.
+        """
+        from datetime import UTC, datetime, timedelta
+        from unittest.mock import patch  # noqa: PLC0415
+
+        from retrospective_queue import QueueItem, QueueKind  # noqa: PLC0415
+
+        world = MockWorld(tmp_path)
+
+        fake_queue = MagicMock()
+        fake_queue.load.return_value = [QueueItem(kind=QueueKind.VERIFY_PROPOSALS)]
+        fake_queue.acknowledge = MagicMock()
+
+        fake_insights = MagicMock()
+        fake_insights.load_recent.return_value = []
+        fake_insights.get_proposed_categories.return_value = set()
+
+        _seed_ports(
+            world,
+            retrospective_queue=fake_queue,
+            insights=fake_insights,
+        )
+
+        # Snapshot FakeGitHub HITL title count.
+        hitl_title = "[HITL] Stale review insight: Missing test coverage"
+
+        with (
+            patch(
+                "review_insights.verify_proposals",
+                return_value=["missing_tests"],
+            ),
+            patch(
+                "review_insights.CATEGORY_DESCRIPTIONS",
+                {"missing_tests": "Missing test coverage"},
+            ),
+            patch("review_insights._PROPOSAL_STALE_DAYS", 30),
+        ):
+            base = datetime(2026, 5, 19, 0, 0, 0, tzinfo=UTC)
+            # Tick 1: file
+            with patch("retrospective_loop._now_utc", return_value=base):
+                await world.run_with_loops(["retrospective"], cycles=1)
+            # Tick 2: comment
+            with patch(
+                "retrospective_loop._now_utc",
+                return_value=base + timedelta(hours=2),
+            ):
+                await world.run_with_loops(["retrospective"], cycles=1)
+            # Tick 3: comment
+            with patch(
+                "retrospective_loop._now_utc",
+                return_value=base + timedelta(hours=4),
+            ):
+                await world.run_with_loops(["retrospective"], cycles=1)
+
+        hitl_issues = [
+            issue
+            for issue in world._github._issues.values()
+            if issue.title == hitl_title
+        ]
+        assert len(hitl_issues) == 1, (
+            f"expected 1 HITL issue, got {len(hitl_issues)}: "
+            f"{[i.number for i in hitl_issues]}"
+        )
+        # And the loop should have posted 2 follow-up comments on the
+        # one open HITL issue.
+        assert len(hitl_issues[0].comments) == 2, (
+            f"expected 2 follow-up comments, got {len(hitl_issues[0].comments)}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # L12: Epic Sweeper verifies done-epic children closed

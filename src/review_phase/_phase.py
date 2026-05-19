@@ -16,7 +16,7 @@ import logging
 import re
 import time
 from collections.abc import Callable, Coroutine
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -138,6 +138,14 @@ from ._common import (
 
 logger = logging.getLogger("hydraflow.review_phase")
 
+# Mirrors ``retrospective_loop._HITL_DEDUP_WINDOW``. Two PR reviews
+# completing back-to-back for the same stale category could otherwise
+# both call ``find_existing_issue`` before either write is indexed by
+# GitHub search, and both file. The window is intentionally identical
+# between sites so behavior is uniform whether the loop or the fallback
+# fires (#8988).
+_HITL_DEDUP_WINDOW = timedelta(hours=1)
+
 
 class ReviewPhase:
     """Runs reviewer agents on PRs, merging approved ones inline."""
@@ -189,6 +197,12 @@ class ReviewPhase:
             self._insights = ReviewInsightStore(config.memory_dir)
         self._active_issues_cb = active_issues_cb
         self._active_issues: set[int] = set()
+        # In-memory window guard for the stale-HITL fallback branch
+        # (mirror of ``RetrospectiveLoop._hitl_filed_at``). Two PR
+        # reviews completing back-to-back for the same stale category
+        # could otherwise both call ``find_existing_issue`` before
+        # either write is indexed by GitHub search, and both file.
+        self._hitl_filed_at: dict[str, datetime] = {}
         self._active_issues_lock = asyncio.Lock()
         self._conflict_resolver = conflict_resolver
         self._post_merge = post_merge
@@ -3221,9 +3235,39 @@ class ReviewPhase:
                     self._insights.record_proposal(category, pre_count=count)
 
                 stale = verify_proposals(self._insights, recent)
+                # Dedup mirror of RetrospectiveLoop._handle_verify_proposals
+                # (#8988). This fallback branch fires only when no
+                # retrospective_queue is wired, but it MUST avoid filing a
+                # duplicate `[HITL] Stale review insight: <category>` when
+                # one is already open — same anti-pattern as the loop site.
+                now_hitl = datetime.now(UTC)
                 for category in stale:
                     desc = CATEGORY_DESCRIPTIONS.get(category, category)
                     title = f"[HITL] Stale review insight: {desc}"
+                    hitl_labels = list(self._config.hitl_label)
+                    # Window guard — protects against back-to-back PR
+                    # reviews racing the GitHub search index, same shape
+                    # as ``RetrospectiveLoop._handle_verify_proposals``.
+                    last = self._hitl_filed_at.get(category)
+                    if last is not None and (now_hitl - last) < _HITL_DEDUP_WINDOW:
+                        continue
+                    existing = await self._prs.find_existing_issue(title)
+                    if existing:
+                        await self._prs.post_comment(
+                            existing,
+                            (
+                                f"Still stale — pattern frequency for "
+                                f"**{category}** ({desc}) has not decreased "
+                                f"after {_PROPOSAL_STALE_DAYS}+ days. "
+                                f"Recurring tick from `ReviewPhase` fallback "
+                                f"(retrospective queue not wired); the "
+                                f"underlying escalation remains open.\n\n"
+                                f"_Auto-comment by HydraFlow review insight "
+                                f"verification._"
+                            ),
+                        )
+                        self._hitl_filed_at[category] = now_hitl
+                        continue
                     body = (
                         f"## Stale Improvement Proposal\n\n"
                         f"The improvement proposal for **{category}** ({desc}) "
@@ -3232,8 +3276,12 @@ class ReviewPhase:
                         f"required to resolve this recurring feedback loop.\n\n"
                         f"---\n*Auto-escalated by HydraFlow review insight verification.*"
                     )
-                    hitl_labels = list(self._config.hitl_label)
-                    await self._transitioner.create_task(title, body, hitl_labels)
+                    self._hitl_filed_at[category] = now_hitl
+                    try:
+                        await self._transitioner.create_task(title, body, hitl_labels)
+                    except Exception:
+                        self._hitl_filed_at.pop(category, None)
+                        raise
         except (RuntimeError, OSError):
             status = "error"
             details["error"] = "review insight recording failed"
