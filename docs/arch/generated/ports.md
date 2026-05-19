@@ -19,6 +19,7 @@ graph LR
     PRPort --> PRManager
     PRPort -.-> FakePR
     ReviewInsightStorePort --> ReviewInsightStore
+    ReviewInsightStorePort -.-> FakeReviewInsightStore
     RouteBackCounterPort --> RouteBackStateMixin
     RouteBackCounterPort -.-> FakeRouteBackCounter
     WorkspacePort --> WorkspaceManager
@@ -81,7 +82,7 @@ graph LR
 - Methods: `append_review`, `get_proposed_categories`, `load_proposal_metadata`, `load_recent`, `mark_category_proposed`, `record_proposal`, `update_proposal_verified`
 - Adapters:
   - `ReviewInsightStore` (`src.review_insights`)
-- Fake: ⚠️ no fake (every Port needs a fake per ADR-0047)
+- Fake: `FakeReviewInsightStore` (`mockworld.fakes.fake_review_insight_store`)
 
 ### RouteBackCounterPort
 
@@ -99,4 +100,4 @@ graph LR
   - `WorkspaceManager` (`src.workspace`)
 - Fake: `FakeWorkspace` (`mockworld.fakes.fake_workspace`)
 
-_Regenerated from commit `2978aac` on 2026-05-19 16:23 UTC. Source last changed at `2978aac`. Status: 🟢 fresh._
+_Regenerated from commit `dd8eade` on 2026-05-19 16:25 UTC. Source last changed at `dd8eade`. Status: 🟢 fresh._

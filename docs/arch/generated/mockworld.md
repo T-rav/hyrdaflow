@@ -20,6 +20,7 @@ All Fake adapters under `src/mockworld/fakes/` (classes with ``_is_fake_adapter 
 | **FakeIssueFetcher** | `IssueFetcherPort` | — |
 | **FakeIssueStore** | `IssueStorePort` | — |
 | **FakeLLM** | `LLMPort` | `tests/scenarios/behaviors/test_quota.py`<br>`tests/scenarios/fakes/test_fake_llm.py`<br>`tests/scenarios/fakes/test_fake_llm_streaming.py`<br>`tests/scenarios/fakes/test_prior_failure_propagation.py`<br>`tests/scenarios/test_fidelity.py` |
+| **FakeReviewInsightStore** | `ReviewInsightStorePort` | — |
 | **FakeRouteBackCounter** | `RouteBackCounterPort` | — |
 | **FakeSentry** | `SentryPort` | `tests/scenarios/fakes/test_supporting_fakes.py` |
 | **FakeSubprocessRunner** | `SubprocessRunnerPort` | `tests/scenarios/fakes/test_fake_subprocess_runner.py` |
@@ -61,6 +62,7 @@ graph LR
     tests_scenarios_behaviors_test_quota_py([tests/scenarios/behaviors/test_quota.py]) --> FakeLLM
     tests_scenarios_fakes_test_fake_llm_py([tests/scenarios/fakes/test_fake_llm.py]) --> FakeLLM
     tests_scenarios_fakes_test_fake_llm_streaming_py([tests/scenarios/fakes/test_fake_llm_streaming.py]) --> FakeLLM
+    FakeReviewInsightStore -.-> ReviewInsightStorePort
     FakeRouteBackCounter -.-> RouteBackCounterPort
     FakeSentry -.-> SentryPort
     tests_scenarios_fakes_test_supporting_fakes_py([tests/scenarios/fakes/test_supporting_fakes.py]) --> FakeSentry
@@ -72,4 +74,4 @@ graph LR
     tests_scenarios_fakes_test_supporting_fakes_py([tests/scenarios/fakes/test_supporting_fakes.py]) --> FakeWorkspace
 ```
 
-_Regenerated from commit `2978aac` on 2026-05-19 16:23 UTC. Source last changed at `2978aac`. Status: 🟢 fresh._
+_Regenerated from commit `dd8eade` on 2026-05-19 16:25 UTC. Source last changed at `dd8eade`. Status: 🟢 fresh._
