@@ -1,9 +1,12 @@
 ---
 source: feedback_stacked_pr_rebase.md
-name: Stacked PRs (cut from previous PR's branch) need `git rebase --onto` after parent merges
-description: When PR B was branched from PR A's branch (not from main), after PR A merges via squash, rebasing PR B onto fresh main needs `git rebase --onto origin/main <PR_A_TIP>` to skip the now-redundant PR-A commits
-status: pending
-issue: null
+name: Stacked PRs (cut from previous PR's branch) need `git rebase --onto` after parent
+  merges
+description: When PR B was branched from PR A's branch (not from main), after PR A
+  merges via squash, rebasing PR B onto fresh main needs `git rebase --onto origin/main
+  <PR_A_TIP>` to skip the now-redundant PR-A commits
+status: issue-open
+issue: 41
 promoted_in: null
 wontfix_reason: null
 created: '2026-05-02'

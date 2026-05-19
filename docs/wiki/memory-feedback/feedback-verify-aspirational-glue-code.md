@@ -1,9 +1,11 @@
 ---
 source: feedback_verify_aspirational_glue_code.md
 name: Verify aspirational glue code at spec-write time, not plan-execute time
-description: Code in specs/plans that calls external constructors (e.g. TriageRunner, StateTracker) with invented kwargs survives into committed code if not cross-checked — gets caught by pre-push type checks
-status: pending
-issue: null
+description: Code in specs/plans that calls external constructors (e.g. TriageRunner,
+  StateTracker) with invented kwargs survives into committed code if not cross-checked
+  — gets caught by pre-push type checks
+status: issue-open
+issue: 43
 promoted_in: null
 wontfix_reason: null
 created: '2026-04-21'

@@ -1,9 +1,11 @@
 ---
 source: feedback_dark_factory_autonomy.md
 name: Make dark-factory decisions without asking
-description: User has explicitly delegated decision authority for tractable, reversible fixes that align with the dark-factory pattern; act first and report results instead of asking permission
-status: pending
-issue: null
+description: User has explicitly delegated decision authority for tractable, reversible
+  fixes that align with the dark-factory pattern; act first and report results instead
+  of asking permission
+status: issue-open
+issue: 30
 promoted_in: null
 wontfix_reason: null
 created: '2026-05-06'

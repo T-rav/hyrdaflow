@@ -1,9 +1,11 @@
 ---
 source: feedback_ratchet_pattern.md
 name: Ratchet pattern with grandfather YAML for retroactive convention enforcement
-description: When you want to enforce a new convention but bulk-cleanup is too risky, ship a CI-failing detector + grandfather YAML allowlist that locks current state and fails on growth
-status: pending
-issue: null
+description: When you want to enforce a new convention but bulk-cleanup is too risky,
+  ship a CI-failing detector + grandfather YAML allowlist that locks current state
+  and fails on growth
+status: issue-open
+issue: 37
 promoted_in: null
 wontfix_reason: null
 created: 2026-05-08

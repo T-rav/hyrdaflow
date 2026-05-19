@@ -1,9 +1,10 @@
 ---
 source: feedback_auto_merge_not_enabled.md
 name: Auto-merge not enabled on this repo — direct-merge via gh pr merge
-description: '`gh pr merge --auto` returns "Auto merge is not allowed for this repository" — use `gh pr merge --squash` directly when CI is green'
-status: pending
-issue: null
+description: '`gh pr merge --auto` returns "Auto merge is not allowed for this repository"
+  — use `gh pr merge --squash` directly when CI is green'
+status: issue-open
+issue: 25
 promoted_in: null
 wontfix_reason: null
 created: '2026-05-02'

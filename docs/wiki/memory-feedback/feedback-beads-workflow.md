@@ -1,9 +1,10 @@
 ---
 source: feedback_beads_workflow.md
 name: Use beads for issue tracking
-description: User wants all work tracked in beads (bd CLI) — claim issues, add notes, close on PR merge
-status: pending
-issue: null
+description: User wants all work tracked in beads (bd CLI) — claim issues, add notes,
+  close on PR merge
+status: issue-open
+issue: 26
 promoted_in: null
 wontfix_reason: null
 created: '2026-03-28'

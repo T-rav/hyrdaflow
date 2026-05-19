@@ -1,9 +1,10 @@
 ---
 source: feedback_make_quality_pipe_exit_code.md
 name: Piping make to tail masks the make exit code
-description: "`make quality | tail -200` returns 0 even when make fails — the run-in-background notification was misleading; check tail content for actual failures"
-status: pending
-issue: null
+description: '`make quality | tail -200` returns 0 even when make fails — the run-in-background
+  notification was misleading; check tail content for actual failures'
+status: issue-open
+issue: 32
 promoted_in: null
 wontfix_reason: null
 created: 2026-05-08

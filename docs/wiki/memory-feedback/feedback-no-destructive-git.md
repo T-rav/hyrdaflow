@@ -1,9 +1,10 @@
 ---
 source: feedback_no_destructive_git.md
 name: No destructive git commands
-description: Git hooks block destructive commands (reset --hard, push --force, etc.) — never attempt them, ask the user to run manually
-status: pending
-issue: null
+description: Git hooks block destructive commands (reset --hard, push --force, etc.)
+  — never attempt them, ask the user to run manually
+status: issue-open
+issue: 35
 promoted_in: null
 wontfix_reason: null
 created: '2026-03-18'

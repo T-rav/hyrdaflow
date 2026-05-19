@@ -1,9 +1,11 @@
 ---
 source: feedback_ci_no_global_git_config.md
 name: CI has no global git config — fixtures must persist identity
-description: GitHub Actions runners have no global git user.email/user.name. Tests that run real `git commit` without explicit `-c user.*` overrides must persist identity in the repo-local config via `git config`.
-status: pending
-issue: null
+description: GitHub Actions runners have no global git user.email/user.name. Tests
+  that run real `git commit` without explicit `-c user.*` overrides must persist identity
+  in the repo-local config via `git config`.
+status: issue-open
+issue: 28
 promoted_in: null
 wontfix_reason: null
 created: '2026-04-21'

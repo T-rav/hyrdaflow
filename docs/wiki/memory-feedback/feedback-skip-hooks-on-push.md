@@ -1,9 +1,10 @@
 ---
 source: feedback_skip_hooks_on_push.md
 name: Skip lint on push when told PR is good
-description: When user says the PR is good / code quality is fine, don't re-run lint/typecheck on push — just push with --no-verify
-status: pending
-issue: null
+description: When user says the PR is good / code quality is fine, don't re-run lint/typecheck
+  on push — just push with --no-verify
+status: issue-open
+issue: 40
 promoted_in: null
 wontfix_reason: null
 created: '2026-04-07'

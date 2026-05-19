@@ -1,9 +1,10 @@
 ---
 source: feedback_xml_tags_in_subagent_prompts.md
 name: XML tags in subagent/Claude prompts
-description: When building prompts for the Claude API or Agent tool dispatches, wrap content regions in named XML tags — same rubric I apply in prompt audits
-status: pending
-issue: null
+description: When building prompts for the Claude API or Agent tool dispatches, wrap
+  content regions in named XML tags — same rubric I apply in prompt audits
+status: issue-open
+issue: 44
 promoted_in: null
 wontfix_reason: null
 created: '2026-04-21'
