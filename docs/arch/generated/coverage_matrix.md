@@ -10,20 +10,20 @@ Regenerated from the live source tree. Cell vocabulary: ✅ covered, ⚠️ part
 
 | Loop | ADR | Wiki | Generated | Standard | Unit | Scenario | Sandbox |
 |---|---|---|---|---|---|---|---|
-| `ADRReviewerLoop` | ❌ | ❌ | ❌ | ✅ README.md | ✅ `test_adr_reviewer_loop.py` | ✅ in catalog | ❌ |
+| `ADRReviewerLoop` | ❌ | ❌ | ❌ | ✅ README.md | ✅ `test_adr_reviewer_loop.py` | ✅ in catalog | ✅ `s25_adr_reviewer_no_proposed_adrs.py` |
 | `AdrTouchpointAuditorLoop` | ✅ [0056, 0057] | ❌ | ❌ | ✅ README.md | ✅ `test_adr_touchpoint_auditor_loop.py` | ✅ in catalog | ❌ |
 | `AutoAgentPreflightLoop` | ✅ [0050, 0063] | ✅ [dark-factory.md] | ❌ | ✅ README.md | ✅ `test_auto_agent_preflight_loop.py` | ✅ in catalog | ❌ |
 | `CIMonitorLoop` | ✅ [0029, 0065] | ❌ | ❌ | ✅ README.md | ✅ `test_ci_monitor_loop.py` | ⚠️ in catalog (no scenario file) | ✅ `s15_ci_monitor_main_branch_red.py` |
 | `ContractRefreshLoop` | ✅ [0045, 0047] | ❌ | ❌ | ✅ README.md | ✅ `test_contract_refresh_loop.py` | ✅ in catalog | ❌ |
-| `CorpusLearningLoop` | ✅ [0045] | ❌ | ❌ | ✅ README.md | ✅ `test_corpus_learning_loop.py` | ✅ in catalog | ❌ |
-| `CostBudgetWatcherLoop` | ✅ [0054] | ✅ [architecture.md] | ✅ loops.md | ✅ README.md | ❌ | ⚠️ in catalog (no scenario file) | ❌ |
+| `CorpusLearningLoop` | ✅ [0045] | ❌ | ❌ | ✅ README.md | ✅ `test_corpus_learning_loop.py` | ✅ in catalog | ✅ `s22_corpus_learning_no_escape_issues.py` |
+| `CostBudgetWatcherLoop` | ✅ [0054] | ✅ [architecture.md] | ✅ loops.md | ✅ README.md | ✅ `test_cost_budget_watcher_loop.py` | ✅ in catalog | ✅ `s26_cost_budget_watcher_unlimited.py` |
 | `DependabotMergeLoop` | ✅ [0054, 0057, 0058] | ❌ | ❌ | ✅ README.md | ✅ `test_dependabot_merge_loop.py` | ⚠️ in catalog (no scenario file) | ✅ `s09_dependabot_auto_merge.py` |
 | `DiagnosticLoop` | ✅ [0050] | ❌ | ❌ | ✅ README.md | ✅ `test_diagnostic_loop.py` | ✅ in catalog | ❌ |
 | `DiagramLoop` | ✅ [0001] | ❌ | ✅ loops.md | ✅ README.md | ✅ `test_diagram_loop.py` | ✅ in catalog | ❌ |
-| `EdgeProposerLoop` | ✅ [0058, 0060, 0062] | ❌ | ❌ | ✅ README.md | ✅ `test_edge_proposer_loop.py` | ✅ in catalog | ❌ |
-| `EntryEvidenceLoop` | ✅ [0062, 0078] | ❌ | ❌ | ✅ README.md | ✅ `test_entry_evidence_loop.py` | ❌ | ❌ |
-| `EpicMonitorLoop` | ❌ | ✅ [architecture-async-control.md] | ❌ | ✅ README.md | ✅ `test_epic_monitor_loop.py` | ✅ in catalog | ❌ |
-| `EpicSweeperLoop` | ❌ | ✅ [architecture-async-control.md] | ❌ | ✅ README.md | ✅ `test_epic_sweeper_loop.py` | ✅ in catalog | ❌ |
+| `EdgeProposerLoop` | ✅ [0058, 0060, 0062] | ❌ | ❌ | ✅ README.md | ✅ `test_edge_proposer_loop.py` | ✅ in catalog | ✅ `s28_edge_proposer_no_proposals.py` |
+| `EntryEvidenceLoop` | ✅ [0062, 0078] | ❌ | ❌ | ✅ README.md | ✅ `test_entry_evidence_loop.py` | ✅ in catalog | ✅ `s24_entry_evidence_no_terms.py` |
+| `EpicMonitorLoop` | ❌ | ✅ [architecture-async-control.md] | ❌ | ✅ README.md | ✅ `test_epic_monitor_loop.py` | ✅ in catalog | ✅ `s27_epic_monitor_no_epics.py` |
+| `EpicSweeperLoop` | ❌ | ✅ [architecture-async-control.md] | ❌ | ✅ README.md | ✅ `test_epic_sweeper_loop.py` | ✅ in catalog | ✅ `s23_epic_sweeper_no_epics.py` |
 | `FakeCoverageAuditorLoop` | ✅ [0045, 0056, 0057] | ❌ | ❌ | ✅ README.md | ✅ `test_fake_coverage_auditor_loop.py` | ✅ in catalog | ❌ |
 | `FlakeTrackerLoop` | ✅ [0045, 0056, 0057, 0065] | ❌ | ❌ | ✅ README.md | ✅ `test_flake_tracker_loop.py` | ✅ in catalog | ❌ |
 | `GitHubCacheLoop` | ✅ [0076] | ✅ [github-cache-loop.md] | ❌ | ✅ README.md | ❌ | ❌ | ❌ |
@@ -77,4 +77,4 @@ HITL trigger). It is not regenerable from source and is maintained in
 `docs/arch/coverage_matrix.md` (the hand-curated baseline document).
 
 
-_Regenerated from commit `06a3de7` on 2026-05-19 20:28 UTC. Source last changed at `06a3de7`. Status: 🟢 fresh._
+_Regenerated from commit `413ca53` on 2026-05-19 20:48 UTC. Source last changed at `413ca53`. Status: 🟢 fresh._
