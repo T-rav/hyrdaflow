@@ -19,6 +19,7 @@ All Fake adapters under `src/mockworld/fakes/` (classes with ``_is_fake_adapter 
 | **FakeIssueFetcher** | `IssueFetcherPort` | — |
 | **FakeIssueStore** | `IssueStorePort` | — |
 | **FakeLLM** | `LLMPort` | `tests/scenarios/behaviors/test_quota.py`<br>`tests/scenarios/fakes/test_fake_llm.py`<br>`tests/scenarios/fakes/test_fake_llm_streaming.py`<br>`tests/scenarios/fakes/test_prior_failure_propagation.py`<br>`tests/scenarios/test_fidelity.py` |
+| **FakeRouteBackCounter** | `RouteBackCounterPort` | — |
 | **FakeSentry** | `SentryPort` | `tests/scenarios/fakes/test_supporting_fakes.py` |
 | **FakeSubprocessRunner** | `SubprocessRunnerPort` | `tests/scenarios/fakes/test_fake_subprocess_runner.py` |
 | **FakeWikiCompiler** | `WikiCompilerPort` | `tests/scenarios/test_wiki_evolution_scenarios.py` |
@@ -58,6 +59,7 @@ graph LR
     tests_scenarios_behaviors_test_quota_py([tests/scenarios/behaviors/test_quota.py]) --> FakeLLM
     tests_scenarios_fakes_test_fake_llm_py([tests/scenarios/fakes/test_fake_llm.py]) --> FakeLLM
     tests_scenarios_fakes_test_fake_llm_streaming_py([tests/scenarios/fakes/test_fake_llm_streaming.py]) --> FakeLLM
+    FakeRouteBackCounter -.-> RouteBackCounterPort
     FakeSentry -.-> SentryPort
     tests_scenarios_fakes_test_supporting_fakes_py([tests/scenarios/fakes/test_supporting_fakes.py]) --> FakeSentry
     FakeSubprocessRunner -.-> SubprocessRunnerPort
@@ -68,4 +70,4 @@ graph LR
     tests_scenarios_fakes_test_supporting_fakes_py([tests/scenarios/fakes/test_supporting_fakes.py]) --> FakeWorkspace
 ```
 
-_Regenerated from commit `dc49678` on 2026-05-19 15:21 UTC. Source last changed at `dc49678`. Status: 🟢 fresh._
+_Regenerated from commit `dc49678` on 2026-05-19 15:32 UTC. Source last changed at `dc49678`. Status: 🟢 fresh._

@@ -67,7 +67,7 @@ per-adapter, not per-port).
 | `ObservabilityPort` | ❌ | ❌ | ✅ ports.md | ❌ | ✅ `FakeSentry` | N/A (per-adapter, ADR-0047) | N/A (per-adapter, ADR-0047) |
 | `PRPort` | ✅ [0045, 0052, 0056] | ✅ [architecture-async-control.md, architecture-layers.md, dark-factory.md, gotchas.md, pr-port.md] | ✅ ports.md | ✅ README.md | ✅ `FakePR` | N/A (per-adapter, ADR-0047) | N/A (per-adapter, ADR-0047) |
 | `ReviewInsightStorePort` | ❌ | ❌ | ✅ ports.md | ❌ | ❌ | N/A (per-adapter, ADR-0047) | N/A (per-adapter, ADR-0047) |
-| `RouteBackCounterPort` | ❌ | ❌ | ✅ ports.md | ❌ | ❌ | N/A (per-adapter, ADR-0047) | N/A (per-adapter, ADR-0047) |
+| `RouteBackCounterPort` | ❌ | ❌ | ✅ ports.md | ❌ | ✅ `FakeRouteBackCounter` | N/A (per-adapter, ADR-0047) | N/A (per-adapter, ADR-0047) |
 | `WorkspacePort` | ✅ [0003, 0050] | ✅ [workspace-port.md] | ✅ ports.md | ❌ | ✅ `FakeWorkspace` | N/A (per-adapter, ADR-0047) | N/A (per-adapter, ADR-0047) |
 ## Section 3: Factory phases
 
@@ -76,4 +76,4 @@ HITL trigger). It is not regenerable from source and is maintained in
 `docs/arch/coverage_matrix.md` (the hand-curated baseline document).
 
 
-_Regenerated from commit `dc49678` on 2026-05-19 15:21 UTC. Source last changed at `dc49678`. Status: 🟢 fresh._
+_Regenerated from commit `dc49678` on 2026-05-19 15:32 UTC. Source last changed at `dc49678`. Status: 🟢 fresh._

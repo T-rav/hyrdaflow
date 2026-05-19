@@ -18,11 +18,10 @@ from route_back import (
 )
 
 # ---------------------------------------------------------------------------
-# Stubs — InMemoryRouteBackCounter lives in tests/helpers.py so the
-# stub shape stays consistent across test_route_back and
-# test_precondition_gate.
+# FakeRouteBackCounter lives in src/mockworld/fakes/ (ADR-0047).
+# InMemoryRouteBackCounter is a backward-compat alias in tests/helpers.py.
 # ---------------------------------------------------------------------------
-from tests.helpers import InMemoryRouteBackCounter
+from mockworld.fakes.fake_route_back_counter import FakeRouteBackCounter as InMemoryRouteBackCounter
 
 
 def _coordinator(

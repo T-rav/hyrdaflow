@@ -19,6 +19,7 @@ graph LR
     PRPort -.-> FakePR
     ReviewInsightStorePort --> ReviewInsightStore
     RouteBackCounterPort --> RouteBackStateMixin
+    RouteBackCounterPort -.-> FakeRouteBackCounter
     WorkspacePort --> WorkspaceManager
     WorkspacePort -.-> FakeWorkspace
 ```
@@ -87,7 +88,7 @@ graph LR
 - Methods: `decrement_route_back_count`, `get_route_back_count`, `increment_route_back_count`
 - Adapters:
   - `RouteBackStateMixin` (`src.state._route_back`)
-- Fake: ⚠️ no fake (every Port needs a fake per ADR-0047)
+- Fake: `FakeRouteBackCounter` (`mockworld.fakes.fake_route_back_counter`)
 
 ### WorkspacePort
 
@@ -97,4 +98,4 @@ graph LR
   - `WorkspaceManager` (`src.workspace`)
 - Fake: `FakeWorkspace` (`mockworld.fakes.fake_workspace`)
 
-_Regenerated from commit `dc49678` on 2026-05-19 15:21 UTC. Source last changed at `dc49678`. Status: 🟢 fresh._
+_Regenerated from commit `dc49678` on 2026-05-19 15:32 UTC. Source last changed at `dc49678`. Status: 🟢 fresh._
