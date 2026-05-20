@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+from exception_classify import reraise_on_credit_or_bug
 from models import PipelineIssueStatus, PipelineSnapshotEntry, QueueStats, Task
 from subprocess_util import AuthenticationError
 from task_source import TaskFetcher
@@ -199,7 +200,8 @@ class IssueStore:
             issues = await self._fetcher.fetch_all()
         except AuthenticationError:
             raise
-        except Exception:
+        except Exception as exc:
+            reraise_on_credit_or_bug(exc)
             logger.exception("IssueStore refresh failed — will retry next cycle")
             return
 

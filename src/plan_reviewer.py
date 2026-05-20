@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING
 
 from agent_cli import build_agent_command
 from base_runner import BaseRunner
+from exception_classify import reraise_on_credit_or_bug
 from models import (
     PlanFinding,
     PlanFindingSeverity,
@@ -174,6 +175,7 @@ class PlanReviewer(BaseRunner):
         try:
             transcript = await self._run_review_subprocess(task, plan_result)
         except Exception as exc:  # noqa: BLE001
+            reraise_on_credit_or_bug(exc)
             review.error = f"reviewer subprocess failed: {exc}"
             review.summary = "Reviewer subprocess raised"
             review.duration_seconds = time.monotonic() - start

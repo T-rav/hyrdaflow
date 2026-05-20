@@ -70,7 +70,6 @@ class TestPartialLabelCountsMissingFirstKey:
     """
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="Regression for issue #6722 — fix not yet landed", strict=False)
     async def test_partial_dict_missing_open_by_label(
         self, state: StateTracker, event_bus: EventBus
     ) -> None:

@@ -6,6 +6,9 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
+- `2efdbb1` — chore(arch): regen post-rebase against staging *(2026-05-20)*
+- `fecc6a8` — chore(arch): regen post-rebase against staging *(2026-05-20)*
+- `10e9737` — chore(arch): regen post-rebase against staging *(2026-05-20)*
 - `81ce3ea` — chore(arch): regen post-rebase against staging *(2026-05-20)*
 - `ffd5f38` — chore(arch): regen post-rebase against staging *(2026-05-20)*
 - `049ec06` — test(sandbox): ADR-0063 W3a/W3b/W4/W5 recovery-path scenarios (s36/s37/s39/s40 rewrite) *(2026-05-20)*
@@ -377,4 +380,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `81ce3ea` on 2026-05-20 19:57 UTC. Source last changed at `81ce3ea`. Status: 🟢 fresh._
+_Regenerated from commit `2efdbb1` on 2026-05-20 19:59 UTC. Source last changed at `2efdbb1`. Status: 🟢 fresh._

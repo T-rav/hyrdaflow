@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from config import HydraFlowConfig
 from events import EventBus, EventType, HydraFlowEvent
+from exception_classify import reraise_on_credit_or_bug
 from models import MetricsSnapshot, MetricsSyncResult, QueueStats
 from pr_manager import PRManager
 from state import StateTracker
@@ -197,16 +198,19 @@ class MetricsManager:
         if queue_stats:
             queue_depth = dict(queue_stats.queue_depth)
 
-        # GitHub label counts
+        # GitHub label counts.  Each key is independently defaulted so a
+        # partial response surfaces what was returned rather than discarding
+        # all of it via the broad except (#6722).
         github_open_by_label: dict[str, int] = {}
         github_total_closed = 0
         github_total_merged = 0
         try:
             counts = await self._prs.get_label_counts(self._config)
-            github_open_by_label = counts["open_by_label"]
-            github_total_closed = counts["total_closed"]
-            github_total_merged = counts["total_merged"]
-        except Exception:
+            github_open_by_label = counts.get("open_by_label", {})
+            github_total_closed = counts.get("total_closed", 0)
+            github_total_merged = counts.get("total_merged", 0)
+        except Exception as exc:
+            reraise_on_credit_or_bug(exc)
             logger.warning(
                 "Could not fetch GitHub label counts for snapshot", exc_info=True
             )
