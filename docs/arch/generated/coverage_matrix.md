@@ -10,21 +10,21 @@ Regenerated from the live source tree. Cell vocabulary: ✅ covered, ⚠️ part
 
 | Loop | ADR | Wiki | Generated | Standard | Unit | Scenario | Sandbox |
 |---|---|---|---|---|---|---|---|
-| `ADRReviewerLoop` | ❌ | ✅ [adr-reviewer-loop.md] | ❌ | ✅ README.md | ✅ `test_adr_reviewer_loop.py` | ✅ in catalog | ❌ |
-| `AdrTouchpointAuditorLoop` | ✅ [0056, 0057] | ✅ [adr-touchpoint-auditor-loop.md] | ❌ | ✅ README.md | ✅ `test_adr_touchpoint_auditor_loop.py` | ✅ in catalog | ❌ |
-| `AutoAgentPreflightLoop` | ✅ [0050, 0063] | ✅ [dark-factory.md] | ❌ | ✅ README.md | ✅ `test_auto_agent_preflight_loop.py` | ✅ in catalog | ❌ |
+| `ADRReviewerLoop` | ✅ [0079] | ✅ [adr-reviewer-loop.md] | ❌ | ✅ README.md | ✅ `test_adr_reviewer_loop.py` | ✅ in catalog | ✅ `s25_adr_reviewer_no_proposed_adrs.py` |
+| `AdrTouchpointAuditorLoop` | ✅ [0056, 0057] | ✅ [adr-touchpoint-auditor-loop.md] | ❌ | ✅ README.md | ✅ `test_adr_touchpoint_auditor_loop.py` | ✅ in catalog | ✅ `s33_adr_touchpoint_auditor_no_drift.py` |
+| `AutoAgentPreflightLoop` | ✅ [0050, 0063] | ✅ [dark-factory.md] | ❌ | ✅ README.md | ✅ `test_auto_agent_preflight_loop.py` | ✅ in catalog | ✅ `s31_auto_agent_preflight_no_escalations.py` |
 | `CIMonitorLoop` | ✅ [0029, 0065] | ✅ [ci-monitor-loop.md] | ❌ | ✅ README.md | ✅ `test_ci_monitor_loop.py` | ⚠️ in catalog (no scenario file) | ✅ `s15_ci_monitor_main_branch_red.py` |
-| `ContractRefreshLoop` | ✅ [0045, 0047] | ✅ [contract-refresh-loop.md] | ❌ | ✅ README.md | ✅ `test_contract_refresh_loop.py` | ✅ in catalog | ❌ |
-| `CorpusLearningLoop` | ✅ [0045] | ✅ [corpus-learning-loop.md] | ❌ | ✅ README.md | ✅ `test_corpus_learning_loop.py` | ✅ in catalog | ❌ |
-| `CostBudgetWatcherLoop` | ✅ [0054] | ✅ [architecture.md] | ✅ loops.md | ✅ README.md | ❌ | ⚠️ in catalog (no scenario file) | ❌ |
+| `ContractRefreshLoop` | ✅ [0045, 0047] | ✅ [contract-refresh-loop.md] | ❌ | ✅ README.md | ✅ `test_contract_refresh_loop.py` | ✅ in catalog | ✅ `s30_contract_refresh_clean.py` |
+| `CorpusLearningLoop` | ✅ [0045] | ✅ [corpus-learning-loop.md] | ❌ | ✅ README.md | ✅ `test_corpus_learning_loop.py` | ✅ in catalog | ✅ `s22_corpus_learning_no_escape_issues.py` |
+| `CostBudgetWatcherLoop` | ✅ [0054] | ✅ [architecture.md] | ✅ loops.md | ✅ README.md | ✅ `test_cost_budget_watcher_loop.py` | ✅ in catalog | ✅ `s26_cost_budget_watcher_unlimited.py` |
 | `DependabotMergeLoop` | ✅ [0054, 0057, 0058] | ✅ [dependabot-merge-loop.md] | ❌ | ✅ README.md | ✅ `test_dependabot_merge_loop.py` | ⚠️ in catalog (no scenario file) | ✅ `s09_dependabot_auto_merge.py` |
-| `DiagnosticLoop` | ✅ [0050] | ✅ [diagnostic-loop.md] | ❌ | ✅ README.md | ✅ `test_diagnostic_loop.py` | ✅ in catalog | ❌ |
-| `DiagramLoop` | ✅ [0001] | ✅ [diagram-loop.md] | ✅ loops.md | ✅ README.md | ✅ `test_diagram_loop.py` | ✅ in catalog | ❌ |
-| `EdgeProposerLoop` | ✅ [0058, 0060, 0062] | ✅ [edge-proposer-loop.md, entry-evidence-loop.md] | ❌ | ✅ README.md | ✅ `test_edge_proposer_loop.py` | ✅ in catalog | ❌ |
-| `EntryEvidenceLoop` | ✅ [0062, 0078] | ✅ [edge-proposer-loop.md, entry-evidence-loop.md] | ❌ | ✅ README.md | ✅ `test_entry_evidence_loop.py` | ❌ | ❌ |
-| `EpicMonitorLoop` | ✅ [0079, 0080] | ✅ [architecture-async-control.md] | ❌ | ✅ README.md | ✅ `test_epic_monitor_loop.py` | ✅ in catalog | ❌ |
-| `EpicSweeperLoop` | ✅ [0079, 0080] | ✅ [architecture-async-control.md] | ❌ | ✅ README.md | ✅ `test_epic_sweeper_loop.py` | ✅ in catalog | ❌ |
-| `FakeCoverageAuditorLoop` | ✅ [0045, 0056, 0057] | ✅ [fake-coverage-auditor-loop.md] | ❌ | ✅ README.md | ✅ `test_fake_coverage_auditor_loop.py` | ✅ in catalog | ❌ |
+| `DiagnosticLoop` | ✅ [0050] | ✅ [diagnostic-loop.md] | ❌ | ✅ README.md | ✅ `test_diagnostic_loop.py` | ✅ in catalog | ✅ `s32_diagnostic_no_failures.py` |
+| `DiagramLoop` | ✅ [0001] | ✅ [diagram-loop.md] | ✅ loops.md | ✅ README.md | ✅ `test_diagram_loop.py` | ✅ in catalog | ✅ `s34_diagram_loop_no_changes.py` |
+| `EdgeProposerLoop` | ✅ [0058, 0060, 0062] | ✅ [edge-proposer-loop.md, entry-evidence-loop.md] | ❌ | ✅ README.md | ✅ `test_edge_proposer_loop.py` | ✅ in catalog | ✅ `s28_edge_proposer_no_proposals.py` |
+| `EntryEvidenceLoop` | ✅ [0062, 0078] | ✅ [edge-proposer-loop.md, entry-evidence-loop.md] | ❌ | ✅ README.md | ✅ `test_entry_evidence_loop.py` | ✅ in catalog | ✅ `s24_entry_evidence_no_terms.py` |
+| `EpicMonitorLoop` | ✅ [0080, 0081] | ✅ [architecture-async-control.md] | ❌ | ✅ README.md | ✅ `test_epic_monitor_loop.py` | ✅ in catalog | ✅ `s27_epic_monitor_no_epics.py` |
+| `EpicSweeperLoop` | ✅ [0080, 0081] | ✅ [architecture-async-control.md] | ❌ | ✅ README.md | ✅ `test_epic_sweeper_loop.py` | ✅ in catalog | ✅ `s23_epic_sweeper_no_epics.py` |
+| `FakeCoverageAuditorLoop` | ✅ [0045, 0056, 0057] | ✅ [fake-coverage-auditor-loop.md] | ❌ | ✅ README.md | ✅ `test_fake_coverage_auditor_loop.py` | ✅ in catalog | ✅ `s29_fake_coverage_auditor_clean.py` |
 | `FlakeTrackerLoop` | ✅ [0045, 0056, 0057, 0065] | ✅ [flake-tracker-loop.md] | ❌ | ✅ README.md | ✅ `test_flake_tracker_loop.py` | ✅ in catalog | ❌ |
 | `GitHubCacheLoop` | ✅ [0076] | ✅ [github-cache-loop.md] | ❌ | ✅ README.md | ❌ | ❌ | ❌ |
 | `HealthMonitorLoop` | ✅ [0045, 0046] | ✅ [testing.md] | ❌ | ✅ README.md | ✅ `test_health_monitor_loop_primary_cycle.py` | ⚠️ in catalog (no scenario file) | ❌ |
@@ -63,7 +63,7 @@ per-adapter, not per-port).
 |---|---|---|---|---|---|---|---|
 | `AgentPort` | ❌ | ✅ [architecture-layers.md] | ✅ ports.md | ✅ README.md | ✅ `FakeAgent` | N/A (per-adapter, ADR-0047) | N/A (per-adapter, ADR-0047) |
 | `BotPRPort` | ❌ | ✅ [bot-pr-port.md] | ✅ ports.md | ✅ README.md | ✅ `FakeBotPR` | N/A (per-adapter, ADR-0047) | N/A (per-adapter, ADR-0047) |
-| `IssueFetcherPort` | ✅ [0080] | ✅ [architecture-async-control.md] | ✅ ports.md | ✅ README.md | ✅ `FakeIssueFetcher` | N/A (per-adapter, ADR-0047) | N/A (per-adapter, ADR-0047) |
+| `IssueFetcherPort` | ✅ [0081] | ✅ [architecture-async-control.md] | ✅ ports.md | ✅ README.md | ✅ `FakeIssueFetcher` | N/A (per-adapter, ADR-0047) | N/A (per-adapter, ADR-0047) |
 | `IssueStorePort` | ✅ [0041] | ✅ [architecture-layers.md, issue-store-port.md] | ✅ ports.md | ✅ README.md | ✅ `FakeIssueStore` | N/A (per-adapter, ADR-0047) | N/A (per-adapter, ADR-0047) |
 | `ObservabilityPort` | ❌ | ❌ | ✅ ports.md | ✅ README.md | ✅ `FakeSentry` | N/A (per-adapter, ADR-0047) | N/A (per-adapter, ADR-0047) |
 | `PRPort` | ✅ [0045, 0052, 0056, 0075, 0077] | ✅ [architecture-async-control.md, architecture-layers.md, dark-factory.md, diagram-loop.md, fake-coverage-auditor-loop.md, gotchas.md, pr-port.md] | ✅ ports.md | ✅ README.md | ✅ `FakePR` | N/A (per-adapter, ADR-0047) | N/A (per-adapter, ADR-0047) |
@@ -77,4 +77,4 @@ HITL trigger). It is not regenerable from source and is maintained in
 `docs/arch/coverage_matrix.md` (the hand-curated baseline document).
 
 
-_Regenerated from commit `2bd280f` on 2026-05-19 20:50 UTC. Source last changed at `2bd280f`. Status: 🟢 fresh._
+_Regenerated from commit `92d8648` on 2026-05-20 15:10 UTC. Source last changed at `92d8648`. Status: 🟢 fresh._

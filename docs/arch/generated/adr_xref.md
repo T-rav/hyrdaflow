@@ -82,8 +82,9 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | ADR-0076 | `src.github_cache_loop` |
 | ADR-0077 | `src.pr_unsticker`, `src.pr_unsticker_loop` |
 | ADR-0078 | `src.pricing_refresh_diff`, `src.pricing_refresh_loop` |
-| ADR-0079 | `src.epic`, `src.epic_monitor_loop` |
-| ADR-0080 | `src.epic`, `src.epic_sweeper_loop` |
+| ADR-0079 | `src.adr_reviewer`, `src.adr_reviewer_loop` |
+| ADR-0080 | `src.epic`, `src.epic_monitor_loop` |
+| ADR-0081 | `src.epic`, `src.epic_sweeper_loop` |
 
 ## Module → ADRs
 
@@ -91,7 +92,8 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 |---|---|
 | `src.adr_drift` | ADR-0056 |
 | `src.adr_pre_validator` | ADR-0037 |
-| `src.adr_reviewer` | ADR-0033, ADR-0034, ADR-0037, ADR-0039, ADR-0040 |
+| `src.adr_reviewer` | ADR-0033, ADR-0034, ADR-0037, ADR-0039, ADR-0040, ADR-0079 |
+| `src.adr_reviewer_loop` | ADR-0079 |
 | `src.adr_touchpoint_auditor_loop` | ADR-0056 |
 | `src.adversarial_labels` | ADR-0064 |
 | `src.adversarial_retry_loop` | ADR-0064 |
@@ -124,9 +126,9 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.docker_runner` | ADR-0010, ADR-0043 |
 | `src.edge_proposer_loop` | ADR-0058 |
 | `src.entry_evidence_loop` | ADR-0062 |
-| `src.epic` | ADR-0011, ADR-0012, ADR-0019, ADR-0079, ADR-0080 |
-| `src.epic_monitor_loop` | ADR-0012, ADR-0079 |
-| `src.epic_sweeper_loop` | ADR-0080 |
+| `src.epic` | ADR-0011, ADR-0012, ADR-0019, ADR-0080, ADR-0081 |
+| `src.epic_monitor_loop` | ADR-0012, ADR-0080 |
+| `src.epic_sweeper_loop` | ADR-0081 |
 | `src.escalation_gate` | ADR-0015 |
 | `src.events` | ADR-0006, ADR-0055, ADR-0064 |
 | `src.exception_classify` | ADR-0055 |
@@ -228,4 +230,4 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.workspace` | ADR-0055 |
 | `src.worktree` | ADR-0003, ADR-0009, ADR-0010 |
 
-_Regenerated from commit `2bd280f` on 2026-05-19 20:50 UTC. Source last changed at `2bd280f`. Status: 🟢 fresh._
+_Regenerated from commit `92d8648` on 2026-05-20 15:10 UTC. Source last changed at `92d8648`. Status: 🟢 fresh._

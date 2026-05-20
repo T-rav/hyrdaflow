@@ -6,7 +6,14 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
-- `2bd280f` — docs(wiki+standards+adr): bulk backfill 3 — 12 wiki terms, standards wiring, 2 ADR drafts *(2026-05-19)*
+- `92d8648` — chore(arch): regen after lint pass *(2026-05-20)*
+- `cf93c46` — docs(wiki+standards+adr): bulk backfill 3 — 12 wiki terms, standards wiring, 2 ADR drafts *(2026-05-20)*
+- `4ff3f88` — chore(arch): regen after rebase against staging *(2026-05-20)*
+- `d15e32a` — style(trust-fleet-sanity): ruff lint + format fixes on breach-path tests *(2026-05-20)*
+- `18041e1` — feat(adversarial): remove the switch — adversarial pipeline always on (#9036) (#9036) *(2026-05-19)*
+- `31313f7` — feat(adversarial): flip pipeline ON by default (#9025) (#9025) *(2026-05-19)*
+- `6d6ed95` — test+docs(coverage): final cleanup wave — 6 sandbox scenarios + 1 ADR draft *(2026-05-19)*
+- `cb8508c` — test(scenarios): bulk coverage backfill C (9 beads) *(2026-05-19)*
 - `c32919f` — test(scenarios): coverage backfill for 10 loops (bulk B) *(2026-05-19)*
 - `2cc3d81` — chore(arch): regen after UL lint updates generated views *(2026-05-19)*
 - `7e4fc62` — docs(wiki+standards+adr): backfill 19 coverage-gap beads (batch 2) *(2026-05-19)*
@@ -355,4 +362,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `2bd280f` on 2026-05-19 20:50 UTC. Source last changed at `2bd280f`. Status: 🟢 fresh._
+_Regenerated from commit `92d8648` on 2026-05-20 15:10 UTC. Source last changed at `92d8648`. Status: 🟢 fresh._
