@@ -38,6 +38,64 @@ _ESCALATION_LABEL_STUCK = "discover-stuck"
 _ESCALATION_LABEL_HITL = "hitl-escalation"
 
 
+def _consume_mockworld_discover_script(
+    runner: DiscoverRunner, issue_number: int
+) -> tuple[bool, str, list[str]] | None:
+    """Consume one scripted DiscoverRunner coherence outcome, if present.
+
+    Returns ``(passed, summary, findings)`` matching the
+    ``parse_discover_completeness_result`` shape, or ``None`` when no
+    MockWorld scripting is active for *issue_number*. When the scripted
+    outcome carries ``queries_required``, those queries are stashed in a
+    per-task buffer that ``_dispatch_expander`` drains for the next call
+    so the expander returns the scripted queries instead of dispatching
+    a real subagent.
+    """
+    fake_llm = getattr(runner, "_mockworld_fake_llm", None)
+    if fake_llm is None or not getattr(fake_llm, "_is_fake_adapter", False):
+        return None
+    if not hasattr(fake_llm, "pop_discover_script"):
+        return None
+    scripted = fake_llm.pop_discover_script(issue_number)
+    if scripted is None:
+        return None
+    # Stash queries for the next _dispatch_expander call. The runner owns
+    # the buffer (not FakeLLM) because the expander dispatch is keyed by
+    # the (issue, attempt) pair in the bounded retry loop and the buffer
+    # is short-lived — one entry per scripted failure.
+    if scripted.queries_required:
+        buf = getattr(runner, "_mockworld_pending_queries", None)
+        if buf is None:
+            buf = {}
+            runner._mockworld_pending_queries = buf  # type: ignore[attr-defined]
+        buf.setdefault(issue_number, []).extend(scripted.queries_required)
+    summary = scripted.summary or (
+        "All five rubric criteria pass"
+        if scripted.coherent
+        else "scripted coherence rejection"
+    )
+    return scripted.coherent, summary, list(scripted.findings)
+
+
+def _take_mockworld_pending_queries(
+    runner: DiscoverRunner, issue_number: int
+) -> list[str] | None:
+    """Pop the scripted expander queries for *issue_number*, if any.
+
+    Returns ``None`` when the runner is not in MockWorld mode. Returns an
+    empty list when the scenario scripted a coherence failure WITHOUT
+    queries (expander surfaced nothing — same as the real expander
+    returning [] from a low-confidence subagent).
+    """
+    fake_llm = getattr(runner, "_mockworld_fake_llm", None)
+    if fake_llm is None or not getattr(fake_llm, "_is_fake_adapter", False):
+        return None
+    buf = getattr(runner, "_mockworld_pending_queries", None)
+    if not buf:
+        return []
+    return buf.pop(issue_number, [])
+
+
 class DiscoverRunner(BaseRunner):
     """Launches a Claude agent to research the product space for a vague issue.
 
@@ -155,7 +213,18 @@ class DiscoverRunner(BaseRunner):
         Thin wrapper that supplies the runner's CLI command, working
         directory, and ``_execute`` callable to the pure expander helper.
         Returns the parsed expansion queries (possibly empty).
+
+        MockWorld bypass: when the scenario scripted the prior coherence
+        failure with ``queries_required`` via
+        :meth:`FakeLLM.script_discover`, the queries surface here via a
+        per-task buffer the bypass-aware ``_evaluate_brief`` populated
+        before raising the coherence flag. This skips the expander
+        subprocess entirely for sandbox scenarios.
         """
+        scripted_queries = _take_mockworld_pending_queries(self, task.id)
+        if scripted_queries is not None:
+            return scripted_queries
+
         try:
             return await expand_research_brief(
                 task=task,
@@ -273,7 +342,18 @@ class DiscoverRunner(BaseRunner):
 
         A missing skill (registry disabled) fails open so this extension
         never blocks discovery on its own absence.
+
+        MockWorld bypass: when the instance carries a ``_mockworld_fake_llm``
+        sentinel attribute and the scenario has scripted a coherence verdict
+        via :meth:`FakeLLM.script_discover`, the scripted outcome is returned
+        in lieu of dispatching the read-only subprocess. This lets sandbox
+        scenarios drive the ADR-0063 W3a recovery branch without producing
+        a synthetic ``DISCOVER_COMPLETENESS_RESULT`` transcript.
         """
+        scripted = _consume_mockworld_discover_script(self, task.id)
+        if scripted is not None:
+            return scripted
+
         skill = next((s for s in BUILTIN_SKILLS if s.name == _SKILL_NAME), None)
         if skill is None:
             return True, f"{_SKILL_NAME} not registered — fail open", []

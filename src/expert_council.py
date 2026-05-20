@@ -200,6 +200,58 @@ class CouncilResult:
         }
 
 
+def _consume_mockworld_council_vote(council, issue_number, *, diversified):  # noqa: ANN001
+    """Return a synthesized CouncilResult from the scripted verdict map.
+
+    Returns ``None`` when the council is not under a MockWorld harness or
+    when the scenario has not scripted a verdict for the current round.
+    The per-council round counter advances every time a synthesized vote
+    is returned, mirroring the production round progression driven by
+    :meth:`ShapePhase._run_council_vote`.
+
+    A ``"split"`` verdict synthesizes three votes on three distinct
+    directions (A/B/C) so :meth:`CouncilResult.has_consensus` returns
+    False; a ``"consensus"`` verdict synthesizes three votes on the same
+    direction A so consensus is True. ``diversified=True`` synthesizes
+    against the diversified-persona panel; the consensus-rule check is
+    identical so downstream code is unchanged.
+    """
+    fake_llm = getattr(council, "_mockworld_fake_llm", None)
+    if fake_llm is None or not getattr(fake_llm, "_is_fake_adapter", False):
+        return None
+    if not hasattr(fake_llm, "shape_council_verdict_for_round"):
+        return None
+
+    counters = getattr(council, "_mockworld_round_counters", None)
+    if counters is None:
+        counters = {}
+        council._mockworld_round_counters = counters  # type: ignore[attr-defined]
+    next_round = counters.get(issue_number, 0) + 1
+    verdict = fake_llm.shape_council_verdict_for_round(issue_number, next_round)
+    if verdict is None:
+        # No script for this round — fall through to production behavior.
+        # Don't advance the counter so a partial script doesn't desync.
+        return None
+    counters[issue_number] = next_round
+
+    panel_names = (
+        ["Dissenter", "Consensus-Seeker", "Regret-in-6-Months"]
+        if diversified
+        else ["User Advocate", "Technical Lead", "Product Strategist"]
+    )
+    directions = ["A", "A", "A"] if verdict == "consensus" else ["A", "B", "C"]
+    votes = [
+        CouncilVote(
+            expert_name=name,
+            direction=direction,
+            reasoning=f"Scripted round-{next_round} verdict: {verdict}",
+            confidence=8,
+        )
+        for name, direction in zip(panel_names, directions, strict=True)
+    ]
+    return CouncilResult(votes)
+
+
 class ExpertCouncil(BaseRunner):
     """Runs expert agents to vote on product directions."""
 
@@ -207,6 +259,9 @@ class ExpertCouncil(BaseRunner):
 
     async def vote(self, task: Task, directions_text: str) -> CouncilResult:
         """Run all experts and collect votes on the proposed directions."""
+        scripted = _consume_mockworld_council_vote(self, task.id, diversified=False)
+        if scripted is not None:
+            return scripted
         return await self._vote_with_panel(task, directions_text, EXPERTS)
 
     async def vote_diversified(self, task: Task, directions_text: str) -> CouncilResult:
@@ -221,6 +276,9 @@ class ExpertCouncil(BaseRunner):
         (2/3 supermajority) as the standard vote, so the downstream
         consensus / escalate handling in :class:`ShapePhase` is unchanged.
         """
+        scripted = _consume_mockworld_council_vote(self, task.id, diversified=True)
+        if scripted is not None:
+            return scripted
         return await self._vote_with_panel(task, directions_text, DIVERSIFIED_EXPERTS)
 
     async def _vote_with_panel(
@@ -259,7 +317,16 @@ class ExpertCouncil(BaseRunner):
         Returns a mediation brief that identifies common ground, the core
         tension, and a proposed synthesis — injected into the revote prompt
         so experts can adjust their positions with full context.
+
+        MockWorld bypass: when the runner carries a ``_mockworld_fake_llm``
+        sentinel, the mediator is short-circuited to a fixed synthesis
+        string so the round-2 revote happens without a subprocess. The
+        round-2 verdict still comes from the scripted ``shape_council``
+        map keyed by round number, so the scenario controls convergence.
         """
+        fake_llm = getattr(self, "_mockworld_fake_llm", None)
+        if fake_llm is not None and getattr(fake_llm, "_is_fake_adapter", False):
+            return "Scripted mediation: experts hold their positions."
         vote_summary = prior_result.format_summary()
         cmd = self._build_command()
         prompt = f"""You are a neutral mediator reconciling a split product council vote.

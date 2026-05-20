@@ -50,6 +50,61 @@ def _load_seed() -> MockWorldSeed:
     return MockWorldSeed.from_json(Path(path).read_text())
 
 
+def _load_phase_script(
+    fake_llm: FakeLLM, phase_name: str, issue_number: int, payload: object
+) -> None:
+    """Translate one seed.phase_scripts entry into FakeLLM.script_* calls.
+
+    Each phase has a different inner shape (see ``MockWorldSeed.phase_scripts``
+    docstring). This loader is the single point where the JSON shapes are
+    decoded; the FakeLLM ``script_*`` methods themselves take typed kwargs.
+
+    Unknown phase names log a warning and are skipped — sandbox scenarios
+    cannot regress the seed loader by misnaming a phase, but they also can't
+    silently land an unwired phase that looks correct.
+    """
+    if phase_name == "discover":
+        assert isinstance(payload, list)
+        for entry in payload:
+            fake_llm.script_discover(
+                issue_number,
+                coherent=bool(entry.get("coherent", True)),
+                queries_required=list(entry.get("queries_required", []) or []),
+                summary=str(entry.get("summary", "") or ""),
+                findings=list(entry.get("findings", []) or []),
+            )
+    elif phase_name == "plan_review":
+        assert isinstance(payload, list)
+        for entry in payload:
+            fake_llm.script_plan_review(
+                issue_number,
+                verdict=entry["verdict"],
+                gaps=list(entry.get("gaps", []) or []),
+            )
+    elif phase_name == "shape_council":
+        assert isinstance(payload, dict)
+        # Inner keys are round numbers; from_json coerces them to int.
+        fake_llm.script_shape_council(issue_number, payload)
+    elif phase_name == "implement_spec_review":
+        assert isinstance(payload, list)
+        for entry in payload:
+            fake_llm.script_implement_spec_review(
+                issue_number,
+                compliant=bool(entry.get("compliant", True)),
+                gaps=list(entry.get("gaps", []) or []),
+                reasoning=str(entry.get("reasoning", "") or ""),
+            )
+    else:
+        # Unknown phase name — log and skip so a typo can't silently break.
+        import logging  # noqa: PLC0415
+
+        logging.getLogger("hydraflow.sandbox_main").warning(
+            "Unknown phase_scripts phase %r for issue #%d — ignored",
+            phase_name,
+            issue_number,
+        )
+
+
 def _build_caretaker_enabled_cb(
     loops_enabled: list[str] | None,
 ) -> Callable[[str], bool]:
@@ -148,6 +203,13 @@ async def main() -> None:
         for role, results in by_role.items():
             fake_llm.script_advisor(issue_number, role, results)
 
+    # ADR-0063 phase-level scripts (W3a/W3b/W4/W5). Each phase entry maps
+    # to a distinct FakeLLM.script_* call. Empty for pre-W3a/W3b/W4/W5
+    # scenarios so existing seeds carry no payload here.
+    for phase_name, by_issue in seed.phase_scripts.items():
+        for issue_number, payload in by_issue.items():
+            _load_phase_script(fake_llm, phase_name, int(issue_number), payload)
+
     # Every async-touched ``subprocess.run`` site in production code now
     # specifies ``timeout=`` (PRs #8454, #8456, #8468 — enforced by
     # ``tests/regressions/test_async_subprocess_timeouts.py``), so caretaker
@@ -202,6 +264,24 @@ async def main() -> None:
     # ``_FakeReviewRunner`` — a plain Python instance whose ``__dict__``
     # carries the assignment cleanly.
     svc.reviewers._mockworld_fake_llm = fake_llm  # type: ignore[attr-defined]
+
+    # ADR-0063 sentinel wiring (W3a/W3b/W4/W5). Each runner consults the
+    # sentinel via ``getattr(self, "_mockworld_fake_llm", None)`` in its
+    # subprocess-dispatch method; setting the attribute here lets sandbox
+    # scenarios drive failure-path recovery without producing synthetic
+    # subprocess transcripts.
+    discover_runner = getattr(svc.discover_phase, "_runner", None)
+    if discover_runner is not None:
+        discover_runner._mockworld_fake_llm = fake_llm  # type: ignore[attr-defined]
+    plan_reviewer = getattr(svc.planner_phase, "_plan_reviewer", None)
+    if plan_reviewer is not None:
+        plan_reviewer._mockworld_fake_llm = fake_llm  # type: ignore[attr-defined]
+    expert_council = getattr(svc.shape_phase, "_council", None)
+    if expert_council is not None:
+        expert_council._mockworld_fake_llm = fake_llm  # type: ignore[attr-defined]
+    spec_reviewer = getattr(svc.implementer, "_spec_reviewer", None)
+    if spec_reviewer is not None:
+        spec_reviewer._mockworld_fake_llm = fake_llm  # type: ignore[attr-defined]
 
     orch = HydraFlowOrchestrator(
         config,
