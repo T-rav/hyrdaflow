@@ -110,6 +110,8 @@ ADR and that named test files actually exist.
 | [0077](0077-pr-unsticker-loop.md) | PRUnstickerLoop: Goal-Driven HITL PR Resolution | Proposed |
 | [0078](0078-pricing-refresh-loop.md) | PricingRefreshLoop: Autonomous LLM Pricing Drift Detection | Proposed |
 | [0079](0079-adr-reviewer-loop.md) | ADRReviewerLoop: Autonomous Council Review for Proposed ADRs | Proposed |
+| [0080](0080-epic-monitor-loop.md) | EpicMonitorLoop: Autonomous Stale-Epic Detection and Progress Refresh | Proposed |
+| [0081](0081-epic-sweeper-loop.md) | EpicSweeperLoop: Autonomous Completion-Based Epic Auto-Close | Proposed |
 
 ## Adding a new ADR
 

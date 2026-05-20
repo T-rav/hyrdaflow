@@ -90,6 +90,8 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | ADR-0077 | `src.pr_unsticker`, `src.pr_unsticker_loop` |
 | ADR-0078 | `src.pricing_refresh_diff`, `src.pricing_refresh_loop` |
 | ADR-0079 | `src.adr_reviewer`, `src.adr_reviewer_loop` |
+| ADR-0080 | `src.epic`, `src.epic_monitor_loop` |
+| ADR-0081 | `src.epic`, `src.epic_sweeper_loop` |
 
 ## Module → ADRs
 
@@ -131,8 +133,9 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.docker_runner` | ADR-0010, ADR-0043 |
 | `src.edge_proposer_loop` | ADR-0058 |
 | `src.entry_evidence_loop` | ADR-0062 |
-| `src.epic` | ADR-0011, ADR-0012, ADR-0019 |
-| `src.epic_monitor_loop` | ADR-0012 |
+| `src.epic` | ADR-0011, ADR-0012, ADR-0019, ADR-0080, ADR-0081 |
+| `src.epic_monitor_loop` | ADR-0012, ADR-0080 |
+| `src.epic_sweeper_loop` | ADR-0081 |
 | `src.escalation_gate` | ADR-0015 |
 | `src.events` | ADR-0006, ADR-0055, ADR-0064 |
 | `src.exception_classify` | ADR-0055 |
@@ -238,4 +241,4 @@ Bidirectional index between ADRs and the source modules they cite. Powers "Why t
 | `src.workspace_gc_loop` | ADR-0069 |
 | `src.worktree` | ADR-0003, ADR-0009, ADR-0010 |
 
-_Regenerated from commit `d483b28` on 2026-05-20 15:33 UTC. Source last changed at `d483b28`. Status: 🟢 fresh._
+_Regenerated from commit `21b59db` on 2026-05-20 15:53 UTC. Source last changed at `21b59db`. Status: 🟢 fresh._

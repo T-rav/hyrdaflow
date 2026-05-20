@@ -2,9 +2,34 @@
 
 # Ubiquitous Language
 
-_28 terms across 3 bounded contexts._
+_40 terms across 3 bounded contexts._
 
 See [ADR-0053](../../adr/0053-ubiquitous-language-as-living-artifact.md) for the governing pattern.
+
+## ADRReviewerLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/adr_reviewer_loop.py:ADRReviewerLoop` · **Confidence:** `accepted`
+**Aliases:** `ADR reviewer loop`, `adr council review loop`, `adr review loop`
+
+Caretaker loop that polls for ADRs in `Proposed` status and runs council reviews via `ADRCouncilReviewer`. The loop is intentionally thin: all review logic and output formatting live in `ADRCouncilReviewer`, keeping tick scheduling and business logic separately testable. Review interval is `config.adr_review_interval`.
+
+**Invariants:**
+- The loop delegates entirely to `ADRCouncilReviewer.review_proposed_adrs()`; no review logic lives in the loop itself.
+- Kill-switch is via `enabled_cb("adr_reviewer")` and `config.adr_reviewer_loop_enabled` (ADR-0049).
+
+## AdrTouchpointAuditorLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/adr_touchpoint_auditor_loop.py:AdrTouchpointAuditorLoop` · **Confidence:** `accepted`
+**Aliases:** `ADR touchpoint auditor loop`, `adr drift auditor loop`, `adr touchpoint gate caretaker`
+
+Trust-fleet loop that replaces the deleted ADR touchpoint pre-merge gate with an async caretaker (ADR-0056). Periodically scans recently-merged PRs and files `hydraflow-find` issues when an Accepted or Proposed ADR's cited `src/` modules changed without the ADR file appearing in the same diff. Issues are aggregated into one rollup per ADR (`ADR-NNNN` dedup key) listing all drifted PRs; subsequent ticks update the body in-place. When the ADR file itself appears in a PR diff the rollup is auto-closed. The cursor (`state.adr_audit_cursor`) is seeded to "now" on first deploy — pre-existing history is not retroactively scanned.
+
+**Invariants:**
+- One rollup issue per ADR, never one issue per drifted PR.
+- First-deploy cursor seed is "now" — historical PRs before deploy are not scanned.
+- ADR self-appearance in a PR diff closes the rollup; partial fixes (some-but-not-all modules updated) do not close it.
+- Maximum 3 repair attempts before HITL escalation.
+- Kill-switch is via `enabled_cb("adr_touchpoint_auditor")` (ADR-0049).
 
 ## AgentPort
 
@@ -53,6 +78,104 @@ Hexagonal port used by caretaker loops (TermProposerLoop, others) to open auto-m
 - Pure Protocol — no implementation; tests use a fake; production uses a thin adapter.
 - open_bot_pr is the only method; one PR per call; success returns the PR number.
 
+## CIMonitorLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/ci_monitor_loop.py:CIMonitorLoop` · **Confidence:** `accepted`
+**Aliases:** `CI monitor loop`, `ci monitor loop`, `continuous integration monitor loop`
+
+Caretaker loop that watches CI status on the main branch and files a `hydraflow-ci-failure` issue when CI goes red (ADR-0029, ADR-0065). The loop auto-closes the issue when CI recovers to green. Duplicate issue creation is prevented by tracking the open CI-failure issue number in memory, with rehydration from GitHub labels on first tick to survive restarts cleanly.
+
+**Invariants:**
+- At most one open `hydraflow-ci-failure` issue exists at any time; the loop tracks `_open_issue` to enforce this.
+- On startup the loop rehydrates from existing `hydraflow-ci-failure` issues before its first check — a clean restart never duplicates a pre-existing issue.
+- Kill-switch is via `enabled_cb("ci_monitor")` and `config.ci_monitor_loop_enabled` (ADR-0049).
+
+## ContractRefreshLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/contract_refresh_loop.py:ContractRefreshLoop` · **Confidence:** `accepted`
+**Aliases:** `contract refresh loop`, `cassette refresh loop`, `fake contract refresh loop`
+
+Trust-fleet loop that refreshes cassettes for fake contract tests on a weekly cadence (ADR-0045, ADR-0047, spec §4.2). Each tick: records cassettes against live `gh`/`git`/`docker`/`claude` into a tmp directory, diffs them against committed cassettes, short-circuits on hash-matching repeat drift (dedup via `DedupStore`), stages drifted cassettes, and opens a `contract-refresh: YYYY-MM-DD (<adapters>)` PR labeled `contract-refresh` + `auto-merge`. A post-refresh replay gate (`make trust-contracts`) runs after staging; failure opens a companion `hydraflow-find` + `fake-drift` issue so the factory dispatches a fake-repair implementer — PR auto-merge is not blocked by the replay gate. Per-loop telemetry spans (`trace_collector.emit_loop_subprocess_trace`) cover each recorder subprocess and the replay gate.
+
+**Invariants:**
+- Dedup is keyed on the drift-report hash; identical drift on consecutive ticks does not refile the same PR.
+- Dedup is recorded only after the PR is opened, never before — transient failures do not silently block the next tick.
+- The replay gate failure opens a companion issue but does not block the auto-merge PR.
+- Kill-switch is via `enabled_cb("contract_refresh")` (ADR-0049); no config field.
+
+## CorpusLearningLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/corpus_learning_loop.py:CorpusLearningLoop` · **Confidence:** `accepted`
+**Aliases:** `corpus learning loop`, `adversarial corpus loop`, `escape signal ingestion loop`
+
+Trust-fleet loop that autonomously grows the adversarial test corpus from escape signals (ADR-0045, spec §4.1 v2). Each tick: reads open issues tagged with the escape label from the last `DEFAULT_LOOKBACK_DAYS` days, synthesizes each into a `SynthesizedCase`, runs three self-validation gates (harness acceptance, expected catcher trips, unambiguity across all catchers), materializes passing cases to `tests/trust/adversarial/cases/<slug>/`, and opens auto-merge PRs. A `DedupStore` keyed on `corpus_learning:<issue_number>:<slug>` prevents re-filing the same case on subsequent ticks.
+
+**Invariants:**
+- All three validation gates must pass before a case reaches disk: harness accepts it, expected catcher trips, no other catcher also trips.
+- Cases that trip more than one catcher are rejected as ambiguous before they can corrupt the corpus.
+- No `corpus_learning_enabled` config field exists — kill-switch is purely via `enabled_cb("corpus_learning")` (spec §12.2, ADR-0049).
+
+## DependabotMergeLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/dependabot_merge_loop.py:DependabotMergeLoop` · **Confidence:** `accepted`
+**Aliases:** `dependabot merge loop`, `bot pr merge loop`, `auto-merge bot PRs loop`
+
+Caretaker loop that polls open PRs via `GitHubDataCache` and auto-merges those authored by Dependabot and other configured bot accounts after CI passes (ADR-0054, ADR-0057, ADR-0058). The list of bot authors is configurable via `config`; the loop compares `pr.author.lower()` against the set. Only PRs with a passing `ReviewVerdict` are merged — CI must be green before the loop touches a PR.
+
+**Invariants:**
+- Author matching is case-insensitive.
+- CI must pass (`ReviewVerdict` green) before any merge is attempted; the loop never force-merges.
+- Kill-switch is via `enabled_cb("dependabot_merge")` and `config.dependabot_merge_loop_enabled` (ADR-0049).
+
+## DiagnosticLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/diagnostic_loop.py:DiagnosticLoop` · **Confidence:** `accepted`
+**Aliases:** `diagnostic loop`, `diagnostic self-healing loop`, `escalation diagnostic loop`
+
+Caretaker loop that picks up escalated HITL issues and attempts autonomous self-healing via `DiagnosticRunner` (ADR-0050). For each escalated issue the loop runs a diagnosis that identifies severity, root cause, affected files, and a fix plan, then posts a structured diagnostic comment with human-guidance section. Attempts are tracked via `AttemptRecord`; the loop respects the attempt budget before escalating further. `CreditExhaustedError` is re-raised via `reraise_on_credit_or_bug` so attempt budgets are not silently burned against an exhausted billing signal.
+
+**Invariants:**
+- `reraise_on_credit_or_bug(exc)` is called in the broad `except` block — credit exhaustion is never silently swallowed.
+- Severity is structured (`P0_SECURITY` through `P4_HOUSEKEEPING`) and appears in the diagnostic comment; reviewers do not need to parse free text to triage.
+- Kill-switch is via `enabled_cb("diagnostic")` (ADR-0049).
+
+## DiagramLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/diagram_loop.py:DiagramLoop` · **Confidence:** `accepted`
+**Aliases:** `diagram loop`, `arch regen loop`, `architecture regen loop`, `L24`
+
+Caretaker loop (L24) that keeps `docs/arch/generated/` in sync with `src/` by running the arch-regen runner on each tick and opening a single idempotent bot PR (`arch-regen-auto` branch) when drift is detected (ADR-0029, ADR-0049). If no drift is found the tick exits silently. A secondary functional-area coverage check fires after regen; failures open a separate `chore(arch): unassigned functional area` issue via `PRPort.find_existing_issue` + `create_issue`, distinct from the regen PR.
+
+**Invariants:**
+- The regen PR always targets the fixed branch `arch-regen-auto`; a force-push updates any existing open PR rather than opening duplicates.
+- The functional-area coverage issue is separate from the regen PR — one concern per artifact.
+- Kill-switch is `HYDRAFLOW_DISABLE_DIAGRAM_LOOP=1` (ADR-0049 convention; no config field).
+
+## EdgeProposerLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/edge_proposer_loop.py:EdgeProposerLoop` · **Confidence:** `accepted`
+**Aliases:** `edge proposer loop`, `UL edge proposer loop`, `term edge loop`
+
+Caretaker loop that densifies the ubiquitous-language term context map by proposing `depends_on` and `implements` edges between existing terms via static import graph analysis (ADR-0058, ADR-0060, ADR-0062). Each tick walks the import graph produced by `build_import_graph`, infers structural relationships between terms, and opens auto-merge bot PRs labeled `hydraflow-ul-edges` with updated term files. Unlike `EntryEvidenceLoop`, edge inference is static-analysis-driven, not LLM-driven. The `hydraflow-ul-edges` label causes `review_phase` to skip agent pipeline routing.
+
+**Invariants:**
+- Edge inference is based on the import graph (`build_import_graph`), not LLM judgment — results are deterministic for a given codebase state.
+- The `hydraflow-ul-edges` label causes `review_phase` to skip the agent pipeline; the structural inference IS the work (ADR-0058).
+- Kill-switch is via `enabled_cb("edge_proposer")` (ADR-0049).
+
+## EntryEvidenceLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/entry_evidence_loop.py:EntryEvidenceLoop` · **Confidence:** `accepted`
+**Aliases:** `entry evidence loop`, `wiki entry evidence loop`, `UL evidence loop`
+
+Caretaker loop that backfills `Term.evidence` links by matching wiki entries to ubiquitous-language terms via LLM (ADR-0062). Each tick processes up to `entry_evidence_max_entries_per_tick` unmatched entries, calls the LLM once per entry to identify genuinely related terms (not superficial name-fragment matches), and opens auto-merge bot PRs labeled `hydraflow-ul-evidence` with the updated term files. A `DedupStore` prevents re-processing entries that already have evidence on subsequent ticks. Mirrors `EdgeProposerLoop` (ADR-0058) and `TermProposerLoop` (ADR-0054) in structure but is LLM-driven rather than static-analysis-driven.
+
+**Invariants:**
+- One LLM call per wiki entry per tick — no batching across entries within a single call.
+- The `hydraflow-ul-evidence` label causes `review_phase` to skip agent pipeline routing; the LLM-driven matching IS the work (ADR-0062).
+- Kill-switch is via `enabled_cb("entry_evidence")` (ADR-0049); no config field.
+- `entry_evidence_max_entries_per_tick` bounds the LLM spend per cycle.
+
 ## EventBus
 
 **Kind:** `service` · **Context:** `shared-kernel` · **Anchor:** `src/events.py:EventBus` · **Confidence:** `accepted`
@@ -64,6 +187,32 @@ Async pub/sub bus that fans HydraFlowEvent objects out to subscriber asyncio.Que
 - History length is capped at max_history (default 5000); oldest entries are evicted when full.
 - Slow subscribers do not block the publisher: a full subscriber queue drops its oldest entry before the new event is enqueued.
 - History mutation is serialized through an asyncio.Lock.
+
+## FakeCoverageAuditorLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/fake_coverage_auditor_loop.py:FakeCoverageAuditorLoop` · **Confidence:** `accepted`
+**Aliases:** `fake coverage auditor loop`, `fake coverage gap detector`, `uncassetted method detector`
+
+Trust-fleet loop that detects uncovered methods on fake adapters under `src/mockworld/fakes/` via `ast.parse` (ADR-0045, ADR-0056, ADR-0057, spec §4.7). Compares two method sets: `adapter-surface` (public methods, covered by cassettes under `tests/trust/contracts/cassettes/<adapter>/`) and `test-helper` (scenario drivers like `script_*`, `fail_service`, `heal_service`, covered by scenario tests). Files one rollup issue per `(fake_class, gap_kind)` labeled `hydraflow-find` + `fake_coverage_gap`. Subsequent ticks update the body via `PRPort.update_issue_body` — appending newly-uncovered methods and striking through methods that gained coverage. Escalates after 3 attempts to `hitl_escalation` + `fake_coverage_stuck`.
+
+**Invariants:**
+- One rollup issue per `(fake_class, gap_kind)` — never one issue per missing method.
+- Issue bodies are updated in-place on repeat ticks, not replaced.
+- Maximum 3 repair attempts before HITL escalation.
+- Kill-switch is via `enabled_cb("fake_coverage_auditor")` (ADR-0049).
+
+## FlakeTrackerLoop
+
+**Kind:** `loop` · **Context:** `caretaker` · **Anchor:** `src/flake_tracker_loop.py:FlakeTrackerLoop` · **Confidence:** `accepted`
+**Aliases:** `flake tracker loop`, `flaky test detector`, `flake detector loop`
+
+Trust-fleet loop that detects persistently flaky tests by parsing JUnit XML from the last 20 RC runs and counting mixed pass/fail occurrences per test (spec §4.5, ADR-0065). When a test's flake count reaches `flake_threshold` (default 3, comparison `>=`), the loop files a `hydraflow-find` + `flaky-test` issue. After 3 repair attempts on the same test_name the loop escalates to a second issue labeled `hitl-escalation` + `flaky-test-stuck`. The dedup key for the escalation issue clears when the escalation issue is closed.
+
+**Invariants:**
+- The rolling window is fixed at the last 20 RC runs; earlier history is not scanned.
+- Flake detection requires at least one pass AND one fail within the window — pure-fail tests are not flakes.
+- Maximum 3 repair attempts per test before HITL escalation; the dedup key for the `hydraflow-find` issue does not reset until the escalation is resolved.
+- Kill-switch is via `enabled_cb("flake_tracker")` (ADR-0049).
 
 ## GitHubCacheLoop
 

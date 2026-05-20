@@ -10,6 +10,18 @@ graph LR
     Task["Task<br/><i>entity</i>"]
   end
   subgraph caretaker
+    ADRReviewerLoop["ADRReviewerLoop<br/><i>loop</i>"]
+    AdrTouchpointAuditorLoop["AdrTouchpointAuditorLoop<br/><i>loop</i>"]
+    CIMonitorLoop["CIMonitorLoop<br/><i>loop</i>"]
+    ContractRefreshLoop["ContractRefreshLoop<br/><i>loop</i>"]
+    CorpusLearningLoop["CorpusLearningLoop<br/><i>loop</i>"]
+    DependabotMergeLoop["DependabotMergeLoop<br/><i>loop</i>"]
+    DiagnosticLoop["DiagnosticLoop<br/><i>loop</i>"]
+    DiagramLoop["DiagramLoop<br/><i>loop</i>"]
+    EdgeProposerLoop["EdgeProposerLoop<br/><i>loop</i>"]
+    EntryEvidenceLoop["EntryEvidenceLoop<br/><i>loop</i>"]
+    FakeCoverageAuditorLoop["FakeCoverageAuditorLoop<br/><i>loop</i>"]
+    FlakeTrackerLoop["FlakeTrackerLoop<br/><i>loop</i>"]
     GitHubCacheLoop["GitHubCacheLoop<br/><i>loop</i>"]
     MergeStateWatcherLoop["MergeStateWatcherLoop<br/><i>loop</i>"]
     PricingRefreshLoop["PricingRefreshLoop<br/><i>loop</i>"]

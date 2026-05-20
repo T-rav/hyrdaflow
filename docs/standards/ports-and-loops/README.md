@@ -61,22 +61,22 @@ Rows below capture the canonical standard status. Full coverage detail
 
 | Loop | ADR | Wiki | Notes |
 |---|---|---|---|
-| `ADRReviewerLoop` | (none) | (none) | Caretaker loop |
-| `AdrTouchpointAuditorLoop` | [0056, 0057] | (none) | Trust fleet |
+| `ADRReviewerLoop` | (none) | [adr-reviewer-loop.md](../../wiki/terms/adr-reviewer-loop.md) | Caretaker loop |
+| `AdrTouchpointAuditorLoop` | [0056, 0057] | [adr-touchpoint-auditor-loop.md](../../wiki/terms/adr-touchpoint-auditor-loop.md) | Trust fleet |
 | `AutoAgentPreflightLoop` | [0050, 0063] | dark-factory.md | Phase gap mitigation |
-| `CIMonitorLoop` | [0029, 0065] | (none) | Caretaker loop |
-| `ContractRefreshLoop` | [0045, 0047] | (none) | Trust fleet |
-| `CorpusLearningLoop` | [0045] | (none) | Trust fleet |
+| `CIMonitorLoop` | [0029, 0065] | [ci-monitor-loop.md](../../wiki/terms/ci-monitor-loop.md) | Caretaker loop |
+| `ContractRefreshLoop` | [0045, 0047] | [contract-refresh-loop.md](../../wiki/terms/contract-refresh-loop.md) | Trust fleet |
+| `CorpusLearningLoop` | [0045] | [corpus-learning-loop.md](../../wiki/terms/corpus-learning-loop.md) | Trust fleet |
 | `CostBudgetWatcherLoop` | [0054] | architecture.md | Caretaker loop |
-| `DependabotMergeLoop` | [0054, 0057, 0058] | (none) | Caretaker loop |
-| `DiagnosticLoop` | [0050] | (none) | Caretaker loop |
-| `DiagramLoop` | [0001] | (none) | Caretaker loop |
-| `EdgeProposerLoop` | [0058, 0060, 0062] | (none) | Caretaker loop |
-| `EntryEvidenceLoop` | [0062] | (none) | Caretaker loop |
-| `EpicMonitorLoop` | (none) | architecture-async-control.md | Caretaker loop |
-| `EpicSweeperLoop` | (none) | architecture-async-control.md | Caretaker loop |
-| `FakeCoverageAuditorLoop` | [0045, 0056, 0057] | (none) | Trust fleet |
-| `FlakeTrackerLoop` | [0045, 0056, 0057, 0065] | (none) | Trust fleet |
+| `DependabotMergeLoop` | [0054, 0057, 0058] | [dependabot-merge-loop.md](../../wiki/terms/dependabot-merge-loop.md) | Caretaker loop |
+| `DiagnosticLoop` | [0050] | [diagnostic-loop.md](../../wiki/terms/diagnostic-loop.md) | Caretaker loop |
+| `DiagramLoop` | [0001] | [diagram-loop.md](../../wiki/terms/diagram-loop.md) | Caretaker loop |
+| `EdgeProposerLoop` | [0058, 0060, 0062] | [edge-proposer-loop.md](../../wiki/terms/edge-proposer-loop.md) | Caretaker loop |
+| `EntryEvidenceLoop` | [0062] | [entry-evidence-loop.md](../../wiki/terms/entry-evidence-loop.md) | Caretaker loop |
+| `EpicMonitorLoop` | [0080](../../../docs/adr/0080-epic-monitor-loop.md) | architecture-async-control.md | Caretaker loop |
+| `EpicSweeperLoop` | [0081](../../../docs/adr/0081-epic-sweeper-loop.md) | architecture-async-control.md | Caretaker loop |
+| `FakeCoverageAuditorLoop` | [0045, 0056, 0057] | [fake-coverage-auditor-loop.md](../../wiki/terms/fake-coverage-auditor-loop.md) | Trust fleet |
+| `FlakeTrackerLoop` | [0045, 0056, 0057, 0065] | [flake-tracker-loop.md](../../wiki/terms/flake-tracker-loop.md) | Trust fleet |
 | `GitHubCacheLoop` | (none) | [github-cache-loop.md](../../wiki/terms/github-cache-loop.md) | Caretaker loop |
 | `HealthMonitorLoop` | [0045, 0046] | testing.md | Caretaker loop |
 | `LabelDriftWatcherLoop` | [0056] | (none) | Caretaker loop |
