@@ -36,9 +36,11 @@ def test_cost_budget_watcher_in_constants_js() -> None:
     assert text.count("cost_budget_watcher") >= 3
 
 
-def test_cost_budget_watcher_in_bg_worker_defaults() -> None:
-    text = (SRC / "bg_worker_manager.py").read_text()
-    assert '"cost_budget_watcher": 300' in text
+def test_cost_budget_watcher_interval_defined_in_loop() -> None:
+    # Interval is now authoritative in the loop class, not in the manager's
+    # defaults table (the registry lookup replaced the hardcoded dict entry).
+    text = (SRC / "cost_budget_watcher_loop.py").read_text()
+    assert "return 300" in text
 
 
 def test_cost_budget_watcher_in_functional_areas_yaml() -> None:
@@ -48,8 +50,7 @@ def test_cost_budget_watcher_in_functional_areas_yaml() -> None:
 
 def test_cost_budget_watcher_in_simplenamespace() -> None:
     text = (
-        Path(__file__).resolve().parents[1]
-        / "orchestrator_integration_utils.py"
+        Path(__file__).resolve().parents[1] / "orchestrator_integration_utils.py"
     ).read_text()
     assert "services.cost_budget_watcher_loop = FakeBackgroundLoop()" in text
 

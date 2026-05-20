@@ -123,35 +123,17 @@ class BGWorkerManager:
     def get_interval(self, name: str) -> int:
         """Return the effective interval for a background worker.
 
-        Returns the dynamic override if set, otherwise the config default.
+        Priority: dynamic override → loop's own _get_default_interval() →
+        non-loop fallback table → poll_interval.
         """
         if name in self._bg_worker_intervals:
             return self._bg_worker_intervals[name]
-        defaults: dict[str, int] = {
+        loop = self._bg_loop_registry.get(name)
+        if loop is not None:
+            return loop._get_default_interval()
+        # Fallback for non-loop workers that are not BaseBackgroundLoop subclasses.
+        non_loop_defaults: dict[str, int] = {
             "memory_sync": self._config.memory_sync_interval,
             "pipeline_poller": 5,
-            "pr_unsticker": self._config.pr_unstick_interval,
-            "report_issue": self._config.report_issue_interval,
-            "epic_monitor": self._config.epic_monitor_interval,
-            "workspace_gc": self._config.workspace_gc_interval,
-            # Daily caretaker — never falls through to poll_interval.
-            "pricing_refresh": 86400,
-            "cost_budget_watcher": 300,  # 5 minutes
-            # Trust fleet loops — each has its own cadence; must be
-            # explicit here so TrustFleetSanityLoop's staleness detector
-            # uses the correct threshold instead of poll_interval (30s).
-            "corpus_learning": self._config.corpus_learning_interval,
-            "contract_refresh": self._config.contract_refresh_interval,
-            "staging_bisect": self._config.staging_bisect_interval,
-            "principles_audit": self._config.principles_audit_interval,
-            "flake_tracker": self._config.flake_tracker_interval,
-            "skill_prompt_eval": self._config.skill_prompt_eval_interval,
-            "fake_coverage_auditor": self._config.fake_coverage_auditor_interval,
-            "rc_budget": self._config.rc_budget_interval,
-            "wiki_rot_detector": self._config.wiki_rot_detector_interval,
-            "trust_fleet_sanity": self._config.trust_fleet_sanity_interval,
-            "adr_touchpoint_auditor": self._config.adr_touchpoint_auditor_interval,
-            "stale_issue": self._config.stale_issue_interval,
-            "stale_issue_gc": self._config.stale_issue_gc_interval,
         }
-        return defaults.get(name, self._config.poll_interval)
+        return non_loop_defaults.get(name, self._config.poll_interval)
