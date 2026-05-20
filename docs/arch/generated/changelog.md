@@ -6,6 +6,8 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
+- `d15e32a` — style(trust-fleet-sanity): ruff lint + format fixes on breach-path tests *(2026-05-20)*
+- `18041e1` — feat(adversarial): remove the switch — adversarial pipeline always on (#9036) (#9036) *(2026-05-19)*
 - `31313f7` — feat(adversarial): flip pipeline ON by default (#9025) (#9025) *(2026-05-19)*
 - `6d6ed95` — test+docs(coverage): final cleanup wave — 6 sandbox scenarios + 1 ADR draft *(2026-05-19)*
 - `cb8508c` — test(scenarios): bulk coverage backfill C (9 beads) *(2026-05-19)*
@@ -357,4 +359,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `31313f7` on 2026-05-19 23:08 UTC. Source last changed at `31313f7`. Status: 🟢 fresh._
+_Regenerated from commit `d15e32a` on 2026-05-20 15:05 UTC. Source last changed at `d15e32a`. Status: 🟢 fresh._
