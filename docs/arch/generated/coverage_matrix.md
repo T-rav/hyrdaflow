@@ -40,7 +40,7 @@ Regenerated from the live source tree. Cell vocabulary: ✅ covered, ⚠️ part
 | `ReportIssueLoop` | ✅ [0013, 0018, 0028] | ✅ [report-issue-loop.md] | ❌ | ✅ README.md | ✅ `test_report_issue_loop.py` | ✅ in catalog | ✅ `s19_report_issue_empty_queue.py` |
 | `RetrospectiveLoop` | ✅ [0074] | ✅ [architecture-async-control.md] | ❌ | ✅ README.md | ✅ `test_retrospective_loop.py` | ✅ in catalog | ✅ `s18_retrospective_empty_queue.py` |
 | `RunsGCLoop` | ✅ [0073] | ✅ [architecture-async-control.md] | ❌ | ✅ README.md | ✅ `test_runs_gc_loop.py` | ✅ in catalog | ❌ |
-| `SandboxFailureFixerLoop` | ✅ [0052, 0063] | ✅ [dark-factory.md] | ❌ | ✅ README.md | ✅ `test_sandbox_failure_fixer_loop.py` | ✅ in catalog | ❌ |
+| `SandboxFailureFixerLoop` | ✅ [0052, 0063] | ✅ [dark-factory.md] | ❌ | ✅ README.md | ✅ `test_sandbox_failure_fixer_loop.py` | ✅ in catalog | ✅ `s38_sandbox_fixer_richer_context.py` |
 | `SecurityPatchLoop` | ✅ [0029, 0065] | ✅ [architecture-async-control.md] | ❌ | ✅ README.md | ✅ `test_security_patch_loop.py` | ✅ in catalog | ✅ `s21_security_patch_no_alerts.py` |
 | `SentryLoop` | ✅ [0055] | ✅ [sentry-loop.md] | ❌ | ✅ README.md | ✅ `test_sentry_loop.py` | ❌ | ❌ |
 | `SkillPromptEvalLoop` | ✅ [0045] | ✅ [skill-prompt-eval-loop.md] | ❌ | ✅ README.md | ✅ `test_skill_prompt_eval_loop.py` | ✅ in catalog | ✅ `s17_skill_prompt_eval_clean_corpus.py` |
@@ -77,4 +77,4 @@ HITL trigger). It is not regenerable from source and is maintained in
 `docs/arch/coverage_matrix.md` (the hand-curated baseline document).
 
 
-_Regenerated from commit `21b59db` on 2026-05-20 15:53 UTC. Source last changed at `21b59db`. Status: 🟢 fresh._
+_Regenerated from commit `2220808` on 2026-05-20 16:36 UTC. Source last changed at `2220808`. Status: 🟢 fresh._
