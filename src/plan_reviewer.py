@@ -88,6 +88,22 @@ REVIEW_DIMENSIONS: tuple[str, ...] = (
 )
 
 
+def _consume_mockworld_plan_review_script(reviewer, issue_number):  # noqa: ANN001
+    """Consume one scripted PlanReview verdict, if MockWorld is active.
+
+    Returns the ``ScriptedPlanReview`` payload (carrying verdict + gaps)
+    or ``None`` when the reviewer is not running under a MockWorld
+    harness. Used by :meth:`PlanReviewer.review` to skip the read-only
+    subprocess when sandbox scenarios script the verdict.
+    """
+    fake_llm = getattr(reviewer, "_mockworld_fake_llm", None)
+    if fake_llm is None or not getattr(fake_llm, "_is_fake_adapter", False):
+        return None
+    if not hasattr(fake_llm, "pop_plan_review_script"):
+        return None
+    return fake_llm.pop_plan_review_script(issue_number)
+
+
 class PlanReviewer(BaseRunner):
     """Read-only adversarial reviewer for produced plans (#6421)."""
 
@@ -109,12 +125,38 @@ class PlanReviewer(BaseRunner):
 
         Dry-run mode short-circuits to a successful empty review (no
         findings) so test runs do not spawn subprocesses.
+
+        MockWorld bypass: when the runner carries a ``_mockworld_fake_llm``
+        sentinel and the scenario has scripted a verdict via
+        :meth:`FakeLLM.script_plan_review`, the scripted outcome is
+        synthesized into a ``PlanReview`` without running the read-only
+        subprocess. This lets sandbox scenarios drive ADR-0063 W3b
+        touchpoint-expander dispatch on first reject.
         """
         start = time.monotonic()
         review = PlanReview(
             issue_number=task.id,
             plan_version=plan_version,
         )
+
+        scripted = _consume_mockworld_plan_review_script(self, task.id)
+        if scripted is not None:
+            review.success = True
+            if scripted.verdict == "accept":
+                review.findings = []
+                review.summary = "Scripted plan review: ACCEPT"
+            else:
+                review.findings = [
+                    PlanFinding(
+                        severity=PlanFindingSeverity.HIGH,
+                        dimension="correctness",
+                        description=gap,
+                    )
+                    for gap in scripted.gaps or ["scripted plan rejection"]
+                ]
+                review.summary = self._summarize_findings(review.findings)
+            review.duration_seconds = time.monotonic() - start
+            return review
 
         if self._config.dry_run:
             logger.info("[dry-run] Would review plan for issue #%d", task.id)

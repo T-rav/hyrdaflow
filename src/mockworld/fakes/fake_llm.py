@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from mockworld.fakes._factories import (
     PlanResultFactory,
@@ -302,6 +302,74 @@ class _FakeAdvisorRunner:
         return self._role_call_counts.get(role, 0)
 
 
+@dataclass(slots=True)
+class ScriptedDiscoverEval:
+    """One scripted outcome for ``DiscoverRunner._evaluate_brief`` (ADR-0063 W3a).
+
+    ``coherent=False`` causes the runner to see a failed coherence verdict
+    and dispatch the discover-expander. ``queries_required`` are the new
+    research queries the expander is scripted to surface; they are returned
+    verbatim from the expander dispatch.
+    """
+
+    coherent: bool
+    queries_required: list[str] = field(default_factory=list)
+    summary: str = ""
+    findings: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ScriptedPlanReview:
+    """One scripted outcome for ``PlanReviewer.review`` (ADR-0063 W3b).
+
+    ``verdict="reject"`` with ``gaps`` triggers the touchpoint-expander on
+    the first failure inside ``PlanPhase._maybe_expand_touchpoints``.
+    ``verdict="accept"`` returns a clean PlanReview with no blocking
+    findings so the issue advances past Plan.
+    """
+
+    verdict: Literal["accept", "reject"]
+    gaps: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ScriptedSpecReview:
+    """One scripted outcome for ``DefaultSpecComplianceReviewer.review`` (ADR-0063 W5).
+
+    ``compliant=False`` with ``gaps`` causes ImplementPhase to persist gaps
+    into ``WorkerResultMeta.spec_review_gaps`` and prepend them to the next
+    attempt's ``prior_failure`` prompt anchor.
+    """
+
+    compliant: bool
+    gaps: list[str] = field(default_factory=list)
+    reasoning: str = ""
+
+
+class _FakePhaseScripts:
+    """Per-issue FIFO queues for phase-level scripted outcomes (ADR-0063).
+
+    Distinct from the per-runner ``_ScriptedRunner`` queues because these
+    address failure-path probes that production phase code consults via the
+    ``_mockworld_fake_llm`` sentinel rather than via the four primary
+    runners (planners/agents/reviewers/triage). When a queue is exhausted
+    the consumer falls through to default behavior (no further scripting)
+    instead of repeating the last scripted result.
+    """
+
+    def __init__(self) -> None:
+        # Per-issue queues for each phase script type.
+        self.discover: dict[int, deque[ScriptedDiscoverEval]] = {}
+        self.plan_review: dict[int, deque[ScriptedPlanReview]] = {}
+        # Council scripts are keyed by issue → {round_num: verdict}. The
+        # round map persists across consume calls (unlike a deque) because
+        # the same scenario may ask "what does round 2 look like?" twice
+        # if the phase code re-runs the predicate. The map is read-only;
+        # ``script_shape_council`` replaces it wholesale per issue.
+        self.shape_council: dict[int, dict[int, Literal["consensus", "split"]]] = {}
+        self.implement_spec_review: dict[int, deque[ScriptedSpecReview]] = {}
+
+
 class FakeLLM:
     """Composable scripted LLM runners for all pipeline phases."""
 
@@ -315,6 +383,8 @@ class FakeLLM:
         self.agents = _FakeAgentRunner()
         self.reviewers = _FakeReviewRunner(self)
         self._advisor = _FakeAdvisorRunner()
+        # ADR-0063 phase-level scripted outcomes (W3a/W3b/W4/W5).
+        self._phase_scripts = _FakePhaseScripts()
 
     def script_triage(self, issue_number: int, results: list[Any]) -> None:
         self.triage_runner.add_script(
@@ -356,6 +426,151 @@ class FakeLLM:
     def advisor_call_count_for(self, role: str) -> int:
         """Number of advisor pops observed for ``role`` across all issues."""
         return self._advisor.call_count_for(role)
+
+    # ------------------------------------------------------------------
+    # ADR-0063 phase-level script hooks (W3a / W3b / W4 / W5).
+    #
+    # These do NOT go through the four primary runner attrs; production
+    # phase code consults FakeLLM directly via the ``_mockworld_fake_llm``
+    # sentinel attached by ``mockworld.sandbox_main`` (and the in-process
+    # MockWorld harness). The hooks let sandbox scenarios script the
+    # exact failure-path branches the recovery workstreams were built to
+    # exercise: coherence-failure → discover-expander dispatch,
+    # plan-reviewer reject → touchpoint-expander dispatch, council split →
+    # round-3 diversified panel, and zero-diff implement → spec-compliance
+    # reviewer two-stage feedback.
+    # ------------------------------------------------------------------
+
+    def script_discover(
+        self,
+        issue_number: int,
+        *,
+        coherent: bool,
+        queries_required: list[str] | None = None,
+        summary: str = "",
+        findings: list[str] | None = None,
+    ) -> None:
+        """Append one scripted DiscoverRunner coherence outcome to the queue.
+
+        ``coherent=False`` makes the next ``_evaluate_brief`` call return a
+        failed verdict so the bounded retry loop dispatches the
+        discover-expander; ``queries_required`` is what the expander then
+        returns to be injected into the retry prompt.
+
+        Multiple calls append to the queue (FIFO consumption).
+        """
+        q = self._phase_scripts.discover.setdefault(issue_number, deque())
+        q.append(
+            ScriptedDiscoverEval(
+                coherent=coherent,
+                queries_required=list(queries_required or []),
+                summary=summary,
+                findings=list(findings or []),
+            )
+        )
+
+    def pop_discover_script(self, issue_number: int) -> ScriptedDiscoverEval | None:
+        """Pop the next scripted DiscoverRunner outcome for *issue_number*.
+
+        Returns ``None`` when no script is queued. Each call removes one
+        entry from the FIFO so re-entrant phase ticks see fresh values.
+        Production callers route through this when ``_mockworld_fake_llm``
+        is set on the runner instance.
+        """
+        q = self._phase_scripts.discover.get(issue_number)
+        if not q:
+            return None
+        return q.popleft()
+
+    def script_plan_review(
+        self,
+        issue_number: int,
+        *,
+        verdict: Literal["accept", "reject"],
+        gaps: list[str] | None = None,
+    ) -> None:
+        """Append one scripted PlanReviewer verdict to the queue.
+
+        ``verdict="reject"`` with non-empty ``gaps`` produces a PlanReview
+        carrying blocking findings so ``PlanPhase._maybe_expand_touchpoints``
+        dispatches the touchpoint-expander. ``"accept"`` returns a clean
+        review with no findings so the issue advances past Plan.
+        """
+        q = self._phase_scripts.plan_review.setdefault(issue_number, deque())
+        q.append(ScriptedPlanReview(verdict=verdict, gaps=list(gaps or [])))
+
+    def pop_plan_review_script(self, issue_number: int) -> ScriptedPlanReview | None:
+        """Pop the next scripted PlanReviewer verdict for *issue_number*."""
+        q = self._phase_scripts.plan_review.get(issue_number)
+        if not q:
+            return None
+        return q.popleft()
+
+    def script_shape_council(
+        self,
+        issue_number: int,
+        round_to_verdict: dict[int, Literal["consensus", "split"]],
+    ) -> None:
+        """Set the per-round council vote verdict map for *issue_number*.
+
+        Used by ``ExpertCouncil.vote`` / ``vote_diversified`` to synthesize
+        a CouncilResult matching the scripted convergence pattern. The map
+        is read-only — successive ``shape_council_verdict_for_round`` reads
+        are idempotent so the council can be queried more than once per
+        round without consuming state.
+
+        Example::
+
+            llm.script_shape_council(3, {1: "split", 2: "split", 3: "consensus"})
+
+        exercises the W4 round-3 diversified-persona panel.
+        """
+        self._phase_scripts.shape_council[issue_number] = dict(round_to_verdict)
+
+    def shape_council_verdict_for_round(
+        self, issue_number: int, round_num: int
+    ) -> Literal["consensus", "split"] | None:
+        """Return the scripted verdict for *issue_number*/*round_num*.
+
+        Returns ``None`` when no script is set so the production council
+        falls through to its default subprocess-driven behavior.
+        """
+        by_round = self._phase_scripts.shape_council.get(issue_number)
+        if not by_round:
+            return None
+        return by_round.get(round_num)
+
+    def script_implement_spec_review(
+        self,
+        issue_number: int,
+        *,
+        compliant: bool,
+        gaps: list[str] | None = None,
+        reasoning: str = "",
+    ) -> None:
+        """Append one scripted spec-compliance reviewer verdict to the queue.
+
+        ``compliant=False`` with non-empty ``gaps`` causes ImplementPhase to
+        persist the gaps to ``WorkerResultMeta.spec_review_gaps`` and
+        prepend them to the next attempt's ``prior_failure`` prompt anchor.
+        """
+        q = self._phase_scripts.implement_spec_review.setdefault(issue_number, deque())
+        q.append(
+            ScriptedSpecReview(
+                compliant=compliant,
+                gaps=list(gaps or []),
+                reasoning=reasoning,
+            )
+        )
+
+    def pop_implement_spec_review_script(
+        self, issue_number: int
+    ) -> ScriptedSpecReview | None:
+        """Pop the next scripted spec-compliance verdict for *issue_number*."""
+        q = self._phase_scripts.implement_spec_review.get(issue_number)
+        if not q:
+            return None
+        return q.popleft()
 
     # ------------------------------------------------------------------
     # Dict → typed-result coercion

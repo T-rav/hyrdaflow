@@ -135,6 +135,33 @@ class SubagentRunnerProtocol(Protocol):
 _DEFAULT_MAX_DIFF_CHARS = 12_000
 
 
+def _consume_mockworld_spec_review_script(
+    reviewer, issue_number: int
+) -> SpecReviewResult | None:
+    """Return a scripted SpecReviewResult if MockWorld scripting is active.
+
+    Returns ``None`` when the reviewer has no ``_mockworld_fake_llm``
+    sentinel or no script is queued for *issue_number*. Used by
+    :meth:`DefaultSpecComplianceReviewer.review` to skip the subagent
+    dispatch when sandbox scenarios drive the ADR-0063 W5 two-stage
+    review feedback path.
+    """
+    fake_llm = getattr(reviewer, "_mockworld_fake_llm", None)
+    if fake_llm is None or not getattr(fake_llm, "_is_fake_adapter", False):
+        return None
+    if not hasattr(fake_llm, "pop_implement_spec_review_script"):
+        return None
+    scripted = fake_llm.pop_implement_spec_review_script(issue_number)
+    if scripted is None:
+        return None
+    return SpecReviewResult(
+        compliant=scripted.compliant,
+        gaps=list(scripted.gaps),
+        reasoning=scripted.reasoning,
+        degraded=False,
+    )
+
+
 def build_spec_review_prompt(
     inp: SpecReviewInput, *, max_diff_chars: int = _DEFAULT_MAX_DIFF_CHARS
 ) -> str:
@@ -229,6 +256,10 @@ class DefaultSpecComplianceReviewer:
         self._max_diff_chars = max_diff_chars
 
     async def review(self, inp: SpecReviewInput) -> SpecReviewResult:
+        scripted = _consume_mockworld_spec_review_script(self, inp.issue_number)
+        if scripted is not None:
+            return scripted
+
         prompt = build_spec_review_prompt(inp, max_diff_chars=self._max_diff_chars)
         try:
             payload = await self._runner.run(

@@ -48,6 +48,26 @@ class MockWorldSeed:
     # back-compat with every existing seed payload.
     advisor_scripts: dict[int, dict[str, list[Any]]] = field(default_factory=dict)
 
+    # ADR-0063 phase-level scripted outcomes (W3a/W3b/W4/W5).
+    #
+    # Shape per inner key:
+    #
+    # - ``discover``: ``{issue: [{"coherent": bool, "queries_required": [...],
+    #   "summary": str, "findings": [...]}, ...]}`` — FIFO consumed by
+    #   ``DiscoverRunner._evaluate_brief``.
+    # - ``plan_review``: ``{issue: [{"verdict": "accept"|"reject",
+    #   "gaps": [...]}, ...]}`` — FIFO consumed by ``PlanReviewer.review``.
+    # - ``shape_council``: ``{issue: {"<round_num>": "consensus"|"split"}}`` —
+    #   round map consumed by ``ExpertCouncil.vote`` / ``vote_diversified``.
+    # - ``implement_spec_review``: ``{issue: [{"compliant": bool,
+    #   "gaps": [...], "reasoning": str}, ...]}`` — FIFO consumed by
+    #   ``DefaultSpecComplianceReviewer.review``.
+    #
+    # The loader in :mod:`mockworld.sandbox_main` translates these into the
+    # corresponding ``FakeLLM.script_*`` calls. Default empty for back-compat
+    # with every pre-W3a/W3b/W4/W5 scenario.
+    phase_scripts: dict[str, dict[int, Any]] = field(default_factory=dict)
+
     # How many ticks each enabled loop fires before assertions run.
     cycles_to_run: int = 4
 
@@ -85,4 +105,19 @@ class MockWorldSeed:
                 int(issue): by_role
                 for issue, by_role in data["advisor_scripts"].items()
             }
+        # phase_scripts (ADR-0063): outer key is phase name, inner key is
+        # issue number (JSON string → int). The ``shape_council`` payload's
+        # inner-inner key is the round number, also needing string→int.
+        if "phase_scripts" in data:
+            coerced: dict[str, dict[int, Any]] = {}
+            for phase, by_issue in data["phase_scripts"].items():
+                inner: dict[int, Any] = {}
+                for k, raw_v in by_issue.items():
+                    if phase == "shape_council" and isinstance(raw_v, dict):
+                        v: Any = {int(rk): rv for rk, rv in raw_v.items()}
+                    else:
+                        v = raw_v
+                    inner[int(k)] = v
+                coerced[phase] = inner
+            data["phase_scripts"] = coerced
         return cls(**data)
