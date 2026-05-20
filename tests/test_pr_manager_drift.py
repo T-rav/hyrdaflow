@@ -1,9 +1,8 @@
 """PRManager.find_label_drift — detects cross-entity issue/PR drift.
 
-See ADR-0056. Three drift kinds:
+See ADR-0056. Two drift kinds:
 - ``pr_ahead_of_issue``: issue at ready/plan, PR at review with commits
 - ``pr_at_pre_pr_stage``: PR labelled ready/plan but has commits
-- ``pr_behind_issue``: PR at ready/plan while issue at review
 """
 
 from __future__ import annotations
@@ -166,3 +165,52 @@ class TestFindLabelDrift:
             drift = await mgr.find_label_drift()
 
         assert drift == []
+
+
+class TestFindLabelDriftAutoCloseKeywords:
+    """``find_label_drift`` must recognize every auto-close keyword GitHub does
+    (``Fixes``, ``Closes``, ``Resolves`` — case insensitive). Regex previously
+    matched only ``[Ff]ixes`` so PRs using ``Closes``/``Resolves`` were
+    silently skipped. See #8725.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "keyword",
+        ["Fixes", "fixes", "Closes", "closes", "Resolves", "resolves", "FIXES"],
+    )
+    async def test_detects_each_auto_close_keyword(
+        self, keyword: str, config, event_bus
+    ) -> None:
+        mgr = make_pr_manager(config, event_bus)
+
+        prs_json = json.dumps(
+            [
+                {
+                    "number": 500,
+                    "labels": [{"name": "hydraflow-review"}],
+                    "body": f"## Summary\n\n{keyword} #42.\n",
+                    "commits": [{"oid": "a"}],
+                }
+            ]
+        )
+        issue_json = json.dumps({"labels": [{"name": "hydraflow-ready"}]})
+
+        with patch(
+            "pr_manager.run_subprocess_with_retry",
+            new=AsyncMock(
+                side_effect=_gh_responder(
+                    {
+                        ("pr", "list"): prs_json,
+                        ("issue", "view"): issue_json,
+                    }
+                )
+            ),
+        ):
+            drift = await mgr.find_label_drift()
+
+        assert len(drift) == 1, (
+            f"Keyword {keyword!r} should be detected as an auto-close link"
+        )
+        assert drift[0].issue == 42
+        assert drift[0].pr == 500

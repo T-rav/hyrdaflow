@@ -183,3 +183,74 @@ async def test_disabled_returns_status(loop_env) -> None:
 
     assert stats == {"status": "disabled"}
     pr.find_label_drift.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_pr_ahead_of_issue_comment_describes_issue_move(loop_env) -> None:
+    """For ``pr_ahead_of_issue`` the issue is the entity that moved — the
+    comment must describe only the issue relabel, not claim both ends moved.
+    See #8727."""
+    cfg, pr = loop_env
+    drift = LabelDrift(
+        issue=42,
+        pr=100,
+        pr_commits=2,
+        issue_label="hydraflow-ready",
+        pr_label="hydraflow-review",
+        kind="pr_ahead_of_issue",
+        detected_at=datetime.now(UTC),
+    )
+    pr.find_label_drift = AsyncMock(return_value=[drift])
+    stop = asyncio.Event()
+    loop = LabelDriftWatcherLoop(config=cfg, pr_manager=pr, deps=_deps(stop))
+
+    await loop._do_work()
+
+    body = pr.post_comment.await_args.args[1]
+    # The PR stayed at hydraflow-review; only the issue moved.
+    assert "Both should now be aligned" not in body, (
+        "Misleading: PR did not move for pr_ahead_of_issue"
+    )
+    assert "issue" in body.lower()
+
+
+@pytest.mark.asyncio
+async def test_pr_at_pre_pr_stage_comment_describes_pr_move(loop_env) -> None:
+    """For ``pr_at_pre_pr_stage`` the PR is the entity that moved — the
+    comment must say so. See #8727."""
+    cfg, pr = loop_env
+    drift = LabelDrift(
+        issue=99,
+        pr=200,
+        pr_commits=3,
+        issue_label="hydraflow-review",
+        pr_label="hydraflow-ready",
+        kind="pr_at_pre_pr_stage",
+        detected_at=datetime.now(UTC),
+    )
+    pr.find_label_drift = AsyncMock(return_value=[drift])
+    stop = asyncio.Event()
+    loop = LabelDriftWatcherLoop(config=cfg, pr_manager=pr, deps=_deps(stop))
+
+    await loop._do_work()
+
+    body = pr.post_comment.await_args.args[1]
+    assert "PR" in body
+    assert "hydraflow-review" in body
+
+
+def test_label_drift_kind_rejects_pr_behind_issue() -> None:
+    """``LabelDrift.kind`` Literal must no longer accept ``pr_behind_issue``
+    — the value was unreachable (no producer in find_label_drift). See #8726."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        LabelDrift(
+            issue=1,
+            pr=2,
+            pr_commits=1,
+            issue_label="hydraflow-review",
+            pr_label="hydraflow-ready",
+            kind="pr_behind_issue",  # type: ignore[arg-type]
+            detected_at=datetime.now(UTC),
+        )

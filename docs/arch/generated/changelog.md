@@ -6,6 +6,8 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 
 ## 2026-W21
 
+- `81ce3ea` — chore(arch): regen post-rebase against staging *(2026-05-20)*
+- `ffd5f38` — chore(arch): regen post-rebase against staging *(2026-05-20)*
 - `049ec06` — test(sandbox): ADR-0063 W3a/W3b/W4/W5 recovery-path scenarios (s36/s37/s39/s40 rewrite) *(2026-05-20)*
 - `23def6e` — feat(mockworld): FakeLLM scripting hooks for discover/plan-review/shape-council/spec-review failure paths *(2026-05-20)*
 - `3b9ea23` — test(sandbox): ADR-0063 workstream e2e coverage (s35-s40) *(2026-05-20)*
@@ -375,4 +377,4 @@ Commits touching `docs/arch/`, `docs/adr/`, `docs/wiki/`, `src/arch/`, or `mkdoc
 - `a76b946` — feat: adopt craft patterns — AGENTS.md, ports, property tests, ADRs (#1239) (#1239) *(2026-02-26)*
 
 
-_Regenerated from commit `27c084e` on 2026-05-20 19:56 UTC. Source last changed at `27c084e`. Status: 🟢 fresh._
+_Regenerated from commit `81ce3ea` on 2026-05-20 19:57 UTC. Source last changed at `81ce3ea`. Status: 🟢 fresh._
