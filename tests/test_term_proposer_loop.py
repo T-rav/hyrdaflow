@@ -83,6 +83,21 @@ class TestTermProposerLoopFlow:
         assert port.calls == []
 
     @pytest.mark.asyncio
+    async def test_operator_kill_switch_returns_disabled(
+        self, synthetic_repo: Path
+    ) -> None:
+        """The canonical ADR-0049 operator kill-switch (``_enabled_cb``) must
+        gate work independently of the static config flag (#8770). With the
+        config flag left ON, an ``_enabled_cb`` returning False must still
+        short-circuit to ``disabled`` and touch no PR port."""
+        loop, _, port = _build_loop(synthetic_repo, fake_llm_response={})
+        loop._config.term_proposer_enabled = True
+        loop._enabled_cb = lambda _name: False
+        result = await loop._do_work()
+        assert result == {"status": "disabled"}
+        assert port.calls == []
+
+    @pytest.mark.asyncio
     async def test_drafts_validates_and_opens_pr(self, synthetic_repo: Path) -> None:
         loop, llm_client, port = _build_loop(
             synthetic_repo,

@@ -61,6 +61,17 @@ class TestEpicMonitorLoop:
 
         mgr.check_stale_epics.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_manager_error_propagates(self, tmp_path: Path) -> None:
+        """A raise from the EpicManager must propagate out of ``_do_work`` so the
+        BaseBackgroundLoop supervisor handles it — the loop must not silently
+        swallow manager failures (#8771)."""
+        loop, _, mgr = _make_loop(tmp_path)
+        mgr.check_stale_epics = AsyncMock(side_effect=RuntimeError("github boom"))
+
+        with pytest.raises(RuntimeError, match="github boom"):
+            await loop._do_work()
+
     def test_default_interval(self, tmp_path: Path) -> None:
         loop, _, _ = _make_loop(tmp_path, interval=900)
         assert loop._get_default_interval() == 900
