@@ -35,6 +35,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from models import Task
+from review_insights import ReviewInsightStore
 from review_phase import ReviewPhase
 
 
@@ -102,6 +103,7 @@ def _make_review_phase(tmp_path: Path) -> ReviewPhase:
         store=mock_store,
         conflict_resolver=conflict_resolver,
         post_merge=post_merge,
+        review_insights=ReviewInsightStore(config.memory_dir),
         event_bus=bus,
     )
     return phase

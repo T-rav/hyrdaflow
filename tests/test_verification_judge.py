@@ -1121,6 +1121,7 @@ class TestReviewPhaseWiring:
         self, config, tmp_path, event_bus
     ):
         """When verification_judge is provided, it should be called after merge."""
+        from review_insights import ReviewInsightStore
         from review_phase import ReviewPhase
         from state import StateTracker
 
@@ -1188,6 +1189,7 @@ class TestReviewPhaseWiring:
             store=MagicMock(),
             conflict_resolver=conflict_resolver,
             post_merge=post_merge,
+            review_insights=ReviewInsightStore(config.memory_dir),
             event_bus=event_bus,
         )
 
@@ -1209,6 +1211,7 @@ class TestReviewPhaseWiring:
         self, config, tmp_path, event_bus
     ):
         """When verification_judge is None, no judge call should happen."""
+        from review_insights import ReviewInsightStore
         from review_phase import ReviewPhase
         from state import StateTracker
 
@@ -1272,6 +1275,7 @@ class TestReviewPhaseWiring:
             store=MagicMock(),
             conflict_resolver=conflict_resolver,
             post_merge=post_merge,
+            review_insights=ReviewInsightStore(config.memory_dir),
             event_bus=event_bus,
         )
 

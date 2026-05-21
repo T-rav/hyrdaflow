@@ -161,9 +161,9 @@ class ReviewPhase:
         store: IssueStorePort,
         conflict_resolver: MergeConflictResolver,
         post_merge: PostMergeHandler,
+        review_insights: ReviewInsightStorePort,
         event_bus: EventBus | None = None,
         harness_insights: HarnessInsightStore | None = None,
-        review_insights: ReviewInsightStorePort | None = None,
         update_bg_worker_status: StatusCallback | None = None,
         baseline_policy: BaselinePolicy | None = None,
         active_issues_cb: Callable[[], None] | None = None,
@@ -189,12 +189,7 @@ class ReviewPhase:
         self._wiki_compiler = wiki_compiler
         self._update_bg_worker_status = update_bg_worker_status
         self._harness_insights = harness_insights
-        if review_insights is not None:
-            self._insights = review_insights
-        else:
-            from review_insights import ReviewInsightStore  # noqa: PLC0415
-
-            self._insights = ReviewInsightStore(config.memory_dir)
+        self._insights: ReviewInsightStorePort = review_insights
         self._active_issues_cb = active_issues_cb
         self._active_issues: set[int] = set()
         # In-memory window guard for the stale-HITL fallback branch

@@ -692,6 +692,7 @@ class PipelineHarness:
         from issue_store import IssueStore
         from plan_phase import PlanPhase
         from post_merge_handler import PostMergeHandler
+        from review_insights import ReviewInsightStore
         from review_phase import ReviewPhase
         from state import StateTracker
         from triage_phase import TriagePhase
@@ -804,6 +805,7 @@ class PipelineHarness:
             store=self.store,
             conflict_resolver=self._conflict_resolver,
             post_merge=self.post_merge,
+            review_insights=ReviewInsightStore(self.config.memory_dir),
             event_bus=self.bus,
         )
         self.hitl_phase = HITLPhase(
@@ -1607,6 +1609,7 @@ def make_review_phase(
     from issue_store import IssueStore
     from merge_conflict_resolver import MergeConflictResolver
     from post_merge_handler import PostMergeHandler
+    from review_insights import ReviewInsightStore
     from review_phase import ReviewPhase
     from state import StateTracker
 
@@ -1663,6 +1666,7 @@ def make_review_phase(
         store=mock_store,
         conflict_resolver=conflict_resolver,
         post_merge=post_merge,
+        review_insights=ReviewInsightStore(config.memory_dir),
         event_bus=bus,
         baseline_policy=baseline_policy,
     )

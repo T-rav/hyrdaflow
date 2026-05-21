@@ -144,6 +144,7 @@ class TestReviewPhaseActiveIssueOwnership:
 
     def _make_phase(self, tmp_path, *, active_issues_cb=None):
         from events import EventBus
+        from review_insights import ReviewInsightStore
         from review_phase import ReviewPhase
         from state import StateTracker
 
@@ -173,6 +174,7 @@ class TestReviewPhaseActiveIssueOwnership:
             mock_store,
             MagicMock(),  # conflict_resolver
             MagicMock(),  # post_merge
+            review_insights=ReviewInsightStore(config.memory_dir),
             event_bus=bus,
             active_issues_cb=active_issues_cb,
         )

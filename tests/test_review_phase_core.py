@@ -45,6 +45,23 @@ from tests.helpers import make_review_phase
 # ---------------------------------------------------------------------------
 
 
+class TestReviewInsightsInjection:
+    """#8807 — ReviewPhase must receive its ReviewInsightStorePort via injection
+    from the composition root, not construct the concrete adapter internally."""
+
+    def test_review_insights_is_a_required_parameter(self) -> None:
+        import inspect
+
+        sig = inspect.signature(ReviewPhase.__init__)
+        param = sig.parameters["review_insights"]
+        assert param.default is inspect.Parameter.empty, (
+            "ReviewPhase.review_insights must be a required injected parameter "
+            "(port discipline, #8807). The concrete ReviewInsightStore default "
+            "belongs in the composition root (service_registry), not in the "
+            "application object's constructor."
+        )
+
+
 def _setup_escalate_to_hitl_mocks(phase: ReviewPhase) -> None:
     """Set up the PR manager mocks required by _escalate_to_hitl."""
     phase._prs.post_pr_comment = AsyncMock()

@@ -11,6 +11,7 @@ import pytest
 if TYPE_CHECKING:
     from config import HydraFlowConfig
 from events import EventBus
+from review_insights import ReviewInsightStore
 from review_phase import ReviewPhase
 from state import StateTracker
 from tests.conftest import ReviewResultFactory
@@ -31,6 +32,7 @@ def _build_phase(config: HydraFlowConfig) -> ReviewPhase:
         store=MagicMock(),
         conflict_resolver=MagicMock(),
         post_merge=MagicMock(),
+        review_insights=ReviewInsightStore(config.memory_dir),
         event_bus=EventBus(),
         transcript_summarizer=summarizer,
     )
@@ -223,6 +225,7 @@ class TestPostReviewTranscript:
             store=MagicMock(),
             conflict_resolver=MagicMock(),
             post_merge=MagicMock(),
+            review_insights=ReviewInsightStore(config.memory_dir),
             # No transcript_summarizer
         )
         result = make_review_result(

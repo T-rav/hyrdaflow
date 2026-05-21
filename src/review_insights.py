@@ -521,7 +521,7 @@ _PROPOSAL_IMPROVEMENT_THRESHOLD = 0.5  # >50% reduction marks as verified
 
 
 def verify_proposals(
-    store: ReviewInsightStore | ReviewInsightStorePort,
+    store: ReviewInsightStorePort,
     records: list[ReviewRecord],
 ) -> list[str]:
     """Check filed improvement proposals and classify outcomes.

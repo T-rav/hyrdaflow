@@ -470,6 +470,7 @@ class TestReviewPhaseVisualValidation:
         from issue_store import IssueStore
         from merge_conflict_resolver import MergeConflictResolver
         from post_merge_handler import PostMergeHandler
+        from review_insights import ReviewInsightStore
         from review_phase import ReviewPhase
         from reviewer import ReviewRunner
         from state import StateTracker
@@ -508,6 +509,7 @@ class TestReviewPhaseVisualValidation:
             store=AsyncMock(spec=IssueStore),
             conflict_resolver=conflict_resolver,
             post_merge=post_merge,
+            review_insights=ReviewInsightStore(config.memory_dir),
             event_bus=bus,
         )
 
@@ -525,6 +527,7 @@ class TestReviewPhaseVisualValidation:
         from issue_store import IssueStore
         from merge_conflict_resolver import MergeConflictResolver
         from post_merge_handler import PostMergeHandler
+        from review_insights import ReviewInsightStore
         from review_phase import ReviewPhase
         from reviewer import ReviewRunner
         from state import StateTracker
@@ -563,6 +566,7 @@ class TestReviewPhaseVisualValidation:
             store=AsyncMock(spec=IssueStore),
             conflict_resolver=conflict_resolver,
             post_merge=post_merge,
+            review_insights=ReviewInsightStore(config.memory_dir),
             event_bus=bus,
         )
 

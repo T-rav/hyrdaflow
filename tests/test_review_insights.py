@@ -837,6 +837,40 @@ class TestVerifyProposals:
         stale = verify_proposals(store, [])
         assert stale == []
 
+    def test_accepts_port_only_implementation(self) -> None:
+        """verify_proposals must depend only on ReviewInsightStorePort, not the
+        concrete ReviewInsightStore (#8807). A minimal port implementation that
+        does NOT inherit ReviewInsightStore must work — guarding against the
+        function re-coupling to concrete-only methods."""
+
+        class _PortOnlyStore:
+            """Implements only the two ReviewInsightStorePort methods that
+            verify_proposals uses — no inheritance from ReviewInsightStore."""
+
+            def __init__(self) -> None:
+                self.verified: list[str] = []
+                self._meta = {
+                    "missing_tests": ProposalMetadata(
+                        pre_count=10,
+                        proposed_at=_old_timestamp(40),
+                        verified=False,
+                    )
+                }
+
+            def load_proposal_metadata(self) -> dict[str, ProposalMetadata]:
+                return self._meta
+
+            def update_proposal_verified(
+                self, category: str, *, verified: bool
+            ) -> None:
+                self.verified.append(category)
+
+        store = _PortOnlyStore()
+        records = self._records_with_category("missing_tests", 2)  # 10 → 2 = verify
+        stale = verify_proposals(store, records)  # type: ignore[arg-type]
+        assert stale == []
+        assert "missing_tests" in store.verified
+
 
 # ---------------------------------------------------------------------------
 # Sentry breadcrumb tests
