@@ -541,12 +541,11 @@ def build_services(
     beads_mgr = BeadsManager()
 
     # Phase coordinators
-    # Local JSONL issue cache — append-only mirror of GitHub issue state.
-    # See src/issue_cache.py and issue #6422.
-    issue_cache = IssueCache(
-        config.data_path("cache"),
-        enabled=config.issue_cache_enabled,
-    )
+    # NOTE: reuse the single `issue_cache` constructed above (#8790 F1).
+    # A second construction here would give the read-through CachingIssueStore
+    # decorator and the phase coordinators *separate* IssueCache instances over
+    # the same directory — splitting the in-memory index mirror and per-issue
+    # version locks, which can corrupt versioned-write serialization.
 
     # Route-back coordinator + precondition gate (#6423). The coordinator
     # ties label swap + cache record + counter + escalation. The gate
