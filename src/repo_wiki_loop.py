@@ -25,7 +25,7 @@ from wiki_drift_detector import (
     detect_drift,
     scan_semantic_drift,
 )
-from wiki_maint_queue import MaintenanceQueue
+from wiki_maint_queue import MaintenanceQueue, MaintenanceTask
 
 if TYPE_CHECKING:
     from events import EventBus
@@ -188,38 +188,9 @@ class RepoWikiLoop(BaseBackgroundLoop):
             return {"status": "disabled"}
         if not self._config.repo_wiki_loop_enabled:
             return {"status": "config_disabled"}
-        # Drain console-triggered admin tasks up front — admin actions
-        # may target repos the store does not yet see (e.g. rebuild-index
-        # of a freshly migrated repo), so draining before the list_repos
-        # early-return keeps them from piling up in the queue.
-        drained = self._queue.drain()
-        if drained:
-            logger.info(
-                "Wiki maintenance queue drained %d tasks: %s",
-                len(drained),
-                [t.kind for t in drained],
-            )
 
-        repos = self._wiki_store.list_repos()
-
-        # Phase 7: when git-backed is on, lint the tracked per-entry
-        # layout under ``config.repo_root / config.repo_wiki_path``.  In
-        # that mode the store's ``active_lint`` still runs against the
-        # legacy gitignored layout — harmless read — but stale-flag
-        # writes only land on the tracked layout so they surface as
-        # uncommitted diffs for the maintenance PR.  Compute
-        # ``tracked_root`` and merge tracked repos in BEFORE the
-        # no-repos early-return — a freshly migrated repo may only
-        # exist in the tracked location.
-        tracked_root: Path | None = None
-        if self._config.repo_wiki_git_backed:
-            tracked_root = (
-                Path(self._config.repo_root) / self._config.repo_wiki_path
-            ).resolve()
-            for slug in _list_tracked_repos(tracked_root):
-                if slug not in repos:
-                    repos.append(slug)
-
+        drained = self._drain_maintenance_queue()
+        repos, tracked_root = self._resolve_repos()
         if not repos:
             return {
                 "repos": 0,
@@ -228,7 +199,74 @@ class RepoWikiLoop(BaseBackgroundLoop):
             }
 
         closed_issues = self._get_closed_issues()
+        stats = await self._lint_and_compile_repos(repos, tracked_root, closed_issues)
 
+        drift_findings, drift_marked = await self._detect_structural_drift(
+            repos, tracked_root
+        )
+        stats["drift_findings"] = drift_findings
+        stats["drift_marked_stale"] = drift_marked
+        stats["semantic_drift_findings"] = await self._run_semantic_drift_scan(
+            repos, tracked_root
+        )
+
+        stats["queue_drained"] = len(drained)
+        await self._poll_and_merge_open_pr(stats)
+        await self._maybe_open_maintenance_pr(stats)
+        await self._run_generalization_pass()
+
+        return stats
+
+    def _drain_maintenance_queue(self) -> list[MaintenanceTask]:
+        """Drain console-triggered admin tasks up front.
+
+        Admin actions may target repos the store does not yet see (e.g.
+        rebuild-index of a freshly migrated repo), so draining before the
+        ``list_repos`` early-return keeps them from piling up in the queue.
+        """
+        drained = self._queue.drain()
+        if drained:
+            logger.info(
+                "Wiki maintenance queue drained %d tasks: %s",
+                len(drained),
+                [t.kind for t in drained],
+            )
+        return drained
+
+    def _resolve_repos(self) -> tuple[list[str], Path | None]:
+        """Return the repos to maintain plus the tracked-layout root.
+
+        Phase 7: when git-backed is on, lint the tracked per-entry layout
+        under ``config.repo_root / config.repo_wiki_path``. In that mode the
+        store's ``active_lint`` still runs against the legacy gitignored
+        layout — harmless read — but stale-flag writes only land on the
+        tracked layout so they surface as uncommitted diffs for the
+        maintenance PR. Tracked repos are merged in BEFORE the caller's
+        no-repos early-return — a freshly migrated repo may only exist in
+        the tracked location.
+        """
+        repos = self._wiki_store.list_repos()
+        tracked_root: Path | None = None
+        if self._config.repo_wiki_git_backed:
+            tracked_root = (
+                Path(self._config.repo_root) / self._config.repo_wiki_path
+            ).resolve()
+            for slug in _list_tracked_repos(tracked_root):
+                if slug not in repos:
+                    repos.append(slug)
+        return repos, tracked_root
+
+    async def _lint_and_compile_repos(
+        self,
+        repos: list[str],
+        tracked_root: Path | None,
+        closed_issues: set[int],
+    ) -> dict[str, Any]:
+        """Phases 1/2/8: per-repo active lint + LLM topic compilation.
+
+        Returns the base maintenance stats dict (drift keys are added by the
+        caller).
+        """
         total_stale = 0
         total_orphans = 0
         total_entries = 0
@@ -344,104 +382,108 @@ class RepoWikiLoop(BaseBackgroundLoop):
                 len(repos),
             )
 
-        # Record the up-front queue drain, poll any open maintenance PR
-        # for CI-green → review + merge, then attempt to open a new one
-        # if the tracked layout has changes.  The open-then-poll order
-        # lets a single tick do both: merge the last cycle's PR (if
-        # ready) and emit this cycle's PR.  Phase 4 does not yet teach
-        # ``active_lint`` / ``compile_topic`` to write into
-        # ``repo_root / repo_wiki/`` — those edits still land on the
-        # legacy gitignored store — so the open path stays dormant
-        # until Phase 5 ports them.
-        # Phase 9: wiki-vs-code drift detection (deterministic, cheap).
-        # Scans every active tracked entry for `src/...:Symbol` citations
-        # and flags ones pointing at files that no longer exist. B2
-        # auto-marks flagged entries stale — safe because the detector
-        # is deterministic (file missing or not, no LLM guesswork). The
-        # stale flips land as uncommitted diffs the maintenance PR
-        # rolls up.
+        return stats
+
+    async def _detect_structural_drift(
+        self, repos: list[str], tracked_root: Path | None
+    ) -> tuple[int, int]:
+        """Phase 9: deterministic wiki-vs-code citation drift detection.
+
+        Scans every active tracked entry for ``src/...:Symbol`` citations and
+        flags ones pointing at files that no longer exist, then auto-marks the
+        flagged entries stale — safe because the detector is deterministic
+        (file missing or not, no LLM guesswork). The stale flips land as
+        uncommitted diffs the maintenance PR rolls up.
+
+        Returns ``(findings, marked_stale)``.
+        """
+        if tracked_root is None:
+            return 0, 0
+
         drift_findings = 0
         drift_marked = 0
-        if tracked_root is not None:
-            for slug in repos:
-                try:
-                    result = await asyncio.to_thread(
-                        detect_drift,
-                        tracked_root=tracked_root,
-                        repo_root=Path(self._config.repo_root),
-                        repo_slug=slug,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    reraise_on_credit_or_bug(exc)
-                    logger.warning(
-                        "wiki drift detection failed for %s", slug, exc_info=True
-                    )
-                    continue
-                drift_findings += len(result.findings)
-                for f in result.findings:
-                    logger.info(
-                        "wiki drift: %s entry %s cites missing files %s",
-                        f.entry_path,
-                        f.entry_id,
-                        sorted(f.missing_files),
-                    )
-                if result.findings:
-                    drift_marked += await asyncio.to_thread(
-                        apply_drift_markers, result.findings
-                    )
-        stats["drift_findings"] = drift_findings
-        stats["drift_marked_stale"] = drift_marked
+        for slug in repos:
+            try:
+                result = await asyncio.to_thread(
+                    detect_drift,
+                    tracked_root=tracked_root,
+                    repo_root=Path(self._config.repo_root),
+                    repo_slug=slug,
+                )
+            except Exception as exc:  # noqa: BLE001
+                reraise_on_credit_or_bug(exc)
+                logger.warning(
+                    "wiki drift detection failed for %s", slug, exc_info=True
+                )
+                continue
+            drift_findings += len(result.findings)
+            for f in result.findings:
+                logger.info(
+                    "wiki drift: %s entry %s cites missing files %s",
+                    f.entry_path,
+                    f.entry_id,
+                    sorted(f.missing_files),
+                )
+            if result.findings:
+                drift_marked += await asyncio.to_thread(
+                    apply_drift_markers, result.findings
+                )
+        return drift_findings, drift_marked
 
-        # Phase 9b (E2): LLM semantic-drift pass for entries whose citations
-        # still resolve but whose CLAIM may have rotted (renamed defaults,
-        # swapped model tiers, changed control flow). Off by default until
-        # eval-tuned; throttled by ``semantic_drift_min_age_days`` and
-        # ``semantic_drift_max_entries_per_tick`` to bound cost.
-        semantic_findings = 0
-        if (
+    async def _run_semantic_drift_scan(
+        self, repos: list[str], tracked_root: Path | None
+    ) -> int:
+        """Phase 9b (E2): LLM semantic-drift pass.
+
+        Inspects entries whose citations still resolve but whose CLAIM may
+        have rotted (renamed defaults, swapped model tiers, changed control
+        flow). Off by default until eval-tuned; throttled by
+        ``semantic_drift_min_age_days`` and ``semantic_drift_max_entries_per_tick``
+        to bound cost. Returns the finding count.
+        """
+        if not (
             self._config.semantic_drift_enabled
             and tracked_root is not None
             and self._wiki_compiler is not None
         ):
-            compiler = self._wiki_compiler
+            return 0
 
-            async def _ask_llm(prompt: str) -> str:
-                reply = await compiler._call_model(prompt)
-                return reply or ""
+        compiler = self._wiki_compiler
 
-            for slug in repos:
-                try:
-                    findings = await scan_semantic_drift(
-                        tracked_root=tracked_root,
-                        repo_root=Path(self._config.repo_root),
-                        repo_slug=slug,
-                        ask_llm=_ask_llm,
-                        min_age_days=self._config.semantic_drift_min_age_days,
-                        max_entries_per_tick=(
-                            self._config.semantic_drift_max_entries_per_tick
-                        ),
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    reraise_on_credit_or_bug(exc)
-                    logger.warning(
-                        "semantic drift scan failed for %s", slug, exc_info=True
-                    )
-                    continue
-                semantic_findings += len(findings)
-                for f in findings:
-                    logger.info(
-                        "semantic drift: %s entry %s verdict=%s reason=%s",
-                        f.entry_path,
-                        f.entry_id,
-                        f.verdict,
-                        f.reason[:160],
-                    )
-        stats["semantic_drift_findings"] = semantic_findings
+        async def _ask_llm(prompt: str) -> str:
+            reply = await compiler._call_model(prompt)
+            return reply or ""
 
-        stats["queue_drained"] = len(drained)
-        await self._poll_and_merge_open_pr(stats)
-        await self._maybe_open_maintenance_pr(stats)
+        semantic_findings = 0
+        for slug in repos:
+            try:
+                findings = await scan_semantic_drift(
+                    tracked_root=tracked_root,
+                    repo_root=Path(self._config.repo_root),
+                    repo_slug=slug,
+                    ask_llm=_ask_llm,
+                    min_age_days=self._config.semantic_drift_min_age_days,
+                    max_entries_per_tick=(
+                        self._config.semantic_drift_max_entries_per_tick
+                    ),
+                )
+            except Exception as exc:  # noqa: BLE001
+                reraise_on_credit_or_bug(exc)
+                logger.warning("semantic drift scan failed for %s", slug, exc_info=True)
+                continue
+            semantic_findings += len(findings)
+            for f in findings:
+                logger.info(
+                    "semantic drift: %s entry %s verdict=%s reason=%s",
+                    f.entry_path,
+                    f.entry_id,
+                    f.verdict,
+                    f.reason[:160],
+                )
+        return semantic_findings
 
+    async def _run_generalization_pass(self) -> None:
+        """Promote recurring per-repo entries into the tribal wiki (best-effort)."""
         tribal_store = self._tribal_store
         if tribal_store is not None and self._wiki_compiler is not None:
             try:
@@ -454,8 +496,6 @@ class RepoWikiLoop(BaseBackgroundLoop):
             except Exception as exc:  # noqa: BLE001
                 reraise_on_credit_or_bug(exc)
                 logger.warning("generalization pass failed", exc_info=True)
-
-        return stats
 
     async def _maybe_open_maintenance_pr(self, stats: dict[str, Any]) -> None:
         """Open or coalesce a maintenance PR if the tracked wiki layout
