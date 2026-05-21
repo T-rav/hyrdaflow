@@ -330,3 +330,54 @@ def test_anomaly_reader_parses_gh_issue_list_titles(config, monkeypatch) -> None
     assert rows[0]["kind"] == "repair_ratio"
     assert rows[0]["worker"] == "rc_budget"
     assert rows[0]["issue_number"] == 501
+
+
+def test_anomaly_reader_argv_contains_both_labels(config, monkeypatch) -> None:
+    """The anomaly reader's gh argv must filter on BOTH the hitl-escalation and
+    trust-loop-anomaly labels, scoped to the configured repo (#8677). The trust
+    dashboard goes blank if either label is renamed; this asserts the argv shape
+    so a rename can't slip through silently.
+    """
+    from dashboard_routes import _trust_routes as _mod
+
+    captured: dict[str, list[str]] = {}
+
+    class _Completed:
+        stdout = "[]"
+
+    def _fake_run(cmd, *args, **kwargs):  # noqa: ANN001, ARG001
+        captured["argv"] = list(cmd)
+        return _Completed()
+
+    monkeypatch.setattr(_mod.subprocess, "run", _fake_run)
+    reader = _mod._build_anomaly_reader("acme/widget")
+    reader("acme/widget")
+
+    argv = captured["argv"]
+    # Both labels present, each as a value following a --label flag.
+    label_values = [argv[i + 1] for i, a in enumerate(argv) if a == "--label"]
+    assert "hitl-escalation" in label_values, argv
+    assert "trust-loop-anomaly" in label_values, argv
+    # Pinned to the configured repo.
+    assert "--repo" in argv and "acme/widget" in argv, argv
+
+
+def test_anomaly_reader_local_repo_omits_repo_flag(config, monkeypatch) -> None:
+    """The ``_local_`` sentinel repo must NOT add a --repo flag (#8677) — local
+    mode relies on ambient gh context."""
+    from dashboard_routes import _trust_routes as _mod
+
+    captured: dict[str, list[str]] = {}
+
+    class _Completed:
+        stdout = "[]"
+
+    def _fake_run(cmd, *args, **kwargs):  # noqa: ANN001, ARG001
+        captured["argv"] = list(cmd)
+        return _Completed()
+
+    monkeypatch.setattr(_mod.subprocess, "run", _fake_run)
+    reader = _mod._build_anomaly_reader("_local_")
+    reader("_local_")
+
+    assert "--repo" not in captured["argv"], captured["argv"]
