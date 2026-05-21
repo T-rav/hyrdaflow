@@ -243,7 +243,7 @@ class MockWorld:
         self._clock = FakeClock(start=time.time())
         if clock_start is not None:
             self._clock.freeze(clock_start)
-        self._docker = FakeDocker()
+        self._docker = FakeDocker(beads=beads_manager)
         self._git = FakeGit()
         self._fs = FakeFS()
         self._http = FakeHTTP()

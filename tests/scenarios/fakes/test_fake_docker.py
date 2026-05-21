@@ -304,3 +304,45 @@ async def test_script_run_with_multiple_commits_creates_N_commits(tmp_path) -> N
     assert "fake-commit-3" in lines[0]
     assert "fake-commit-2" in lines[1]
     assert "fake-commit-1" in lines[2]
+
+
+@pytest.mark.asyncio
+async def test_bd_hook_applies_claim_and_close_to_fake_beads(tmp_path) -> None:
+    """script_run_with_beads routes the agent's in-container bd claim/close
+    calls to the injected FakeBeads (#8367)."""
+    from mockworld.fakes.fake_beads import FakeBeads
+
+    beads = FakeBeads()
+    bead_id = await beads.create_task("do the thing", "1", tmp_path)
+    assert beads._tasks[bead_id].status == "open"
+
+    fake = FakeDocker(beads=beads)
+    fake.script_run_with_beads(
+        events=[{"type": "result", "success": True, "exit_code": 0}],
+        bead_ops=[
+            {"action": "claim", "bead_id": bead_id},
+            {"action": "close", "bead_id": bead_id, "reason": "done"},
+        ],
+        cwd=tmp_path,
+    )
+
+    events = [e async for e in await fake.run_agent(command=["agent"])]
+
+    # The bd hook is consumed (not yielded); the scripted result still streams.
+    assert [e["type"] for e in events] == ["result"]
+    # claim → in_progress → close → closed lifecycle ran against FakeBeads.
+    assert beads._tasks[bead_id].status == "closed"
+
+
+@pytest.mark.asyncio
+async def test_bd_hook_without_beads_raises(tmp_path) -> None:
+    """A scripted bd hook with no injected FakeBeads fails loudly rather than
+    silently no-op'ing (#8367)."""
+    fake = FakeDocker()  # no beads
+    fake.script_run_with_beads(
+        events=[{"type": "result", "success": True, "exit_code": 0}],
+        bead_ops=[{"action": "claim", "bead_id": "bd-fake-0"}],
+        cwd=tmp_path,
+    )
+    with pytest.raises(RuntimeError, match="no FakeBeads was injected"):
+        _ = [e async for e in await fake.run_agent(command=["agent"])]

@@ -199,3 +199,51 @@ async def test_B1_no_beads_without_task_graph_headers(tmp_path) -> None:
         "implement_phase.py:577 gates init on get_bead_mapping returning truthy."
     )
     assert result.issue(2) is not None, "Pipeline returned no outcome for issue #2"
+
+
+async def test_B2_agent_bd_claim_close_lifecycle_through_pipeline(tmp_path) -> None:
+    """The agent's in-container ``bd claim`` / ``bd close`` calls run against
+    FakeBeads through a full pipeline (#8367).
+
+    `claim`/`close` are agent-driven (the implement agent runs the bd CLI
+    inside the container), so they were previously validated only by FakeBeads'
+    own unit tests — never exercised through the pipeline. FakeDocker's
+    ``script_run_with_beads`` now emulates those CLI calls: scripting the
+    implement-phase agent run with ``bead_ops`` routes claim/close to the
+    injected FakeBeads, giving the lifecycle pipeline-level coverage.
+
+    A bead is pre-seeded as ``open``; the scripted implement run claims it
+    (→ in_progress) then closes it (→ closed) alongside a real commit so the
+    issue still merges. After the pipeline the bead is ``closed``.
+    """
+    beads = FakeBeads()
+    bead_id = await beads.create_task("implement the fix", "1", tmp_path)
+    assert beads._tasks[bead_id].status == "open"
+
+    world = MockWorld(tmp_path, use_real_agent_runner=True, beads_manager=beads)
+    world.add_issue(1, "add feature X", "body", labels=["hydraflow-ready"])
+
+    worktree_cwd = tmp_path / "worktrees" / "issue-1"
+    init_test_worktree(worktree_cwd)
+
+    # Implement-phase agent run: emulate `bd claim <id>` then
+    # `bd close <id> --reason ...`, plus a commit so _verify_result passes.
+    world.docker.script_run_with_beads(
+        events=[{"type": "result", "success": True, "exit_code": 0}],
+        bead_ops=[
+            {"action": "claim", "bead_id": bead_id},
+            {"action": "close", "bead_id": bead_id, "reason": "feature implemented"},
+        ],
+        commits=[("x.py", "ok")],
+        cwd=worktree_cwd,
+    )
+
+    result = await world.run_pipeline()
+
+    # The agent-driven claim → close lifecycle ran through the pipeline.
+    assert beads._tasks[bead_id].status == "closed", (
+        f"expected bead {bead_id} closed via the agent's scripted bd calls; "
+        f"got status={beads._tasks[bead_id].status!r}"
+    )
+    # The issue still merged (commit gate satisfied by the scripted commit).
+    assert result.issue(1).merged, f"expected merge; outcome={result.issue(1)}"

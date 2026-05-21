@@ -28,10 +28,16 @@ class FakeDocker:
 
     _is_fake_adapter = True
 
-    def __init__(self) -> None:
+    def __init__(self, *, beads: Any = None) -> None:
         self._scripts: deque[list[dict[str, Any]]] = deque()
         self._next_fault: FaultKind | None = None
         self.invocations: list[_Invocation] = []
+        # Optional FakeBeads instance. The real agent runs `bd claim` / `bd
+        # close` inside the container; with a beads reference, a scripted run
+        # can emulate those CLI calls so the bead lifecycle gets pipeline-level
+        # coverage (the methods are otherwise only validated by the fake's own
+        # unit tests). See ``script_run_with_beads`` (#8367).
+        self._beads = beads
 
     def script_run(self, events: list[dict[str, Any]]) -> None:
         """Queue the events that the NEXT run_agent call will yield."""
@@ -76,6 +82,36 @@ class FakeDocker:
                 *events,
             ]
         )
+
+    def script_run_with_beads(
+        self,
+        *,
+        events: list[dict[str, Any]],
+        bead_ops: list[dict[str, Any]],
+        cwd: Path,
+        commits: list[tuple[str, str]] | None = None,
+    ) -> None:
+        """Queue *events*, emulating the agent's in-container ``bd`` CLI calls.
+
+        The real implement agent runs ``bd claim <id>`` when it starts work on
+        a bead and ``bd close <id> --reason ...`` when done — inside the
+        container, so the pipeline never touches ``BeadsManager.claim`` /
+        ``.close`` directly. This routes those agent-side calls to the injected
+        FakeBeads so the lifecycle gets integration coverage (#8367).
+
+        Each entry in *bead_ops* is a dict ``{"action": "claim"|"close",
+        "bead_id": "<id>", ...}``; ``close`` also accepts ``"reason"``. Ops are
+        applied (in order) BEFORE the scripted events yield. When *commits* is
+        given, they are committed first (same as ``script_run_with_commits``)
+        so a bead-closing run can also satisfy the commit-check gate.
+
+        Requires a FakeDocker constructed with ``beads=<FakeBeads>``.
+        """
+        hooks: list[dict[str, Any]] = []
+        if commits is not None:
+            hooks.append({"__commit_hook__": {"cwd": str(cwd), "files": commits}})
+        hooks.append({"__bd_hook__": {"cwd": str(cwd), "ops": list(bead_ops)}})
+        self._scripts.append([*hooks, *events])
 
     def fail_next(self, *, kind: FaultKind) -> None:
         """Inject a single-shot fault into the next run_agent call."""
@@ -123,7 +159,7 @@ class FakeDocker:
             events = self._scripts.popleft()
         else:
             events = [{"type": "result", "success": True, "exit_code": 0}]
-        return _aiter_with_hooks(events)
+        return _aiter_with_hooks(events, beads=self._beads)
 
 
 async def _aiter(events: list[dict[str, Any]]) -> AsyncIterator[dict[str, Any]]:
@@ -133,12 +169,35 @@ async def _aiter(events: list[dict[str, Any]]) -> AsyncIterator[dict[str, Any]]:
 
 async def _aiter_with_hooks(
     events: list[dict[str, Any]],
+    *,
+    beads: Any = None,
 ) -> AsyncIterator[dict[str, Any]]:
-    """Like ``_aiter`` but processes ``__commit_hook__`` side-effect entries."""
+    """Like ``_aiter`` but processes ``__commit_hook__`` / ``__bd_hook__``
+    side-effect entries before yielding the remaining events."""
     import subprocess
 
     for event in events:
         if isinstance(event, dict):
+            bd_hook = event.get("__bd_hook__")
+            if bd_hook:
+                if beads is None:
+                    raise RuntimeError(
+                        "FakeDocker: a __bd_hook__ was scripted but no FakeBeads "
+                        "was injected — construct FakeDocker(beads=...) (or "
+                        "MockWorld(beads_manager=...)) to emulate bd CLI calls."
+                    )
+                cwd = Path(bd_hook["cwd"])
+                for op in bd_hook["ops"]:
+                    action = op["action"]
+                    if action == "claim":
+                        await beads.claim(op["bead_id"], cwd)
+                    elif action == "close":
+                        await beads.close(
+                            op["bead_id"], op.get("reason", "Phase complete"), cwd
+                        )
+                    else:
+                        raise ValueError(f"FakeDocker: unknown bd op action {action!r}")
+                continue
             hook = event.get("__commit_hook__")
             multi_hook = event.get("__multi_commit_hook__")
             if hook:
