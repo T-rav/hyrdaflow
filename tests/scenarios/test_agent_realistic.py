@@ -996,3 +996,55 @@ async def test_A22_wiki_populated_plan_consults_it(tmp_path) -> None:
     assert result.issue(1).merged, (
         f"expected merged=True with wiki wired; outcome={result.issue(1)}"
     )
+
+
+async def test_A23_auth_retry_marker_heals_then_merges(tmp_path) -> None:
+    """`authentication_failed` in the agent stream triggers the retryable
+    auth path: runner_utils._is_auth_failure raises AuthenticationRetryError,
+    base_runner._execute retries up to _AUTH_RETRY_MAX, and the issue merges
+    when a later attempt succeeds (#8365).
+
+    Distinct from A17 (AuthenticationError hard-halt via a mocked _execute) —
+    this exercises the *real* in-_execute detection of the
+    `authentication_failed` stream marker plus the retry loop and heal-to-merge.
+    A4 documents that `auth_retry_required` is an unknown event type that the
+    StreamParser ignores; the real production trigger is the marker string in
+    the raw stream, which is what this scripts.
+    """
+    from tests.scenarios.helpers.git_worktree_fixture import init_test_worktree
+
+    world = MockWorld(tmp_path, use_real_agent_runner=True)
+    world.add_issue(1, "t", "b", labels=["hydraflow-ready"])
+    worktree_cwd = tmp_path / "worktrees" / "issue-1"
+    init_test_worktree(worktree_cwd, branch="agent/issue-1")
+
+    # Attempts 1 and 2: the stream carries the `authentication_failed` marker,
+    # so runner_utils raises AuthenticationRetryError and base_runner retries.
+    def _auth_fail_stream() -> list[dict[str, object]]:
+        return [
+            {"type": "error", "subtype": "authentication_failed"},
+            {"type": "result", "success": False, "exit_code": 1},
+        ]
+
+    world.docker.script_run(_auth_fail_stream())
+    world.docker.script_run(_auth_fail_stream())
+    # Attempt 3 (the last allowed by _AUTH_RETRY_MAX=3): clean success + commit.
+    world.docker.script_run_with_commits(
+        events=[{"type": "result", "success": True, "exit_code": 0}],
+        commits=[("x.py", "fixed after auth retry")],
+        cwd=worktree_cwd,
+    )
+
+    result = await world.run_pipeline()
+
+    outcome = result.issue(1)
+    assert outcome.merged, (
+        f"expected merged after auth-retry heal; outcome={outcome!r}; "
+        f"docker_invocations={len(world.docker.invocations)}"
+    )
+    # Proves the retry loop fired: 2 auth-failed attempts + 1 success ⇒ ≥3
+    # implement invocations before any post-implement skill runs.
+    assert len(world.docker.invocations) >= 3, (
+        f"expected >=3 implement attempts (2 auth-retry + 1 heal); "
+        f"got {len(world.docker.invocations)}"
+    )
