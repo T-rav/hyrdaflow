@@ -543,3 +543,38 @@ class TestAgentPortSignatures:
 
         result = _assert_param_names_match(AgentPort, AgentRunner, method)
         assert result is None
+
+
+class TestObservabilityPortSignatures:
+    """ObservabilityPort signatures must match both the production adapter
+    (SentryObservabilityAdapter) and the test fake (FakeSentry).
+
+    ``isinstance(obj, ObservabilityPort)`` (covered in test_sentry_adapter.py)
+    only checks method *existence*, not parameter names/counts. The port is
+    now load-bearing — injected throughout via service_registry — so a
+    signature drift on either implementation must fail CI (slice 5.2
+    hexagonal-boundaries; sibling of TestAgentPortSignatures /
+    TestPRPortSignatures).
+    """
+
+    _SIGNED_METHODS = [
+        "capture_exception",
+        "capture_message",
+        "breadcrumb",
+        "set_measurement",
+        "flush",
+    ]
+
+    @pytest.mark.parametrize("method", _SIGNED_METHODS)
+    def test_signature_matches_sentry_adapter(self, method: str) -> None:
+        from observability.sentry_adapter import SentryObservabilityAdapter
+        from ports import ObservabilityPort
+
+        _assert_param_names_match(ObservabilityPort, SentryObservabilityAdapter, method)
+
+    @pytest.mark.parametrize("method", _SIGNED_METHODS)
+    def test_signature_matches_fake_sentry(self, method: str) -> None:
+        from mockworld.fakes.fake_sentry import FakeSentry
+        from ports import ObservabilityPort
+
+        _assert_param_names_match(ObservabilityPort, FakeSentry, method)
