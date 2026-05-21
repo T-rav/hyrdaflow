@@ -283,3 +283,27 @@ async def test_no_commit_when_nothing_filed(env) -> None:
     assert result["filed"] == 0
     pr.create_issue.assert_not_called()
     loop._commit_mirror_updates.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_auth_error_propagates_not_swallowed(env) -> None:
+    """An AuthenticationError from create_issue must propagate out of _do_work,
+    not be swallowed by the per-entry broad except (#8981).
+
+    The attempt counter is incremented before the filing try-block, so
+    silently swallowing an auth outage would burn the 3-strikes budget and
+    eventually false-escalate the entry as 'unresolved' when GitHub auth was
+    simply down. Propagating lets the loop supervisor pause cleanly instead.
+    """
+    from subprocess_util import AuthenticationError
+
+    _, _, pr, _, mirror_dir = env
+    _write_mirror_entry(mirror_dir, "feedback-auth")
+    pr.create_issue = AsyncMock(side_effect=AuthenticationError("gh token expired"))
+
+    loop = _make_loop(env)
+    loop._reconcile_closed_escalations = AsyncMock(return_value=None)
+    loop._commit_mirror_updates = AsyncMock(return_value=None)
+
+    with pytest.raises(AuthenticationError):
+        await loop._do_work()

@@ -19,6 +19,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from base_background_loop import BaseBackgroundLoop, LoopDeps  # noqa: TCH001
+from exception_classify import reraise_on_credit_or_bug
 from memory_backlog_mirror import (
     dedup_key_for,
     pending_entries,
@@ -103,7 +104,8 @@ class MemoryBacklogLoop(BaseBackgroundLoop):
                     update_status(entry.path, status="issue-open", issue=issue_num)
                     filed += 1
                     filed_issue_numbers.append(issue_num)
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                reraise_on_credit_or_bug(exc)
                 logger.exception("filing memory-backlog issue for %s", entry.slug)
                 continue
             dedup.add(key)
