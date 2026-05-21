@@ -1048,3 +1048,52 @@ async def test_A23_auth_retry_marker_heals_then_merges(tmp_path) -> None:
         f"expected >=3 implement attempts (2 auth-retry + 1 heal); "
         f"got {len(world.docker.invocations)}"
     )
+
+
+async def test_A24_rate_limit_in_implement_phase_no_special_handling(tmp_path) -> None:
+    """GitHub rate-limit fired during the implement phase (the create_pr path)
+    — documents that prod has NO bespoke rate-limit handling there (#8366).
+
+    A6/A7 arm the limit before triage, so it fires at the earliest GitHub call
+    (triage's find_existing_issue) and the issue never reaches implement. This
+    scenario lets triage + plan succeed, then arms `remaining=0` via an
+    `on_phase("implement", ...)` hook (the inverse of A18's heal) so the limit
+    first bites inside the implement phase — the same phase that owns
+    `pr_manager.create_pr`.
+
+    Finding (#8366): there is no create_pr-specific retry/backoff/HITL path.
+    The implement phase's GitHub calls (label/PR ops including create_pr) all
+    route through `FakeGitHub._maybe_rate_limit`; the resulting `RateLimitError`
+    is neither `AuthenticationError`, `CreditExhaustedError`, nor `MemoryError`,
+    so `phase_utils.run_refilling_pool` absorbs it as a non-fatal warning (same
+    path as A6). Targeting create_pr *exactly* would need a fragile tuned
+    `remaining=N` budget — the issue explicitly accepts documenting the
+    phase-level finding instead.
+
+    Observable behaviour (asserted so the test fails if handling changes):
+    `run_pipeline` returns normally, the issue is not merged, no PR is
+    recorded, and the rate-limit was consumed.
+    """
+    from tests.scenarios.helpers.git_worktree_fixture import init_test_worktree
+
+    world = MockWorld(tmp_path, use_real_agent_runner=True)
+    world.add_issue(1, "t", "b", labels=["hydraflow-ready"])
+    worktree_cwd = tmp_path / "worktrees" / "issue-1"
+    init_test_worktree(worktree_cwd, branch="agent/issue-1")
+
+    world.docker.script_run_with_commits(
+        events=[{"type": "result", "success": True, "exit_code": 0}],
+        commits=[("x.py", "ok")],
+        cwd=worktree_cwd,
+    )
+
+    # Triage + plan run with no limit; arm remaining=0 as implement starts.
+    world.on_phase("implement", lambda: world.github.set_rate_limit_mode(remaining=0))
+
+    result = await world.run_pipeline()
+
+    # No bespoke handling: RateLimitError is pool-absorbed, pipeline returns
+    # normally, the issue does not merge, and no PR exists.
+    assert not result.issue(1).merged, f"unexpected merge; outcome={result.issue(1)}"
+    assert world.github.pr_for_issue(1) is None, "no PR should be created"
+    assert world.github._rate_limit_remaining == 0, "rate-limit should be consumed"
